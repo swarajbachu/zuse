@@ -36,9 +36,16 @@ jobs:
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/bun.lock') }}
 
       - name: Install
+        env:
+          # Required by .npmrc for @hugeicons-pro packages.
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile
 
       - name: Build
+        env:
+          # Renderer bundling pulls in the Hugeicons Pro ESM package and can
+          # exceed Node's default ~2GB heap on the macOS release runner.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: bun run build
 
       - name: Package + sign + notarize + publish

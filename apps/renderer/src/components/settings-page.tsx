@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
-  Add01Icon,
   Alert01Icon,
   ArrowLeft01Icon,
   Delete02Icon,
@@ -17,6 +16,7 @@ import {
   Tick01Icon,
   VolumeHighIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
+import { Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Effect } from "effect";
@@ -193,7 +193,7 @@ function Rail({
   folders: ReadonlyArray<Folder>;
 }) {
   return (
-    <nav className="flex w-56 shrink-0 flex-col gap-6 border-r border-border/40 bg-sidebar/40 px-3 py-6 text-sm text-sidebar-foreground">
+    <nav className="flex w-56 shrink-0 flex-col gap-6 border-r border-border/40 bg-sidebar px-3 py-6 text-sm text-sidebar-foreground">
       <div className="flex flex-col gap-0.5">
         {VISIBLE_RAIL.map((item) => {
           const active =
@@ -495,7 +495,7 @@ function BrowserSettingsPane() {
                 onClick={() => void add()}
                 disabled={busy || origin.trim() === "" || password === ""}
               >
-                <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                <Plus className="size-3.5" strokeWidth={1.8} />
                 Add login
               </Button>
             </div>
@@ -586,170 +586,192 @@ function GeneralPane() {
   }, [branchNamingPrefix]);
 
   return (
-    <>
-      <SettingsFrame
-        title="Default permission mode"
-        trailing={
-          <Select
-            value={defaultRuntimeMode}
-            onValueChange={(v) => setDefaultRuntimeMode(v as RuntimeMode)}
-            items={MODES_ORDER.map((m) => ({
-              label: MODE_META[m].label,
-              value: m,
-            }))}
-          >
-            <SelectTrigger size="sm" className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-              {MODES_ORDER.map((mode) => {
-                const m = MODE_META[mode];
-                return (
-                  <SelectItem key={mode} value={mode}>
-                    <div className="flex flex-col">
-                      <span>{m.label}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {m.description}
-                      </span>
-                    </div>
-                  </SelectItem>
-                );
-              })}
-            </SelectPopup>
-          </Select>
-        }
-        description="How the agent handles tool calls in new sessions. Each session can override this from its composer."
-      />
-
-      <SettingsFrame
-        title="Agent completion sound"
-        trailing={
-          <Switch
-            checked={completionSoundEnabled}
-            onCheckedChange={(value) => {
-              setCompletionSoundEnabled(value);
-              if (value) void prepareCompletionSound();
-            }}
-          />
-        }
-        description="Play a short sound when any agent turn finishes, including agents working in background chats."
+    <div className="flex flex-col gap-4">
+      <SettingsGroup
+        title="Agent defaults"
+        description="Defaults used when a new chat or background agent starts."
       >
-        <div className="flex items-center gap-2">
-          <HugeiconsIcon
-            icon={VolumeHighIcon}
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <Select
-            value={completionSoundPreset}
-            onValueChange={(v) =>
-              setCompletionSoundPreset(v as CompletionSoundPreset)
-            }
-            items={COMPLETION_SOUND_PRESETS.map((preset) => ({
-              label: preset.label,
-              value: preset.value,
-            }))}
-          >
-            <SelectTrigger
-              size="sm"
-              className="w-[160px]"
-              disabled={!completionSoundEnabled}
+        <SettingsRow
+          title="Default permission mode"
+          description="How the agent handles tool calls in new sessions. Each session can override this from its composer."
+          action={
+            <Select
+              value={defaultRuntimeMode}
+              onValueChange={(v) => setDefaultRuntimeMode(v as RuntimeMode)}
+              items={MODES_ORDER.map((m) => ({
+                label: MODE_META[m].label,
+                value: m,
+              }))}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-              {COMPLETION_SOUND_PRESETS.map((preset) => (
-                <SelectItem key={preset.value} value={preset.value}>
-                  {preset.label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-          <Button
-            variant="settings"
-            size="sm"
-            disabled={!completionSoundEnabled}
-            onClick={() => void playCompletionSound(completionSoundPreset)}
-          >
-            Preview
-          </Button>
-        </div>
-      </SettingsFrame>
+              <SelectTrigger size="sm" className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {MODES_ORDER.map((mode) => {
+                  const m = MODE_META[mode];
+                  return (
+                    <SelectItem key={mode} value={mode}>
+                      <div className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {m.description}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectPopup>
+            </Select>
+          }
+        />
 
-      <SettingsFrame
-        title="Branch naming"
-        trailing={
-          <Select
-            value={branchNamingStyle}
-            onValueChange={(v) => setBranchNamingStyle(v as BranchNamingStyle)}
-            items={BRANCH_STYLE_ORDER.map((s) => ({
-              label: BRANCH_STYLE_META[s].label,
-              value: s,
-            }))}
-          >
-            <SelectTrigger size="sm" className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectPopup>
-              {BRANCH_STYLE_ORDER.map((style) => {
-                const m = BRANCH_STYLE_META[style];
-                return (
-                  <SelectItem key={style} value={style}>
-                    <div className="flex flex-col">
-                      <span>{m.label}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {m.example}
-                      </span>
-                    </div>
-                  </SelectItem>
-                );
-              })}
-            </SelectPopup>
-          </Select>
-        }
-        description="When a new chat with its own worktree gets its first message, memoize summarizes it and renames the chat plus its git branch in this shape."
-      />
-
-      {branchNamingStyle === "custom" && (
-        <SettingsFrame
-          title="Custom prefix"
-          trailing={
-            <input
-              type="text"
-              value={prefixDraft}
-              placeholder="e.g. swaraj or team/wip"
-              spellCheck={false}
-              onChange={(e) => setPrefixDraft(e.target.value)}
-              onBlur={() => {
-                if (prefixDraft !== branchNamingPrefix) {
-                  setBranchNamingPrefix(prefixDraft);
-                }
+        <SettingsRow
+          title="Agent completion sound"
+          description="Play a short sound when any agent turn finishes, including agents working in background chats."
+          action={
+            <Switch
+              checked={completionSoundEnabled}
+              onCheckedChange={(value) => {
+                setCompletionSoundEnabled(value);
+                if (value) void prepareCompletionSound();
               }}
-              className="w-[220px] rounded-lg border border-border/50 bg-background px-3 py-1.5 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
             />
           }
-          description="Slash-joined before the slug, e.g. prefix “swaraj” → swaraj/dark-mode. Letters, digits, slashes and dashes; leave empty for a bare slug."
-        />
-      )}
+        >
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-2",
+              !completionSoundEnabled && "opacity-60",
+            )}
+          >
+            <HugeiconsIcon
+              icon={VolumeHighIcon}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            <Select
+              value={completionSoundPreset}
+              onValueChange={(v) =>
+                setCompletionSoundPreset(v as CompletionSoundPreset)
+              }
+              items={COMPLETION_SOUND_PRESETS.map((preset) => ({
+                label: preset.label,
+                value: preset.value,
+              }))}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-[160px]"
+                disabled={!completionSoundEnabled}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {COMPLETION_SOUND_PRESETS.map((preset) => (
+                  <SelectItem key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            <Button
+              variant="settings"
+              size="sm"
+              disabled={!completionSoundEnabled}
+              onClick={() => void playCompletionSound(completionSoundPreset)}
+            >
+              Preview
+            </Button>
+          </div>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Workspace naming"
+        description="Controls how memoize names new worktree-backed branches."
+      >
+        <SettingsRow
+          title="Branch naming"
+          description="When a new chat with its own worktree gets its first message, memoize summarizes it and renames the chat plus its git branch in this shape."
+          action={
+            <Select
+              value={branchNamingStyle}
+              onValueChange={(v) =>
+                setBranchNamingStyle(v as BranchNamingStyle)
+              }
+              items={BRANCH_STYLE_ORDER.map((s) => ({
+                label: BRANCH_STYLE_META[s].label,
+                value: s,
+              }))}
+            >
+              <SelectTrigger size="sm" className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {BRANCH_STYLE_ORDER.map((style) => {
+                  const m = BRANCH_STYLE_META[style];
+                  return (
+                    <SelectItem key={style} value={style}>
+                      <div className="flex flex-col">
+                        <span>{m.label}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {m.example}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectPopup>
+            </Select>
+          }
+        >
+          {branchNamingStyle === "custom" && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-border/40 bg-background/60 p-3">
+              <label className="text-xs font-medium text-muted-foreground">
+                Custom prefix
+              </label>
+              <input
+                type="text"
+                value={prefixDraft}
+                placeholder="e.g. swaraj or team/wip"
+                spellCheck={false}
+                onChange={(e) => setPrefixDraft(e.target.value)}
+                onBlur={() => {
+                  if (prefixDraft !== branchNamingPrefix) {
+                    setBranchNamingPrefix(prefixDraft);
+                  }
+                }}
+                className="h-8 w-full max-w-[260px] rounded-lg border border-border/50 bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
+              />
+              <p className="text-xs leading-snug text-muted-foreground">
+                Slash-joined before the slug. Letters, digits, slashes and
+                dashes; leave empty for a bare slug.
+              </p>
+            </div>
+          )}
+        </SettingsRow>
+      </SettingsGroup>
 
       <SubagentsSection />
 
-      <SettingsFrame
-        title="Onboarding"
-        trailing={
-          <Button
-            variant="settings"
-            size="sm"
-            onClick={() => {
-              setView("chat");
-              setOnboardingCompleted(false);
-            }}
-          >
-            Show again
-          </Button>
-        }
-        description="Replay the first-launch welcome flow. Your existing projects and credentials stay put."
-      />
-    </>
+      <SettingsGroup title="Setup">
+        <SettingsRow
+          title="Onboarding"
+          description="Replay the first-launch welcome flow. Your existing projects and credentials stay put."
+          action={
+            <Button
+              variant="settings"
+              size="sm"
+              onClick={() => {
+                setView("chat");
+                setOnboardingCompleted(false);
+              }}
+            >
+              Show again
+            </Button>
+          }
+        />
+      </SettingsGroup>
+    </div>
   );
 }
 
@@ -1091,6 +1113,44 @@ export function SettingsFrame({
 }
 
 /**
+ * Grouped settings section: muted outer frame, compact header, one inner
+ * card split into rows. Use when several related settings should read as a
+ * single decision area instead of separate cards.
+ */
+export function SettingsGroup({
+  title,
+  description,
+  trailing,
+  children,
+}: {
+  title: string;
+  description?: React.ReactNode;
+  trailing?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Frame>
+      <FrameHeader className="flex flex-row items-start justify-between gap-3 px-2 py-2 w-full">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {description && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {description}
+            </p>
+          )}
+        </div>
+        {trailing && <div className="shrink-0 pt-0.5">{trailing}</div>}
+      </FrameHeader>
+      <Card className="overflow-hidden">
+        <div className="flex flex-col divide-y divide-border/40">
+          {children}
+        </div>
+      </Card>
+    </Frame>
+  );
+}
+
+/**
  * Single-surface container for a group of settings rows. Renders one
  * rounded panel with a subtle muted background — no inner card, no double
  * nesting. Pair with `SettingsRow` for the row layout.
@@ -1105,7 +1165,7 @@ export function SettingsCard({
   return (
     <div
       className={cn(
-        "flex flex-col divide-y divide-border/40 overflow-hidden rounded-2xl border border-border/40 bg-muted/30",
+        "flex flex-col divide-y divide-border/40 overflow-hidden rounded-lg border border-border/60 bg-muted/30",
         className,
       )}
     >
@@ -1152,17 +1212,19 @@ export function SettingsRow({
   title,
   description,
   action,
+  className,
   children,
 }: {
   icon?: IconSvgElement;
   title: string;
   description?: string;
   action?: React.ReactNode;
+  className?: string;
   children?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-4 py-3.5">
-      <div className="flex items-center gap-3">
+    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
+      <div className="flex items-start gap-3">
         {Icon && (
           <HugeiconsIcon
             icon={Icon}
@@ -1178,7 +1240,7 @@ export function SettingsRow({
             </div>
           )}
         </div>
-        {action && <div className="shrink-0">{action}</div>}
+        {action && <div className="shrink-0 pt-0.5">{action}</div>}
       </div>
       {children}
     </div>
@@ -1459,7 +1521,7 @@ export function OverrideField({
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2">
-        <div className="inline-flex rounded-md border border-border/50 bg-muted/30 p-0.5 text-xs">
+        <div className="inline-flex rounded-md border border-border/50 bg-muted p-0.5 text-xs">
           <button
             type="button"
             onClick={onClear}

@@ -16,6 +16,16 @@ import {
 } from "@codemirror/view";
 
 import { useKeybindingsStore } from "../../store/keybindings";
+import {
+  annotationRevealExtension,
+  revealAnnotationEffect,
+  setAnnotationsEffect,
+  type RevealedCodeAnnotation,
+} from "./annotation-reveal.ts";
+import {
+  annotationSelectionExtension,
+  type OnSelect,
+} from "./annotation-selection.ts";
 import { keyToCodeMirrorKey } from "./keybinding-bridge.ts";
 import { memoizeTheme } from "./theme.ts";
 
@@ -36,14 +46,27 @@ export type CreateEditorParams = {
   language: Extension | null;
   onSave: () => void;
   onChange: (doc: string) => void;
+  /**
+   * Reports the current non-empty selection (or `null`) so the host can render
+   * the floating "Annotate" affordance. Omit to disable annotation support.
+   */
+  onSelect?: OnSelect;
+  /**
+   * Fired by the `editor.annotate` keybinding — opens the comment card for the
+   * current selection. The host owns the actual UI.
+   */
+  onAnnotate?: () => void;
 };
 
 /**
- * Build the editor-scoped keymap from the live keybindings store. v1 only
- * surfaces `editor.save`; adding more editor.* commands later is just a
- * new case in the switch.
+ * Build the editor-scoped keymap from the live keybindings store. Surfaces
+ * `editor.save` and `editor.annotate`; adding more editor.* commands later is
+ * just a new case in the switch.
  */
-const buildEditorKeymap = (onSave: () => void): readonly KeyBinding[] => {
+const buildEditorKeymap = (
+  onSave: () => void,
+  onAnnotate?: () => void,
+): readonly KeyBinding[] => {
   const rules = useKeybindingsStore.getState().resolvedRules;
   const out: KeyBinding[] = [];
   const seen = new Set<string>();
@@ -67,6 +90,17 @@ const buildEditorKeymap = (onSave: () => void): readonly KeyBinding[] => {
           },
         });
         break;
+      case "editor.annotate":
+        if (onAnnotate === undefined) break;
+        out.push({
+          key,
+          preventDefault: true,
+          run: () => {
+            onAnnotate();
+            return true;
+          },
+        });
+        break;
       default:
         break;
     }
@@ -80,6 +114,8 @@ export const createEditor = ({
   language,
   onSave,
   onChange,
+  onSelect,
+  onAnnotate,
 }: CreateEditorParams): EditorView => {
   const userKeymapCompartment = new Compartment();
 
@@ -97,10 +133,16 @@ export const createEditor = ({
         highlightActiveLine(),
         // User-bindable editor commands live in their own compartment so
         // a rebind in settings takes effect without re-mounting the view.
-        userKeymapCompartment.of(keymap.of([...buildEditorKeymap(onSave)])),
+        userKeymapCompartment.of(
+          keymap.of([...buildEditorKeymap(onSave, onAnnotate)]),
+        ),
         keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
         memoizeTheme,
+        annotationRevealExtension,
         languageCompartment.of(language ?? []),
+        ...(onSelect !== undefined
+          ? [annotationSelectionExtension(onSelect)]
+          : []),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange(u.state.doc.toString());
         }),
@@ -111,6 +153,53 @@ export const createEditor = ({
   return view;
 };
 
+export const revealAnnotationInEditor = (
+  view: EditorView,
+  annotation: RevealedCodeAnnotation,
+): void => {
+  const doc = view.state.doc;
+  if (doc.lines === 0) return;
+  const startLine = Math.max(1, Math.min(annotation.startLine, doc.lines));
+  const endLine = Math.max(startLine, Math.min(annotation.endLine, doc.lines));
+  const start = doc.line(startLine);
+  view.dispatch({
+    effects: [
+      revealAnnotationEffect.of({
+        ...annotation,
+        startLine,
+        endLine,
+      }),
+      EditorView.scrollIntoView(start.from, { y: "center" }),
+    ],
+  });
+  view.focus();
+};
+
+export const scrollAnnotationIntoView = (
+  view: EditorView,
+  annotation: RevealedCodeAnnotation,
+): void => {
+  const doc = view.state.doc;
+  if (doc.lines === 0) return;
+  const startLine = Math.max(1, Math.min(annotation.startLine, doc.lines));
+  const start = doc.line(startLine);
+  view.dispatch({
+    effects: EditorView.scrollIntoView(start.from, { y: "center" }),
+  });
+  view.focus();
+};
+
+export const clearAnnotationRevealInEditor = (view: EditorView): void => {
+  view.dispatch({ effects: revealAnnotationEffect.of(null) });
+};
+
+export const setAnnotationsInEditor = (
+  view: EditorView,
+  annotations: ReadonlyArray<RevealedCodeAnnotation>,
+): void => {
+  view.dispatch({ effects: setAnnotationsEffect.of(annotations) });
+};
+
 /**
  * Re-derive the editor's keymap from the keybindings store and dispatch a
  * compartment reconfigure. Call after every emit from `useKeybindingsStore`
@@ -119,10 +208,13 @@ export const createEditor = ({
 export const reconfigureEditorKeymap = (
   view: EditorView,
   onSave: () => void,
+  onAnnotate?: () => void,
 ): void => {
   const compartment = editorKeymapCompartment.get(view);
   if (compartment === undefined) return;
   view.dispatch({
-    effects: compartment.reconfigure(keymap.of([...buildEditorKeymap(onSave)])),
+    effects: compartment.reconfigure(
+      keymap.of([...buildEditorKeymap(onSave, onAnnotate)]),
+    ),
   });
 };

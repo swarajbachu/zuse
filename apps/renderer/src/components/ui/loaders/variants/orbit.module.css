@@ -1,5 +1,0 @@
-/* Counter-clockwise perimeter sweep. Animation comes from the shared
-   `loader-pulse` keyframe in grid.css; only the cycle duration differs. */
-.loader {
-  --cycle: 2s;
-}

@@ -11,9 +11,13 @@ import type { FileView } from "~/store/ui";
 export function FileBadge({
   path,
   view,
+  diffStats,
 }: {
   path: string;
   view?: FileView;
+  diffStats?: { readonly added: number; readonly removed: number };
 }) {
-  return <FileChip relPath={path} absPath={path} view={view} />;
+  return (
+    <FileChip relPath={path} absPath={path} view={view} diffStats={diffStats} />
+  );
 }

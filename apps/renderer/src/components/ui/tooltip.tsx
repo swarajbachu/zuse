@@ -47,14 +47,14 @@ export function TooltipPopup({
       <TooltipPrimitive.Positioner
         align={align}
         anchor={anchor}
-        className="z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
+        className="z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width)"
         data-slot="tooltip-positioner"
         side={side}
         sideOffset={sideOffset}
       >
         <TooltipPrimitive.Popup
           className={cn(
-            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-md border border-white/10 bg-popover/85 backdrop-blur-xl backdrop-saturate-150 not-dark:bg-clip-padding text-popover-foreground text-xs shadow-lg/20 transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
+            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-md border border-border/70 bg-popover not-dark:bg-clip-padding text-popover-foreground text-xs shadow-lg/20 transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
             className,
           )}
           data-slot="tooltip-popup"

@@ -40,6 +40,31 @@ export class WorktreeNotFoundError extends Schema.TaggedError<WorktreeNotFoundEr
   { worktreeId: WorktreeId },
 ) {}
 
+/**
+ * Live setup events streamed while a worktree's setup script runs. `chunk`
+ * carries the FULL accumulated (already-truncated) output so the renderer can
+ * replace `setupOutput` wholesale; `status` carries each setupStatus
+ * transition + timestamps. The stream completes once setup reaches a terminal
+ * status (succeeded / failed / skipped).
+ */
+export const WorktreeSetupChunk = Schema.TaggedStruct("chunk", {
+  worktreeId: WorktreeId,
+  output: Schema.String,
+});
+
+export const WorktreeSetupStatusEvent = Schema.TaggedStruct("status", {
+  worktreeId: WorktreeId,
+  status: WorktreeSetupStatus,
+  setupStartedAt: Schema.NullOr(Schema.DateFromString),
+  setupFinishedAt: Schema.NullOr(Schema.DateFromString),
+});
+
+export const WorktreeSetupEvent = Schema.Union(
+  WorktreeSetupChunk,
+  WorktreeSetupStatusEvent,
+);
+export type WorktreeSetupEvent = typeof WorktreeSetupEvent.Type;
+
 export class WorktreeCreateError extends Schema.TaggedError<WorktreeCreateError>()(
   "WorktreeCreateError",
   { projectId: FolderId, reason: Schema.String },
@@ -82,6 +107,19 @@ export const WorktreeListRpc = Rpc.make("worktree.list", {
 export const WorktreeGetRpc = Rpc.make("worktree.get", {
   payload: Schema.Struct({ worktreeId: WorktreeId }),
   success: Schema.NullOr(Worktree),
+});
+
+/**
+ * Subscribe to a worktree's live setup output + status. Mirrors `pty.output`:
+ * a long-lived stream the renderer drains while `setupStatus === "running"`.
+ * Seeds the current persisted snapshot on subscribe so a late subscriber
+ * (after a fast setup already finished) still sees the terminal state.
+ */
+export const WorktreeSetupStreamRpc = Rpc.make("worktree.setupStream", {
+  payload: Schema.Struct({ worktreeId: WorktreeId }),
+  success: WorktreeSetupEvent,
+  error: WorktreeNotFoundError,
+  stream: true,
 });
 
 export const WorktreeRerunSetupRpc = Rpc.make("worktree.rerunSetup", {

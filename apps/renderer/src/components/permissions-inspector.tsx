@@ -1,33 +1,49 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, GlobeIcon, PencilIcon, Shield01Icon, TerminalIcon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Delete02Icon,
+  GlobeIcon,
+  PencilIcon,
+  Shield01Icon,
+  TerminalIcon,
+  Wrench01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useMemo, useState } from "react";
 
-import type {
-  FolderId,
-  PermissionKind,
-  SavedDecision,
-} from "@memoize/wire";
+import type { FolderId, PermissionKind, SavedDecision } from "@memoize/wire";
 
 import {
   Dialog,
-  DialogBackdrop,
+  DialogHeader,
+  DialogPanel,
   DialogPopup,
-  DialogPortal,
   DialogTitle,
-  DialogViewport,
 } from "~/components/ui/dialog";
 import { usePermissionsStore } from "../store/permissions.ts";
 
 const kindIcon = (kind: PermissionKind) => {
   switch (kind._tag) {
     case "Bash":
-      return <HugeiconsIcon icon={TerminalIcon} className="size-3.5 text-amber-300" />;
+      return (
+        <HugeiconsIcon
+          icon={TerminalIcon}
+          className="size-3.5 text-amber-300"
+        />
+      );
     case "FileWrite":
-      return <HugeiconsIcon icon={PencilIcon} className="size-3.5 text-emerald-300" />;
+      return (
+        <HugeiconsIcon
+          icon={PencilIcon}
+          className="size-3.5 text-emerald-300"
+        />
+      );
     case "Network":
-      return <HugeiconsIcon icon={GlobeIcon} className="size-3.5 text-sky-300" />;
+      return (
+        <HugeiconsIcon icon={GlobeIcon} className="size-3.5 text-sky-300" />
+      );
     case "Other":
-      return <HugeiconsIcon icon={Wrench01Icon} className="size-3.5 text-zinc-300" />;
+      return (
+        <HugeiconsIcon icon={Wrench01Icon} className="size-3.5 text-zinc-300" />
+      );
   }
 };
 
@@ -47,13 +63,13 @@ const kindLabel = (kind: PermissionKind): string => {
 const decisionStyles = (decision: SavedDecision["decision"]): string => {
   switch (decision) {
     case "AlwaysAllow":
-      return "bg-violet-500/15 text-violet-200 border-violet-500/40";
+      return "bg-violet-500/22 text-violet-100 ring-1 ring-inset ring-violet-300/10";
     case "AllowForSession":
-      return "bg-emerald-500/15 text-emerald-200 border-emerald-500/40";
+      return "bg-emerald-500/22 text-emerald-100 ring-1 ring-inset ring-emerald-300/10";
     case "AllowOnce":
-      return "bg-zinc-500/15 text-zinc-200 border-zinc-500/40";
+      return "bg-zinc-500/25 text-zinc-100 ring-1 ring-inset ring-zinc-300/10";
     case "Deny":
-      return "bg-red-500/15 text-red-200 border-red-500/40";
+      return "bg-red-500/22 text-red-100 ring-1 ring-inset ring-red-300/10";
   }
 };
 
@@ -119,74 +135,71 @@ export function PermissionsInspector({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogBackdrop />
-        <DialogViewport>
-          <DialogPopup
-            className="max-w-2xl"
-            showCloseButton
-          >
-            <div className="flex items-center gap-2 px-6 pt-6">
-              <HugeiconsIcon icon={Shield01Icon} className="size-4 text-violet-300" />
-              <DialogTitle className="text-base">
-                Permissions — {projectName}
-              </DialogTitle>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto px-6 pb-4 pt-3 text-sm">
-              {loading && decisions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Loading…</p>
-              ) : decisions.length === 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  No saved permission decisions for this project yet. They
-                  appear here when you click &quot;Allow for session&quot; or
-                  &quot;Always allow in project&quot; on a permission prompt.
-                </p>
-              ) : (
-                <>
-                  <Section
-                    title="Always allowed in this project"
-                    decisions={grouped.folder}
-                    onRevoke={(id) => void revoke(projectId, id)}
-                    emptyHint="No project-wide allowances yet."
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSession((v) => !v)}
-                    className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {showSession ? "▾" : "▸"} Allowed for past sessions (
-                    {grouped.session.length})
-                  </button>
-                  {showSession && (
-                    <Section
-                      title=""
-                      decisions={grouped.session}
-                      onRevoke={(id) => void revoke(projectId, id)}
-                      emptyHint="No session-scoped allowances."
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setShowRecent((v) => !v)}
-                    className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {showRecent ? "▾" : "▸"} Recent activity (
-                    {grouped.recent.length})
-                  </button>
-                  {showRecent && (
-                    <Section
-                      title=""
-                      decisions={grouped.recent}
-                      onRevoke={(id) => void revoke(projectId, id)}
-                      emptyHint="No recent prompts."
-                    />
-                  )}
-                </>
+      <DialogPopup className="max-w-2xl" showCloseButton>
+        <DialogHeader>
+          <div className="flex items-center gap-2 pr-8">
+            <HugeiconsIcon
+              icon={Shield01Icon}
+              className="size-4 text-violet-300"
+            />
+            <DialogTitle className="text-base">
+              Permissions — {projectName}
+            </DialogTitle>
+          </div>
+        </DialogHeader>
+        <DialogPanel className="text-sm">
+          {loading && decisions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : decisions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No saved permission decisions for this project yet. They appear
+              here when you click &quot;Allow for session&quot; or &quot;Always
+              allow in project&quot; on a permission prompt.
+            </p>
+          ) : (
+            <>
+              <Section
+                title="Always allowed in this project"
+                decisions={grouped.folder}
+                onRevoke={(id) => void revoke(projectId, id)}
+                emptyHint="No project-wide allowances yet."
+              />
+              <button
+                type="button"
+                onClick={() => setShowSession((v) => !v)}
+                className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {showSession ? "▾" : "▸"} Allowed for past sessions (
+                {grouped.session.length})
+              </button>
+              {showSession && (
+                <Section
+                  title=""
+                  decisions={grouped.session}
+                  onRevoke={(id) => void revoke(projectId, id)}
+                  emptyHint="No session-scoped allowances."
+                />
               )}
-            </div>
-          </DialogPopup>
-        </DialogViewport>
-      </DialogPortal>
+              <button
+                type="button"
+                onClick={() => setShowRecent((v) => !v)}
+                className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {showRecent ? "▾" : "▸"} Recent activity (
+                {grouped.recent.length})
+              </button>
+              {showRecent && (
+                <Section
+                  title=""
+                  decisions={grouped.recent}
+                  onRevoke={(id) => void revoke(projectId, id)}
+                  emptyHint="No recent prompts."
+                />
+              )}
+            </>
+          )}
+        </DialogPanel>
+      </DialogPopup>
     </Dialog>
   );
 }
@@ -245,7 +258,7 @@ function DecisionRow({
         {kindLabel(decision.kind)}
       </span>
       <span
-        className={`rounded border px-1.5 py-0.5 text-[10px] ${decisionStyles(
+        className={`rounded-[0.1875rem] px-1.5 py-0.5 text-[10px] ${decisionStyles(
           decision.decision,
         )}`}
       >

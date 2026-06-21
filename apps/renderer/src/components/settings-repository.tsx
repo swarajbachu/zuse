@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, GitBranchIcon } from "@hugeicons-pro/core-bulk-rounded";
+import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -12,13 +13,17 @@ import { useRepositorySettingsStore } from "../store/repository-settings.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { cn } from "~/lib/utils";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
-import { PROVIDER_LABEL, RadioCheck, SettingsFrame } from "./settings-page.tsx";
+import {
+  PROVIDER_LABEL,
+  RadioCheck,
+  SettingsGroup,
+  SettingsRow,
+} from "./settings-page.tsx";
 import { Button } from "./ui/button.tsx";
-import { Card } from "./ui/card.tsx";
-import { Frame, FrameFooter, FrameHeader } from "./ui/frame.tsx";
 import { Switch } from "./ui/switch.tsx";
 import { Textarea } from "./ui/textarea.tsx";
 
@@ -56,37 +61,42 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
 
   return (
     <>
-      <ProviderOverrideSection
-        defaultProviderId={settings.defaultProviderId}
-        defaultModel={settings.defaultModel}
-        onProviderAndModelChange={(provider, model) =>
-          void update(projectId, {
-            defaultProviderId: provider,
-            defaultModel: model,
-          })
-        }
-      />
+      <SettingsGroup
+        title="Defaults"
+        description="Repository-specific defaults for new chats. Leave overrides off to inherit global settings."
+      >
+        <ProviderOverrideSection
+          defaultProviderId={settings.defaultProviderId}
+          defaultModel={settings.defaultModel}
+          onProviderAndModelChange={(provider, model) =>
+            void update(projectId, {
+              defaultProviderId: provider,
+              defaultModel: model,
+            })
+          }
+        />
 
-      <RuntimeModeOverrideSection
-        currentValue={settings.defaultRuntimeMode}
-        onChange={(value) =>
-          void update(projectId, { defaultRuntimeMode: value })
-        }
-      />
+        <RuntimeModeOverrideSection
+          currentValue={settings.defaultRuntimeMode}
+          onChange={(value) =>
+            void update(projectId, { defaultRuntimeMode: value })
+          }
+        />
 
-      <SettingsFrame
-        title="Project permissions"
-        trailing={
-          <Button
-            variant="settings"
-            size="sm"
-            onClick={() => setPermissionsOpen(true)}
-          >
-            Manage
-          </Button>
-        }
-        description="Review and revoke saved tool permission decisions for this repository."
-      />
+        <SettingsRow
+          title="Project permissions"
+          description="Review and revoke saved tool permission decisions for this repository."
+          action={
+            <Button
+              variant="settings"
+              size="sm"
+              onClick={() => setPermissionsOpen(true)}
+            >
+              Manage
+            </Button>
+          }
+        />
+      </SettingsGroup>
       <PermissionsInspector
         open={permissionsOpen}
         onOpenChange={setPermissionsOpen}
@@ -202,31 +212,37 @@ function ProviderOverrideSection({
   const onPickModel = (model: string) => {
     onProviderAndModelChange(effectiveProvider, model);
   };
+  const selectedModel =
+    defaultModel ??
+    globalModelByProvider[effectiveProvider] ??
+    firstModelFor(effectiveProvider);
 
   return (
-    <SettingsFrame
+    <SettingsRow
       title="Default agent"
-      trailing={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
       description="Override the global default provider and model for new chats in this repo."
-      flush
+      action={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
     >
       {isOverridden ? (
         <div
           role="radiogroup"
           aria-label="Repository default provider"
-          className="flex flex-col divide-y divide-border/40"
+          className="overflow-hidden rounded-lg border border-border/40 bg-background/60"
         >
           {availableProviders.map((pid) => {
             const selected = effectiveProvider === pid;
             const models = MODELS_BY_PROVIDER[pid] ?? [];
             return (
-              <div key={pid} className="flex flex-col">
+              <div
+                key={pid}
+                className="flex flex-col border-b border-border/40 last:border-b-0"
+              >
                 <button
                   type="button"
                   role="radio"
                   aria-checked={selected}
                   onClick={() => onPickProvider(pid)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                  className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
                   <ProviderIcon providerId={pid} className="size-4 shrink-0" />
                   <span className="flex-1 truncate text-sm font-medium text-foreground">
@@ -235,7 +251,7 @@ function ProviderOverrideSection({
                   <RadioCheck active={selected} />
                 </button>
                 {selected && models.length > 0 && (
-                  <div className="flex flex-col gap-1.5 px-4 pb-3 pl-11">
+                  <div className="flex flex-col gap-1.5 px-3 pb-3 pl-10">
                     <span className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
                       Model
                     </span>
@@ -245,7 +261,7 @@ function ProviderOverrideSection({
                       className="flex flex-col"
                     >
                       {models.map((m) => {
-                        const isCurrentModel = defaultModel === m.id;
+                        const isCurrentModel = selectedModel === m.id;
                         return (
                           <button
                             key={m.id}
@@ -270,14 +286,14 @@ function ProviderOverrideSection({
           })}
         </div>
       ) : (
-        <p className="px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2.5 text-sm text-muted-foreground">
           Inheriting{" "}
           <span className="text-foreground">
             {PROVIDER_LABEL[globalProviderId]} · {globalModelLabel}
           </span>
         </p>
       )}
-    </SettingsFrame>
+    </SettingsRow>
   );
 }
 
@@ -296,17 +312,16 @@ function RuntimeModeOverrideSection({
     else onChange(null);
   };
   return (
-    <SettingsFrame
+    <SettingsRow
       title="Default permission mode"
-      trailing={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
       description="Override the global permission posture for new chats in this repo."
-      flush
+      action={<Switch checked={isOverridden} onCheckedChange={onToggle} />}
     >
       {isOverridden ? (
         <div
           role="radiogroup"
           aria-label="Repository default permission mode"
-          className="flex flex-col divide-y divide-border/40"
+          className="overflow-hidden rounded-lg border border-border/40 bg-background/60"
         >
           {MODES_ORDER.map((mode) => {
             const m = MODE_META[mode];
@@ -318,7 +333,7 @@ function RuntimeModeOverrideSection({
                 role="radio"
                 aria-checked={selected}
                 onClick={() => onChange(mode)}
-                className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                className="group flex w-full items-start gap-3 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
               >
                 <HugeiconsIcon icon={m.Icon} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -335,12 +350,12 @@ function RuntimeModeOverrideSection({
           })}
         </div>
       ) : (
-        <p className="px-4 py-3 text-sm text-muted-foreground">
+        <p className="rounded-lg border border-border/40 bg-background/60 px-3 py-2.5 text-sm text-muted-foreground">
           Inheriting{" "}
           <span className="text-foreground">{MODE_META[globalMode].label}</span>
         </p>
       )}
-    </SettingsFrame>
+    </SettingsRow>
   );
 }
 
@@ -400,115 +415,113 @@ function WorktreeSection({
   };
 
   return (
-    <>
-      <SettingsFrame
+    <SettingsGroup
+      title="Worktrees"
+      description="Controls for automatic chat worktrees and the existing checkouts for this repository."
+      trailing={
+        <span className="text-[11px] text-muted-foreground/80">
+          {sorted.length} {sorted.length === 1 ? "worktree" : "worktrees"}
+        </span>
+      }
+    >
+      <SettingsRow
         title="Auto-create a worktree for new chats"
-        trailing={
+        description={`When on, the composer's workspace picker pre-selects a fresh worktree. You can still flip back to "Current checkout" before sending the first message.`}
+        action={
           <Switch checked={autoCreate} onCheckedChange={onAutoCreateChange} />
         }
-        description={`When on, the composer's workspace picker pre-selects a fresh worktree. You can still flip back to "Current checkout" before sending the first message.`}
       />
-      <SettingsFrame
+
+      <SettingsRow
         title="Remove worktree on archive"
-        trailing={
+        description="After the archive script succeeds, remove the checkout from disk while preserving the branch."
+        action={
           <Switch
             checked={archiveRemoveWorktree}
             onCheckedChange={onArchiveRemoveWorktreeChange}
           />
         }
-        description="After the archive script succeeds, remove the checkout from disk while preserving the branch."
       />
 
-      <Frame>
-        <FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
-          <p className="text-sm font-semibold text-foreground">Worktrees</p>
-          <span className="text-[11px] text-muted-foreground/80">
-            {sorted.length} {sorted.length === 1 ? "worktree" : "worktrees"}
-          </span>
-        </FrameHeader>
-
-        <Card>
-          {sorted.length === 0 ? (
-            <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-              No worktrees yet. Memoize creates one for you when you start a new
-              chat.
-            </p>
-          ) : (
-            <ul className="flex flex-col divide-y divide-border/40">
-              {sorted.map((wt) => (
-                <li
-                  key={wt.id}
-                  className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
+      <div className="flex flex-col">
+        {sorted.length === 0 ? (
+          <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+            No worktrees yet. Memoize creates one for you when you start a new
+            chat.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border/40">
+            {sorted.map((wt) => (
+              <li
+                key={wt.id}
+                className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
+              >
+                <HugeiconsIcon icon={GitBranchIcon} className="size-4 shrink-0 text-muted-foreground" />
+                <div
+                  className="flex min-w-0 flex-col gap-0.5"
+                  title={wt.path}
                 >
-                  <HugeiconsIcon icon={GitBranchIcon} className="size-4 shrink-0 text-muted-foreground" />
-                  <div
-                    className="flex min-w-0 flex-col gap-0.5"
-                    title={wt.path}
-                  >
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {wt.name}
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {wt.name}
+                  </span>
+                  <span className="truncate font-mono text-[11px] text-muted-foreground">
+                    {wt.branch}
+                    <span className="text-muted-foreground/60">
+                      {" "}
+                      · off {wt.baseBranch}
                     </span>
-                    <span className="truncate font-mono text-[11px] text-muted-foreground">
-                      {wt.branch}
-                      <span className="text-muted-foreground/60">
-                        {" "}
-                        · off {wt.baseBranch}
-                      </span>
-                    </span>
-                  </div>
-                  {pendingDirty === wt.name ? (
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="destructive-outline"
-                        size="sm"
-                        onClick={() => void onRemove(wt.id, wt.name, true)}
-                      >
-                        Force remove
-                      </Button>
-                      <Button
-                        variant="settings"
-                        size="sm"
-                        onClick={() => setPendingDirty(null)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
+                  </span>
+                </div>
+                {pendingDirty === wt.name ? (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="destructive-outline"
+                      size="sm"
+                      onClick={() => void onRemove(wt.id, wt.name, true)}
+                    >
+                      Force remove
+                    </Button>
                     <Button
                       variant="settings"
                       size="sm"
-                      onClick={() => void onRemove(wt.id, wt.name, false)}
-                      title="Remove this worktree from disk (branch stays)"
+                      onClick={() => setPendingDirty(null)}
                     >
-                      <HugeiconsIcon icon={Delete02Icon} className="size-3" />
-                      Remove
+                      Cancel
                     </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+                  </div>
+                ) : (
+                  <Button
+                    variant="settings"
+                    size="sm"
+                    onClick={() => void onRemove(wt.id, wt.name, false)}
+                    title="Remove this worktree from disk (branch stays)"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} className="size-3" />
+                    Remove
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
-        <FrameFooter className="px-2 py-1 w-full">
-          {pendingDirty !== null ? (
-            <p className="text-xs leading-relaxed text-amber-400">
-              {pendingDirty} has uncommitted changes. Force-remove to discard
-              them.
-            </p>
-          ) : pendingError !== null ? (
-            <p className="text-xs leading-relaxed text-red-400">
-              {pendingError}
-            </p>
-          ) : (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Git worktrees for this repo. Each lives under
-              ~/.memoize/&lt;repo&gt;/&lt;name&gt;/ on disk.
-            </p>
-          )}
-        </FrameFooter>
-      </Frame>
-    </>
+      <div className="px-4 py-3">
+        {pendingDirty !== null ? (
+          <p className="text-xs leading-relaxed text-amber-400">
+            {pendingDirty} has uncommitted changes. Force-remove to discard
+            them.
+          </p>
+        ) : pendingError !== null ? (
+          <p className="text-xs leading-relaxed text-red-400">{pendingError}</p>
+        ) : (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Git worktrees for this repo. Each lives under
+            ~/.memoize/&lt;repo&gt;/&lt;name&gt;/ on disk.
+          </p>
+        )}
+      </div>
+    </SettingsGroup>
   );
 }
 
@@ -553,75 +566,65 @@ function ScriptsSection({
   };
 
   return (
-    <Frame>
-      <FrameHeader className="flex flex-col items-start gap-1 px-2 py-2 w-full">
-        <p className="text-lg font-semibold text-foreground">Scripts</p>
-        <p className="text-xs text-muted-foreground">
-          Commands that run when worktrees are set up, run, or archived.
-        </p>
-      </FrameHeader>
-      <Card className="divide-y divide-border/50 p-0">
-        <ScriptEditor
-          title="Setup script"
-          description="Runs when a new worktree is created"
-          value={setupScript}
-          placeholder="bun i"
-          onChange={onSetupScriptChange}
-        />
-        <ScriptEditor
-          title="Run script"
-          description="Runs when you click Run"
-          value={runScript}
-          placeholder="bun run dev"
-          onChange={onRunScriptChange}
-        />
-        <div className="flex items-center justify-between gap-4 px-4 py-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">
-              Auto-run after setup
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Start this repository's run script automatically after setup.
-            </p>
-          </div>
+    <SettingsGroup
+      title="Scripts"
+      description="Commands that run when worktrees are set up, run, or archived."
+    >
+      <ScriptEditor
+        title="Setup script"
+        description="Runs when a new worktree is created"
+        value={setupScript}
+        placeholder="bun i"
+        onChange={onSetupScriptChange}
+      />
+      <ScriptEditor
+        title="Run script"
+        description="Runs when you click Run"
+        value={runScript}
+        placeholder="bun run dev"
+        onChange={onRunScriptChange}
+      />
+      <SettingsRow
+        title="Auto-run after setup"
+        description="Start this repository's run script automatically after setup."
+        action={
           <Switch
             checked={autoRunAfterSetup}
             onCheckedChange={onAutoRunAfterSetupChange}
           />
+        }
+      />
+      <ScriptEditor
+        title="Archive script"
+        description="Runs before a worktree-backed chat is archived"
+        value={archiveScript}
+        placeholder={'rm -rf node_modules .next\npkill -f "next dev" || true'}
+        onChange={onArchiveScriptChange}
+      />
+      <div className="px-4 py-3.5">
+        <div className="mb-2">
+          <p className="text-sm font-medium text-foreground">
+            Environment variables
+          </p>
+          <p className="text-xs text-muted-foreground">
+            KEY=value pairs passed to setup, run, and archive scripts.
+          </p>
         </div>
-        <ScriptEditor
-          title="Archive script"
-          description="Runs before a worktree-backed chat is archived"
-          value={archiveScript}
-          placeholder={'rm -rf node_modules .next\npkill -f "next dev" || true'}
-          onChange={onArchiveScriptChange}
+        <CodeTextarea
+          value={envDraft}
+          onChange={(event) => setEnvDraft(event.currentTarget.value)}
+          onBlur={persistEnv}
+          placeholder="MEMOIZE_PORT=5733"
+          minHeightClassName="min-h-24"
         />
-        <div className="px-4 py-4">
-          <div className="mb-2">
-            <p className="text-sm font-medium text-foreground">
-              Environment variables
-            </p>
-            <p className="text-xs text-muted-foreground">
-              KEY=value pairs passed to setup, run, and archive scripts.
-            </p>
-          </div>
-          <Textarea
-            value={envDraft}
-            onChange={(event) => setEnvDraft(event.currentTarget.value)}
-            onBlur={persistEnv}
-            spellCheck={false}
-            placeholder="MEMOIZE_PORT=5733"
-            className="min-h-20 resize-y font-mono text-xs"
-          />
-        </div>
-      </Card>
-      <FrameFooter className="px-2 py-1 w-full">
+      </div>
+      <div className="px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
           Want to share scripts with your team? Create a{" "}
           <span className="font-mono">.memoize/settings.toml</span> file.
         </p>
-      </FrameFooter>
-    </Frame>
+      </div>
+    </SettingsGroup>
   );
 }
 
@@ -644,30 +647,46 @@ function ScriptEditor({
     const next = draft.trim().length === 0 ? null : draft;
     if ((value ?? "") !== (next ?? "")) onChange(next);
   };
-  const lines = Math.max(1, draft.split(/\r?\n/).length);
   return (
-    <div className="px-4 py-4">
-      <div className="mb-2">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <div className="grid grid-cols-[3rem_1fr] overflow-hidden rounded-md border border-border bg-muted/20">
-        <div className="select-none border-r border-border/60 bg-background/40 py-2 text-right font-mono text-xs leading-5 text-muted-foreground">
-          {Array.from({ length: lines }, (_, idx) => (
-            <div key={idx} className="pr-3">
-              {idx + 1}
-            </div>
-          ))}
+    <div className="px-4 py-3.5">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-        <Textarea
-          value={draft}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onBlur={persist}
-          spellCheck={false}
-          placeholder={placeholder}
-          className="min-h-16 resize-y border-0 bg-transparent font-mono text-xs shadow-none focus-visible:ring-0"
-        />
+        <span className="rounded-md border border-border/40 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground">
+          shell
+        </span>
       </div>
+      <CodeTextarea
+        value={draft}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={persist}
+        placeholder={placeholder}
+        minHeightClassName="min-h-18"
+      />
+    </div>
+  );
+}
+
+function CodeTextarea({
+  className,
+  minHeightClassName,
+  ...props
+}: React.ComponentProps<typeof Textarea> & {
+  minHeightClassName?: string;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/60 bg-background/70 shadow-xs/5 focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/20">
+      <Textarea
+        spellCheck={false}
+        className={cn(
+          "resize-y border-0 bg-transparent px-3 py-2.5 font-mono text-xs leading-5 shadow-none outline-none placeholder:text-muted-foreground/50 focus-visible:ring-0",
+          minHeightClassName,
+          className,
+        )}
+        {...props}
+      />
     </div>
   );
 }

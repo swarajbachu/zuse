@@ -296,7 +296,7 @@ export function CodeBlock({
         isError ? "border-alert-error-bg" : "border-border/60",
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2 py-1 text-[11px] text-muted-foreground">
         <FileIcon
           name={name}
           kind="file"

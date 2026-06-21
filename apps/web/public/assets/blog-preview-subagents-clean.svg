@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="Sub-agent delegation">
+  <rect width="1200" height="800" fill="#0e0f11"/>
+  <rect x="156" y="126" width="888" height="548" rx="36" fill="#17181b" stroke="#fff" stroke-opacity=".1"/>
+  <path d="M600 390 380 276M600 390 820 276M600 390 360 522M600 390 840 522" stroke="#d8ff3d" stroke-opacity=".42" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="600" cy="390" r="96" fill="#d8ff3d"/>
+  <circle cx="600" cy="390" r="54" fill="#0a0a0c" opacity=".9"/>
+  <g fill="#222429" stroke="#fff" stroke-opacity=".1">
+    <rect x="260" y="212" width="240" height="128" rx="24"/>
+    <rect x="700" y="212" width="240" height="128" rx="24"/>
+    <rect x="240" y="458" width="240" height="128" rx="24"/>
+    <rect x="720" y="458" width="240" height="128" rx="24"/>
+  </g>
+  <g fill="#fff" opacity=".18">
+    <rect x="302" y="252" width="112" height="12" rx="6"/>
+    <rect x="302" y="286" width="72" height="12" rx="6"/>
+    <rect x="742" y="252" width="112" height="12" rx="6"/>
+    <rect x="742" y="286" width="72" height="12" rx="6"/>
+    <rect x="282" y="498" width="112" height="12" rx="6"/>
+    <rect x="282" y="532" width="72" height="12" rx="6"/>
+    <rect x="762" y="498" width="112" height="12" rx="6"/>
+    <rect x="762" y="532" width="72" height="12" rx="6"/>
+  </g>
+</svg>

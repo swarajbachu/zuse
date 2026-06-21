@@ -3,12 +3,19 @@ import { Schema } from "effect";
 
 import {
   AgentDefinition,
+  ContextUsagePrecision,
   PermissionMode,
   ProviderId,
   RuntimeMode,
   UserQuestion,
 } from "./agent.ts";
-import { AttachmentRef, ComposerInput, FileRef, SkillRef } from "./composer.ts";
+import {
+  AttachmentRef,
+  CodeAnnotation,
+  ComposerInput,
+  FileRef,
+  SkillRef,
+} from "./composer.ts";
 import {
   AgentItemId,
   AgentSessionId,
@@ -150,6 +157,7 @@ export type MessageRole = typeof MessageRole.Type;
 
 const UserContent = Schema.TaggedStruct("user", {
   text: Schema.String,
+  goal: Schema.optional(Schema.Boolean),
 });
 
 /**
@@ -163,6 +171,12 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   attachments: Schema.Array(AttachmentRef),
   fileRefs: Schema.Array(FileRef),
   skillRefs: Schema.Array(SkillRef),
+  // Additive + back-compat: rows persisted before code annotations existed
+  // decode with an empty list rather than failing.
+  annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+    default: () => [],
+  }),
+  goal: Schema.optional(Schema.Boolean),
 });
 
 const AssistantContent = Schema.TaggedStruct("assistant", {
@@ -230,6 +244,24 @@ const UsageContent = Schema.TaggedStruct("usage", {
   model: Schema.String,
 });
 
+const ContextUsageContent = Schema.TaggedStruct("context_usage", {
+  providerId: ProviderId,
+  usedTokens: Schema.NullOr(Schema.Number),
+  windowTokens: Schema.NullOr(Schema.Number),
+  precision: ContextUsagePrecision,
+  source: Schema.optional(Schema.String),
+});
+
+const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
+  providerId: ProviderId,
+  label: Schema.String,
+  usedPercent: Schema.NullOr(Schema.Number),
+  // ISO-8601 string — see `UsageLimitEvent` in agent.ts for why this isn't
+  // a `Date` schema (constructor validates against the decoded `Date`).
+  resetsAt: Schema.NullOr(Schema.String),
+  windowMinutes: Schema.NullOr(Schema.Number),
+});
+
 /**
  * Persisted form of a `UserQuestion` event. `itemId` is the SDK's
  * `tool_use.id` for the AskUserQuestion call; the paired
@@ -275,6 +307,8 @@ export const MessageContent = Schema.Union(
   ErrorContent,
   SubagentSummaryContent,
   UsageContent,
+  ContextUsageContent,
+  UsageLimitContent,
   UserQuestionContent,
   UserQuestionAnswerContent,
 );
@@ -310,6 +344,39 @@ export class SessionStartError extends Schema.TaggedError<SessionStartError>()(
   "SessionStartError",
   { providerId: ProviderId, reason: Schema.String },
 ) {}
+
+export class GoalUnsupportedError extends Schema.TaggedError<GoalUnsupportedError>()(
+  "GoalUnsupportedError",
+  { providerId: ProviderId },
+) {}
+
+export const ThreadGoalStatus = Schema.Literal(
+  "active",
+  "paused",
+  "budgetLimited",
+  "usageLimited",
+  "blocked",
+  "complete",
+);
+export type ThreadGoalStatus = typeof ThreadGoalStatus.Type;
+
+export class ThreadGoal extends Schema.Class<ThreadGoal>("ThreadGoal")({
+  threadId: Schema.String,
+  objective: Schema.String,
+  status: ThreadGoalStatus,
+  tokenBudget: Schema.NullOr(Schema.Number),
+  tokensUsed: Schema.Number,
+  timeUsedSeconds: Schema.Number,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+}) {}
+
+export const ThreadGoalSetInput = Schema.Struct({
+  objective: Schema.optional(Schema.String),
+  status: Schema.optional(ThreadGoalStatus),
+  tokenBudget: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+export type ThreadGoalSetInput = typeof ThreadGoalSetInput.Type;
 
 /**
  * Reported by `messages.steer` if the active provider cannot interrupt the
@@ -706,6 +773,7 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
     sessionId: SessionId,
     text: Schema.optional(Schema.String),
     input: Schema.optional(ComposerInput),
+    asGoal: Schema.optional(Schema.Boolean),
   }),
   success: Schema.Void,
   error: SessionNotFoundError,
@@ -871,5 +939,40 @@ export const SessionStatusStreamRpc = Rpc.make("session.streamStatus", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Schema.Struct({ sessionId: SessionId, status: SessionStatus }),
   error: SessionNotFoundError,
+  stream: true,
+});
+
+export const SessionGoalGetRpc = Rpc.make("session.goal.get", {
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.NullOr(ThreadGoal),
+  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
+});
+
+export const SessionGoalSetRpc = Rpc.make("session.goal.set", {
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    goal: ThreadGoalSetInput,
+  }),
+  success: ThreadGoal,
+  error: Schema.Union(
+    SessionNotFoundError,
+    SessionStartError,
+    GoalUnsupportedError,
+  ),
+});
+
+export const SessionGoalClearRpc = Rpc.make("session.goal.clear", {
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Void,
+  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
+});
+
+export const SessionGoalStreamRpc = Rpc.make("session.goal.stream", {
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Struct({
+    sessionId: SessionId,
+    goal: Schema.NullOr(ThreadGoal),
+  }),
+  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
   stream: true,
 });

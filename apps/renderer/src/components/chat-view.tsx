@@ -20,11 +20,13 @@ import { groupMessages } from "../lib/group-messages.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
+import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { FileChipProvider } from "./file-chip.tsx";
+import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 import { ErrorBubble, MessageRow, type ToolResultRecord } from "./message-row.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
-import { Beacon } from "./ui/loaders";
+import { Spinner } from "./ui/spinner";
 
 const NEAR_BOTTOM_PX = 80;
 
@@ -58,6 +60,26 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return null;
   });
+
+  // While this session's worktree is still being set up — or the provider
+  // CLI is still booting — the inline setup card carries the "what's
+  // happening" message, so suppress the empty "New chat" placeholder under it.
+  const worktreeId = session?.worktreeId ?? null;
+  const worktreeSetupActive = useWorktreesStore((s) => {
+    if (worktreeId === null) return false;
+    for (const list of Object.values(s.byProject)) {
+      const wt = (list ?? EMPTY_WORKTREES).find((w) => w.id === worktreeId);
+      if (wt !== undefined) {
+        return (
+          wt.setupStatus === "running" ||
+          wt.setupStatus === "pending" ||
+          wt.setupStatus === "failed"
+        );
+      }
+    }
+    return false;
+  });
+  const setupActive = worktreeSetupActive || session?.status === "booting";
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -164,18 +186,22 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       onScroll={onScroll}
       className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto"
     >
+      <WorktreeSetupCard />
       {messages.length === 0 ? (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-          <HugeiconsIcon icon={Message01Icon} className="size-10 opacity-40" />
-          <div>
-            <p className="text-sm">
-              {session?.title ?? "New chat"}
-            </p>
-            <p className="mt-1 text-xs">
-              Type a message below to get started.
-            </p>
+        setupActive ? null : (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+            <HugeiconsIcon
+              icon={Message01Icon}
+              className="size-10 opacity-40"
+            />
+            <div>
+              <p className="text-sm">{session?.title ?? "New chat"}</p>
+              <p className="mt-1 text-xs">
+                Type a message below to get started.
+              </p>
+            </div>
           </div>
-        </div>
+        )
       ) : (
         <div className="flex flex-col py-2">
           {turns.map((turn, idx) => {
@@ -333,7 +359,7 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
-      <Beacon dotSize={2.5} cellPadding={0.75} speed={1.2} />
+      <Spinner className="size-3" />
       <span className="tabular-nums">{formatElapsed(elapsed)}</span>
     </div>
   );

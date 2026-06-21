@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="Git worktrees for every chat">
+  <rect width="1200" height="800" fill="#101114"/>
+  <rect x="144" y="136" width="912" height="528" rx="36" fill="#17181b" stroke="#fff" stroke-opacity=".1"/>
+  <path d="M292 252h226c70 0 86 74 148 74h242M292 400h616M292 548h226c70 0 86-74 148-74h242" fill="none" stroke="#fff" stroke-opacity=".16" stroke-width="18" stroke-linecap="round"/>
+  <path d="M292 252h226c70 0 86 74 148 74h242" fill="none" stroke="#d8ff3d" stroke-width="6" stroke-linecap="round"/>
+  <path d="M292 400h616" fill="none" stroke="#d8ff3d" stroke-opacity=".78" stroke-width="6" stroke-linecap="round"/>
+  <path d="M292 548h226c70 0 86-74 148-74h242" fill="none" stroke="#d8ff3d" stroke-opacity=".52" stroke-width="6" stroke-linecap="round"/>
+  <g fill="#222429" stroke="#fff" stroke-opacity=".1">
+    <rect x="216" y="214" width="152" height="76" rx="20"/>
+    <rect x="216" y="362" width="152" height="76" rx="20"/>
+    <rect x="216" y="510" width="152" height="76" rx="20"/>
+    <rect x="832" y="214" width="152" height="76" rx="20"/>
+    <rect x="832" y="362" width="152" height="76" rx="20"/>
+    <rect x="832" y="510" width="152" height="76" rx="20"/>
+  </g>
+  <g fill="#d8ff3d">
+    <circle cx="292" cy="252" r="15"/>
+    <circle cx="292" cy="400" r="15"/>
+    <circle cx="292" cy="548" r="15"/>
+    <circle cx="908" cy="252" r="15"/>
+    <circle cx="908" cy="400" r="15"/>
+    <circle cx="908" cy="548" r="15"/>
+  </g>
+</svg>

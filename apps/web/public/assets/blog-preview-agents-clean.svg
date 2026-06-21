@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="Six coding agents in one workspace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#191a1d"/>
+      <stop offset="1" stop-color="#0d0e10"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#fff" stroke-opacity=".045"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <rect width="1200" height="800" fill="url(#grid)"/>
+  <rect x="150" y="130" width="900" height="540" rx="34" fill="#17181b" stroke="#fff" stroke-opacity=".1"/>
+  <rect x="190" y="176" width="820" height="74" rx="20" fill="#222429" stroke="#fff" stroke-opacity=".08"/>
+  <circle cx="232" cy="213" r="10" fill="#d8ff3d"/>
+  <rect x="260" y="202" width="210" height="22" rx="11" fill="#f4f4f5" opacity=".86"/>
+  <rect x="190" y="294" width="820" height="292" rx="24" fill="#101114" stroke="#fff" stroke-opacity=".08"/>
+  <g fill="#222429" stroke="#fff" stroke-opacity=".08">
+    <rect x="232" y="334" width="92" height="176" rx="18"/>
+    <rect x="350" y="334" width="92" height="176" rx="18"/>
+    <rect x="468" y="334" width="92" height="176" rx="18"/>
+    <rect x="640" y="334" width="92" height="176" rx="18"/>
+    <rect x="758" y="334" width="92" height="176" rx="18"/>
+    <rect x="876" y="334" width="92" height="176" rx="18"/>
+  </g>
+  <g fill="#d8ff3d">
+    <circle cx="278" cy="382" r="16"/>
+    <circle cx="396" cy="382" r="16" opacity=".82"/>
+    <circle cx="514" cy="382" r="16" opacity=".64"/>
+    <circle cx="686" cy="382" r="16" opacity=".64"/>
+    <circle cx="804" cy="382" r="16" opacity=".82"/>
+    <circle cx="922" cy="382" r="16"/>
+  </g>
+  <g fill="#fff" opacity=".18">
+    <rect x="258" y="432" width="40" height="10" rx="5"/>
+    <rect x="376" y="432" width="40" height="10" rx="5"/>
+    <rect x="494" y="432" width="40" height="10" rx="5"/>
+    <rect x="666" y="432" width="40" height="10" rx="5"/>
+    <rect x="784" y="432" width="40" height="10" rx="5"/>
+    <rect x="902" y="432" width="40" height="10" rx="5"/>
+  </g>
+  <path d="M278 510v44h322V250M396 510v44h204M514 510v44h86M686 510v44h-86M804 510v44H600M922 510v44H600" fill="none" stroke="#d8ff3d" stroke-opacity=".48" stroke-width="4" stroke-linecap="round"/>
+  <rect x="526" y="216" width="148" height="68" rx="20" fill="#d8ff3d"/>
+  <rect x="562" y="242" width="76" height="16" rx="8" fill="#0a0a0c"/>
+</svg>

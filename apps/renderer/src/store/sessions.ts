@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
+import { Session } from "@memoize/wire";
 import type {
   AgentItemId,
   ChatId,
@@ -8,7 +9,6 @@ import type {
   PermissionMode,
   ProviderId,
   RuntimeMode,
-  Session,
   SessionId,
   UserQuestionAnswer,
 } from "@memoize/wire";
@@ -53,7 +53,25 @@ type SessionsState = {
    * `Session.status === "booting"` until the provider handshake completes.
    */
   readonly creatingByChat: Record<string, boolean>;
+  /**
+   * Ephemeral, client-only session used to drive the real `ChatComposer` on
+   * the new-chat landing before any chat/session/worktree exists. It is NOT
+   * in `sessionsByProject`, so it never shows in the sidebar or tab strip —
+   * the composer's model/runtime/permission/provider setters route here (see
+   * the setters below) so the picks carry into `create()` on first send. The
+   * `ChatComposer` for it runs with `onDraftSubmit`; nothing else touches it.
+   */
+  readonly draftSession: Session | null;
   readonly error: string | null;
+  /** Spin up a fresh draft session for `ChatLanding`. Returns the row. */
+  readonly beginDraft: (params: {
+    projectId: FolderId;
+    providerId: ProviderId;
+    model: string;
+    runtimeMode: RuntimeMode;
+  }) => Session;
+  /** Tear down the draft session (on submit handoff or landing unmount). */
+  readonly clearDraft: () => void;
   readonly hydrate: (projectId: FolderId) => Promise<void>;
   readonly create: (
     chatId: ChatId,
@@ -120,6 +138,14 @@ type SessionsState = {
   readonly toggleShowArchived: (projectId: FolderId) => void;
 };
 
+/**
+ * Sentinel ids for the landing's draft session. Fixed (not random) so the
+ * composer's `key` stays stable across re-renders and the setter routing can
+ * recognise the draft by id without threading a flag through every toggle.
+ */
+export const DRAFT_SESSION_ID = "draft-session" as SessionId;
+export const DRAFT_CHAT_ID = "draft-chat" as ChatId;
+
 const findSessionProject = (
   sessionsByProject: SessionsState["sessionsByProject"],
   sessionId: SessionId,
@@ -137,7 +163,34 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   showArchivedByProject: {},
   loadingByProject: {},
   creatingByChat: {},
+  draftSession: null,
   error: null,
+  beginDraft: ({ projectId, providerId, model, runtimeMode }) => {
+    const now = new Date();
+    const draft = Session.make({
+      id: DRAFT_SESSION_ID,
+      projectId,
+      title: "New chat",
+      providerId,
+      model,
+      status: "idle",
+      archivedAt: null,
+      cursor: null,
+      resumeStrategy: "none",
+      runtimeMode,
+      worktreeId: null,
+      chatId: DRAFT_CHAT_ID,
+      forkedFromSessionId: null,
+      forkedFromMessageId: null,
+      permissionMode: "default",
+      toolSearch: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    set({ draftSession: draft });
+    return draft;
+  },
+  clearDraft: () => set({ draftSession: null }),
   hydrate: async (projectId) => {
     set((s) => ({
       loadingByProject: { ...s.loadingByProject, [projectId]: true },
@@ -256,6 +309,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
   setModel: async (sessionId, model) => {
+    const draft = get().draftSession;
+    if (draft !== null && draft.id === sessionId) {
+      set({ draftSession: Session.make({ ...draft, model }) });
+      return;
+    }
     set({ error: null });
     try {
       const client = await getRpcClient();
@@ -278,6 +336,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
   setRuntimeMode: async (sessionId, runtimeMode) => {
+    const draft = get().draftSession;
+    if (draft !== null && draft.id === sessionId) {
+      set({ draftSession: Session.make({ ...draft, runtimeMode }) });
+      return;
+    }
     // Optimistic — patch the local row before the RPC settles so the toggle
     // feels instant. Server-side update is also fast (single SQL UPDATE +
     // in-memory cache poke), so the round-trip is invisible in practice.
@@ -308,6 +371,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
   setPermissionMode: async (sessionId, mode) => {
+    const draft = get().draftSession;
+    if (draft !== null && draft.id === sessionId) {
+      set({ draftSession: Session.make({ ...draft, permissionMode: mode }) });
+      return;
+    }
     set((s) => {
       const projectId = findSessionProject(s.sessionsByProject, sessionId);
       if (projectId === null) return { error: null };
@@ -347,6 +415,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
   setProvider: async (sessionId, providerId, model) => {
+    const draft = get().draftSession;
+    if (draft !== null && draft.id === sessionId) {
+      set({ draftSession: Session.make({ ...draft, providerId, model }) });
+      return { ok: true } as const;
+    }
     set({ error: null });
     try {
       const client = await getRpcClient();

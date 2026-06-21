@@ -1,4 +1,4 @@
-import { Context, type Effect } from "effect";
+import { Context, type Effect, type Stream } from "effect";
 
 import {
   type FolderId,
@@ -9,6 +9,7 @@ import {
   type WorktreeNotFoundError,
   type WorktreeRemoveError,
   type WorktreeSetupError,
+  type WorktreeSetupEvent,
 } from "@memoize/wire";
 
 export interface WorktreeRestoreSnapshot {
@@ -53,6 +54,14 @@ export interface WorktreeServiceShape {
     Worktree,
     WorktreeNotFoundError | WorktreeSetupError | WorktreeRemoveError
   >;
+  /**
+   * Subscribe to a worktree's live setup output + status transitions. Seeds
+   * the current persisted snapshot on subscribe; completes once setup reaches
+   * a terminal status.
+   */
+  readonly setupStream: (
+    worktreeId: WorktreeId,
+  ) => Stream.Stream<WorktreeSetupEvent, WorktreeNotFoundError>;
   readonly startRun: (
     worktreeId: WorktreeId,
   ) => Effect.Effect<

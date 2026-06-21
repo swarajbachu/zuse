@@ -69,7 +69,7 @@ export const useActiveContext = (): ActiveContext => {
   });
   const sessionId = useSessionsStore((s) =>
     selectedFolderId !== null
-      ? s.selectedSessionByProject[selectedFolderId] ?? null
+      ? (s.selectedSessionByProject[selectedFolderId] ?? null)
       : null,
   );
   const sessionWorktreeId = useSessionsStore((s) => {
@@ -147,10 +147,10 @@ export const useActiveWorktreeId = (
   folderId: FolderId | null,
 ): WorktreeId | null => {
   const sessionId = useSessionsStore((s) =>
-    folderId !== null ? s.selectedSessionByProject[folderId] ?? null : null,
+    folderId !== null ? (s.selectedSessionByProject[folderId] ?? null) : null,
   );
   const sessions = useSessionsStore((s) =>
-    folderId !== null ? s.sessionsByProject[folderId] ?? null : null,
+    folderId !== null ? (s.sessionsByProject[folderId] ?? null) : null,
   );
   if (sessionId === null || sessions === null) return null;
   const found = sessions.find((sess) => sess.id === sessionId);
@@ -165,14 +165,16 @@ export const useActiveWorktreeId = (
  * race from a deliberate main-checkout session.
  */
 export const useActiveWorkspaceRoot = (
-  folderId: FolderId,
+  folderId: FolderId | null,
 ): string | null => {
-  const folder = useWorkspaceStore(
-    (s) => s.folders.find((f) => f.id === folderId) ?? null,
+  const folder = useWorkspaceStore((s) =>
+    folderId === null
+      ? null
+      : (s.folders.find((f) => f.id === folderId) ?? null),
   );
   const worktreeId = useActiveWorktreeId(folderId);
   const worktree = useWorktreesStore((s) => {
-    if (worktreeId === null) return null;
+    if (folderId === null || worktreeId === null) return null;
     const list = s.byProject[folderId] ?? [];
     return list.find((w) => w.id === worktreeId) ?? null;
   });

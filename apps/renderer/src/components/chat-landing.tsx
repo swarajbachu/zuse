@@ -1,13 +1,22 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, Cancel01Icon, Folder01Icon, FolderAddIcon, SentIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { useMemo, useRef, useState } from "react";
+import {
+  ArrowDown01Icon,
+  Folder01Icon,
+  FolderAddIcon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import { X } from "lucide-react";
+import { useLayoutEffect, useMemo, useState } from "react";
 
-import { ComposerInput, type FolderId } from "@memoize/wire";
+import {
+  type ComposerInput,
+  defaultModelFor,
+  type FolderId,
+  type ProviderId,
+  type WorktreeId,
+} from "@memoize/wire";
 
 import { cn } from "~/lib/utils";
-import { Button } from "~/components/ui/button";
-import { Card, CardPanel } from "~/components/ui/card";
-import { Frame, FrameFooter } from "~/components/ui/frame";
 import {
   Menu,
   MenuItem,
@@ -15,29 +24,41 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "~/components/ui/menu";
-import {
-  Tooltip,
-  TooltipPopup,
-  TooltipTrigger,
-} from "~/components/ui/tooltip";
+import { Spinner } from "~/components/ui/spinner";
 import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
 import { useChatsStore } from "~/store/chats";
 import { useMessagesStore } from "~/store/messages";
-import { useSessionsStore } from "~/store/sessions";
+import { useProvidersStore } from "~/store/providers";
+import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
-import { ChatCreatingPanel } from "./chat-creating-panel.tsx";
-import { ModelPicker } from "./model-picker.tsx";
+import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
+import { ChatComposer } from "./chat-composer.tsx";
+import { PROVIDER_LABEL } from "./settings-page";
+import { SetupCardView } from "./worktree-setup-card.tsx";
 
-const SUGGESTIONS: ReadonlyArray<{ label: string }> = [
-  { label: "Land targeted provider compatibility rules before the next harness drift" },
-  { label: "Bring background activity policy onto main to cut reconnect churn" },
-  { label: "Use the new resource history to finish the leak investigation" },
-  { label: "Plan the next slice — what should we tackle first?" },
-];
-
-const MIN_HEIGHT = 80;
-const MAX_HEIGHT = 240;
+/**
+ * Copy the per-session model options (reasoning/effort level + Claude fast
+ * mode) that the draft composer wrote under the sentinel draft id over to the
+ * real session id, so picks made on the landing carry into the first turn.
+ * `ReasoningPicker`/`FastModeToggle` both key sessionStorage by sessionId.
+ */
+const migrateModelOptions = (fromId: string, toId: string): void => {
+  if (typeof window === "undefined") return;
+  const prefix = `memoize.modelOptions.${fromId}.`;
+  const moves: Array<[string, string]> = [];
+  for (let i = 0; i < window.sessionStorage.length; i++) {
+    const key = window.sessionStorage.key(i);
+    if (key !== null && key.startsWith(prefix)) {
+      moves.push([key, `memoize.modelOptions.${toId}.${key.slice(prefix.length)}`]);
+    }
+  }
+  for (const [from, to] of moves) {
+    const value = window.sessionStorage.getItem(from);
+    if (value !== null) window.sessionStorage.setItem(to, value);
+    window.sessionStorage.removeItem(from);
+  }
+};
 
 /**
  * Landing surface shown in the main pane whenever no chat session is
@@ -58,6 +79,13 @@ export function ChatLanding() {
   const addFolder = useWorkspaceStore((s) => s.add);
 
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
+  // Goal mode is only offered when the installed Codex CLI is new enough
+  // (version-gated capability from the availability probe).
+  const codexCapabilities = useProvidersStore((s) =>
+    s.capabilitiesFor("codex"),
+  );
+  const codexGoalSupported =
+    defaultProviderId === "codex" && codexCapabilities.includes("goalMode");
   const defaultModelByProvider = useSettingsStore(
     (s) => s.defaultModelByProvider,
   );
@@ -67,17 +95,40 @@ export function ChatLanding() {
   );
 
   const create = useChatsStore((s) => s.create);
-  const creating = useChatsStore((s) =>
-    selectedFolderId !== null ? s.creatingByProject[selectedFolderId] === true : false,
+  const send = useMessagesStore((s) => s.send);
+  const beginDraft = useSessionsStore((s) => s.beginDraft);
+  const clearDraft = useSessionsStore((s) => s.clearDraft);
+  // The synthetic draft session that drives the real ChatComposer below. Its
+  // model/runtime/permission/provider live here (routed by the sessions-store
+  // setters) and are read back at submit so the picks carry into create().
+  const draftSession = useSessionsStore((s) => s.draftSession);
+
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  // Local "submit in flight" flag. Covers the whole creation window —
+  // including the worktree-create step — so the bridge shows the moment the
+  // user hits send rather than after the worktree exists.
+  const [submitting, setSubmitting] = useState(false);
+  // Snapshot of the prompt the user just submitted. Drives the inline
+  // setup-card bridge so the form can be hidden during the RPC without the
+  // user losing visual continuity with what they sent (shown as queued).
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  // The worktree resolved for this submit (null = main checkout). Lets the
+  // bridge card show the real worktree name/branch the instant it exists.
+  const [pendingWorktreeId, setPendingWorktreeId] = useState<WorktreeId | null>(
+    null,
+  );
+  // The provider chosen in the composer for this submit (may differ from the
+  // default — e.g. the user switched to Grok). Drives the bridge card's
+  // "Starting <provider>" label so it matches what's actually booting.
+  const [pendingProviderId, setPendingProviderId] = useState<ProviderId | null>(
+    null,
   );
 
-  const [text, setText] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  // Snapshot of the prompt the user just submitted. Drives the
-  // ChatCreatingPanel preview so the form can be hidden during the RPC
-  // without the user losing visual continuity with what they sent.
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const pendingWorktree = useWorktreesStore((s) => {
+    if (selectedFolderId === null || pendingWorktreeId === null) return null;
+    const list = s.byProject[selectedFolderId] ?? EMPTY_WORKTREES;
+    return list.find((w) => w.id === pendingWorktreeId) ?? null;
+  });
 
   const selectedFolder = useMemo(
     () =>
@@ -86,6 +137,27 @@ export function ChatLanding() {
         : (folders.find((f) => f.id === selectedFolderId) ?? null),
     [folders, selectedFolderId],
   );
+
+  // Spin up (or re-spin, on project switch) the draft session that backs the
+  // composer. Re-runs only when the project changes — model/provider/runtime
+  // edits the user makes inside the composer mutate the draft in place, so we
+  // must not clobber them on unrelated default-settings changes.
+  useLayoutEffect(() => {
+    if (selectedFolderId === null) {
+      clearDraft();
+      return;
+    }
+    beginDraft({
+      projectId: selectedFolderId,
+      providerId: defaultProviderId,
+      model:
+        defaultModelByProvider[defaultProviderId] ??
+        defaultModelFor(defaultProviderId),
+      runtimeMode: defaultRuntimeMode,
+    });
+    return () => clearDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFolderId]);
 
   const headline = selectedFolder
     ? `What should we build in ${selectedFolder.name}?`
@@ -98,68 +170,100 @@ export function ChatLanding() {
     void addFolder();
   };
 
-  const canSend =
-    text.trim().length > 0 && selectedFolderId !== null && !creating;
-
-  const submit = async (): Promise<void> => {
-    if (!canSend || selectedFolderId === null) return;
-    const trimmed = text.trim();
-    const model = defaultModelByProvider[defaultProviderId];
+  // Driven by the real ChatComposer (draft mode): it hands back the parsed
+  // input (file refs / attachments / skills / annotations intact) and whether
+  // goal mode was on. We create the worktree + chat with the draft's chosen
+  // provider/model/runtime/permission, carry the model options over, then
+  // queue the message (held until setup completes, or flushed immediately when
+  // there's no worktree). Identical sequencing to the old textarea submit.
+  const handleDraftSubmit = async (
+    input: ComposerInput,
+    opts: { asGoal: boolean },
+  ): Promise<void> => {
+    if (selectedFolderId === null || submitting) return;
+    const draft = useSessionsStore.getState().draftSession;
+    if (draft === null) return;
     setSubmitError(null);
-    setPendingPrompt(trimmed);
-    // Spin up the worktree before creating the chat so the session runs in
-    // it — without this the landing screen promised a worktree (see the
-    // ChatCreatingPanel below) but stranded the agent in the main checkout.
+    setSubmitting(true);
+    setPendingProviderId(draft.providerId);
+    setPendingPrompt(input.text.trim().length > 0 ? input.text.trim() : "New chat");
     const worktreeId = await resolveAutoWorktreeId(selectedFolderId);
-    const result = await create(selectedFolderId, defaultProviderId, model, {
-      runtimeMode: defaultRuntimeMode,
+    setPendingWorktreeId(worktreeId);
+    const result = await create(selectedFolderId, draft.providerId, draft.model, {
+      runtimeMode: draft.runtimeMode,
+      permissionMode: draft.permissionMode,
       worktreeId,
     });
     if (result === null) {
       const reason =
         useChatsStore.getState().error ??
-        `Couldn't start ${defaultProviderId}. Check that its CLI is installed and signed in.`;
+        `Couldn't start ${draft.providerId}. Check that its CLI is installed and signed in.`;
       setSubmitError(reason);
       setPendingPrompt(null);
+      setPendingWorktreeId(null);
+      setPendingProviderId(null);
+      setSubmitting(false);
       return;
     }
-    const sessionId = useSessionsStore.getState().selectedSessionId;
-    if (sessionId !== null) {
-      const input = new ComposerInput({
-        text: trimmed,
-        attachments: [],
-        fileRefs: [],
-        skillRefs: [],
-      });
+    const sessionId = result.initialSessionId;
+    migrateModelOptions(DRAFT_SESSION_ID, sessionId);
+    if (opts.asGoal && codexGoalSupported) {
+      void send(sessionId, input, { asGoal: true });
+    } else {
       useMessagesStore.getState().queue(sessionId, input);
-      useMessagesStore.getState().flushQueue(sessionId);
+      // When a worktree was created, hold this first turn until setup
+      // finishes — the worktrees setup stream flushes the queue on the
+      // terminal status. With no worktree there's nothing to wait for.
+      if (worktreeId === null) {
+        useMessagesStore.getState().flushQueue(sessionId);
+      }
     }
-    setText("");
-    // Don't clear pendingPrompt — the parent will unmount us when the
-    // view swaps to ChatView, so the panel keeps animating until then.
+    useSessionsStore.getState().clearDraft();
   };
 
-  const onSuggest = (prompt: string) => {
-    setText(prompt);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      const el = textareaRef.current;
-      if (el !== null) {
-        el.selectionStart = el.value.length;
-        el.selectionEnd = el.value.length;
-      }
-    });
-  };
+  // Bridge: covers the brief create() RPC window (worktree → chat) before the
+  // session exists and MainShell swaps us for the real ChatView + composer.
+  // Mirrors that layout — the unified setup card on top, the queued message
+  // pinned at the bottom — so the handoff to the live card is seamless.
+  if (submitting && pendingPrompt !== null) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <SetupCardView
+            data={{
+              repoName: selectedFolder?.name ?? "this repo",
+              hasWorktree: defaultAutoCreateWorktree,
+              worktreePending: pendingWorktree === null,
+              worktreeName: pendingWorktree?.name ?? null,
+              branch: pendingWorktree?.branch ?? null,
+              baseBranch: pendingWorktree?.baseBranch ?? null,
+              setupStatus: pendingWorktree?.setupStatus ?? null,
+              setupOutput: pendingWorktree?.setupOutput ?? "",
+              providerLabel: (() => {
+                const pid = pendingProviderId ?? defaultProviderId;
+                return PROVIDER_LABEL[pid] ?? pid;
+              })(),
+              providerState: "active",
+              onRerun: null,
+            }}
+          />
+        </div>
+        <div className="px-4 pb-4">
+          <QueuedComposerPill prompt={pendingPrompt} count={1} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10">
-      <div className="flex w-full max-w-2xl flex-col gap-6">
+      <div className="flex w-full max-w-3xl flex-col gap-4">
         <h1 className="text-center text-xl font-medium text-foreground/90">
           {headline}
         </h1>
 
         {submitError !== null && (
-          <div className="flex items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
+          <div className="mx-auto flex w-full max-w-2xl items-start gap-2 rounded-lg border border-rose-400/30 bg-rose-500/[0.08] px-3 py-2 text-[12px] text-rose-200">
             <span className="mt-px shrink-0">⚠</span>
             <span className="flex-1 leading-snug">{submitError}</span>
             <button
@@ -168,97 +272,61 @@ export function ChatLanding() {
               aria-label="Dismiss error"
               className="-mr-1 shrink-0 rounded p-0.5 text-rose-200/80 hover:bg-rose-500/[0.12] hover:text-rose-100"
             >
-              <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+              <X className="size-3.5" strokeWidth={1.8} />
             </button>
           </div>
         )}
 
-        {creating && pendingPrompt !== null ? (
-          <div className="px-1">
-            <ChatCreatingPanel
-              providerId={defaultProviderId}
-              willCreateWorktree={defaultAutoCreateWorktree}
-              prompt={pendingPrompt}
-            />
-          </div>
+        {/* The REAL ChatComposer in draft mode — one source of truth for file
+            tagging, model/thinking, fast mode, plan mode, runtime, etc. On
+            send it hands the parsed input back to `handleDraftSubmit`. */}
+        {draftSession !== null ? (
+          <ChatComposer
+            key={selectedFolderId ?? "none"}
+            session={draftSession}
+            onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+          />
         ) : (
-          <>
-            <Frame>
-              <Card className="rounded-xl border-border/50">
-                <CardPanel className="relative flex flex-col gap-2 px-3 py-2">
-                  <textarea
-                    ref={textareaRef}
-                    value={text}
-                    onChange={(e) => {
-                      setText(e.target.value);
-                      if (submitError !== null) setSubmitError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void submit();
-                      }
-                    }}
-                    placeholder={
-                      selectedFolder
-                        ? "Ask anything. Press Enter to start a new session."
-                        : "Pick a project below, then ask anything."
-                    }
-                    style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT }}
-                    className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
-                  />
-                  <div className="flex items-center justify-end">
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="default"
-                            size="icon-sm"
-                            onClick={() => void submit()}
-                            disabled={!canSend}
-                            aria-label="Send"
-                          >
-                            <HugeiconsIcon icon={SentIcon} className="size-3.5" />
-                          </Button>
-                        }
-                      />
-                      <TooltipPopup>
-                        {selectedFolderId === null
-                          ? "Pick a project to start"
-                          : "Send (Enter)"}
-                      </TooltipPopup>
-                    </Tooltip>
-                  </div>
-                </CardPanel>
-              </Card>
-              <FrameFooter className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground">
-                <ProjectPicker
-                  folders={folders}
-                  selectedFolderId={selectedFolderId}
-                  selectedName={selectedFolder?.name ?? null}
-                  onPick={onPick}
-                  onAdd={onAdd}
-                />
-                <ModelPicker mode="default" />
-              </FrameFooter>
-            </Frame>
-
-            <ul className="flex flex-col divide-y divide-border/30 overflow-hidden rounded-xl border border-border/30 bg-background/40">
-              {SUGGESTIONS.map((s) => (
-                <li key={s.label}>
-                  <button
-                    type="button"
-                    onClick={() => onSuggest(s.label)}
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs text-foreground/80 hover:bg-muted/40"
-                  >
-                    <span className="text-muted-foreground">›</span>
-                    <span className="truncate">{s.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
+          <p className="text-center text-sm text-muted-foreground">
+            Pick a project below to start a new chat.
+          </p>
         )}
+
+        <div className="flex justify-center">
+          <ProjectPicker
+            folders={folders}
+            selectedFolderId={selectedFolderId}
+            selectedName={selectedFolder?.name ?? null}
+            onPick={onPick}
+            onAdd={onAdd}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact "queued first message" indicator shown in the landing bridge while
+ * the worktree/chat is being created. Mirrors the queue chips the real
+ * composer's `QueueTray` shows once the session exists, so the message reads
+ * as held-not-sent throughout.
+ */
+function QueuedComposerPill({
+  prompt,
+  count,
+}: {
+  prompt: string;
+  count: number;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <div className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/15 px-3.5 py-2.5 text-[13px]">
+        <Spinner className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="flex-1 truncate text-foreground/80">{prompt}</span>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {count} queued
+        </span>
       </div>
     </div>
   );
@@ -307,9 +375,17 @@ function ProjectPicker({
                 )}
               >
                 <span className="col-start-1 row-start-1 flex items-center justify-center">
-                  {active && <HugeiconsIcon icon={Tick01Icon} className="size-3.5 opacity-90" />}
+                  {active && (
+                    <HugeiconsIcon
+                      icon={Tick01Icon}
+                      className="size-3.5 opacity-90"
+                    />
+                  )}
                 </span>
-                <HugeiconsIcon icon={Folder01Icon} className="col-start-2 row-start-1 size-3.5 opacity-80" />
+                <HugeiconsIcon
+                  icon={Folder01Icon}
+                  className="col-start-2 row-start-1 size-3.5 opacity-80"
+                />
                 <span className="col-start-3 row-start-1 truncate">
                   {folder.name}
                 </span>
@@ -323,7 +399,10 @@ function ProjectPicker({
           className="grid grid-cols-[1rem_auto_1fr] items-center gap-x-2 rounded-md px-2 py-1.5 text-sm"
         >
           <span className="col-start-1 row-start-1" />
-          <HugeiconsIcon icon={FolderAddIcon} className="col-start-2 row-start-1 size-3.5 opacity-80" />
+          <HugeiconsIcon
+            icon={FolderAddIcon}
+            className="col-start-2 row-start-1 size-3.5 opacity-80"
+          />
           <span className="col-start-3 row-start-1">Add new project</span>
         </MenuItem>
       </MenuPopup>

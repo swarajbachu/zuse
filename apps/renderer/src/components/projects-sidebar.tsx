@@ -1,7 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArchiveArrowUpIcon,
-  ArchiveIcon,
   ArrowDown01Icon,
   ArrowRight01Icon,
   Delete02Icon,
@@ -11,13 +9,17 @@ import {
   Settings01Icon,
   TaskDone01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArchiveArrowDownIcon,
+  ArchiveArrowUpIcon,
+  ArchiveIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect, Fiber, Stream } from "effect";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type Chat,
   type ChatId,
-  defaultModelFor,
   type FolderId,
   type GitOriginInfo,
   type ProviderId,
@@ -33,7 +35,6 @@ import {
   mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { cn, formatCompactNumber } from "~/lib/utils";
-import { resolveAutoWorktreeId } from "../lib/auto-worktree.ts";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -41,9 +42,7 @@ import { isChatUnread, useChatsStore } from "../store/chats.ts";
 import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useSettingsStore } from "../store/settings.ts";
 import {
   useSidebarMessageStatusStore,
   useSidebarMessageStatusSubscriptions,
@@ -52,7 +51,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
-import { Beacon, Diffusion } from "./ui/loaders";
+import { Spinner } from "./ui/spinner";
 
 const initialsOf = (name: string): string => {
   const parts = name.split(/[-_.\s]+/).filter(Boolean);
@@ -667,49 +666,30 @@ const LOGIN_HINT: Record<ProviderId, string> = {
 };
 
 /**
- * Spawn a new chat (sidebar container) plus its initial session in the
- * given project. Worktree is auto-created when the per-repo or global
- * setting says so. Reads from stores directly so callers (the sidebar
- * button + the Cmd+N menu shortcut) don't need prop drilling.
+ * Start a brand-new chat in the given project. Creation is deferred to the
+ * first message: clicking "New chat" must NOT branch a worktree or spin up a
+ * session — it just clears the active selection so `MainShell` falls through
+ * to `<ChatLanding/>` ("What should we build in <project>?"). The landing's
+ * `submit()` is the sole creation path (worktree → chat → queue). Reads from
+ * stores directly so callers (the sidebar button + the Cmd+N menu shortcut)
+ * don't need prop drilling.
  */
-export async function createNewSession(projectId: FolderId): Promise<void> {
-  // Flip the creating flag synchronously so the step-progress panel shows
-  // up on the next React render — without this the user stares at the
-  // current chat for 1-3s while providers/repo-settings/worktree RPCs run
-  // before `useChatsStore.create` even gets called. Cleared either by
-  // `useChatsStore.create` (success/failure) or by the catch below if
-  // anything upstream throws.
-  useChatsStore.setState((s) => ({
-    creatingByProject: { ...s.creatingByProject, [projectId]: true },
-  }));
-  try {
-    await useProvidersStore.getState().refresh();
-    const settings = useSettingsStore.getState();
-    const defaultProviderId = settings.defaultProviderId;
-    const model =
-      settings.defaultModelByProvider[defaultProviderId] ??
-      defaultModelFor(defaultProviderId);
-    const worktreeId = await resolveAutoWorktreeId(projectId);
-    void useChatsStore.getState().create(projectId, defaultProviderId, model, {
-      runtimeMode: settings.defaultRuntimeMode,
-      worktreeId,
-    });
-  } catch (err) {
-    useChatsStore.setState((s) => ({
-      creatingByProject: { ...s.creatingByProject, [projectId]: false },
-      error: err instanceof Error ? err.message : String(err),
-    }));
+export function createNewSession(projectId: FolderId): void {
+  // Select the project first (synchronous: `workspace.select` sets
+  // `selectedFolderId` before awaiting persistence), then clear the chat +
+  // session selection for it. `chats.select(null)` cascades into
+  // `sessions.select(null)`, so both the tab strip and the chat surface fall
+  // back to the empty landing for this project.
+  if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
+    void useWorkspaceStore.getState().select(projectId);
   }
+  useChatsStore.getState().select(null);
 }
 
 function NewChatButton({ projectId }: { projectId: FolderId }) {
-  const creating = useChatsStore(
-    (s) => s.creatingByProject[projectId] === true,
-  );
   const onClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (creating) return;
-    void createNewSession(projectId);
+    createNewSession(projectId);
   };
 
   return (
@@ -719,25 +699,15 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
           <button
             type="button"
             onClick={onClick}
-            disabled={creating}
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-default disabled:hover:bg-transparent"
+            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-label="New chat"
           >
-            {creating ? (
-              <span className="inline-flex size-3.5 items-center justify-center">
-                <Diffusion dotSize={3} cellPadding={1} />
-              </span>
-            ) : (
-              <HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
-            )}
+            <HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
           </button>
         }
       />
       <TooltipPopup>
-        <TooltipShortcut
-          label={creating ? "Creating chat…" : "New chat"}
-          shortcut={creating ? "" : formatShortcut("new-chat")}
-        />
+        <TooltipShortcut label="New chat" shortcut={formatShortcut("new-chat")} />
       </TooltipPopup>
     </Tooltip>
   );
@@ -890,7 +860,7 @@ function ChatRow({ chat }: { chat: Chat }) {
     setMenuOpen(true);
   };
 
-  const primaryActionIcon = isArchived ? ArchiveArrowUpIcon : ArchiveIcon;
+  const primaryActionIcon = isArchived ? ArchiveArrowUpIcon : ArchiveArrowDownIcon;
   const primaryActionLabel = isArchived ? "Unarchive" : "Archive";
 
   return (
@@ -994,7 +964,7 @@ function ChatRow({ chat }: { chat: Chat }) {
               onClick={() => void archiveChat(chat.id)}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
-              <HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
+              <HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
               Archive
             </MenuItem>
           )}
@@ -1055,12 +1025,7 @@ function ChatAttentionIcon({
       title={label}
     >
       {state === "running" ? (
-        <Beacon
-          dotSize={3}
-          cellPadding={0.75}
-          speed={1.8}
-          color="currentColor"
-        />
+        <Spinner className="size-4" />
       ) : state === "question" ? (
         <HugeiconsIcon icon={HelpCircleIcon} className="size-3.5" />
       ) : (

@@ -606,13 +606,15 @@ const buildToolView = (
         trailing:
           path !== null ? (
             <span className="flex items-center gap-2 tabular-nums">
-              <FileBadge path={path} view="diff" />
-              {stats !== null && stats.added > 0 ? (
-                <span className="text-emerald-400">+{stats.added}</span>
-              ) : null}
-              {stats !== null && stats.removed > 0 ? (
-                <span className="text-red-400">-{stats.removed}</span>
-              ) : null}
+              <FileBadge
+                path={path}
+                view="diff"
+                diffStats={
+                  stats !== null
+                    ? { added: stats.added, removed: stats.removed }
+                    : undefined
+                }
+              />
             </span>
           ) : undefined,
         fallbackBody:
@@ -912,7 +914,7 @@ const buildToolView = (
               </div>
             )}
             {promptText && (
-              <div className="rounded border bg-muted/30 p-1.5 font-mono text-[11px] leading-snug">
+              <div className="rounded border bg-muted p-1.5 font-mono text-[11px] leading-snug">
                 {promptText.length > 280
                   ? promptText.slice(0, 277) + "…"
                   : promptText}

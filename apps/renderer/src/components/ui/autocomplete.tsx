@@ -1,8 +1,9 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUpDownIcon, Cancel01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowUpDownIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
+import { X } from "lucide-react";
 import type React from "react";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
@@ -79,7 +80,7 @@ export function AutocompleteInput({
           )}
           {...clearProps}
         >
-          <HugeiconsIcon icon={Cancel01Icon} />
+          <X />
         </AutocompleteClear>
       )}
     </AutocompletePrimitive.InputGroup>
@@ -263,7 +264,7 @@ export function AutocompleteClear({
       data-slot="autocomplete-clear"
       {...props}
     >
-      <HugeiconsIcon icon={Cancel01Icon} />
+      <X />
     </AutocompletePrimitive.Clear>
   );
 }

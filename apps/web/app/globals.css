@@ -1,0 +1,116 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@theme inline {
+  /* ---- memoize dark theme ----
+     The source components were authored light. We keep the original token NAMES (the
+     components reference them directly) but remap the values to memoize's
+     dark + lime palette. `natural-black`/`natural-white` stay true ink/paper
+     so the already-dark hero/footer keep light text; the surface tokens
+     (background, secondary, card) go dark and `primary` becomes lime. */
+
+  --color-background: oklch(0.17 0.004 260);
+  --color-foreground: oklch(0.955 0.004 260);
+
+  /* True ink/paper — used for text-on-dark and intentional dark bands. */
+  --color-natural-black: #0a0a0c;
+  --color-natural-white: #f5f5f7;
+
+  --color-muted-foreground: oklch(0.72 0.006 260);
+
+  /* Lime accent — memoize's signature (matches the desktop app). */
+  --color-primary: oklch(0.92 0.19 122);
+  --color-primary-foreground: oklch(0.2 0.03 122);
+
+  /* Elevated dark surfaces (cards, chips). Was #f7f7f7. */
+  --color-secondary: oklch(0.225 0.005 260);
+  --color-card: oklch(0.225 0.005 260);
+  --color-elevated: oklch(0.275 0.006 260);
+
+  --color-heading: oklch(0.96 0.004 260);
+  --color-charcoal: oklch(0.9 0.004 260);
+  --color-offwhite: oklch(0.2 0.004 260);
+
+  --color-dusty-red: #ff6464;
+  --color-dusty-green: #5bd6a0;
+
+  /* Darker, more present shadows read better on a dark canvas. */
+  --shadow-card-md: 0 2px 6px 0 rgba(0, 0, 0, 0.35);
+  --shadow-card-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.4);
+  --shadow-card-xl: 0 8px 24px 0 rgba(0, 0, 0, 0.5);
+
+  --tracking-xs: 1%;
+  --tracking-sm: 2%;
+  --tracking-lg: 3%;
+  --tracking-xl: 4%;
+
+  --spacing-container: 1440px;
+
+  --text-page-header: 100px;
+  --text-page-header--line-height: 8.75rem;
+  --text-page-header-md: 200px;
+  --text-page-header-md--line-height: 17.5rem;
+  --text-page-header-lg: 280px;
+  --text-page-header-lg--line-height: 17.5rem;
+
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+  --font-dm-mono: var(--font-dm-mono);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes toc-label-change {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toc-popup-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toc-label-change {
+  animation: toc-label-change 150ms ease-out both;
+}
+
+.animate-toc-popup-enter {
+  animation: toc-popup-enter 180ms ease-out both;
+  transform-origin: bottom center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-toc-popup-enter {
+    animation: none;
+  }
+
+  .animate-toc-label-change {
+    animation: none;
+  }
+}

@@ -1,11 +1,26 @@
-import { Effect } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, Worktree, WorktreeId } from "@memoize/wire";
+import {
+  type FolderId,
+  Worktree,
+  type WorktreeId,
+  type WorktreeSetupEvent,
+} from "@memoize/wire";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { openTerminalCommand } from "../lib/run-terminal.ts";
+import { useMessagesStore } from "./messages.ts";
 import { useRepositorySettingsStore } from "./repository-settings.ts";
-import { terminalsKey, useTerminalsStore } from "./terminals.ts";
+import { useSessionsStore } from "./sessions.ts";
+
+/** Rarities worth interrupting the user with a one-off unlock toast. */
+const NOTABLE_RARITIES: ReadonlySet<string> = new Set([
+  "rare",
+  "epic",
+  "legendary",
+]);
 
 type WorktreesByProject = Readonly<Record<string, ReadonlyArray<Worktree>>>;
 
@@ -29,9 +44,17 @@ type WorktreesState = {
     projectId: FolderId,
     worktreeId: WorktreeId,
   ) => Promise<Worktree | null>;
-  readonly startRun: (
+  /**
+   * Drain a worktree's live `setupStream`, patching `setupStatus`/`setupOutput`
+   * as events arrive. Idempotent; auto-stops when setup completes. On a
+   * terminal status it kicks `maybeAutoRun` + flushes queued messages.
+   */
+  readonly subscribeSetup: (
+    projectId: FolderId,
     worktreeId: WorktreeId,
-  ) => Promise<{
+  ) => void;
+  readonly unsubscribeSetup: (worktreeId: WorktreeId) => void;
+  readonly startRun: (worktreeId: WorktreeId) => Promise<{
     readonly cwd: string;
     readonly script: string;
     readonly env: Record<string, string>;
@@ -59,12 +82,38 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
   if (wt.setupStatus !== "succeeded" && wt.setupStatus !== "skipped") return;
   const run = await useWorktreesStore.getState().startRun(wt.id);
   if (run === null) return;
-  useTerminalsStore.getState().addCommand(
-    terminalsKey(projectId, wt.id),
-    run.cwd,
-    "Run",
-    { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
-  );
+  openTerminalCommand({
+    folderId: projectId,
+    worktreeId: wt.id,
+    cwd: run.cwd,
+    title: "Run",
+    command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
+  });
+};
+
+/**
+ * Fibers draining each worktree's live `setupStream`, keyed by worktreeId, so
+ * a subscription is started at most once and interrupted on completion/removal.
+ */
+const setupFibers = new Map<WorktreeId, Fiber.RuntimeFiber<unknown, unknown>>();
+const subscribingSetup = new Set<WorktreeId>();
+
+const TERMINAL_SETUP = new Set(["succeeded", "failed", "skipped"]);
+
+/**
+ * Once setup reaches a terminal status, flush any messages queued against
+ * sessions bound to this worktree — this is what makes the first message wait
+ * for setup before the agent runs. Flush regardless of success/failure so a
+ * failed setup never strands the user's message.
+ */
+const flushQueuedForWorktree = (worktreeId: WorktreeId): void => {
+  const sessions = useSessionsStore.getState().sessionsByProject;
+  const flush = useMessagesStore.getState().flushQueue;
+  for (const list of Object.values(sessions)) {
+    for (const session of list) {
+      if (session.worktreeId === worktreeId) flush(session.id);
+    }
+  }
 };
 
 export const useWorktreesStore = create<WorktreesState>((set, get) => ({
@@ -81,9 +130,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     });
     try {
       const client = await getRpcClient();
-      const list = await Effect.runPromise(
-        client.worktree.list({ projectId }),
-      );
+      const list = await Effect.runPromise(client.worktree.list({ projectId }));
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: list },
         loading: (() => {
@@ -112,9 +159,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     });
     try {
       const client = await getRpcClient();
-      const wt = await Effect.runPromise(
-        client.worktree.create({ projectId }),
-      );
+      const wt = await Effect.runPromise(client.worktree.create({ projectId }));
       set((s) => {
         const existing = s.byProject[projectId] ?? [];
         return {
@@ -127,7 +172,19 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
           error: null,
         };
       });
-      void maybeAutoRun(projectId, wt);
+      if (wt.pokemon !== null && NOTABLE_RARITIES.has(wt.pokemon.rarity)) {
+        const rarity =
+          wt.pokemon.rarity.charAt(0).toUpperCase() +
+          wt.pokemon.rarity.slice(1);
+        toastManager.add({
+          title: `${rarity} unlock!`,
+          description: `${wt.pokemon.name} joined your Pokédex`,
+          type: "success",
+        });
+      }
+      // Setup now runs detached on the server; follow it live and let the
+      // stream's terminal-status handler fire maybeAutoRun + flush.
+      get().subscribeSetup(projectId, wt.id);
       return wt;
     } catch (err) {
       set((s) => {
@@ -166,6 +223,8 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
           error: null,
         };
       });
+      // Rerun is non-blocking server-side now; follow the fresh run live.
+      get().subscribeSetup(projectId, worktreeId);
       return wt;
     } catch (err) {
       set((s) => {
@@ -185,12 +244,71 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return null;
     }
   },
+  subscribeSetup: (projectId, worktreeId) => {
+    if (setupFibers.has(worktreeId) || subscribingSetup.has(worktreeId)) return;
+    subscribingSetup.add(worktreeId);
+    void (async () => {
+      try {
+        const client = await getRpcClient();
+        const apply = (event: WorktreeSetupEvent): void => {
+          set((s) => {
+            const list = s.byProject[projectId];
+            if (list === undefined) return s;
+            let changed = false;
+            const next = list.map((w) => {
+              if (w.id !== worktreeId) return w;
+              changed = true;
+              return event._tag === "chunk"
+                ? Worktree.make({ ...w, setupOutput: event.output })
+                : Worktree.make({
+                    ...w,
+                    setupStatus: event.status,
+                    setupStartedAt: event.setupStartedAt,
+                    setupFinishedAt: event.setupFinishedAt,
+                  });
+            });
+            if (!changed) return s;
+            return { byProject: { ...s.byProject, [projectId]: next } };
+          });
+          if (event._tag === "status" && TERMINAL_SETUP.has(event.status)) {
+            const wt = (get().byProject[projectId] ?? []).find(
+              (w) => w.id === worktreeId,
+            );
+            if (wt !== undefined) void maybeAutoRun(projectId, wt);
+            flushQueuedForWorktree(worktreeId);
+          }
+        };
+        const fiber = Effect.runFork(
+          Stream.runForEach(
+            client.worktree
+              .setupStream({ worktreeId })
+              .pipe(Stream.catchAll(() => Stream.empty)),
+            (event) => Effect.sync(() => apply(event)),
+          ).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                setupFibers.delete(worktreeId);
+              }),
+            ),
+          ),
+        );
+        setupFibers.set(worktreeId, fiber);
+      } finally {
+        subscribingSetup.delete(worktreeId);
+      }
+    })();
+  },
+  unsubscribeSetup: (worktreeId) => {
+    const fiber = setupFibers.get(worktreeId);
+    if (fiber === undefined) return;
+    setupFibers.delete(worktreeId);
+    void Effect.runPromise(Fiber.interrupt(fiber));
+  },
   remove: async (projectId, worktreeId, force) => {
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(
-        client.worktree.remove({ worktreeId, force }),
-      );
+      await Effect.runPromise(client.worktree.remove({ worktreeId, force }));
+      get().unsubscribeSetup(worktreeId);
       set((s) => {
         const list = s.byProject[projectId] ?? [];
         return {
@@ -212,4 +330,5 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
 
 export const selectWorktreesFor = (
   projectId: FolderId,
-): ReadonlyArray<Worktree> => useWorktreesStore.getState().byProject[projectId] ?? [];
+): ReadonlyArray<Worktree> =>
+  useWorktreesStore.getState().byProject[projectId] ?? [];

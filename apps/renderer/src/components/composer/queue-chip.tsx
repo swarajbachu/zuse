@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, Delete02Icon, DragDropVerticalIcon, PencilIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowDown01Icon, ArrowUp01Icon, Delete02Icon, DragDropVerticalIcon, PencilIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { X } from "lucide-react";
 import { useState } from "react";
 
 import { ComposerInput, type QueuedMessage, type SessionId } from "@memoize/wire";
@@ -147,7 +148,7 @@ export function QueueChip({
               className={iconButton}
               aria-label="Cancel"
             >
-              <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+              <X className="size-3.5" strokeWidth={1.8} />
             </button>
           </>
         ) : (

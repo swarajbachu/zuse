@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Alert01Icon, MoreHorizontalIcon, PencilIcon, RotateLeft01Icon, Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Alert01Icon, MoreHorizontalIcon, PencilIcon, RotateLeft01Icon, Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Plus } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -271,7 +272,7 @@ export function KeybindingsEditor() {
                     disabled={isAdding}
                     aria-label="Add keybinding"
                   >
-                    <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                    <Plus className="size-3.5" strokeWidth={1.8} />
                   </Button>
                 }
               />
@@ -551,7 +552,7 @@ function NewRow({
   return (
     <div className="flex flex-col gap-2 bg-accent/20 px-3 py-3 text-sm">
       <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.07em] text-muted-foreground">
-        <HugeiconsIcon icon={Add01Icon} className="size-3" /> New binding
+        <Plus className="size-3" strokeWidth={1.8} /> New binding
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={command} onValueChange={(v) => setCommand(v as Command)}>

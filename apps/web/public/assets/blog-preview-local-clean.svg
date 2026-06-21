@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="Local first storage">
+  <defs>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="2" fill="#fff" opacity=".06"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="800" fill="#101114"/>
+  <rect width="1200" height="800" fill="url(#dots)"/>
+  <rect x="194" y="154" width="812" height="492" rx="34" fill="#17181b" stroke="#fff" stroke-opacity=".1"/>
+  <ellipse cx="600" cy="300" rx="198" ry="62" fill="#24262b" stroke="#fff" stroke-opacity=".12"/>
+  <path d="M402 300v162c0 34 89 62 198 62s198-28 198-62V300" fill="#1d1f23" stroke="#fff" stroke-opacity=".1"/>
+  <ellipse cx="600" cy="462" rx="198" ry="62" fill="#181a1d" stroke="#fff" stroke-opacity=".1"/>
+  <ellipse cx="600" cy="300" rx="126" ry="34" fill="#d8ff3d"/>
+  <path d="M600 344v126" stroke="#d8ff3d" stroke-width="16" stroke-linecap="round"/>
+  <path d="M324 400h-82M876 400h82M600 196v-58M600 604v58" stroke="#fff" stroke-opacity=".14" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="242" cy="400" r="18" fill="#d8ff3d"/>
+  <circle cx="958" cy="400" r="18" fill="#d8ff3d"/>
+  <circle cx="600" cy="138" r="18" fill="#d8ff3d"/>
+  <circle cx="600" cy="662" r="18" fill="#d8ff3d"/>
+</svg>

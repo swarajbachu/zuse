@@ -7,6 +7,7 @@ import {
   grokAuthTestHelpers,
   MIN_CODEX_CLI_VERSION,
   parseCliVersion,
+  resolveCodexCapabilities,
   selectCliPathCandidate,
 } from "../src/provider/availability.ts";
 
@@ -67,6 +68,35 @@ describe("compareCliVersion", () => {
   it("detects an older-than-minimum codex CLI", () => {
     const old = parseCliVersion("codex-cli 0.27.0")!;
     expect(compareCliVersion(old, MIN_CODEX_CLI_VERSION)).toBeLessThan(0);
+  });
+});
+
+describe("resolveCodexCapabilities — version-gated feature floors", () => {
+  it("returns no capabilities for an unparseable / null version", () => {
+    expect(resolveCodexCapabilities(null)).toEqual([]);
+  });
+
+  it("enables only goalMode at the SDK floor but below the fast floor", () => {
+    // 0.128.0 meets goalMode's 0.128.0 floor but is below fastMode's floor.
+    expect(resolveCodexCapabilities(parseCliVersion("0.128.0"))).toEqual([
+      "goalMode",
+    ]);
+  });
+
+  it("enables no gated features below every floor", () => {
+    expect(resolveCodexCapabilities(parseCliVersion("0.27.0"))).toEqual([]);
+  });
+
+  it("enables both goalMode and fastMode once the fast floor is met", () => {
+    const caps = resolveCodexCapabilities(parseCliVersion("0.145.0"));
+    expect(caps).toContain("goalMode");
+    expect(caps).toContain("fastMode");
+  });
+
+  it("keeps fastMode enabled for versions above the floor", () => {
+    expect(resolveCodexCapabilities(parseCliVersion("0.200.3"))).toContain(
+      "fastMode",
+    );
   });
 });
 
@@ -197,7 +227,9 @@ describe("selectCliPathCandidate", () => {
       selectCliPathCandidate("codex", [
         "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
       ]),
-    ).toBe("/Users/me/Library/Application Support/com.conductor.app/./bin/codex");
+    ).toBe(
+      "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+    );
   });
 
   it("keeps first PATH match for non-Codex providers", () => {

@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Plus } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Effect } from "effect";
 
@@ -268,7 +269,7 @@ const TreeNode = memo(
                     }}
                     className="pointer-events-auto flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover/row:opacity-100"
                   >
-                    <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                    <Plus className="size-3.5" strokeWidth={1.8} />
                   </button>
                 }
               />

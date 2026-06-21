@@ -27,6 +27,10 @@ import {
 } from "@memoize/wire";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import {
+  applyClaudeWorktreeEnv,
+  claudeWorktreePrompt,
+} from "./claude-worktree-prompt.ts";
 
 /**
  * Live-only handle for one Claude SDK conversation. The orchestrator
@@ -265,6 +269,14 @@ interface TranslateState {
    * persists the new mode and the chip auto-untoggles.
    */
   exitPlanModeIds: Set<string>;
+  /**
+   * Tokens occupying the context window after the most recent top-level
+   * assistant turn (`input + cache_read + cache_creation + output`). The
+   * per-request `usage` on an assistant message is the truest snapshot of
+   * current context fill; we stash it here and emit an exact `ContextUsage`
+   * when the turn's `result` lands (which carries the real `contextWindow`).
+   */
+  lastContextUsedTokens: number | null;
 }
 
 const newTranslateState = (): TranslateState => ({
@@ -274,6 +286,7 @@ const newTranslateState = (): TranslateState => ({
   latestParentItemId: undefined,
   askUserQuestionIds: new Set(),
   exitPlanModeIds: new Set(),
+  lastContextUsedTokens: null,
 });
 
 const isAgentToolUse = (block: { type?: string; name?: string }): boolean =>
@@ -324,6 +337,93 @@ const summarize = (value: unknown, max = 200): string => {
 };
 
 /**
+ * Pull the real context-window size out of a `result` message's
+ * `modelUsage` map. Prefers the model that produced the result; falls back
+ * to the largest window present (sub-agents on smaller models can pollute
+ * the map). Returns `null` when the SDK omits it.
+ */
+const contextWindowFromModelUsage = (
+  msg: SDKMessage,
+  model: string,
+): number | null => {
+  const modelUsage = (
+    msg as { modelUsage?: Record<string, { contextWindow?: unknown }> }
+  ).modelUsage;
+  if (modelUsage === undefined) return null;
+  const windowOf = (entry: { contextWindow?: unknown } | undefined) =>
+    typeof entry?.contextWindow === "number" && entry.contextWindow > 0
+      ? entry.contextWindow
+      : null;
+  const exact = windowOf(modelUsage[model]);
+  if (exact !== null) return exact;
+  let max: number | null = null;
+  for (const entry of Object.values(modelUsage)) {
+    const w = windowOf(entry);
+    if (w !== null && (max === null || w > max)) max = w;
+  }
+  return max;
+};
+
+interface ClaudeRateLimitInfo {
+  readonly status?: string;
+  readonly resetsAt?: number;
+  readonly rateLimitType?: string;
+  readonly utilization?: number;
+}
+
+const CLAUDE_LIMIT_LABELS: Record<string, string> = {
+  five_hour: "5-hour limit",
+  seven_day: "Weekly limit",
+  seven_day_opus: "Weekly limit (Opus)",
+  seven_day_sonnet: "Weekly limit (Sonnet)",
+  overage: "Overage",
+};
+
+const CLAUDE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
+  five_hour: 5 * 60,
+  seven_day: 7 * 24 * 60,
+  seven_day_opus: 7 * 24 * 60,
+  seven_day_sonnet: 7 * 24 * 60,
+};
+
+/**
+ * Map a subscription `rate_limit_event` into a `UsageLimit` event. Only
+ * fires for claude.ai subscription sessions; API-key sessions never emit
+ * it. `utilization` arrives as a 0–1 fraction or a 0–100 percent depending
+ * on SDK version, so normalise defensively.
+ */
+const claudeRateLimitEvents = (
+  info: ClaudeRateLimitInfo,
+): ReadonlyArray<AgentEvent> => {
+  const type = info.rateLimitType;
+  if (type === undefined) return [];
+  const utilization =
+    typeof info.utilization === "number" ? info.utilization : null;
+  const usedPercent =
+    utilization === null
+      ? null
+      : utilization <= 1
+        ? utilization * 100
+        : utilization;
+  const resetsAt =
+    typeof info.resetsAt === "number" && Number.isFinite(info.resetsAt)
+      ? new Date(
+          info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000,
+        ).toISOString()
+      : null;
+  return [
+    {
+      _tag: "UsageLimit",
+      providerId: "claude",
+      label: CLAUDE_LIMIT_LABELS[type] ?? "Usage limit",
+      usedPercent,
+      resetsAt,
+      windowMinutes: CLAUDE_LIMIT_WINDOW_MINUTES[type] ?? null,
+    },
+  ];
+};
+
+/**
  * Translate one SDKMessage into zero-or-more wire AgentEvents. Mostly
  * stateless, but the `state` carries thinking-delta accumulators across
  * `stream_event` messages so we can emit one Thinking event per content
@@ -360,6 +460,25 @@ const translate = (
     if (parentItemId !== undefined) {
       const pending = state.pendingAgents.get(parentItemId);
       if (pending !== undefined) pending.turnCount += 1;
+    } else {
+      // Top-level turn: snapshot how full the context window is. The
+      // per-request `usage` is what was actually sent to (input + cache)
+      // plus generated this request (output) — i.e. the live occupancy.
+      const usage = (msg.message as { usage?: unknown }).usage as
+        | Record<string, unknown>
+        | undefined;
+      if (usage !== undefined) {
+        const tok = (key: string): number => {
+          const v = usage[key];
+          return typeof v === "number" ? v : 0;
+        };
+        const used =
+          tok("input_tokens") +
+          tok("cache_read_input_tokens") +
+          tok("cache_creation_input_tokens") +
+          tok("output_tokens");
+        if (used > 0) state.lastContextUsedTokens = used;
+      }
     }
     if (Array.isArray(content)) {
       for (const block of content) {
@@ -698,6 +817,19 @@ const translate = (
     // A sub-agent's `result` does NOT close the parent's turn — the SDK
     // continues running until the parent emits its own top-level result.
     if (parentItemId === undefined) {
+      // Emit the exact context occupancy for the turn. The real window
+      // comes from `modelUsage[model].contextWindow`; the used tokens are
+      // the snapshot stashed from the last top-level assistant message.
+      if (state.lastContextUsedTokens !== null) {
+        out.push({
+          _tag: "ContextUsage",
+          providerId: "claude",
+          usedTokens: state.lastContextUsedTokens,
+          windowTokens: contextWindowFromModelUsage(msg, modelOnResult),
+          precision: "exact",
+          source: "Claude usage",
+        });
+      }
       out.push(
         msg.subtype === "success"
           ? { _tag: "Completed", reason: "ended" }
@@ -705,6 +837,11 @@ const translate = (
       );
     }
     return out;
+  }
+  if ((msg as { type?: unknown }).type === "rate_limit_event") {
+    const info = (msg as { rate_limit_info?: ClaudeRateLimitInfo })
+      .rate_limit_info;
+    return info === undefined ? [] : claudeRateLimitEvents(info);
   }
   return [];
 };
@@ -730,7 +867,7 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "TodoWrite",
   ASK_USER_QUESTION_FQN,
   // Memoize code-index tools. All five are strict reads against the
-  // workspace-local SQLite — they can't mutate anything, so prompting on
+  // worktree-local SQLite — they can't mutate anything, so prompting on
   // every call (and failing to dedupe because the per-input JSON ends up
   // in the kindKey) is pure noise. Auto-allow them like Grep/Glob.
   `mcp__${MEMOIZE_MCP_NAME}__code_search`,
@@ -1070,8 +1207,8 @@ export const startClaudeSession = (
   // Extra MCP tools to register inside the in-process memoize MCP server.
   // Phase B uses this to expose `code_search`, `symbol_lookup`,
   // `find_references`, `read_chunk`, `list_module` from `@memoize/index`.
-  // Tools arrive already bound to the session's workspace handle, so the
-  // driver itself stays workspace-agnostic. Typed loosely because the SDK's
+  // Tools arrive already bound to the session's worktree handle, so the
+  // driver itself stays path-agnostic. Typed loosely because the SDK's
   // `SdkMcpToolDefinition` is parameterized by each tool's zod schema and
   // doesn't compose across distinct shapes in an array.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1280,7 +1417,10 @@ export const startClaudeSession = (
       alwaysLoad: !(input.toolSearch ?? false),
     });
 
-    const env = scrubInheritedClaudeMarkers(process.env);
+    const env = applyClaudeWorktreeEnv(
+      scrubInheritedClaudeMarkers(process.env),
+      cwd,
+    );
     if (apiKey !== null) env.ANTHROPIC_API_KEY = apiKey;
     // Sub-agent map → SDK Options.agents. When at least one preset is
     // present and the master toggle is on, also add `Agent` to
@@ -1312,6 +1452,11 @@ export const startClaudeSession = (
     const initialPermissionMode = input.permissionMode ?? "default";
     const options: Options = {
       cwd,
+      systemPrompt: {
+        type: "preset",
+        preset: "claude_code",
+        append: claudeWorktreePrompt(cwd),
+      },
       abortController: abort,
       ...(claudeExecutablePath !== null
         ? { pathToClaudeCodeExecutable: claudeExecutablePath }

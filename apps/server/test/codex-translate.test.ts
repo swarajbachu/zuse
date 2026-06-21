@@ -7,6 +7,7 @@ import type { ThreadItem } from "../src/provider/codex-app-protocol/v2/ThreadIte
 import {
   codexWritableRootsForCwd,
   translateCodexItem,
+  translateCodexStatusNotification,
 } from "../src/provider/drivers/codex.ts";
 
 const tags = (events: ReadonlyArray<AgentEvent>): string[] =>
@@ -65,13 +66,13 @@ describe("translateCodexItem", () => {
           path: "/repo/package.json",
         },
       ],
-      aggregatedOutput: "{\n  \"name\": \"desktop\"\n}\n",
+      aggregatedOutput: '{\n  "name": "desktop"\n}\n',
       exitCode: 0,
       durationMs: 12,
     };
 
     const ev = only(translateCodexItem(item, "completed"), "ToolResult");
-    expect(ev.output).toBe("{\n  \"name\": \"desktop\"\n}\n");
+    expect(ev.output).toBe('{\n  "name": "desktop"\n}\n');
   });
 
   it("falls back to Bash for ordinary command execution", () => {
@@ -138,6 +139,86 @@ describe("translateCodexItem", () => {
 
     const ev = only(translateCodexItem(item, "started"), "ToolUse");
     expect(ev.tool).toBe("mcp__memoize__browser_screenshot");
+  });
+
+  it("renders context compaction as a compacted message", () => {
+    const item: ThreadItem = { type: "contextCompaction", id: "compact1" };
+
+    const ev = only(translateCodexItem(item, "completed"), "AssistantMessage");
+    expect(ev.text).toBe("Conversation context compacted.");
+  });
+});
+
+describe("translateCodexStatusNotification", () => {
+  it("maps token usage notifications to exact context usage", () => {
+    const ev = only(
+      translateCodexStatusNotification(
+        {
+          method: "thread/tokenUsage/updated",
+          params: {
+            threadId: "thread1",
+            turnId: "turn1",
+            tokenUsage: {
+              total: {
+                totalTokens: 231_700,
+                inputTokens: 220_000,
+                cachedInputTokens: 0,
+                outputTokens: 10_000,
+                reasoningOutputTokens: 1_700,
+              },
+              last: {
+                totalTokens: 1_000,
+                inputTokens: 800,
+                cachedInputTokens: 0,
+                outputTokens: 200,
+                reasoningOutputTokens: 0,
+              },
+              modelContextWindow: 258_400,
+            },
+          },
+        },
+        "thread1",
+      ) ?? [],
+      "ContextUsage",
+    );
+
+    expect(ev.providerId).toBe("codex");
+    expect(ev.usedTokens).toBe(231_700);
+    expect(ev.windowTokens).toBe(258_400);
+    expect(ev.precision).toBe("exact");
+  });
+
+  it("maps account rate-limit notifications to usage limits", () => {
+    const ev = only(
+      translateCodexStatusNotification(
+        {
+          method: "account/rateLimits/updated",
+          params: {
+            rateLimits: {
+              limitId: "primary",
+              limitName: "Codex weekly",
+              primary: {
+                usedPercent: 42,
+                windowDurationMins: 10_080,
+                resetsAt: 1_800_000_000,
+              },
+              secondary: null,
+              credits: null,
+              planType: null,
+              rateLimitReachedType: null,
+            },
+          },
+        },
+        "thread1",
+      ) ?? [],
+      "UsageLimit",
+    );
+
+    expect(ev.providerId).toBe("codex");
+    expect(ev.label).toBe("Codex weekly");
+    expect(ev.usedPercent).toBe(42);
+    expect(ev.windowMinutes).toBe(10_080);
+    expect(ev.resetsAt).toBe("2027-01-15T08:00:00.000Z");
   });
 });
 

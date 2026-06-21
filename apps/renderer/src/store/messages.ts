@@ -8,6 +8,8 @@ import {
   type QueuedMessage,
   type SessionStatus,
   type SessionId,
+  type ThreadGoal,
+  type ThreadGoalSetInput,
 } from "@memoize/wire";
 
 import { formatError } from "../lib/format-error.ts";
@@ -96,13 +98,33 @@ const classifyMessage = (
 const classifyError = (err: unknown, providerId?: ProviderId): ChatError =>
   classifyMessage(formatError(err), providerId);
 
-const lookupSessionProvider = (sessionId: SessionId): ProviderId | undefined => {
+const lookupSessionProvider = (
+  sessionId: SessionId,
+): ProviderId | undefined => {
   const buckets = useSessionsStore.getState().sessionsByProject;
   for (const list of Object.values(buckets)) {
     const sess = list.find((s) => s.id === sessionId);
     if (sess !== undefined) return sess.providerId;
   }
   return undefined;
+};
+
+type GoalRpcClient = {
+  readonly session: {
+    readonly "goal.stream": (payload: {
+      readonly sessionId: SessionId;
+    }) => Stream.Stream<
+      { readonly sessionId: SessionId; readonly goal: ThreadGoal | null },
+      unknown
+    >;
+    readonly "goal.set": (payload: {
+      readonly sessionId: SessionId;
+      readonly goal: ThreadGoalSetInput;
+    }) => Effect.Effect<ThreadGoal, unknown>;
+    readonly "goal.clear": (payload: {
+      readonly sessionId: SessionId;
+    }) => Effect.Effect<void, unknown>;
+  };
 };
 
 /**
@@ -132,6 +154,7 @@ type MessagesState = {
    */
   readonly runningBySession: Record<string, boolean>;
   readonly queueBySession: Record<string, ReadonlyArray<QueuedMessage>>;
+  readonly goalBySession: Record<string, ThreadGoal | null>;
   readonly hydrate: (sessionId: SessionId) => Promise<void>;
   /**
    * Send a user turn. Accepts either a raw string (legacy / simple-text
@@ -142,7 +165,13 @@ type MessagesState = {
   readonly send: (
     sessionId: SessionId,
     input: string | ComposerInput,
+    opts?: { readonly asGoal?: boolean },
   ) => Promise<void>;
+  readonly setGoal: (
+    sessionId: SessionId,
+    goal: ThreadGoalSetInput,
+  ) => Promise<void>;
+  readonly clearGoal: (sessionId: SessionId) => Promise<void>;
   readonly interrupt: (sessionId: SessionId) => Promise<void>;
   /** Append `input` to this session's queue. */
   readonly queue: (sessionId: SessionId, input: ComposerInput) => void;
@@ -179,6 +208,7 @@ type MessagesState = {
 let liveFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let statusFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let queueFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let goalFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
@@ -201,6 +231,10 @@ const stopLiveFiber = async () => {
   if (queueFiber !== null) {
     tasks.push(Effect.runPromise(Fiber.interrupt(queueFiber)));
     queueFiber = null;
+  }
+  if (goalFiber !== null) {
+    await Effect.runPromise(Fiber.interrupt(goalFiber));
+    goalFiber = null;
   }
   liveSessionId = null;
   await Promise.all(tasks);
@@ -246,7 +280,10 @@ const holdRunningUntilNextTurn = (sessionId: SessionId) => {
   }));
 };
 
-const waitUntilIdle = (sessionId: SessionId, timeoutMs: number): Promise<void> =>
+const waitUntilIdle = (
+  sessionId: SessionId,
+  timeoutMs: number,
+): Promise<void> =>
   new Promise((resolve) => {
     if (lastStatusBySession.get(sessionId) !== "running") {
       resolve();
@@ -275,6 +312,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   errorBySession: {},
   runningBySession: {},
   queueBySession: {},
+  goalBySession: {},
   hydrate: async (sessionId) => {
     if (liveSessionId === sessionId && liveFiber !== null) return;
     await stopLiveFiber();
@@ -324,7 +362,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
                       sess.sessionsByProject,
                     )) {
                       updated[pid] = list.map((row) => {
-                        if (row.id === sessionId && row.permissionMode === "plan") {
+                        if (
+                          row.id === sessionId &&
+                          row.permissionMode === "plan"
+                        ) {
                           dirty = true;
                           return { ...row, permissionMode: "default" };
                         }
@@ -431,6 +472,29 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             }),
         ),
       );
+      if (lookupSessionProvider(sessionId) === "codex") {
+        goalFiber = Effect.runFork(
+          Stream.runForEach(
+            (client as unknown as GoalRpcClient).session["goal.stream"]({
+              sessionId,
+            }).pipe(
+              Stream.catchAll((err) => {
+                console.error("[messages] goal stream errored", err);
+                return Stream.empty;
+              }),
+            ),
+            (event) =>
+              Effect.sync(() => {
+                set((s) => ({
+                  goalBySession: {
+                    ...s.goalBySession,
+                    [sessionId]: event.goal,
+                  },
+                }));
+              }),
+          ),
+        );
+      }
     } catch (err) {
       set((s) => ({
         errorBySession: {
@@ -440,13 +504,16 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }));
     }
   },
-  send: async (sessionId, input) => {
+  send: async (sessionId, input, opts) => {
     // Optimistic — flip running to true before the server status arrives so
     // the composer's Send→Interrupt swap doesn't flash through "idle" while
     // the RPC round-trip happens.
     set((s) => ({
       errorBySession: { ...s.errorBySession, [sessionId]: null },
-      runningBySession: { ...s.runningBySession, [sessionId]: true },
+      runningBySession:
+        opts?.asGoal === true
+          ? s.runningBySession
+          : { ...s.runningBySession, [sessionId]: true },
     }));
     try {
       const client = await getRpcClient();
@@ -457,8 +524,18 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const modelOptions = readSessionModelOptions(sessionId);
       const payload =
         typeof input === "string"
-          ? { sessionId, text: input, ...(modelOptions !== null ? { modelOptions } : {}) }
-          : { sessionId, input, ...(modelOptions !== null ? { modelOptions } : {}) };
+          ? {
+              sessionId,
+              text: input,
+              asGoal: opts?.asGoal,
+              ...(modelOptions !== null ? { modelOptions } : {}),
+            }
+          : {
+              sessionId,
+              input,
+              asGoal: opts?.asGoal,
+              ...(modelOptions !== null ? { modelOptions } : {}),
+            };
       await Effect.runPromise(client.messages.send(payload));
       void useSessionsStore.getState().refreshOne(sessionId);
     } catch (err) {
@@ -471,6 +548,47 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
         runningBySession: { ...s.runningBySession, [sessionId]: false },
+      }));
+    }
+  },
+  setGoal: async (sessionId, goal) => {
+    try {
+      const client = await getRpcClient();
+      const next = await Effect.runPromise(
+        (client as unknown as GoalRpcClient).session["goal.set"]({
+          sessionId,
+          goal,
+        }),
+      );
+      set((s) => ({
+        goalBySession: { ...s.goalBySession, [sessionId]: next },
+      }));
+    } catch (err) {
+      set((s) => ({
+        errorBySession: {
+          ...s.errorBySession,
+          [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
+        },
+      }));
+    }
+  },
+  clearGoal: async (sessionId) => {
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        (client as unknown as GoalRpcClient).session["goal.clear"]({
+          sessionId,
+        }),
+      );
+      set((s) => ({
+        goalBySession: { ...s.goalBySession, [sessionId]: null },
+      }));
+    } catch (err) {
+      set((s) => ({
+        errorBySession: {
+          ...s.errorBySession,
+          [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
+        },
       }));
     }
   },
@@ -519,7 +637,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       queueBySession: {
         ...s.queueBySession,
         [sessionId]: (s.queueBySession[sessionId] ?? []).map((item) =>
-          item.id === queueId ? { ...item, input, updatedAt: new Date() } : item,
+          item.id === queueId
+            ? { ...item, input, updatedAt: new Date() }
+            : item,
         ),
       },
     }));

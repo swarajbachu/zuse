@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArchiveArrowUpIcon, ArchiveIcon, Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArchiveArrowUpIcon, ArchiveIcon } from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useMemo, useState } from "react";
 import { Effect } from "effect";
 

@@ -2,9 +2,9 @@ import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUp01Icon,
-  Cancel01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { X } from "lucide-react";
 import type React from "react";
 import { useMemo, useState } from "react";
 
@@ -42,7 +42,10 @@ interface DraftAnswer {
 
 const emptyDraft = (): DraftAnswer => ({ selected: [], other: "" });
 
-const isComplete = (questions: ReadonlyArray<UserQuestion>, drafts: ReadonlyArray<DraftAnswer>): boolean =>
+const isComplete = (
+  questions: ReadonlyArray<UserQuestion>,
+  drafts: ReadonlyArray<DraftAnswer>,
+): boolean =>
   questions.every((_q, i) => {
     const d = drafts[i];
     if (d === undefined) return false;
@@ -195,7 +198,7 @@ function InteractiveQuestionCard({
             );
           }}
         >
-          <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2} />
+          <X size={16} strokeWidth={1.8} />
         </button>
       </div>
 
@@ -312,7 +315,7 @@ function AnsweredQuestionCard({
   readonly answer: ReadonlyArray<UserQuestionAnswer>;
 }) {
   return (
-    <div className="rounded-2xl border border-border/70 bg-card/60 p-4 text-sm text-foreground/90">
+    <div className="rounded-lg border border-border/70 bg-card p-4 text-sm text-foreground/90">
       {questions.map((q, i) => {
         const a = answer.find((x) => x.questionIndex === i);
         const picks = (a?.selected ?? []).map(
@@ -325,7 +328,9 @@ function AnsweredQuestionCard({
             <div className="mt-0.5 text-foreground">
               {picks.length > 0 ? picks.join(", ") : null}
               {picks.length > 0 && other.length > 0 ? " · " : null}
-              {other.length > 0 ? <span className="italic">{other}</span> : null}
+              {other.length > 0 ? (
+                <span className="italic">{other}</span>
+              ) : null}
               {picks.length === 0 && other.length === 0 ? (
                 <span className="italic text-muted-foreground">
                   (cancelled)

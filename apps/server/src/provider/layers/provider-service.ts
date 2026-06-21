@@ -12,6 +12,7 @@ import {
   type PermissionDecision,
   type PermissionKind,
   type ProviderId,
+  type ThreadGoalSetInput,
 } from "@memoize/wire";
 
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
@@ -308,7 +309,7 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            // Phase B: resolve the per-workspace IndexService and bind the
+            // Phase B: resolve the per-worktree IndexService and bind the
             // five Tier-1 tools (code_search, symbol_lookup, find_references,
             // read_chunk, list_module) so the Claude SDK sees them alongside
             // ask_user_question. Branch defaults to "HEAD" — the manifest
@@ -318,7 +319,7 @@ export const ProviderServiceLive = Layer.effect(
             // Browser tools drive the renderer's shared `<webview>` through
             // the bridge. Bind `send` to this session id + the live runtime so
             // the SDK's async tool handlers stay free of Effect wiring (same
-            // shape as `buildIndexTools` binding the workspace handle).
+            // shape as `buildIndexTools` binding the worktree handle).
             const browserTools = buildBrowserTools((command) =>
               Runtime.runPromise(runtime)(
                 browserBridge.send(sessionId, command),
@@ -415,6 +416,24 @@ export const ProviderServiceLive = Layer.effect(
       answerQuestion: (sessionId, itemId, answers) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.answerQuestion(itemId, answers),
+        ),
+      getGoal: (sessionId) =>
+        Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
+          providerId === "codex"
+            ? (handle as CodexSessionHandle).getGoal()
+            : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+        ),
+      setGoal: (sessionId, goal: ThreadGoalSetInput) =>
+        Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
+          providerId === "codex"
+            ? (handle as CodexSessionHandle).setGoal(goal)
+            : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+        ),
+      clearGoal: (sessionId) =>
+        Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
+          providerId === "codex"
+            ? (handle as CodexSessionHandle).clearGoal()
+            : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
     };
   }),

@@ -78,6 +78,11 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
     description: "Write the open file to disk",
     group: "Editor",
   },
+  "editor.annotate": {
+    label: "Annotate selection",
+    description: "Pin a comment on the selected code and add it to the composer",
+    group: "Editor",
+  },
 };
 
 export const COMMANDS_IN_ORDER: ReadonlyArray<Command> = Object.keys(
@@ -116,6 +121,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+enter", command: "composer.forceSubmit" },
   { key: "shift+tab", command: "composer.togglePlanMode" },
   { key: "mod+s", command: "editor.save" },
+  { key: "mod+shift+a", command: "editor.annotate" },
 ];
 
 /**

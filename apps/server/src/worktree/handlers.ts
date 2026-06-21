@@ -1,5 +1,5 @@
 import { MemoizeRpcs } from "@memoize/wire";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Stream } from "effect";
 
 import { WorktreeService } from "./services/worktree-service.ts";
 
@@ -23,6 +23,14 @@ const RerunSetup = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(WorktreeService, (svc) => svc.rerunSetup(worktreeId)),
 );
 
+const SetupStream = MemoizeRpcs.toLayerHandler(
+  "worktree.setupStream",
+  ({ worktreeId }) =>
+    Stream.unwrap(
+      Effect.map(WorktreeService, (svc) => svc.setupStream(worktreeId)),
+    ),
+);
+
 const StartRun = MemoizeRpcs.toLayerHandler(
   "worktree.startRun",
   ({ worktreeId }) =>
@@ -40,6 +48,7 @@ export const WorktreeHandlersLayer = Layer.mergeAll(
   List,
   Get,
   RerunSetup,
+  SetupStream,
   StartRun,
   Remove,
 );

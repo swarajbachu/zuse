@@ -1,6 +1,6 @@
 import { Command, CommandExecutor, FileSystem } from "@effect/platform";
 import { SqlClient } from "@effect/sql";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 import { spawn } from "node:child_process";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
@@ -16,7 +16,10 @@ import {
   WorktreeId,
   WorktreeNotFoundError,
   WorktreeRemoveError,
+  WorktreeSetupChunk,
+  type WorktreeSetupEvent,
   WorktreeSetupError,
+  WorktreeSetupStatusEvent,
   type WorktreeSetupStatus,
 } from "@memoize/wire";
 
@@ -227,10 +230,13 @@ const runShellScript = ({
   script,
   cwd,
   env,
+  onData,
 }: {
   readonly script: string;
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
+  /** Fired on every stdout/stderr chunk with the full accumulated output. */
+  readonly onData?: (accumulated: string) => void;
 }): Promise<{ readonly exitCode: number | null; readonly output: string }> =>
   new Promise((resolve, reject) => {
     let output = "";
@@ -242,6 +248,7 @@ const runShellScript = ({
     });
     const append = (chunk: unknown) => {
       output = truncateOutput(output + String(chunk));
+      onData?.(output);
     };
     child.stdout?.on("data", append);
     child.stderr?.on("data", append);
@@ -302,6 +309,49 @@ export const WorktreeServiceLive = Layer.effect(
           ADD COLUMN setup_finished_at TEXT
       `.pipe(Effect.orDie);
     }
+
+    // Live setup-output fan-out. Each `setupStream` subscriber gets its own
+    // mailbox registered here; `runSetupFor` offers events to every mailbox
+    // for the worktree as setup progresses. Mirrors the pty subscriber model.
+    const subscribers = new Map<
+      string,
+      Set<Mailbox.Mailbox<WorktreeSetupEvent>>
+    >();
+    const emit = (worktreeId: WorktreeId, event: WorktreeSetupEvent): void => {
+      const set = subscribers.get(worktreeId);
+      if (set === undefined) return;
+      for (const mailbox of set) mailbox.unsafeOffer(event);
+    };
+    const TERMINAL_STATUSES = new Set<WorktreeSetupStatus>([
+      "succeeded",
+      "failed",
+      "skipped",
+    ]);
+    // Emit a status transition; on a terminal status, complete every
+    // subscriber's stream so renderers stop draining once setup is done.
+    const emitStatus = (
+      worktreeId: WorktreeId,
+      status: WorktreeSetupStatus,
+      setupStartedAt: Date | null,
+      setupFinishedAt: Date | null,
+    ): void => {
+      emit(
+        worktreeId,
+        WorktreeSetupStatusEvent.make({
+          worktreeId,
+          status,
+          setupStartedAt,
+          setupFinishedAt,
+        }),
+      );
+      if (TERMINAL_STATUSES.has(status)) {
+        const set = subscribers.get(worktreeId);
+        if (set !== undefined) {
+          for (const mailbox of set) mailbox.unsafeDone(Exit.void);
+          subscribers.delete(worktreeId);
+        }
+      }
+    };
 
     const collectText = (
       s: Stream.Stream<
@@ -439,11 +489,15 @@ export const WorktreeServiceLive = Layer.effect(
         // because the network/remote is unavailable.
         let baseRef = "HEAD";
         if (baseBranch !== "HEAD") {
+          // Time-box the fetch: a slow or offline remote must never stall
+          // worktree creation. On timeout we fall through to local `HEAD`
+          // exactly like any other fetch failure.
           const fetched = yield* runGit(repoPath, [
             "fetch",
             "origin",
             baseBranch,
           ]).pipe(
+            Effect.timeout("3 seconds"),
             Effect.map(() => true),
             Effect.catchAll(() => Effect.succeed(false)),
           );
@@ -573,10 +627,13 @@ export const WorktreeServiceLive = Layer.effect(
                'pending', '', ${pokemon.number})
           `.pipe(Effect.orDie);
           yield* pokemonService.recordUnlock(pokemon.number, id);
-          const prepared = yield* runSetupFor(id).pipe(
-            Effect.catchAll(() => get(id).pipe(Effect.map((wt) => wt!))),
-          );
-          return prepared;
+          // Setup runs detached so `create` returns as soon as the worktree +
+          // branch exist. The renderer subscribes to `setupStream` to follow
+          // setup live; the row starts `pending` and flips to `running` once
+          // the forked setup begins.
+          const created = (yield* get(id))!;
+          yield* Effect.forkDaemon(runSetupSafely(id));
+          return created;
         }
         return yield* Effect.fail(
           new WorktreeCreateError({
@@ -742,7 +799,8 @@ export const WorktreeServiceLive = Layer.effect(
         }
         const settings = yield* repositorySettings.get(worktree.projectId);
         const script = settings.setupScript?.trim() ?? "";
-        const startedAt = new Date().toISOString();
+        const startedAtDate = new Date();
+        const startedAt = startedAtDate.toISOString();
         yield* sql`
           UPDATE worktrees
           SET setup_status = 'running',
@@ -751,6 +809,7 @@ export const WorktreeServiceLive = Layer.effect(
               setup_finished_at = NULL
           WHERE id = ${worktreeId}
         `.pipe(Effect.orDie);
+        emitStatus(worktreeId, "running", startedAtDate, null);
 
         const prep = yield* Effect.tryPromise({
           try: () => prepareLocalFiles(folder.path, worktree.path),
@@ -761,8 +820,18 @@ export const WorktreeServiceLive = Layer.effect(
             }),
         });
 
+        // Surface the prepareLocalFiles output immediately so the card isn't
+        // blank while the (possibly long) script runs.
+        if (prep.length > 0) {
+          emit(
+            worktreeId,
+            WorktreeSetupChunk.make({ worktreeId, output: prep }),
+          );
+        }
+
         if (script.length === 0) {
-          const finishedAt = new Date().toISOString();
+          const finishedAtDate = new Date();
+          const finishedAt = finishedAtDate.toISOString();
           yield* sql`
             UPDATE worktrees
             SET setup_status = 'skipped',
@@ -770,6 +839,7 @@ export const WorktreeServiceLive = Layer.effect(
                 setup_finished_at = ${finishedAt}
             WHERE id = ${worktreeId}
           `.pipe(Effect.orDie);
+          emitStatus(worktreeId, "skipped", startedAtDate, finishedAtDate);
           return (yield* get(worktreeId))!;
         }
 
@@ -783,6 +853,14 @@ export const WorktreeServiceLive = Layer.effect(
                 worktree,
                 settings.environmentVariables,
               ),
+              onData: (acc) =>
+                emit(
+                  worktreeId,
+                  WorktreeSetupChunk.make({
+                    worktreeId,
+                    output: truncateOutput(`${prep}${acc}`),
+                  }),
+                ),
             }),
           catch: (err) =>
             new WorktreeSetupError({
@@ -790,7 +868,8 @@ export const WorktreeServiceLive = Layer.effect(
               reason: err instanceof Error ? err.message : String(err),
             }),
         });
-        const finishedAt = new Date().toISOString();
+        const finishedAtDate = new Date();
+        const finishedAt = finishedAtDate.toISOString();
         const status = result.exitCode === 0 ? "succeeded" : "failed";
         const output = truncateOutput(`${prep}${result.output}`);
         yield* sql`
@@ -800,12 +879,93 @@ export const WorktreeServiceLive = Layer.effect(
               setup_finished_at = ${finishedAt}
           WHERE id = ${worktreeId}
         `.pipe(Effect.orDie);
+        emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output }));
+        emitStatus(worktreeId, status, startedAtDate, finishedAtDate);
         return (yield* get(worktreeId))!;
       });
     }
 
+    /**
+     * Run setup and guarantee a terminal status is always persisted + emitted
+     * — even when setup throws — so a `setupStream` never hangs in `running`.
+     */
+    const runSetupSafely = (
+      worktreeId: WorktreeId,
+    ): Effect.Effect<void> =>
+      runSetupFor(worktreeId).pipe(
+        Effect.asVoid,
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            const finishedAt = new Date();
+            yield* sql`
+              UPDATE worktrees
+              SET setup_status = 'failed',
+                  setup_finished_at = ${finishedAt.toISOString()}
+              WHERE id = ${worktreeId}
+            `.pipe(Effect.orDie);
+            emitStatus(worktreeId, "failed", null, finishedAt);
+            yield* Effect.logError(
+              `worktree setup failed for ${worktreeId}: ${String(err)}`,
+            );
+          }),
+        ),
+      );
+
     const rerunSetup: WorktreeService["Type"]["rerunSetup"] = (worktreeId) =>
-      runSetupFor(worktreeId);
+      Effect.gen(function* () {
+        const wt = yield* get(worktreeId);
+        if (wt === null) {
+          return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
+        }
+        // Same non-blocking model as `create`: kick off setup detached and
+        // return immediately; the renderer follows via `setupStream`.
+        yield* Effect.forkDaemon(runSetupSafely(worktreeId));
+        return wt;
+      });
+
+    const setupStream: WorktreeService["Type"]["setupStream"] = (worktreeId) =>
+      Stream.unwrapScoped(
+        Effect.gen(function* () {
+          const wt = yield* get(worktreeId);
+          if (wt === null) {
+            return Stream.fail(new WorktreeNotFoundError({ worktreeId }));
+          }
+          const mailbox = yield* Mailbox.make<WorktreeSetupEvent>();
+          const set = subscribers.get(worktreeId) ?? new Set();
+          set.add(mailbox);
+          subscribers.set(worktreeId, set);
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              const s = subscribers.get(worktreeId);
+              if (s === undefined) return;
+              s.delete(mailbox);
+              if (s.size === 0) subscribers.delete(worktreeId);
+            }),
+          );
+          // Seed the current snapshot so a late subscriber (after a fast setup
+          // already finished) still sees the latest output + terminal status.
+          mailbox.unsafeOffer(
+            WorktreeSetupChunk.make({
+              worktreeId,
+              output: wt.setupOutput,
+            }),
+          );
+          mailbox.unsafeOffer(
+            WorktreeSetupStatusEvent.make({
+              worktreeId,
+              status: wt.setupStatus,
+              setupStartedAt: wt.setupStartedAt,
+              setupFinishedAt: wt.setupFinishedAt,
+            }),
+          );
+          // If setup already finished, complete immediately — no live events
+          // are coming, so don't leave the renderer's stream hanging open.
+          if (TERMINAL_STATUSES.has(wt.setupStatus)) {
+            mailbox.unsafeDone(Exit.void);
+          }
+          return Mailbox.toStream(mailbox);
+        }),
+      );
 
     const startRun: WorktreeService["Type"]["startRun"] = (worktreeId) =>
       Effect.gen(function* () {
@@ -844,6 +1004,7 @@ export const WorktreeServiceLive = Layer.effect(
       remove,
       restore,
       rerunSetup,
+      setupStream,
       startRun,
     } as const;
   }),

@@ -99,7 +99,7 @@ apps/
   desktop/     Electron shell
   renderer/    React UI (Vite)
   server/      All backend logic — Effect Layers
-  docs/        Next.js docs site
+  web/         Next.js marketing site
 packages/
   wire/        @memoize/wire — typed RPC contracts + branded IDs
   ui/          Shared React components

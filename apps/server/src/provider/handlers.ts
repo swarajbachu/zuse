@@ -337,9 +337,33 @@ const SessionStreamStatus = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const SessionGoalGet = MemoizeRpcs.toLayerHandler(
+  "session.goal.get",
+  ({ sessionId }) =>
+    Effect.flatMap(MessageStore, (svc) => svc.getGoal(sessionId)),
+);
+
+const SessionGoalSet = MemoizeRpcs.toLayerHandler(
+  "session.goal.set",
+  ({ sessionId, goal }) =>
+    Effect.flatMap(MessageStore, (svc) => svc.setGoal(sessionId, goal)),
+);
+
+const SessionGoalClear = MemoizeRpcs.toLayerHandler(
+  "session.goal.clear",
+  ({ sessionId }) =>
+    Effect.flatMap(MessageStore, (svc) => svc.clearGoal(sessionId)),
+);
+
+const SessionGoalStream = MemoizeRpcs.toLayerHandler(
+  "session.goal.stream",
+  ({ sessionId }) =>
+    Stream.unwrap(Effect.map(MessageStore, (svc) => svc.streamGoal(sessionId))),
+);
+
 const MessagesSend = MemoizeRpcs.toLayerHandler(
   "messages.send",
-  ({ sessionId, text, input }) => {
+  ({ sessionId, text, input, asGoal }) => {
     console.log(
       `[rpc.messages.send] sessionId=${sessionId} hasInput=${input !== undefined} attachments=${
         input?.attachments?.length ?? 0
@@ -359,6 +383,8 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
         input?.attachments,
         input?.fileRefs,
         input?.skillRefs,
+        input?.annotations,
+        asGoal,
       ),
     );
   },
@@ -556,6 +582,10 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionAnswerQuestion,
   SessionSetWorktree,
   SessionStreamStatus,
+  SessionGoalGet,
+  SessionGoalSet,
+  SessionGoalClear,
+  SessionGoalStream,
   MessagesList,
   MessagesStream,
   MessagesSend,

@@ -1,4 +1,4 @@
-import { GitBranchIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { GitBranchIcon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { cn } from "~/lib/utils";
@@ -56,7 +56,6 @@ export function BranchIcon({
   return (
     <HugeiconsIcon
       icon={GitBranchIcon}
-      strokeWidth={2}
       className={cn(
         "size-3.5 shrink-0 transition-colors",
         selected ? color.selected : color.idle,

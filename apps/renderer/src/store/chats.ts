@@ -39,7 +39,7 @@ type ChatsState = {
   readonly showArchivedByProject: Record<string, boolean>;
   readonly loadingByProject: Record<string, boolean>;
   /** Per-project in-flight flag for `create()`. Drives the sidebar
-   * "New chat" button's icon swap (SquarePen → Diffusion). */
+   * "New chat" button's icon swap (SquarePen → Spinner). */
   readonly creatingByProject: Record<string, boolean>;
   readonly error: string | null;
   readonly hydrate: (projectId: FolderId) => Promise<void>;
@@ -57,7 +57,13 @@ type ChatsState = {
       readonly permissionMode?: PermissionMode;
       readonly toolSearch?: boolean;
     },
-  ) => Promise<ChatId | null>;
+  ) => Promise<
+    | {
+        readonly chatId: ChatId;
+        readonly initialSessionId: SessionId;
+      }
+    | null
+  >;
   readonly rename: (chatId: ChatId, title: string) => Promise<void>;
   readonly setWorktree: (
     chatId: ChatId,
@@ -259,7 +265,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
           },
         };
       });
-      return chat.id;
+      return { chatId: chat.id, initialSessionId: initialSession.id };
     } catch (err) {
       set((s) => ({
         error: formatError(err),

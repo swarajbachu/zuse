@@ -43,13 +43,44 @@ export const SkillRef = Schema.Struct({
 export type SkillRef = typeof SkillRef.Type;
 
 /**
+ * A region of code the user pinned with a comment. Created by selecting one or
+ * more lines in the file editor / diff view and typing a note; annotations
+ * stack into a tray above the composer and travel with the submission. Unlike
+ * `FileRef`, no code snippet crosses the wire — `relPath` + the line range
+ * already pinpoints the region and the agent reads the file itself. The server
+ * serialises these into a numbered list appended to the prompt text.
+ */
+export const CodeAnnotation = Schema.Struct({
+  /** Client-generated v4 UUID — list keys + removal. */
+  id: Schema.String,
+  /**
+   * Workspace-rooted path, for display + the model (the agent's cwd is the
+   * workspace root, so a relative path resolves). For files outside any
+   * project folder this holds the absolute path instead.
+   */
+  relPath: Schema.String,
+  /** Absolute path used by renderer affordances that can reopen the target. */
+  absPath: Schema.String,
+  /** 1-based, inclusive. `startLine === endLine` for a single line. */
+  startLine: Schema.Number,
+  endLine: Schema.Number,
+  comment: Schema.String,
+});
+export type CodeAnnotation = typeof CodeAnnotation.Type;
+
+/**
  * The full payload of a single composer submission. `text` is the editor
  * document with `@` / `/` tokens preserved as plain text; the typed arrays
  * give the server enough metadata to expand each segment without re-parsing.
  */
-export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")({
-  text: Schema.String,
-  attachments: Schema.Array(AttachmentRef),
-  fileRefs: Schema.Array(FileRef),
-  skillRefs: Schema.Array(SkillRef),
-}) {}
+export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
+  {
+    text: Schema.String,
+    attachments: Schema.Array(AttachmentRef),
+    fileRefs: Schema.Array(FileRef),
+    skillRefs: Schema.Array(SkillRef),
+    annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+      default: () => [],
+    }),
+  },
+) {}

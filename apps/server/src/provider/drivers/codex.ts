@@ -16,6 +16,9 @@ import {
   type PermissionMode,
   type SkillRef,
   type StartSessionInput,
+  ThreadGoal,
+  type ThreadGoalSetInput,
+  type ThreadGoalStatus,
   type UserQuestionAnswer,
 } from "@memoize/wire";
 
@@ -25,6 +28,9 @@ import { CodexAppServerClient } from "../codex-app-server-client.ts";
 import type { ServerNotification } from "../codex-app-protocol/ServerNotification";
 import type { ServerRequest } from "../codex-app-protocol/ServerRequest";
 import type { SandboxPolicy } from "../codex-app-protocol/v2/SandboxPolicy";
+import type { Model } from "../codex-app-protocol/v2/Model";
+import type { ModelListResponse } from "../codex-app-protocol/v2/ModelListResponse";
+import type { ThreadGoal as CodexThreadGoal } from "../codex-app-protocol/v2/ThreadGoal";
 import type { ThreadItem } from "../codex-app-protocol/v2/ThreadItem";
 import type { UserInput } from "../codex-app-protocol/v2/UserInput";
 
@@ -115,6 +121,9 @@ export interface CodexSessionHandle {
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
   ) => Effect.Effect<void>;
+  readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
+  readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+  readonly clearGoal: () => Effect.Effect<void>;
 }
 
 let itemCounter = 0;
@@ -133,6 +142,80 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.length > 0 ? value : null;
+
+const normalizeGoalStatus = (status: string): ThreadGoalStatus => {
+  switch (status) {
+    case "active":
+    case "paused":
+    case "budgetLimited":
+    case "usageLimited":
+    case "blocked":
+    case "complete":
+      return status;
+    case "budget_limited":
+      return "budgetLimited";
+    case "usage_limited":
+      return "usageLimited";
+    default:
+      return "blocked";
+  }
+};
+
+const normalizeThreadGoal = (goal: CodexThreadGoal | ThreadGoal): ThreadGoal =>
+  ThreadGoal.make({
+    threadId: goal.threadId,
+    objective: goal.objective,
+    status: normalizeGoalStatus(goal.status),
+    tokenBudget: goal.tokenBudget,
+    tokensUsed: goal.tokensUsed,
+    timeUsedSeconds: goal.timeUsedSeconds,
+    createdAt: goal.createdAt,
+    updatedAt: goal.updatedAt,
+  });
+
+const goalFromResponse = (value: unknown): CodexThreadGoal | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const nested = record["goal"];
+  if (nested === null) return null;
+  if (nested !== undefined && typeof nested === "object") {
+    return nested as CodexThreadGoal;
+  }
+  return value as CodexThreadGoal;
+};
+
+/**
+ * Whether a model advertises a "fast" service tier. Codex exposes speed tiers
+ * via `serviceTiers` (current) and `additionalSpeedTiers` (deprecated); we
+ * match either id/name containing "fast" so we stay robust to label changes.
+ */
+const modelAdvertisesFastTier = (model: Model): boolean =>
+  [
+    ...model.serviceTiers.flatMap((tier) => [tier.id, tier.name]),
+    ...model.additionalSpeedTiers,
+  ].some((label) => label.toLowerCase().includes("fast"));
+
+/**
+ * Whether the model a session resolved to advertises a fast service tier,
+ * from the live `model/list`. Returns `null` when the model isn't in the
+ * catalog (unknown — caller should trust the pre-session FE gate rather than
+ * block). The version floor + static model catalog gate the FE *control*; this
+ * is the authoritative per-model confirmation enforced at turn time.
+ */
+const probeModelFastTier = async (
+  app: CodexAppServerClient,
+  activeModel: string | null,
+): Promise<boolean | null> => {
+  const response = await app.request<ModelListResponse>("model/list", {
+    includeHidden: true,
+  });
+  const model =
+    response.data.find(
+      (entry) => entry.id === activeModel || entry.model === activeModel,
+    ) ?? response.data.find((entry) => entry.isDefault);
+  return model === undefined ? null : modelAdvertisesFastTier(model);
+};
 
 const toolIdentifierPart = (value: string): string =>
   value.replace(/[^A-Za-z0-9_]/g, "_");
@@ -347,6 +430,16 @@ const decisionToCodex = (
       ? "accept"
       : "decline";
 
+const codexResetDate = (value: number | null): string | null => {
+  if (value === null || !Number.isFinite(value)) return null;
+  return new Date(
+    value > 1_000_000_000_000 ? value : value * 1000,
+  ).toISOString();
+};
+
+const codexLimitLabel = (value: string | null): string =>
+  value !== null && value.trim().length > 0 ? value.trim() : "Codex usage";
+
 interface CodexToolTranslationLogger {
   readonly path: string;
   readonly append: (
@@ -539,6 +632,44 @@ export const translateCodexItem = (
   }
 };
 
+export const translateCodexStatusNotification = (
+  notification: ServerNotification,
+  activeThreadId: string | null,
+): ReadonlyArray<AgentEvent> | null => {
+  switch (notification.method) {
+    case "thread/tokenUsage/updated":
+      if (notification.params.threadId !== activeThreadId) return [];
+      return [
+        {
+          _tag: "ContextUsage",
+          providerId: "codex",
+          usedTokens: notification.params.tokenUsage.total.totalTokens,
+          windowTokens:
+            notification.params.tokenUsage.modelContextWindow ?? null,
+          precision: "exact",
+          source: "Codex app-server",
+        },
+      ];
+    case "account/rateLimits/updated": {
+      const limits = notification.params.rateLimits;
+      const primary = limits.primary;
+      if (primary === null) return [];
+      return [
+        {
+          _tag: "UsageLimit",
+          providerId: "codex",
+          label: codexLimitLabel(limits.limitName),
+          usedPercent: primary.usedPercent,
+          resetsAt: codexResetDate(primary.resetsAt),
+          windowMinutes: primary.windowDurationMins,
+        },
+      ];
+    }
+    default:
+      return null;
+  }
+};
+
 export const startCodexSession = (
   input: StartSessionInput,
   cwd: string,
@@ -562,6 +693,12 @@ export const startCodexSession = (
     let latestDiff = "";
     let closed = false;
     let pending: Promise<void> = Promise.resolve();
+    // Runtime fast-tier gate for the model this session resolved to, from the
+    // live `model/list` `serviceTiers`. `null` = unknown (probe not done /
+    // failed) → trust the FE gate; `true`/`false` = the model definitively
+    // does / does not advertise a fast tier. Only a definitive `false` blocks
+    // the `serviceTier: "fast"` request in `runTurn`.
+    let modelFastTier: boolean | null = null;
 
     type QuestionWaiter = {
       readonly questionIds: ReadonlyArray<string>;
@@ -636,6 +773,27 @@ export const startCodexSession = (
         cursor: activeThreadId,
         strategy: "codex-thread-id",
       });
+      try {
+        const currentGoal = await app.request<unknown>("thread/goal/get", {
+          threadId: activeThreadId,
+        });
+        const goal = goalFromResponse(currentGoal);
+        if (goal !== null) {
+          emit({ _tag: "GoalUpdated", goal: normalizeThreadGoal(goal) });
+        }
+      } catch (cause) {
+        console.warn("[codex] goal hydration failed", cause);
+      }
+      // Runtime fast-mode confirmation: the version floor (AgentAvailability
+      // `capabilities`) + the static model catalog decide whether the FE
+      // *shows* the fast toggle; the live `model/list` `serviceTiers` are the
+      // authoritative per-model gate enforced at turn time (see `runTurn`).
+      // Best-effort — a failure leaves `modelFastTier` null (trust the FE).
+      try {
+        modelFastTier = await probeModelFastTier(app, input.model ?? null);
+      } catch (cause) {
+        console.warn("[codex] fast-tier probe failed", cause);
+      }
     };
 
     yield* Effect.tryPromise({
@@ -737,6 +895,21 @@ export const startCodexSession = (
         reasoning === "low" || reasoning === "medium" || reasoning === "high"
           ? reasoning
           : null;
+      // Fast mode: the `fastMode` per-model boolean knob maps onto Codex's
+      // `serviceTier: "fast"` (the 1.5× speed tier). The FE only shows the
+      // toggle when the CLI version + static model catalog allow it; the live
+      // `model/list` `serviceTiers` are the authoritative per-model gate, so we
+      // drop the field (and tell the user) when the resolved model definitively
+      // lacks a fast tier. `modelFastTier === null` (unknown) trusts the FE.
+      const fastModeRequested = input.modelOptions?.["fastMode"] === "true";
+      const fastMode = fastModeRequested && modelFastTier !== false;
+      if (fastModeRequested && modelFastTier === false) {
+        emit({
+          _tag: "AssistantMessage",
+          itemId: nextItemId(),
+          text: "Fast mode isn't available for this model — running at the standard tier.",
+        });
+      }
       const turn = await app.request<{ turn: { id: string } }>("turn/start", {
         threadId: activeThreadId,
         input: [
@@ -752,6 +925,7 @@ export const startCodexSession = (
         sandboxPolicy: toSandboxPolicy(currentMode, cwd),
         model: input.model ?? null,
         ...(effort !== null ? { effort } : {}),
+        ...(fastMode ? { serviceTier: "fast" } : {}),
       });
       currentTurnId = turn.turn.id;
     };
@@ -951,6 +1125,12 @@ export const startCodexSession = (
     function translateNotification(
       notification: ServerNotification,
     ): ReadonlyArray<AgentEvent> {
+      const statusEvents = translateCodexStatusNotification(
+        notification,
+        activeThreadId,
+      );
+      if (statusEvents !== null) return statusEvents;
+
       switch (notification.method) {
         case "thread/started":
           activeThreadId = notification.params.thread.id;
@@ -974,6 +1154,17 @@ export const startCodexSession = (
             latestDiff = notification.params.diff;
           }
           return [];
+        case "thread/goal/updated":
+          if (notification.params.threadId !== activeThreadId) return [];
+          return [
+            {
+              _tag: "GoalUpdated",
+              goal: normalizeThreadGoal(notification.params.goal),
+            },
+          ];
+        case "thread/goal/cleared":
+          if (notification.params.threadId !== activeThreadId) return [];
+          return [{ _tag: "GoalCleared" }];
         case "item/started":
           if (notification.params.threadId !== activeThreadId) return [];
           {
@@ -1196,6 +1387,46 @@ export const startCodexSession = (
           if (waiter === undefined) return;
           questionWaiters.delete(itemId);
           waiter.resolve(answers);
+        }),
+      getGoal: () =>
+        Effect.promise(async () => {
+          if (activeThreadId === null) return null;
+          const response = await app.request<unknown>("thread/goal/get", {
+            threadId: activeThreadId,
+          });
+          const goal = goalFromResponse(response);
+          return goal === null ? null : normalizeThreadGoal(goal);
+        }),
+      setGoal: (goalInput) =>
+        Effect.promise(async () => {
+          if (activeThreadId === null) {
+            throw new Error("Codex thread is not ready for goals.");
+          }
+          const response = await app.request<unknown>("thread/goal/set", {
+            threadId: activeThreadId,
+            ...(goalInput.objective !== undefined
+              ? { objective: goalInput.objective }
+              : {}),
+            ...(goalInput.status !== undefined
+              ? { status: goalInput.status }
+              : {}),
+            ...(goalInput.tokenBudget !== undefined
+              ? { tokenBudget: goalInput.tokenBudget }
+              : {}),
+          });
+          const responseGoal = goalFromResponse(response);
+          if (responseGoal === null) {
+            throw new Error("Codex did not return a goal.");
+          }
+          const normalized = normalizeThreadGoal(responseGoal);
+          emit({ _tag: "GoalUpdated", goal: normalized });
+          return normalized;
+        }),
+      clearGoal: () =>
+        Effect.promise(async () => {
+          if (activeThreadId === null) return;
+          await app.request("thread/goal/clear", { threadId: activeThreadId });
+          emit({ _tag: "GoalCleared" });
         }),
     };
   });

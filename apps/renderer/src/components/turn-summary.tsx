@@ -1,4 +1,9 @@
-import { ArrowDown01Icon, ArrowRight01Icon, BubbleChatIcon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  BubbleChatIcon,
+  Wrench01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 
@@ -159,7 +164,10 @@ export function TurnSummary({
           mutedWhenOpen,
         )}
       >
-        <HugeiconsIcon icon={chevron} className="size-3.5 shrink-0 opacity-70" />
+        <HugeiconsIcon
+          icon={chevron}
+          className="size-3.5 shrink-0 opacity-70"
+        />
         <span className="flex items-center gap-1.5">
           <HugeiconsIcon
             icon={Wrench01Icon}
@@ -250,15 +258,12 @@ export function TurnSummary({
           />
         ) : null}
         {fileStats.map((f) => (
-          <span key={f.path} className="flex items-center gap-1.5 tabular-nums">
-            <FileBadge path={f.path} />
-            {f.added > 0 ? (
-              <span className="text-emerald-400/80">+{f.added}</span>
-            ) : null}
-            {f.removed > 0 ? (
-              <span className="text-red-400/80">-{f.removed}</span>
-            ) : null}
-          </span>
+          <FileBadge
+            key={f.path}
+            path={f.path}
+            view="diff"
+            diffStats={{ added: f.added, removed: f.removed }}
+          />
         ))}
       </div>
     </div>

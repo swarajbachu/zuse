@@ -9,7 +9,6 @@ import {
 } from "react-resizable-panels";
 
 import { ChatComposer } from "./components/chat-composer";
-import { ChatCreatingPanel } from "./components/chat-creating-panel.tsx";
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
@@ -33,7 +32,6 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
 import { useProvidersStore } from "./store/providers.ts";
-import { useChatsStore } from "./store/chats.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { hydrateSubagentsStore } from "./store/subagents.ts";
@@ -124,7 +122,7 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
-        <div className="dark relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background/40 text-foreground">
+        <div className="dark relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
         </div>
       </TooltipProvider>
@@ -134,7 +132,7 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
-        <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background/70 text-foreground">
+        <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
         </div>
       </TooltipProvider>
@@ -169,39 +167,6 @@ function MainShell() {
   const selectedFolder = selectedFolderId
     ? (folders.find((f) => f.id === selectedFolderId) ?? null)
     : null;
-  // Chat-creation in flight for the selected project — drives the
-  // step-progress overlay so both the sidebar "+" button and the
-  // ChatLanding submit get the same multi-second feedback panel instead
-  // of a stale chat view + a tiny spinner on the + icon.
-  const creatingChat = useChatsStore((s) =>
-    selectedFolderId !== null
-      ? s.creatingByProject[selectedFolderId] === true
-      : false,
-  );
-  // Active chat = the chat owning the selected session (if any), else the
-  // sidebar's selected chat. Mirrors `MainTabs.activeChatId` so the
-  // booting-session loading panel and the tab strip stay in lockstep when
-  // the chats store is mid-transition.
-  const selectedChatId = useChatsStore((s) => s.selectedChatId);
-  const activeChatId = selectedSession?.chatId ?? selectedChatId ?? null;
-  // Mirror `NewChatTabButton.creating` so the chat surface flips to the
-  // loading panel the moment the user clicks "+", even before the
-  // optimistic session row lands (~200ms RPC). Once the new row is
-  // inserted with status="booting", `creatingForActiveChat` clears and
-  // the booting check below carries the panel through the provider boot.
-  const creatingForActiveChat = useSessionsStore((s) =>
-    activeChatId !== null ? s.creatingByChat[activeChatId] === true : false,
-  );
-  const selectedSessionBooting = selectedSession?.status === "booting";
-  const showSessionBootingPanel =
-    !creatingChat && (selectedSessionBooting || creatingForActiveChat);
-  const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
-  const defaultAutoCreateWorktree = useSettingsStore(
-    (s) => s.defaultAutoCreateWorktree,
-  );
-  // Provider label for the session-boot panel — falls back to the user's
-  // default when no session is selected yet (the brief click → RPC window).
-  const bootingProviderId = selectedSession?.providerId ?? defaultProviderId;
 
   const activeMainTab = useUiStore((s) => s.activeMainTab);
   const openFile = useUiStore((s) => s.openFile);
@@ -263,6 +228,13 @@ function MainShell() {
     ? selectedFolder.name
     : "no project selected";
 
+  // The empty new-chat landing reads as a clean, chrome-free surface: no top
+  // bar, no tab strip — just the centered composer. Keep the chrome whenever a
+  // session/file is open, or when the left panel is collapsed (so the user
+  // always has a way back to the projects panel + the window drag region).
+  const showMainChrome =
+    selectedSessionId !== null || openFile !== null || !leftSidebarOpen;
+
   // Persist the three-pane layout in localStorage so widths survive reloads.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: PANEL_GROUP_ID,
@@ -312,7 +284,7 @@ function MainShell() {
             if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-background/20">
+          <div className="flex h-full min-h-0 flex-col bg-background">
             <TopBarLeft />
             <div className="flex min-h-0 flex-1 flex-col">
               <ProjectsSidebar />
@@ -321,48 +293,24 @@ function MainShell() {
         </Panel>
         <Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />
         <Panel id="main" minSize="30%">
-          <main className="flex h-full min-h-0 min-w-0 flex-col bg-background/70 backdrop-blur-3xl">
-            <TopBarMain />
+          <main className="flex h-full min-h-0 min-w-0 flex-col bg-background">
+            {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
             <IndexProgressBanner />
-            <MainTabs projectId={selectedFolderId} emptyLabel={emptyTabLabel} />
+            {showMainChrome ? (
+              <MainTabs projectId={selectedFolderId} emptyLabel={emptyTabLabel} />
+            ) : null}
             <div
               hidden={activeMainTab !== "chat"}
               className="flex min-h-0 flex-1 flex-col"
             >
-              {creatingChat ? (
-                <div className="flex min-h-0 flex-1 flex-col px-8 py-6">
-                  <p className="mb-4 text-[13px] leading-snug text-foreground/85">
-                    {selectedFolder ? (
-                      <>
-                        You're starting a new chat in{" "}
-                        <code className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[12px] text-foreground/90">
-                          {selectedFolder.name}
-                        </code>
-                      </>
-                    ) : (
-                      "You're starting a new chat"
-                    )}
-                  </p>
-                  <ChatCreatingPanel
-                    providerId={defaultProviderId}
-                    willCreateWorktree={defaultAutoCreateWorktree}
-                    prompt=""
-                  />
-                </div>
-              ) : showSessionBootingPanel ? (
-                <div className="flex min-h-0 flex-1 flex-col px-8 py-6">
-                  <p className="mb-4 text-[13px] leading-snug text-foreground/85">
-                    Starting a new tab in this chat
-                  </p>
-                  <ChatCreatingPanel
-                    providerId={bootingProviderId}
-                    willCreateWorktree={false}
-                    prompt=""
-                  />
-                </div>
-              ) : selectedSessionId !== null && selectedSession !== null ? (
+              {selectedSessionId !== null && selectedSession !== null ? (
+                // Render the chat as soon as the session exists — even while
+                // its worktree is still branching or the provider is booting.
+                // All that progress is surfaced inline by `WorktreeSetupCard`
+                // at the top of the timeline, with the composer pinned at the
+                // bottom (no full-screen takeover).
                 <>
                   <ChatView sessionId={selectedSessionId} />
                   <CostFooter sessionId={selectedSessionId} />
@@ -404,12 +352,17 @@ function MainShell() {
           collapsible
           collapsedSize="0%"
           panelRef={rightPanelRef}
-          onResize={(size) => {
+          onResize={(size, _id, prev) => {
+            // Ignore the initial mount call (prev === undefined). The right
+            // dock defaults to closed (`rightSidebarOpen: false`); the
+            // persisted/default panel width would otherwise fire here and
+            // flip the sidebar open before the collapse effect runs.
+            if (prev === undefined) return;
             const open = size.asPercentage > 0;
             if (open !== rightSidebarOpen) setRightSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-sidebar/40 backdrop-blur-3xl">
+          <div className="flex h-full min-h-0 flex-col bg-sidebar">
             <TopBarRight />
             <div className="flex min-h-0 flex-1 flex-col">
               <RightPane />

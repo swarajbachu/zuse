@@ -1,9 +1,10 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon, Cancel01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
 import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
+import { X } from "lucide-react";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group";
@@ -194,7 +195,7 @@ export function DrawerPopup({
                   "before:rounded-s-[calc(var(--radius-2xl)-1px)]",
               ),
             variant === "inset" &&
-              "before:hidden sm:rounded-2xl sm:border sm:after:bg-transparent sm:before:rounded-[calc(var(--radius-2xl)-1px)] sm:**:data-[slot=drawer-footer]:rounded-b-[calc(var(--radius-2xl)-1px)]",
+              "before:hidden sm:rounded-lg sm:border sm:border-border/70 sm:after:bg-transparent sm:before:rounded-[calc(var(--radius-lg)-1px)] sm:**:data-[slot=drawer-footer]:rounded-b-[calc(var(--radius-lg)-1px)]",
             variant === "straight" && "[--stack-step:0]",
             (position === "bottom" || position === "top") &&
               "h-(--drawer-height,auto) [--height:max(0px,calc(var(--drawer-frontmost-height,var(--drawer-height))))] data-nested-drawer-open:h-(--height)",
@@ -218,7 +219,7 @@ export function DrawerPopup({
               className="absolute end-2 top-2"
               render={<Button size="icon" variant="ghost" />}
             >
-              <HugeiconsIcon icon={Cancel01Icon} />
+              <X />
             </DrawerPrimitive.Close>
           )}
           {showBar && <DrawerBar />}
@@ -267,7 +268,7 @@ export function DrawerFooter({
       "flex flex-col-reverse gap-2 px-6 pb-(--safe-area-inset-bottom,0px) sm:flex-row sm:justify-end",
       !allowSelection && "cursor-default",
       variant === "default" &&
-        "border-t bg-muted/72 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]",
+        "border-t border-border/60 bg-muted pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(4))]",
       variant === "bare" &&
         "in-[[data-slot=drawer-popup]:has([data-slot=drawer-panel])]:pt-3 pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+--spacing(6))]",
       className,
@@ -499,7 +500,10 @@ export function DrawerMenuTrigger({
       {...props}
     >
       {children}
-      <HugeiconsIcon icon={ArrowRight01Icon} className="ms-auto -me-0.5 opacity-80" />
+      <HugeiconsIcon
+        icon={ArrowRight01Icon}
+        className="ms-auto -me-0.5 opacity-80"
+      />
     </DrawerTrigger>
   );
 }

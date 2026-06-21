@@ -297,8 +297,7 @@ function DiffRow({ line }: { line: DiffLine }) {
       : line.kind === "del"
         ? "bg-red-500/10"
         : "";
-  const marker =
-    line.kind === "add" ? "+" : line.kind === "del" ? "-" : " ";
+  const marker = line.kind === "add" ? "+" : line.kind === "del" ? "-" : " ";
   const markerColor =
     line.kind === "add"
       ? "text-emerald-400"
@@ -375,7 +374,7 @@ export function UnifiedPatchDiff({
   return (
     <div className="overflow-hidden rounded-md border border-border/60">
       {showHeader ? (
-        <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2 py-1 text-[11px] text-muted-foreground">
           <FileIcon
             name={name}
             kind="file"
@@ -422,7 +421,7 @@ export function EditDiff({
   return (
     <div className="overflow-hidden rounded-md border border-border/60">
       {showHeader ? (
-        <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2 py-1 text-[11px] text-muted-foreground">
           <FileIcon
             name={name}
             kind="file"
@@ -430,7 +429,9 @@ export function EditDiff({
           />
           <span className="truncate font-mono text-foreground/80">{name}</span>
           {stats.added > 0 ? (
-            <span className="ml-auto text-emerald-400 tabular-nums">+{stats.added}</span>
+            <span className="ml-auto text-emerald-400 tabular-nums">
+              +{stats.added}
+            </span>
           ) : null}
           {stats.removed > 0 ? (
             <span className="text-red-400 tabular-nums">-{stats.removed}</span>
@@ -463,7 +464,11 @@ function EditDiffRow({ line }: { line: DiffLine }) {
   const isDel = line.kind === "del";
 
   const bg = isAdd ? "bg-emerald-500/10" : isDel ? "bg-red-500/10" : "";
-  const bar = isAdd ? "bg-emerald-400" : isDel ? "bg-red-400" : "bg-transparent";
+  const bar = isAdd
+    ? "bg-emerald-400"
+    : isDel
+      ? "bg-red-400"
+      : "bg-transparent";
   const marker = isAdd ? "+" : isDel ? "-" : " ";
   const markerColor = isAdd
     ? "text-emerald-400"

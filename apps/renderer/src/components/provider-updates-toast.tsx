@@ -1,7 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import { useProvidersStore } from "~/store/providers";
@@ -125,7 +126,7 @@ export function ProviderUpdatesToast() {
           className="text-muted-foreground hover:text-foreground"
           aria-label="Dismiss provider update toast"
         >
-          <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+          <X className="size-3.5" strokeWidth={1.8} />
         </button>
       </div>
 

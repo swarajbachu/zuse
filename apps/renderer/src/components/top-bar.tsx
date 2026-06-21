@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, ArchiveIcon, ArrowDown01Icon, Copy01Icon, GitBranchIcon, GitMergeIcon, GitPullRequestIcon, LinkSquare01Icon, Loading02Icon, MagicWand01Icon, PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon, PencilEdit01Icon, Tick01Icon, Upload01Icon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Alert01Icon, ArrowDown01Icon, Copy01Icon, GitBranchIcon, GitMergeIcon, LinkSquare01Icon, Loading02Icon, MagicWand01Icon, PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon, PencilEdit01Icon, PlayIcon, Tick01Icon, Upload01Icon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArchiveArrowDownIcon, GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import {
   type CSSProperties,
@@ -21,6 +22,7 @@ import {
 import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
+import { openTerminalCommand } from "../lib/run-terminal.ts";
 import {
   GlassActionButton,
   GlassChip,
@@ -33,9 +35,11 @@ import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useRepositorySettingsStore } from "../store/repository-settings.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
 import {
   Dialog,
@@ -142,6 +146,10 @@ export function TopBarMain() {
   const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
   const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
   const isFullScreen = useUiStore((s) => s.isFullScreen);
+  // On the empty new-chat landing (no session yet) we hide the repo/branch
+  // label + open-in menu so the surface reads as a clean blank chat. The
+  // sidebar toggle buttons stay.
+  const hasSession = useSessionsStore((s) => s.selectedSessionId !== null);
   const folder = useWorkspaceStore((s) =>
     folderId ? (s.folders.find((f) => f.id === folderId) ?? null) : null,
   );
@@ -283,29 +291,31 @@ export function TopBarMain() {
         </Tooltip>
       ) : null}
       <div className={`flex min-w-0 flex-1 items-center ${ACTION_CLASS}`}>
-        <div className="flex min-w-0 max-w-[min(620px,100%)] items-center gap-1.5 text-xs">
-          <span
-            className="truncate font-medium text-foreground"
-            title={repoLabel}
-          >
-            {repoLabel}
-          </span>
-          {branchLabel ? (
-            <>
-              <span className="shrink-0 text-muted-foreground/70">/</span>
-              <BranchMenuButton
-                branchLabel={branchLabel}
-                branches={branches}
-                dirtyFiles={status?.dirtyFiles ?? 0}
-                error={branchError}
-                loading={branchesLoading}
-                onOpen={() => void refreshBranches()}
-                onRename={() => setRenameOpen(true)}
-                onSwitch={(branch) => void switchToBranch(branch)}
-              />
-            </>
-          ) : null}
-        </div>
+        {hasSession ? (
+          <div className="flex min-w-0 max-w-[min(620px,100%)] items-center gap-1.5 text-xs">
+            <span
+              className="truncate font-medium text-foreground"
+              title={repoLabel}
+            >
+              {repoLabel}
+            </span>
+            {branchLabel ? (
+              <>
+                <span className="shrink-0 text-muted-foreground/70">/</span>
+                <BranchMenuButton
+                  branchLabel={branchLabel}
+                  branches={branches}
+                  dirtyFiles={status?.dirtyFiles ?? 0}
+                  error={branchError}
+                  loading={branchesLoading}
+                  onOpen={() => void refreshBranches()}
+                  onRename={() => setRenameOpen(true)}
+                  onSwitch={(branch) => void switchToBranch(branch)}
+                />
+              </>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {folderId !== null && branchLabel !== null ? (
         <RenameBranchDialog
@@ -320,7 +330,9 @@ export function TopBarMain() {
           worktreeId={worktreeId}
         />
       ) : null}
-      <OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
+      {hasSession ? (
+        <OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
+      ) : null}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -771,6 +783,58 @@ const refreshAfterAction = (
  * (Resolve conflicts, Create PR, Commit & push, Fix CI) auto-submit a new chat
  * message — they never just pre-fill the composer.
  */
+/**
+ * Run the project's configured run script in a fresh dock terminal. Only
+ * shown on a worktree whose repository has a non-empty `runScript` (matching
+ * the old worktree pane's Run affordance, now promoted to the top bar).
+ */
+function RunButton() {
+  const ctx = useActiveContext();
+  const folderId = ctx.status === "ready" ? ctx.folderId : null;
+  const settings = useRepositorySettingsStore((s) =>
+    folderId ? (s.byProject[folderId] ?? null) : null,
+  );
+  const refreshSettings = useRepositorySettingsStore((s) => s.refresh);
+  const startRun = useWorktreesStore((s) => s.startRun);
+
+  useEffect(() => {
+    if (folderId !== null && settings === null) void refreshSettings(folderId);
+  }, [folderId, settings, refreshSettings]);
+
+  if (
+    ctx.status !== "ready" ||
+    ctx.rootKind !== "worktree" ||
+    ctx.worktreePending ||
+    ctx.worktreeId === null
+  ) {
+    return null;
+  }
+  if ((settings?.runScript?.trim().length ?? 0) === 0) return null;
+
+  const worktreeId = ctx.worktreeId;
+  const projectId = ctx.folderId;
+  const onRun = async () => {
+    const run = await startRun(worktreeId);
+    if (run === null) return;
+    openTerminalCommand({
+      folderId: projectId,
+      worktreeId,
+      cwd: run.cwd,
+      title: "Run",
+      command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
+    });
+  };
+
+  return (
+    <GlassActionButton
+      tone="zinc"
+      icon={<HugeiconsIcon icon={PlayIcon} />}
+      label="Run"
+      onClick={() => void onRun()}
+    />
+  );
+}
+
 export function TopBarRight() {
   const ctx = useActiveContext();
   const folderId = ctx.status === "ready" ? ctx.folderId : null;
@@ -800,21 +864,21 @@ export function TopBarRight() {
   return (
     <header className={`${SECTION_CLASS} justify-between px-2`}>
       <div className={`flex min-w-0 flex-1 items-center gap-2 ${ACTION_CLASS}`}>
-        {workflow.kind === "dirty" ? (
+        {agentReady && workflow.kind === "dirty" ? (
           <GlassChip tone="amber">
             {workflow.count} change{workflow.count === 1 ? "" : "s"}
           </GlassChip>
         ) : null}
-        {workflow.kind === "ahead" ? (
+        {agentReady && workflow.kind === "ahead" ? (
           <GlassChip tone="pink">{workflow.count} ahead</GlassChip>
         ) : null}
-        {workflow.kind === "ready-for-pr" ? (
+        {agentReady && workflow.kind === "ready-for-pr" ? (
           <GlassChip tone="zinc">No PR</GlassChip>
         ) : null}
-        {workflow.kind === "merged-pr" ? (
+        {agentReady && workflow.kind === "merged-pr" ? (
           <GlassChip tone="green">Merged</GlassChip>
         ) : null}
-        {workflow.kind === "open-pr" ? (
+        {agentReady && workflow.kind === "open-pr" ? (
           <>
             <PrHashChip workflow={workflow} />
             <CiStatus workflow={workflow} />
@@ -822,6 +886,7 @@ export function TopBarRight() {
         ) : null}
       </div>
       <div className={`flex shrink-0 items-center gap-1 ${ACTION_CLASS}`}>
+        <RunButton />
         {workflow.kind === "dirty" ? (
           <GlassActionButton
             tone="amber"
@@ -859,7 +924,7 @@ export function TopBarRight() {
         {workflow.kind === "merged-pr" && selectedChatId !== null ? (
           <DirectActionButton
             tone="zinc"
-            icon={<HugeiconsIcon icon={ArchiveIcon} />}
+            icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
             label="Archive chat"
             loadingLabel="Archiving…"
             run={() => archiveChat(selectedChatId)}

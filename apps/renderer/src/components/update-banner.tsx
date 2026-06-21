@@ -1,7 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, Cancel01Icon, CheckmarkCircle02Icon, CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Alert01Icon, CheckmarkCircle02Icon, CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 import type { UpdateStatus } from "@memoize/wire";
 
@@ -139,7 +140,7 @@ export function UpdateBanner() {
           className="text-muted-foreground hover:text-foreground"
           aria-label="Dismiss update toast"
         >
-          <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+          <X className="size-3.5" strokeWidth={1.8} />
         </button>
       </div>
 

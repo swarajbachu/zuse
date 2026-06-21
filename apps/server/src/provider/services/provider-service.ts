@@ -16,6 +16,8 @@ import type {
   RuntimeMode,
   SkillRef,
   StartSessionInput,
+  ThreadGoal,
+  ThreadGoalSetInput,
   UserQuestionAnswer,
 } from "@memoize/wire";
 
@@ -99,6 +101,19 @@ export interface ProviderServiceShape {
     sessionId: AgentSessionId,
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
+  ) => Effect.Effect<void, AgentSessionNotFoundError>;
+
+  readonly getGoal: (
+    sessionId: AgentSessionId,
+  ) => Effect.Effect<ThreadGoal | null, AgentSessionNotFoundError>;
+
+  readonly setGoal: (
+    sessionId: AgentSessionId,
+    goal: ThreadGoalSetInput,
+  ) => Effect.Effect<ThreadGoal, AgentSessionNotFoundError>;
+
+  readonly clearGoal: (
+    sessionId: AgentSessionId,
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 

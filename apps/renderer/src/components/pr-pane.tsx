@@ -1,5 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, CircleIcon, GitPullRequestIcon, LinkSquare01Icon, Loading02Icon, MinusSignCircleIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { CircleIcon, LinkSquare01Icon, Loading02Icon, MinusSignCircleIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
+import { X } from "lucide-react";
 import { useEffect } from "react";
 
 import type {
@@ -428,7 +430,7 @@ function checkIcon(run: GitPrCheckRun) {
     case "cancelled":
     case "timed_out":
     case "action_required":
-      return <HugeiconsIcon icon={Cancel01Icon} className="size-3 text-rose-300" />;
+      return <X className="size-3 text-rose-300" strokeWidth={1.8} />;
     case "skipped":
     case "neutral":
       return <HugeiconsIcon icon={MinusSignCircleIcon} className="size-3.5 text-muted-foreground" />;

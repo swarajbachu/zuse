@@ -13,9 +13,11 @@ import type {
   ChatId,
   ChatNotFoundError,
   ChatUnarchiveResult,
+  CodeAnnotation,
   ComposerInput,
   FileRef,
   FolderId,
+  GoalUnsupportedError,
   Message,
   PermissionMode,
   ProviderId,
@@ -28,6 +30,8 @@ import type {
   SessionStartError,
   SessionStatus,
   SkillRef,
+  ThreadGoal,
+  ThreadGoalSetInput,
   UserQuestionAnswer,
   WorktreeId,
 } from "@memoize/wire";
@@ -319,12 +323,40 @@ export interface MessageStoreShape {
     SessionNotFoundError
   >;
 
+  readonly getGoal: (
+    sessionId: SessionId,
+  ) => Effect.Effect<
+    ThreadGoal | null,
+    SessionNotFoundError | GoalUnsupportedError
+  >;
+
+  readonly setGoal: (
+    sessionId: SessionId,
+    goal: ThreadGoalSetInput,
+  ) => Effect.Effect<
+    ThreadGoal,
+    SessionNotFoundError | SessionStartError | GoalUnsupportedError
+  >;
+
+  readonly clearGoal: (
+    sessionId: SessionId,
+  ) => Effect.Effect<void, SessionNotFoundError | GoalUnsupportedError>;
+
+  readonly streamGoal: (
+    sessionId: SessionId,
+  ) => Stream.Stream<
+    { readonly sessionId: SessionId; readonly goal: ThreadGoal | null },
+    SessionNotFoundError | GoalUnsupportedError
+  >;
+
   readonly sendMessage: (
     sessionId: SessionId,
     text: string,
     attachments?: ReadonlyArray<AttachmentRef>,
     fileRefs?: ReadonlyArray<FileRef>,
     skillRefs?: ReadonlyArray<SkillRef>,
+    annotations?: ReadonlyArray<CodeAnnotation>,
+    asGoal?: boolean,
   ) => Effect.Effect<void, SessionNotFoundError>;
 
   readonly interruptSession: (

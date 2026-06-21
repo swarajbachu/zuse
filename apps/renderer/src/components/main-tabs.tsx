@@ -1,5 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Cancel01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Plus, X } from "lucide-react";
 import { useMemo } from "react";
 
 import {
@@ -19,7 +18,7 @@ import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { Beacon, Diffusion } from "./ui/loaders";
+import { Spinner } from "./ui/spinner";
 
 type Props = {
   readonly projectId: FolderId | null;
@@ -72,7 +71,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
       : EMPTY_SESSIONS,
   );
   const selectSession = useSessionsStore((s) => s.select);
-  // Per-session running flag — drives the provider-icon → Beacon swap on
+  // Per-session running flag — drives the provider-icon → Spinner swap on
   // each tab so the user sees which session is streaming at a glance.
   const runningBySession = useMessagesStore((s) => s.runningBySession);
 
@@ -316,7 +315,7 @@ function ChatTabButton({
       >
         {running ? (
           <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-foreground">
-            <Beacon dotSize={2} cellPadding={1} color="currentColor" />
+            <Spinner className="size-3.5" />
           </span>
         ) : (
           <ProviderIcon
@@ -335,7 +334,7 @@ function ChatTabButton({
         aria-label="Close chat"
         className="relative z-10 rounded p-0.5 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
       >
-        <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
+        <X className="size-3" strokeWidth={1.8} />
       </button>
     </div>
   );
@@ -383,10 +382,10 @@ function NewChatTabButton({
     >
       {creating ? (
         <span className="inline-flex size-3.5 items-center justify-center">
-          <Diffusion dotSize={3} cellPadding={1} />
+          <Spinner className="size-3.5" />
         </span>
       ) : (
-        <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+        <Plus className="size-3.5" strokeWidth={1.8} />
       )}
     </button>
   );
@@ -436,7 +435,7 @@ function FileTabButton({
         aria-label="Close file"
         className="relative z-10 rounded p-0.5 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
       >
-        <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
+        <X className="size-3" strokeWidth={1.8} />
       </button>
     </div>
   );

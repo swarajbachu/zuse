@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="memoize public alpha workspace">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#18191c"/>
+      <stop offset="1" stop-color="#0b0c0e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <rect x="130" y="118" width="940" height="564" rx="36" fill="#151619" stroke="#fff" stroke-opacity=".1"/>
+  <rect x="130" y="118" width="940" height="68" rx="36" fill="#202226"/>
+  <circle cx="178" cy="152" r="8" fill="#ff6464"/>
+  <circle cx="206" cy="152" r="8" fill="#ffd76a"/>
+  <circle cx="234" cy="152" r="8" fill="#5bd6a0"/>
+  <rect x="178" y="236" width="224" height="376" rx="24" fill="#101114" stroke="#fff" stroke-opacity=".08"/>
+  <rect x="448" y="236" width="574" height="376" rx="24" fill="#101114" stroke="#fff" stroke-opacity=".08"/>
+  <rect x="212" y="278" width="126" height="16" rx="8" fill="#fff" opacity=".55"/>
+  <rect x="212" y="326" width="154" height="12" rx="6" fill="#fff" opacity=".14"/>
+  <rect x="212" y="358" width="112" height="12" rx="6" fill="#fff" opacity=".14"/>
+  <rect x="212" y="438" width="154" height="44" rx="14" fill="#d8ff3d"/>
+  <rect x="486" y="278" width="256" height="18" rx="9" fill="#fff" opacity=".56"/>
+  <rect x="486" y="338" width="452" height="12" rx="6" fill="#fff" opacity=".14"/>
+  <rect x="486" y="374" width="384" height="12" rx="6" fill="#fff" opacity=".14"/>
+  <rect x="486" y="438" width="208" height="58" rx="16" fill="#222429"/>
+  <rect x="718" y="438" width="208" height="58" rx="16" fill="#222429"/>
+  <path d="M522 467h84M754 467h84" stroke="#d8ff3d" stroke-width="10" stroke-linecap="round"/>
+  <rect x="486" y="548" width="356" height="12" rx="6" fill="#fff" opacity=".14"/>
+</svg>

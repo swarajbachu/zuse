@@ -10,7 +10,10 @@ type RequestId = number;
 
 type RpcResponse =
   | { readonly id: RequestId; readonly result: unknown }
-  | { readonly id: RequestId; readonly error: { readonly message?: string } | unknown };
+  | {
+      readonly id: RequestId;
+      readonly error: { readonly message?: string } | unknown;
+    };
 
 type Pending = {
   readonly resolve: (value: unknown) => void;
@@ -24,11 +27,17 @@ type ServerRequestHandler = (
 
 type NotificationHandler = (notification: ServerNotification) => void;
 
+type CodexGoalRequestMethod =
+  | "thread/goal/get"
+  | "thread/goal/set"
+  | "thread/goal/clear";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const errorMessage = (error: unknown): string => {
-  if (isRecord(error) && typeof error.message === "string") return error.message;
+  if (isRecord(error) && typeof error.message === "string")
+    return error.message;
   return JSON.stringify(error);
 };
 
@@ -115,7 +124,10 @@ export class CodexAppServerClient {
     return bootstrap;
   }
 
-  request<T>(method: ClientRequest["method"], params: unknown): Promise<T> {
+  request<T>(
+    method: ClientRequest["method"] | CodexGoalRequestMethod,
+    params: unknown,
+  ): Promise<T> {
     if (this.closed) {
       return Promise.reject(new Error("Codex app-server is closed"));
     }

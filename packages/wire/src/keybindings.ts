@@ -30,6 +30,7 @@ export const Command = Schema.Literal(
   "composer.togglePlanMode",
   // file editor
   "editor.save",
+  "editor.annotate",
 );
 export type Command = typeof Command.Type;
 

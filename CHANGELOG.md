@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+- Worktree setup now streams live progress in the app, with a dedicated setup card and the Run action moved into the top bar for faster project startup. (#159)
+- The right sidebar can be customized as a panel dock, making terminal, browser, files, and supporting tools easier to arrange per workflow. (#156)
+- Codex goal mode is supported in chat sessions, giving agents a persistent objective and visible goal state during longer work. (#151)
+- Context window and usage-limit status popovers expose model usage and limit state without digging through raw provider output. (#154)
+- The website now has a direct download route for the latest signed macOS build. (#150)
+- Codex feature controls are gated by CLI capability, with fast mode surfaced only when the installed CLI can support it. (#158)
+
+### Changed
+- Worktree creation is faster, Pokemon chips are cleaner, and rare unlocks now appear as toasts instead of taking over the chip UI. (#157)
+- Code annotation composition and navigation are more polished, including clearer tray behavior and source reveal handling. (#153)
+- Loading states now use a simpler solid spinner treatment instead of the previous dotted loader set. (#155)
+
+### Fixed
+- Claude sessions now initialize with the correct worktree current working directory, so prompts run in the intended workspace. (#161)
+- Project Plan tray parsing supports newer TaskCreate and TaskUpdate tool event shapes. (#152)
+
+## [0.4.0]
+
+### Added
+- Worktree setup scripts can now run per project/worktree, giving agents a first-class way to prepare dependencies and local environment before starting work. (#126)
+- Mermaid diagrams render directly in markdown responses. (#128)
+- Chat titles and worktree branches can be generated from the first user message, making new agent runs easier to scan and easier to identify in git. (#129)
+- GPT-5.5 Codex is available in the Codex model picker. (#130)
+- Chat rows now include state icons for faster scanning across idle, running, and attention-needed sessions. (#132)
+- Agent completion sounds and deeper permission diagnostics make long-running work and blocked permission flows easier to notice and debug. (#133)
+- Agent message queue persistence keeps queued follow-up messages across renderer/server restarts and improves queue handling for multi-message agent workflows. (#136)
+- Chats now track read/unread state, with Next unread navigation for moving through updated sessions quickly. (#137)
+- Pokémon worktree Pokédex gives the new Pokémon-named worktree system a dedicated browsing surface. (#140)
+- Code annotations composer adds a richer composer path for referencing and annotating source code while prompting agents. (#141)
+- Public Memoize landing site. (#142)
+
+### Changed
+- Grok auth noise is hidden more aggressively and agent activity is grouped for a cleaner timeline. (#127)
+- Claude Ultracode UI is refined so the new model/provider controls fit the rest of the provider experience. (#131)
+- Loaders were standardized around a smoother circle/comet treatment. (#135)
+- Renderer iconography moved from Lucide to Hugeicons Pro, with real provider logos replacing generic marks. (#138)
+- Changes tab cleanup improves file selection, revert flows, conflict handling, and sidebar diff stats. (#139)
+- Renderer surfaces were cleaned up across the app for a tighter, more consistent desktop UI. (#143)
+- Renderer icons were polished after the Hugeicons migration. (#144)
+- Settings UI was cleaned up for a clearer, denser configuration experience. (#145)
+
+### Fixed
+- Permission prompts are now delivered reliably mid-turn, preventing stuck or missed approval flows while an agent is running. (#134)
+
 ## [0.3.3]
 
 ### Added

@@ -1,24 +1,21 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Cancel01Icon, ComputerTerminal01Icon, PlayIcon, Refresh01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ComputerTerminal01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { type ReactNode, useEffect, useRef } from "react";
+import { Plus, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Effect, Fiber, Stream } from "effect";
 
-import type { FolderId, PtyId, Worktree, WorktreeId } from "@memoize/wire";
+import type { FolderId, PtyId, WorktreeId } from "@memoize/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
-import { type ActiveContext, useActiveContext } from "../store/active-workspace.ts";
-import { useRepositorySettingsStore } from "../store/repository-settings.ts";
+import { useActiveContext } from "../store/active-workspace.ts";
 import {
   EMPTY_TERMINALS,
   type TerminalInstance,
   terminalsKey,
   useTerminalsStore,
 } from "../store/terminals.ts";
-import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { Button } from "./ui/button.tsx";
-import { Beacon } from "./ui/loaders";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /**
@@ -31,45 +28,76 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
  * `PtyTerminal` cleanup runs on unmount. Persistence across reloads is out
  * of scope.
  */
-export function TerminalPane() {
+function TerminalPlaceholder({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Renders a single terminal for one right-dock tab. The tab carries a
+ * workspace-relative `slot`; this resolves it to the active workspace's Nth
+ * terminal instance (seeding via `ensureSlot`) and mounts one `PtyTerminal`.
+ * Plain shell on every workspace — setup moved to the inline creating card
+ * and Run to the top bar.
+ */
+export function TerminalSlotPane({ slot }: { slot: number }) {
   const ctx = useActiveContext();
   const ready = ctx.status === "ready" && !ctx.worktreePending;
 
   if (ctx.status === "loading") {
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
-        Loading workspace…
-      </div>
-    );
+    return <TerminalPlaceholder>Loading workspace…</TerminalPlaceholder>;
   }
   if (ctx.status === "empty") {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
+      <TerminalPlaceholder>
         No folder selected. Add or pick a folder on the left.
-      </div>
+      </TerminalPlaceholder>
     );
   }
   if (ctx.worktreePending) {
-    // Session is bound to a worktree whose row hasn't arrived yet. Opening
-    // a PTY here would pin it to the folder path — the wrong place — for
-    // the rest of the session's life. Wait instead.
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
-        Preparing worktree…
-      </div>
-    );
+    return <TerminalPlaceholder>Preparing worktree…</TerminalPlaceholder>;
   }
   if (!ready) return null;
-  if (ctx.worktreeId !== null) {
-    return <WorktreeTerminalPane ctx={ctx} worktreeId={ctx.worktreeId} />;
-  }
-
   return (
-    <TerminalWorkspace
+    <PlainTerminalSlot
       folderId={ctx.folderId}
       worktreeId={ctx.worktreeId}
       rootPath={ctx.rootPath}
-      showFloatingAdd
+      slot={slot}
+    />
+  );
+}
+
+function PlainTerminalSlot({
+  folderId,
+  worktreeId,
+  rootPath,
+  slot,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+  rootPath: string;
+  slot: number;
+}) {
+  const key = terminalsKey(folderId, worktreeId);
+  const list = useTerminalsStore((s) => s.byKey[key] ?? EMPTY_TERMINALS);
+  const ensureSlot = useTerminalsStore((s) => s.ensureSlot);
+
+  useEffect(() => {
+    if (list.length <= slot) ensureSlot(key, slot, rootPath);
+  }, [key, list.length, slot, ensureSlot, rootPath]);
+
+  const inst = list[slot];
+  if (inst === undefined) return null;
+  return (
+    <PtyTerminal
+      folderId={folderId}
+      cwd={inst.cwd}
+      instanceId={inst.id}
+      command={inst.command}
     />
   );
 }
@@ -136,7 +164,7 @@ function TerminalWorkspace({
                   className="absolute right-2 top-2 z-10 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover/terminal:opacity-100"
                   aria-label="New terminal"
                 >
-                  <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                  <Plus className="size-3.5" strokeWidth={1.8} />
                 </button>
               }
             />
@@ -158,203 +186,6 @@ function TerminalWorkspace({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function WorktreeTerminalPane({
-  ctx,
-  worktreeId,
-}: {
-  ctx: Extract<ActiveContext, { status: "ready" }>;
-  worktreeId: WorktreeId;
-}) {
-  const [tab, setTab] = useState<"setup" | "run" | "terminal">("setup");
-  const worktree = useWorktreesStore((s) => {
-    const list = s.byProject[ctx.folderId] ?? EMPTY_WORKTREES;
-    return list.find((w) => w.id === worktreeId) ?? null;
-  });
-  const setupPending = useWorktreesStore((s) => s.setupPending.has(worktreeId));
-  const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
-  const startRun = useWorktreesStore((s) => s.startRun);
-  const addTerminal = useTerminalsStore((s) => s.add);
-  const addCommand = useTerminalsStore((s) => s.addCommand);
-  const refreshSettings = useRepositorySettingsStore((s) => s.refresh);
-  const settings = useRepositorySettingsStore(
-    (s) => s.byProject[ctx.folderId] ?? null,
-  );
-
-  useEffect(() => {
-    if (settings === null) void refreshSettings(ctx.folderId);
-  }, [ctx.folderId, refreshSettings, settings]);
-
-  const onRun = async () => {
-    const run = await startRun(worktreeId);
-    if (run === null) return;
-    addCommand(terminalsKey(ctx.folderId, worktreeId), run.cwd, "Run", {
-      cmd: "/bin/zsh",
-      args: ["-lc", run.script],
-      env: run.env,
-    });
-    setTab("run");
-  };
-
-  const onRerunSetup = async () => {
-    if (setupPending || worktree?.setupStatus === "running") return;
-    const wt = await rerunSetup(ctx.folderId, worktreeId);
-    if (wt?.setupStatus === "succeeded" && settings?.autoRunAfterSetup) {
-      await onRun();
-    }
-  };
-
-  const onAddTerminal = () => {
-    addTerminal(terminalsKey(ctx.folderId, worktreeId), ctx.rootPath);
-    setTab("terminal");
-  };
-
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center border-b border-border bg-background text-sm">
-        <TabButton active={tab === "setup"} onClick={() => setTab("setup")}>
-          {(setupPending || worktree?.setupStatus === "running") && (
-            <Beacon dotSize={2} cellPadding={1} color="currentColor" />
-          )}
-          Setup
-        </TabButton>
-        <TabButton active={tab === "run"} onClick={() => setTab("run")}>
-          Run
-        </TabButton>
-        <TabButton active={tab === "terminal"} onClick={() => setTab("terminal")}>
-          Terminal
-        </TabButton>
-        <button
-          type="button"
-          onClick={onAddTerminal}
-          className="ml-1 flex h-full w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          aria-label="New terminal"
-          title="New terminal"
-        >
-          <HugeiconsIcon icon={Add01Icon} className="size-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1">
-        {tab === "setup" ? (
-          <SetupOutput
-            worktree={worktree}
-            running={setupPending || worktree?.setupStatus === "running"}
-            onRerunSetup={onRerunSetup}
-          />
-        ) : tab === "run" ? (
-          <RunPane ctx={ctx} worktreeId={worktreeId} onRun={onRun} />
-        ) : (
-          <TerminalWorkspace
-            folderId={ctx.folderId}
-            worktreeId={worktreeId}
-            rootPath={ctx.rootPath}
-            showFloatingAdd={false}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex h-full items-center gap-1.5 border-b-2 px-4 text-[13px] transition-colors ${
-        active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function SetupOutput({
-  worktree,
-  running,
-  onRerunSetup,
-}: {
-  worktree: Worktree | null;
-  running: boolean;
-  onRerunSetup: () => void;
-}) {
-  const output =
-    running && (worktree === null || worktree.setupOutput.trim().length === 0)
-      ? "Running setup..."
-      : worktree === null
-      ? "Loading setup state..."
-      : worktree.setupOutput.trim().length > 0
-        ? worktree.setupOutput
-        : `Setup ${worktree.setupStatus}`;
-  return (
-    <div className="relative h-full bg-background">
-      {running && (
-        <div className="absolute left-4 top-3 z-10 flex items-center gap-2 rounded border border-border bg-background/90 px-2.5 py-1.5 text-xs text-muted-foreground shadow-sm">
-          <Beacon dotSize={2} cellPadding={1} color="currentColor" />
-          Running setup
-        </div>
-      )}
-      <pre className="h-full overflow-auto p-4 font-mono text-sm leading-6 text-foreground whitespace-pre-wrap">
-        {output}
-      </pre>
-      <Button
-        variant="settings"
-        size="sm"
-        onClick={onRerunSetup}
-        disabled={running}
-        className="absolute bottom-3 right-3 gap-2"
-      >
-        {running ? (
-          <Beacon dotSize={2} cellPadding={1} color="currentColor" />
-        ) : (
-          <HugeiconsIcon icon={Refresh01Icon} className="size-3.5" />
-        )}
-        {running ? "Running..." : "Rerun setup"}
-      </Button>
-    </div>
-  );
-}
-
-function RunPane({
-  ctx,
-  worktreeId,
-  onRun,
-}: {
-  ctx: Extract<ActiveContext, { status: "ready" }>;
-  worktreeId: WorktreeId;
-  onRun: () => void;
-}) {
-  return (
-    <div className="relative h-full">
-      <TerminalWorkspace
-        folderId={ctx.folderId}
-        worktreeId={worktreeId}
-        rootPath={ctx.rootPath}
-        showFloatingAdd={false}
-      />
-      <Button
-        variant="settings"
-        size="sm"
-        onClick={onRun}
-        className="absolute right-3 top-3 z-10 gap-2"
-      >
-        <HugeiconsIcon icon={PlayIcon} className="size-3.5" />
-        Run
-      </Button>
     </div>
   );
 }
@@ -387,7 +218,7 @@ function TerminalList({
                 className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                 aria-label="New terminal"
               >
-                <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                <Plus className="size-3.5" strokeWidth={1.8} />
               </button>
             }
           />
@@ -425,7 +256,7 @@ function TerminalList({
                 }}
                 className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
               >
-                <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
+                <X className="size-3" strokeWidth={1.8} />
               </span>
             </button>
           </li>
@@ -449,7 +280,7 @@ function readToken(el: HTMLElement, cssVar: string, fallback: string): string {
   return computed || fallback;
 }
 
-function PtyTerminal({
+export function PtyTerminal({
   folderId,
   cwd,
   instanceId,

@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, FileAddIcon, FolderOpenIcon, GlobeIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { FileAddIcon, FolderOpenIcon, GlobeIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
@@ -36,7 +37,7 @@ export function ProjectAddMenu() {
                 className="rounded p-1 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 aria-label="Add project"
               >
-                <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
+                <Plus className="size-3.5" strokeWidth={1.8} />
               </MenuTrigger>
             }
           />

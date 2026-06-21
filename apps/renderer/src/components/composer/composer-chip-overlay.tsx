@@ -85,7 +85,10 @@ export function ComposerChipOverlay({
       const chip = findChip(e.target);
       if (chip === null) return;
       const next = e.relatedTarget;
-      if (next instanceof HTMLElement && next.closest('.fz-chip[data-kind="file"]')) {
+      if (
+        next instanceof HTMLElement &&
+        next.closest('.fz-chip[data-kind="file"]')
+      ) {
         return;
       }
       cancelHide();
@@ -147,6 +150,7 @@ export function ComposerChipOverlay({
         render={
           <span
             aria-hidden="true"
+            data-instant=""
             style={{
               position: "fixed",
               top: rect.top,

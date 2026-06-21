@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Alert01Icon, ArrowRight01Icon, ArrowTurnDownIcon, Loading02Icon, MinusSignIcon, RotateLeft01Icon, Tick02Icon, Upload01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Alert01Icon, ArrowRight01Icon, ArrowTurnDownIcon, Loading02Icon, MinusSignIcon, RotateLeft01Icon, Tick02Icon, Upload01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { Effect } from "effect";
+import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type {
@@ -504,7 +505,7 @@ function KindBox({ kind }: { kind: GitChangeKind }) {
     case "untracked":
       return (
         <Box tone="emerald">
-          <HugeiconsIcon icon={Add01Icon} className="size-2.5" strokeWidth={3} />
+          <Plus className="size-2.5" strokeWidth={2} />
         </Box>
       );
     case "deleted":

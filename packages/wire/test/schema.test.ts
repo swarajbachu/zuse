@@ -4,6 +4,7 @@ import { Schema } from "effect";
 import {
   AgentEvent,
   Chat,
+  ComposerInput,
   GitBranchInfo,
   Message,
   PokemonPokedexEntry,
@@ -184,6 +185,48 @@ describe("Message round-trip", () => {
     });
   });
 
+  it("round-trips a rich user message with code annotations", () => {
+    roundTrip(Message, {
+      ...base,
+      role: "user" as const,
+      content: {
+        _tag: "user_rich",
+        text: "please adjust this",
+        attachments: [],
+        fileRefs: [],
+        skillRefs: [],
+        annotations: [
+          {
+            id: "ann1",
+            relPath: "src/app.ts",
+            absPath: "/repo/src/app.ts",
+            startLine: 10,
+            endLine: 12,
+            comment: "make this clearer",
+          },
+        ],
+      },
+    });
+  });
+
+  it("decodes legacy rich user messages without annotations", () => {
+    const decoded = Schema.decodeUnknownSync(Message)({
+      ...base,
+      role: "user" as const,
+      content: {
+        _tag: "user_rich",
+        text: "legacy",
+        attachments: [],
+        fileRefs: [],
+        skillRefs: [],
+      },
+    });
+    expect(decoded.content._tag).toBe("user_rich");
+    if (decoded.content._tag === "user_rich") {
+      expect(decoded.content.annotations).toEqual([]);
+    }
+  });
+
   it("round-trips a tool_use message with unknown input", () => {
     roundTrip(Message, {
       ...base,
@@ -284,6 +327,27 @@ describe("Chat round-trip", () => {
       lastReadAt: "2026-06-17T00:00:00.000Z",
       createdAt: "2026-06-17T00:00:00.000Z",
       updatedAt: "2026-06-17T00:00:00.000Z",
+    });
+  });
+});
+
+describe("ComposerInput round-trip", () => {
+  it("round-trips code annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "review these",
+      attachments: [],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          id: "ann1",
+          relPath: "src/app.ts",
+          absPath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          comment: "extract this branch",
+        },
+      ],
     });
   });
 });

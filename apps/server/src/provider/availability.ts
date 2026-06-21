@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   AgentAvailability,
   type CliVersionStatus,
+  type CodexFeature,
   type LatestVersionStatus,
   type ProviderAuthStatus,
   type ProviderHealthStatus,
@@ -205,12 +206,17 @@ export const resolveCliPath = (
   cliBinary: string,
 ): Effect.Effect<string | null, never, CommandExecutor.CommandExecutor> =>
   Effect.gen(function* () {
-    const result = yield* runCapture(Command.make("which", "-a", cliBinary)).pipe(
+    const result = yield* runCapture(
+      Command.make("which", "-a", cliBinary),
+    ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
       Effect.catchAll(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
-    return selectCliPathCandidate(cliBinary, splitCommandPaths(result.value.stdout));
+    return selectCliPathCandidate(
+      cliBinary,
+      splitCommandPaths(result.value.stdout),
+    );
   });
 
 export interface CliVersion {
@@ -230,6 +236,49 @@ export const MIN_CODEX_CLI_VERSION: CliVersion = {
   patch: 0,
   raw: "0.128.0",
 };
+
+// Per-feature minimum Codex CLI version. This is the *pre-session* gate: the
+// renderer reads the resolved `capabilities` list off `AgentAvailability` to
+// show/hide a feature's control before any session exists. Each entry is one
+// `CodexFeature`. Adding a feature is additive — add it here and to the wire
+// `CodexFeature` literal, then gate the UI on the capability.
+//
+// Note for `fastMode`: the live `model/list` `serviceTiers` (emitted by the
+// driver as a `Capabilities` event) are the authoritative per-model gate, so
+// this floor only governs when the toggle first becomes visible — an
+// approximate value is safe.
+export const CODEX_FEATURE_FLOORS: ReadonlyArray<{
+  readonly feature: CodexFeature;
+  readonly min: CliVersion;
+}> = [
+  // Goal mode uses the `thread/goal/*` RPCs, which exist as of our SDK floor
+  // (0.128). Pinned at the floor so it's effectively always-on whenever Codex
+  // is new enough to run at all.
+  {
+    feature: "goalMode",
+    min: { major: 0, minor: 128, patch: 0, raw: "0.128.0" },
+  },
+  // Fast mode (`serviceTier: "fast"`) landed in a later release. TODO: confirm
+  // the exact CLI version; the runtime `serviceTiers` check is the real gate.
+  {
+    feature: "fastMode",
+    min: { major: 0, minor: 145, patch: 0, raw: "0.145.0" },
+  },
+];
+
+/**
+ * Resolve the version-gated features a Codex CLI of `parsed` version supports.
+ * Empty when the version couldn't be parsed (caller treats unknown versions as
+ * "no extra capabilities" — the renderer falls back to hiding gated controls).
+ */
+export const resolveCodexCapabilities = (
+  parsed: CliVersion | null,
+): ReadonlyArray<CodexFeature> =>
+  parsed === null
+    ? []
+    : CODEX_FEATURE_FLOORS.filter(
+        ({ min }) => compareCliVersion(parsed, min) >= 0,
+      ).map(({ feature }) => feature);
 
 // `codex --version` prints `codex-cli 0.27.0`; `claude --version` prints
 // `1.0.123 (Claude Code)`. Pull the first dotted triple we can find; ignore
@@ -1130,22 +1179,29 @@ const probeOne = (
     // doesn't need its own parser. `unknown` covers both "no min tracked for
     // this provider" and "we tried to parse and failed" — both are
     // "let them try" cases as far as the upgrade card is concerned.
+    const parsedVersion =
+      cliVersion !== undefined ? parseCliVersion(cliVersion) : null;
     let cliVersionStatus: CliVersionStatus = "unknown";
     let cliVersionMinRequired: string | undefined;
     let cliUpgradeCommand: string | undefined;
     if (probe.minVersion !== null) {
       cliVersionMinRequired = probe.minVersion.raw;
       cliUpgradeCommand = probe.upgradeCommand ?? undefined;
-      const parsed =
-        cliVersion !== undefined ? parseCliVersion(cliVersion) : null;
-      if (parsed === null) {
+      if (parsedVersion === null) {
         cliVersionStatus = "unknown";
-      } else if (compareCliVersion(parsed, probe.minVersion) < 0) {
+      } else if (compareCliVersion(parsedVersion, probe.minVersion) < 0) {
         cliVersionStatus = "outdated";
       } else {
         cliVersionStatus = "ok";
       }
     }
+
+    // Version-gated features the installed CLI supports (pre-session UI gate).
+    // Only Codex declares gated features today; others resolve to `[]`.
+    const capabilities =
+      probe.providerId === "codex"
+        ? resolveCodexCapabilities(parsedVersion)
+        : [];
 
     // Informational "update available" layer — independent of the SDK floor.
     // Only providers with a registry package are checked; the rest report
@@ -1195,6 +1251,7 @@ const probeOne = (
       cliVersionStatus,
       cliVersionMinRequired,
       cliUpgradeCommand,
+      capabilities,
       latestVersion,
       latestVersionStatus,
       updateCommand,

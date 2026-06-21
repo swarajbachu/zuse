@@ -155,6 +155,20 @@ export const CliVersionStatus = Schema.Literal("ok", "outdated", "unknown");
 export type CliVersionStatus = typeof CliVersionStatus.Type;
 
 /**
+ * Version-gated Codex features. The installed Codex CLI only speaks these on
+ * recent releases, so we surface support as a capability list on
+ * {@link AgentAvailability} (computed from `cliVersion` against per-feature
+ * floors in `availability.ts`) and the renderer shows/hides the matching
+ * control. Adding a feature here is additive — pair it with a floor in
+ * `CODEX_FEATURE_FLOORS` and a UI gate.
+ *
+ *   - `goalMode` — `thread/goal/*` RPCs (the goal banner + `/goal`).
+ *   - `fastMode` — `serviceTier: "fast"` on `turn/start` (1.5× speed tier).
+ */
+export const CodexFeature = Schema.Literal("goalMode", "fastMode");
+export type CodexFeature = typeof CodexFeature.Type;
+
+/**
  * Per-provider verdict on whether a *newer published release* exists, distinct
  * from {@link CliVersionStatus} (which is the blocking SDK floor). This layer
  * is purely informational — it powers the "update available" hover affordance
@@ -234,6 +248,16 @@ export const AgentAvailability = Schema.Struct({
    * tandem with `cliVersionStatus`; rendered inside the upgrade card.
    */
   cliVersionMinRequired: Schema.optional(Schema.String),
+  /**
+   * Version-gated features the *installed CLI* supports, computed by comparing
+   * `cliVersion` against per-feature floors (see `CODEX_FEATURE_FLOORS` in
+   * availability.ts). Values are {@link CodexFeature} ids. Empty/omitted when
+   * the version is unknown or no features are gated for this provider. The
+   * renderer reads this to show/hide feature controls *before* a session
+   * exists (the live `model/list` `serviceTiers` refine it per-model once a
+   * session is connected — see the `Capabilities` event).
+   */
+  capabilities: Schema.optional(Schema.Array(Schema.String)),
   /**
    * One-line shell command we recommend the user run to fix an outdated
    * CLI. Co-located with the version probe so renderer doesn't need its
@@ -436,6 +460,32 @@ const UsageDeltaEvent = Schema.TaggedStruct("UsageDelta", {
   model: Schema.String,
 });
 
+export const ContextUsagePrecision = Schema.Literal(
+  "exact",
+  "estimated",
+  "capacity-only",
+);
+export type ContextUsagePrecision = typeof ContextUsagePrecision.Type;
+
+const ContextUsageEvent = Schema.TaggedStruct("ContextUsage", {
+  providerId: ProviderId,
+  usedTokens: Schema.NullOr(Schema.Number),
+  windowTokens: Schema.NullOr(Schema.Number),
+  precision: ContextUsagePrecision,
+  source: Schema.optional(Schema.String),
+});
+
+const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
+  providerId: ProviderId,
+  label: Schema.String,
+  usedPercent: Schema.NullOr(Schema.Number),
+  // ISO-8601 string, not a `Date` schema: the value crosses IPC and the
+  // persistence layer as JSON, and a `DateFromString` transform trips the
+  // struct constructor (which validates against the decoded `Date` side).
+  resetsAt: Schema.NullOr(Schema.String),
+  windowMinutes: Schema.NullOr(Schema.Number),
+});
+
 const CompletedEvent = Schema.TaggedStruct("Completed", {
   reason: Schema.Literal("ended", "interrupted", "error"),
 });
@@ -508,6 +558,32 @@ const PermissionModeChangedEvent = Schema.TaggedStruct(
   { mode: PermissionMode },
 );
 
+const GoalStatus = Schema.Literal(
+  "active",
+  "paused",
+  "budgetLimited",
+  "usageLimited",
+  "blocked",
+  "complete",
+);
+
+const GoalPayload = Schema.Struct({
+  threadId: Schema.String,
+  objective: Schema.String,
+  status: GoalStatus,
+  tokenBudget: Schema.NullOr(Schema.Number),
+  tokensUsed: Schema.Number,
+  timeUsedSeconds: Schema.Number,
+  createdAt: Schema.Number,
+  updatedAt: Schema.Number,
+});
+
+const GoalUpdatedEvent = Schema.TaggedStruct("GoalUpdated", {
+  goal: GoalPayload,
+});
+
+const GoalClearedEvent = Schema.TaggedStruct("GoalCleared", {});
+
 export const AgentEvent = Schema.Union(
   StartedEvent,
   StatusEvent,
@@ -521,9 +597,13 @@ export const AgentEvent = Schema.Union(
   PermissionRequestEvent,
   SubagentSummaryEvent,
   UsageDeltaEvent,
+  ContextUsageEvent,
+  UsageLimitEvent,
   SessionCursorEvent,
   UserQuestionEvent,
   PermissionModeChangedEvent,
+  GoalUpdatedEvent,
+  GoalClearedEvent,
   CompletedEvent,
   ErrorEvent,
 );
@@ -679,11 +759,13 @@ const claudeEffortDescriptor = (args: {
 });
 
 /**
- * Boolean descriptor for Claude's per-model toggles. `fastMode` halves the
- * token cost and roughly doubles throughput at the cost of some quality;
- * `thinking` enables Haiku 4.5's always-on adaptive thinking.
+ * Boolean descriptor for a per-model toggle. Used by Claude (`fastMode` halves
+ * the token cost and roughly doubles throughput at the cost of some quality;
+ * `thinking` enables Haiku 4.5's always-on adaptive thinking) and by Codex
+ * (`fastMode` → `serviceTier: "fast"`, the 1.5× speed tier on the latest
+ * models). The driver keys behavior off the descriptor `id`.
  */
-const claudeBooleanDescriptor = (
+const booleanDescriptor = (
   id: string,
   label: string,
 ): BooleanOptionDescriptor => ({
@@ -707,6 +789,17 @@ const claudeContextWindowDescriptor = (): SelectOptionDescriptor => ({
     { id: "1m", label: "1M" },
   ],
   defaultId: "1m",
+});
+
+const staticContextWindowDescriptor = (
+  id: string,
+  label: string,
+): SelectOptionDescriptor => ({
+  kind: "select",
+  id: "contextWindow",
+  label: "Context Window",
+  options: [{ id, label }],
+  defaultId: id,
 });
 
 export const MODELS_BY_PROVIDER: Record<
@@ -734,7 +827,7 @@ export const MODELS_BY_PROVIDER: Record<
           ],
           defaultId: "high",
         }),
-        claudeBooleanDescriptor("fastMode", "Fast Mode"),
+        booleanDescriptor("fastMode", "Fast Mode"),
         claudeContextWindowDescriptor(),
       ],
       supportsPlanMode: true,
@@ -755,7 +848,7 @@ export const MODELS_BY_PROVIDER: Record<
           ],
           defaultId: "xhigh",
         }),
-        claudeBooleanDescriptor("fastMode", "Fast Mode"),
+        booleanDescriptor("fastMode", "Fast Mode"),
         claudeContextWindowDescriptor(),
       ],
       supportsPlanMode: true,
@@ -775,7 +868,7 @@ export const MODELS_BY_PROVIDER: Record<
           ],
           defaultId: "high",
         }),
-        claudeBooleanDescriptor("fastMode", "Fast Mode"),
+        booleanDescriptor("fastMode", "Fast Mode"),
         claudeContextWindowDescriptor(),
       ],
       supportsPlanMode: true,
@@ -803,7 +896,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "claude-haiku-4-5",
       label: "Haiku 4.5",
-      optionDescriptors: [claudeBooleanDescriptor("thinking", "Thinking")],
+      optionDescriptors: [booleanDescriptor("thinking", "Thinking")],
       supportsPlanMode: true,
       supportsWebSearch: "native",
     },
@@ -812,7 +905,14 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gpt-5.4",
       label: "GPT-5.4",
-      optionDescriptors: [reasoningSelectDescriptor("medium")],
+      // `fastMode` → `serviceTier: "fast"`. OpenAI only offers the fast tier on
+      // the latest models (GPT-5.4 / GPT-5.5); older Codex CLIs don't accept
+      // the field, so the toggle is additionally gated on the `fastMode`
+      // capability (CLI version) + the live model's `serviceTiers`.
+      optionDescriptors: [
+        reasoningSelectDescriptor("medium"),
+        booleanDescriptor("fastMode", "Fast"),
+      ],
       supportsPlanMode: true,
       supportsWebSearch: "native",
     },
@@ -826,7 +926,11 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gpt-5.5",
       label: "GPT-5.5",
-      optionDescriptors: [reasoningSelectDescriptor("medium")],
+      // Fast tier supported — see gpt-5.4 note above.
+      optionDescriptors: [
+        reasoningSelectDescriptor("medium"),
+        booleanDescriptor("fastMode", "Fast"),
+      ],
       supportsPlanMode: true,
       supportsWebSearch: "native",
     },
@@ -932,8 +1036,18 @@ export const MODELS_BY_PROVIDER: Record<
     { id: "composer-2.5", label: "Composer 2.5", supportsPlanMode: true },
     { id: "gpt-5.5", label: "GPT-5.5", supportsPlanMode: true },
     { id: "gpt-5.3-codex", label: "Codex 5.3", supportsPlanMode: true },
-    { id: "claude-sonnet-4-6", label: "Sonnet 4.6", supportsPlanMode: true },
-    { id: "claude-opus-4-7", label: "Opus 4.7", supportsPlanMode: true },
+    {
+      id: "claude-sonnet-4-6",
+      label: "Sonnet 4.6",
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
+    {
+      id: "claude-opus-4-7",
+      label: "Opus 4.7",
+      optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
+      supportsPlanMode: true,
+    },
     { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", supportsPlanMode: true },
   ],
   // OpenCode is a meta-provider: it spawns a local `opencode serve` and

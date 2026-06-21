@@ -1,0 +1,89 @@
+---
+title: "Sub-agent delegation to cut cost"
+description: "Let a lead agent spawn cheaper models for the grunt work, then keep the expensive model for the hard parts."
+date: "2026-05-20"
+timeToRead: "5 min read"
+authorName: "memoize team"
+authorRole: "Product notes"
+authorAvatar: "/app-icon.png"
+previewImage: "/assets/blog-preview-subagents-clean.svg"
+labels:
+  [
+    { name: "Agents", hex: "#84CC16" },
+    { name: "Cost", hex: "#22D3EE" },
+  ]
+---
+
+# Sub-agent delegation to cut cost
+
+Not every step in a task needs your most capable model. Reading files, grepping, summarizing logs, and running checks are cheap work. Designing the change and reasoning through the tricky cases is where you want the strong model.
+
+memoize lets a lead agent delegate to sub-agents, so the expensive model orchestrates while cheaper models do the legwork.
+
+---
+
+## How it works
+
+The lead agent breaks a task into pieces and spawns sub-agents to handle the bounded ones. Each sub-agent can run on a smaller, cheaper model. Their results flow back into the lead agent's context, which keeps the high-level plan and makes the final calls.
+
+- Use a frontier model only where judgment matters.
+- Fan out independent subtasks instead of doing them serially.
+- Keep the lead agent's context clean by offloading noisy exploration.
+
+---
+
+## Why it saves money
+
+The bulk of tokens in a long task is usually mechanical work. Routing that to a model that costs a fraction as much, while reserving the expensive model for the few steps that need it, cuts the bill without dumbing down the result.
+
+You see every sub-agent's tool calls and output in the timeline, so delegation stays transparent rather than turning into a black box.
+
+---
+
+## The shape of a real coding task
+
+Most coding tasks are not one continuous act of genius. They are a mix of discovery, bookkeeping, judgment, implementation, verification, and cleanup. A developer might start by reading the relevant files, checking recent commits, searching for existing patterns, tracing a failing test, editing a small set of modules, running the suite, and then writing a summary. Agents follow a similar path, except they can spend a lot of tokens narrating and re-reading along the way.
+
+The expensive moments are the ones where judgment matters. Which abstraction belongs in this codebase? Is the bug in the handler or the persistence layer? Does this change violate an API contract? Should the test be broad or narrow? Those are good places to use the strongest available model. The mechanical moments are different. Searching for call sites, collecting filenames, summarizing a log, comparing two snippets, or checking whether a command output contains a known failure pattern rarely needs the same level of reasoning.
+
+Sub-agent delegation takes advantage of that uneven shape. The lead agent keeps responsibility for the goal. It decides what needs to be known, assigns bounded work to sub-agents, receives the results, and makes the final call. The sub-agent does not need to understand the entire product strategy to answer a narrow question like "find every place this event is emitted" or "summarize why these three tests failed."
+
+## Delegation is not the same as losing control
+
+Bad delegation would be worse than no delegation. If a lead agent spawns helpers that wander through the repository, make silent edits, or return vague conclusions, the developer gets a distributed mess. The useful version has clear boundaries. A sub-agent should have a specific question, a defined scope, and an output that can be checked by the lead agent and the human reviewer.
+
+memoize treats sub-agent work as part of the visible session. Tool calls and outputs are not hidden behind a single "done" message. You can see what the helper inspected and what it concluded. That matters because agentic work should be auditable. If the lead agent bases a design decision on a sub-agent's summary, you should be able to inspect the summary and decide whether it was grounded.
+
+This visibility also makes it easier to tune your own habits. Over time, you learn which tasks are safe to delegate to smaller models and which tasks deserve a stronger one. You might use a cheaper model for repository mapping, a mid-tier model for writing straightforward tests, and the strongest model for the final patch. The point is not to automate the human out of the loop. The point is to spend attention and model budget where they produce the most value.
+
+## Where cheaper models are often enough
+
+Repository search is the obvious case. A helper can find related files, list imports, identify naming patterns, and report back with links or paths. That does not require deep architectural reasoning, but it can consume a surprising number of tokens if the lead model does it all while maintaining the broader conversation. A smaller model can perform the scan and return a compact map.
+
+Log and test summarization is another good fit. When a build fails, the useful information is often buried under repeated stack traces, warnings, and package-manager noise. A sub-agent can condense that output into the failing assertion, the likely file, and the command that reproduced it. The lead agent then decides whether the failure is relevant to the change or a pre-existing issue.
+
+Documentation gathering is also a candidate. If the task touches a library or internal convention, a helper can inspect local docs, read examples, and summarize the house style. The lead agent can use that summary when writing the patch without bloating its context with every document. For teams with large repositories, that context hygiene matters as much as raw cost.
+
+## Where the lead model should stay involved
+
+Delegation has limits. The lead model should stay involved when a decision crosses module boundaries, changes user-visible behavior, alters persistence, or affects security. Those moments need a coherent mental model of the task and its consequences. Splitting them too aggressively can produce local optimizations that do not fit together.
+
+For example, a helper can inspect the database schema and report which migrations touch a table. It should not independently decide to rewrite the migration strategy for a production app. A helper can draft tests around a known behavior. It should not silently redefine the behavior to make tests easier. A helper can compare two implementation options. The lead should decide which option respects the product and the codebase.
+
+The best pattern is a lead agent that delegates questions, not ownership. It can ask for facts, summaries, candidate approaches, or narrow patches. It then integrates the results and explains the final reasoning. That keeps accountability in one place while still using parallelism and cheaper models to reduce waste.
+
+## Cost savings come from orchestration, not model downgrades
+
+The goal is not to replace a capable model with a cheap one everywhere. That usually produces worse work and more cleanup. The goal is to stop using the most expensive model for every token of the process. If a task requires one hour of exploration and ten minutes of judgment, paying premium rates for the entire hour is rarely rational.
+
+Good orchestration changes the bill without lowering the bar. The lead model spends fewer tokens on noisy exploration. Sub-agents return compressed findings. Independent subtasks run in parallel instead of serially. The human reviewer sees the same final diff, plus more transparent intermediate work. In the best case, the result is faster, cheaper, and easier to audit.
+
+There is also a quality benefit. A lead agent with cleaner context is less likely to get distracted by irrelevant logs or stale file contents. It can focus on the decision it needs to make now. Sub-agents become a way to manage attention, not just a way to manage dollars.
+
+## A practical way to start
+
+Start by delegating read-only work. Ask a helper to map related files, summarize a failing command, or compare how similar components solve the same problem. Keep edits with the lead agent until you trust the pattern. Once read-only delegation feels predictable, try bounded implementation tasks, such as adding a missing test fixture or updating one isolated adapter.
+
+Review the sub-agent output the same way you would review a teammate's notes. Check that it cites concrete files, distinguishes facts from guesses, and does not overstate certainty. If the output is vague, narrow the next prompt. If the helper reads too much, reduce the scope. Delegation improves when the lead agent gives smaller, sharper assignments.
+
+memoize's role is to make that workflow normal inside the app. Multiple agents can work inside the same project-aware environment, their outputs remain visible, and the lead agent can use their findings without turning the session into a tangle of terminals. The economics are useful, but the deeper win is operational: better division of labor for agentic coding.

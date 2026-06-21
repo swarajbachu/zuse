@@ -285,7 +285,7 @@ function PokemonDetailDialog({
               </div>
             </DialogHeader>
             <DialogPanel className="space-y-5">
-              <div className="h-80 overflow-auto rounded-md border border-border/50 bg-muted/30 p-6">
+              <div className="h-80 overflow-auto rounded-md border border-border/50 bg-muted p-6">
                 <div className="flex min-h-full min-w-full items-center justify-center">
                   {spriteSrc !== undefined ? (
                     <img

@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Maximize02Icon, MoveIcon, RotateLeft01Icon, ZoomInAreaIcon, ZoomOutAreaIcon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Maximize02Icon,
+  MoveIcon,
+  RotateLeft01Icon,
+  ZoomInAreaIcon,
+  ZoomOutAreaIcon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import {
   isValidElement,
   useEffect,
@@ -13,8 +19,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "~/lib/utils";
+import { useUiStore } from "~/store/ui";
+import { useWorkspaceStore } from "~/store/workspace";
+import { useWorktreesStore } from "~/store/worktrees";
 
 import { CodeBlock } from "./code-block.tsx";
+import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
 import {
   Dialog,
   DialogDescription,
@@ -37,6 +47,19 @@ const textFromReactNode = (node: ReactNode): string => {
   }
   if (Array.isArray(node)) return node.map(textFromReactNode).join("");
   return "";
+};
+
+const stripLineSuffix = (path: string): string =>
+  path.replace(/:(\d+)(?::\d+)?$/, "");
+
+const localFilePathFromHref = (href: string): string | null => {
+  if (href.startsWith("/")) return stripLineSuffix(decodeURI(href));
+  if (!href.toLowerCase().startsWith("file://")) return null;
+  try {
+    return stripLineSuffix(decodeURIComponent(new URL(href).pathname));
+  } catch {
+    return null;
+  }
 };
 
 const codeChildFromPre = (node: ReactNode): ReactNode => {
@@ -363,11 +386,9 @@ function MermaidDiagram({ source }: { source: string }) {
  * tuned for chat messages so link colors / list spacing / code blocks stay
  * consistent across the app.
  *
- * All http(s) anchors are intercepted and handed to `shell.openExternal` via
- * the preload bridge so a click never navigates the renderer or opens a
- * child Electron window — every clicked link lands in the user's default
- * browser. Non-http schemes (e.g. `memoize://attachments/...`) are left to
- * their own handlers.
+ * Http(s) anchors are handed to `shell.openExternal` via the preload bridge
+ * so clicks never navigate the renderer. Absolute local-file anchors emitted
+ * by agents are intercepted too and opened in the app's file tab.
  */
 export function MarkdownBody({
   children,
@@ -376,6 +397,18 @@ export function MarkdownBody({
   children: string;
   className?: string;
 }) {
+  const { folderId, worktreeId } = useFileChipContext();
+  const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const folderPath = useWorkspaceStore((s) => {
+    if (folderId === null) return null;
+    return s.folders.find((f) => f.id === folderId)?.path ?? null;
+  });
+  const worktreePath = useWorktreesStore((s) => {
+    if (folderId === null || worktreeId === null) return null;
+    const list = s.byProject[folderId] ?? [];
+    return list.find((w) => w.id === worktreeId)?.path ?? null;
+  });
+
   return (
     <div className={cn("fz-prose", className)}>
       <ReactMarkdown
@@ -387,10 +420,30 @@ export function MarkdownBody({
               href={href}
               onClick={(e) => {
                 if (typeof href !== "string") return;
-                if (!/^https?:\/\//i.test(href)) return;
+                if (/^https?:\/\//i.test(href)) {
+                  e.preventDefault();
+                  window.memoize?.app?.openExternal(href);
+                  return;
+                }
+                const localPath = localFilePathFromHref(href);
+                if (localPath === null) return;
+                const target = resolveFileOpenTarget({
+                  relPath: localPath,
+                  absPath: localPath,
+                  folderId,
+                  worktreeId,
+                  folderPath,
+                  worktreePath,
+                });
+                if (target === null) return;
                 e.preventDefault();
-                window.memoize?.app?.openExternal(href);
+                openFileInTab(target);
               }}
+              title={
+                typeof href === "string"
+                  ? (localFilePathFromHref(href) ?? undefined)
+                  : undefined
+              }
             >
               {children}
             </a>

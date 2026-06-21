@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { SqlClient } from "@effect/sql";
 // The server ships on `@effect/sql-sqlite-node` (better-sqlite3), which Bun
 // cannot dlopen. `@effect/sql-sqlite-bun` produces the same generic
@@ -15,8 +15,15 @@ import type {
   AgentSessionId,
   FolderId,
   SessionId,
+  StartSessionInput,
+  WorktreeId,
 } from "@memoize/wire";
-import { ComposerInput, RepositorySettings, SettingsFile } from "@memoize/wire";
+import {
+  ComposerInput,
+  RepositorySettings,
+  SettingsFile,
+  Worktree,
+} from "@memoize/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
@@ -49,6 +56,8 @@ import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
+const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
+const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
 
 /**
  * Scripted provider events the stub replays on `events()` for the next
@@ -57,13 +66,17 @@ const PROJECT_ID = "proj-test" as FolderId;
  * provider-event → messages-table pipeline without a real agent CLI.
  */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
+let providerStartInputs: StartSessionInput[] = [];
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
   start: (input) =>
-    Effect.succeed({
-      sessionId: input.sessionId ?? ("stub" as AgentSessionId),
+    Effect.sync(() => {
+      providerStartInputs.push(input);
+      return {
+        sessionId: input.sessionId ?? ("stub" as AgentSessionId),
+      };
     }),
   send: () => Effect.void,
   interrupt: () => Effect.void,
@@ -72,20 +85,40 @@ const StubProviderLive = Layer.succeed(ProviderService, {
   setCredential: () => Effect.void,
   setPermissionMode: () => Effect.void,
   answerQuestion: () => Effect.void,
+  getGoal: () => Effect.succeed(null),
+  setGoal: () => Effect.die("not used"),
+  clearGoal: () => Effect.void,
 });
 
-/** Worktrees are never used (all sessions run worktreeId=null). */
+const testWorktree = Worktree.make({
+  id: TEST_WORKTREE_ID,
+  projectId: PROJECT_ID,
+  path: TEST_WORKTREE_PATH,
+  name: "pikachu",
+  branch: "pikachu",
+  baseBranch: "origin/main",
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  setupStatus: "succeeded",
+  setupOutput: "",
+  setupStartedAt: null,
+  setupFinishedAt: null,
+  pokemon: null,
+});
+
 const StubWorktreeLive = Layer.succeed(WorktreeService, {
   create: () => Effect.die("not used"),
   list: () => Effect.succeed([]),
-  get: () => Effect.succeed(null),
+  get: (worktreeId) =>
+    Effect.succeed(worktreeId === TEST_WORKTREE_ID ? testWorktree : null),
   updateBranch: () => Effect.void,
   remove: () => Effect.void,
+  rerunSetup: () => Effect.die("not used"),
+  startRun: () => Effect.die("not used"),
+  restore: () => Effect.die("not used"),
 });
 
-// The first-message auto-namer only fires for chats with a worktree; these
-// tests run worktreeId=null so none of these stubs are exercised — they exist
-// solely so MessageStoreLive's layer build resolves.
+// The first-message auto-namer may fire for chats with a worktree. Tests here
+// do not exercise branch naming, so these stubs only satisfy the layer graph.
 const StubGitLive = Layer.succeed(GitService, {
   log: () => Effect.die("not used"),
   status: () => Effect.die("not used"),
@@ -287,6 +320,10 @@ const withRuntime = async <A>(
 
 const store = MessageStore;
 
+beforeEach(() => {
+  providerStartInputs = [];
+});
+
 describe("MessageStore migrations", () => {
   it("0016 repairs queued_messages rows from the old position column", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
@@ -356,6 +393,134 @@ describe("MessageStore — chat & session lifecycle", () => {
         _tag: "user",
         text: "fix the bug",
       });
+      expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+    });
+  });
+
+  it("starts a worktree-backed chat session in the worktree cwd", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
+          }),
+        ),
+      );
+
+      expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(providerStartInputs.at(-1)?.cwdOverride).toBe(
+        TEST_WORKTREE_PATH,
+      );
+    });
+  });
+
+  it("inherits the chat worktree cwd when adding another session tab", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
+          }),
+        ),
+      );
+      providerStartInputs = [];
+
+      const nextSession = await run(
+        Effect.flatMap(store, (s) =>
+          s.createSession({
+            chatId: result.chat.id,
+            providerId: "codex",
+            model: "gpt-5-codex",
+          }),
+        ),
+      );
+
+      expect(nextSession.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(providerStartInputs).toHaveLength(1);
+      expect(providerStartInputs[0]?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+    });
+  });
+
+  it("clears stale resume cursors when a chat worktree changes before the first message", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`
+            UPDATE sessions
+            SET cursor = 'claude-main-cwd',
+                resume_strategy = 'claude-session-id'
+            WHERE id = ${result.initialSession.id}
+          `;
+        }),
+      );
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.setChatWorktree(result.chat.id, TEST_WORKTREE_ID),
+        ),
+      );
+      const updated = await run(
+        Effect.flatMap(store, (s) => s.getSession(result.initialSession.id)),
+      );
+
+      expect(updated.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(updated.cursor).toBeNull();
+      expect(updated.resumeStrategy).toBe("none");
+    });
+  });
+
+  it("clears stale resume cursors when a session worktree changes before the first message", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`
+            UPDATE sessions
+            SET cursor = 'claude-main-cwd',
+                resume_strategy = 'claude-session-id'
+            WHERE id = ${result.initialSession.id}
+          `;
+        }),
+      );
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.setWorktree(result.initialSession.id, TEST_WORKTREE_ID),
+        ),
+      );
+      const updated = await run(
+        Effect.flatMap(store, (s) => s.getSession(result.initialSession.id)),
+      );
+
+      expect(updated.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(updated.cursor).toBeNull();
+      expect(updated.resumeStrategy).toBe("none");
     });
   });
 

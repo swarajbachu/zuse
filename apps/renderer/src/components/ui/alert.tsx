@@ -7,7 +7,7 @@ import { cn } from "~/lib/utils";
 // reads as a single hard color (e.g. a dark warm red for error in dark
 // mode), not a transparent wash on top of the page. No borders.
 const alertVariants = cva(
-  "relative grid w-full items-start gap-x-2 gap-y-0.5 rounded-xl px-3.5 py-3 text-foreground text-sm has-[>svg]:has-data-[slot=alert-action]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-data-[slot=alert-action]:grid-cols-[1fr_auto] has-[>svg]:gap-x-2 [&>svg]:h-lh [&>svg]:w-4",
+  "relative grid w-full items-start gap-x-2 gap-y-0.5 rounded-md border border-transparent px-3.5 py-3 text-foreground text-sm ring-1 ring-inset ring-border/35 has-[>svg]:has-data-[slot=alert-action]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-data-[slot=alert-action]:grid-cols-[1fr_auto] has-[>svg]:gap-x-2 [&>svg]:h-lh [&>svg]:w-4",
   {
     defaultVariants: {
       variant: "default",
@@ -15,13 +15,10 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card [&>svg]:text-muted-foreground",
-        error:
-          "bg-alert-error-bg [&>svg]:text-destructive",
+        error: "bg-alert-error-bg [&>svg]:text-destructive",
         info: "bg-alert-info-bg [&>svg]:text-info",
-        success:
-          "bg-alert-success-bg [&>svg]:text-success",
-        warning:
-          "bg-alert-warning-bg [&>svg]:text-warning",
+        success: "bg-alert-success-bg [&>svg]:text-success",
+        warning: "bg-alert-warning-bg [&>svg]:text-warning",
       },
     },
   },

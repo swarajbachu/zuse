@@ -1,7 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon, RotateRight01Icon, StarIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { StarIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useRef, useState } from "react";
 import { Effect, Fiber, Stream } from "effect";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 import {
   BrowserCommandResult,
@@ -134,10 +135,10 @@ export function BrowserPane() {
     const executeBrowserCommand = async (
       req: BrowserCommandRequest,
     ): Promise<void> => {
-      // Always surface the action: force the Browser tab visible. This also
-      // un-hides the webview so `capturePage` works (it returns an empty
-      // image for a `display:none` element).
-      useUiStore.getState().setActiveRightTab("browser");
+      // Always surface the action: open the sidebar and force the Browser
+      // panel visible+active. This also un-hides the webview so `capturePage`
+      // works (it returns an empty image for a `display:none` element).
+      useUiStore.getState().revealPanel("browser");
       const wv = webviewRef.current as WebviewElement | null;
       const result = await runBrowserCommand(req, wv, {
         setUrl,
@@ -216,21 +217,24 @@ export function BrowserPane() {
           disabled={!canGoBack}
           ariaLabel="Back"
         >
-          <HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" />
+          <ChevronLeft className="size-3.5" strokeWidth={1.8} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => go("forward")}
           disabled={!canGoForward}
           ariaLabel="Forward"
         >
-          <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
+          <ChevronRight className="size-3.5" strokeWidth={1.8} />
         </ToolbarButton>
         <ToolbarButton
           onClick={reload}
           disabled={url === ""}
           ariaLabel={isLoading ? "Stop" : "Reload"}
         >
-          <HugeiconsIcon icon={RotateRight01Icon} className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
+            strokeWidth={1.8}
+          />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => {

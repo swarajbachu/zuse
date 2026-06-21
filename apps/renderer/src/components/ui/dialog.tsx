@@ -1,10 +1,9 @@
 "use client";
 
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
+import { X } from "lucide-react";
 import type React from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
@@ -87,7 +86,7 @@ export function DialogPopup({
       >
         <DialogPrimitive.Popup
           className={cn(
-            "relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg origin-center flex-col rounded-2xl border bg-popover not-dark:bg-clip-padding text-popover-foreground opacity-[calc(1-var(--nested-dialogs))] shadow-lg/5 outline-none transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-2xl)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:opacity-0 data-starting-style:opacity-0 sm:scale-[calc(1-0.1*var(--nested-dialogs))] sm:data-ending-style:scale-98 sm:data-starting-style:scale-98 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]",
+            "relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg origin-center flex-col rounded-lg border border-border/70 bg-popover not-dark:bg-clip-padding text-popover-foreground opacity-[calc(1-var(--nested-dialogs))] shadow-lg/5 outline-none transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-ending-style:opacity-0 data-starting-style:opacity-0 sm:scale-[calc(1-0.1*var(--nested-dialogs))] sm:data-ending-style:scale-98 sm:data-starting-style:scale-98 dark:before:shadow-[0_-1px_--theme(--color-white/5%)]",
             bottomStickOnMobile &&
               "max-sm:max-w-none max-sm:origin-bottom max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4 max-sm:before:hidden max-sm:before:rounded-none",
             className,
@@ -103,7 +102,7 @@ export function DialogPopup({
               render={<Button size="icon" variant="ghost" />}
               {...closeProps}
             >
-              <HugeiconsIcon icon={Cancel01Icon} />
+              <X />
             </DialogPrimitive.Close>
           )}
         </DialogPrimitive.Popup>
@@ -134,18 +133,12 @@ export function DialogHeader({
 
 export function DialogFooter({
   className,
-  variant = "default",
   render,
   ...props
-}: useRender.ComponentProps<"div"> & {
-  variant?: "default" | "bare";
-}): React.ReactElement {
+}: useRender.ComponentProps<"div">): React.ReactElement {
   const defaultProps = {
     className: cn(
-      "flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--radius-2xl)-1px)]",
-      variant === "default" && "border-t bg-muted/72 py-4",
-      variant === "bare" &&
-        "in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-6",
+      "flex flex-col-reverse gap-2 border-t border-border/60 bg-muted/72 px-6 py-4 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--radius-lg)-1px)]",
       className,
     ),
     "data-slot": "dialog-footer",
@@ -197,7 +190,7 @@ export function DialogPanel({
 }): React.ReactElement {
   const defaultProps = {
     className: cn(
-      "p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-1 in-[[data-slot=dialog-popup]:has([data-slot=dialog-footer]:not(.border-t))]:pb-1",
+      "p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-1",
       className,
     ),
     "data-slot": "dialog-panel",
