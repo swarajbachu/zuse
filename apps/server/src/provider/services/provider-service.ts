@@ -41,6 +41,16 @@ export interface ProviderServiceShape {
     input: StartSessionInput,
     resumeCursor?: string | null,
     getRuntimeMode?: GetRuntimeMode,
+    /**
+     * Extra in-process Claude-SDK tool definitions to register in the
+     * `memoize` MCP server for this session, alongside the built-in index
+     * and browser tools. In-process only (not part of the wire
+     * `StartSessionInput`) — `MessageStore` passes the control-plane
+     * orchestration tools here when the session's autonomy level is not
+     * `"off"`. Ignored by non-Claude drivers. Typed loosely because SDK
+     * tool objects aren't part of the wire schema.
+     */
+    extraTools?: ReadonlyArray<unknown>,
   ) => Effect.Effect<
     { readonly sessionId: AgentSessionId },
     ProviderNotAvailableError | AgentSessionStartError

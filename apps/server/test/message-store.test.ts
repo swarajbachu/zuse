@@ -16,7 +16,7 @@ import type {
   FolderId,
   SessionId,
 } from "@memoize/wire";
-import { ComposerInput, RepositorySettings } from "@memoize/wire";
+import { ComposerInput, RepositorySettings, SettingsFile } from "@memoize/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
@@ -37,6 +37,7 @@ import { Migration0015QueuedMessages } from "../src/persistence/migrations/0015_
 import { Migration0016QueuedMessagesQueueOrderRepair } from "../src/persistence/migrations/0016_queued_messages_queue_order_repair.ts";
 import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
+import { Migration0019ChatLineage } from "../src/persistence/migrations/0019_chat_lineage.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -110,8 +111,44 @@ const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
   generate: () => Effect.die("not used"),
 });
 
+/**
+ * Autonomy gate reads settings on every createSession to decide whether to
+ * register the control-plane orchestration tools. Return a realistic
+ * defaults object with autonomy `off` so no tools are built in these
+ * persistence tests.
+ */
+const STUB_SETTINGS = SettingsFile.make({
+  schemaVersion: 1,
+  defaultProviderId: "claude",
+  defaultModelByProvider: {
+    claude: "",
+    codex: "",
+    grok: "",
+    gemini: "",
+    cursor: "",
+    opencode: "",
+  },
+  defaultRuntimeMode: "approval-required",
+  defaultAutoCreateWorktree: false,
+  defaultAutonomyLevel: "off",
+  onboardingCompleted: true,
+  completionSoundEnabled: false,
+  completionSoundPreset: "chime",
+  providerEnabled: {
+    claude: true,
+    codex: true,
+    grok: true,
+    gemini: true,
+    cursor: true,
+    opencode: true,
+  },
+  subagents: { enableForNewSessions: false, presets: {} },
+  branchNamingStyle: "username-slug",
+  branchNamingPrefix: "",
+});
+
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
-  getSettings: () => Effect.die("not used"),
+  getSettings: () => Effect.succeed(STUB_SETTINGS),
   updateSettings: () => Effect.die("not used"),
   settingsChanges: () => Stream.die("not used"),
   migrateLocalStorage: () => Effect.die("not used"),
@@ -189,6 +226,7 @@ const runAllMigrations = Effect.all(
     Migration0016QueuedMessagesQueueOrderRepair,
     Migration0017ChatReadState,
     Migration0018PokemonWorktrees,
+    Migration0019ChatLineage,
   ],
   { discard: true },
 );

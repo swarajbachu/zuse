@@ -290,16 +290,16 @@ export class Message extends Schema.Class<Message>("Message")({
   createdAt: Schema.DateFromString,
 }) {}
 
-export class QueuedMessage extends Schema.Class<QueuedMessage>(
-  "QueuedMessage",
-)({
-  id: Schema.String,
-  sessionId: SessionId,
-  input: ComposerInput,
-  position: Schema.Number,
-  createdAt: Schema.DateFromString,
-  updatedAt: Schema.DateFromString,
-}) {}
+export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
+  {
+    id: Schema.String,
+    sessionId: SessionId,
+    input: ComposerInput,
+    position: Schema.Number,
+    createdAt: Schema.DateFromString,
+    updatedAt: Schema.DateFromString,
+  },
+) {}
 
 export class SessionNotFoundError extends Schema.TaggedError<SessionNotFoundError>()(
   "SessionNotFoundError",
@@ -464,6 +464,13 @@ export class Chat extends Schema.Class<Chat>("Chat")({
   worktreeId: Schema.NullOr(WorktreeId),
   title: Schema.String,
   activeSessionId: Schema.NullOr(SessionId),
+  /**
+   * Lineage. When an agent spawns this chat via the `create_thread`
+   * control-plane tool, this records the session that spawned it so the
+   * sidebar can nest agent-spawned chats under their parent and badge them.
+   * `null` for user-created chats.
+   */
+  originSessionId: Schema.NullOr(SessionId),
   archivedAt: Schema.NullOr(Schema.DateFromString),
   /**
    * Read/unread tracking. `lastMessageAt` advances every time a message is
@@ -577,6 +584,11 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
+    /**
+     * Lineage — set by the `create_thread` control-plane tool to the
+     * spawning session id. Omitted for user-created chats.
+     */
+    originSessionId: Schema.optional(SessionId),
   }),
   success: Schema.Struct({
     chat: Chat,

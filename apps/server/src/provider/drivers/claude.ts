@@ -210,7 +210,6 @@ const scrubInheritedClaudeMarkers = (
   return next;
 };
 
-
 /**
  * Per-turn accumulator for thinking_delta / redacted_thinking blocks. The
  * SDK delivers raw `content_block_*` events when `includePartialMessages`
@@ -278,7 +277,8 @@ const newTranslateState = (): TranslateState => ({
 });
 
 const isAgentToolUse = (block: { type?: string; name?: string }): boolean =>
-  block.type === "tool_use" && (block.name === "Agent" || block.name === "Task");
+  block.type === "tool_use" &&
+  (block.name === "Agent" || block.name === "Task");
 
 const extractTextFromContent = (content: unknown): string => {
   if (typeof content === "string") return content;
@@ -516,8 +516,7 @@ const translate = (
       }
       const acc = state.thinkingByIndex.get(index);
       if (delta.type === "thinking_delta") {
-        const chunk =
-          typeof delta.thinking === "string" ? delta.thinking : "";
+        const chunk = typeof delta.thinking === "string" ? delta.thinking : "";
         tlog("stream_event.thinking_delta", {
           index,
           chunkLen: chunk.length,
@@ -527,8 +526,7 @@ const translate = (
         if (acc !== undefined) acc.text += chunk;
       } else if (delta.type === "signature_delta") {
         // signatures confirm thinking happened even when text is empty
-        const sig =
-          typeof delta.signature === "string" ? delta.signature : "";
+        const sig = typeof delta.signature === "string" ? delta.signature : "";
         tlog("stream_event.signature_delta", { index, sigLen: sig.length });
         if (acc !== undefined) acc.signatureLength += sig.length;
       } else if (
@@ -615,10 +613,8 @@ const translate = (
           // fall back to a fresh id only if the SDK omits it (shouldn't
           // happen for valid tool_result blocks).
           const id =
-            typeof (block as { tool_use_id?: unknown }).tool_use_id ===
-            "string"
-              ? ((block as { tool_use_id: string })
-                  .tool_use_id as AgentItemId)
+            typeof (block as { tool_use_id?: unknown }).tool_use_id === "string"
+              ? ((block as { tool_use_id: string }).tool_use_id as AgentItemId)
               : nextItemId();
           // Suppress tool_result rows for AskUserQuestion — the answer is
           // already persisted as a `user_question_answer` row via
@@ -681,7 +677,7 @@ const translate = (
       | undefined;
     const modelOnResult =
       typeof (msg as unknown as { model?: unknown }).model === "string"
-        ? ((msg as unknown as { model: string }).model)
+        ? (msg as unknown as { model: string }).model
         : "unknown";
     if (usage !== undefined) {
       const num = (key: string): number => {
@@ -759,6 +755,15 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${MEMOIZE_MCP_NAME}__browser_read`,
   `mcp__${MEMOIZE_MCP_NAME}__browser_console`,
   `mcp__${MEMOIZE_MCP_NAME}__browser_history`,
+  // Control-plane (orchestration) reads. Inspecting threads is non-mutating
+  // and visible to the user (the threads are sidebar chats), so auto-allow
+  // like the index reads. The MUTATING control-plane tools — create_worktree,
+  // create_thread, send_to_thread — are deliberately absent: they spawn real
+  // work and must fall through to the permission prompt, which is the approval
+  // gate for the `approval-gated` autonomy level.
+  `mcp__${MEMOIZE_MCP_NAME}__read_thread`,
+  `mcp__${MEMOIZE_MCP_NAME}__list_threads`,
+  `mcp__${MEMOIZE_MCP_NAME}__whoami`,
 ]);
 
 /**
@@ -856,9 +861,8 @@ const policyFor = (
   }
   // 1. Sensitive paths — checked before any auto-allow. Even YOLO mode prompts.
   if (toolName === "Read") {
-    const path = typeof toolInput.file_path === "string"
-      ? toolInput.file_path
-      : "";
+    const path =
+      typeof toolInput.file_path === "string" ? toolInput.file_path : "";
     if (path.length > 0 && isSensitivePath(path)) {
       return { kind: "prompt", forcePrompt: true };
     }
@@ -909,9 +913,10 @@ const kindForTool = (
 ): PermissionKind => {
   switch (toolName) {
     case "Bash": {
-      const command = typeof toolInput.command === "string"
-        ? toolInput.command
-        : JSON.stringify(toolInput);
+      const command =
+        typeof toolInput.command === "string"
+          ? toolInput.command
+          : JSON.stringify(toolInput);
       return { _tag: "Bash", command };
     }
     case "Edit":
@@ -1071,7 +1076,11 @@ export const startClaudeSession = (
   // doesn't compose across distinct shapes in an array.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extraTools: ReadonlyArray<any> = [],
-): Effect.Effect<ClaudeSessionHandle, AgentSessionStartError, AttachmentService> =>
+): Effect.Effect<
+  ClaudeSessionHandle,
+  AgentSessionStartError,
+  AttachmentService
+> =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
     const events = yield* Mailbox.make<AgentEvent>();
@@ -1222,11 +1231,12 @@ export const startClaudeSession = (
           questions: userQuestions,
           parentItemId: translateState.latestParentItemId,
         });
-        const answers = await new Promise<
-          ReadonlyArray<UserQuestionAnswer> | null
-        >((resolve) => {
-          pendingQuestions.set(itemId, resolve);
-        });
+        const answers =
+          await new Promise<ReadonlyArray<UserQuestionAnswer> | null>(
+            (resolve) => {
+              pendingQuestions.set(itemId, resolve);
+            },
+          );
         if (answers === null) {
           return {
             content: [
@@ -1487,7 +1497,11 @@ export const startClaudeSession = (
                 ...attachmentBlocks.map((b) =>
                   b.type === "text"
                     ? { type: "text", textLen: b.text.length }
-                    : { type: b.type, media_type: b.source.media_type, base64Len: b.source.data.length },
+                    : {
+                        type: b.type,
+                        media_type: b.source.media_type,
+                        base64Len: b.source.data.length,
+                      },
                 ),
                 { type: "text", textLen: promptText.length },
               ],

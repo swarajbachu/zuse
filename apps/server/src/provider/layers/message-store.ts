@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql";
-import { Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { Effect, Fiber, Layer, PubSub, Ref, Runtime, Stream } from "effect";
 import { spawn } from "node:child_process";
 
 import {
@@ -35,7 +35,11 @@ import {
   type SkillRef,
   type Worktree,
   WorktreeId,
+  type AutonomyLevel,
+  autonomyEnablesOrchestration,
 } from "@memoize/wire";
+
+import { buildOrchestrationTools } from "../drivers/orchestration-tools.ts";
 
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
@@ -85,6 +89,7 @@ interface ChatRow {
   readonly worktree_id: string | null;
   readonly title: string;
   readonly active_session_id: string | null;
+  readonly origin_session_id: string | null;
   readonly archived_at: string | null;
   readonly archived_worktree_json: string | null;
   readonly last_message_at: string | null;
@@ -100,7 +105,7 @@ const SESSION_COLUMNS =
   "forked_from_message_id, permission_mode, tool_search, created_at, updated_at";
 
 const CHAT_COLUMNS =
-  "id, project_id, worktree_id, title, active_session_id, " +
+  "id, project_id, worktree_id, title, active_session_id, origin_session_id, " +
   "archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at";
 
 const ARCHIVE_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -254,6 +259,10 @@ const chatFromRow = (row: ChatRow): Chat =>
       row.active_session_id === null
         ? null
         : SessionId.make(row.active_session_id),
+    originSessionId:
+      row.origin_session_id === null
+        ? null
+        : SessionId.make(row.origin_session_id),
     archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
     lastMessageAt:
       row.last_message_at === null ? null : new Date(row.last_message_at),
@@ -271,6 +280,46 @@ const messageFromRow = (row: MessageRow): Message => {
     content,
     createdAt: new Date(row.created_at),
   });
+};
+
+/**
+ * Best-effort human string for a failed orchestration tool call. The control
+ * plane never throws to the agent — failures come back as
+ * `{ ok: false, error }`, and this turns a typed Effect error (or anything)
+ * into the `error` string. Prefers a `reason` field, then `_tag`.
+ */
+const orchestrationErrorText = (err: unknown): string => {
+  if (typeof err === "object" && err !== null) {
+    const e = err as Record<string, unknown>;
+    if (typeof e.reason === "string") return e.reason;
+    if (typeof e._tag === "string") return e._tag;
+  }
+  return "Operation failed.";
+};
+
+/**
+ * Flatten a persisted message's content to a single line for `read_thread`,
+ * so a spawning agent can skim what a thread has done without the full
+ * structured payload.
+ */
+const messageContentToText = (content: MessageContent): string => {
+  switch (content._tag) {
+    case "user":
+    case "user_rich":
+    case "assistant":
+    case "thinking":
+      return content.text;
+    case "tool_use":
+      return `[tool_use: ${content.tool}]`;
+    case "tool_result":
+      return String(content.output);
+    case "error":
+      return `[error: ${content.message}]`;
+    case "subagent_summary":
+      return content.summary;
+    default:
+      return `[${content._tag}]`;
+  }
 };
 
 const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
@@ -455,6 +504,11 @@ export const MessageStoreLive = Layer.scoped(
     const git = yield* GitService;
     const titleGen = yield* TitleGenerator;
     const configStore = yield* ConfigStoreService;
+    // Captured once so the control-plane orchestration tools — which the
+    // Claude SDK invokes as plain async functions — can bridge back into
+    // these Effect methods via `Runtime.runPromise`. Same shape as the
+    // browser-bridge tool binding in ProviderService.
+    const runtime = yield* Effect.runtime<never>();
 
     const chatColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(chats)
@@ -1110,7 +1164,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<ChatRow, SessionStartError> =>
       Effect.gen(function* () {
         const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -1132,6 +1186,156 @@ export const MessageStoreLive = Layer.scoped(
           );
         }
         return row;
+      });
+
+    /**
+     * Build the in-process control-plane (orchestration) tools for a session,
+     * gated on the project's autonomy level. Returns `[]` when autonomy is
+     * `"off"` so the agent sees no spawn tools and memoize behaves exactly as
+     * before. Each tool bridges back into these Effect methods via
+     * `Runtime.runPromise`, mapping every typed failure to a
+     * `{ ok: false, error }` result so the SDK handlers never throw.
+     *
+     * Spawned threads carry `originSessionId = ctx.sessionId` for lineage, and
+     * inherit this session's provider/model unless the agent overrides them.
+     */
+    const buildExtraToolsForSession = (ctx: {
+      readonly sessionId: SessionId;
+      readonly chatId: ChatId;
+      readonly projectId: FolderId;
+      readonly providerId: ProviderId;
+      readonly model: string;
+    }): Effect.Effect<ReadonlyArray<unknown>> =>
+      Effect.gen(function* () {
+        const settings = yield* configStore.getSettings();
+        const level: AutonomyLevel = settings.defaultAutonomyLevel;
+        if (!autonomyEnablesOrchestration(level)) return [];
+        const run = Runtime.runPromise(runtime);
+        return buildOrchestrationTools({
+          createWorktree: () =>
+            run(
+              worktrees.create(ctx.projectId).pipe(
+                Effect.map((wt) => ({
+                  ok: true as const,
+                  worktreeId: wt.id as string,
+                  path: wt.path,
+                  branch: wt.branch,
+                })),
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          createThread: (input) =>
+            run(
+              createChat({
+                projectId: ctx.projectId,
+                providerId:
+                  (input.providerId as ProviderId | undefined) ??
+                  ctx.providerId,
+                model: input.model ?? ctx.model,
+                title: input.title,
+                initialPrompt: input.prompt,
+                worktreeId:
+                  input.worktreeId !== undefined
+                    ? (input.worktreeId as WorktreeId)
+                    : null,
+                originSessionId: ctx.sessionId,
+              }).pipe(
+                Effect.map((res) => ({
+                  ok: true as const,
+                  chatId: res.chat.id as string,
+                  sessionId: res.initialSession.id as string,
+                  title: res.chat.title,
+                })),
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          sendToThread: (input) =>
+            run(
+              sendMessage(input.sessionId as SessionId, input.text).pipe(
+                Effect.map(() => ({ ok: true as const, queued: false })),
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          readThread: (input) =>
+            run(
+              Effect.gen(function* () {
+                const session = yield* getSession(input.sessionId as SessionId);
+                const msgs = yield* listMessages(input.sessionId as SessionId);
+                const limit = input.limit ?? 20;
+                const messages = msgs.slice(-limit).map((m) => ({
+                  role: m.role,
+                  text: messageContentToText(m.content),
+                }));
+                return {
+                  ok: true as const,
+                  status: session.status,
+                  messages,
+                };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          listThreads: (input) =>
+            run(
+              Effect.gen(function* () {
+                const includeArchived = input.includeArchived ?? false;
+                const chats = yield* listChats(ctx.projectId, includeArchived);
+                const sessions = yield* listSessions(
+                  ctx.projectId,
+                  includeArchived,
+                );
+                const statusBySession = new Map(
+                  sessions.map((s) => [s.id as string, s.status as string]),
+                );
+                const threads = chats.map((c) => ({
+                  chatId: c.id as string,
+                  sessionId: (c.activeSessionId ?? "") as string,
+                  title: c.title,
+                  status:
+                    c.activeSessionId !== null
+                      ? (statusBySession.get(c.activeSessionId as string) ??
+                        "unknown")
+                      : "unknown",
+                  spawnedByMe: c.originSessionId === ctx.sessionId,
+                }));
+                return { ok: true as const, threads };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          whoami: () =>
+            Promise.resolve({
+              sessionId: ctx.sessionId as string,
+              chatId: ctx.chatId as string,
+              projectId: ctx.projectId as string,
+              autonomyLevel: level,
+            }),
+        });
       });
 
     const createSession: MessageStoreShape["createSession"] = (
@@ -1169,6 +1373,16 @@ export const MessageStoreLive = Layer.scoped(
         const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
         runtimeModeBySession.set(sessionId, initialRuntimeMode);
         permissionModeBySession.set(sessionId, initialPermissionMode);
+        // Control-plane orchestration tools — empty unless the project's
+        // autonomy level opts in. Passed to `provider.start` so the agent can
+        // spawn + steer its own worktrees/threads.
+        const extraTools = yield* buildExtraToolsForSession({
+          sessionId,
+          chatId: input.chatId,
+          projectId,
+          providerId: input.providerId,
+          model: input.model,
+        });
         if (
           input.agents !== undefined &&
           Object.keys(input.agents).length > 0
@@ -1249,6 +1463,7 @@ export const MessageStoreLive = Layer.scoped(
                 },
                 null,
                 newSessionRuntimeMode,
+                extraTools,
               )
               .pipe(
                 Effect.flatMap(() =>
@@ -1310,6 +1525,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             null,
             newSessionRuntimeMode,
+            extraTools,
           )
           .pipe(
             Effect.mapError((err) =>
@@ -1603,7 +1819,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<Chat, ChatNotFoundError> =>
       Effect.gen(function* () {
         const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -1620,13 +1836,13 @@ export const MessageStoreLive = Layer.scoped(
       Effect.gen(function* () {
         const rows = includeArchived
           ? yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id,
+              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats WHERE project_id = ${projectId}
               ORDER BY updated_at DESC
             `.pipe(Effect.orDie)
           : yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id,
+              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats
               WHERE project_id = ${projectId} AND archived_at IS NULL
@@ -1654,13 +1870,14 @@ export const MessageStoreLive = Layer.scoped(
         const title =
           input.title?.trim() || titleFromInitial(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
+        const originSessionId = input.originSessionId ?? null;
         yield* sql`
           INSERT INTO chats
-            (id, project_id, worktree_id, title, active_session_id,
+            (id, project_id, worktree_id, title, active_session_id, origin_session_id,
              archived_at, last_message_at, last_read_at, created_at, updated_at)
           VALUES
             (${chatId}, ${input.projectId}, ${worktreeId}, ${title}, NULL,
-             NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso})
+             ${originSessionId}, NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso})
         `.pipe(Effect.asVoid, Effect.orDie);
         const initialSession = yield* createSession({
           chatId,
@@ -2001,7 +2218,7 @@ export const MessageStoreLive = Layer.scoped(
     const unarchiveChat: MessageStoreShape["unarchiveChat"] = (chatId) =>
       Effect.gen(function* () {
         const chatRows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -2187,50 +2404,61 @@ export const MessageStoreLive = Layer.scoped(
       runtimeModeBySession.set(session.id, session.runtimeMode);
       permissionModeBySession.set(session.id, session.permissionMode);
       const subagents = agentsFor(session.id);
-      return cwdForWorktree(session.worktreeId).pipe(
-        Effect.flatMap((cwdOverride) =>
-          provider
-            .start(
-              {
-                folderId: session.projectId,
-                providerId: session.providerId,
-                mode: "sdk",
-                sessionId: session.id,
-                model: session.model,
-                agents: subagents?.agents,
-                enableSubagents: subagents?.enableSubagents,
-                cwdOverride,
-                permissionMode: session.permissionMode,
-                toolSearch: session.toolSearch,
-              },
-              // Re-attach to the upstream conversation when we have a
-              // cursor. The driver passes it as `options.resume`; SDK
-              // reloads history and continues from there.
-              session.cursor,
-              () => getRuntimeModeFor(session.id),
-            )
-            .pipe(
-              Effect.flatMap(() => startSubscription(session.id)),
-              Effect.flatMap(() =>
-                provider.send(session.id, text, attachments),
-              ),
-              Effect.mapError((err) =>
-                err._tag === "ProviderNotAvailableError"
-                  ? new SessionStartError({
-                      providerId: session.providerId,
-                      reason: err.reason,
-                    })
-                  : err._tag === "AgentSessionStartError"
-                    ? new SessionStartError({
-                        providerId: err.providerId,
-                        reason: err.reason,
-                      })
-                    : new SessionStartError({
-                        providerId: session.providerId,
-                        reason: formatProviderFailure(err),
-                      }),
-              ),
+      return buildExtraToolsForSession({
+        sessionId: session.id,
+        chatId: session.chatId,
+        projectId: session.projectId,
+        providerId: session.providerId,
+        model: session.model,
+      }).pipe(
+        Effect.flatMap((extraTools) =>
+          cwdForWorktree(session.worktreeId).pipe(
+            Effect.flatMap((cwdOverride) =>
+              provider
+                .start(
+                  {
+                    folderId: session.projectId,
+                    providerId: session.providerId,
+                    mode: "sdk",
+                    sessionId: session.id,
+                    model: session.model,
+                    agents: subagents?.agents,
+                    enableSubagents: subagents?.enableSubagents,
+                    cwdOverride,
+                    permissionMode: session.permissionMode,
+                    toolSearch: session.toolSearch,
+                  },
+                  // Re-attach to the upstream conversation when we have a
+                  // cursor. The driver passes it as `options.resume`; SDK
+                  // reloads history and continues from there.
+                  session.cursor,
+                  () => getRuntimeModeFor(session.id),
+                  extraTools,
+                )
+                .pipe(
+                  Effect.flatMap(() => startSubscription(session.id)),
+                  Effect.flatMap(() =>
+                    provider.send(session.id, text, attachments),
+                  ),
+                  Effect.mapError((err) =>
+                    err._tag === "ProviderNotAvailableError"
+                      ? new SessionStartError({
+                          providerId: session.providerId,
+                          reason: err.reason,
+                        })
+                      : err._tag === "AgentSessionStartError"
+                        ? new SessionStartError({
+                            providerId: err.providerId,
+                            reason: err.reason,
+                          })
+                        : new SessionStartError({
+                            providerId: session.providerId,
+                            reason: formatProviderFailure(err),
+                          }),
+                  ),
+                ),
             ),
+          ),
         ),
       );
     };
@@ -2258,6 +2486,15 @@ export const MessageStoreLive = Layer.scoped(
         permissionModeBySession.set(session.id, session.permissionMode);
         const subagents = agentsFor(session.id);
         const cwdOverride = yield* cwdForWorktree(session.worktreeId);
+        // Re-attach the control-plane tools so a resumed autonomous session
+        // keeps its ability to spawn + steer threads.
+        const extraTools = yield* buildExtraToolsForSession({
+          sessionId: session.id,
+          chatId: session.chatId,
+          projectId: session.projectId,
+          providerId: session.providerId,
+          model: session.model,
+        });
         yield* provider
           .start(
             {
@@ -2274,6 +2511,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             session.cursor,
             () => getRuntimeModeFor(session.id),
+            extraTools,
           )
           .pipe(
             Effect.mapError((err) =>

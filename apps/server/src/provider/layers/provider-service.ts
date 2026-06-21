@@ -23,10 +23,7 @@ import {
   startCodexSession,
   type CodexSessionHandle,
 } from "../drivers/codex.ts";
-import {
-  startGrokSession,
-  type GrokSessionHandle,
-} from "../drivers/grok.ts";
+import { startGrokSession, type GrokSessionHandle } from "../drivers/grok.ts";
 import {
   startGeminiSession,
   type GeminiSessionHandle,
@@ -137,11 +134,13 @@ export const ProviderServiceLive = Layer.effect(
         // listConfigured is best-effort — a keychain failure here shouldn't
         // wipe out the CLI-logged-in picture, which is the primary auth path
         // and works without any keychain entry of ours.
-        const configured = yield* credentials.listConfigured().pipe(
-          Effect.catchAll(() =>
-            Effect.succeed([] as ReadonlyArray<ProviderId>),
-          ),
-        );
+        const configured = yield* credentials
+          .listConfigured()
+          .pipe(
+            Effect.catchAll(() =>
+              Effect.succeed([] as ReadonlyArray<ProviderId>),
+            ),
+          );
         const configuredSet = new Set<ProviderId>(configured);
         return list.map(
           (a): AgentAvailability => ({
@@ -163,7 +162,7 @@ export const ProviderServiceLive = Layer.effect(
 
     return {
       availability,
-      start: (input, resumeCursor = null, getRuntimeMode) =>
+      start: (input, resumeCursor = null, getRuntimeMode, extraTools = []) =>
         Effect.gen(function* () {
           const runtimeModeGetter =
             getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
@@ -177,9 +176,9 @@ export const ProviderServiceLive = Layer.effect(
             );
           }
           const cwd = input.cwdOverride ?? folder.path;
-          const apiKey = yield* credentials.get(input.providerId).pipe(
-            Effect.catchAll(() => Effect.succeed<string | null>(null)),
-          );
+          const apiKey = yield* credentials
+            .get(input.providerId)
+            .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
           const sessionId = input.sessionId ?? nextSessionId();
           let handle: SessionHandle;
           if (input.providerId === "gemini") {
@@ -335,7 +334,10 @@ export const ProviderServiceLive = Layer.effect(
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
               resumeCursor,
-              [...indexTools, ...browserTools],
+              // Control-plane orchestration tools (when autonomy != off) ride
+              // alongside the built-in index + browser tools in the same
+              // `memoize` MCP server, so they get `mcp__memoize__*` FQNs.
+              [...indexTools, ...browserTools, ...extraTools],
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native

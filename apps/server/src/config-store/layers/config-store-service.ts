@@ -65,6 +65,7 @@ const freshSettings = (): SettingsFile =>
     defaultModelByProvider: seedModels(),
     defaultRuntimeMode: "approval-required",
     defaultAutoCreateWorktree: false,
+    defaultAutonomyLevel: "off",
     onboardingCompleted: false,
     completionSoundEnabled: false,
     completionSoundPreset: "chime",
@@ -95,6 +96,11 @@ const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
   v === "auto-accept-edits-and-bash" ||
   v === "full-access";
 
+const isAutonomyLevel = (
+  v: unknown,
+): v is SettingsFile["defaultAutonomyLevel"] =>
+  v === "off" || v === "approval-gated" || v === "autonomous";
+
 const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "chime" ||
   v === "soft" ||
@@ -104,10 +110,7 @@ const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "bloom";
 
 const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
-  v === "username-slug" ||
-  v === "slug" ||
-  v === "feat-slug" ||
-  v === "custom";
+  v === "username-slug" || v === "slug" || v === "feat-slug" || v === "custom";
 
 /**
  * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
@@ -145,6 +148,10 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.defaultAutoCreateWorktree
       : base.defaultAutoCreateWorktree;
 
+  const autonomy = isAutonomyLevel(obj.defaultAutonomyLevel)
+    ? obj.defaultAutonomyLevel
+    : base.defaultAutonomyLevel;
+
   const onboarding =
     typeof obj.onboardingCompleted === "boolean"
       ? obj.onboardingCompleted
@@ -164,10 +171,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
   const providerEnabled: Record<ProviderId, boolean> = {
     ...base.providerEnabled,
   };
-  if (
-    typeof obj.providerEnabled === "object" &&
-    obj.providerEnabled !== null
-  ) {
+  if (typeof obj.providerEnabled === "object" && obj.providerEnabled !== null) {
     const flags = obj.providerEnabled as Record<string, unknown>;
     for (const id of PROVIDER_IDS) {
       const v = flags[id];
@@ -216,6 +220,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     defaultModelByProvider: models,
     defaultRuntimeMode: runtime,
     defaultAutoCreateWorktree: autoWorktree,
+    defaultAutonomyLevel: autonomy,
     onboardingCompleted: onboarding,
     completionSoundEnabled,
     completionSoundPreset,
@@ -265,9 +270,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
      * Read a JSON file from disk, returning the parsed object or `null` if
      * the file doesn't exist / is malformed. Other I/O failures bubble out.
      */
-    const readJsonOrNull = (
-      absPath: string,
-    ): Effect.Effect<unknown | null> =>
+    const readJsonOrNull = (absPath: string): Effect.Effect<unknown | null> =>
       Effect.gen(function* () {
         const exists = yield* fs.exists(absPath).pipe(Effect.orDie);
         if (!exists) return null;
@@ -285,9 +288,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
     // would otherwise both pick the same `<path>.tmp` and the second
     // rename ENOENTs because the first already renamed the tmp away.
     const writeLocks = new Map<string, Effect.Semaphore>();
-    const lockFor = (
-      absPath: string,
-    ): Effect.Effect<Effect.Semaphore> =>
+    const lockFor = (absPath: string): Effect.Effect<Effect.Semaphore> =>
       Effect.gen(function* () {
         const existing = writeLocks.get(absPath);
         if (existing) return existing;
@@ -448,21 +449,20 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const getSettings: ConfigStoreServiceShape["getSettings"] = () =>
       Ref.get(settingsRef);
 
-    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (
-      patch,
-    ) =>
+    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (patch) =>
       Effect.gen(function* () {
         const cur = yield* Ref.get(settingsRef);
         const next: SettingsFile = SettingsFile.make({
           schemaVersion: 1,
-          defaultProviderId:
-            patch.defaultProviderId ?? cur.defaultProviderId,
+          defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
           defaultModelByProvider:
             patch.defaultModelByProvider ?? cur.defaultModelByProvider,
           defaultRuntimeMode:
             patch.defaultRuntimeMode ?? cur.defaultRuntimeMode,
           defaultAutoCreateWorktree:
             patch.defaultAutoCreateWorktree ?? cur.defaultAutoCreateWorktree,
+          defaultAutonomyLevel:
+            patch.defaultAutonomyLevel ?? cur.defaultAutonomyLevel,
           onboardingCompleted:
             patch.onboardingCompleted ?? cur.onboardingCompleted,
           completionSoundEnabled:
@@ -471,8 +471,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
             patch.completionSoundPreset ?? cur.completionSoundPreset,
           providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
           subagents: patch.subagents ?? cur.subagents,
-          branchNamingStyle:
-            patch.branchNamingStyle ?? cur.branchNamingStyle,
+          branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
             patch.branchNamingPrefix ?? cur.branchNamingPrefix,
         });
@@ -577,6 +576,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
             defaultModelByProvider: models,
             defaultRuntimeMode: runtime,
             defaultAutoCreateWorktree: autoWorktree,
+            // Autonomy has no localStorage predecessor — preserve current.
+            defaultAutonomyLevel: cur.defaultAutonomyLevel,
             onboardingCompleted: onboarding,
             completionSoundEnabled,
             completionSoundPreset,

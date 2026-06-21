@@ -182,6 +182,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
       enableSubagents: input.enableSubagents,
       permissionMode: input.permissionMode,
       toolSearch: input.toolSearch,
+      originSessionId: input.originSessionId ?? null,
     }),
   ),
 );

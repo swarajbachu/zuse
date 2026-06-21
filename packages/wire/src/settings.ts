@@ -2,6 +2,7 @@ import { Rpc } from "@effect/rpc";
 import { Schema } from "effect";
 
 import { AgentDefinition, ProviderId, RuntimeMode } from "./agent.ts";
+import { AutonomyLevel } from "./autonomy.ts";
 
 /**
  * Per-preset overlay matching the renderer's old localStorage shape. Storing
@@ -60,6 +61,13 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   }),
   defaultRuntimeMode: RuntimeMode,
   defaultAutoCreateWorktree: Schema.Boolean,
+  /**
+   * Default autonomy level for new sessions — gates whether the in-process
+   * control-plane tools (create_worktree / create_thread / …) are registered
+   * so an agent can spawn and drive its own threads. Defaults to `"off"`;
+   * see {@link AutonomyLevel}.
+   */
+  defaultAutonomyLevel: AutonomyLevel,
   onboardingCompleted: Schema.Boolean,
   completionSoundEnabled: Schema.Boolean,
   completionSoundPreset: CompletionSoundPreset,
@@ -105,6 +113,7 @@ export const SettingsPatch = Schema.Struct({
   ),
   defaultRuntimeMode: Schema.optional(RuntimeMode),
   defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
+  defaultAutonomyLevel: Schema.optional(AutonomyLevel),
   onboardingCompleted: Schema.optional(Schema.Boolean),
   completionSoundEnabled: Schema.optional(Schema.Boolean),
   completionSoundPreset: Schema.optional(CompletionSoundPreset),
