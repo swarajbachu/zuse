@@ -15,10 +15,15 @@ global kill switch.
    reply DONE"). The session does its turn; the loop sleeps until next tick.
    This is the transcript's PR-watcher.
 2. **`goal`** — after the target session goes **idle** (already streamed via
-   `session.streamStatus`), inject a continuation prompt ("Have you achieved:
-   `<goal>`? If not, continue. If yes, reply `GOAL-COMPLETE`."). Loops until
-   the agent emits the completion sentinel, the iteration cap, or budget
-   exhaustion. This is Claude Code's `/goal`.
+   `session.streamStatus`), inject a continuation prompt, then run an
+   **objective gate** (a test/type/build/lint command, exit-code decided). The
+   loop ends only when the gate passes, the iteration cap, or budget exhaustion
+   — **never on a self-emitted "I'm done" sentinel** (that's the Ralph Wiggum
+   failure mode; see [decisions/0027-objective-gate-over-sentinel.md](../decisions/0027-objective-gate-over-sentinel.md)).
+   Any LLM reviewer in the loop is a **blind verifier** (no exposure to the
+   maker's reasoning). This is Claude Code's `/goal`, done safely. No gate
+   available → the engine refuses to create a goal loop (the 4-condition gate in
+   [autonomy-and-safety.md](autonomy-and-safety.md)).
 3. **`wake_on_event`** — fire when a watched condition flips: PR merged, a
    child thread reaches idle, or a file path changes (via the existing
    `code-index/watcher.ts`). Lets a parent thread "wait for the review thread,
@@ -45,8 +50,14 @@ New migration `00NN_loops.ts`:
 | `iteration_count`, `max_iterations` | progress + hard cap |
 | `budget_tokens`, `spent_tokens` | per-loop token budget |
 | `next_run_at`, `last_run_at` | scheduling |
-| `completion_sentinel` | string that ends a goal loop (default `GOAL-COMPLETE`) |
+| `gate_command`, `gate_cwd` | objective stop check (exit-code gated, ADR 0027) |
+| `state_path` | per-loop `STATE.md` (work state, ADR 0028) |
+| `completion_sentinel` | advisory "check now" hint only — never ends a loop alone |
 | `created_at`, `updated_at` | — |
+
+Each iteration is wrapped: **read state → inject standing spec + state → run →
+write state → run gate** (ADRs 0027/0028). The state file is also what the Loops
+panel renders.
 
 On server boot, `LoopEngineService` loads `status = active` rows and re-arms
 their fibers (crash-safe, mirroring the `booting → error` session sweep

@@ -1,7 +1,10 @@
 # ADR 0025 — Loop engine: one persistent fiber-scheduler, three loop kinds
 
 Date: 2026-06-19
-Status: Proposed (Phase 2)
+Status: Proposed (Phase 2). The goal-loop **stop condition** here is superseded
+by [ADR 0027](0027-objective-gate-over-sentinel.md) (objective gate, not a
+self-emitted sentinel); loop **state** is extended by
+[ADR 0028](0028-loop-state-file.md).
 
 ## Context
 
