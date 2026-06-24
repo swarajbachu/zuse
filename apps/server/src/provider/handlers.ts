@@ -69,11 +69,11 @@ const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
 );
 
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card. Today only the cursor handler does real work — it spawns
-// `cursor-agent login`, extracts the OAuth URL, and streams progress back.
-// When the renderer unsubscribes (cancel, navigate away, IPC drop), the
-// stream's scope closes and the child process is SIGTERM'd by the service's
-// finalizer.
+// provider card or in an auth error bubble. `cursor` and `claude` have real
+// handlers — they spawn the provider's `login` subcommand, extract the OAuth
+// URL, and stream progress back. When the renderer unsubscribes (cancel,
+// navigate away, IPC drop), the stream's scope closes and the child process is
+// SIGTERM'd by the service's finalizer.
 const StartLogin = MemoizeRpcs.toLayerHandler(
   "agent.startLogin",
   ({ providerId }) => startProviderLogin(providerId),
@@ -456,6 +456,12 @@ const MessagesQueueFlush = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageStore, (svc) => svc.flushQueuedMessages(sessionId)),
 );
 
+const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
+  "messages.queue.resume",
+  ({ sessionId }) =>
+    Effect.flatMap(MessageStore, (svc) => svc.resumeQueuedMessages(sessionId)),
+);
+
 // ---------------------------------------------------------------------------
 // permission.* — Phase 4 surface. The renderer subscribes to
 // `permission.requests`, shows a toast, and posts back via `permission.decide`.
@@ -598,6 +604,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   MessagesQueueSendNow,
   MessagesQueueReorder,
   MessagesQueueFlush,
+  MessagesQueueResume,
   PermissionRequests,
   PermissionDecide,
   PermissionListPending,

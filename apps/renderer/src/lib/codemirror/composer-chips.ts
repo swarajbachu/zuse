@@ -11,10 +11,6 @@ import {
   EditorView,
   WidgetType,
 } from "@codemirror/view";
-import { SparklesIcon } from "@hugeicons-pro/core-bulk-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { createElement } from "react";
 
 import {
   getFileIconUrl,
@@ -76,6 +72,11 @@ export const updateImageChipEffect = StateEffect.define<{
   readonly previousId: string;
   readonly meta: ChipMeta;
 }>();
+
+export const isChipEffect = (effect: StateEffect<unknown>): boolean =>
+  effect.is(addChipEffect) ||
+  effect.is(clearChipsEffect) ||
+  effect.is(updateImageChipEffect);
 
 /**
  * Holds the current chip set. Decoration ranges are derived; this field
@@ -144,15 +145,22 @@ class ChipWidget extends WidgetType {
       span.dataset.skillScope = this.meta.scope;
     }
 
-    const icon = document.createElement("span");
-    icon.className = "fz-chip-icon";
-    icon.appendChild(buildIconNode(this.meta));
-
     const label = document.createElement("span");
     label.className = "fz-chip-label";
-    label.textContent = chipLabel(this.meta);
 
-    span.append(icon, label);
+    if (this.meta.kind === "skill") {
+      // Skill chips render as `/name` text only — no leading icon. The
+      // monospace `/` cues the slash-command origin without an emoji-like
+      // sparkles glyph.
+      label.textContent = `/${chipLabel(this.meta)}`;
+      span.append(label);
+    } else {
+      const icon = document.createElement("span");
+      icon.className = "fz-chip-icon";
+      icon.appendChild(buildIconNode(this.meta));
+      label.textContent = chipLabel(this.meta);
+      span.append(icon, label);
+    }
     return span;
   }
   ignoreEvent(): boolean {
@@ -221,16 +229,6 @@ const buildIconNode = (meta: ChipMeta): Node => {
       img.className = "fz-chip-iconimg";
       return img;
     }
-  }
-  if (meta.kind === "skill") {
-    // Hugeicons icons render as SVG via React; for our DOM widget we inline the
-    // sparkles icon via renderToStaticMarkup once and reuse the markup.
-    const wrap = document.createElement("span");
-    wrap.className = "fz-chip-iconsvg";
-    wrap.innerHTML = renderToStaticMarkup(
-      createElement(HugeiconsIcon, { icon: SparklesIcon, size: 12 }),
-    );
-    return wrap;
   }
   // Fallback — should be unreachable.
   return document.createElement("span");

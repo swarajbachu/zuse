@@ -19,5 +19,6 @@ export * from "./session.ts";
 export * from "./settings.ts";
 export * from "./skill.ts";
 export * from "./update.ts";
+export * from "./usage.ts";
 export * from "./workspace.ts";
 export * from "./worktree.ts";

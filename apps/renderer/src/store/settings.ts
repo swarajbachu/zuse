@@ -59,7 +59,7 @@ const fallbackSnapshot = (): SettingsSlice => ({
   defaultProviderId: DEFAULT_PROVIDER,
   defaultModelByProvider: seedModels(),
   defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
-  defaultAutoCreateWorktree: false,
+  defaultAutoCreateWorktree: true,
   completionSoundEnabled: false,
   completionSoundPreset: "chime",
   onboardingCompleted: false,

@@ -4,6 +4,8 @@ import {
   ArrowRight01Icon,
   Copy01Icon,
   DashboardSpeedIcon,
+  Loading02Icon,
+  PlayIcon,
   RotateRight01Icon,
   Settings01Icon,
   Tick01Icon,
@@ -23,8 +25,18 @@ import type {
 } from "@memoize/wire";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
+import {
+  openExternal,
+  useProviderLogin,
+} from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
-import { useMessagesStore, type ChatError } from "~/store/messages";
+import {
+  classifyMessage,
+  lookupSessionProvider,
+  useMessagesStore,
+  type ChatError,
+} from "~/store/messages";
+import { useProvidersStore } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
 
 import { CopyButton } from "./copy-button.tsx";
@@ -163,9 +175,17 @@ export function MessageRow({
     case "usage_limit":
       return null;
     case "error":
+      // Classify so an auth failure (expired OAuth / 401 / "Please run
+      // /login") gets the "Sign in to {provider}" headline + inline login
+      // button rather than a bare generic error.
       return (
         <ErrorBubble
-          error={{ kind: "generic", message: message.content.message }}
+          error={classifyMessage(
+            message.content.message,
+            sessionId !== undefined
+              ? lookupSessionProvider(sessionId)
+              : undefined,
+          )}
           sessionId={sessionId}
         />
       );
@@ -273,7 +293,7 @@ function UserBubble({
               const iconUrl = isImage ? null : getFileIconUrl(a.originalName);
               const src = `memoize://attachments/${a.id}`;
               const className =
-                "inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted/60";
+                "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)] hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground";
               const inner = (
                 <>
                   {isImage ? (
@@ -331,7 +351,7 @@ function UserBubble({
             {(skillRefs ?? []).map((s) => (
               <span
                 key={s.name}
-                className="inline-flex items-center rounded-md border border-border/60 bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground"
+                className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
               >
                 /{s.name}
               </span>
@@ -477,6 +497,157 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
   cursor: "Cursor",
   opencode: "OpenCode",
 };
+
+// Providers with a real in-app `agent.startLogin` handler — for these we offer
+// the inline one-click sign-in directly in the auth error bubble instead of
+// only pointing the user at Settings.
+const PROVIDERS_WITH_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderId>([
+  "cursor",
+  "claude",
+]);
+
+/**
+ * "Authentication required" card shown when a login-capable provider (Claude,
+ * Cursor) reports an auth failure. Reuses the shared `useProviderLogin` flow
+ * (open browser → wait for the OAuth callback → done): on success it re-probes
+ * availability and clears the bottom error.
+ *
+ * This card is a *persisted* message in scrollback, so it must not carry sticky
+ * per-instance UI: once the provider reports `authenticated` (whether via this
+ * card, another duplicate card, Settings, or the terminal) every auth card
+ * resolves to nothing. That's what kills the "stuck on Signed in. Resuming…"
+ * and the duplicate cards after a successful sign-in.
+ */
+function ProviderAuthCard({
+  providerId,
+  sessionId,
+  onOpenSettings,
+  onDismiss,
+}: {
+  providerId: ProviderId;
+  sessionId: SessionId | undefined;
+  onOpenSettings: () => void;
+  onDismiss?: () => void;
+}) {
+  const refreshProviders = useProvidersStore((s) => s.refresh);
+  const authStatus = useProvidersStore(
+    (s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
+  );
+  const clearError = useMessagesStore((s) => s.clearError);
+  const retry = useMessagesStore((s) => s.retry);
+  const { state, start, cancel } = useProviderLogin(providerId, {
+    onSuccess: () => {
+      // Re-probe first so the keychain write has landed and this card
+      // resolves (hides) before we resume — then re-send the pending message
+      // so the turn the user was blocked on actually runs. The server
+      // restarts the stale (unauthenticated) provider process on send, so it
+      // picks up the fresh credentials.
+      void (async () => {
+        await refreshProviders();
+        if (sessionId !== undefined) {
+          clearError(sessionId);
+          void retry(sessionId);
+        }
+      })();
+    },
+  });
+  const label = PROVIDER_LABEL_FOR_ERROR[providerId];
+
+  // Resolved — the provider is authenticated now, so this historical card has
+  // nothing left to do. Render nothing (no nag, no spinner, no duplicate).
+  if (authStatus === "authenticated") return null;
+
+  return (
+    <div className="px-4 py-2">
+      <div className="w-fit max-w-[80%] rounded-lg border border-border/60 bg-card px-3 py-2.5 text-xs text-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+            <HugeiconsIcon
+              icon={AlertCircleIcon}
+              className="size-3.5 text-destructive"
+              aria-hidden
+            />
+            Authentication required
+          </span>
+          {onDismiss !== undefined && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+
+        {state.kind === "waiting" ? (
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={Loading02Icon}
+              className="size-3.5 animate-spin"
+              aria-hidden
+            />
+            <span>Waiting for browser sign-in…</span>
+            <button
+              type="button"
+              onClick={cancel}
+              className="rounded px-1 py-0.5 text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : state.kind === "success" ? (
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={Loading02Icon}
+              className="size-3.5 animate-spin"
+              aria-hidden
+            />
+            <span>Signed in. Finishing…</span>
+          </div>
+        ) : (
+          <>
+            <p className="mt-1 leading-relaxed text-muted-foreground">
+              To resolve, sign in to {label}. We&apos;ll validate the login
+              automatically.
+            </p>
+            {state.kind === "failed" && (
+              <p className="mt-1 text-[11px] text-destructive">{state.reason}</p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => void start()}
+                className="gap-1.5"
+              >
+                <HugeiconsIcon icon={PlayIcon} className="size-3" aria-hidden />
+                {state.kind === "failed"
+                  ? `Try ${label} sign-in again`
+                  : `Sign in to ${label}`}
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={onOpenSettings}
+                className="gap-1"
+              >
+                <HugeiconsIcon
+                  icon={Settings01Icon}
+                  className="size-3"
+                  aria-hidden
+                />
+                Settings
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const GEMINI_UPGRADE_COMMAND = "npm i -g @google/gemini-cli@latest";
 
@@ -627,6 +798,25 @@ export function ErrorBubble({
           )}
         </div>
       </div>
+    );
+  }
+
+  // Auth failure for a provider we can sign into in-app → the dedicated
+  // "Authentication required" card with the one-click OAuth button. Other
+  // providers (or auth errors without a provider) fall through to the generic
+  // bubble below with a "Open Provider Settings" link.
+  if (
+    error.kind === "auth" &&
+    error.providerId !== undefined &&
+    PROVIDERS_WITH_LOGIN.has(error.providerId)
+  ) {
+    return (
+      <ProviderAuthCard
+        providerId={error.providerId}
+        sessionId={sessionId}
+        onOpenSettings={onOpenSettings}
+        onDismiss={onDismiss}
+      />
     );
   }
 

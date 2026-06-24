@@ -88,15 +88,14 @@ dmg:
       path: /Applications
 
 # electron-updater consumes latest-mac.yml from the GitHub Release
-# associated with this repo. Note: with `releaseType: draft`, the release
-# workflow uploads the .dmg + latest-mac.yml as a *draft* release. Drafts
-# are invisible to unauthenticated readers, so electron-updater (in the
-# in-the-wild app) cannot see the new version until you flip the release
-# from "Draft" to "Published" in the GitHub Releases UI. This is the QA
-# gate — change to `releaseType: release` if you'd rather every tag push
-# go live immediately with no manual promotion step.
+# associated with this repo. With `releaseType: release`, the release
+# workflow uploads the .dmg + latest-mac.yml as a *published* release, so
+# every tag push goes live immediately and electron-updater (in the
+# in-the-wild app) can see the new version with no manual promotion step.
+# Switch back to `releaseType: draft` if you'd rather gate each release
+# behind a manual "Draft" -> "Published" flip in the GitHub Releases UI.
 publish:
   provider: github
   owner: swarajbachu
   repo: memoize
-  releaseType: draft
+  releaseType: release

@@ -24,8 +24,13 @@ import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import { RightPane } from "./components/right-pane";
 import { SettingsPage } from "./components/settings-page";
+import {
+  SidebarPeekOverlay,
+  SidebarPeekTrigger,
+} from "./components/sidebar-peek.tsx";
 import { TopBarLeft, TopBarMain, TopBarRight } from "./components/top-bar.tsx";
 import { UpdateBanner } from "./components/update-banner.tsx";
+import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
@@ -95,16 +100,14 @@ export function App() {
     return win.onFullScreenChange((value) => setFullScreen(value));
   }, [setFullScreen]);
 
-  // One-shot RPC ping so we know the bridge is alive early.
+  // One-shot RPC ping so we know the bridge is alive early. Only the failure
+  // is logged — the success path is silent to keep the renderer console clean.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const client = await getRpcClient();
-        const result = await Effect.runPromise(client.ping.ping({}));
-        if (cancelled) return;
-        // eslint-disable-next-line no-console
-        console.log("[memoize] RPC smoke test:", JSON.stringify(result));
+        await Effect.runPromise(client.ping.ping({}));
       } catch (error) {
         if (cancelled) return;
         // eslint-disable-next-line no-console
@@ -169,6 +172,7 @@ function MainShell() {
     : null;
 
   const activeMainTab = useUiStore((s) => s.activeMainTab);
+  const usageScope = useUiStore((s) => s.usageScope);
   const openFile = useUiStore((s) => s.openFile);
   const closeFileTab = useUiStore((s) => s.closeFileTab);
   const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
@@ -316,7 +320,10 @@ function MainShell() {
                   <CostFooter sessionId={selectedSessionId} />
                   <CliUpgradeBanner providerId={selectedSession.providerId} />
                   <NextUnreadButton />
-                  <ChatComposer session={selectedSession} />
+                  <ChatComposer
+                    key={selectedSession.id}
+                    session={selectedSession}
+                  />
                 </>
               ) : (
                 <ChatLanding />
@@ -330,6 +337,21 @@ function MainShell() {
                 <ArchivedChatsPage
                   projectId={selectedFolderId}
                   projectName={selectedFolder?.name ?? "No repository selected"}
+                />
+              )}
+            </div>
+            <div
+              hidden={activeMainTab !== "usage"}
+              className="flex min-h-0 flex-1 flex-col"
+            >
+              {activeMainTab === "usage" && (
+                <UsageDashboard
+                  projectId={usageScope === "project" ? selectedFolderId : null}
+                  scopeLabel={
+                    usageScope === "project"
+                      ? (selectedFolder?.name ?? "This project")
+                      : "All projects"
+                  }
                 />
               )}
             </div>
@@ -370,6 +392,8 @@ function MainShell() {
           </div>
         </Panel>
       </Group>
+      <SidebarPeekTrigger />
+      <SidebarPeekOverlay />
     </div>
   );
 }

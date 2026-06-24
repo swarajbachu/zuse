@@ -33,6 +33,7 @@ import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
+import { composerDraftKeyForLanding } from "~/store/composer-drafts";
 import { ChatComposer } from "./chat-composer.tsx";
 import { PROVIDER_LABEL } from "./settings-page";
 import { SetupCardView } from "./worktree-setup-card.tsx";
@@ -79,13 +80,16 @@ export function ChatLanding() {
   const addFolder = useWorkspaceStore((s) => s.add);
 
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
-  // Goal mode is only offered when the installed Codex CLI is new enough
-  // (version-gated capability from the availability probe).
-  const codexCapabilities = useProvidersStore((s) =>
-    s.capabilitiesFor("codex"),
+  // Goal mode is offered for Codex (version-gated `goalMode` capability) and
+  // Grok (native `/goal`, advertised unconditionally) — both surface the
+  // capability via the availability probe.
+  const defaultProviderCapabilities = useProvidersStore((s) =>
+    s.capabilitiesFor(defaultProviderId),
   );
-  const codexGoalSupported =
-    defaultProviderId === "codex" && codexCapabilities.includes("goalMode");
+  const goalSupported =
+    defaultProviderId === "grok" ||
+    (defaultProviderId === "codex" &&
+      defaultProviderCapabilities.includes("goalMode"));
   const defaultModelByProvider = useSettingsStore(
     (s) => s.defaultModelByProvider,
   );
@@ -207,7 +211,7 @@ export function ChatLanding() {
     }
     const sessionId = result.initialSessionId;
     migrateModelOptions(DRAFT_SESSION_ID, sessionId);
-    if (opts.asGoal && codexGoalSupported) {
+    if (opts.asGoal && goalSupported) {
       void send(sessionId, input, { asGoal: true });
     } else {
       useMessagesStore.getState().queue(sessionId, input);
@@ -284,6 +288,7 @@ export function ChatLanding() {
           <ChatComposer
             key={selectedFolderId ?? "none"}
             session={draftSession}
+            composerDraftKey={composerDraftKeyForLanding(selectedFolderId)}
             onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
           />
         ) : (

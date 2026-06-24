@@ -85,6 +85,7 @@ import {
   SettingsStreamRpc,
   SettingsUpdateRpc,
 } from "./settings.ts";
+import { UsageReportRpc } from "./usage.ts";
 import {
   PtyCloseRpc,
   PtyOpenRpc,
@@ -111,6 +112,7 @@ import {
   MessagesQueueFlushRpc,
   MessagesQueueListRpc,
   MessagesQueueReorderRpc,
+  MessagesQueueResumeRpc,
   MessagesQueueSendNowRpc,
   MessagesQueueStreamRpc,
   MessagesQueueUpdateRpc,
@@ -262,6 +264,7 @@ export const MemoizeRpcs = RpcGroup.make(
   MessagesQueueSendNowRpc,
   MessagesQueueReorderRpc,
   MessagesQueueFlushRpc,
+  MessagesQueueResumeRpc,
   AttachmentUploadRpc,
   AttachmentTouchRpc,
   SkillListRpc,
@@ -292,6 +295,7 @@ export const MemoizeRpcs = RpcGroup.make(
   SettingsUpdateRpc,
   SettingsStreamRpc,
   SettingsMigrateLocalStorageRpc,
+  UsageReportRpc,
   KeybindingsGetRpc,
   KeybindingsReplaceRpc,
   KeybindingsStreamRpc,

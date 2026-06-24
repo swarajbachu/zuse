@@ -70,9 +70,15 @@ const COMMANDS: readonly BuiltinCommand[] = [
   },
   {
     name: "goal",
-    description: "Send the next message as a Codex goal.",
+    description: "Send the next message as a goal.",
     kind: "client",
     appliesTo: "codex",
+  },
+  {
+    name: "goal",
+    description: "Send the next message as a goal.",
+    kind: "client",
+    appliesTo: "grok",
   },
   {
     name: "help",

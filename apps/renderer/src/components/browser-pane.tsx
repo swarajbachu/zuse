@@ -9,9 +9,28 @@ import {
   type BrowserCommandRequest,
 } from "@memoize/wire";
 
+import type { BrowserInputAction } from "../lib/bridge.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useUiStore } from "../store/ui.ts";
+import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
+
+/**
+ * How long the cursor's CSS `transition: transform` lasts. Mirror of GLIDE_MS
+ * inside `agent-cursor.tsx` — we wait this long after publishing a move
+ * intent before firing the real CDP click so the visible click pulse lands at
+ * the destination instead of somewhere along the path.
+ */
+const CURSOR_GLIDE_MS = 350;
+
+/**
+ * Duration of the JS-driven smooth scroll animation injected into the page.
+ * Chosen for a clearly human pace — long enough that the user can read
+ * what's passing, short enough that a multi-step scroll sequence doesn't
+ * drag. The page-side rAF loop uses this exact value; the command waits
+ * this long plus a small buffer before letting the next command run.
+ */
+const SMOOTH_SCROLL_MS = 700;
 
 /**
  * In-app Browser tab — toolbar (back/forward/refresh/URL bar) + Electron
@@ -29,6 +48,12 @@ export function BrowserPane() {
   // Ring buffer of console messages + page errors, captured per page load so
   // `browser_console` can report them to the agent. Cleared on navigation.
   const consoleBufferRef = useRef<string[]>([]);
+  // The embedded webview's webContents id — handed to main once we see
+  // `dom-ready` so main can attach Chrome DevTools Protocol and dispatch real
+  // input events. `null` until the first dom-ready; null disables CDP paths
+  // (Click/Type/Hover/Press fall back to the previous synthetic behaviour so
+  // we never silently no-op if the bridge somehow doesn't load).
+  const webContentsIdRef = useRef<number | null>(null);
   const [url, setUrl] = useState<string>("");
   const [inputValue, setInputValue] = useState<string>("");
   const [canGoBack, setCanGoBack] = useState(false);
@@ -36,6 +61,14 @@ export function BrowserPane() {
   const [isLoading, setIsLoading] = useState(false);
   // Bumped each time the agent takes a screenshot — drives the shutter flash.
   const [shutterNonce, setShutterNonce] = useState(0);
+  // The current "intent" for the agent cursor overlay. Bumped on every
+  // ref-targeted action (click/hover/type/press-with-ref) so the user can see
+  // *where* the agent is acting. Stays at the last position once visible —
+  // mirrors how a real mouse cursor doesn't disappear between actions.
+  const [cursorIntent, setCursorIntent] = useState<AgentCursorIntent | null>(
+    null,
+  );
+  const cursorNonceRef = useRef(0);
 
   // Wire navigation lifecycle events onto the underlying webview element.
   // We attach via `addEventListener` because the webview tag isn't a real
@@ -51,6 +84,29 @@ export function BrowserPane() {
       } catch {
         // webview not ready yet — events fire later
       }
+    };
+    const registerForCdp = () => {
+      const browserBridge = window.memoize?.browser;
+      if (browserBridge === undefined) return;
+      let id: number;
+      try {
+        id = wv.getWebContentsId();
+      } catch {
+        // Pre-Chromium-21 / non-Electron environment — leave id null.
+        return;
+      }
+      if (typeof id !== "number") return;
+      // Drop the ref while attach is in flight so an agent action that
+      // arrives between dom-ready and a successful attach can't race ahead
+      // and hit `Browser input bridge is not ready`. Only set it back after
+      // main confirms the debugger attached.
+      webContentsIdRef.current = null;
+      void browserBridge.registerWebview(id).then((ok) => {
+        if (ok) webContentsIdRef.current = id;
+      }).catch(() => {
+        // Attach failure is non-fatal — leave id null and CDP-using tools
+        // fall back to the synthetic path with a clean cursor animation.
+      });
     };
     const onDidNavigate = (e: Event) => {
       const ev = e as Event & { url?: string };
@@ -95,11 +151,15 @@ export function BrowserPane() {
         );
       }
     };
+    const onDomReady = () => {
+      syncNav();
+      registerForCdp();
+    };
     el.addEventListener("did-navigate", onDidNavigate);
     el.addEventListener("did-navigate-in-page", onDidNavigate);
     el.addEventListener("did-start-loading", onStart);
     el.addEventListener("did-stop-loading", onStop);
-    el.addEventListener("dom-ready", syncNav);
+    el.addEventListener("dom-ready", onDomReady);
     el.addEventListener("console-message", onConsole);
     el.addEventListener("did-fail-load", onFailLoad);
     return () => {
@@ -107,7 +167,7 @@ export function BrowserPane() {
       el.removeEventListener("did-navigate-in-page", onDidNavigate);
       el.removeEventListener("did-start-loading", onStart);
       el.removeEventListener("did-stop-loading", onStop);
-      el.removeEventListener("dom-ready", syncNav);
+      el.removeEventListener("dom-ready", onDomReady);
       el.removeEventListener("console-message", onConsole);
       el.removeEventListener("did-fail-load", onFailLoad);
     };
@@ -145,6 +205,17 @@ export function BrowserPane() {
         setInputValue,
         flashShutter: () => setShutterNonce((n) => n + 1),
         readConsole: () => consoleBufferRef.current.join("\n"),
+        moveCursor: (x, y, opts) => {
+          cursorNonceRef.current += 1;
+          setCursorIntent({
+            nonce: cursorNonceRef.current,
+            x,
+            y,
+            click: opts?.click === true,
+            pressed: opts?.pressed === true,
+          });
+        },
+        getWebContentsId: () => webContentsIdRef.current,
       });
       try {
         const client = await getRpcClient();
@@ -270,6 +341,7 @@ export function BrowserPane() {
             height: "100%",
           }}
         />
+        <AgentCursor intent={cursorIntent} visible={url !== ""} />
         <BrowserShutter nonce={shutterNonce} />
       </div>
     </div>
@@ -289,6 +361,21 @@ async function runBrowserCommand(
     setInputValue: (u: string) => void;
     flashShutter: () => void;
     readConsole: () => string;
+    /**
+     * Glide the agent cursor toward (x, y) in webview-relative CSS pixels.
+     * `click: true` also fires the click pulse once the glide settles.
+     */
+    moveCursor: (
+      x: number,
+      y: number,
+      opts?: { click?: boolean; pressed?: boolean },
+    ) => void;
+    /**
+     * The embedded webview's webContents id once main has attached CDP.
+     * `null` before the first `dom-ready`, or if the preload bridge isn't
+     * available (non-Electron build of the renderer).
+     */
+    getWebContentsId: () => number | null;
   },
 ): Promise<BrowserCommandResult> {
   const fail = (error: string) =>
@@ -350,19 +437,80 @@ async function runBrowserCommand(
       }
       case "Click": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
-        const res = await runJsObject(
-          wv,
-          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot the page first.' }); el.scrollIntoView({ block:'center', inline:'center' }); el.click(); return JSON.stringify({ ok:true, detail:'Clicked ' + ((el.innerText||el.getAttribute('aria-label')||el.tagName)||'').slice(0,60) }); })()`,
-        );
-        return resultFromJs(req.id, res, `Clicked ${command.ref}.`);
+        const target = await resolveRefRect(wv, command.ref);
+        if (target === null) {
+          return fail(
+            "No element with that ref — re-snapshot the page first.",
+          );
+        }
+        const wcId = hooks.getWebContentsId();
+        // Without CDP attached (preload bridge missing, attach failed) we
+        // can't deliver real input. Fall back to the synthetic click so the
+        // agent still makes progress — the cursor animation still runs so
+        // the user sees *where* the click landed.
+        hooks.moveCursor(target.cx, target.cy, { click: true });
+        if (wcId === null) {
+          await wv.executeJavaScript(
+            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (el) el.click(); })()`,
+          );
+          await delay(CURSOR_GLIDE_MS + 20);
+          return BrowserCommandResult.make({
+            id: req.id,
+            ok: true,
+            detail: `Clicked ${target.label} (no-CDP fallback).`,
+          });
+        }
+        const ok = await dispatchClickViaCdp(wcId, target.cx, target.cy);
+        if (!ok) {
+          // Debugger detached mid-action (webview reload, crash). Fall through
+          // to synthetic so the agent still makes progress — the cursor pulse
+          // already fired so the user sees *where* the click landed.
+          await wv.executeJavaScript(
+            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (el) el.click(); })()`,
+          );
+        }
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          detail: `Clicked ${target.label}.`,
+        });
       }
       case "Type": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
         const submit = command.submit === true;
+        const target = await resolveRefRect(wv, command.ref);
+        if (target === null) {
+          return fail("No element with that ref — re-snapshot first.");
+        }
+        // Glide the cursor to the field with a click pulse — visually frames
+        // the field activation. Real focus happens via CDP click (or .focus()
+        // when CDP isn't available) so the input shows its native focus ring.
+        const wcId = hooks.getWebContentsId();
+        hooks.moveCursor(target.cx, target.cy, { click: true });
+        if (wcId !== null) {
+          await dispatchClickViaCdp(wcId, target.cx, target.cy);
+        }
+        // The value-setter via the prototype descriptor bypasses React's
+        // value tracker — without it, React thinks the controlled value
+        // didn't change and the next render reverts the input. This is the
+        // industry-standard "type into a React input" approach (used by
+        // Testing Library's `userEvent` and Puppeteer fallbacks); switching
+        // to CDP's `Input.insertText` here would regress on common SPA
+        // login forms. We keep the JS path on purpose; the real click above
+        // already gave the field a true focus event.
         const res = await runJsObject(
           wv,
-          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); el.focus(); const v = ${JSON.stringify(command.text)}; const tag = el.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA') { const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; } else { el.textContent = v; } el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); if (${submit ? "true" : "false"}) { el.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, which:13, bubbles:true })); el.dispatchEvent(new KeyboardEvent('keyup', { key:'Enter', keyCode:13, which:13, bubbles:true })); const f = el.form; if (f && typeof f.requestSubmit === 'function') { try { f.requestSubmit(); } catch (e) {} } } return JSON.stringify({ ok:true, detail:'Typed into ' + ((el.getAttribute('name')||el.getAttribute('aria-label')||el.tagName)||'') }); })()`,
+          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); el.focus(); const v = ${JSON.stringify(command.text)}; const tag = el.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA') { const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; } else { el.textContent = v; } el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); return JSON.stringify({ ok:true, detail:'Typed into ' + ((el.getAttribute('name')||el.getAttribute('aria-label')||el.tagName)||'') }); })()`,
         );
+        if (submit) {
+          if (wcId !== null) {
+            await dispatchKeyTap(wcId, "Enter");
+          } else {
+            await wv.executeJavaScript(
+              `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return; const o = { key:'Enter', keyCode:13, which:13, bubbles:true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); const f = el.form; if (f && typeof f.requestSubmit === 'function') { try { f.requestSubmit(); } catch (e) {} } })()`,
+            );
+          }
+        }
         return resultFromJs(req.id, res, `Typed into ${command.ref}.`);
       }
       case "Wait": {
@@ -387,26 +535,58 @@ async function runBrowserCommand(
       case "Scroll": {
         if (typeof command.ref === "string" && command.ref.length > 0) {
           if (!isValidRef(command.ref)) return fail("Invalid element ref.");
+          // Use a JS-driven rAF animation instead of `scrollIntoView({behavior:
+          // 'smooth'})` — native smooth scroll varies wildly across pages (some
+          // override `scroll-behavior`, some cut the animation short on tiny
+          // deltas) and feels choppy. We control duration + easing here so the
+          // glide looks the same regardless of the page.
           const res = await runJsObject(
             wv,
-            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); el.scrollIntoView({ block:'center', inline:'center' }); return JSON.stringify({ ok:true, detail:'Scrolled element into view.' }); })()`,
+            buildSmoothScrollRefJs(command.ref),
           );
+          await delay(SMOOTH_SCROLL_MS + 60);
+          const after = await resolveRefRect(wv, command.ref);
+          if (after !== null) hooks.moveCursor(after.cx, after.cy);
           return resultFromJs(req.id, res, "Scrolled into view.");
         }
         const dir = command.direction ?? "down";
-        const res = await runJsObject(
-          wv,
-          `(() => { const dir = ${JSON.stringify(dir)}; const h = window.innerHeight; if (dir === 'top') window.scrollTo({ top:0, behavior:'instant' }); else if (dir === 'bottom') window.scrollTo({ top:document.body.scrollHeight, behavior:'instant' }); else if (dir === 'up') window.scrollBy({ top:-Math.round(h*0.85), behavior:'instant' }); else window.scrollBy({ top:Math.round(h*0.85), behavior:'instant' }); const atBottom = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 4; return JSON.stringify({ ok:true, detail:'Scrolled ' + dir + (atBottom ? ' (reached bottom).' : '.') }); })()`,
-        );
+        // Page-step (up/down) glides smoothly. Top/bottom stay instant — on a
+        // long page that's a ten-thousand-pixel scroll and animation just
+        // wastes the agent's wall-clock without helping the user follow.
+        const res = await runJsObject(wv, buildSmoothScrollDirJs(dir));
+        if (dir === "up" || dir === "down") {
+          await delay(SMOOTH_SCROLL_MS + 60);
+        }
         return resultFromJs(req.id, res, `Scrolled ${dir}.`);
       }
       case "Hover": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
-        const res = await runJsObject(
-          wv,
-          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); el.scrollIntoView({ block:'center' }); const r = el.getBoundingClientRect(); const opts = { bubbles:true, clientX: r.left + r.width/2, clientY: r.top + r.height/2 }; for (const t of ['pointerover','mouseover','pointerenter','mouseenter','mousemove']) { el.dispatchEvent(new MouseEvent(t, opts)); } return JSON.stringify({ ok:true, detail:'Hovered ' + ((el.innerText||el.getAttribute('aria-label')||el.tagName)||'').slice(0,40) }); })()`,
-        );
-        return resultFromJs(req.id, res, `Hovered ${command.ref}.`);
+        const target = await resolveRefRect(wv, command.ref);
+        if (target === null) {
+          return fail("No element with that ref — re-snapshot first.");
+        }
+        hooks.moveCursor(target.cx, target.cy);
+        const wcId = hooks.getWebContentsId();
+        if (wcId !== null) {
+          // Real `mouseMove` triggers Chromium's hit-testing, which is what
+          // makes :hover styles and hover-only menus actually open. Synthetic
+          // MouseEvents bubble through the DOM but don't flip the hover state.
+          await dispatchInput(wcId, {
+            type: "mouseMove",
+            x: target.cx,
+            y: target.cy,
+          });
+        } else {
+          await wv.executeJavaScript(
+            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return; const r = el.getBoundingClientRect(); const o = { bubbles:true, clientX: r.left + r.width/2, clientY: r.top + r.height/2 }; for (const t of ['pointerover','mouseover','mouseenter','mousemove']) el.dispatchEvent(new MouseEvent(t, o)); })()`,
+          );
+        }
+        await delay(CURSOR_GLIDE_MS + 20);
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          detail: `Hovered ${target.label}.`,
+        });
       }
       case "Select": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
@@ -417,18 +597,42 @@ async function runBrowserCommand(
         return resultFromJs(req.id, res, `Selected ${command.value}.`);
       }
       case "Press": {
-        const refClause =
-          typeof command.ref === "string" && command.ref.length > 0
-            ? isValidRef(command.ref)
-              ? `document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]')`
-              : null
-            : `(document.activeElement || document.body)`;
-        if (refClause === null) return fail("Invalid element ref.");
-        const res = await runJsObject(
-          wv,
-          `(() => { const el = ${refClause}; if (!el) return JSON.stringify({ ok:false, error:'No target element — re-snapshot first.' }); if (typeof el.focus === 'function') el.focus(); const key = ${JSON.stringify(command.key)}; const isEnter = key === 'Enter'; const opts = { key, bubbles:true, cancelable:true }; el.dispatchEvent(new KeyboardEvent('keydown', opts)); el.dispatchEvent(new KeyboardEvent('keyup', opts)); if (isEnter && el.form && typeof el.form.requestSubmit === 'function') { try { el.form.requestSubmit(); } catch (e) {} } return JSON.stringify({ ok:true, detail:'Pressed ' + key }); })()`,
-        );
-        return resultFromJs(req.id, res, `Pressed ${command.key}.`);
+        const wcId = hooks.getWebContentsId();
+        const hasRef =
+          typeof command.ref === "string" && command.ref.length > 0;
+        if (hasRef && !isValidRef(command.ref as string)) {
+          return fail("Invalid element ref.");
+        }
+        // Focus the target first (so the keystroke lands on the right
+        // element). With CDP we do a real click → cursor moves to it; without
+        // CDP we just call `.focus()` via JS.
+        if (hasRef) {
+          const target = await resolveRefRect(wv, command.ref as string);
+          if (target === null) {
+            return fail("No element with that ref — re-snapshot first.");
+          }
+          hooks.moveCursor(target.cx, target.cy, { click: true });
+          if (wcId !== null) {
+            await dispatchClickViaCdp(wcId, target.cx, target.cy);
+          } else {
+            await wv.executeJavaScript(
+              `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref as string)}]'); if (el && typeof el.focus === 'function') el.focus(); })()`,
+            );
+            await delay(CURSOR_GLIDE_MS + 20);
+          }
+        }
+        if (wcId !== null) {
+          await dispatchKeyTap(wcId, command.key);
+        } else {
+          await wv.executeJavaScript(
+            `(() => { const el = document.activeElement || document.body; const key = ${JSON.stringify(command.key)}; const o = { key, bubbles:true, cancelable:true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); if (key === 'Enter' && el.form && typeof el.form.requestSubmit === 'function') { try { el.form.requestSubmit(); } catch (e) {} } })()`,
+          );
+        }
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          detail: `Pressed ${command.key}.`,
+        });
       }
       case "Read": {
         const refExpr =
@@ -510,6 +714,120 @@ async function runBrowserCommand(
 // into a querySelector so a crafted ref can't break out of the selector.
 const isValidRef = (ref: string): boolean => /^e\d+$/.test(ref);
 
+/**
+ * Resolve a snapshot ref to webview-relative pixel coords + a short label.
+ * Scrolls the element into view first so the agent's click can't miss because
+ * it scrolled out between snapshot and action. The label drives the human-
+ * readable detail strings ("Clicked Sign in"); we read it page-side because
+ * it's cheaper than copying the snapshot back across the bridge.
+ *
+ * Returns null when the ref no longer matches anything (snapshot is stale).
+ */
+async function resolveRefRect(
+  wv: WebviewElement,
+  ref: string,
+): Promise<{ cx: number; cy: number; label: string } | null> {
+  const raw = await wv.executeJavaScript(
+    `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(ref)}]'); if (!el) return null; el.scrollIntoView({ block:'center', inline:'center' }); const r = el.getBoundingClientRect(); const label = ((el.innerText||el.getAttribute('aria-label')||el.getAttribute('placeholder')||el.tagName)||'').replace(/\\s+/g,' ').trim().slice(0,60); return JSON.stringify({ cx: r.left + r.width/2, cy: r.top + r.height/2, label }); })()`,
+  );
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as {
+      cx: number;
+      cy: number;
+      label: string;
+    };
+    if (
+      typeof parsed.cx !== "number" ||
+      typeof parsed.cy !== "number" ||
+      !Number.isFinite(parsed.cx) ||
+      !Number.isFinite(parsed.cy)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send one CDP input action through the preload bridge. Returns false if
+ * the bridge isn't present (renderer running outside Electron) or main
+ * reports the dispatch failed (debugger not attached, webContents destroyed).
+ */
+async function dispatchInput(
+  webContentsId: number,
+  action: BrowserInputAction,
+): Promise<boolean> {
+  const bridge = window.memoize?.browser;
+  if (bridge === undefined) return false;
+  try {
+    return await bridge.dispatchInput(webContentsId, action);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Move-then-press-then-release at (x, y). Waits the cursor's glide duration
+ * between the move and the press so the visible click pulse lands at the
+ * destination, not somewhere mid-glide. The two-event press/release pair is
+ * what makes pages see a "real" click (vs `el.click()`, which fires only a
+ * synthetic `click` event and skips mousedown/mouseup).
+ */
+async function dispatchClickViaCdp(
+  webContentsId: number,
+  x: number,
+  y: number,
+): Promise<boolean> {
+  const moved = await dispatchInput(webContentsId, {
+    type: "mouseMove",
+    x,
+    y,
+  });
+  if (!moved) return false;
+  await delay(CURSOR_GLIDE_MS);
+  await dispatchInput(webContentsId, {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  // A few ms between press/release looks more natural to long-press
+  // detectors and matches real-mouse cadence. Most pages don't care.
+  await delay(15);
+  await dispatchInput(webContentsId, {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  return true;
+}
+
+/**
+ * Tap a named key (`Enter`, `Tab`, `Escape`, `ArrowDown`, …) via CDP on the
+ * focused element. `text` is set for printable single chars so the page sees
+ * a real `input` event in `<textarea>`/contenteditable; non-printable keys
+ * (Enter, arrows) leave `text` blank, mirroring Chromium's own handling.
+ */
+async function dispatchKeyTap(webContentsId: number, key: string): Promise<void> {
+  const isPrintable = key.length === 1;
+  const payload: BrowserInputAction = {
+    type: "keyDown",
+    key,
+    ...(isPrintable ? { text: key } : {}),
+  };
+  await dispatchInput(webContentsId, payload);
+  await dispatchInput(webContentsId, {
+    type: "keyUp",
+    key,
+  });
+}
+
 /** Run page JS that returns a JSON string and parse it; null on any failure. */
 async function runJsObject(
   wv: WebviewElement,
@@ -570,6 +888,43 @@ const SNAPSHOT_JS = `(() => {
   }
   return JSON.stringify(out);
 })()`;
+
+/**
+ * Page-side rAF smooth-scroll loop. Cubic ease-in-out over a fixed duration
+ * so the animation looks identical on every site — `window.scrollTo({behavior:
+ * 'smooth'})` honors per-site `scroll-behavior` overrides and finishes faster
+ * than the user can read what passed, which is why this exists.
+ */
+const SMOOTH_SCROLL_BODY = `
+  const start = window.scrollY;
+  const dist = targetY - start;
+  if (Math.abs(dist) < 2) { window.scrollTo(0, targetY); return; }
+  const dur = ${SMOOTH_SCROLL_MS};
+  const t0 = performance.now();
+  const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  function step(now) {
+    const p = Math.min(1, (now - t0) / dur);
+    window.scrollTo(0, start + dist * ease(p));
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+`;
+
+const buildSmoothScrollRefJs = (ref: string): string =>
+  `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); const r = el.getBoundingClientRect(); const targetY = Math.max(0, window.scrollY + r.top - (window.innerHeight - r.height) / 2); ${SMOOTH_SCROLL_BODY} return JSON.stringify({ ok:true, detail:'Scrolled element into view.' }); })()`;
+
+const buildSmoothScrollDirJs = (
+  dir: "up" | "down" | "top" | "bottom",
+): string => {
+  if (dir === "top") {
+    return `(() => { window.scrollTo({ top:0, behavior:'instant' }); return JSON.stringify({ ok:true, detail:'Scrolled top.' }); })()`;
+  }
+  if (dir === "bottom") {
+    return `(() => { window.scrollTo({ top:document.body.scrollHeight, behavior:'instant' }); return JSON.stringify({ ok:true, detail:'Scrolled bottom.' }); })()`;
+  }
+  const sign = dir === "up" ? -1 : 1;
+  return `(() => { const h = window.innerHeight; const targetY = Math.max(0, Math.min(document.body.scrollHeight - h, window.scrollY + ${sign} * Math.round(h * 0.85))); ${SMOOTH_SCROLL_BODY} const willHitBottom = ${sign} === 1 && targetY + h >= document.body.scrollHeight - 4; return JSON.stringify({ ok:true, detail:'Scrolled ${dir}' + (willHitBottom ? ' (reached bottom).' : '.') }); })()`;
+};
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -676,6 +1031,11 @@ type WebviewElement = HTMLElement & {
   canGoForward: () => boolean;
   getURL: () => string;
   getTitle: () => string;
+  /**
+   * The embedded webContents id used by `webContents.fromId` on the main
+   * side. Required so main can attach CDP and route real input events.
+   */
+  getWebContentsId: () => number;
   capturePage: () => Promise<NativeImageLike>;
   executeJavaScript: (code: string) => Promise<unknown>;
 };

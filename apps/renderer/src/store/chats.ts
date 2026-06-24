@@ -18,6 +18,7 @@ import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
+import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 import { useWorktreesStore } from "./worktrees.ts";
 
@@ -545,6 +546,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       return;
     }
     const projectId = findChatProject(get().chatsByProject, chatId);
+    useUiStore.getState().setActiveMainTab("chat");
     set((s) => ({
       selectedChatId: chatId,
       selectedChatByProject:

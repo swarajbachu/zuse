@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Analytics01Icon,
   ArrowDown01Icon,
   ArrowRight01Icon,
   Delete02Icon,
@@ -359,9 +360,31 @@ export function ProjectsSidebar() {
 function SidebarFooter() {
   const setView = useUiStore((s) => s.setView);
   const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+  const openUsage = useUiStore((s) => s.openUsage);
+  const activeMainTab = useUiStore((s) => s.activeMainTab);
+  const usageScope = useUiStore((s) => s.usageScope);
   const view = useUiStore((s) => s.view);
+  const usageActive = view === "chat" && activeMainTab === "usage" && usageScope === "global";
   return (
     <div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-2 py-1.5">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onClick={() => openUsage("global")}
+              className={cn(
+                "flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
+                usageActive && "bg-sidebar-accent/60 text-sidebar-accent-foreground",
+              )}
+            >
+              <HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
+              <span>Usage</span>
+            </button>
+          }
+        />
+        <TooltipPopup side="top">Token usage across all projects</TooltipPopup>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger
           render={
@@ -441,6 +464,7 @@ function ProjectGroup({
   const setView = useUiStore((s) => s.setView);
   const setSettingsSection = useUiStore((s) => s.setSettingsSection);
   const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
+  const openUsage = useUiStore((s) => s.openUsage);
   const [menuOpen, setMenuOpen] = useState(false);
   const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
     null,
@@ -455,6 +479,11 @@ function ProjectGroup({
     onSelect();
     setView("chat");
     setActiveMainTab("archives");
+  };
+
+  const openProjectUsage = () => {
+    onSelect();
+    openUsage("project");
   };
 
   const onContextMenu = (e: React.MouseEvent) => {
@@ -584,6 +613,7 @@ function ProjectGroup({
           anchor={anchorRef.current}
           onOpenSettings={openRepositorySettings}
           onOpenArchives={openArchives}
+          onOpenUsage={openProjectUsage}
           onRemove={onRemove}
           onOpenChange={setMenuOpen}
         />
@@ -610,6 +640,7 @@ function ProjectContextMenu({
   anchor,
   onOpenSettings,
   onOpenArchives,
+  onOpenUsage,
   onRemove,
   onOpenChange,
 }: {
@@ -617,6 +648,7 @@ function ProjectContextMenu({
   anchor: { getBoundingClientRect: () => DOMRect } | null;
   onOpenSettings: () => void;
   onOpenArchives: () => void;
+  onOpenUsage: () => void;
   onRemove: () => void;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -641,6 +673,13 @@ function ProjectContextMenu({
         >
           <HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
           Archived chats
+        </MenuItem>
+        <MenuItem
+          onClick={onOpenUsage}
+          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+        >
+          <HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
+          Usage
         </MenuItem>
         <MenuItem
           onClick={onRemove}

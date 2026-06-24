@@ -215,6 +215,10 @@ body,
   --bg-overlay: oklch(0.91 0.006 70);
   --text-faint: oklch(0.62 0.012 70);
 
+  /* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
+     --card so the pill reads as inset against the composer card. */
+  --chip-bg: oklch(0.94 0.005 70);
+
   --card: oklch(1 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
@@ -286,6 +290,10 @@ body,
   --bg-elevated: oklch(0.275 0.006 260);
   --bg-overlay: oklch(0.35 0.008 260);
   --text-faint: oklch(0.58 0.006 260);
+
+  /* Chip surface — kept darker than --card so pills read as inset on the
+     composer surface (card 0.225 vs chip 0.155 ≈ 0.07 lightness gap). */
+  --chip-bg: oklch(0.155 0.004 260);
 
   --card: oklch(0.225 0.005 260);
   --card-foreground: var(--foreground);
@@ -756,11 +764,7 @@ body,
     margin: 0 0.15rem;
     border: 1px solid color-mix(in srgb, var(--border), transparent 55%);
     border-radius: 0.375rem;
-    background-color: color-mix(
-      in oklch,
-      var(--bg-elevated) 34%,
-      var(--background)
-    );
+    background-color: var(--chip-bg);
     box-shadow:
       0 1px 0 color-mix(in oklch, white 4%, transparent) inset,
       0 1px 2px color-mix(in oklch, black 22%, transparent);
@@ -778,22 +782,13 @@ body,
     width: 1.4em;
     height: 1.4em;
     border-radius: 0.25rem;
-    background-color: color-mix(
-      in oklch,
-      var(--bg-elevated) 52%,
-      var(--background)
-    );
+    background-color: color-mix(in oklch, var(--chip-bg) 60%, var(--foreground) 6%);
     flex-shrink: 0;
   }
   .fz-chip-iconimg {
     width: 1em;
     height: 1em;
     object-fit: contain;
-  }
-  .fz-chip-iconsvg {
-    display: inline-flex;
-    align-items: center;
-    color: var(--muted-foreground);
   }
   .fz-chip-thumb {
     width: 1.4em;
@@ -807,25 +802,12 @@ body,
   .fz-chip-label {
     color: var(--foreground);
   }
-  /* Skill chips read as a different category from file chips — accent
-     border + tint. */
-  .fz-chip[data-kind="skill"] {
-    border-color: color-mix(in srgb, var(--accent), transparent 24%);
-    background-color: color-mix(in oklch, var(--accent) 52%, var(--background));
-  }
-  .fz-chip[data-kind="skill"] .fz-chip-iconsvg {
-    color: var(--accent-foreground);
-  }
   .fz-chip[data-kind="file"] {
     cursor: pointer;
   }
   .fz-chip[data-kind="file"]:hover,
   .fz-chip[data-kind="image"]:hover {
-    background-color: color-mix(
-      in oklch,
-      var(--bg-elevated) 48%,
-      var(--background)
-    );
+    background-color: color-mix(in oklch, var(--chip-bg) 80%, var(--foreground) 4%);
     box-shadow:
       0 1px 0 color-mix(in oklch, white 6%, transparent) inset,
       0 2px 5px color-mix(in oklch, black 24%, transparent);

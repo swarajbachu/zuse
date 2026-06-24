@@ -11,7 +11,7 @@ import { Effect } from "effect";
  * spawned chat outlives the session that created it (deleting the parent
  * session just clears the link, it doesn't cascade-delete the child chat).
  */
-export const Migration0019ChatLineage = Effect.gen(function* () {
+export const Migration0020ChatLineage = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   yield* sql`

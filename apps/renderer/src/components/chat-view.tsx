@@ -100,6 +100,15 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   };
 
   useLayoutEffect(() => {
+    // A message the user just sent always re-engages auto-scroll, even if
+    // they had scrolled up to read older context.
+    const last = messages[messages.length - 1];
+    if (
+      last?.content._tag === "user" ||
+      last?.content._tag === "user_rich"
+    ) {
+      stickToBottomRef.current = true;
+    }
     if (!stickToBottomRef.current) return;
     const el = scrollRef.current;
     if (el === null) return;

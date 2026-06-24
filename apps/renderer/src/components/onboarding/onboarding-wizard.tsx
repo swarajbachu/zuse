@@ -1,5 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -9,14 +12,22 @@ import { useSettingsStore } from "../../store/settings.ts";
 import { useWorkspaceStore } from "../../store/workspace.ts";
 import { DefaultsStep } from "./steps/defaults.tsx";
 import { DoneStep } from "./steps/done.tsx";
+import { MaximizeStep } from "./steps/maximize.tsx";
 import { ProjectStep } from "./steps/project.tsx";
 import { ProviderStep } from "./steps/provider.tsx";
 import { WelcomeStep } from "./steps/welcome.tsx";
 
-type StepId = "welcome" | "provider" | "project" | "defaults" | "done";
+type StepId =
+  | "welcome"
+  | "maximize"
+  | "provider"
+  | "project"
+  | "defaults"
+  | "done";
 
 const STEPS: ReadonlyArray<StepId> = [
   "welcome",
+  "maximize",
   "provider",
   "project",
   "defaults",
@@ -83,10 +94,7 @@ export function OnboardingWizard() {
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
       {/* Ambient color: two soft radial blooms behind a heavy blur for that
           frosted-vibrancy feel. Sits behind the card, never interactive. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 -z-10"
-      >
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute -top-32 -left-24 size-[28rem] rounded-full bg-[radial-gradient(circle_at_center,theme(colors.indigo.500/0.18),transparent_70%)] blur-3xl" />
         <div className="absolute -bottom-40 -right-20 size-[32rem] rounded-full bg-[radial-gradient(circle_at_center,theme(colors.fuchsia.500/0.14),transparent_70%)] blur-3xl" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,theme(colors.white/0.04),transparent_60%)]" />
@@ -101,6 +109,7 @@ export function OnboardingWizard() {
 
           <div className="min-h-[24rem] px-1 py-2">
             {stepId === "welcome" && <WelcomeStep />}
+            {stepId === "maximize" && <MaximizeStep />}
             {stepId === "provider" && <ProviderStep />}
             {stepId === "project" && <ProjectStep />}
             {stepId === "defaults" && <DefaultsStep />}

@@ -437,7 +437,7 @@ function ExpandableIconRow({
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
         className={cn(
-          "group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
+          "group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
           hasContent ? "hover:bg-muted/40 cursor-pointer" : "cursor-default",
         )}
       >
@@ -471,7 +471,7 @@ function ExpandableIconRow({
         ) : null}
       </button>
       {expanded && hasContent ? (
-        <div className="ml-6 mt-1 max-w-2xl space-y-2 overflow-hidden border-l border-border/60 pl-2 pr-1">
+        <div className="ml-6 mt-1 max-h-96 max-w-2xl space-y-2 overflow-y-auto border-l border-border/60 pl-2 pr-1">
           {body}
         </div>
       ) : null}

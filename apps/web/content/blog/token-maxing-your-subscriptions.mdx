@@ -1,0 +1,95 @@
+---
+title: "Token maxing your AI coding subscriptions"
+description: "You already pay a flat fee for Claude, Codex, and the rest. Running one agent at a time leaves most of that included usage on the table."
+date: "2026-06-21"
+timeToRead: "6 min read"
+authorName: "memoize team"
+authorRole: "Product notes"
+authorAvatar: "/app-icon.png"
+previewImage: "/assets/blog-preview-agents-clean.svg"
+labels:
+  [
+    { name: "Token maxing", hex: "#84CC16" },
+    { name: "Guide", hex: "#38BDF8" },
+  ]
+---
+
+# Token maxing your AI coding subscriptions
+
+Most developers now pay for at least one AI coding plan, and many pay for several. A monthly plan for Claude Code, another for Codex, maybe a SuperGrok or a Cursor seat on top. The bill is flat. The same amount leaves your account whether you use the agent twice on a quiet Tuesday or run it hard all month.
+
+Here is the part most people miss: a flat fee rewards volume. The included usage in your plan is a budget, not a meter. If you only ever run one agent at a time, you spend a small fraction of that budget and pay full price for it anyway. Token maxing is the practice of using more of what you already bought.
+
+memoize is built for exactly this. It wraps every coding agent CLI in one project-aware workspace, gives each chat its own git worktree, and tracks your spend locally so you can see your leverage. This post is about how to use that to get multiples more work out of the subscriptions you already have.
+
+---
+
+## Flat-rate plans reward parallelism
+
+A subscription priced per month is fundamentally different from one priced per token. With pay-as-you-go API billing, running two agents costs twice as much as running one. There is no leverage to find; cost scales with work. A flat monthly plan inverts that. The fee is fixed, so the question changes from "what can I afford" to "how much of my included usage am I actually using."
+
+Run a single agent serially and the answer is usually "not much." You prompt, you wait, you read the diff, you prompt again. During every one of those waits, your plan's capacity sits idle. The model is not working. The clock is not buying you anything. You are paying for a lane and driving one car down it.
+
+The fix is not to upgrade to a bigger plan. It is to put more cars in the lane you already pay for. If three agents are working while you review the output of a fourth, the same flat fee is now doing four streams of work in the time it used to do one. Nothing about the bill changed. The throughput did.
+
+---
+
+## Three to six agents, same monthly fee
+
+The practical move is to run several agents side by side instead of one after another. memoize is designed so this feels normal rather than chaotic. Open a chat, pick a provider, start a task. Open another chat, pick a provider, start a different task. Each chat is its own unit of work with its own timeline.
+
+What does that buy you in a real session?
+
+- **Parallel tasks.** One agent fixes a flaky test, another updates docs, a third drafts a migration. Three independent jobs finish in the time one used to take.
+- **Competing attempts.** Ask two agents the same prompt and keep the better diff. The cost of a second opinion is close to zero when both are inside a plan you already pay for.
+- **Long plus short.** Let a slow refactor run in one chat while you knock out quick fixes in others. The long task no longer blocks everything behind it.
+
+The multiplier here is real but bounded by your attention, not your wallet. You are the reviewer, and you can only steer so many sessions at once. Most developers find three to six concurrent agents is the sweet spot: enough to keep capacity busy, few enough to still review every diff with care. The constraint moved from cost to focus, which is a much better constraint to have.
+
+---
+
+## Worktrees keep parallel work from colliding
+
+Running several agents against one repo only works if they cannot clobber each other. That is what git worktrees handle, and memoize creates one per chat automatically. Each chat gets its own branch and its own working directory while sharing the repository's object store, so agents edit in isolation and you review each change on its own branch.
+
+We have written about the mechanics of worktrees elsewhere, so the short version here is what they mean for token maxing: isolation is the thing that makes parallelism safe enough to actually do. Without it, every additional agent raises the odds of a stale read or a build collision, and the safe move is to fall back to one-at-a-time. With it, adding another agent just adds another branch with a clear owner. Parallelism stops being risky, which is the whole point, because the leverage only exists if you are comfortable running many agents at once.
+
+When an attempt does not pan out, you discard the worktree and your main checkout never noticed. When two attempts both look good, you compare the branches and land the one you prefer. Cheap to try, cheap to throw away, easy to review: that is what turns "I could run more agents" into "I do run more agents."
+
+---
+
+## Mix providers to dodge per-provider limits
+
+Each plan has its own included usage and its own rate limits. If you push a single provider hard enough, you will eventually hit a ceiling and stall. Spreading work across providers is both a throughput trick and a resilience one.
+
+Because memoize speaks each CLI's native protocol under one surface, the provider is just a choice you make per chat. So you can run Claude Code in two chats, Codex in two more, and Grok in another, all against the same project. Five agents working, five different usage budgets being drawn down, and no single provider getting throttled because you concentrated everything on it.
+
+This also lets you match the agent to the task while you are at it. A model with a huge context window can hold the whole repo while it investigates. A faster provider can churn through a tight test-fix loop. A different one can do the review pass. You are not just dodging limits; you are spending each plan's included usage on the work it is best at. The mix is the point. Provider variety stops being a tab-management headache and becomes a way to keep more lanes open at once.
+
+A practical note: keep an eye on which provider is carrying the load. If one plan is doing all the work and another sits untouched, you are leaving usage on the table on the idle plan and inviting limits on the busy one. Rebalancing is as simple as pointing the next chat at the quieter provider.
+
+---
+
+## Tokenmaxer: see exactly what you spent
+
+You cannot maximize what you cannot measure. memoize includes a local token dashboard we call Tokenmaxer that reads usage across the providers you run and shows it in one place. It is on your machine, not a provider portal you have to log into five separate times.
+
+The dashboard answers the questions that actually tell you whether token maxing is working:
+
+- How many tokens did this project consume this week, and across which providers?
+- Which agent did the heavy lifting, and which plan is barely touched?
+- How does a parallel session compare to a serial one for the same kind of work?
+
+The reason this matters is leverage made visible. When you can see that a flat monthly plan moved through a large pile of included usage in a week, you know the fee is pulling its weight. When you see one provider sitting near idle, you know there is free capacity to redirect. The number on the dashboard is the gap between what you pay for and what you actually use, and watching it climb is the whole game.
+
+There is a discipline angle too. Seeing real usage keeps you honest about where the work is going. If a single chat is burning far more than its results justify, that is a signal to switch providers, tighten the prompt, or kill the session. Measurement is what turns "run more agents" from a vague intention into something you can tune.
+
+---
+
+## The shift in mindset
+
+Token maxing is not about being wasteful or spinning up agents for the sake of it. It is about noticing that you already bought capacity and then arranging your workflow so that capacity is busy instead of idle. Flat-rate plans make idle capacity the default; parallelism makes it the exception.
+
+The pieces fit together. Several agents side by side put more of your plan to work at once. Worktrees keep those agents from stepping on each other so parallel work stays reviewable. Mixing providers spreads the load so no single plan throttles you. And Tokenmaxer shows you the result, so you can see that the same monthly fee is now doing several times the work.
+
+You are still the editor. The agents produce candidates; you decide what lands. But the version of that job where one agent works while three plans sit idle was always leaving value on the table. memoize is the workspace that lets you use what you already pay for.

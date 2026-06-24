@@ -6,12 +6,14 @@ import { Effect, Mailbox, Stream } from "effect";
 
 import {
   AgentSessionStartError,
+  ThreadGoal,
   type AgentEvent,
   type AgentItemId,
   type AgentSessionId,
   type AttachmentRef,
   type PermissionMode,
   type StartSessionInput,
+  type ThreadGoalSetInput,
   type UserQuestionAnswer,
 } from "@memoize/wire";
 
@@ -58,6 +60,17 @@ export interface GrokSessionHandle {
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
   ) => Effect.Effect<void>;
+  /**
+   * Goal mode. Grok exposes `/goal` as a native slash command but ACP has no
+   * structured `thread/goal/*` round-trip (unlike Codex). So goal state is
+   * kept driver-local and the objective is forwarded to Grok's native `/goal`
+   * command as prompt text — the same emulation shape as plan mode
+   * (`applyPlanModePrefix`). `tokensUsed`/`timeUsedSeconds` are best-effort
+   * (Grok does not report them back over ACP).
+   */
+  readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
+  readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+  readonly clearGoal: () => Effect.Effect<void>;
 }
 
 
@@ -283,6 +296,10 @@ export const startGrokSession = (
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
     let closed = false;
+    /** Driver-local goal state. Grok has no `thread/goal/*` ACP surface, so we
+     *  track the goal here and forward the objective via the native `/goal`
+     *  slash command. See the goal methods on the handle below. */
+    let currentGoal: ThreadGoal | null = null;
     /** True once the ACP child has exited (fatal auth, crash, or normal end).
      *  Further send() calls fail fast with a clear "session ended — start a new chat" message
      *  instead of queuing doomed RPCs that will 5-minute timeout.
@@ -856,6 +873,7 @@ export const startGrokSession = (
             model: input.model,
           });
           let keepRunningAfterIgnoredAuthNoise = false;
+          let turnWasCancelled = false;
           try {
             await request(
               "session/prompt",
@@ -886,6 +904,7 @@ export const startGrokSession = (
             }
             grokDiag("session/prompt failed", { reason });
             const isCancellation = /cancel|interrupt/i.test(reason);
+            if (isCancellation) turnWasCancelled = true;
             const isGrokAuthNoise = isIgnorableGrokAuthNoise(reason);
             if (isGrokAuthNoise) {
               keepRunningAfterIgnoredAuthNoise = true;
@@ -908,6 +927,26 @@ export const startGrokSession = (
               for (const ev of translator.flush()) events.unsafeOffer(ev);
               if (!keepRunningAfterIgnoredAuthNoise) {
                 events.unsafeOffer({ _tag: "Status", status: "idle" });
+                // A Grok goal runs as a single forwarded `/goal` turn that
+                // loops internally (plan → implement → verify → summarize)
+                // and self-terminates. Grok exposes no structured goal-status
+                // feed over ACP, so we infer the goal's end from the turn
+                // ending: a normal finish marks it "complete"; a user
+                // interrupt marks it "paused" (resumable) — either way the
+                // banner stops hanging on "Pursuing goal" forever.
+                if (currentGoal !== null && currentGoal.status === "active") {
+                  currentGoal = ThreadGoal.make({
+                    threadId: currentGoal.threadId,
+                    objective: currentGoal.objective,
+                    status: turnWasCancelled ? "paused" : "complete",
+                    tokenBudget: currentGoal.tokenBudget,
+                    tokensUsed: currentGoal.tokensUsed,
+                    timeUsedSeconds: currentGoal.timeUsedSeconds,
+                    createdAt: currentGoal.createdAt,
+                    updatedAt: Date.now(),
+                  });
+                  events.unsafeOffer({ _tag: "GoalUpdated", goal: currentGoal });
+                }
               }
             }
           }
@@ -975,6 +1014,50 @@ export const startGrokSession = (
           events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
         }),
       answerQuestion: () => Effect.void,
+      getGoal: () => Effect.sync(() => currentGoal),
+      setGoal: (goalInput) =>
+        Effect.sync(() => {
+          const now = Date.now();
+          const objective = (
+            goalInput.objective ?? currentGoal?.objective ?? ""
+          ).trim();
+          const status = goalInput.status ?? currentGoal?.status ?? "active";
+          const wasActiveWithObjective =
+            currentGoal?.status === "active" &&
+            (currentGoal?.objective.trim() ?? "") === objective;
+          const goal = ThreadGoal.make({
+            threadId: acpSessionId ?? "",
+            objective,
+            status,
+            tokenBudget:
+              goalInput.tokenBudget !== undefined
+                ? goalInput.tokenBudget
+                : (currentGoal?.tokenBudget ?? null),
+            // Grok doesn't report goal accounting back over ACP — best-effort 0.
+            tokensUsed: currentGoal?.tokensUsed ?? 0,
+            timeUsedSeconds: currentGoal?.timeUsedSeconds ?? 0,
+            createdAt: currentGoal?.createdAt ?? now,
+            updatedAt: now,
+          });
+          currentGoal = goal;
+          // Only fire the native `/goal` command when a goal newly becomes
+          // active with an objective — status-only changes (pause/resume) just
+          // update local state so we don't re-launch Grok's run.
+          if (
+            status === "active" &&
+            objective.length > 0 &&
+            !wasActiveWithObjective
+          ) {
+            enqueuePrompt(`/goal ${objective}`);
+          }
+          events.unsafeOffer({ _tag: "GoalUpdated", goal });
+          return goal;
+        }),
+      clearGoal: () =>
+        Effect.sync(() => {
+          currentGoal = null;
+          events.unsafeOffer({ _tag: "GoalCleared" });
+        }),
     };
     return handle;
   });

@@ -286,8 +286,8 @@ function ProviderStatus({
   if (state.kind === "ready") {
     const label =
       state.via === "cli"
-        ? `${PROVIDER_LABEL[providerId]} CLI is logged in — you're all set.`
-        : `${PROVIDER_LABEL[providerId]} API key saved — you're all set.`;
+        ? `${PROVIDER_LABEL[providerId]} CLI is logged in. You're all set.`
+        : `${PROVIDER_LABEL[providerId]} API key saved. You're all set.`;
     return (
       <div className="flex items-center gap-2 rounded-full bg-emerald-400/[0.08] px-3 py-2 text-[12px] text-emerald-200/90">
         <HugeiconsIcon icon={Tick01Icon} className="size-3.5" strokeWidth={3} />
@@ -318,7 +318,7 @@ function ProviderStatus({
 
   const subline =
     state.kind === "signed-out"
-      ? "Already installed — just run the login command below."
+      ? "Already installed. Just run the login command below."
       : state.kind === "subscription"
         ? "Your CLI login was detected, but the required paid plan was not confirmed."
         : state.kind === "outdated"

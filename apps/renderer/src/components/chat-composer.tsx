@@ -5,10 +5,7 @@ import {
   DashboardSpeedIcon,
   Delete02Icon,
   FlashIcon,
-  Folder01Icon,
-  GitBranchIcon,
   InformationCircleIcon,
-  LockIcon,
   MapsIcon,
   PencilIcon,
   PlayIcon,
@@ -35,7 +32,6 @@ import {
   type ThreadGoal,
 } from "@memoize/wire";
 import { ModelPicker } from "./model-picker.tsx";
-import { ActiveLocationChip } from "./active-location-chip.tsx";
 
 import { Card, CardPanel } from "~/components/ui/card";
 import { Frame, FrameFooter } from "~/components/ui/frame";
@@ -56,12 +52,14 @@ import {
   createComposerView,
   reconfigureComposerKeymap,
   replaceWithChip,
+  restoreComposerChips,
   setComposerDoc,
   type ActiveTrigger,
 } from "~/lib/codemirror/composer";
 import { useKeybindingsStore } from "../store/keybindings";
 import {
   addChipEffect,
+  allChips,
   clearChipsEffect,
   updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
@@ -72,6 +70,10 @@ import {
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
+import {
+  composerDraftKeyForSession,
+  useComposerDraftsStore,
+} from "../store/composer-drafts.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
   matchBuiltin,
@@ -83,6 +85,7 @@ import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
+import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import {
   Menu,
@@ -106,14 +109,12 @@ import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
-import { useChatsStore } from "../store/chats.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
 
 const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 240;
@@ -122,8 +123,10 @@ const MAX_ATTACHMENTS_PER_TURN = 20;
 export function ChatComposer({
   session,
   onDraftSubmit,
+  composerDraftKey,
 }: {
   session: Session;
+  composerDraftKey?: string;
   /**
    * When set, the composer runs in "draft" mode for the new-chat landing:
    * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
@@ -137,6 +140,7 @@ export function ChatComposer({
   onDraftSubmit?: (input: ComposerInput, opts: { asGoal: boolean }) => void;
 }) {
   const sessionId: SessionId = session.id;
+  const draftKey = composerDraftKey ?? composerDraftKeyForSession(sessionId);
   const isDraft = onDraftSubmit !== undefined;
   const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
   const inFlight = useMessagesStore(
@@ -171,6 +175,8 @@ export function ChatComposer({
   const queue = useMessagesStore((s) => s.queue);
   const setGoal = useMessagesStore((s) => s.setGoal);
   const clearGoal = useMessagesStore((s) => s.clearGoal);
+  const saveComposerDraft = useComposerDraftsStore((s) => s.save);
+  const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
   // Pending AskUserQuestion takes over the composer slot — that's where
   // the user types anyway, and floating it inline above the chat
@@ -229,18 +235,6 @@ export function ChatComposer({
     return out;
   }, [requestsById, sessionId]);
   useEffect(() => {
-    console.info(
-      `[permission-ui] ${JSON.stringify({
-        ts: new Date().toISOString(),
-        event: "composer.pending_permissions_changed",
-        sessionId,
-        inFlight,
-        count: pendingPermissions.length,
-        requestIds: pendingPermissions.map((req) => req.id),
-      })}`,
-    );
-  }, [inFlight, pendingPermissions, sessionId]);
-  useEffect(() => {
     if (isDraft) return;
     void hydratePermissions(sessionId);
   }, [isDraft, sessionId, hydratePermissions]);
@@ -272,43 +266,28 @@ export function ChatComposer({
   const headPermission = pendingPermissions[0];
   useEffect(() => {
     if (isDraft || !inFlight || headPermission !== undefined) return;
-    console.info(
-      `[permission-ui] ${JSON.stringify({
-        ts: new Date().toISOString(),
-        event: "composer.poll_pending_start",
-        sessionId,
-      })}`,
-    );
     void hydratePermissions(sessionId);
     const id = window.setInterval(() => {
-      console.info(
-        `[permission-ui] ${JSON.stringify({
-          ts: new Date().toISOString(),
-          event: "composer.poll_pending_tick",
-          sessionId,
-        })}`,
-      );
       void hydratePermissions(sessionId);
     }, 1_000);
-    return () => {
-      console.info(
-        `[permission-ui] ${JSON.stringify({
-          ts: new Date().toISOString(),
-          event: "composer.poll_pending_stop",
-          sessionId,
-        })}`,
-      );
-      window.clearInterval(id);
-    };
+    return () => window.clearInterval(id);
   }, [isDraft, inFlight, headPermission, sessionId, hydratePermissions]);
 
   const [hasText, setHasText] = useState(false);
   const [goalSendMode, setGoalSendMode] = useState(false);
-  // Version-gated Codex features the installed CLI supports (from the
-  // availability probe). Drives whether goal/fast controls render at all.
-  const codexCapabilities = useProvidersStore((s) =>
+  // Provider features the installed CLI supports (from the availability
+  // probe). Drives whether goal/fast controls render at all. Codex resolves
+  // these from its CLI version; Grok advertises `goalMode` unconditionally.
+  const capabilities = useProvidersStore((s) =>
     s.capabilitiesFor(session.providerId),
   );
+  // Goal mode is supported by Codex (native `thread/goal/*`, version-gated via
+  // the `goalMode` capability) and Grok (native `/goal`, forwarded by the
+  // driver). Grok has no version floor, so it's always goal-capable and
+  // doesn't depend on the availability probe.
+  const goalCapable =
+    session.providerId === "grok" ||
+    (session.providerId === "codex" && capabilities.includes("goalMode"));
   const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -346,16 +325,26 @@ export function ChatComposer({
   // even with an empty text box.
   const canSend = hasText || annotationCount > 0;
 
-  // Mount the CodeMirror view once per ChatComposer instance. Switching
-  // sessions remounts the component (`session.id` is the chat-view key),
-  // so we don't have to swap docs in-place here.
+  // Mount the CodeMirror view once per ChatComposer instance. The parent keys
+  // live chat composers by session id, and the landing keys them by project id,
+  // so the initial snapshot below is the right one for the lifetime of this
+  // editor view.
   useEffect(() => {
     const host = editorHostRef.current;
     if (host === null) return;
+    const initialSnapshot =
+      useComposerDraftsStore.getState().draftsByKey[draftKey] ?? null;
+    const persistSnapshot = (state: EditorView["state"]) => {
+      saveComposerDraft(draftKey, {
+        doc: state.doc.toString(),
+        chips: allChips(state),
+      });
+    };
 
     const callbacks = {
       onSubmit: () => submitRef.current(),
       onChange: (doc: string) => setHasText(doc.trim().length > 0),
+      onSnapshotChange: persistSnapshot,
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
@@ -363,10 +352,15 @@ export function ChatComposer({
     };
     const view = createComposerView({
       parent: host,
+      initialDoc: initialSnapshot?.doc ?? "",
       placeholderText:
         "Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.",
       callbacks,
     });
+    if (initialSnapshot !== null) {
+      restoreComposerChips(view, initialSnapshot.chips);
+      setHasText(view.state.doc.toString().trim().length > 0);
+    }
     editorViewRef.current = view;
     view.focus();
 
@@ -417,7 +411,7 @@ export function ChatComposer({
       view.destroy();
       editorViewRef.current = null;
     };
-  }, []);
+  }, [draftKey, saveComposerDraft]);
 
   // Picker-triggered session changes (model / provider) can shift the
   // composer's surrounding layout — chip icon swap, CliUpgradeBanner
@@ -656,6 +650,7 @@ export function ChatComposer({
     const builtin = matchBuiltin(docText, session.providerId);
     if (builtin !== null) {
       clearComposer(view);
+      clearComposerDraft(draftKey);
       dispatchBuiltin(builtin);
       return true;
     }
@@ -672,6 +667,7 @@ export function ChatComposer({
           })
         : parsed;
     clearComposer(view);
+    clearComposerDraft(draftKey);
     setGoalSendMode(false);
     // Drain the tray: the annotations now live on `input` (carried into the
     // queue too, so a mid-turn submit flushes them intact).
@@ -750,36 +746,39 @@ export function ChatComposer({
       >
         <div className="mx-auto">
           {!isDraft ? (
-            <>
-              <ActiveLocationChip />
-              <ProjectPlanTray key={sessionId} sessionId={sessionId} />
-              <AnnotationTray
-                sessionId={sessionId}
-                folderId={session.projectId}
-                worktreeId={session.worktreeId}
-              />
-            </>
-          ) : null}
-          {!isDraft && session.providerId === "codex" && goal !== null ? (
-            <GoalBanner
-              goal={goal}
-              inPlanMode={inPlanMode}
-              onPause={() =>
-                void setGoal(sessionId, {
-                  status: goal.status === "active" ? "paused" : "active",
-                })
-              }
-              onSave={(objective, tokenBudget) =>
-                void setGoal(sessionId, {
-                  objective,
-                  status: "active",
-                  tokenBudget,
-                })
-              }
-              onClear={() => void clearGoal(sessionId)}
+            <AnnotationTray
+              sessionId={sessionId}
+              folderId={session.projectId}
+              worktreeId={session.worktreeId}
             />
           ) : null}
           <Frame>
+            {!isDraft ? (
+              <div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
+                {goalCapable && goal !== null ? (
+                  <GoalBanner
+                    goal={goal}
+                    inPlanMode={inPlanMode}
+                    onPause={() =>
+                      void setGoal(sessionId, {
+                        status:
+                          goal.status === "active" ? "paused" : "active",
+                      })
+                    }
+                    onSave={(objective, tokenBudget) =>
+                      void setGoal(sessionId, {
+                        objective,
+                        status: "active",
+                        tokenBudget,
+                      })
+                    }
+                    onClear={() => void clearGoal(sessionId)}
+                  />
+                ) : null}
+                <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+                <QueueTray sessionId={sessionId} />
+              </div>
+            ) : null}
             <Card
               className={cn(
                 "min-h-30 rounded-lg transition-colors",
@@ -812,7 +811,6 @@ export function ChatComposer({
                 hidden
                 onChange={onPickFiles}
               />
-              {!isDraft ? <QueueTray sessionId={sessionId} /> : null}
               <CardPanel className="relative flex items-stretch gap-2 px-3 py-2">
                 {trigger !== null && editorViewRef.current !== null ? (
                   trigger.kind === "slash" ? (
@@ -904,11 +902,10 @@ export function ChatComposer({
                   // `fastMode` descriptor and isn't version-gated, so only
                   // filter when the provider gates it.
                   (session.providerId !== "codex" ||
-                    codexCapabilities.includes("fastMode")) && (
+                    capabilities.includes("fastMode")) && (
                     <FastModeToggle sessionId={sessionId} />
                   )}
-                {session.providerId === "codex" &&
-                codexCapabilities.includes("goalMode") ? (
+                {goalCapable ? (
                   <GoalModeToggle
                     active={goalSendMode}
                     hasGoal={goal !== null}
@@ -925,10 +922,6 @@ export function ChatComposer({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <RuntimeModeToggle
-                  sessionId={sessionId}
-                  current={session.runtimeMode}
-                />
                 {!isDraft ? <ContextStatusPopover session={session} /> : null}
                 {!isDraft ? (
                   <SessionTimer sessionId={sessionId} inFlight={inFlight} />
@@ -972,89 +965,10 @@ export function ChatComposer({
                 )}
               </div>
             </FrameFooter>
-            {!isDraft ? (
-              <div className="flex items-center justify-between gap-2 border-t border-border/40 px-2 py-1 text-[11px] text-muted-foreground">
-                <WorkspacePicker session={session} />
-                <WorkspaceBranchLabel session={session} />
-              </div>
-            ) : null}
           </Frame>
         </div>
       </div>
     </TooltipProvider>
-  );
-}
-
-/**
- * Per-session permission posture, picked from a menu so each option can carry
- * a description. The mode is stored on the session row and read live by the
- * SDK's canUseTool callback — flipping it mid-turn applies to the next tool
- * call without restarting the conversation.
- */
-function RuntimeModeToggle({
-  sessionId,
-  current,
-}: {
-  sessionId: SessionId;
-  current: RuntimeMode;
-}) {
-  const setRuntimeMode = useSessionsStore((s) => s.setRuntimeMode);
-  const meta = MODE_META[current];
-  const triggerIcon = meta.Icon;
-
-  const onSelect = (mode: RuntimeMode) => {
-    if (mode !== current) void setRuntimeMode(sessionId, mode);
-  };
-
-  return (
-    <Menu>
-      <MenuTrigger
-        className="flex items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground shadow-xs/5 transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/60"
-        aria-label={`Permissions: ${meta.label}`}
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{meta.label}</span>
-        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup side="top" align="end" className="w-72 p-1">
-        {MODES_ORDER.map((mode) => {
-          const m = MODE_META[mode];
-          const itemIcon = m.Icon;
-          const active = mode === current;
-          return (
-            <MenuItem
-              key={mode}
-              onClick={() => onSelect(mode)}
-              className={cn(
-                "grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm",
-                active
-                  ? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
-                  : undefined,
-              )}
-            >
-              <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-                {active && (
-                  <HugeiconsIcon
-                    icon={Tick01Icon}
-                    className="size-3.5 opacity-90"
-                  />
-                )}
-              </span>
-              <HugeiconsIcon
-                icon={itemIcon}
-                className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-              />
-              <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-                <span className="font-medium leading-none">{m.label}</span>
-                <span className="text-xs text-muted-foreground leading-snug">
-                  {m.description}
-                </span>
-              </div>
-            </MenuItem>
-          );
-        })}
-      </MenuPopup>
-    </Menu>
   );
 }
 
@@ -1241,76 +1155,84 @@ function GoalBanner({
         )}s`
       : "0s";
   return (
-    <div className="mb-2 rounded-lg border border-border/70 bg-card/70 px-3 py-2 text-sm">
-      <div className="flex min-w-0 items-center gap-2">
-        <HugeiconsIcon
-          icon={DashboardSpeedIcon}
-          className="size-4 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0 flex-1 truncate">
-          <span className="font-medium text-foreground">
-            {GOAL_LABEL[goal.status]}
-          </span>{" "}
-          <span className="text-muted-foreground">{objective}</span>
-        </div>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={onPause}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label={
-                  goal.status === "active" ? "Pause goal" : "Resume goal"
+    <>
+      <TrayPill
+        flush
+        icon={
+          <HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
+        }
+        title={GOAL_LABEL[goal.status]}
+        subtitle={objective}
+        actions={
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={onPause}
+                    className={trayPillActionClass}
+                    aria-label={
+                      goal.status === "active" ? "Pause goal" : "Resume goal"
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={goal.status === "active" ? SquareIcon : PlayIcon}
+                      className="size-3.5"
+                    />
+                  </button>
                 }
-              >
-                <HugeiconsIcon
-                  icon={goal.status === "active" ? SquareIcon : PlayIcon}
-                  className="size-3.5"
-                />
-              </button>
-            }
-          />
-          <TooltipPopup>
-            {goal.status === "active" ? "Pause goal" : "Resume goal"}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label="Edit goal"
-              >
-                <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup>Edit goal</TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={onClear}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                aria-label="Delete goal"
-              >
-                <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup>Delete goal</TooltipPopup>
-        </Tooltip>
-      </div>
+              />
+              <TooltipPopup>
+                {goal.status === "active" ? "Pause goal" : "Resume goal"}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => setOpen(true)}
+                    className={trayPillActionClass}
+                    aria-label="Edit goal"
+                  >
+                    <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup>Edit goal</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={onClear}
+                    className={cn(
+                      trayPillActionClass,
+                      "hover:bg-destructive/10 hover:text-destructive",
+                    )}
+                    aria-label="Delete goal"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup>Delete goal</TooltipPopup>
+            </Tooltip>
+          </>
+        }
+      />
       {inPlanMode && goal.status === "active" ? (
-        <div className="mt-1 text-xs text-amber-200/80">
-          Plan mode is active; Codex will not continue this goal until plan mode
-          exits.
-        </div>
+        <TrayPill
+          flush
+          tone="warning"
+          icon={
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-3.5" />
+          }
+          title="Plan mode active"
+          subtitle="Codex won't continue this goal until plan mode exits."
+        />
       ) : null}
       <GoalEditorDialog
         open={open}
@@ -1319,7 +1241,7 @@ function GoalBanner({
         elapsed={elapsed}
         onSave={onSave}
       />
-    </div>
+    </>
   );
 }
 
@@ -1910,168 +1832,6 @@ function SessionTimer({
       title="Total time spent across all turns in this session"
     >
       {formatCoarse(totalElapsed)}
-    </span>
-  );
-}
-
-/**
- * Pick the workspace this session runs in: the project's main checkout or
- * a freshly-created git worktree. Editable only on a brand-new session
- * (zero user messages); once the first message is sent, the chip becomes
- * a read-only label with a lock glyph — cwd cannot move under a running
- * agent.
- */
-function WorkspacePicker({ session }: { session: Session }) {
-  const setChatWorktree = useChatsStore((s) => s.setWorktree);
-  const create = useWorktreesStore((s) => s.create);
-  const refresh = useWorktreesStore((s) => s.refresh);
-  const worktrees = useWorktreesStore(
-    (s) => s.byProject[session.projectId] ?? EMPTY_WORKTREES,
-  );
-  const userMessageCount = useMessagesStore((s) => {
-    const list = s.messagesBySession[session.id] ?? [];
-    let count = 0;
-    for (const m of list) {
-      if (m.role === "user") count += 1;
-    }
-    return count;
-  });
-  const locked = userMessageCount > 0;
-
-  // Hydrate the worktree list once per session so the popover renders
-  // names (not just "New worktree") on first open.
-  useEffect(() => {
-    void refresh(session.projectId);
-  }, [refresh, session.projectId]);
-
-  const current = useMemo(
-    () =>
-      session.worktreeId === null
-        ? null
-        : (worktrees.find((w) => w.id === session.worktreeId) ?? null),
-    [session.worktreeId, worktrees],
-  );
-
-  const triggerLabel =
-    session.worktreeId === null
-      ? "Current checkout"
-      : (current?.name ?? "Worktree");
-  const triggerIcon =
-    session.worktreeId === null ? Folder01Icon : GitBranchIcon;
-
-  if (locked) {
-    return (
-      <span
-        className="flex items-center gap-1.5 rounded-md px-2 py-1"
-        title="Workspace locked — first message already sent"
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{triggerLabel}</span>
-        <HugeiconsIcon icon={LockIcon} className="size-3 opacity-60" />
-      </span>
-    );
-  }
-
-  const onPickCurrent = () => {
-    if (session.worktreeId === null) return;
-    void setChatWorktree(session.chatId, null);
-  };
-  const onPickNewWorktree = async () => {
-    const wt = await create(session.projectId);
-    if (wt === null) return;
-    await setChatWorktree(session.chatId, wt.id);
-  };
-
-  return (
-    <Menu>
-      <MenuTrigger
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60"
-        aria-label="Change workspace"
-        title="Change workspace — locks once the first message is sent"
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{triggerLabel}</span>
-        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup side="top" align="start" className="w-64 p-1">
-        <MenuItem
-          onClick={onPickCurrent}
-          className={cn(
-            "grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm",
-            session.worktreeId === null
-              ? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
-              : undefined,
-          )}
-        >
-          <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-            {session.worktreeId === null && (
-              <HugeiconsIcon
-                icon={Tick01Icon}
-                className="size-3.5 opacity-90"
-              />
-            )}
-          </span>
-          <HugeiconsIcon
-            icon={Folder01Icon}
-            className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-          />
-          <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-            <span className="font-medium leading-none">Current checkout</span>
-            <span className="text-xs text-muted-foreground leading-snug">
-              Run in the project's main working tree.
-            </span>
-          </div>
-        </MenuItem>
-        <MenuItem
-          onClick={() => void onPickNewWorktree()}
-          className="grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm"
-        >
-          <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-            {session.worktreeId !== null && (
-              <HugeiconsIcon
-                icon={Tick01Icon}
-                className="size-3.5 opacity-90"
-              />
-            )}
-          </span>
-          <HugeiconsIcon
-            icon={GitBranchIcon}
-            className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-          />
-          <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-            <span className="font-medium leading-none">New worktree</span>
-            <span className="text-xs text-muted-foreground leading-snug">
-              Branch off the current HEAD into a fresh worktree.
-            </span>
-          </div>
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
-  );
-}
-
-/**
- * Right-aligned label that surfaces the worktree's branch when the session
- * is running on one. Empty when running in the main checkout — the file
- * tree / status pane already shows the project's HEAD branch in that case.
- */
-function WorkspaceBranchLabel({ session }: { session: Session }) {
-  const worktrees = useWorktreesStore(
-    (s) => s.byProject[session.projectId] ?? EMPTY_WORKTREES,
-  );
-  if (session.worktreeId === null) return null;
-  const wt = worktrees.find((w) => w.id === session.worktreeId);
-  if (wt === undefined) return null;
-  return (
-    <span
-      className="flex items-center gap-1 truncate font-mono text-foreground/80"
-      title={`Branch ${wt.branch}`}
-    >
-      <HugeiconsIcon
-        icon={GitBranchIcon}
-        className="size-3 shrink-0 opacity-70"
-      />
-      <span className="truncate font-medium">{wt.branch}</span>
     </span>
   );
 }

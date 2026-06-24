@@ -247,6 +247,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MessageStoreLayer),
     Layer.provide(WorkspaceLayer),
   );
+  const HandlerSupportLayer = Layer.mergeAll(
+    AppPathsLayer,
+    MigratedSqlite,
+    NodeContext.layer,
+  );
 
   const Handlers = HandlersLayer.pipe(
     Layer.provide(WorkspaceLayer),
@@ -273,7 +278,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // (it spins up a short-lived `opencode serve` to read the user's
     // connected providers + agents). That uses `CommandExecutor` from
     // NodeContext, so the handler layer must see it.
-    Layer.provide(NodeContext.layer),
+    Layer.provide(HandlerSupportLayer),
   );
 
   const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(

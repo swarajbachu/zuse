@@ -7,7 +7,13 @@ import {
   type KeyBinding,
 } from "@codemirror/view";
 
-import { addChipEffect, chipExtensions, type ChipMeta } from "./composer-chips.ts";
+import {
+  addChipEffect,
+  chipExtensions,
+  isChipEffect,
+  type ChipMeta,
+  type ChipRange,
+} from "./composer-chips.ts";
 import { buildComposerKeymap, composerKeymap } from "./composer-keymap.ts";
 import { composerTheme } from "./composer-theme.ts";
 import {
@@ -31,6 +37,7 @@ export type ComposerCallbacks = {
    */
   readonly onSubmit: () => boolean;
   readonly onChange: (doc: string) => void;
+  readonly onSnapshotChange?: (state: EditorState) => void;
   readonly onTrigger: (trigger: ActiveTrigger | null) => void;
   /**
    * Called when one or more files are dropped onto the editor surface.
@@ -89,6 +96,13 @@ export const createComposerView = ({
     ]),
     EditorView.updateListener.of((u) => {
       if (u.docChanged) callbacks.onChange(u.state.doc.toString());
+      if (
+        callbacks.onSnapshotChange !== undefined &&
+        (u.docChanged ||
+          u.transactions.some((tr) => tr.effects.some(isChipEffect)))
+      ) {
+        callbacks.onSnapshotChange(u.state);
+      }
     }),
     // File drops: CodeMirror's default handler tries to paste the dropped
     // payload as text. For image drops that turns into a `file://...`
@@ -160,6 +174,18 @@ export const setComposerDoc = (view: EditorView, doc: string): void => {
 
 export const composerDoc = (view: EditorView): string =>
   view.state.doc.toString();
+
+export const restoreComposerChips = (
+  view: EditorView,
+  chips: readonly ChipRange[],
+): void => {
+  if (chips.length === 0) return;
+  view.dispatch({
+    effects: chips
+      .filter((chip) => chip.from >= 0 && chip.to <= view.state.doc.length)
+      .map((chip) => addChipEffect.of(chip)),
+  });
+};
 
 /**
  * Replace `[from, to)` in the document with `tokenText` and register a chip

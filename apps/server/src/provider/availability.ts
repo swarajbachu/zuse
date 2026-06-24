@@ -656,10 +656,10 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
 const CLAUDE_SUB_LABEL: Record<string, string> = {
   max: "Claude Max Subscription",
   pro: "Claude Pro Subscription",
-  // Claude Code agent usage requires a paid plan. Free / unknown tiers
-  // surface as "Requires …" so the renderer's existing subscription-gate
-  // rail (matches authLabel.includes("require")) disables the toggle and
-  // shows the Subscribe CTA, same as Grok/Cursor.
+  // Only an *explicitly* free tier surfaces as "Requires …" so the renderer's
+  // subscription-gate rail (matches authLabel.includes("require")) disables the
+  // toggle and shows the Subscribe CTA, same as Grok/Cursor. Unknown/missing
+  // tiers are NOT gated — see parseClaudeCredentials.
   free: "Requires Claude Pro",
 };
 
@@ -682,12 +682,18 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
   if (!oauth) return { authStatus: "authenticated" };
   const sub = oauth.subscriptionType?.toLowerCase();
   const email = oauth.emailAddress ?? oauth.email;
-  // Missing or unrecognised subscription tier → treat as needing Claude Pro,
-  // matching the explicit `free` branch in CLAUDE_SUB_LABEL.
+  // A present OAuth login already proves a paid Claude account — Claude Code
+  // agent usage is not available on the free tier. So only an *explicitly*
+  // recognised free tier surfaces the subscription gate; an unknown or missing
+  // subscriptionType is treated as a valid (non-blocking) login, with the
+  // runtime performing the real entitlement check. (Mirrors the Grok probe,
+  // which only blocks on a *confirmed* below-entitlement tier.) Defaulting
+  // unknown tiers to "Requires …" wrongly nagged Pro users — and anyone whose
+  // tier string we don't map — to subscribe despite an active subscription.
   const authLabel =
     sub && CLAUDE_SUB_LABEL[sub]
       ? CLAUDE_SUB_LABEL[sub]
-      : "Requires Claude Pro";
+      : "Claude subscription";
   return {
     authStatus: "authenticated",
     authType: "oauth",
@@ -900,6 +906,11 @@ export const grokAuthTestHelpers = {
   parseGrokAuthJson,
   extractTier,
   decodeJwtPayload,
+};
+
+// Exported for tests only. Not part of the public module surface.
+export const claudeAuthTestHelpers = {
+  parseClaudeCredentials,
 };
 
 // Grok stores OIDC credentials (JWT + email + tier claim) in `~/.grok/auth.json`
@@ -1197,11 +1208,16 @@ const probeOne = (
     }
 
     // Version-gated features the installed CLI supports (pre-session UI gate).
-    // Only Codex declares gated features today; others resolve to `[]`.
+    // Codex resolves its set from the CLI version; Grok ships a single
+    // curl-installed channel with no version floor, so we advertise its
+    // `goalMode` (native `/goal`, forwarded as a slash command by the driver)
+    // unconditionally. Other providers resolve to `[]`.
     const capabilities =
       probe.providerId === "codex"
         ? resolveCodexCapabilities(parsedVersion)
-        : [];
+        : probe.providerId === "grok"
+          ? ["goalMode"]
+          : [];
 
     // Informational "update available" layer — independent of the SDK floor.
     // Only providers with a registry package are checked; the rest report

@@ -64,6 +64,13 @@ type SessionHandle =
   | GeminiSessionHandle
   | CursorSessionHandle
   | OpencodeSessionHandle;
+
+/**
+ * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
+ * Grok forwards to its native `/goal` slash command with driver-local state.
+ * Both share the same method shape so the goal routes treat them uniformly.
+ */
+type GoalCapableHandle = CodexSessionHandle | GrokSessionHandle;
 type SessionEntry = {
   readonly providerId: ProviderId;
   readonly handle: SessionHandle;
@@ -419,20 +426,20 @@ export const ProviderServiceLive = Layer.effect(
         ),
       getGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).getGoal()
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).getGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       setGoal: (sessionId, goal: ThreadGoalSetInput) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).setGoal(goal)
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).setGoal(goal)
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       clearGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).clearGoal()
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).clearGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
     };

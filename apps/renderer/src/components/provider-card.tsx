@@ -14,12 +14,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MODELS_BY_PROVIDER,
   type AgentAvailability,
-  type LoginEvent,
   type ProviderId,
   type ProviderUpdateEvent,
 } from "@memoize/wire";
 
 import { ApiKeyRow } from "~/components/api-key-row";
+import {
+  openExternal,
+  useProviderLogin,
+} from "~/lib/use-provider-login";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -245,8 +248,8 @@ export function ProviderCard({
           )}
           {availability?.cliInstalled &&
             availability.authStatus === "unauthenticated" &&
-            (providerId === "cursor" ? (
-              <CursorSignInRow />
+            (providerId === "cursor" || providerId === "claude" ? (
+              <ProviderSignInRow providerId={providerId} />
             ) : (
               <CodeRow label="Sign in" command={LOGIN_HINT[providerId]} />
             ))}
@@ -304,21 +307,6 @@ function ModelDefault({ providerId }: { providerId: ProviderId }) {
     </div>
   );
 }
-
-/**
- * Open a URL in the user's OS browser via the preload bridge (Electron's
- * `shell.openExternal`). Falls back to `window.open` for web/dev contexts.
- * We intentionally avoid an in-app webview here: a paid-checkout flow
- * needs the user's real browser session, password manager, and cookies.
- */
-const openExternal = (url: string) => {
-  const bridge = window.memoize?.app;
-  if (bridge !== undefined) {
-    bridge.openExternal(url);
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-};
 
 /**
  * Subscription / plan notice for providers that gate behind a paid tier
@@ -404,79 +392,24 @@ function BlurredEmail({ email }: { email: string }) {
 }
 
 /**
- * One-click sign-in for Cursor. Click → subscribe to `agent.startLogin`,
- * which spawns `cursor-agent login` server-side and streams progress. The
+ * One-click sign-in row for providers with a real in-app login handler
+ * (`cursor`, `claude`). Click → subscribe to `agent.startLogin`, which spawns
+ * the provider's `login` subcommand server-side and streams progress. The
  * first `url` event opens the OAuth page in the OS browser; the terminal
- * `done` event triggers an availability refresh and (on success) collapses
- * the row. Cancel interrupts the stream, which closes the server-side
- * scope and SIGTERMs the child process.
+ * `done` event triggers an availability refresh and (on success) collapses the
+ * row. Cancel interrupts the stream, which closes the server-side scope and
+ * SIGTERMs the child process. The whole state machine lives in
+ * `useProviderLogin` so the inline auth ErrorBubble can reuse it verbatim.
  */
-function CursorSignInRow() {
+function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
   const refresh = useProvidersStore((s) => s.refresh);
-  const [state, setState] = useState<
-    | { kind: "idle" }
-    | { kind: "waiting"; url: string | null }
-    | { kind: "success" }
-    | { kind: "failed"; reason: string }
-  >({ kind: "idle" });
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
-
-  useEffect(
-    () => () => {
-      const fiber = fiberRef.current;
-      if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+  const { state, start, cancel } = useProviderLogin(providerId, {
+    onSuccess: () => {
+      void refresh();
     },
-    [],
-  );
-
-  const cancel = () => {
-    const fiber = fiberRef.current;
-    if (fiber !== null) {
-      void Effect.runPromise(Fiber.interrupt(fiber));
-      fiberRef.current = null;
-    }
-    setState({ kind: "idle" });
-  };
-
-  const start = async () => {
-    setState({ kind: "waiting", url: null });
-    const client = await getRpcClient();
-    const fiber = Effect.runFork(
-      Stream.runForEach(
-        client.agent.startLogin({ providerId: "cursor" }),
-        (event: LoginEvent) =>
-          Effect.sync(() => {
-            if (event._tag === "url") {
-              openExternal(event.url);
-              setState({ kind: "waiting", url: event.url });
-            } else if (event._tag === "done") {
-              fiberRef.current = null;
-              if (event.ok) {
-                setState({ kind: "success" });
-                void refresh();
-              } else {
-                setState({
-                  kind: "failed",
-                  reason: event.reason ?? "Sign-in failed.",
-                });
-              }
-            }
-            // "log" events are diagnostic-only; ignored in the UI.
-          }),
-      ).pipe(
-        Effect.catchAll((err) =>
-          Effect.sync(() => {
-            fiberRef.current = null;
-            setState({
-              kind: "failed",
-              reason: err instanceof Error ? err.message : String(err),
-            });
-          }),
-        ),
-      ),
-    );
-    fiberRef.current = fiber;
-  };
+  });
+  const label = PROVIDER_LABEL[providerId];
+  const manualCommand = LOGIN_HINT[providerId];
 
   if (state.kind === "success") {
     return (
@@ -497,7 +430,7 @@ function CursorSignInRow() {
           />
           <span>
             {state.url === null
-              ? "Starting cursor-agent login…"
+              ? `Starting ${label} sign-in…`
               : "Waiting for browser sign-in…"}
           </span>
         </div>
@@ -558,7 +491,7 @@ function CursorSignInRow() {
             Try again
           </Button>
         </div>
-        <CodeRow label="Or run manually" command={LOGIN_HINT.cursor} />
+        <CodeRow label="Or run manually" command={manualCommand} />
       </div>
     );
   }
@@ -579,10 +512,10 @@ function CursorSignInRow() {
           }}
           className="h-7 px-3 text-[11px]"
         >
-          Sign in to Cursor
+          Sign in to {label}
         </Button>
         <span className="text-[10px] text-muted-foreground">
-          or run <code className="font-mono">$ {LOGIN_HINT.cursor}</code>
+          or run <code className="font-mono">$ {manualCommand}</code>
         </span>
       </div>
     </div>

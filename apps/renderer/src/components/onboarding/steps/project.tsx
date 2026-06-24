@@ -27,7 +27,7 @@ export function ProjectStep() {
     <div className="flex flex-col gap-7">
       <StepHeader
         title="Add your first project"
-        subtitle="Any folder on your machine — we'll list it in the sidebar, no copies made."
+        subtitle="Any folder on your machine. We'll list it in the sidebar, no copies made."
       />
 
       {justAdded === null ? (
@@ -45,7 +45,7 @@ export function ProjectStep() {
               {busy ? "Opening picker…" : "Choose a folder"}
             </span>
             <span className="text-[11px] text-muted-foreground">
-              Click to browse — or drag one in
+              Click to browse, or drag one in
             </span>
           </span>
         </button>

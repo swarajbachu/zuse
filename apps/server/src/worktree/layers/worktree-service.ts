@@ -53,6 +53,12 @@ interface WorktreeRow {
   readonly pokemon_number: number | null;
 }
 
+// Time-box the base-branch `git fetch` so a hung remote can't stall worktree
+// creation forever, but generous enough that a normal (even first-time) fetch
+// over a slow link completes well within it. On timeout we fail loudly rather
+// than basing the worktree off a stale local ref.
+const FETCH_TIMEOUT = "60 seconds" as const;
+
 const isSetupStatus = (value: string): value is WorktreeSetupStatus =>
   value === "pending" ||
   value === "running" ||
@@ -465,54 +471,127 @@ export const WorktreeServiceLive = Layer.effect(
           ),
         );
 
-        // Resolve current HEAD on the main repo so we can record the base
-        // branch in the row. Falls back to "HEAD" if `--abbrev-ref` is
-        // detached (rare for the common path).
-        const headRefRaw = yield* runGit(repoPath, [
-          "rev-parse",
-          "--abbrev-ref",
-          "HEAD",
-        ]).pipe(
-          Effect.mapError(
-            (reason) => new WorktreeCreateError({ projectId, reason }),
-          ),
-        );
-        const baseBranch = headRefRaw.trim() || "HEAD";
+        // Resolve the base the new worktree branches off of. Users live in
+        // worktrees and push from there, so the main checkout's local base
+        // branch (e.g. `main`) is rarely pulled and goes stale — branching off
+        // it would start every agent behind the remote. So:
+        //   • If an `origin` remote is configured, branch off the freshly
+        //     fetched `origin/<default-branch>` and FAIL LOUDLY if the remote
+        //     is unreachable/unresolvable rather than silently using a stale
+        //     local ref. `git fetch` only writes the remote-tracking ref — the
+        //     main checkout is left exactly as-is.
+        //   • If there is no `origin` at all, this is a legitimate local-only
+        //     repo (nothing to be "behind"), so we base off local `HEAD`.
+        const fail = (reason: string) =>
+          new WorktreeCreateError({ projectId, reason });
 
-        // Prefer branching off the freshly-fetched `origin/<branch>` rather
-        // than the main repo's local checkout: users live in worktrees and
-        // push from there, so the local base branch (e.g. `main`) is rarely
-        // pulled and goes stale. `git fetch` only touches the remote-tracking
-        // ref — the main checkout is left exactly as-is. Falls back to local
-        // `HEAD` when there's no `origin`, we're offline, the branch isn't on
-        // origin, or HEAD is detached, so worktree creation never fails just
-        // because the network/remote is unavailable.
-        let baseRef = "HEAD";
-        if (baseBranch !== "HEAD") {
-          // Time-box the fetch: a slow or offline remote must never stall
-          // worktree creation. On timeout we fall through to local `HEAD`
-          // exactly like any other fetch failure.
+        const remotesRaw = yield* runGit(repoPath, ["remote"]).pipe(
+          Effect.orElseSucceed(() => ""),
+        );
+        const hasOrigin = remotesRaw
+          .split("\n")
+          .map((r) => r.trim())
+          .includes("origin");
+
+        let baseRef: string;
+        let baseBranch: string;
+
+        if (!hasOrigin) {
+          // Local-only repo: base off the main checkout's current HEAD.
+          const headRefRaw = yield* runGit(repoPath, [
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+          ]).pipe(Effect.mapError(fail));
+          baseBranch = headRefRaw.trim() || "HEAD";
+          baseRef = "HEAD";
+        } else {
+          // Resolve the remote's default branch authoritatively from the
+          // remote's own HEAD (`ls-remote --symref`), which also confirms the
+          // remote is reachable. Fall back to probing common remote-tracking
+          // refs if the symref can't be read/parsed.
+          const symrefRaw = yield* runGit(repoPath, [
+            "ls-remote",
+            "--symref",
+            "origin",
+            "HEAD",
+          ]).pipe(Effect.either);
+
+          let defaultBranch: string | null = null;
+          if (symrefRaw._tag === "Right") {
+            const match = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(
+              symrefRaw.right,
+            );
+            defaultBranch = match?.[1] ?? null;
+          }
+
+          if (defaultBranch === null) {
+            // ls-remote failed or returned no symref — probe local
+            // remote-tracking refs in the conventional order.
+            for (const candidate of ["main", "master"]) {
+              const exists = yield* runGit(repoPath, [
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                `refs/remotes/origin/${candidate}`,
+              ]).pipe(
+                Effect.map(() => true),
+                Effect.catchAll(() => Effect.succeed(false)),
+              );
+              if (exists) {
+                defaultBranch = candidate;
+                break;
+              }
+            }
+          }
+
+          if (defaultBranch === null) {
+            return yield* Effect.fail(
+              fail("could not determine origin default branch"),
+            );
+          }
+
+          // Update the remote-tracking ref. Fail loudly on timeout/failure
+          // rather than basing the worktree off a stale local ref.
           const fetched = yield* runGit(repoPath, [
             "fetch",
             "origin",
-            baseBranch,
+            defaultBranch,
           ]).pipe(
-            Effect.timeout("3 seconds"),
+            Effect.timeout(FETCH_TIMEOUT),
+            Effect.either,
+          );
+          if (fetched._tag === "Left") {
+            // runGit fails with a string; Effect.timeout adds a
+            // TimeoutException — anything non-string is the timeout.
+            const reason =
+              typeof fetched.left === "string"
+                ? fetched.left
+                : `timed out after ${FETCH_TIMEOUT}`;
+            return yield* Effect.fail(
+              fail(`failed to fetch origin/${defaultBranch}: ${reason}`),
+            );
+          }
+
+          const remoteRefExists = yield* runGit(repoPath, [
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            `refs/remotes/origin/${defaultBranch}`,
+          ]).pipe(
             Effect.map(() => true),
             Effect.catchAll(() => Effect.succeed(false)),
           );
-          if (fetched) {
-            const remoteRefExists = yield* runGit(repoPath, [
-              "rev-parse",
-              "--verify",
-              "--quiet",
-              `refs/remotes/origin/${baseBranch}`,
-            ]).pipe(
-              Effect.map(() => true),
-              Effect.catchAll(() => Effect.succeed(false)),
+          if (!remoteRefExists) {
+            return yield* Effect.fail(
+              fail(
+                `origin/${defaultBranch} not found after fetch — cannot create worktree`,
+              ),
             );
-            if (remoteRefExists) baseRef = `origin/${baseBranch}`;
           }
+
+          baseBranch = defaultBranch;
+          baseRef = `origin/${defaultBranch}`;
         }
 
         const unavailableNames = new Set<string>();

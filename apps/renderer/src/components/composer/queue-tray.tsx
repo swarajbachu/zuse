@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { useMessagesStore } from "../../store/messages.ts";
 import { QueueChip } from "./queue-chip.tsx";
+import { TrayPill } from "./tray-pill.tsx";
 
 const EMPTY_QUEUE: ReadonlyArray<never> = [];
 
@@ -10,7 +11,14 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
   const items = useMessagesStore(
     (s) => s.queueBySession[sessionId] ?? EMPTY_QUEUE,
   );
+  const paused = useMessagesStore(
+    (s) => s.queuePausedBySession[sessionId] === true,
+  );
+  const running = useMessagesStore(
+    (s) => s.runningBySession[sessionId] === true,
+  );
   const reorder = useMessagesStore((s) => s.reorderQueue);
+  const resume = useMessagesStore((s) => s.resumeQueue);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   if (items.length === 0) return null;
 
@@ -26,12 +34,26 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
     );
   };
 
+  const showPausedPill = paused && !running;
+
   return (
-    <div className="border-b border-border/40 bg-muted/15">
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-muted-foreground">
-        <span>Queue</span>
-        <span>{items.length}</span>
-      </div>
+    <>
+      {showPausedPill ? (
+        <TrayPill
+          flush
+          title="Queue paused because you interrupted"
+          actions={
+            <button
+              type="button"
+              onClick={() => void resume(sessionId)}
+              className="rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
+              aria-label="Resume queued messages"
+            >
+              Resume
+            </button>
+          }
+        />
+      ) : null}
       {items.map((item, index) => (
         <QueueChip
           key={item.id}
@@ -51,6 +73,6 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
           onDrop={() => setDragIndex(null)}
         />
       ))}
-    </div>
+    </>
   );
 }

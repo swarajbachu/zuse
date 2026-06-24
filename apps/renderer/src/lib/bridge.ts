@@ -78,12 +78,58 @@ export interface MenuBridge {
   ) => void;
 }
 
+/**
+ * Discriminated union of CDP input actions the renderer can dispatch into the
+ * registered agent-browser webview. Mirrors `Input.dispatchMouseEvent` /
+ * `Input.dispatchKeyEvent` payloads, narrowed to the fields we actually use.
+ * The wire types are intentionally loose (`unknown`) at the IPC boundary; this
+ * is the strict shape the renderer holds.
+ */
+export type BrowserInputAction =
+  | {
+      readonly type: "mouseMove" | "mousePressed" | "mouseReleased";
+      readonly x: number;
+      readonly y: number;
+      readonly button?: "left" | "right" | "middle" | "none";
+      readonly clickCount?: number;
+    }
+  | {
+      readonly type: "mouseWheel";
+      readonly x: number;
+      readonly y: number;
+      readonly deltaX?: number;
+      readonly deltaY?: number;
+    }
+  | {
+      readonly type: "keyDown" | "keyUp" | "char";
+      readonly key: string;
+      readonly text?: string;
+      readonly code?: string;
+      readonly windowsVirtualKeyCode?: number;
+    }
+  | { readonly type: "insertText"; readonly text: string };
+
+export interface BrowserBridge {
+  /**
+   * Attach Chrome DevTools Protocol to the embedded webview's webContents so
+   * subsequent `dispatchInput` calls deliver real mouse/keyboard input.
+   * Idempotent — safe to call on every `dom-ready`.
+   */
+  readonly registerWebview: (webContentsId: number) => Promise<boolean>;
+  /** Send a single CDP input action. Returns false if not registered yet. */
+  readonly dispatchInput: (
+    webContentsId: number,
+    action: BrowserInputAction,
+  ) => Promise<boolean>;
+}
+
 export interface MemoizeBridge {
   readonly rpc: RpcBridge;
   readonly window?: WindowBridge;
   readonly menu?: MenuBridge;
   readonly app?: AppBridge;
   readonly updates?: UpdatesBridge;
+  readonly browser?: BrowserBridge;
 }
 
 declare global {

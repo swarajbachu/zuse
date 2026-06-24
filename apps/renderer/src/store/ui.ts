@@ -28,7 +28,14 @@ export type SettingsSection =
  * the file tab only exists when `openFile !== null`. Opening a different file
  * replaces (never stacks) the file tab — see specs/0.02-MVP/features/file-viewer.md.
  */
-export type MainTab = "chat" | "file" | "archives";
+export type MainTab = "chat" | "file" | "archives" | "usage";
+
+/**
+ * Whether the Usage dashboard shows every project's usage (`global`, opened
+ * from the sidebar footer) or just the selected project's usage across all its
+ * sessions (`project`, opened from a project's context menu).
+ */
+export type UsageScope = "global" | "project";
 
 /**
  * Panel kinds the right-hand dock can host. The dock is user-managed: panels
@@ -124,18 +131,27 @@ type UiState = {
   readonly settingsSection: SettingsSection;
   readonly setSettingsSection: (section: SettingsSection) => void;
   readonly activeMainTab: MainTab;
+  readonly usageScope: UsageScope;
   readonly openFile: OpenFile | null;
   readonly fileDirty: boolean;
   // 0.02 hard-codes false. The future settings-page autosave toggle flips
   // this to true and a debounced save kicks in inside FileEditor.
   readonly autosave: boolean;
   readonly leftSidebarOpen: boolean;
+  /**
+   * Transient overlay-reveal of the left sidebar when the docked panel is
+   * collapsed. Triggered by hovering the left edge of the window
+   * (macOS Dock-style auto-reveal). Resets on reload — never persisted.
+   */
+  readonly leftSidebarPeek: boolean;
   readonly rightSidebarOpen: boolean;
   readonly isFullScreen: boolean;
   readonly rightPanels: ReadonlyArray<PanelInstance>;
   readonly activeRightPanelId: string | null;
   readonly revealedAnnotation: RevealedAnnotation | null;
   readonly setActiveMainTab: (tab: MainTab) => void;
+  /** Open the Usage dashboard in the main pane at the given scope. */
+  readonly openUsage: (scope: UsageScope) => void;
   readonly openFileInTab: (
     file:
       | (Omit<Extract<OpenFile, { kind: "text" }>, "view"> & {
@@ -150,6 +166,7 @@ type UiState = {
   readonly closeFileTab: () => void;
   readonly setFileDirty: (dirty: boolean) => void;
   readonly setLeftSidebarOpen: (open: boolean) => void;
+  readonly setLeftSidebarPeek: (peek: boolean) => void;
   readonly setRightSidebarOpen: (open: boolean) => void;
   readonly setFullScreen: (full: boolean) => void;
   /** Add a panel to the dock. Singletons that are already open are focused
@@ -194,16 +211,19 @@ export const useUiStore = create<UiState>((set, get) => ({
   settingsSection: { kind: "general" },
   setSettingsSection: (section) => set({ settingsSection: section }),
   activeMainTab: "chat",
+  usageScope: "global",
   openFile: null,
   fileDirty: false,
   autosave: false,
   leftSidebarOpen: true,
+  leftSidebarPeek: false,
   rightSidebarOpen: false,
   isFullScreen: false,
   rightPanels: [],
   activeRightPanelId: null,
   revealedAnnotation: null,
   setActiveMainTab: (tab) => set({ activeMainTab: tab }),
+  openUsage: (scope) => set({ view: "chat", activeMainTab: "usage", usageScope: scope }),
   openFileInTab: (file) =>
     set({
       openFile:
@@ -219,7 +239,11 @@ export const useUiStore = create<UiState>((set, get) => ({
   closeFileTab: () =>
     set({ openFile: null, activeMainTab: "chat", fileDirty: false }),
   setFileDirty: (dirty) => set({ fileDirty: dirty }),
-  setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open }),
+  // Opening the docked panel implicitly drops any peek state so the overlay
+  // doesn't sit on top of the docked panel. Closing it also clears peek so a
+  // stale hover doesn't immediately re-reveal the overlay.
+  setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open, leftSidebarPeek: false }),
+  setLeftSidebarPeek: (peek) => set({ leftSidebarPeek: peek }),
   setRightSidebarOpen: (open) => set({ rightSidebarOpen: open }),
   setFullScreen: (full) => set({ isFullScreen: full }),
   addPanel: (kind) =>

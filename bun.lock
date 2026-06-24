@@ -17,7 +17,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.5.0",
+      "version": "0.6.1",
       "dependencies": {
         "better-sqlite3": "^12.9.0",
         "electron-updater": "^6.3.9",
@@ -142,6 +142,7 @@
         "fuzzysort": "catalog:",
         "keytar": "^7.9.0",
         "node-pty": "^1.1.0",
+        "tokenmaxer": "*",
         "zod": "^4.0.0",
       },
       "devDependencies": {
@@ -219,6 +220,23 @@
         "tree-sitter-javascript": "^0.23.0",
         "tree-sitter-json": "^0.24.0",
         "tree-sitter-typescript": "^0.23.0",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/tokenmaxer": {
+      "name": "tokenmaxer",
+      "version": "0.0.0",
+      "bin": {
+        "tokenmaxer": "./src/bin.ts",
+      },
+      "dependencies": {
+        "better-sqlite3": "^12.9.0",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@repo/typescript-config": "*",
@@ -3059,6 +3077,8 @@
     "to-regex-range": ["to-regex-range@5.0.1", "http://registry.npmjs.org/to-regex-range/-/to-regex-range-5.0.1.tgz", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
 
     "toidentifier": ["toidentifier@1.0.1", "http://registry.npmjs.org/toidentifier/-/toidentifier-1.0.1.tgz", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
+
+    "tokenmaxer": ["tokenmaxer@workspace:packages/tokenmaxer"],
 
     "tough-cookie": ["tough-cookie@6.0.1", "http://registry.npmjs.org/tough-cookie/-/tough-cookie-6.0.1.tgz", { "dependencies": { "tldts": "^7.0.5" } }, "sha512-LktZQb3IeoUWB9lqR5EWTHgW/VTITCXg4D21M+lvybRVdylLrRMnqaIONLVb5mav8vM19m44HIcGq4qASeu2Qw=="],
 

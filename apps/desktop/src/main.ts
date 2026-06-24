@@ -9,6 +9,7 @@ import {
   net,
   protocol,
   shell,
+  webContents as webContentsModule,
 } from "electron";
 import { Effect, Fiber, Layer } from "effect";
 import fixPath from "fix-path";
@@ -505,6 +506,162 @@ function createMainWindow() {
     if (!(await pathExists(rawPath))) return;
     clipboard.writeText(rawPath);
   });
+
+  // ---------------------------------------------------------------------------
+  // Agent browser CDP bridge
+  //
+  // The in-app `<webview>` runs in its own Chromium webContents. To drive it
+  // with real mouse/keyboard input (so `:hover` styles fire, drag works, and
+  // React-controlled inputs see authentic key events), we attach Chrome
+  // DevTools Protocol to that webContents and dispatch through `Input.*`.
+  // Synthetic DOM events from `executeJavaScript` look like clicks to the page
+  // but bypass Chromium's input pipeline — no hover, no native focus ring, no
+  // realistic timing. The renderer renders the cursor itself, so we just have
+  // to deliver real input here.
+  //
+  // The renderer hands us its webview's webContentsId via
+  // `browser:registerWebview` on `dom-ready`. We attach once and re-attach on
+  // crash. Detach happens automatically when the webContents is destroyed.
+  // ---------------------------------------------------------------------------
+
+  // Track which webContentsIds we've attached to so registerWebview is
+  // idempotent (the renderer fires it on every `dom-ready`, including reloads).
+  const attachedWebContents = new Set<number>();
+
+  const detachDebugger = (id: number): void => {
+    const wc = webContentsModule.fromId(id);
+    if (wc === undefined || wc.isDestroyed()) {
+      attachedWebContents.delete(id);
+      return;
+    }
+    try {
+      if (wc.debugger.isAttached()) wc.debugger.detach();
+    } catch {
+      // Detach failures are non-fatal — the webContents may be tearing down.
+    }
+    attachedWebContents.delete(id);
+  };
+
+  ipcMain.handle("browser:registerWebview", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return false;
+    const wc = webContentsModule.fromId(rawId);
+    if (wc === undefined || wc.isDestroyed()) return false;
+    if (attachedWebContents.has(rawId) && wc.debugger.isAttached()) return true;
+    try {
+      // Protocol 1.3 is the stable baseline that ships with every modern
+      // Chromium; older revisions don't accept `Input.dispatchMouseEvent`
+      // payload fields we rely on (`pointerType`, `tangentialPressure`).
+      wc.debugger.attach("1.3");
+      attachedWebContents.add(rawId);
+      // Auto-cleanup when the webContents goes away (window close, webview
+      // teardown, full crash). Without this, a `Another debugger is already
+      // attached` error fires on the next register-after-reload.
+      wc.once("destroyed", () => {
+        attachedWebContents.delete(rawId);
+      });
+      wc.on("render-process-gone", () => detachDebugger(rawId));
+      return true;
+    } catch (err) {
+      // The only expected failure here is "already attached by DevTools" —
+      // surface so the renderer can fall back gracefully.
+      console.error("[memoize] failed to attach CDP debugger", err);
+      return false;
+    }
+  });
+
+  ipcMain.handle(
+    "browser:dispatchInput",
+    async (_event, rawId: unknown, rawAction: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) return false;
+      if (rawAction === null || typeof rawAction !== "object") return false;
+      const wc = webContentsModule.fromId(rawId);
+      if (wc === undefined || wc.isDestroyed()) return false;
+      if (!wc.debugger.isAttached()) return false;
+
+      const action = rawAction as Record<string, unknown>;
+      const type = action.type;
+      try {
+        switch (type) {
+          case "mouseMove":
+          case "mousePressed":
+          case "mouseReleased": {
+            const x = Number(action.x);
+            const y = Number(action.y);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+            const button =
+              typeof action.button === "string"
+                ? action.button
+                : type === "mouseMove"
+                  ? "none"
+                  : "left";
+            const clickCount = Math.max(
+              0,
+              Math.min(3, Number(action.clickCount ?? (type === "mouseMove" ? 0 : 1))),
+            );
+            await wc.debugger.sendCommand("Input.dispatchMouseEvent", {
+              type,
+              x,
+              y,
+              button,
+              buttons: type === "mouseMove" ? 0 : 1,
+              clickCount,
+              pointerType: "mouse",
+            });
+            return true;
+          }
+          case "mouseWheel": {
+            const x = Number(action.x);
+            const y = Number(action.y);
+            const deltaX = Number(action.deltaX ?? 0);
+            const deltaY = Number(action.deltaY ?? 0);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+            await wc.debugger.sendCommand("Input.dispatchMouseEvent", {
+              type: "mouseWheel",
+              x,
+              y,
+              button: "none",
+              deltaX,
+              deltaY,
+              pointerType: "mouse",
+            });
+            return true;
+          }
+          case "keyDown":
+          case "keyUp":
+          case "char": {
+            const key = typeof action.key === "string" ? action.key : "";
+            const text = typeof action.text === "string" ? action.text : undefined;
+            const code = typeof action.code === "string" ? action.code : undefined;
+            const windowsVirtualKeyCode =
+              typeof action.windowsVirtualKeyCode === "number"
+                ? action.windowsVirtualKeyCode
+                : undefined;
+            await wc.debugger.sendCommand("Input.dispatchKeyEvent", {
+              type,
+              key,
+              ...(text !== undefined ? { text } : {}),
+              ...(code !== undefined ? { code } : {}),
+              ...(windowsVirtualKeyCode !== undefined
+                ? { windowsVirtualKeyCode }
+                : {}),
+            });
+            return true;
+          }
+          case "insertText": {
+            const text = typeof action.text === "string" ? action.text : "";
+            if (text.length === 0) return true;
+            await wc.debugger.sendCommand("Input.insertText", { text });
+            return true;
+          }
+          default:
+            return false;
+        }
+      } catch (err) {
+        console.error("[memoize] CDP dispatch failed", err);
+        return false;
+      }
+    },
+  );
 
   // Markdown links rendered by react-markdown have no `target="_blank"`, so a
   // click triggers an in-window navigation away from the renderer — the app

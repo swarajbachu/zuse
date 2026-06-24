@@ -85,13 +85,21 @@ export function DefaultsStep() {
           </div>
         </div>
 
-        <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white/[0.025] px-3.5 py-3 transition-colors hover:bg-white/[0.05]">
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-[13px] font-medium leading-none text-foreground">
-              New worktree per chat
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-white/[0.025] px-3.5 py-3 transition-colors hover:bg-white/[0.05]">
+          <span className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="flex items-center gap-2">
+              <span className="text-[13px] font-medium leading-none text-foreground">
+                New worktree per chat
+              </span>
+              <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-primary">
+                Recommended
+              </span>
             </span>
             <span className="text-[11px] leading-snug text-muted-foreground">
-              Each chat runs on its own branch under <code>~/.memoize/</code>.
+              A git worktree is a second checkout of your repo on its own branch.
+              Each chat gets one under <code>~/.memoize/</code>, so agents can run
+              in parallel without stepping on each other or your working tree.
+              You merge the branches you like.
             </span>
           </span>
           <Switch

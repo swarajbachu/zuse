@@ -1,0 +1,108 @@
+---
+title: "Know your token spend"
+description: "Tokenmaxer reads your agent CLI logs and unifies token counts and dollar cost by day, source, model, and session. All of it stays on your Mac."
+date: "2026-06-21"
+timeToRead: "6 min read"
+authorName: "memoize team"
+authorRole: "Product notes"
+authorAvatar: "/app-icon.png"
+previewImage: "/assets/blog-preview-local-clean.svg"
+labels:
+  [
+    { name: "Token maxing", hex: "#84CC16" },
+    { name: "Local-first", hex: "#4ADE80" },
+  ]
+---
+
+# Know your token spend
+
+Most developers running coding agents have no idea how many tokens they burned last week. The usage exists, the dollars are real, but the number is invisible. It is scattered across Claude Code, Codex, OpenCode, Amp, Grok, and whatever else is installed, each writing its own logs in its own format, in its own corner of the disk.
+
+memoize is a tool for token maxers. The first step to maxing anything is being able to see it. So memoize ships Tokenmaxer: a local dashboard that reads the logs your agent CLIs already write and turns them into one honest picture of what you actually run.
+
+---
+
+## The problem: spend you can't see
+
+When usage is invisible, you make bad decisions in both directions.
+
+- You under-use a plan you already pay for, treating every agent run as if it costs something out of pocket, when the subscription is flat and the marginal run is effectively free.
+- You over-use without noticing, racking up cost on a metered key because nothing in the workflow ever shows you the running total.
+
+Neither is a knowledge problem you can fix by guessing. The data is there. It is just trapped in per-tool logs that no one reads. Each CLI knows what it sent and received, but no tool sits above all of them to add it up. So the question "how much did I spend on agents this month, and where did it go" has no answer on most machines.
+
+---
+
+## What Tokenmaxer does
+
+Tokenmaxer scans the local logs of your installed agent CLIs and aggregates them into one view. It reads from the sources you already have on disk:
+
+- Claude Code
+- Codex
+- OpenCode
+- Amp
+- Grok
+- and memoize's own sessions
+
+It parses the session records each tool leaves behind, pulls out the token counts, and rolls them up by day, week, and month. Then it slices the same totals by source, by model, and by session, so the same spend can be read from whichever angle answers your question.
+
+Nothing about this requires a new account, a billing export, or a provider dashboard. The logs are already being written every time you run an agent. Tokenmaxer just reads them.
+
+---
+
+## What the numbers actually mean
+
+A token count is not one number. Modern agents move several kinds of tokens, and they do not cost the same, so it matters which is which.
+
+- **Input tokens** are what you send to the model: your prompt, the files in context, the conversation so far. On a large repo with lots of context, input often dominates.
+- **Output tokens** are what the model writes back: the code, the explanations, the tool calls. These are usually priced higher per token than input.
+- **Cache tokens** are input that the provider served from a cache instead of processing fresh. Cache reads are cheaper than full input, which is why a long session that keeps referencing the same context can be far less expensive than the raw input count suggests.
+- **Reasoning tokens** are the hidden thinking some models generate before answering. You do not see them in the reply, but they are real output and they are billed.
+
+Tokenmaxer keeps these separate because lumping them together hides the story. A session that looks expensive by total tokens might be mostly cache reads. A session that looks cheap might be quietly heavy on reasoning. Seeing the split is how you learn which of your habits are actually costly.
+
+### Cost is an estimate, and it says so
+
+Tokenmaxer estimates dollar cost from public pricing tables for each model. That is the honest way to do it without a billing API: take the token counts you actually ran and multiply by the published per-token rates.
+
+Because pricing comes from public tables, the cost is an estimate, not your invoice. When a model is not in the pricing table — a new release, a preview, a local or self-hosted model with no public rate — Tokenmaxer does not invent a number. It marks the cost as **partial** or **unknown** rather than guessing. You will still see the token counts for that model; the dollar figure is just flagged as something it could not price. We would rather show you a clear gap than a confident wrong number.
+
+---
+
+## Reading the breakdowns
+
+The same totals are useful in different shapes depending on what you are trying to learn.
+
+**By source** answers "which tool is eating my budget." If most of your spend is in one CLI, that is where optimization pays off. It also surfaces the tools you forgot you were running. A background agent that quietly logs a lot of tokens is easy to miss until the by-source view puts it at the top.
+
+**By model** answers "what am I paying the premium for." Heavy use of a top-tier model on small tasks is one of the most common ways to overspend without feeling it. The by-model view makes that obvious: you can see the share of cost going to the expensive model versus the fast, cheap one, and decide whether the split matches the work.
+
+**By session** answers "what did this specific piece of work cost." This is where token spend stops being abstract. A single refactor, a debugging marathon, a long planning conversation — each has a token and dollar weight. Once you can see that a certain kind of session reliably runs up the count, you can change how you approach it: tighten the context you load, lean on a cheaper model for exploration, or split the work across sessions.
+
+**By day, week, and month** answers "is my usage trending up, and does it line up with the plan I'm on." A flat subscription with rising usage is a sign you are extracting more value. A metered key with rising usage is a signal to look before the bill does.
+
+---
+
+## Local by default
+
+Tokenmaxer is built on the same principle as the rest of memoize: it runs on your Mac, and your data stays there.
+
+Reading token usage could easily have been a cloud feature. Upload the logs, crunch them on a server, render a dashboard. That is the normal shape for analytics, and it is exactly the shape we did not want for a tool that reads your coding history.
+
+So Tokenmaxer reads the CLI logs on disk and aggregates them on your machine. Nothing is uploaded. Your prompts are not sent anywhere to be counted. The session contents — which are full of your code, your file paths, your internal context — never leave the Mac just so a number can be totaled. The logs were already there; Tokenmaxer simply reads them where they sit.
+
+This matters more than it might for a usage dashboard, because agent logs are unusually sensitive. They contain fragments of source, command output, file names, and the shape of what you are building. A token counter has no business shipping that off the machine. Local-first is not a slogan we apply selectively; it applies to the analytics too.
+
+---
+
+## From visibility to a habit
+
+The point of seeing your spend is not anxiety. It is leverage.
+
+Once the numbers are in front of you, a pattern usually emerges within a few days. You notice that one tool dominates, or that a premium model is doing work a cheaper one could handle, or that your flat plan has tons of headroom you have never touched. Each of those observations turns into a small change in behavior, and the changes compound.
+
+The most common shift is in the direction people expect least: developers start using their agents *more*, not less. When the dashboard shows that a subscription is being run at a fraction of its ceiling, the rational move is to put it to work. Run a second agent in parallel on the same repo. Spin up an exploration session alongside the implementation session instead of waiting. Hand a review pass to a different model while the first one keeps building. The plan is already paid for; the unused capacity is just sitting there.
+
+That is what token maxing actually means. It is not spending more for its own sake. It is making sure the subscriptions you already pay for are doing the maximum amount of useful work, and making sure the metered spend is going where it earns its cost. You cannot do either while the number is invisible.
+
+Tokenmaxer makes the number visible, keeps it local, and tells you honestly when it cannot price something. From there, the habit follows on its own: check the dashboard, see where the tokens went, and squeeze a little more leverage out of the same plans every week.

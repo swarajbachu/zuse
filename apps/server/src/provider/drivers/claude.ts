@@ -277,6 +277,12 @@ interface TranslateState {
    * when the turn's `result` lands (which carries the real `contextWindow`).
    */
   lastContextUsedTokens: number | null;
+  /**
+   * Set once we've re-emitted an auth failure as an Error from a top-level
+   * assistant text block, so the turn's terminal `result` doesn't surface the
+   * same failure a second time.
+   */
+  emittedAuthError: boolean;
 }
 
 const newTranslateState = (): TranslateState => ({
@@ -287,6 +293,7 @@ const newTranslateState = (): TranslateState => ({
   askUserQuestionIds: new Set(),
   exitPlanModeIds: new Set(),
   lastContextUsedTokens: null,
+  emittedAuthError: false,
 });
 
 const isAgentToolUse = (block: { type?: string; name?: string }): boolean =>
@@ -423,6 +430,51 @@ const claudeRateLimitEvents = (
   ];
 };
 
+// When the `claude` CLI/SDK runs without valid credentials it does NOT throw —
+// it reports the failure as ordinary output ("Not logged in · Please run
+// /login", "Invalid API key", a 401 result). Left untranslated that renders as
+// a confusing assistant message the user can't act on. We sniff the signature
+// so it can be re-emitted as a structured `Error` event, which the renderer
+// turns into the "Authentication required → Sign in to Claude" card.
+const CLAUDE_AUTH_FAILURE_PATTERN =
+  /not logged in|please run \/login|\/login\b|invalid api key|invalid authentication credentials|\bunauthorized\b|oauth token (?:has )?expired|authentication_error|\b401\b/i;
+
+export const looksLikeClaudeAuthFailure = (text: string): boolean =>
+  CLAUDE_AUTH_FAILURE_PATTERN.test(text);
+
+/**
+ * Pull the human-readable error text out of a `result` message. The SDK splits
+ * results into a success shape (`result: string`, may still carry
+ * `is_error`/`api_error_status`) and an error shape (`errors: string[]`).
+ */
+export const claudeResultErrorText = (msg: SDKMessage): string | null => {
+  const m = msg as {
+    subtype?: string;
+    is_error?: boolean;
+    result?: unknown;
+    errors?: unknown;
+    api_error_status?: unknown;
+  };
+  const status =
+    typeof m.api_error_status === "number" ? m.api_error_status : null;
+  const isError =
+    m.is_error === true ||
+    (typeof m.subtype === "string" && m.subtype !== "success") ||
+    (status !== null && status >= 400);
+  if (!isError) return null;
+  const errors = Array.isArray(m.errors)
+    ? m.errors.filter((e): e is string => typeof e === "string")
+    : [];
+  const parts: string[] = [];
+  if (typeof m.result === "string" && m.result.trim().length > 0) {
+    parts.push(m.result.trim());
+  }
+  parts.push(...errors);
+  if (status !== null) parts.push(`API Error: ${status}`);
+  const text = parts.join("\n").trim();
+  return text.length > 0 ? text : "The agent run ended with an error.";
+};
+
 /**
  * Translate one SDKMessage into zero-or-more wire AgentEvents. Mostly
  * stateless, but the `state` carries thinking-delta accumulators across
@@ -484,6 +536,19 @@ const translate = (
       for (const block of content) {
         blockTypes.push(String((block as { type?: unknown }).type));
         if (block.type === "text" && typeof block.text === "string") {
+          // An unauthenticated `claude` surfaces "Not logged in · Please run
+          // /login" as a top-level assistant text block. Re-emit it as an
+          // Error so the renderer shows the sign-in card instead of a dead-end
+          // message. Only at the top level — a sub-agent quoting "/login" in
+          // its reasoning shouldn't trip this.
+          if (
+            parentItemId === undefined &&
+            looksLikeClaudeAuthFailure(block.text)
+          ) {
+            out.push({ _tag: "Error", message: block.text.trim() });
+            state.emittedAuthError = true;
+            continue;
+          }
           out.push({
             _tag: "AssistantMessage",
             itemId: nextItemId(),
@@ -830,11 +895,22 @@ const translate = (
           source: "Claude usage",
         });
       }
+      // Surface a failed result's text as an Error so it persists + renders
+      // (auth failures the SDK reports via the result rather than an assistant
+      // block land here). `state.emittedAuthError` dedupes against the
+      // assistant-block path above so we don't show the card twice.
+      const resultError = claudeResultErrorText(msg);
+      if (resultError !== null && !state.emittedAuthError) {
+        out.push({ _tag: "Error", message: resultError });
+      }
       out.push(
-        msg.subtype === "success"
+        msg.subtype === "success" && resultError === null
           ? { _tag: "Completed", reason: "ended" }
           : { _tag: "Completed", reason: "error" },
       );
+      // The result closes the top-level turn — reset the per-turn auth dedupe
+      // so a later turn that fails auth still surfaces its own card.
+      state.emittedAuthError = false;
     }
     return out;
   }

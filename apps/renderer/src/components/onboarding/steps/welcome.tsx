@@ -3,30 +3,27 @@ export function WelcomeStep() {
     <div className="flex h-full flex-col gap-10">
       <div className="flex flex-col gap-3">
         <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
-          Welcome
+          Welcome to memoize
         </span>
         <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-foreground">
-          A calm home for
+          Every agent,
           <br />
-          parallel agents.
+          one workspace.
         </h1>
         <p className="max-w-md pt-1 text-[15px] leading-relaxed text-muted-foreground">
-          Run Claude or Codex on your repos — each chat in its own git worktree,
-          each agent on its own thread. We&apos;ll set things up in under a
-          minute.
+          Run Claude, Codex, Grok and more on your repos, side by side.
         </p>
       </div>
 
       <ul className="flex flex-col gap-0.5 text-sm">
         <Row title="No new logins">
-          We reuse your local CLI auth (claude, codex, gemini, grok, cursor).
-          Just pick your default and go — no API keys, no re-auth.
+          Reuses the CLI auth already on your Mac.
         </Row>
-        <Row title="One worktree per chat">
-          Experiments stay isolated, branches stay tidy.
+        <Row title="A worktree per chat">
+          Each agent runs on its own branch.
         </Row>
-        <Row title="Two quick picks">
-          Choose your default agent, add a project — you&apos;re in.
+        <Row title="Built for token maxers">
+          Run agents in parallel, get more from every plan.
         </Row>
       </ul>
     </div>

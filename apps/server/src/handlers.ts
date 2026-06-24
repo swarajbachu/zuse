@@ -11,6 +11,7 @@ import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
+import { UsageHandlersLayer } from "./usage/handlers.ts";
 import { WorkspaceHandlersLayer } from "./workspace/handlers.ts";
 import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
 
@@ -34,4 +35,5 @@ export const HandlersLayer = Layer.mergeAll(
   SkillHandlersLayer,
   CodeIndexHandlersLayer,
   PokemonHandlersLayer,
+  UsageHandlersLayer,
 );

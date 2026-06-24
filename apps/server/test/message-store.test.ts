@@ -44,7 +44,8 @@ import { Migration0015QueuedMessages } from "../src/persistence/migrations/0015_
 import { Migration0016QueuedMessagesQueueOrderRepair } from "../src/persistence/migrations/0016_queued_messages_queue_order_repair.ts";
 import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
-import { Migration0019ChatLineage } from "../src/persistence/migrations/0019_chat_lineage.ts";
+import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
+import { Migration0020ChatLineage } from "../src/persistence/migrations/0020_chat_lineage.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -259,7 +260,8 @@ const runAllMigrations = Effect.all(
     Migration0016QueuedMessagesQueueOrderRepair,
     Migration0017ChatReadState,
     Migration0018PokemonWorktrees,
-    Migration0019ChatLineage,
+    Migration0019QueuePaused,
+    Migration0020ChatLineage,
   ],
   { discard: true },
 );
@@ -366,6 +368,32 @@ describe("MessageStore migrations", () => {
       await runtime.dispose();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("0019 adds queue_paused to sessions with a default of 0", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const row = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const rows = yield* sql<{ readonly queue_paused: number }>`
+            SELECT queue_paused
+            FROM sessions
+            WHERE id = ${initialSession.id}
+          `;
+          return rows[0];
+        }),
+      );
+      expect(row?.queue_paused).toBe(0);
+    });
   });
 });
 
@@ -689,10 +717,11 @@ describe("MessageStore — chat & session lifecycle", () => {
       const remaining = await run(
         Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
       );
-      expect(remaining.map((item) => item.input.text)).toEqual([
+      expect(remaining.paused).toBe(false);
+      expect(remaining.items.map((item) => item.input.text)).toEqual([
         "first edited",
       ]);
-      expect(remaining[0]?.position).toBe(0);
+      expect(remaining.items[0]?.position).toBe(0);
     });
   });
 
@@ -739,7 +768,9 @@ describe("MessageStore — chat & session lifecycle", () => {
       const queue = await run(
         Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
       );
-      expect(queue.map((item) => item.input.text)).toEqual(["queued two"]);
+      expect(queue.items.map((item) => item.input.text)).toEqual([
+        "queued two",
+      ]);
       const messages = await run(
         Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
       );
@@ -783,7 +814,111 @@ describe("MessageStore — chat & session lifecycle", () => {
       const queue = await run(
         Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
       );
-      expect(queue.map((item) => item.input.text)).toEqual(["wait"]);
+      expect(queue.items.map((item) => item.input.text)).toEqual(["wait"]);
+    });
+  });
+
+  it("manual interrupt pauses queued messages and blocks auto-flush", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "already running",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.addQueuedMessage(
+            initialSession.id,
+            new ComposerInput({
+              text: "resume me",
+              attachments: [],
+              fileRefs: [],
+              skillRefs: [],
+            }),
+          ),
+        ),
+      );
+
+      await run(
+        Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+      );
+      await run(
+        Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
+      );
+
+      const queue = await run(
+        Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+      );
+      expect(queue.paused).toBe(true);
+      expect(queue.items.map((item) => item.input.text)).toEqual([
+        "resume me",
+      ]);
+    });
+  });
+
+  it("resumeQueuedMessages clears pause and sends the head queued item", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "already running",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (s) =>
+          Effect.all([
+            s.addQueuedMessage(
+              initialSession.id,
+              new ComposerInput({
+                text: "queued one",
+                attachments: [],
+                fileRefs: [],
+                skillRefs: [],
+              }),
+            ),
+            s.addQueuedMessage(
+              initialSession.id,
+              new ComposerInput({
+                text: "queued two",
+                attachments: [],
+                fileRefs: [],
+                skillRefs: [],
+              }),
+            ),
+          ]),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+      );
+
+      await run(
+        Effect.flatMap(store, (s) => s.resumeQueuedMessages(initialSession.id)),
+      );
+
+      const queue = await run(
+        Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
+      );
+      expect(queue.paused).toBe(false);
+      expect(queue.items.map((item) => item.input.text)).toEqual([
+        "queued two",
+      ]);
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+      );
+      expect(messages.at(-1)?.content).toMatchObject({
+        _tag: "user",
+        text: "queued one",
+      });
     });
   });
 
@@ -827,7 +962,7 @@ describe("MessageStore — chat & session lifecycle", () => {
       const queue = await run(
         Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
       );
-      expect(queue).toHaveLength(0);
+      expect(queue.items).toHaveLength(0);
       const messages = await run(
         Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
       );

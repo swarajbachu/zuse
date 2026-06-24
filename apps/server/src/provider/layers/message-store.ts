@@ -29,6 +29,7 @@ import {
   type MessageId as MessageIdType,
   type MessageRole,
   type ProviderId,
+  QueueState,
   QueuedMessage,
   type RuntimeMode,
   Session,
@@ -539,6 +540,17 @@ const formatProviderFailure = (cause: unknown): string => {
   return String(cause);
 };
 
+// Auth failures (expired/missing OAuth, `401 Invalid authentication
+// credentials`, `Please run /login`) are not recoverable by re-spawning the
+// provider — restarting just hits the same 401, which is what left sessions
+// retrying forever and eventually surfacing an unrelated transient (e.g. a
+// Cloudflare 522). When the failure looks like auth we skip the restart and
+// surface the error so the renderer can show the inline "Sign in" button.
+const looksLikeAuthFailure = (reason: string): boolean =>
+  /\b401\b|\bunauthorized\b|invalid authentication credentials|please run \/login|please log ?in|invalid api key|authentication failed|authorizationrequired/i.test(
+    reason,
+  );
+
 export const MessageStoreLive = Layer.scoped(
   MessageStore,
   Effect.gen(function* () {
@@ -756,7 +768,7 @@ export const MessageStoreLive = Layer.scoped(
       ReadonlyMap<SessionId, PubSub.PubSub<StatusEvent>>
     >(new Map());
     const queuePubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<ReadonlyArray<QueuedMessage>>>
+      ReadonlyMap<SessionId, PubSub.PubSub<QueueState>>
     >(new Map());
     const goalPubsubs = yield* Ref.make<
       ReadonlyMap<
@@ -818,7 +830,7 @@ export const MessageStoreLive = Layer.scoped(
         const map = yield* Ref.get(queuePubsubs);
         const existing = map.get(sessionId);
         if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<ReadonlyArray<QueuedMessage>>();
+        const pubsub = yield* PubSub.unbounded<QueueState>();
         yield* Ref.update(queuePubsubs, (m) => {
           const next = new Map(m);
           next.set(sessionId, pubsub);
@@ -1033,11 +1045,68 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(queuedMessageFromRow);
       });
 
+    const ensureQueuePausedColumn: Effect.Effect<void> = Effect.gen(
+      function* () {
+        const columns = yield* sql<{ readonly name: string }>`
+          PRAGMA table_info(sessions)
+        `.pipe(Effect.orDie);
+        if (!columns.some((column) => column.name === "queue_paused")) {
+          yield* sql`
+            ALTER TABLE sessions
+              ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0
+          `.pipe(Effect.orDie);
+        }
+      },
+    );
+
+    const isQueuePaused = (sessionId: SessionId): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        yield* ensureQueuePausedColumn;
+        const rows = yield* sql<{ readonly queue_paused: number }>`
+          SELECT queue_paused
+          FROM sessions
+          WHERE id = ${sessionId}
+          LIMIT 1
+        `.pipe(Effect.orDie);
+        return (rows[0]?.queue_paused ?? 0) !== 0;
+      });
+
+    const queueState = (sessionId: SessionId): Effect.Effect<QueueState> =>
+      Effect.gen(function* () {
+        const [items, paused] = yield* Effect.all([
+          listQueuedRows(sessionId),
+          isQueuePaused(sessionId),
+        ]);
+        return QueueState.make({ items, paused });
+      });
+
     const broadcastQueue = (sessionId: SessionId): Effect.Effect<void> =>
       Effect.gen(function* () {
-        const items = yield* listQueuedRows(sessionId);
+        const state = yield* queueState(sessionId);
         const pubsub = yield* getOrMakeQueuePubsub(sessionId);
-        yield* PubSub.publish(pubsub, items);
+        yield* PubSub.publish(pubsub, state);
+      });
+
+    const setQueuePaused = (
+      sessionId: SessionId,
+      paused: boolean,
+    ): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        yield* ensureQueuePausedColumn;
+        yield* sql`
+          UPDATE sessions
+          SET queue_paused = ${paused ? 1 : 0},
+              updated_at = ${new Date().toISOString()}
+          WHERE id = ${sessionId}
+        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* broadcastQueue(sessionId);
+      });
+
+    const clearQueuePauseIfEmpty = (sessionId: SessionId): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const queue = yield* listQueuedRows(sessionId);
+        if (queue.length > 0 || !(yield* isQueuePaused(sessionId))) return;
+        yield* setQueuePaused(sessionId, false);
       });
 
     const normalizeQueuePositions = (
@@ -1134,6 +1203,16 @@ export const MessageStoreLive = Layer.scoped(
               const persisted = yield* persistMessage(sessionId, content);
               yield* broadcastMessage(sessionId, persisted);
               yield* ndjsonAppend(sessionId, persisted);
+              // A provider `Error` event terminates the turn but, unlike a
+              // `Completed`, carries no lifecycle reason of its own — so
+              // without this the session is left pinned at `running` and the
+              // composer / setup card spin forever (this is the "stuck on the
+              // loading screen" symptom for auth failures, which surface as a
+              // mid-stream Error with no trailing result message). Flip to
+              // `error` so the renderer shows the error bubble + login CTA.
+              if (event._tag === "Error") {
+                yield* setStatus(sessionId, "error");
+              }
             }),
           ).pipe(
             Effect.catchAllCause((cause) =>
@@ -1594,6 +1673,16 @@ export const MessageStoreLive = Layer.scoped(
                     yield* Effect.logWarning(
                       `[MessageStore] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
                     );
+                    // Persist the failure as an error message so the renderer
+                    // can render it (and classify auth failures into the inline
+                    // "Sign in" CTA) instead of leaving the session stuck on the
+                    // booting spinner with no explanation.
+                    const persistedError = yield* persistMessage(sessionId, {
+                      _tag: "error",
+                      message: err.reason,
+                    });
+                    yield* broadcastMessage(sessionId, persistedError);
+                    yield* ndjsonAppend(sessionId, persistedError);
                     yield* setStatus(sessionId, "error");
                   }),
                 ),
@@ -2515,12 +2604,17 @@ export const MessageStoreLive = Layer.scoped(
         }),
       );
 
-    const ensureCodexGoalSession = (
+    // Providers that support goal mode. Codex backs it with `thread/goal/*`
+    // RPCs; Grok forwards to its native `/goal` slash command with
+    // driver-local state. Both go through `setGoalWithLiveProvider` →
+    // `provider.setGoal`, which routes to the right handle.
+    const goalCapableProviders = new Set<ProviderId>(["codex", "grok"]);
+    const ensureGoalSession = (
       sessionId: SessionId,
     ): Effect.Effect<Session, SessionNotFoundError | GoalUnsupportedError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
-        if (session.providerId !== "codex") {
+        if (!goalCapableProviders.has(session.providerId)) {
           return yield* Effect.fail(
             new GoalUnsupportedError({ providerId: session.providerId }),
           );
@@ -2623,7 +2717,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const getGoal: MessageStoreShape["getGoal"] = (sessionId) =>
       Effect.gen(function* () {
-        yield* ensureCodexGoalSession(sessionId);
+        yield* ensureGoalSession(sessionId);
         const goal = yield* provider
           .getGoal(sessionId)
           .pipe(
@@ -2638,7 +2732,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const setGoal: MessageStoreShape["setGoal"] = (sessionId, goalInput) =>
       Effect.gen(function* () {
-        const session = yield* ensureCodexGoalSession(sessionId);
+        const session = yield* ensureGoalSession(sessionId);
         const goal = yield* setGoalWithLiveProvider(session, goalInput);
         yield* publishGoal(sessionId, goal);
         return goal;
@@ -2646,7 +2740,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const clearGoal: MessageStoreShape["clearGoal"] = (sessionId) =>
       Effect.gen(function* () {
-        yield* ensureCodexGoalSession(sessionId);
+        yield* ensureGoalSession(sessionId);
         yield* provider
           .clearGoal(sessionId)
           .pipe(
@@ -2661,7 +2755,7 @@ export const MessageStoreLive = Layer.scoped(
     const streamGoal: MessageStoreShape["streamGoal"] = (sessionId) =>
       Stream.unwrapScoped(
         Effect.gen(function* () {
-          yield* ensureCodexGoalSession(sessionId);
+          yield* ensureGoalSession(sessionId);
           const pubsub = yield* getOrMakeGoalPubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
           const cached = goalsBySession.get(sessionId);
@@ -2836,7 +2930,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
-        if (asGoal !== true && session.providerId === "codex") {
+        if (asGoal !== true && goalCapableProviders.has(session.providerId)) {
           const goal = goalsBySession.get(sessionId);
           const trimmed = text.trim();
           if (
@@ -2924,11 +3018,11 @@ export const MessageStoreLive = Layer.scoped(
         if (asGoal === true) {
           const objective = text.trim();
           if (objective.length === 0) return false;
-          if (session.providerId !== "codex") {
+          if (!goalCapableProviders.has(session.providerId)) {
             const persistedError = yield* persistMessage(sessionId, {
               _tag: "error",
               message:
-                "Goal mode is currently only supported for Codex sessions.",
+                "Goal mode is currently only supported for Codex and Grok sessions.",
             });
             yield* broadcastMessage(sessionId, persistedError);
             yield* ndjsonAppend(sessionId, persistedError);
@@ -2942,8 +3036,8 @@ export const MessageStoreLive = Layer.scoped(
               Effect.gen(function* () {
                 const message =
                   err._tag === "SessionStartError"
-                    ? `Goal mode could not start Codex: ${err.reason}`
-                    : "Goal mode could not start Codex for this session.";
+                    ? `Goal mode could not start ${session.providerId}: ${err.reason}`
+                    : `Goal mode could not start ${session.providerId} for this session.`;
                 const persistedError = yield* persistMessage(sessionId, {
                   _tag: "error",
                   message,
@@ -2957,6 +3051,13 @@ export const MessageStoreLive = Layer.scoped(
           );
           if (goal === null) return false;
           yield* publishGoal(sessionId, goal);
+          // Grok runs goal mode by forwarding `/goal` as a real prompt turn,
+          // so reflect the running turn the way a normal send does — the
+          // driver emits `Status: idle` when the goal run finishes. Codex
+          // drives its own status via native goal notifications, so leave it.
+          if (session.providerId === "grok") {
+            yield* setStatus(sessionId, "running");
+          }
           return true;
         }
         // First attempt: push into the existing provider session. If that
@@ -2967,6 +3068,21 @@ export const MessageStoreLive = Layer.scoped(
             (attachments ?? []).length
           })`,
         );
+        // If the session previously errored — typically an auth failure the
+        // user has since fixed by signing in — the in-memory provider process
+        // is stale: for Claude it was spawned without valid credentials and
+        // won't re-read the keychain on its own. Drop it (mirrors setModel's
+        // teardown) so the send below lazy-restarts a fresh process that picks
+        // up the new login, instead of silently re-pushing into the dead one.
+        const latestForSend = yield* lookupSession(sessionId).pipe(
+          Effect.orDie,
+        );
+        if (latestForSend.status === "error") {
+          yield* provider
+            .close(sessionId)
+            .pipe(Effect.catchAll(() => Effect.void));
+          yield* interruptProviderFiber(sessionId);
+        }
         const sendResult = yield* provider
           .send(sessionId, sendText, cleanAttachments, fileRefs, skillRefs)
           .pipe(
@@ -2990,6 +3106,23 @@ export const MessageStoreLive = Layer.scoped(
           if (looksLikeGrokAuthWorkerDeath) {
             yield* setStatus(sessionId, "running");
             return true;
+          }
+
+          // Auth failures aren't recoverable by restarting — re-spawning hits
+          // the same 401, which is the infinite-retry / stuck-loading bug.
+          // Persist the error so the renderer shows the "Sign in" CTA and stop.
+          if (looksLikeAuthFailure(sendResult.reason)) {
+            console.log(
+              `[message-store.sendMessage] provider.send failed with auth error for ${sessionId}; skipping restart`,
+            );
+            const persistedError = yield* persistMessage(sessionId, {
+              _tag: "error",
+              message: sendResult.reason,
+            });
+            yield* broadcastMessage(sessionId, persistedError);
+            yield* ndjsonAppend(sessionId, persistedError);
+            yield* setStatus(sessionId, "error");
+            return false;
           }
 
           console.log(
@@ -3054,7 +3187,7 @@ export const MessageStoreLive = Layer.scoped(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        return yield* listQueuedRows(sessionId);
+        return yield* queueState(sessionId);
       });
 
     const streamQueuedMessages: MessageStoreShape["streamQueuedMessages"] = (
@@ -3065,7 +3198,7 @@ export const MessageStoreLive = Layer.scoped(
           yield* lookupSession(sessionId);
           const pubsub = yield* getOrMakeQueuePubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
-          const initial = yield* listQueuedRows(sessionId);
+          const initial = yield* queueState(sessionId);
           return Stream.concat(
             Stream.succeed(initial),
             Stream.fromQueue(dequeue),
@@ -3146,6 +3279,7 @@ export const MessageStoreLive = Layer.scoped(
           WHERE session_id = ${sessionId} AND id = ${queueId}
         `.pipe(Effect.orDie);
         yield* normalizeQueuePositions(sessionId);
+        yield* clearQueuePauseIfEmpty(sessionId);
         yield* broadcastQueue(sessionId);
       });
 
@@ -3247,6 +3381,7 @@ export const MessageStoreLive = Layer.scoped(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
+        yield* setQueuePaused(sessionId, false);
         const item = yield* claimQueuedMessage(sessionId, queueId);
         if (item === null) return;
         yield* sendClaimedQueuedMessage(item);
@@ -3269,6 +3404,9 @@ export const MessageStoreLive = Layer.scoped(
           if (session.status === "running" || session.status === "booting") {
             return;
           }
+          if (yield* isQueuePaused(sessionId)) {
+            return;
+          }
           const queue = yield* listQueuedRows(sessionId);
           const head = queue[0];
           if (head === undefined) return;
@@ -3287,6 +3425,15 @@ export const MessageStoreLive = Layer.scoped(
     flushQueueAfterIdle = (sessionId) =>
       flushQueuedMessages(sessionId).pipe(Effect.catchAll(() => Effect.void));
 
+    const resumeQueuedMessages: MessageStoreShape["resumeQueuedMessages"] = (
+      sessionId,
+    ) =>
+      Effect.gen(function* () {
+        yield* lookupSession(sessionId);
+        yield* setQueuePaused(sessionId, false);
+        yield* flushQueuedMessages(sessionId);
+      });
+
     const interruptSession: MessageStoreShape["interruptSession"] = (
       sessionId,
     ) =>
@@ -3295,6 +3442,10 @@ export const MessageStoreLive = Layer.scoped(
         yield* provider
           .interrupt(sessionId)
           .pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+        const queue = yield* listQueuedRows(sessionId);
+        if (queue.length > 0) {
+          yield* setQueuePaused(sessionId, true);
+        }
         yield* setStatus(sessionId, "idle");
       });
 
@@ -3344,6 +3495,7 @@ export const MessageStoreLive = Layer.scoped(
       sendQueuedMessageNow,
       reorderQueuedMessages,
       flushQueuedMessages,
+      resumeQueuedMessages,
     } as const;
   }),
 );

@@ -1,10 +1,27 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowUp01Icon, Delete02Icon, DragDropVerticalIcon, PencilIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  Chat01Icon,
+  CornerDownRightIcon,
+  Delete02Icon,
+  DragDropVerticalIcon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  SentIcon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { X } from "lucide-react";
 import { useState } from "react";
 
 import { ComposerInput, type QueuedMessage, type SessionId } from "@memoize/wire";
 
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import {
   Tooltip,
   TooltipPopup,
@@ -12,6 +29,7 @@ import {
 } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 import { useMessagesStore } from "../../store/messages.ts";
+import { TrayPill, trayPillActionClass } from "./tray-pill.tsx";
 
 const previewText = (q: QueuedMessage): string => {
   const t = q.input.text.trim();
@@ -22,8 +40,15 @@ const previewText = (q: QueuedMessage): string => {
   return t.replace(/\s+/g, " ");
 };
 
-const iconButton =
-  "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-35";
+const refSubtitle = (q: QueuedMessage): string | undefined => {
+  const a = q.input.attachments.length;
+  const r = q.input.fileRefs.length + q.input.skillRefs.length;
+  if (a === 0 && r === 0) return undefined;
+  const parts: string[] = [];
+  if (a > 0) parts.push(`${a} file${a === 1 ? "" : "s"}`);
+  if (r > 0) parts.push(`${r} ref${r === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+};
 
 export function QueueChip({
   sessionId,
@@ -52,8 +77,7 @@ export function QueueChip({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.input.text);
   const text = previewText(item);
-  const attachmentCount = item.input.attachments.length;
-  const refCount = item.input.fileRefs.length + item.input.skillRefs.length;
+  const subtitle = refSubtitle(item);
 
   const save = () => {
     update(
@@ -69,36 +93,20 @@ export function QueueChip({
     setEditing(false);
   };
 
-  return (
-    <div
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        onDragStart();
-      }}
-      onDragOver={(event) => {
-        event.preventDefault();
-        onDragOver();
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
-      className={cn(
-        "group flex min-w-0 items-start gap-2 border-b border-border/30 px-2 py-1.5 last:border-b-0",
-        dragging && "bg-muted/50",
-      )}
-      title={text}
-    >
-      <button
-        type="button"
-        className="mt-0.5 flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground active:cursor-grabbing"
-        aria-label="Drag queued message"
-      >
-        <HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
-      </button>
-      <div className="min-w-0 flex-1">
-        {editing ? (
+  const icon = (
+    <HugeiconsIcon
+      icon={Chat01Icon}
+      className="size-3.5"
+      aria-hidden="true"
+    />
+  );
+
+  if (editing) {
+    return (
+      <TrayPill
+        flush
+        icon={icon}
+        title={
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -112,27 +120,20 @@ export function QueueChip({
               }
             }}
             autoFocus
-            className="max-h-28 min-h-14 w-full resize-y rounded-md border border-border/50 bg-background px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none focus:border-ring/50"
+            className="max-h-28 min-h-7 w-full resize-y rounded-sm border border-border/40 bg-background px-2 py-1 text-[13px] leading-snug text-foreground outline-none focus:border-ring/50"
           />
-        ) : (
-          <div className="truncate text-xs leading-6 text-foreground">
-            {text}
-          </div>
-        )}
-        {(attachmentCount > 0 || refCount > 0) && (
-          <div className="mt-0.5 flex gap-1 text-[10px] text-muted-foreground">
-            {attachmentCount > 0 && <span>{attachmentCount} file</span>}
-            {refCount > 0 && <span>{refCount} ref</span>}
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        {editing ? (
+        }
+        actions={
           <>
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <button type="button" onClick={save} className={iconButton} aria-label="Save">
+                  <button
+                    type="button"
+                    onClick={save}
+                    className={trayPillActionClass}
+                    aria-label="Save"
+                  >
                     <HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
                   </button>
                 }
@@ -145,73 +146,126 @@ export function QueueChip({
                 setDraft(item.input.text);
                 setEditing(false);
               }}
-              className={iconButton}
+              className={trayPillActionClass}
               aria-label="Cancel"
             >
               <X className="size-3.5" strokeWidth={1.8} />
             </button>
           </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => onMove(index, index - 1)}
-              disabled={index === 0}
-              className={iconButton}
-              aria-label="Move up"
-            >
-              <HugeiconsIcon icon={ArrowUp01Icon} className="size-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onMove(index, index + 1)}
-              disabled={index >= count - 1}
-              className={iconButton}
-              aria-label="Move down"
-            >
-              <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
-            </button>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    className={iconButton}
-                    aria-label="Edit queued message"
-                  >
-                    <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup>Edit</TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={() => void steer(sessionId, item.id)}
-                    className={iconButton}
-                    aria-label="Send now"
-                  >
-                    <HugeiconsIcon icon={ArrowUp01Icon} className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup>Send now</TooltipPopup>
-            </Tooltip>
-            <button
-              type="button"
-              onClick={() => drop(sessionId, item.id)}
-              className={iconButton}
-              aria-label="Delete queued message"
-            >
-              <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+        }
+      />
+    );
+  }
+
+  return (
+    <TrayPill
+      flush
+      icon={icon}
+      title={text}
+      subtitle={subtitle}
+      className={cn("group", dragging && "bg-muted/55")}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        onDragOver();
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+      leading={
+        <button
+          type="button"
+          className="-ml-1 flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 active:cursor-grabbing"
+          aria-label="Drag queued message"
+        >
+          <HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
+        </button>
+      }
+      actions={
+        <>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => void steer(sessionId, item.id)}
+                  className={cn(
+                    trayPillActionClass,
+                    "w-auto gap-1 px-1.5 hover:text-foreground",
+                  )}
+                  aria-label="Steer (send now, interrupting current turn)"
+                >
+                  <HugeiconsIcon icon={CornerDownRightIcon} className="size-3.5" />
+                  <span className="text-[11px]">Steer</span>
+                </button>
+              }
+            />
+            <TooltipPopup>Steer (interrupt and run now)</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => drop(sessionId, item.id)}
+                  className={trayPillActionClass}
+                  aria-label="Delete queued message"
+                >
+                  <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup>Delete</TooltipPopup>
+          </Tooltip>
+          <Menu>
+            <MenuTrigger
+              render={
+                <button
+                  type="button"
+                  className={trayPillActionClass}
+                  aria-label="More queue actions"
+                >
+                  <HugeiconsIcon icon={MoreHorizontalIcon} className="size-3.5" />
+                </button>
+              }
+            />
+            <MenuPopup align="end" sideOffset={4}>
+              <MenuItem
+                onClick={() => setEditing(true)}
+                disabled={editing}
+              >
+                <HugeiconsIcon icon={PencilIcon} />
+                Edit
+              </MenuItem>
+              <MenuItem
+                onClick={() => void steer(sessionId, item.id)}
+              >
+                <HugeiconsIcon icon={SentIcon} />
+                Send now
+              </MenuItem>
+              <MenuItem
+                onClick={() => onMove(index, index - 1)}
+                disabled={index === 0}
+              >
+                <HugeiconsIcon icon={ArrowUp01Icon} />
+                Move up
+              </MenuItem>
+              <MenuItem
+                onClick={() => onMove(index, index + 1)}
+                disabled={index >= count - 1}
+              >
+                <HugeiconsIcon icon={ArrowDown01Icon} />
+                Move down
+              </MenuItem>
+            </MenuPopup>
+          </Menu>
+        </>
+      }
+    />
   );
 }

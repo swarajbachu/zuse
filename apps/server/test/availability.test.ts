@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildUpdateCommand,
+  claudeAuthTestHelpers,
   compareCliVersion,
   deriveLatestAdvisory,
   grokAuthTestHelpers,
@@ -13,6 +14,7 @@ import {
 
 const { parseGrokAuthJson, extractTier, decodeJwtPayload } =
   grokAuthTestHelpers;
+const { parseClaudeCredentials } = claudeAuthTestHelpers;
 
 describe("parseCliVersion", () => {
   it("pulls the first dotted triple out of labelled output", () => {
@@ -180,6 +182,66 @@ describe("grok auth probe — tier extraction & parseGrokAuthJson", () => {
   it("parseGrokAuthJson for empty entry still authenticated", () => {
     const info = parseGrokAuthJson(JSON.stringify({}));
     expect(info.authLabel).toBe("Grok");
+  });
+});
+
+describe("parseClaudeCredentials — subscription gating", () => {
+  const blob = (subscriptionType?: string, email = "user@anthropic.com") =>
+    JSON.stringify({
+      claudeAiOauth: {
+        ...(subscriptionType !== undefined ? { subscriptionType } : {}),
+        emailAddress: email,
+      },
+    });
+
+  it("labels a Pro plan without gating it", () => {
+    const info = parseClaudeCredentials(blob("pro"));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel).toBe("Claude Pro Subscription");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+    expect(info.authEmail).toBe("user@anthropic.com");
+  });
+
+  it("labels a Max plan without gating it", () => {
+    const info = parseClaudeCredentials(blob("max"));
+    expect(info.authLabel).toBe("Claude Max Subscription");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("normalises tier casing before matching", () => {
+    expect(parseClaudeCredentials(blob("Pro")).authLabel).toBe(
+      "Claude Pro Subscription",
+    );
+  });
+
+  it("does NOT gate an unknown/unmapped tier (a paid login is still valid)", () => {
+    // Regression: a base Pro user whose tier string we don't map (or whose blob
+    // omits it) must not be told to subscribe — the OAuth login proves a paid
+    // account and the runtime does the real entitlement check.
+    const info = parseClaudeCredentials(blob("max_5x_20250101"));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("does NOT gate when subscriptionType is missing", () => {
+    const info = parseClaudeCredentials(blob(undefined));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("gates only an explicitly free tier", () => {
+    const info = parseClaudeCredentials(blob("free"));
+    expect(info.authLabel).toBe("Requires Claude Pro");
+    expect(info.authLabel?.toLowerCase()).toContain("require");
+  });
+
+  it("falls back to authenticated for non-JSON / OAuth-less blobs", () => {
+    expect(parseClaudeCredentials("{not json").authStatus).toBe(
+      "authenticated",
+    );
+    expect(parseClaudeCredentials(JSON.stringify({})).authStatus).toBe(
+      "authenticated",
+    );
   });
 });
 

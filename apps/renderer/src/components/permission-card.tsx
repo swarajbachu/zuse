@@ -55,20 +55,6 @@ export function PermissionCard({
   const persistentDisabled = head.forcePrompt;
 
   useEffect(() => {
-    console.info(
-      `[permission-ui] ${JSON.stringify({
-        ts: new Date().toISOString(),
-        event: "card.visible",
-        requestId: head.id,
-        sessionId: head.sessionId,
-        kindTag: head.kind._tag,
-        queueSize,
-        forcePrompt: head.forcePrompt,
-      })}`,
-    );
-  }, [head.id, head.sessionId, head.kind._tag, head.forcePrompt, queueSize]);
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();

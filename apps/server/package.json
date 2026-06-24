@@ -37,6 +37,7 @@
     "fuzzysort": "catalog:",
     "keytar": "^7.9.0",
     "node-pty": "^1.1.0",
+    "tokenmaxer": "*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

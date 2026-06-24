@@ -80,9 +80,13 @@ export function WorktreeSetupCard() {
   const setupStatus = worktree?.setupStatus ?? null;
   const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
   const providerBooting = session?.status === "booting";
+  const providerErrored = session?.status === "error";
 
   // Visible while there's worktree/setup work left, OR while the provider CLI
   // is still booting (covers a worktree-less "new tab in this chat" too).
+  // Once the provider errors we stop occupying the screen with a fake
+  // "Starting…" spinner — the ErrorBubble below carries the failure + the
+  // inline "Sign in" CTA — so a worktree-less errored session hides the card.
   const visible = (hasWorktree && !setupDone) || providerBooting === true;
   if (!visible) return null;
 
@@ -91,7 +95,13 @@ export function WorktreeSetupCard() {
       ? (PROVIDER_LABEL[session.providerId] ?? session.providerId)
       : "agent";
   const providerState: StepState =
-    session === null ? "pending" : providerBooting ? "active" : "done";
+    session === null
+      ? "pending"
+      : providerBooting
+        ? "active"
+        : providerErrored
+          ? "failed"
+          : "done";
 
   return (
     <SetupCardView
@@ -210,7 +220,11 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
           ) : null}
           <StepRow
             state={providerState}
-            label={`Starting ${providerLabel}`}
+            label={
+              providerState === "failed"
+                ? `${providerLabel} failed to start`
+                : `Starting ${providerLabel}`
+            }
           />
         </div>
         {setupOutput.trim().length > 0 ? (

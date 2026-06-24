@@ -64,7 +64,9 @@ const freshSettings = (): SettingsFile =>
     defaultProviderId: "claude",
     defaultModelByProvider: seedModels(),
     defaultRuntimeMode: "approval-required",
-    defaultAutoCreateWorktree: false,
+    // Worktrees on by default: each new chat runs on its own branch so parallel
+    // agents stay isolated. Per-repo settings can still opt a repo out.
+    defaultAutoCreateWorktree: true,
     defaultAutonomyLevel: "off",
     onboardingCompleted: false,
     completionSoundEnabled: false,

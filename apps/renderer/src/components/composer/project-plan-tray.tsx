@@ -12,6 +12,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
 
 import { useMessagesStore } from "../../store/messages.ts";
+import { TrayPill } from "./tray-pill.tsx";
 
 const TODO_STATUS = {
   pending: "pending",
@@ -214,9 +215,6 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
   const messages = useMessagesStore(
     (s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
   );
-  const running = useMessagesStore(
-    (s) => s.runningBySession[sessionId] === true,
-  );
 
   // Collapsed by default; keyed per session so the expand state doesn't bleed
   // across session switches (see `key` at the call site).
@@ -250,83 +248,73 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
   const total = todos.length;
   const headerTodo = activeHeaderTodo(todos);
 
+  const icon =
+    headerTodo === undefined ? (
+      <HugeiconsIcon
+        icon={CheckListIcon}
+        strokeWidth={2}
+        className="size-3.5"
+        aria-hidden="true"
+      />
+    ) : (
+      <TodoStatusIcon status={headerTodo.status} />
+    );
+
   return (
-    <div className="mb-1.5 overflow-hidden rounded-lg border border-border/60 bg-card">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors",
-          "bg-primary/10 hover:bg-primary/15",
-        )}
-      >
-        <span className="flex size-3.5 shrink-0 items-center justify-center">
-          {headerTodo === undefined ? (
-            <HugeiconsIcon
-              icon={CheckListIcon}
-              strokeWidth={2}
-              className="size-3.5 text-muted-foreground"
-              aria-hidden="true"
-            />
-          ) : (
-            <TodoStatusIcon status={headerTodo.status} running={running} />
-          )}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {headerTodo?.text ?? "Project Plan"}
-        </span>
-        <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-          {done} of {total} Done
-        </span>
+    <TrayPill
+      flush
+      className="bg-primary/10 hover:bg-primary/15"
+      icon={icon}
+      title={headerTodo?.text ?? "Project Plan"}
+      subtitle={`${done} of ${total} Done`}
+      onPillClick={() => setExpanded((v) => !v)}
+      ariaExpanded={expanded}
+      ariaLabel={expanded ? "Collapse plan" : "Expand plan"}
+      actions={
         <HugeiconsIcon
           icon={ArrowDown01Icon}
           className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
+            "size-4 text-muted-foreground transition-transform",
             expanded ? "rotate-180" : "",
           )}
           aria-hidden="true"
         />
-      </button>
-      {expanded ? (
-        <ul className="max-h-64 space-y-0.5 overflow-y-auto px-3 py-2">
-          {todos.map((t, i) => (
-            <li key={i} className="relative flex items-start gap-2.5 pb-1.5">
-              {/* Dashed timeline connector running between item icons. */}
-              {i < todos.length - 1 ? (
+      }
+      expanded={
+        expanded ? (
+          <ul className="max-h-64 space-y-0.5 overflow-y-auto px-3 py-2">
+            {todos.map((t, i) => (
+              <li key={i} className="relative flex items-start gap-2.5 pb-1.5">
+                {/* Dashed timeline connector running between item icons. */}
+                {i < todos.length - 1 ? (
+                  <span
+                    className="absolute left-[6.5px] top-4 bottom-0 border-l border-dashed border-border/60"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                <span className="relative z-10 mt-0.5 flex size-3.5 shrink-0 items-center justify-center">
+                  <TodoStatusIcon status={t.status} />
+                </span>
                 <span
-                  className="absolute left-[6.5px] top-4 bottom-0 border-l border-dashed border-border/60"
-                  aria-hidden="true"
-                />
-              ) : null}
-              <span className="relative z-10 mt-0.5 flex size-3.5 shrink-0 items-center justify-center">
-                <TodoStatusIcon status={t.status} running={running} />
-              </span>
-              <span
-                className={cn(
-                  "text-sm leading-snug",
-                  t.status === TODO_STATUS.completed
-                    ? "text-muted-foreground"
-                    : "text-foreground",
-                )}
-              >
-                {t.text}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
+                  className={cn(
+                    "text-[13px] leading-snug",
+                    t.status === TODO_STATUS.completed
+                      ? "text-muted-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  {t.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : undefined
+      }
+    />
   );
 }
 
-function TodoStatusIcon({
-  status,
-  running,
-}: {
-  status: TodoStatus;
-  running: boolean;
-}) {
+function TodoStatusIcon({ status }: { status: TodoStatus }) {
   if (status === TODO_STATUS.completed) {
     return (
       <HugeiconsIcon
@@ -338,23 +326,7 @@ function TodoStatusIcon({
     );
   }
   if (status === TODO_STATUS.inProgress) {
-    // Only animate while the turn is actually running. Once the agent stops
-    // (or finishes) the item stays marked current in the data, so a
-    // spinning loader would imply work is still happening when it isn't — and
-    // makes the whole composer read as "busy". Show a static filled ring
-    // instead to mark "current step, not running".
-    if (running)
-      return (
-        <Spinner className="size-3.5 text-primary" />
-      );
-    return (
-      <span
-        className="flex size-3.5 items-center justify-center rounded-full border-2 border-primary"
-        aria-label="In progress (paused)"
-      >
-        <span className="size-1 rounded-full bg-primary" />
-      </span>
-    );
+    return <Spinner className="size-3.5 text-primary" />;
   }
   return (
     <span
