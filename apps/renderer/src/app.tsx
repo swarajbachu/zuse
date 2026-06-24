@@ -19,6 +19,7 @@ import {
 	SidebarPeekOverlay,
 	SidebarPeekTrigger,
 } from "./components/sidebar-peek.tsx";
+import { SponsorBar } from "./components/sponsor-bar.tsx";
 import { TopBarLeft, TopBarMain, TopBarRight } from "./components/top-bar.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { UpdateBanner } from "./components/update-banner.tsx";
@@ -478,6 +479,7 @@ function MainShell() {
 							) : (
 								<ChatLanding />
 							)}
+							<SponsorBar sessionId={selectedSessionId} />
 						</div>
 						<div
 							hidden={activeMainTab !== "archives"}

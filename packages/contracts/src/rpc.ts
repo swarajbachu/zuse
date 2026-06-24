@@ -119,6 +119,7 @@ import {
 } from "./permission.ts";
 import { PingRpc } from "./ping.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
+import { SponsorNextRpc } from "./sponsor.ts";
 import {
 	PtyCloseRpc,
 	PtyOpenRpc,
@@ -376,6 +377,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	PermissionListPendingRpc,
 	PermissionListDecisionsRpc,
 	PermissionRevokeDecisionRpc,
+	SponsorNextRpc,
 	PokemonPokedexRpc,
 	PokemonEnsureSpriteCachedRpc,
 	BrowserCommandsRpc,

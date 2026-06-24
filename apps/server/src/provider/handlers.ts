@@ -30,6 +30,7 @@ import { startProviderLogin } from "./services/login-service.ts";
 import { PermissionService } from "./services/permission-service.ts";
 import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
+import { SponsorService } from "./services/sponsor-service.ts";
 
 /**
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
@@ -729,6 +730,17 @@ const PermissionRevokeDecision = MemoizeRpcs.toLayerHandler(
 );
 
 // ---------------------------------------------------------------------------
+// sponsor.* — one sponsored line in the composer footer (ADtention). Serving
+// happens here, not the renderer: the ad API has no CORS headers and the
+// per-install subject id lives server-side. The renderer sends only a category
+// tag and renders the returned line.
+// ---------------------------------------------------------------------------
+
+const SponsorNext = MemoizeRpcs.toLayerHandler("sponsor.next", ({ category }) =>
+  Effect.flatMap(SponsorService, (svc) => svc.next(category)),
+);
+
+// ---------------------------------------------------------------------------
 // browser.* — in-app agent browser bridge. The renderer's BrowserPane
 // subscribes to `browser.commands`, drives the `<webview>`, and posts the
 // outcome back via `browser.respond`, resolving the Deferred the MCP browser
@@ -844,6 +856,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   PermissionListPending,
   PermissionListDecisions,
   PermissionRevokeDecision,
+  SponsorNext,
   BrowserCommands,
   BrowserRespond,
   BrowserSetCredential,
