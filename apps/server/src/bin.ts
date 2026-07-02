@@ -1,11 +1,57 @@
 /**
- * Standalone server entrypoint. Today this is just a re-export so the package
- * has a stable boot surface; the Electron shim still consumes `runtime.ts`
- * directly. When we ship remote access, this file grows: parse args, build
- * the host-shell deps (file-backed AppPaths, no FolderPicker, WS transport
- * layer), call `makeMainLayer`, run via `NodeRuntime.runMain`.
+ * Standalone (headless) server entrypoint — `zuse serve`. Builds the host-shell
+ * deps without Electron: file-backed AppPaths resolved from env/XDG, a no-op
+ * FolderPicker, and the WebSocket transport. This same binary is what runs on
+ * an SSH dev-box and (later) on a cloud container — there is no laptop
+ * assumption anywhere in `@zuse/server` (ADR 0007).
  *
- * Per ADR 0007, transport modules (e.g. a WS server protocol) will live next
- * to this file under `transports/` — never inside any service domain.
+ * Per ADR 0007, transport modules live under `transports/` — never inside a
+ * service domain. The factory (`makeMainLayer`) is re-exported so the Electron
+ * shim and tests keep a stable import surface; importing this module is
+ * side-effect free (the server only boots when the file is the process entry).
  */
+import { pathToFileURL } from "node:url";
+
+import { NodeRuntime } from "@effect/platform-node";
+import { Effect, Layer } from "effect";
+
+import { makeMainLayer } from "./runtime.ts";
+import { wsServerProtocolLayer } from "./transports/ws.ts";
+
 export { makeMainLayer, type MainLayerDeps } from "./runtime.ts";
+
+/**
+ * Where persistence files (zuse.sqlite, attachments, logs) live on a headless
+ * host. Electron uses `app.getPath("userData")`; here we honor an explicit
+ * `ZUSE_USER_DATA` override, else `$XDG_DATA_HOME/zuse`, else
+ * `~/.local/share/zuse`.
+ */
+const resolveUserData = (): string => {
+  if (process.env.ZUSE_USER_DATA) return process.env.ZUSE_USER_DATA;
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
+  const xdg = process.env.XDG_DATA_HOME ?? `${home}/.local/share`;
+  return `${xdg}/zuse`;
+};
+
+export const runHeadlessServer = (): void => {
+  const port = Number(process.env.ZUSE_PORT ?? 8787);
+  const host = process.env.ZUSE_HOST ?? "127.0.0.1";
+  const userData = resolveUserData();
+
+  const layer = makeMainLayer({
+    userData,
+    // Headless has no native dialog; surfacing the prompt to a connected client
+    // is a later refinement. Returning null is the documented contract.
+    folderPicker: { pick: () => Effect.succeed(null) },
+    serverProtocol: wsServerProtocolLayer({ port, host }),
+  });
+
+  NodeRuntime.runMain(Layer.launch(layer));
+};
+
+// Only boot when this file is the process entrypoint, so the re-export above
+// stays import-safe (Vite HMR, tests, the Electron shim).
+const entry = process.argv[1];
+if (entry && import.meta.url === pathToFileURL(entry).href) {
+  runHeadlessServer();
+}

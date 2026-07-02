@@ -346,6 +346,20 @@ export class Message extends Schema.Class<Message>("Message")({
   createdAt: Schema.DateFromString,
 }) {}
 
+/**
+ * A `Message` tagged with its global monotonic `sequence` from the event log.
+ * Clients record the highest `sequence` they have seen per session and pass it
+ * back as `sinceSequence` on reconnect to resume gap-free (no full replay, no
+ * in-memory dedup Set). See the event-sourcing core: `messages.stream` flips to
+ * emit this in the sync-core PR; until then it is additive and unused.
+ */
+export class MessageEnvelope extends Schema.Class<MessageEnvelope>(
+  "MessageEnvelope",
+)({
+  sequence: Schema.Number,
+  message: Message,
+}) {}
+
 export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
   {
     id: Schema.String,
@@ -777,9 +791,18 @@ export const MessagesListRpc = Rpc.make("messages.list", {
  * `created_at` order (backfill) and continues with live rows as the provider
  * produces events. The renderer treats it as the single source of truth — no
  * separate hydrate / live split.
+ *
+ * `sinceSequence` is additive and currently ignored by the server: once the
+ * event-sourcing core lands, passing it resumes from that cursor (replaying only
+ * events with `sequence > sinceSequence`) and `success` becomes
+ * {@link MessageEnvelope}. Omitting it preserves today's "from the beginning"
+ * behavior, so existing callers are unaffected.
  */
 export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({ sessionId: SessionId }),
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    sinceSequence: Schema.optional(Schema.Number),
+  }),
   success: Message,
   error: SessionNotFoundError,
   stream: true,
