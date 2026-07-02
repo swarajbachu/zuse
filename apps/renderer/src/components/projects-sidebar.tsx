@@ -53,6 +53,7 @@ import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
   archiveChatWithConfirm,
+  chatArchiveProgressLabel,
   isChatUnread,
   useChatsStore,
 } from "../store/chats.ts";
@@ -890,6 +891,9 @@ function ChatRow({ chat }: { chat: Chat }) {
   const renameChat = useChatsStore((s) => s.rename);
   const unarchiveChat = useChatsStore((s) => s.unarchive);
   const removeChat = useChatsStore((s) => s.remove);
+  const archiveProgress = useChatsStore(
+    (s) => s.archiveProgressByChat[chat.id] ?? null,
+  );
 
   // PR state is keyed by (project, worktree). A chat owns its worktree,
   // so all its sessions share the same PR row — hydrate once per chat.
@@ -1021,7 +1025,16 @@ function ChatRow({ chat }: { chat: Chat }) {
   const primaryActionIcon = isArchived
     ? ArchiveArrowUpIcon
     : ArchiveArrowDownIcon;
-  const primaryActionLabel = isArchived ? "Unarchive" : "Archive";
+  const isArchiving = archiveProgress !== null;
+  const archiveProgressText =
+    archiveProgress === null ? null : chatArchiveProgressLabel(archiveProgress);
+  const primaryActionLabel = isArchived
+    ? "Unarchive"
+    : (archiveProgressText ?? "Archive");
+  const archiveChat = () => {
+    if (isArchiving) return;
+    void archiveChatWithConfirm(chat.id);
+  };
 
   return (
     <>
@@ -1085,17 +1098,27 @@ function ChatRow({ chat }: { chat: Chat }) {
           </span>
           <button
             type="button"
+            disabled={isArchiving}
             onClick={(e) => {
               e.stopPropagation();
-              void (isArchived
-                ? unarchiveChat(chat.id)
-                : archiveChatWithConfirm(chat.id));
+              if (isArchived) {
+                void unarchiveChat(chat.id);
+              } else {
+                archiveChat();
+              }
             }}
-            className="hidden items-center rounded p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground group-hover:flex motion-reduce:transition-none"
+            className={cn(
+              "items-center rounded p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+              isArchiving ? "flex" : "hidden group-hover:flex",
+            )}
             aria-label={`${primaryActionLabel} ${chat.title}`}
             title={primaryActionLabel}
           >
-            <HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
+            {isArchiving ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
+            )}
           </button>
         </div>
       </li>
@@ -1123,11 +1146,19 @@ function ChatRow({ chat }: { chat: Chat }) {
             </MenuItem>
           ) : (
             <MenuItem
-              onClick={() => void archiveChatWithConfirm(chat.id)}
+              disabled={isArchiving}
+              onClick={archiveChat}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
-              <HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
-              Archive
+              {isArchiving ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon
+                  icon={ArchiveArrowDownIcon}
+                  className="size-3.5"
+                />
+              )}
+              {archiveProgressText ?? "Archive"}
             </MenuItem>
           )}
           <MenuItem

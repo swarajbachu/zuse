@@ -51,7 +51,11 @@ import {
 } from "./glass-action.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
 import { useActiveContext } from "../store/active-workspace.ts";
-import { archiveChatWithConfirm, useChatsStore } from "../store/chats.ts";
+import {
+  archiveChatWithConfirm,
+  chatArchiveProgressLabel,
+  useChatsStore,
+} from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -888,6 +892,11 @@ export function TopBarRight() {
   );
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const selectedChatId = useChatsStore((s) => s.selectedChatId);
+  const archiveProgress = useChatsStore((s) =>
+    selectedChatId === null
+      ? null
+      : (s.archiveProgressByChat[selectedChatId] ?? null),
+  );
   const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
   // Auto-submit a new chat message to the active session (no manual Send).
@@ -965,8 +974,17 @@ export function TopBarRight() {
           <DirectActionButton
             tone="zinc"
             icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
-            label="Archive chat"
-            loadingLabel="Archiving…"
+            label={
+              archiveProgress === null
+                ? "Archive chat"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            loadingLabel={
+              archiveProgress === null
+                ? "Archiving…"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            disabled={archiveProgress !== null}
             run={() => archiveChatWithConfirm(selectedChatId)}
           />
         ) : null}
