@@ -1,8 +1,8 @@
-import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Effect, Layer } from "effect";
 
 import { AppPaths } from "../app-paths.ts";
 import { ensureSqliteRenameCompatibility, sqliteDbPath } from "./db-path.ts";
+import * as NodeSqliteClient from "./node-sqlite-client.ts";
 
 /**
  * Live SQLite client for the chat-MVP persistence layer. Resolves the DB
@@ -12,9 +12,9 @@ import { ensureSqliteRenameCompatibility, sqliteDbPath } from "./db-path.ts";
  * and isolated benches; otherwise the file lives at
  * `<userData>/zuse.sqlite` so a user can `sqlite3` into it.
  *
- * `SqliteClient.layer` produces both `SqliteClient` (sqlite-specific:
- * `export`, `backup`, `loadExtension`) and the generic `SqlClient` —
- * downstream code yields whichever it needs.
+ * Backed by Node's built-in `node:sqlite` (see `node-sqlite-client.ts`), so
+ * the exact same layer boots under Electron's bundled Node and a headless
+ * system Node — no native-addon ABI split.
  */
 export const SqliteLive = Layer.unwrapEffect(
   Effect.gen(function* () {
@@ -23,11 +23,9 @@ export const SqliteLive = Layer.unwrapEffect(
       process.env.ZUSE_SQLITE_MEMORY === "1" ||
       process.env.MEMOIZE_SQLITE_MEMORY === "1";
     if (!inMemory) {
-      yield* Effect.tryPromise(() =>
-        ensureSqliteRenameCompatibility(paths.userData),
-      ).pipe(Effect.orDie);
+      yield* ensureSqliteRenameCompatibility(paths.userData).pipe(Effect.orDie);
     }
     const filename = inMemory ? ":memory:" : sqliteDbPath(paths.userData);
-    return SqliteClient.layer({ filename });
+    return NodeSqliteClient.layer({ filename });
   }),
 );
