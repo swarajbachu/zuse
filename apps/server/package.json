@@ -30,6 +30,8 @@
     "@effect/platform-node": "catalog:",
     "@effect/rpc": "catalog:",
     "@effect/sql": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
+    "better-sqlite3": "^12.9.0",
     "@zuse/index": "*",
     "@zuse/wire": "*",
     "effect": "catalog:",
