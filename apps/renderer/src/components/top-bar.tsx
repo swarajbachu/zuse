@@ -66,6 +66,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
+import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
   DialogClose,
@@ -1128,9 +1129,8 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 
 /**
  * GlassActionButton wrapper for direct (non-agent) git/gh actions. Shows a
- * spinner while the RPC is in flight and, on failure, a red warning affordance
- * whose tooltip carries gh's verbatim error (click to dismiss). The user can
- * retry once it clears.
+ * spinner while the RPC is in flight and reports failures through the global
+ * toast surface. The user can retry once loading clears.
  */
 function DirectActionButton({
   tone,
@@ -1150,55 +1150,38 @@ function DirectActionButton({
   onSuccess?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       await run();
       onSuccess?.();
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: `${label} failed`,
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Action failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
-      <GlassActionButton
-        tone={tone}
-        icon={
-          loading ? (
-            <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
-          ) : (
-            icon
-          )
-        }
-        label={loading ? loadingLabel : label}
-        disabled={disabled || loading}
-        onClick={onClick}
-      />
-    </div>
+    <GlassActionButton
+      tone={tone}
+      icon={
+        loading ? (
+          <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+        ) : (
+          icon
+        )
+      }
+      label={loading ? loadingLabel : label}
+      disabled={disabled || loading}
+      onClick={onClick}
+    />
   );
 }
 
@@ -1299,12 +1282,10 @@ function AutoMergeToggle({
   const method = useMergePrefs((s) => s.method);
   const deleteBranch = useMergePrefs((s) => s.deleteBranch);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const toggle = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
@@ -1318,7 +1299,11 @@ function AutoMergeToggle({
       );
       refreshAfterAction(folderId, worktreeId);
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: "Auto-merge failed",
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
@@ -1330,23 +1315,6 @@ function AutoMergeToggle({
 
   return (
     <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Auto-merge failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
       <Tooltip>
         <TooltipTrigger
           render={
