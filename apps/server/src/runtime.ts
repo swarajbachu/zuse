@@ -1,6 +1,7 @@
 import { NodeContext } from "@effect/platform-node";
 import { RpcServer } from "@effect/rpc";
-import { Layer } from "effect";
+import { SqlClient } from "@effect/sql";
+import { Effect, Layer } from "effect";
 
 import { MemoizeRpcs } from "@zuse/wire";
 
@@ -14,6 +15,7 @@ import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
@@ -229,6 +231,17 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
+  // After migrations, before MessageStore: replay any events past the
+  // projector high-water mark. In steady state this is a no-op (append and
+  // projection share a transaction); it makes the projection rebuildable —
+  // drop `messages`, reset the watermark, boot. Same shape as ImportShim.
+  const ProjectorCatchup = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* makeEventStore(sql).catchup;
+    }),
+  ).pipe(Layer.provide(MigratedSqlite));
+
   const MessageStoreLayer = MessageStoreLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
@@ -239,6 +252,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
+    Layer.provide(ProjectorCatchup),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );

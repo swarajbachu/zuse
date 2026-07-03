@@ -45,6 +45,7 @@ import { Migration0016QueuedMessagesQueueOrderRepair } from "../src/persistence/
 import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
+import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -224,6 +225,7 @@ const runAllMigrations = Effect.all(
     Migration0017ChatReadState,
     Migration0018PokemonWorktrees,
     Migration0019QueuePaused,
+    Migration0020Events,
   ],
   { discard: true },
 );

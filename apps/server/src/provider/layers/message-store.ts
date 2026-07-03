@@ -47,6 +47,7 @@ import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { GitService } from "../../git/services/git-service.ts";
+import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
@@ -527,10 +528,20 @@ const looksLikeAuthFailure = (reason: string): boolean =>
     reason,
   );
 
+/**
+ * A persisted message together with the global event-log `sequence` its
+ * `MessagePersisted` event was assigned — the cursor clients resume from.
+ */
+interface PersistedMessage {
+  readonly message: Message;
+  readonly sequence: number;
+}
+
 export const MessageStoreLive = Layer.scoped(
   MessageStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const eventStore = makeEventStore(sql);
     const provider = yield* ProviderService;
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -700,9 +711,10 @@ export const MessageStoreLive = Layer.scoped(
 
     const ndjsonAppend = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const message = persisted.message;
         let projectId = projectIdBySession.get(sessionId);
         if (projectId === undefined) {
           const rows = yield* sql<{ readonly project_id: string }>`
@@ -902,7 +914,7 @@ export const MessageStoreLive = Layer.scoped(
       sessionId: SessionId,
       content: MessageContent,
       idOverride?: MessageId,
-    ): Effect.Effect<Message> =>
+    ): Effect.Effect<PersistedMessage> =>
       Effect.gen(function* () {
         // `idOverride` is the renderer-minted `clientMessageId` for an
         // optimistic user message — reuse it so the live-stream echo carries
@@ -913,30 +925,37 @@ export const MessageStoreLive = Layer.scoped(
         const now = new Date();
         const nowIso = now.toISOString();
         const parentItemId = parentItemIdOfContent(content);
-        yield* sql`
-          INSERT INTO messages
-            (id, session_id, role, kind, content_json, parent_item_id, created_at)
-          VALUES
-            (${id}, ${sessionId}, ${role}, ${content._tag},
-             ${JSON.stringify(content)}, ${parentItemId}, ${nowIso})
-        `.pipe(Effect.orDie);
-        yield* sql`
-          UPDATE sessions SET updated_at = ${nowIso} WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
-        // Advance the owning chat's activity clock so the sidebar can mark it
-        // unread. `updated_at` (and sidebar ordering) is intentionally left
-        // untouched — `last_message_at` is a separate read/unread signal.
-        yield* sql`
-          UPDATE chats SET last_message_at = ${nowIso}
-          WHERE id = (SELECT chat_id FROM sessions WHERE id = ${sessionId})
-        `.pipe(Effect.orDie);
-        return Message.make({
-          id,
-          sessionId,
-          role,
-          content,
-          createdAt: now,
-        });
+        // All chat writes flow through the event log; the projection inside
+        // `appendEvent` performs the historical INSERT INTO messages +
+        // sessions.updated_at + chats.last_message_at writes atomically and
+        // assigns the global `sequence` clients resume from.
+        const sequence = yield* eventStore
+          .appendEvent({
+            streamKind: "session",
+            streamId: sessionId,
+            type: "MessagePersisted",
+            actor: null,
+            payload: {
+              messageId: id,
+              sessionId,
+              role,
+              kind: content._tag,
+              contentJson: JSON.stringify(content),
+              parentItemId,
+              createdAt: nowIso,
+            },
+          })
+          .pipe(Effect.orDie);
+        return {
+          message: Message.make({
+            id,
+            sessionId,
+            role,
+            content,
+            createdAt: now,
+          }),
+          sequence,
+        };
       });
 
     const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
@@ -962,56 +981,20 @@ export const MessageStoreLive = Layer.scoped(
 
     const broadcastMessage = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const pubsub = yield* getOrMakePubsub(sessionId);
-        yield* PubSub.publish(pubsub, message);
+        yield* PubSub.publish(pubsub, persisted.message);
       });
 
-    const ensureQueuedMessagesSchema: Effect.Effect<void> = Effect.gen(
-      function* () {
-        yield* sql`
-          CREATE TABLE IF NOT EXISTS queued_messages (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-            queue_order INTEGER NOT NULL,
-            input_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-          )
-        `.pipe(Effect.orDie);
-
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(queued_messages)
-        `.pipe(Effect.orDie);
-        const hasColumn = (name: string): boolean =>
-          columns.some((column) => column.name === name);
-
-        if (!hasColumn("queue_order")) {
-          yield* sql`
-            ALTER TABLE queued_messages
-              ADD COLUMN queue_order INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-          if (hasColumn("position")) {
-            yield* sql`
-              UPDATE queued_messages SET queue_order = "position"
-            `.pipe(Effect.orDie);
-          }
-        }
-
-        yield* sql`
-          CREATE INDEX IF NOT EXISTS idx_queued_messages_session_queue_order
-          ON queued_messages(session_id, queue_order)
-        `.pipe(Effect.orDie);
-      },
-    );
-
+    // The queued_messages schema (and sessions.queue_paused) are owned by
+    // migrations 0015/0016/0019 — the migrator runs upstream of this layer,
+    // so the lazy re-creation this file used to do is gone.
     const listQueuedRows = (
       sessionId: SessionId,
     ): Effect.Effect<ReadonlyArray<QueuedMessage>> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -1021,23 +1004,8 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(queuedMessageFromRow);
       });
 
-    const ensureQueuePausedColumn: Effect.Effect<void> = Effect.gen(
-      function* () {
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(sessions)
-        `.pipe(Effect.orDie);
-        if (!columns.some((column) => column.name === "queue_paused")) {
-          yield* sql`
-            ALTER TABLE sessions
-              ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-        }
-      },
-    );
-
     const isQueuePaused = (sessionId: SessionId): Effect.Effect<boolean> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         const rows = yield* sql<{ readonly queue_paused: number }>`
           SELECT queue_paused
           FROM sessions
@@ -1068,7 +1036,6 @@ export const MessageStoreLive = Layer.scoped(
       paused: boolean,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         yield* sql`
           UPDATE sessions
           SET queue_paused = ${paused ? 1 : 0},
@@ -1091,7 +1058,6 @@ export const MessageStoreLive = Layer.scoped(
       sessionId: SessionId,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<{ readonly id: string }>`
           SELECT id FROM queued_messages
           WHERE session_id = ${sessionId}
@@ -2783,7 +2749,7 @@ export const MessageStoreLive = Layer.scoped(
         for (const a of cleanAttachments) {
           yield* sql`
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
-            VALUES (${persisted.id}, ${a.id})
+            VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
@@ -3013,7 +2979,6 @@ export const MessageStoreLive = Layer.scoped(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        yield* ensureQueuedMessagesSchema;
         const maxRows = yield* sql<{ readonly max_position: number | null }>`
           SELECT MAX(queue_order) AS max_position
           FROM queued_messages
@@ -3119,7 +3084,6 @@ export const MessageStoreLive = Layer.scoped(
       queueId: string,
     ): Effect.Effect<QueuedMessage | null> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -3140,7 +3104,6 @@ export const MessageStoreLive = Layer.scoped(
 
     const restoreQueuedMessage = (item: QueuedMessage): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const existing = yield* sql<{ readonly count: number }>`
           SELECT COUNT(*) AS count
           FROM queued_messages

@@ -20,6 +20,7 @@ import { Migration0016QueuedMessagesQueueOrderRepair } from "./migrations/0016_q
 import { Migration0017ChatReadState } from "./migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "./migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "./migrations/0019_queue_paused.ts";
+import { Migration0020Events } from "./migrations/0020_events.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -58,6 +59,7 @@ export const MigrationsLive = Layer.effectDiscard(
       "0017_chat_read_state": Migration0017ChatReadState,
       "0018_pokemon_worktrees": Migration0018PokemonWorktrees,
       "0019_queue_paused": Migration0019QueuePaused,
+      "0020_events": Migration0020Events,
     }),
   }),
 );
