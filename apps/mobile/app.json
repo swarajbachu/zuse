@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Zuse Mobile",
+    "slug": "zuse-mobile",
+    "scheme": "zuse",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan pairing codes for local Zuse environments.",
+        "NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font"
+    ]
+  }
+}
