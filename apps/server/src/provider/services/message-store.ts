@@ -19,6 +19,7 @@ import type {
   FolderId,
   GoalUnsupportedError,
   Message,
+  MessageEnvelope,
   MessageId,
   PermissionMode,
   ProviderId,
@@ -304,7 +305,8 @@ export interface MessageStoreShape {
 
   readonly streamMessages: (
     sessionId: SessionId,
-  ) => Stream.Stream<Message, SessionNotFoundError>;
+    sinceSequence?: number,
+  ) => Stream.Stream<MessageEnvelope, SessionNotFoundError>;
 
   /**
    * Live status feed. Emits the current `Session.status` immediately and

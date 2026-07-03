@@ -14,6 +14,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
   Message,
+  MessageEnvelope,
   MessageId,
   type PermissionMode,
   SessionAlreadyStartedError,
@@ -737,7 +738,7 @@ export const MessageStoreLive = Layer.scoped(
     // `streamMessages` subscribers so a single provider event fans out to
     // every connected renderer view of that session.
     const pubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<Message>>
+      ReadonlyMap<SessionId, PubSub.PubSub<MessageEnvelope>>
     >(new Map());
     const fibers = yield* Ref.make<
       ReadonlyMap<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
@@ -785,7 +786,7 @@ export const MessageStoreLive = Layer.scoped(
         const map = yield* Ref.get(pubsubs);
         const existing = map.get(sessionId);
         if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<Message>();
+        const pubsub = yield* PubSub.unbounded<MessageEnvelope>();
         yield* Ref.update(pubsubs, (m) => {
           const next = new Map(m);
           next.set(sessionId, pubsub);
@@ -984,8 +985,18 @@ export const MessageStoreLive = Layer.scoped(
       persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        // Publish AFTER the append transaction committed (persistMessage
+        // returned) — a subscriber must never observe an event that later
+        // rolls back. The sinceSequence cursor closes any
+        // crash-between-commit-and-publish gap.
         const pubsub = yield* getOrMakePubsub(sessionId);
-        yield* PubSub.publish(pubsub, persisted.message);
+        yield* PubSub.publish(
+          pubsub,
+          MessageEnvelope.make({
+            sequence: persisted.sequence,
+            message: persisted.message,
+          }),
+        );
       });
 
     // The queued_messages schema (and sessions.queue_paused) are owned by
@@ -2339,27 +2350,40 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(messageFromRow);
       });
 
-    const streamMessages: MessageStoreShape["streamMessages"] = (sessionId) =>
+    const streamMessages: MessageStoreShape["streamMessages"] = (
+      sessionId,
+      sinceSequence,
+    ) =>
       Stream.unwrapScoped(
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
-          // Subscribe to the live pubsub *before* reading backfill so a
+          const since = sinceSequence ?? 0;
+          // Subscribe to the live pubsub *before* reading the replay so a
           // message persisted between SELECT and Stream.fromQueue is still
-          // delivered. Filter live emissions against backfill ids to avoid
-          // double-emitting any rows that landed during the SELECT window.
+          // delivered. The cursor makes dedup structural: replay covers
+          // everything ≤ lastReplayed, the live tail admits only envelopes
+          // past it — no seen-Set, O(1) memory, gap-free resume.
           const pubsub = yield* getOrMakePubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
-          const rows = yield* sql<MessageRow>`
-            SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-            FROM messages WHERE session_id = ${sessionId}
-            ORDER BY created_at ASC
+          const rows = yield* sql<MessageRow & { readonly sequence: number }>`
+            SELECT id, session_id, role, kind, content_json, parent_item_id,
+                   created_at, sequence
+            FROM messages
+            WHERE session_id = ${sessionId} AND sequence > ${since}
+            ORDER BY sequence ASC
           `.pipe(Effect.orDie);
-          const backfill = rows.map(messageFromRow);
-          const seen = new Set<string>(backfill.map((m) => m.id));
-          const live = Stream.fromQueue(dequeue).pipe(
-            Stream.filter((m) => !seen.has(m.id)),
+          const replay = rows.map((row) =>
+            MessageEnvelope.make({
+              sequence: row.sequence,
+              message: messageFromRow(row),
+            }),
           );
-          return Stream.concat(Stream.fromIterable(backfill), live);
+          const lastReplayed =
+            replay.length > 0 ? replay[replay.length - 1]!.sequence : since;
+          const live = Stream.fromQueue(dequeue).pipe(
+            Stream.filter((envelope) => envelope.sequence > lastReplayed),
+          );
+          return Stream.concat(Stream.fromIterable(replay), live);
         }),
       );
 
