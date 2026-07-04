@@ -13,6 +13,7 @@ import {
   type ProviderId,
   resolveModelSlug,
   SettingsFile,
+  type MergePrefs,
   type CompletionSoundPreset,
   type SettingsPatch,
   type SubagentPresetState,
@@ -74,6 +75,7 @@ const freshSettings = (): SettingsFile =>
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
+    mergePrefs: { method: "merge", deleteBranch: false },
   });
 
 const freshKeybindings = (): KeybindingsFile =>
@@ -89,7 +91,8 @@ const isProviderId = (v: unknown): v is ProviderId =>
   v === "codex" ||
   v === "grok" ||
   v === "cursor" ||
-  v === "gemini";
+  v === "gemini" ||
+  v === "opencode";
 
 const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
   v === "approval-required" ||
@@ -106,10 +109,10 @@ const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "bloom";
 
 const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
-  v === "username-slug" ||
-  v === "slug" ||
-  v === "feat-slug" ||
-  v === "custom";
+  v === "username-slug" || v === "slug" || v === "feat-slug" || v === "custom";
+
+const isMergeMethod = (v: unknown): v is MergePrefs["method"] =>
+  v === "merge" || v === "squash" || v === "rebase";
 
 /**
  * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
@@ -166,10 +169,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
   const providerEnabled: Record<ProviderId, boolean> = {
     ...base.providerEnabled,
   };
-  if (
-    typeof obj.providerEnabled === "object" &&
-    obj.providerEnabled !== null
-  ) {
+  if (typeof obj.providerEnabled === "object" && obj.providerEnabled !== null) {
     const flags = obj.providerEnabled as Record<string, unknown>;
     for (const id of PROVIDER_IDS) {
       const v = flags[id];
@@ -212,6 +212,20 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.branchNamingPrefix
       : base.branchNamingPrefix;
 
+  let mergePrefs = base.mergePrefs;
+  if (typeof obj.mergePrefs === "object" && obj.mergePrefs !== null) {
+    const prefs = obj.mergePrefs as Record<string, unknown>;
+    mergePrefs = {
+      method: isMergeMethod(prefs.method)
+        ? prefs.method
+        : base.mergePrefs.method,
+      deleteBranch:
+        typeof prefs.deleteBranch === "boolean"
+          ? prefs.deleteBranch
+          : base.mergePrefs.deleteBranch,
+    };
+  }
+
   return SettingsFile.make({
     schemaVersion: 1,
     defaultProviderId: provider,
@@ -225,6 +239,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
+    mergePrefs,
   });
 };
 
@@ -267,9 +282,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
      * Read a JSON file from disk, returning the parsed object or `null` if
      * the file doesn't exist / is malformed. Other I/O failures bubble out.
      */
-    const readJsonOrNull = (
-      absPath: string,
-    ): Effect.Effect<unknown | null> =>
+    const readJsonOrNull = (absPath: string): Effect.Effect<unknown | null> =>
       Effect.gen(function* () {
         const exists = yield* fs.exists(absPath).pipe(Effect.orDie);
         if (!exists) return null;
@@ -287,9 +300,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
     // would otherwise both pick the same `<path>.tmp` and the second
     // rename ENOENTs because the first already renamed the tmp away.
     const writeLocks = new Map<string, Effect.Semaphore>();
-    const lockFor = (
-      absPath: string,
-    ): Effect.Effect<Effect.Semaphore> =>
+    const lockFor = (absPath: string): Effect.Effect<Effect.Semaphore> =>
       Effect.gen(function* () {
         const existing = writeLocks.get(absPath);
         if (existing) return existing;
@@ -450,15 +461,12 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const getSettings: ConfigStoreServiceShape["getSettings"] = () =>
       Ref.get(settingsRef);
 
-    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (
-      patch,
-    ) =>
+    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (patch) =>
       Effect.gen(function* () {
         const cur = yield* Ref.get(settingsRef);
         const next: SettingsFile = SettingsFile.make({
           schemaVersion: 1,
-          defaultProviderId:
-            patch.defaultProviderId ?? cur.defaultProviderId,
+          defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
           defaultModelByProvider:
             patch.defaultModelByProvider ?? cur.defaultModelByProvider,
           defaultRuntimeMode:
@@ -473,10 +481,10 @@ export const ConfigStoreServiceLive = Layer.scoped(
             patch.completionSoundPreset ?? cur.completionSoundPreset,
           providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
           subagents: patch.subagents ?? cur.subagents,
-          branchNamingStyle:
-            patch.branchNamingStyle ?? cur.branchNamingStyle,
+          branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
             patch.branchNamingPrefix ?? cur.branchNamingPrefix,
+          mergePrefs: patch.mergePrefs ?? cur.mergePrefs,
         });
         const serialized = serialize(next);
         yield* writeAtomically(settingsPath, serialized);
@@ -516,7 +524,9 @@ export const ConfigStoreServiceLive = Layer.scoped(
             cur.completionSoundEnabled === baseline.completionSoundEnabled &&
             cur.completionSoundPreset === baseline.completionSoundPreset &&
             cur.onboardingCompleted === false &&
-            Object.keys(cur.subagents.presets).length === 0;
+            Object.keys(cur.subagents.presets).length === 0 &&
+            cur.mergePrefs.method === baseline.mergePrefs.method &&
+            cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch;
           if (!currentLooksFresh) return cur;
 
           let provider: SettingsFile["defaultProviderId"] =
@@ -586,6 +596,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,
+            mergePrefs: cur.mergePrefs,
           });
 
           const serialized = serialize(merged);

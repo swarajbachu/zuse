@@ -7,8 +7,8 @@ import { FolderId } from "./ids.ts";
 /**
  * Per-repository overrides on top of the global Settings. A `null` field
  * means "fall through to global default"; the renderer is responsible for
- * collapsing this layer at read-time. Persisted in the `repository_settings`
- * table keyed by `projectId`.
+ * collapsing this layer at read-time. Persisted in `.memoize/settings.json`
+ * under the repository root.
  */
 export class RepositorySettings extends Schema.Class<RepositorySettings>(
   "RepositorySettings",
@@ -69,6 +69,29 @@ export const RepositorySettingsPatch = Schema.Struct({
   ),
 });
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
+
+/**
+ * On-disk `.memoize/settings.json` shape. It intentionally omits `projectId`
+ * because the file lives inside a single repository.
+ */
+export const RepositorySettingsFile = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  defaultProviderId: Schema.NullOr(ProviderId),
+  defaultModel: Schema.NullOr(Schema.String),
+  defaultRuntimeMode: Schema.NullOr(RuntimeMode),
+  autoCreateWorktree: Schema.Boolean,
+  worktreeBaseDir: Schema.NullOr(Schema.String),
+  archiveCleanupScript: Schema.NullOr(Schema.String),
+  archiveRemoveWorktree: Schema.Boolean,
+  setupScript: Schema.NullOr(Schema.String),
+  runScript: Schema.NullOr(Schema.String),
+  autoRunAfterSetup: Schema.Boolean,
+  environmentVariables: Schema.Record({
+    key: Schema.String,
+    value: Schema.String,
+  }),
+});
+export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;
 
 export const RepositorySettingsGetRpc = Rpc.make("repositorySettings.get", {
   payload: Schema.Struct({ projectId: FolderId }),

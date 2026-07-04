@@ -1,12 +1,15 @@
 import { SqlClient } from "@effect/sql";
 import { Effect, Layer } from "effect";
 import * as fsSync from "node:fs";
+import { randomBytes } from "node:crypto";
 import * as Path from "node:path";
 
 import {
   type FolderId,
   type ProviderId,
   RepositorySettings,
+  type RepositorySettingsFile,
+  type RepositorySettingsPatch,
   type RuntimeMode,
 } from "@memoize/wire";
 
@@ -27,8 +30,19 @@ interface Row {
   readonly environment_variables_json: string | null;
 }
 
+type MutableRepositorySettingsFile = {
+  -readonly [K in keyof RepositorySettingsFile]: RepositorySettingsFile[K];
+} & {
+  environmentVariables: Record<string, string>;
+};
+
 const isProviderId = (v: unknown): v is ProviderId =>
-  v === "claude" || v === "codex";
+  v === "claude" ||
+  v === "codex" ||
+  v === "grok" ||
+  v === "cursor" ||
+  v === "gemini" ||
+  v === "opencode";
 
 const isRuntimeMode = (v: unknown): v is RuntimeMode =>
   v === "approval-required" ||
@@ -36,26 +50,25 @@ const isRuntimeMode = (v: unknown): v is RuntimeMode =>
   v === "auto-accept-edits-and-bash" ||
   v === "full-access";
 
-interface RepoFileSettings {
-  readonly setupScript: string | null;
-  readonly runScript: string | null;
-  readonly archiveScript: string | null;
-  readonly autoRunAfterSetup: boolean;
-  readonly environmentVariables: Record<string, string>;
-}
-
-const emptyRepoFileSettings = (): RepoFileSettings => ({
-  setupScript: null,
-  runScript: null,
-  archiveScript: null,
-  autoRunAfterSetup: false,
-  environmentVariables: {},
-});
-
 const cleanScript = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim() ?? "";
   return trimmed.length > 0 ? value! : null;
 };
+
+const emptyFileSettings = (): RepositorySettingsFile => ({
+  schemaVersion: 1,
+  defaultProviderId: null,
+  defaultModel: null,
+  defaultRuntimeMode: null,
+  autoCreateWorktree: false,
+  worktreeBaseDir: null,
+  archiveCleanupScript: null,
+  archiveRemoveWorktree: false,
+  setupScript: null,
+  runScript: null,
+  autoRunAfterSetup: false,
+  environmentVariables: {},
+});
 
 const parseEnvJson = (value: string | null): Record<string, string> => {
   if (value === null || value.trim().length === 0) return {};
@@ -83,10 +96,20 @@ const parseTomlString = (raw: string): string => {
   return trimmed;
 };
 
-const parseRepoFileSettings = (repoPath: string): RepoFileSettings => {
-  const filePath = Path.join(repoPath, ".memoize", "settings.toml");
-  if (!fsSync.existsSync(filePath)) return emptyRepoFileSettings();
-  const settings = emptyRepoFileSettings();
+const settingsDir = (repoPath: string): string =>
+  Path.join(repoPath, ".memoize");
+const jsonPath = (repoPath: string): string =>
+  Path.join(settingsDir(repoPath), "settings.json");
+const tomlPath = (repoPath: string): string =>
+  Path.join(settingsDir(repoPath), "settings.toml");
+
+const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
+  const filePath = tomlPath(repoPath);
+  if (!fsSync.existsSync(filePath)) return emptyFileSettings();
+  const settings: MutableRepositorySettingsFile = {
+    ...emptyFileSettings(),
+    environmentVariables: {},
+  };
   let section = "";
   for (const line of fsSync.readFileSync(filePath, "utf8").split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -101,18 +124,12 @@ const parseRepoFileSettings = (repoPath: string): RepoFileSettings => {
     const key = match[1]!;
     const value = match[2]!;
     if (section === "scripts") {
-      if (key === "setup") {
-        (settings as { setupScript: string | null }).setupScript =
-          parseTomlString(value);
-      } else if (key === "run") {
-        (settings as { runScript: string | null }).runScript =
-          parseTomlString(value);
-      } else if (key === "archive") {
-        (settings as { archiveScript: string | null }).archiveScript =
-          parseTomlString(value);
+      if (key === "setup") settings.setupScript = parseTomlString(value);
+      else if (key === "run") settings.runScript = parseTomlString(value);
+      else if (key === "archive") {
+        settings.archiveCleanupScript = parseTomlString(value);
       } else if (key === "auto_run_after_setup") {
-        (settings as { autoRunAfterSetup: boolean }).autoRunAfterSetup =
-          value.trim() === "true";
+        settings.autoRunAfterSetup = value.trim() === "true";
       }
     } else if (section === "environment_variables") {
       settings.environmentVariables[key] = parseTomlString(value);
@@ -121,33 +138,208 @@ const parseRepoFileSettings = (repoPath: string): RepoFileSettings => {
   return settings;
 };
 
-const rowToSettings = (
+const coerceJsonSettings = (
+  raw: unknown,
+  fallback: RepositorySettingsFile,
+): RepositorySettingsFile => {
+  if (raw === null || typeof raw !== "object") return fallback;
+  const obj = raw as Record<string, unknown>;
+  const env =
+    typeof obj.environmentVariables === "object" &&
+    obj.environmentVariables !== null
+      ? (obj.environmentVariables as Record<string, unknown>)
+      : null;
+  const environmentVariables = { ...fallback.environmentVariables };
+  if (env !== null) {
+    for (const [key, val] of Object.entries(env)) {
+      if (typeof val === "string") environmentVariables[key] = val;
+    }
+  }
+  return {
+    schemaVersion: 1,
+    defaultProviderId: isProviderId(obj.defaultProviderId)
+      ? obj.defaultProviderId
+      : fallback.defaultProviderId,
+    defaultModel:
+      typeof obj.defaultModel === "string"
+        ? obj.defaultModel
+        : obj.defaultModel === null
+          ? null
+          : fallback.defaultModel,
+    defaultRuntimeMode: isRuntimeMode(obj.defaultRuntimeMode)
+      ? obj.defaultRuntimeMode
+      : fallback.defaultRuntimeMode,
+    autoCreateWorktree:
+      typeof obj.autoCreateWorktree === "boolean"
+        ? obj.autoCreateWorktree
+        : fallback.autoCreateWorktree,
+    worktreeBaseDir:
+      typeof obj.worktreeBaseDir === "string"
+        ? obj.worktreeBaseDir
+        : obj.worktreeBaseDir === null
+          ? null
+          : fallback.worktreeBaseDir,
+    archiveCleanupScript:
+      typeof obj.archiveCleanupScript === "string"
+        ? cleanScript(obj.archiveCleanupScript)
+        : obj.archiveCleanupScript === null
+          ? null
+          : fallback.archiveCleanupScript,
+    archiveRemoveWorktree:
+      typeof obj.archiveRemoveWorktree === "boolean"
+        ? obj.archiveRemoveWorktree
+        : fallback.archiveRemoveWorktree,
+    setupScript:
+      typeof obj.setupScript === "string"
+        ? cleanScript(obj.setupScript)
+        : obj.setupScript === null
+          ? null
+          : fallback.setupScript,
+    runScript:
+      typeof obj.runScript === "string"
+        ? cleanScript(obj.runScript)
+        : obj.runScript === null
+          ? null
+          : fallback.runScript,
+    autoRunAfterSetup:
+      typeof obj.autoRunAfterSetup === "boolean"
+        ? obj.autoRunAfterSetup
+        : fallback.autoRunAfterSetup,
+    environmentVariables,
+  };
+};
+
+const readJsonSettings = (
+  repoPath: string,
+  fallback: RepositorySettingsFile,
+): RepositorySettingsFile | null => {
+  const filePath = jsonPath(repoPath);
+  if (!fsSync.existsSync(filePath)) return null;
+  try {
+    const raw = JSON.parse(fsSync.readFileSync(filePath, "utf8")) as unknown;
+    return coerceJsonSettings(raw, fallback);
+  } catch {
+    return null;
+  }
+};
+
+const writeJsonSettings = (
+  repoPath: string,
+  settings: RepositorySettingsFile,
+): void => {
+  const dir = settingsDir(repoPath);
+  fsSync.mkdirSync(dir, { recursive: true });
+  const filePath = jsonPath(repoPath);
+  const tmp = `${filePath}.${randomBytes(6).toString("hex")}.tmp`;
+  fsSync.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  fsSync.renameSync(tmp, filePath);
+};
+
+const fileToSettings = (
   projectId: FolderId,
-  row: Row | null,
-  repoFile: RepoFileSettings,
+  file: RepositorySettingsFile,
 ): RepositorySettings =>
   RepositorySettings.make({
     projectId,
-    defaultProviderId: isProviderId(row?.default_provider_id)
-      ? row!.default_provider_id
-      : null,
-    defaultModel: row?.default_model ?? null,
-    defaultRuntimeMode: isRuntimeMode(row?.default_runtime_mode)
-      ? row!.default_runtime_mode
-      : null,
-    autoCreateWorktree: (row?.auto_create_worktree ?? 0) === 1,
-    worktreeBaseDir: row?.worktree_base_dir ?? null,
+    defaultProviderId: file.defaultProviderId,
+    defaultModel: file.defaultModel,
+    defaultRuntimeMode: file.defaultRuntimeMode,
+    autoCreateWorktree: file.autoCreateWorktree,
+    worktreeBaseDir: file.worktreeBaseDir,
+    archiveCleanupScript: cleanScript(file.archiveCleanupScript),
+    archiveRemoveWorktree: file.archiveRemoveWorktree,
+    setupScript: cleanScript(file.setupScript),
+    runScript: cleanScript(file.runScript),
+    autoRunAfterSetup: file.autoRunAfterSetup,
+    environmentVariables: file.environmentVariables,
+  });
+
+const settingsToFile = (
+  settings: RepositorySettings,
+): RepositorySettingsFile => ({
+  schemaVersion: 1,
+  defaultProviderId: settings.defaultProviderId,
+  defaultModel: settings.defaultModel,
+  defaultRuntimeMode: settings.defaultRuntimeMode,
+  autoCreateWorktree: settings.autoCreateWorktree,
+  worktreeBaseDir: settings.worktreeBaseDir,
+  archiveCleanupScript: cleanScript(settings.archiveCleanupScript),
+  archiveRemoveWorktree: settings.archiveRemoveWorktree,
+  setupScript: cleanScript(settings.setupScript),
+  runScript: cleanScript(settings.runScript),
+  autoRunAfterSetup: settings.autoRunAfterSetup,
+  environmentVariables: settings.environmentVariables,
+});
+
+const rowToFile = (
+  row: Row | null,
+  fallback: RepositorySettingsFile,
+): RepositorySettingsFile => {
+  if (row === null) return fallback;
+  return {
+    schemaVersion: 1,
+    defaultProviderId: isProviderId(row.default_provider_id)
+      ? row.default_provider_id
+      : fallback.defaultProviderId,
+    defaultModel: row.default_model ?? fallback.defaultModel,
+    defaultRuntimeMode: isRuntimeMode(row.default_runtime_mode)
+      ? row.default_runtime_mode
+      : fallback.defaultRuntimeMode,
+    autoCreateWorktree: row.auto_create_worktree === 1,
+    worktreeBaseDir: row.worktree_base_dir ?? fallback.worktreeBaseDir,
     archiveCleanupScript:
-      cleanScript(row?.archive_cleanup_script) ?? repoFile.archiveScript,
-    archiveRemoveWorktree: (row?.archive_remove_worktree ?? 0) === 1,
-    setupScript: cleanScript(row?.setup_script) ?? repoFile.setupScript,
-    runScript: cleanScript(row?.run_script) ?? repoFile.runScript,
+      cleanScript(row.archive_cleanup_script) ?? fallback.archiveCleanupScript,
+    archiveRemoveWorktree: row.archive_remove_worktree === 1,
+    setupScript: cleanScript(row.setup_script) ?? fallback.setupScript,
+    runScript: cleanScript(row.run_script) ?? fallback.runScript,
     autoRunAfterSetup:
-      row?.auto_run_after_setup === 1 || repoFile.autoRunAfterSetup,
+      row.auto_run_after_setup === 1 || fallback.autoRunAfterSetup,
     environmentVariables: {
-      ...repoFile.environmentVariables,
-      ...parseEnvJson(row?.environment_variables_json ?? null),
+      ...fallback.environmentVariables,
+      ...parseEnvJson(row.environment_variables_json),
     },
+  };
+};
+
+const applyPatch = (
+  projectId: FolderId,
+  current: RepositorySettings,
+  patch: RepositorySettingsPatch,
+): RepositorySettings =>
+  RepositorySettings.make({
+    projectId,
+    defaultProviderId:
+      "defaultProviderId" in patch
+        ? (patch.defaultProviderId ?? null)
+        : current.defaultProviderId,
+    defaultModel:
+      "defaultModel" in patch
+        ? (patch.defaultModel ?? null)
+        : current.defaultModel,
+    defaultRuntimeMode:
+      "defaultRuntimeMode" in patch
+        ? (patch.defaultRuntimeMode ?? null)
+        : current.defaultRuntimeMode,
+    autoCreateWorktree: patch.autoCreateWorktree ?? current.autoCreateWorktree,
+    worktreeBaseDir:
+      "worktreeBaseDir" in patch
+        ? (patch.worktreeBaseDir ?? null)
+        : current.worktreeBaseDir,
+    archiveCleanupScript:
+      "archiveCleanupScript" in patch
+        ? cleanScript(patch.archiveCleanupScript)
+        : current.archiveCleanupScript,
+    archiveRemoveWorktree:
+      patch.archiveRemoveWorktree ?? current.archiveRemoveWorktree,
+    setupScript:
+      "setupScript" in patch
+        ? cleanScript(patch.setupScript)
+        : current.setupScript,
+    runScript:
+      "runScript" in patch ? cleanScript(patch.runScript) : current.runScript,
+    autoRunAfterSetup: patch.autoRunAfterSetup ?? current.autoRunAfterSetup,
+    environmentVariables:
+      patch.environmentVariables ?? current.environmentVariables,
   });
 
 export const RepositorySettingsServiceLive = Layer.effect(
@@ -205,22 +397,52 @@ export const RepositorySettingsServiceLive = Layer.effect(
         return rows[0]?.path ?? null;
       });
 
+    const legacyRow = (projectId: FolderId) =>
+      sql<Row>`
+        SELECT project_id, default_provider_id, default_model,
+               default_runtime_mode, auto_create_worktree, worktree_base_dir,
+               archive_cleanup_script, archive_remove_worktree,
+               setup_script, run_script, auto_run_after_setup,
+               environment_variables_json
+        FROM repository_settings
+        WHERE project_id = ${projectId}
+        LIMIT 1
+      `.pipe(Effect.orDie);
+
+    const clearLegacyRow = (projectId: FolderId) =>
+      sql`DELETE FROM repository_settings WHERE project_id = ${projectId}`.pipe(
+        Effect.orDie,
+      );
+
+    const resolveFile = (projectId: FolderId, repoPath: string) =>
+      Effect.gen(function* () {
+        const toml = parseTomlSettings(repoPath);
+        const json = readJsonSettings(repoPath, toml);
+        if (json !== null) {
+          const rows = yield* legacyRow(projectId);
+          if (rows[0] !== undefined) yield* clearLegacyRow(projectId);
+          return json;
+        }
+
+        const rows = yield* legacyRow(projectId);
+        if (rows[0] !== undefined) {
+          const migrated = rowToFile(rows[0], toml);
+          writeJsonSettings(repoPath, migrated);
+          yield* clearLegacyRow(projectId);
+          return migrated;
+        }
+
+        return toml;
+      });
+
     const get: RepositorySettingsService["Type"]["get"] = (projectId) =>
       Effect.gen(function* () {
-        const path = yield* projectPath(projectId);
-        const repoFile =
-          path === null ? emptyRepoFileSettings() : parseRepoFileSettings(path);
-        const rows = yield* sql<Row>`
-          SELECT project_id, default_provider_id, default_model,
-                 default_runtime_mode, auto_create_worktree, worktree_base_dir,
-                 archive_cleanup_script, archive_remove_worktree,
-                 setup_script, run_script, auto_run_after_setup,
-                 environment_variables_json
-          FROM repository_settings
-          WHERE project_id = ${projectId}
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        return rowToSettings(projectId, rows[0] ?? null, repoFile);
+        const repoPath = yield* projectPath(projectId);
+        const file =
+          repoPath === null
+            ? emptyFileSettings()
+            : yield* resolveFile(projectId, repoPath);
+        return fileToSettings(projectId, file);
       });
 
     const update: RepositorySettingsService["Type"]["update"] = (
@@ -228,74 +450,13 @@ export const RepositorySettingsServiceLive = Layer.effect(
       patch,
     ) =>
       Effect.gen(function* () {
+        const repoPath = yield* projectPath(projectId);
         const current = yield* get(projectId);
-        const next = RepositorySettings.make({
-          projectId,
-          defaultProviderId:
-            "defaultProviderId" in patch
-              ? (patch.defaultProviderId ?? null)
-              : current.defaultProviderId,
-          defaultModel:
-            "defaultModel" in patch
-              ? (patch.defaultModel ?? null)
-              : current.defaultModel,
-          defaultRuntimeMode:
-            "defaultRuntimeMode" in patch
-              ? (patch.defaultRuntimeMode ?? null)
-              : current.defaultRuntimeMode,
-          autoCreateWorktree:
-            patch.autoCreateWorktree ?? current.autoCreateWorktree,
-          worktreeBaseDir:
-            "worktreeBaseDir" in patch
-              ? (patch.worktreeBaseDir ?? null)
-              : current.worktreeBaseDir,
-          archiveCleanupScript:
-            "archiveCleanupScript" in patch
-              ? patch.archiveCleanupScript?.trim()
-                ? patch.archiveCleanupScript
-                : null
-              : current.archiveCleanupScript,
-          archiveRemoveWorktree:
-            patch.archiveRemoveWorktree ?? current.archiveRemoveWorktree,
-          setupScript:
-            "setupScript" in patch ? cleanScript(patch.setupScript) : current.setupScript,
-          runScript:
-            "runScript" in patch ? cleanScript(patch.runScript) : current.runScript,
-          autoRunAfterSetup:
-            patch.autoRunAfterSetup ?? current.autoRunAfterSetup,
-          environmentVariables:
-            patch.environmentVariables ?? current.environmentVariables,
-        });
-
-        yield* sql`
-          INSERT INTO repository_settings
-            (project_id, default_provider_id, default_model,
-             default_runtime_mode, auto_create_worktree, worktree_base_dir,
-             archive_cleanup_script, archive_remove_worktree,
-             setup_script, run_script, auto_run_after_setup,
-             environment_variables_json)
-          VALUES
-            (${projectId}, ${next.defaultProviderId}, ${next.defaultModel},
-             ${next.defaultRuntimeMode}, ${next.autoCreateWorktree ? 1 : 0},
-             ${next.worktreeBaseDir}, ${next.archiveCleanupScript},
-             ${next.archiveRemoveWorktree ? 1 : 0},
-             ${next.setupScript}, ${next.runScript},
-             ${next.autoRunAfterSetup ? 1 : 0},
-             ${JSON.stringify(next.environmentVariables)})
-          ON CONFLICT(project_id) DO UPDATE SET
-            default_provider_id = excluded.default_provider_id,
-            default_model = excluded.default_model,
-            default_runtime_mode = excluded.default_runtime_mode,
-            auto_create_worktree = excluded.auto_create_worktree,
-            worktree_base_dir = excluded.worktree_base_dir,
-            archive_cleanup_script = excluded.archive_cleanup_script,
-            archive_remove_worktree = excluded.archive_remove_worktree,
-            setup_script = excluded.setup_script,
-            run_script = excluded.run_script,
-            auto_run_after_setup = excluded.auto_run_after_setup,
-            environment_variables_json = excluded.environment_variables_json
-        `.pipe(Effect.orDie);
-
+        const next = applyPatch(projectId, current, patch);
+        if (repoPath !== null) {
+          writeJsonSettings(repoPath, settingsToFile(next));
+          yield* clearLegacyRow(projectId);
+        }
         return next;
       });
 

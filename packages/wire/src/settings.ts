@@ -2,6 +2,7 @@ import { Rpc } from "@effect/rpc";
 import { Schema } from "effect";
 
 import { AgentDefinition, ProviderId, RuntimeMode } from "./agent.ts";
+import { GitMergeMethod } from "./git.ts";
 
 /**
  * Per-preset overlay matching the renderer's old localStorage shape. Storing
@@ -41,6 +42,12 @@ export const BranchNamingStyle = Schema.Literal(
   "custom",
 );
 export type BranchNamingStyle = typeof BranchNamingStyle.Type;
+
+export const MergePrefs = Schema.Struct({
+  method: GitMergeMethod,
+  deleteBranch: Schema.Boolean,
+});
+export type MergePrefs = typeof MergePrefs.Type;
 
 /**
  * Wire-shape of `settings.json`. Owned by the main process; rendered to and
@@ -90,6 +97,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * Empty falls back to a bare slug.
    */
   branchNamingPrefix: Schema.String,
+  mergePrefs: MergePrefs,
 }) {}
 
 /**
@@ -122,6 +130,7 @@ export const SettingsPatch = Schema.Struct({
   ),
   branchNamingStyle: Schema.optional(BranchNamingStyle),
   branchNamingPrefix: Schema.optional(Schema.String),
+  mergePrefs: Schema.optional(MergePrefs),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 

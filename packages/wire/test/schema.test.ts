@@ -8,6 +8,7 @@ import {
   GitBranchInfo,
   Message,
   PokemonPokedexEntry,
+  RepositorySettingsFile,
   SettingsFile,
   Session,
   Worktree,
@@ -381,6 +382,7 @@ describe("SettingsFile round-trip", () => {
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
+      mergePrefs: { method: "squash", deleteBranch: true },
     });
   });
 
@@ -413,8 +415,30 @@ describe("SettingsFile round-trip", () => {
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        mergePrefs: { method: "merge", deleteBranch: false },
       }),
     ).toThrow();
+  });
+});
+
+describe("RepositorySettingsFile round-trip", () => {
+  it("round-trips the editable repository settings JSON shape", () => {
+    roundTrip(RepositorySettingsFile, {
+      schemaVersion: 1,
+      defaultProviderId: "codex",
+      defaultModel: "gpt-5-codex",
+      defaultRuntimeMode: "auto-accept-edits",
+      autoCreateWorktree: true,
+      worktreeBaseDir: "/tmp/worktrees",
+      archiveCleanupScript: "rm -rf node_modules",
+      archiveRemoveWorktree: true,
+      setupScript: "bun install",
+      runScript: "bun dev",
+      autoRunAfterSetup: true,
+      environmentVariables: {
+        NODE_ENV: "development",
+      },
+    });
   });
 });
 
