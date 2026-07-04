@@ -81,6 +81,7 @@ import {
   chooseComposerSubmitRoute,
   findPendingPlanApprovalRequest,
   hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
   shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
 import {
@@ -252,14 +253,23 @@ export function ChatComposer({
       findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
     [requestsById, sessionId],
   );
+  const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
   const sendPlanFeedbackNow = useMemo(
     () =>
       shouldSendPlanFeedbackNow({
         permissionMode: session.permissionMode,
         messages: sessionMessages ?? [],
         pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
       }),
-    [pendingPlanApprovalRequest, session.permissionMode, sessionMessages],
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
   );
   const emulatedPlanReady = useMemo(
     () =>
@@ -267,8 +277,16 @@ export function ChatComposer({
         permissionMode: session.permissionMode,
         messages: sessionMessages ?? [],
         pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
       }),
-    [pendingPlanApprovalRequest, session.permissionMode, sessionMessages],
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
   );
   useEffect(() => {
     if (isDraft) return;
