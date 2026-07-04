@@ -12,7 +12,8 @@ import {
   AgentStartRpc,
   AgentUpdateProviderRpc,
 } from "./agent.ts";
-import { AttachmentTouchRpc, AttachmentUploadRpc } from "./attachment.ts";
+import { AttachmentUploadRpc } from "./attachment.ts";
+import { ContextSaveTextRpc } from "./context.ts";
 import {
   AuthGetSessionRpc,
   AuthSessionChangesRpc,
@@ -291,7 +292,7 @@ export const MemoizeRpcs = RpcGroup.make(
   MessagesQueueFlushRpc,
   MessagesQueueResumeRpc,
   AttachmentUploadRpc,
-  AttachmentTouchRpc,
+  ContextSaveTextRpc,
   SkillListRpc,
   SkillStreamRpc,
   PermissionRequestsRpc,

@@ -5,14 +5,18 @@ import { AttachmentService } from "./services/attachment-service.ts";
 
 const Upload = MemoizeRpcs.toLayerHandler(
   "attachments.upload",
-  ({ sessionId, bytes, mimeType, originalName }) =>
+  ({ sessionId, bytes, mimeType, originalName, rootPath }) =>
     Effect.flatMap(AttachmentService, (svc) =>
-      svc.upload(sessionId, bytes, mimeType, originalName),
+      svc.upload(sessionId, bytes, mimeType, originalName, rootPath),
     ),
 );
 
-const Touch = MemoizeRpcs.toLayerHandler("attachments.touch", ({ ids }) =>
-  Effect.flatMap(AttachmentService, (svc) => svc.touch(ids)),
+const SaveText = MemoizeRpcs.toLayerHandler(
+  "context.saveText",
+  ({ sessionId, text, ext, rootPath }) =>
+    Effect.flatMap(AttachmentService, (svc) =>
+      svc.saveText(sessionId, text, ext, rootPath),
+    ),
 );
 
-export const AttachmentHandlersLayer = Layer.mergeAll(Upload, Touch);
+export const AttachmentHandlersLayer = Layer.mergeAll(Upload, SaveText);

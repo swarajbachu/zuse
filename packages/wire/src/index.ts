@@ -5,6 +5,7 @@ export * from "./browser.ts";
 export * from "./code-index.ts";
 export * from "./composer.ts";
 export * from "./connect.ts";
+export * from "./context.ts";
 export * from "./diagnostics.ts";
 export * from "./external-thread.ts";
 export * from "./fs.ts";
