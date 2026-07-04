@@ -15,6 +15,7 @@ import {
   Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { EditorView } from "@codemirror/view";
+import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -56,6 +57,7 @@ import {
   setComposerDoc,
   type ActiveTrigger,
 } from "~/lib/codemirror/composer";
+import { getRpcClient } from "~/lib/rpc-client";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { useKeybindingsStore } from "../store/keybindings";
 import {
@@ -350,7 +352,6 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
-  const forgetActive = useAttachmentsStore((s) => s.forgetActive);
   // Submit reads through a ref so the keymap, captured at editor creation
   // time, always sees the current sessionId / send / inFlight without
   // recreating the editor on every render.
@@ -360,6 +361,10 @@ export function ChatComposer({
   const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
     () => undefined,
   );
+  // Same indirection for large text pastes. Returns whether the paste was
+  // consumed (diverted to a `.context/files` file chip) so CodeMirror knows
+  // to skip its default insert.
+  const textPastedRef = useRef<(text: string) => boolean>(() => false);
   // Same pattern for the Shift+Tab plan-mode toggle. Latest session +
   // mode without reconstructing the editor on every state change.
   const togglePlanModeRef = useRef<() => void>(() => undefined);
@@ -402,6 +407,7 @@ export function ChatComposer({
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
+      onTextPaste: (text: string) => textPastedRef.current(text),
       onTogglePlanMode: () => togglePlanModeRef.current(),
     };
     const view = createComposerView({
@@ -605,7 +611,7 @@ export function ChatComposer({
         }),
       });
 
-      void uploadOne(sessionId, file)
+      void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
           const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
           editorViewRef.current?.dispatch({
@@ -630,6 +636,53 @@ export function ChatComposer({
     }
   };
 
+  /**
+   * A paste counts as "big" when it spans more than 10 lines or 2,000
+   * characters. Such pastes become a `.context/files/paste-<uuid>.md` file
+   * chip instead of flooding the composer with inline text.
+   */
+  const isBigTextPaste = (text: string): boolean =>
+    text.split("\n").length > 10 || text.length > 2000;
+
+  /**
+   * Persist a large paste as a workspace file and drop a file chip for it.
+   * Reuses the `@`-file pipeline (`FileRef`), so the agent reads the file
+   * from its cwd. On failure, fall back to inserting the raw text so nothing
+   * the user pasted is ever lost.
+   */
+  const attachPastedText = async (text: string): Promise<void> => {
+    if (editorViewRef.current === null) return;
+    try {
+      const client = await getRpcClient();
+      const res = await Effect.runPromise(
+        client.context.saveText({
+          sessionId,
+          text,
+          ext: "md",
+          ...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
+        }),
+      );
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      replaceWithChip(view, sel.from, sel.to, `@${res.relPath}`, {
+        kind: "file",
+        relPath: res.relPath,
+        absPath: res.absPath,
+        entryKind: "file",
+      });
+    } catch (err) {
+      console.error("[chat-composer] saveText failed", err);
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      });
+    }
+  };
+
   // Paperclip → hidden file input.
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -639,7 +692,9 @@ export function ChatComposer({
   };
 
   // Paste handler — accepts any file type pasted into the composer (images,
-  // PDFs, docs, etc.).
+  // PDFs, docs, etc.). Large *text* pastes are handled one layer down, inside
+  // CodeMirror (`onTextPaste`), because CM inserts pasted text before this
+  // React handler runs — see `textPastedRef` / composer.ts.
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -681,18 +736,6 @@ export function ChatComposer({
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) attachFiles(files);
   };
-
-  // Forget any stale tempId-keyed attachments when the composer unmounts —
-  // the heartbeat tracks ids, so dropping unattached blobs is enough to
-  // let the GC reap them.
-  useEffect(
-    () => () => {
-      // No-op for now: forgetActive is called per-id only when a chip is
-      // dropped explicitly. Server GC handles long-lived orphans.
-      void forgetActive;
-    },
-    [forgetActive],
-  );
 
   const submit = (): boolean => {
     // Don't submit while a popover is open — Enter belongs to the popover.
@@ -787,6 +830,12 @@ export function ChatComposer({
     dragDepthRef.current = 0;
     setIsDragging(false);
     attachFiles(files);
+  };
+
+  textPastedRef.current = (text) => {
+    if (!isBigTextPaste(text)) return false;
+    void attachPastedText(text);
+    return true;
   };
 
   const inPlanMode = session.permissionMode === "plan";

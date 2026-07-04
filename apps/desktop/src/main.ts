@@ -18,6 +18,7 @@ import { execFile, spawn } from "node:child_process";
 import * as http from "node:http";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -1374,6 +1375,66 @@ const findAssetFilename = async (
   return cache.byStem.get(id) ?? null;
 };
 
+const ZUSE_SQLITE_FILENAME = "zuse.sqlite";
+
+// Attachment ids resolve to an immutable on-disk path, so caching id → path
+// avoids re-opening the DB for every `<img>` request.
+const attachmentPathCache = new Map<string, string>();
+
+/**
+ * Resolve `<id>` → the attachment blob's absolute path via a read-only probe
+ * of the app database. Blobs now live in each workspace's per-session
+ * `.context/files/` dir (recorded in `attachments.abs_path`), so a single-dir
+ * scan can no longer find them. Returns `null` on any failure (missing row,
+ * NULL `abs_path`, or DB unavailable) — the caller then tries the legacy
+ * flat-dir layout.
+ */
+const resolveAttachmentAbsPathFromDb = (
+  userData: string,
+  id: string,
+): string | null => {
+  const cached = attachmentPathCache.get(id);
+  if (cached !== undefined) return cached;
+  try {
+    // Lazy require: `node:sqlite` is a builtin in this Electron's Node
+    // runtime — the same client the server uses.
+    const req = createRequire(import.meta.url);
+    const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
+    const db = new DatabaseSync(Path.join(userData, ZUSE_SQLITE_FILENAME), {
+      readOnly: true,
+    });
+    try {
+      const row = db
+        .prepare("SELECT abs_path FROM attachments WHERE id = ?")
+        .get(id) as { abs_path?: string | null } | undefined;
+      const abs = typeof row?.abs_path === "string" ? row.abs_path : null;
+      if (abs !== null) attachmentPathCache.set(id, abs);
+      return abs;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Defense-in-depth: only serve a DB-recorded path when it lives inside the
+ * legacy attachments dir or a `.context/files` directory. The path is
+ * server-written and the id is already sanitised, but this keeps a corrupted
+ * row from turning the protocol into an arbitrary-file reader.
+ */
+const isServableAttachmentPath = (
+  attachmentsDir: string,
+  p: string,
+): boolean => {
+  const norm = Path.normalize(p);
+  return (
+    norm.startsWith(attachmentsDir + Path.sep) ||
+    norm.includes(`${Path.sep}.context${Path.sep}files${Path.sep}`)
+  );
+};
+
 const registerZuseProtocol = (): void => {
   const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
   const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
@@ -1388,33 +1449,57 @@ const registerZuseProtocol = (): void => {
 
   const handleAssetRequest = async (request: Request) => {
     const url = new URL(request.url);
-    const asset =
-      url.host === ATTACHMENTS_HOST
-        ? { cache: attachmentFilenames, dir: attachmentsDir }
-        : url.host === POKEMON_HOST
-          ? { cache: pokemonFilenames, dir: pokemonDir }
-          : null;
-    if (asset === null) {
+    if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
       return new Response(null, { status: 404 });
     }
 
     // The path is `/<id>`; sanitise to a single segment so a crafted url
-    // like `zuse://attachments/../foo` cannot escape `attachmentsDir`.
+    // like `zuse://attachments/../foo` cannot escape the asset dirs.
     const id = decodeURIComponent(url.pathname.replace(/^\//, ""));
     if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) {
       return new Response(null, { status: 400 });
     }
 
-    let filename: string | null;
-    try {
-      filename = await findAssetFilename(asset.dir, asset.cache, id);
-    } catch {
-      return new Response(null, { status: 404 });
+    let absPath: string | null = null;
+    if (url.host === ATTACHMENTS_HOST) {
+      // Prefer the DB-recorded absolute path (new `.context/files` layout).
+      const fromDb = resolveAttachmentAbsPathFromDb(
+        app.getPath("userData"),
+        id,
+      );
+      if (fromDb !== null && isServableAttachmentPath(attachmentsDir, fromDb)) {
+        absPath = fromDb;
+      } else {
+        // Legacy fallback: scan the flat userData/attachments dir for
+        // pre-migration blobs.
+        try {
+          const filename = await findAssetFilename(
+            attachmentsDir,
+            attachmentFilenames,
+            id,
+          );
+          if (filename) absPath = Path.join(attachmentsDir, filename);
+        } catch {
+          absPath = null;
+        }
+      }
+    } else {
+      try {
+        const filename = await findAssetFilename(
+          pokemonDir,
+          pokemonFilenames,
+          id,
+        );
+        if (filename) absPath = Path.join(pokemonDir, filename);
+      } catch {
+        absPath = null;
+      }
     }
-    if (!filename) return new Response(null, { status: 404 });
 
-    const absPath = Path.join(asset.dir, filename);
-    const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
+    if (absPath === null) return new Response(null, { status: 404 });
+
+    const base = Path.basename(absPath);
+    const ext = base.slice(base.lastIndexOf(".") + 1).toLowerCase();
     const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
 
     const response = await net.fetch(pathToFileURL(absPath).toString());

@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import { FileSystem, Path } from "@effect/platform";
 import { SqlClient } from "@effect/sql";
-import { Duration, Effect, Fiber, Layer, Ref, Schedule } from "effect";
+import { Effect, Layer } from "effect";
 
-import {
-  AttachmentTooLargeError,
-} from "@zuse/wire";
+import { AttachmentTooLargeError, ContextWriteError } from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
+import {
+  ensureContextFilesDir,
+  resolveSessionCwd,
+} from "../../context/context-files.ts";
 import { extForUpload } from "../image-mime.ts";
 import {
   AttachmentService,
@@ -21,22 +23,22 @@ import {
  */
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
-/** GC keeps a blob if it was last touched within this window. */
-const HEARTBEAT_TTL_MS = 90_000;
-
-/** Minimum age before a *referenced-by-nothing* blob is eligible for GC. */
-const MIN_AGE_MS = 24 * 60 * 60 * 1000;
-
-/** Sweep cadence: once on boot, then once a day. */
-const GC_INTERVAL = Duration.hours(24);
-
 const sessionSegment = (sessionId: string): string =>
   sessionId.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 80);
 
-const attachmentsDir = (userData: string, pathSvc: Path.Path): string =>
+/**
+ * Legacy flat blob directory under userData. New uploads land in the
+ * workspace's `.context/files/`, but this is still used (a) as a fallback
+ * when a session's cwd cannot be resolved and (b) to resolve pre-migration
+ * rows whose `abs_path` is NULL.
+ */
+const legacyAttachmentsDir = (userData: string, pathSvc: Path.Path): string =>
   pathSvc.join(userData, "attachments");
 
 const blobFilename = (id: string, ext: string): string => `${id}.${ext}`;
+
+const sanitizeExt = (ext: string): string =>
+  ext.replace(/[^a-zA-Z0-9]+/g, "").slice(0, 12) || "txt";
 
 export const AttachmentServiceLive = Layer.scoped(
   AttachmentService,
@@ -46,27 +48,14 @@ export const AttachmentServiceLive = Layer.scoped(
     const sql = yield* SqlClient.SqlClient;
     const { userData } = yield* AppPaths;
 
-    const dir = attachmentsDir(userData, pathSvc);
-    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie);
-
-    // In-memory heartbeat map. The renderer touches ids it cares about
-    // every 30 s; blobs not seen recently become GC-eligible after the
-    // 24 h floor. Initialised eagerly on upload so freshly written blobs
-    // are not reaped before the first heartbeat fires.
-    const lastTouched = yield* Ref.make<Map<string, number>>(new Map());
-
-    const touchOne = (id: string): Effect.Effect<void> =>
-      Ref.update(lastTouched, (m) => {
-        const next = new Map(m);
-        next.set(id, Date.now());
-        return next;
-      });
+    const legacyDir = legacyAttachmentsDir(userData, pathSvc);
 
     const upload: AttachmentServiceShape["upload"] = (
       sessionId,
       bytes,
       mimeType,
       originalName,
+      rootPath,
     ) =>
       Effect.gen(function* () {
         if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
@@ -79,31 +68,36 @@ export const AttachmentServiceLive = Layer.scoped(
           );
         }
 
-        // We do not validate `sessionId` against the sessions table here.
-        // The session exists by the time the renderer can reach the
-        // composer; bouncing on a missing row is overkill and would
-        // require a second query per upload. The id only flavours the
-        // on-disk filename for human-debuggability.
+        // Bytes land in the workspace's gitignored `.context/files/` so they
+        // sit inside the agent's cwd rather than hidden app data. When the
+        // cwd can't be resolved (e.g. an orphaned session id) we fall back to
+        // the legacy userData directory so the upload never hard-fails.
+        const cwd = yield* resolveSessionCwd(sql, sessionId, rootPath);
+        let dir: string;
+        if (cwd === null) {
+          dir = legacyDir;
+          yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie);
+        } else {
+          dir = yield* ensureContextFilesDir(fs, pathSvc, cwd);
+        }
 
         const id = `${sessionSegment(sessionId)}-${randomUUID()}`;
         const ext = extForUpload(mimeType, originalName);
-        const filename = blobFilename(id, ext);
-        const absPath = pathSvc.join(dir, filename);
+        const absPath = pathSvc.join(dir, blobFilename(id, ext));
 
         yield* fs.writeFile(absPath, bytes).pipe(Effect.orDie);
 
         const now = new Date().toISOString();
         yield* sql`
           INSERT INTO attachments (
-            id, session_id, mime_type, size_bytes, original_name, created_at
+            id, session_id, mime_type, size_bytes, original_name, created_at,
+            abs_path
           )
           VALUES (
             ${id}, ${sessionId as string}, ${mimeType}, ${bytes.byteLength},
-            ${originalName}, ${now}
+            ${originalName}, ${now}, ${absPath}
           )
         `.pipe(Effect.orDie);
-
-        yield* touchOne(id);
 
         return {
           id,
@@ -113,15 +107,41 @@ export const AttachmentServiceLive = Layer.scoped(
         };
       });
 
+    const saveText: AttachmentServiceShape["saveText"] = (
+      sessionId,
+      text,
+      ext,
+      rootPath,
+    ) =>
+      Effect.gen(function* () {
+        const cwd = yield* resolveSessionCwd(sql, sessionId, rootPath);
+        if (cwd === null) {
+          return yield* Effect.fail(
+            new ContextWriteError({
+              sessionId,
+              reason: "Could not resolve a workspace root for this session.",
+            }),
+          );
+        }
+        const dir = yield* ensureContextFilesDir(fs, pathSvc, cwd);
+        const name = `paste-${randomUUID()}.${sanitizeExt(ext)}`;
+        const absPath = pathSvc.join(dir, name);
+        yield* fs.writeFileString(absPath, text).pipe(Effect.orDie);
+        const relPath = pathSvc.relative(cwd, absPath);
+        return { relPath, absPath };
+      });
+
     interface AttachmentMetaRow {
       readonly mime_type: string;
       readonly original_name: string;
+      readonly abs_path: string | null;
     }
 
     const resolveAttachmentPath = (id: string) =>
       Effect.gen(function* () {
         const rows = yield* sql<AttachmentMetaRow>`
-          SELECT mime_type, original_name FROM attachments WHERE id = ${id}
+          SELECT mime_type, original_name, abs_path
+          FROM attachments WHERE id = ${id}
         `.pipe(
           Effect.orElseSucceed(
             () => [] as ReadonlyArray<AttachmentMetaRow>,
@@ -129,8 +149,14 @@ export const AttachmentServiceLive = Layer.scoped(
         );
         const row = rows[0];
         if (row === undefined) return null;
-        const ext = extForUpload(row.mime_type, row.original_name);
-        const absPath = pathSvc.join(dir, blobFilename(id, ext));
+        // Pre-migration rows have no `abs_path`; reconstruct the legacy
+        // flat-dir path from the id + extension.
+        const absPath =
+          row.abs_path ??
+          pathSvc.join(
+            legacyDir,
+            blobFilename(id, extForUpload(row.mime_type, row.original_name)),
+          );
         return { absPath, mimeType: row.mime_type };
       });
 
@@ -156,76 +182,9 @@ export const AttachmentServiceLive = Layer.scoped(
         return { path: resolved.absPath, mimeType: resolved.mimeType };
       });
 
-    const touch: AttachmentServiceShape["touch"] = (ids) =>
-      Ref.update(lastTouched, (m) => {
-        const next = new Map(m);
-        const now = Date.now();
-        for (const id of ids) next.set(id, now);
-        return next;
-      });
-
-    /**
-     * Sweep: drop rows + blob files for attachments that
-     *   - are not referenced by any message_attachments row, and
-     *   - were created at least MIN_AGE_MS ago, and
-     *   - haven't been heartbeat in HEARTBEAT_TTL_MS.
-     * The triple-guard keeps drafts and queued chips alive across the
-     * "user typed it but hasn't sent yet" window.
-     */
-    const sweep = Effect.gen(function* () {
-      const cutoff = new Date(Date.now() - MIN_AGE_MS).toISOString();
-      const heartbeats = yield* Ref.get(lastTouched);
-      const stale = (id: string): boolean => {
-        const seen = heartbeats.get(id);
-        return seen === undefined || Date.now() - seen > HEARTBEAT_TTL_MS;
-      };
-
-      interface Candidate {
-        readonly id: string;
-        readonly mime_type: string;
-        readonly original_name: string;
-      }
-      const candidates = yield* sql<Candidate>`
-        SELECT a.id, a.mime_type, a.original_name
-        FROM attachments a
-        LEFT JOIN message_attachments ma ON ma.attachment_id = a.id
-        WHERE ma.attachment_id IS NULL
-          AND a.created_at < ${cutoff}
-      `.pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<Candidate>));
-
-      for (const { id, mime_type, original_name } of candidates) {
-        if (!stale(id)) continue;
-        const absPath = pathSvc.join(
-          dir,
-          blobFilename(id, extForUpload(mime_type, original_name)),
-        );
-        yield* fs
-          .remove(absPath, { force: true })
-          .pipe(Effect.ignoreLogged);
-        yield* sql`DELETE FROM attachments WHERE id = ${id}`.pipe(
-          Effect.ignoreLogged,
-        );
-        yield* Ref.update(lastTouched, (m) => {
-          const next = new Map(m);
-          next.delete(id);
-          return next;
-        });
-      }
-    });
-
-    // Run once on boot and then every 24 h. The sweep is best-effort —
-    // any failure is logged and we keep the service alive.
-    const gcFiber = yield* Effect.forkScoped(
-      sweep.pipe(
-        Effect.ignoreLogged,
-        Effect.repeat(Schedule.spaced(GC_INTERVAL)),
-      ),
-    );
-    yield* Effect.addFinalizer(() => Fiber.interrupt(gcFiber));
-
     return {
       upload,
-      touch,
+      saveText,
       read,
       readPath,
     } satisfies AttachmentServiceShape;
