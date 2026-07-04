@@ -28,16 +28,6 @@ import {
   BrowserSetCredentialRpc,
 } from "./browser.ts";
 import {
-  IndexFindReferencesRpc,
-  IndexListModuleRpc,
-  IndexReadChunkRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexSymbolLookupRpc,
-} from "./code-index.ts";
-import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
   FsReadExternalFileRpc,
@@ -320,14 +310,6 @@ export const MemoizeRpcs = RpcGroup.make(
   KeybindingsReplaceRpc,
   KeybindingsStreamRpc,
   SessionSetWorktreeRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexSymbolLookupRpc,
-  IndexFindReferencesRpc,
-  IndexReadChunkRpc,
-  IndexListModuleRpc,
 );
 export type MemoizeRpcs = typeof MemoizeRpcs;
 

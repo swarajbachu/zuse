@@ -7,7 +7,7 @@ import type { BrowserCommand, BrowserCommandResult } from "@zuse/wire";
  * Promise-returning send bound to one agent session. Provider-service closes
  * over the session id and the Effect runtime so these tool handlers — which
  * the Claude SDK invokes as plain async functions — stay free of any Effect
- * wiring. Mirrors how `buildIndexTools` binds the workspace handle.
+ * wiring.
  */
 export type BrowserSend = (
   command: BrowserCommand,
@@ -139,7 +139,9 @@ export const buildBrowserTools = (send: BrowserSend) => [
       ref: z
         .string()
         .min(1)
-        .describe("The `ref` of the target element from a recent browser_snapshot."),
+        .describe(
+          "The `ref` of the target element from a recent browser_snapshot.",
+        ),
     },
     async (args) => {
       const result = await send({ _tag: "Click", ref: args.ref });
@@ -161,7 +163,12 @@ export const buildBrowserTools = (send: BrowserSend) => [
     "browser_type",
     "Type text into the input/textarea identified by `ref` (from browser_snapshot). Replaces the field's current value. Set `submit: true` to press Enter afterward (submit a search box or login form). Requires user approval.",
     {
-      ref: z.string().min(1).describe("The `ref` of the target input from a recent browser_snapshot."),
+      ref: z
+        .string()
+        .min(1)
+        .describe(
+          "The `ref` of the target input from a recent browser_snapshot.",
+        ),
       text: z.string().describe("The text to type into the field."),
       submit: z
         .boolean()
@@ -224,7 +231,9 @@ export const buildBrowserTools = (send: BrowserSend) => [
       ref: z
         .string()
         .optional()
-        .describe("Scroll this snapshot ref into view instead of moving the viewport."),
+        .describe(
+          "Scroll this snapshot ref into view instead of moving the viewport.",
+        ),
     },
     async (args) => {
       const result = await send({
@@ -254,7 +263,11 @@ export const buildBrowserTools = (send: BrowserSend) => [
       value: z.string().describe("The option value or visible text to select."),
     },
     async (args) => {
-      const result = await send({ _tag: "Select", ref: args.ref, value: args.value });
+      const result = await send({
+        _tag: "Select",
+        ref: args.ref,
+        value: args.value,
+      });
       return textResult(result, `Selected "${args.value}".`);
     },
   ),
@@ -266,7 +279,9 @@ export const buildBrowserTools = (send: BrowserSend) => [
       key: z
         .string()
         .min(1)
-        .describe("Key name, e.g. Enter, Tab, Escape, ArrowDown, PageDown, Backspace."),
+        .describe(
+          "Key name, e.g. Enter, Tab, Escape, ArrowDown, PageDown, Backspace.",
+        ),
       ref: z.string().optional(),
     },
     async (args) => {
@@ -290,7 +305,12 @@ export const buildBrowserTools = (send: BrowserSend) => [
       });
       if (!result.ok) {
         return {
-          content: [{ type: "text" as const, text: result.error ?? "Could not read the page." }],
+          content: [
+            {
+              type: "text" as const,
+              text: result.error ?? "Could not read the page.",
+            },
+          ],
           isError: true,
         };
       }
@@ -318,7 +338,12 @@ export const buildBrowserTools = (send: BrowserSend) => [
       const result = await send({ _tag: "Console" });
       if (!result.ok) {
         return {
-          content: [{ type: "text" as const, text: result.error ?? "Could not read the console." }],
+          content: [
+            {
+              type: "text" as const,
+              text: result.error ?? "Could not read the console.",
+            },
+          ],
           isError: true,
         };
       }
@@ -326,9 +351,10 @@ export const buildBrowserTools = (send: BrowserSend) => [
         content: [
           {
             type: "text" as const,
-            text: result.text && result.text.length > 0
-              ? result.text
-              : "(console is empty — no messages or errors since the last navigation)",
+            text:
+              result.text && result.text.length > 0
+                ? result.text
+                : "(console is empty — no messages or errors since the last navigation)",
           },
         ],
       };
@@ -353,7 +379,8 @@ export const buildBrowserTools = (send: BrowserSend) => [
           {
             type: "text" as const,
             text: result.ok
-              ? (result.detail ?? `Submitted the saved login for ${args.origin}.`)
+              ? (result.detail ??
+                `Submitted the saved login for ${args.origin}.`)
               : (result.error ??
                 `No saved credential for ${args.origin}. Ask the user to add one in Settings → Browser.`),
           },

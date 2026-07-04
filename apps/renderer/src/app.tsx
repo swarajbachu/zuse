@@ -14,7 +14,6 @@ import { ChatSwitcher } from "./components/chat-switcher.tsx";
 import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { IndexProgressBanner } from "./components/index-progress-banner.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { ChatView } from "./components/chat-view";
 import { CostFooter } from "./components/cost-footer";
@@ -43,7 +42,6 @@ import { useProvidersStore } from "./store/providers.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { hydrateSubagentsStore } from "./store/subagents.ts";
-import { useIndexStore } from "./store/code-index.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
@@ -295,16 +293,6 @@ function MainShell() {
     closeFileTab();
   }, [selectedFolderId, openFile, closeFileTab]);
 
-  // Open a status subscription for the selected workspace's index. Server
-  // already triggered `ensureIndexed` on `workspace.setSelected`; this just
-  // gives the renderer something to render. `hydrate` no-ops on duplicate
-  // calls, so re-selecting the same folder doesn't re-open the stream.
-  const hydrateIndex = useIndexStore((s) => s.hydrate);
-  useEffect(() => {
-    if (selectedFolderId === null) return;
-    void hydrateIndex(selectedFolderId);
-  }, [selectedFolderId, hydrateIndex]);
-
   // Eagerly hydrate worktrees on project select so the active context can
   // resolve worktree paths without waiting for the chat composer to mount.
   // Without this, terminal/file-tree/branch label stay in "preparing
@@ -399,7 +387,6 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            <IndexProgressBanner />
             {showMainChrome ? (
               <MainTabs
                 projectId={selectedFolderId}
