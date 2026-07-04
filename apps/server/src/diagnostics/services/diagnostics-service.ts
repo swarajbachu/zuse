@@ -6,7 +6,9 @@ import type {
 } from "@zuse/wire";
 
 export interface DiagnosticsServiceShape {
-  readonly exportBundle: () => Effect.Effect<
+  readonly exportBundle: (payload: {
+    readonly clientContext?: unknown;
+  }) => Effect.Effect<
     DiagnosticsExportResult,
     DiagnosticsExportError
   >;

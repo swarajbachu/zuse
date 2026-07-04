@@ -41,6 +41,10 @@ import {
 } from "~/lib/use-relative-time.ts";
 import { cn } from "~/lib/utils";
 import {
+  collectDiagnosticsClientContext,
+} from "../lib/diagnostics-client-context.ts";
+import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import {
   COMPLETION_SOUND_PRESETS,
   playCompletionSound,
   prepareCompletionSound,
@@ -383,24 +387,60 @@ function Pane({ section }: { section: SettingsSection }) {
   return <RepositorySettings projectId={section.projectId} />;
 }
 
+const DIAGNOSTICS_ISSUE_URL =
+  "https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
+
+function openExternal(url: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  if (bridge?.app?.openExternal) {
+    bridge.app.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function revealPath(path: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  void bridge?.app?.revealPath?.(path);
+}
+
+async function copyDiagnosticsJson(path: string): Promise<boolean> {
+  const bridge = window.zuse ?? window.memoize;
+  return (await bridge?.app?.copyFileContents?.(path)) ?? false;
+}
+
 function DiagnosticsPane() {
   const [isExporting, setIsExporting] = useState(false);
   const [lastExport, setLastExport] = useState<{
     diagnosticId: string;
     bundlePath: string;
     summary: string;
-    agentPrompt: string;
+    jsonCopied: boolean;
     included: ReadonlyArray<string>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<"summary" | "prompt" | null>(null);
+  const [copied, setCopied] = useState<"summary" | "json" | null>(null);
 
-  const copyText = async (kind: "summary" | "prompt", text: string) => {
-    await navigator.clipboard?.writeText(text);
+  const markCopied = (kind: "summary" | "json") => {
     setCopied(kind);
     window.setTimeout(() => {
       setCopied((current) => (current === kind ? null : current));
     }, 1400);
+  };
+
+  const copyText = async (text: string) => {
+    await navigator.clipboard?.writeText(text);
+    markCopied("summary");
+  };
+
+  const copyJson = async (path: string) => {
+    const ok = await copyDiagnosticsJson(path);
+    if (ok) markCopied("json");
+    setLastExport((current) =>
+      current && current.bundlePath === path
+        ? { ...current, jsonCopied: ok }
+        : current,
+    );
   };
 
   const exportDiagnostics = async () => {
@@ -408,14 +448,22 @@ function DiagnosticsPane() {
     setError(null);
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client.diagnostics.export({}));
+      recordUiAction("diagnostics.export.started");
+      const clientContext = await collectDiagnosticsClientContext();
+      const result = await Effect.runPromise(
+        client.diagnostics.export({ clientContext }),
+      );
+      const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
+      if (jsonCopied) markCopied("json");
+      recordUiAction("diagnostics.export.completed", result.diagnosticId);
       setLastExport({
         diagnosticId: result.diagnosticId,
         bundlePath: result.bundlePath,
         summary: result.summary,
-        agentPrompt: result.agentPrompt,
+        jsonCopied,
         included: result.included,
       });
+      revealPath(result.bundlePath);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -430,12 +478,12 @@ function DiagnosticsPane() {
   return (
     <div className="flex flex-col gap-4">
       <SettingsGroup
-        title="Support bundle"
-        description="Creates a local redacted diagnostics file plus agent-readable artifacts. Raw prompts and full transcripts are not included by default."
+        title="Bug report diagnostics"
+        description="Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
       >
         <SettingsRow
-          title="Included by default"
-          description="Manifest, trace summary, recent errors, environment, provider status, and redacted session-event previews."
+          title="Export diagnostics JSON"
+          description="Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
           action={
             <Button
               size="sm"
@@ -453,24 +501,45 @@ function DiagnosticsPane() {
         {lastExport && (
           <SettingsRow
             title={`Last export: ${lastExport.diagnosticId}`}
-            description={lastExport.bundlePath}
+            description={
+              lastExport.jsonCopied
+                ? "Diagnostics JSON copied. Attach the revealed JSON file to the GitHub issue."
+                : "Diagnostics exported. Attach the revealed JSON file to the GitHub issue."
+            }
           >
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="settings"
                 size="sm"
-                onClick={() => void copyText("summary", lastExport.summary)}
+                onClick={() => openExternal(DIAGNOSTICS_ISSUE_URL)}
               >
-                {copied === "summary" ? "Copied" : "Copy summary"}
+                Open GitHub issue
               </Button>
               <Button
                 variant="settings"
                 size="sm"
-                onClick={() => void copyText("prompt", lastExport.agentPrompt)}
+                onClick={() => void copyJson(lastExport.bundlePath)}
               >
-                {copied === "prompt" ? "Copied" : "Copy agent prompt"}
+                {copied === "json" ? "Copied" : "Copy diagnostics JSON"}
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => revealPath(lastExport.bundlePath)}
+              >
+                Reveal diagnostics file
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => void copyText(lastExport.summary)}
+              >
+                {copied === "summary" ? "Copied" : "Copy summary"}
               </Button>
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              File: {lastExport.bundlePath}
+            </p>
             <div className="mt-3 rounded-lg border border-border/40 bg-background/60 p-3">
               <div className="mb-2 text-xs font-medium text-muted-foreground">
                 Bundle contents
@@ -498,8 +567,8 @@ function DiagnosticsPane() {
       </SettingsGroup>
 
       <SettingsFrame
-        title="Agent intake"
-        description="After a user sends the exported JSON file, run bun run diagnostics:inspect path/to/zuse-diagnostics.json in a repo workspace. The script writes .context/diagnostics/<id>/REPORT.md for an agent to inspect."
+        title="Reporting from GitHub?"
+        description="Open a bug report, follow the template, export diagnostics from Help -> Export Diagnostics for Bug Report, then attach the JSON file before submitting."
       />
     </div>
   );

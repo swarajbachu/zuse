@@ -49,6 +49,65 @@ import {
   startAutoUpdater,
 } from "./updater.ts";
 
+type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
+
+interface DiagnosticLogEntry {
+  readonly createdAt: string;
+  readonly level: DiagnosticLogLevel;
+  readonly source: string;
+  readonly message: string;
+  readonly detail?: string;
+}
+
+const MAIN_DIAGNOSTIC_LOG_LIMIT = 200;
+const mainDiagnosticLogs: DiagnosticLogEntry[] = [];
+
+function stringifyDiagnosticPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return `${value.name}: ${value.message}`;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function recordMainDiagnostic(
+  level: DiagnosticLogLevel,
+  source: string,
+  parts: ReadonlyArray<unknown>,
+): void {
+  mainDiagnosticLogs.push({
+    createdAt: new Date().toISOString(),
+    level,
+    source,
+    message: parts.map(stringifyDiagnosticPart).join(" ").slice(0, 2000),
+  });
+  if (mainDiagnosticLogs.length > MAIN_DIAGNOSTIC_LOG_LIMIT) {
+    mainDiagnosticLogs.splice(
+      0,
+      mainDiagnosticLogs.length - MAIN_DIAGNOSTIC_LOG_LIMIT,
+    );
+  }
+}
+
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
+console.warn = (...args: unknown[]) => {
+  recordMainDiagnostic("warn", "main.console", args);
+  originalConsoleWarn(...args);
+};
+console.error = (...args: unknown[]) => {
+  recordMainDiagnostic("error", "main.console", args);
+  originalConsoleError(...args);
+};
+process.on("uncaughtException", (error) => {
+  recordMainDiagnostic("error", "main.uncaughtException", [error]);
+});
+process.on("unhandledRejection", (reason) => {
+  recordMainDiagnostic("error", "main.unhandledRejection", [reason]);
+});
+
 /**
  * Privileged scheme registration. Must run before `app.whenReady()` —
  * Electron freezes the scheme registry once the app is ready, so a late
@@ -666,6 +725,16 @@ function createMainWindow() {
     if (!(await pathExists(rawPath))) return;
     clipboard.writeText(rawPath);
   });
+
+  ipcMain.handle("app:copyFileContents", async (_event, rawPath: unknown) => {
+    if (typeof rawPath !== "string") return false;
+    if (!(await pathExists(rawPath))) return false;
+    const text = await fs.readFile(rawPath, "utf8");
+    clipboard.writeText(text);
+    return true;
+  });
+
+  ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
 
   // ---------------------------------------------------------------------------
   // Agent browser CDP bridge
