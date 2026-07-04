@@ -121,6 +121,41 @@ export type BrowserInputAction =
     }
   | { readonly type: "insertText"; readonly text: string };
 
+/** Outcome of an allowlisted CDP call routed through main. */
+export interface CdpCommandOutcome {
+  readonly ok: boolean;
+  readonly result?: unknown;
+  readonly error?: string;
+}
+
+/** One network request summary from main's CDP Network buffer. */
+export interface NetworkRequestSummary {
+  readonly id: string;
+  readonly method: string;
+  readonly url: string;
+  readonly resourceType?: string;
+  readonly status?: number;
+  readonly mimeType?: string;
+  readonly failed?: string;
+}
+
+export interface NetworkRequestDetail extends NetworkRequestSummary {
+  readonly responseHeaders?: Readonly<Record<string, string>>;
+  readonly body?: string;
+  readonly bodyBase64?: boolean;
+}
+
+export type NetworkQueryResult =
+  | { readonly requests: ReadonlyArray<NetworkRequestSummary> }
+  | { readonly detail: NetworkRequestDetail }
+  | null;
+
+export interface BrowserDialogState {
+  readonly type: string;
+  readonly message: string;
+  readonly defaultPrompt?: string;
+}
+
 export interface BrowserBridge {
   /**
    * Attach Chrome DevTools Protocol to the embedded webview's webContents so
@@ -133,6 +168,27 @@ export interface BrowserBridge {
     webContentsId: number,
     action: BrowserInputAction,
   ) => Promise<boolean>;
+  /**
+   * Allowlisted CDP passthrough (Accessibility/DOM/Runtime/Page). Optional —
+   * absent on preload builds that predate agent-browser v2, so callers must
+   * fall back to the injected-JS paths when undefined.
+   */
+  readonly cdpCommand?: (
+    webContentsId: number,
+    method: string,
+    params?: unknown,
+  ) => Promise<CdpCommandOutcome>;
+  /** Network requests captured since the last load (buffered in main). */
+  readonly getNetwork?: (
+    webContentsId: number,
+    query?: { filter?: string; id?: string },
+  ) => Promise<NetworkQueryResult>;
+  /** Uncaught page exceptions captured via CDP since the last load. */
+  readonly getPageErrors?: (webContentsId: number) => Promise<string[]>;
+  /** The currently open JS dialog, if any. */
+  readonly getDialogState?: (
+    webContentsId: number,
+  ) => Promise<BrowserDialogState | null>;
 }
 
 export interface ZuseBridge {

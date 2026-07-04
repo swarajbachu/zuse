@@ -1,5 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, GitMergeIcon, Upload01Icon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Alert01Icon,
+  GitMergeIcon,
+  InformationCircleIcon,
+  Loading02Icon,
+  TaskDone01Icon,
+  Upload01Icon,
+  Wrench01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import {
   GlassActionButton,
@@ -8,6 +16,7 @@ import {
   GLASS_TONE_VARS,
   type GlassTone,
 } from "../glass-action.tsx";
+import { toastManager } from "../ui/toast.tsx";
 
 /**
  * Dev-only visual playground. Renders the accent palette + every state of
@@ -19,6 +28,7 @@ export function DeveloperPane(): React.ReactElement {
   return (
     <div className="flex flex-col gap-10">
       <PaletteSection />
+      <ToastPlaygroundSection />
       <WorkflowStatesSection />
     </div>
   );
@@ -138,6 +148,91 @@ const WORKFLOW_DEMOS: ReadonlyArray<WorkflowDemo> = [
 ];
 
 function noop(): void {}
+
+function ToastPlaygroundSection(): React.ReactElement {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+        Toast playground
+      </h2>
+      <div className="grid gap-2 rounded-lg border border-border/60 bg-muted p-3 sm:grid-cols-2">
+        <GlassActionButton
+          tone="green"
+          icon={<HugeiconsIcon icon={GitMergeIcon} />}
+          label="PR merged"
+          onClick={() =>
+            toastManager.add({
+              type: "success",
+              title: "Pull request #142 merged",
+              description: "toast-system into main",
+            })
+          }
+        />
+        <GlassActionButton
+          tone="zinc"
+          icon={<HugeiconsIcon icon={InformationCircleIcon} />}
+          label="PR closed"
+          onClick={() =>
+            toastManager.add({
+              type: "info",
+              title: "Pull request #142 closed",
+              description: "toast-system into main",
+            })
+          }
+        />
+        <GlassActionButton
+          tone="red"
+          icon={<HugeiconsIcon icon={Alert01Icon} />}
+          label="Sidebar error"
+          onClick={() =>
+            toastManager.add({
+              type: "error",
+              title: "Project error",
+              description: "Could not load projects from the local workspace.",
+            })
+          }
+        />
+        <GlassActionButton
+          tone="red"
+          icon={<HugeiconsIcon icon={Alert01Icon} />}
+          label="Action failed"
+          onClick={() =>
+            toastManager.add({
+              type: "error",
+              title: "Merge failed",
+              description:
+                "GitHub rejected the merge because required checks are still running.",
+            })
+          }
+        />
+        <GlassActionButton
+          tone="pink"
+          icon={<HugeiconsIcon icon={Loading02Icon} />}
+          label="Loading"
+          onClick={() =>
+            toastManager.add({
+              type: "loading",
+              title: "Removing dirty worktree...",
+              description: "Discarding local changes and deleting the checkout.",
+            })
+          }
+        />
+        <GlassActionButton
+          tone="green"
+          icon={<HugeiconsIcon icon={TaskDone01Icon} />}
+          label="Success"
+          onClick={() =>
+            toastManager.add({
+              type: "success",
+              title: "Worktree removed",
+              description: "The dirty checkout was discarded and archived.",
+            })
+          }
+        />
+      </div>
+    </section>
+  );
+}
 
 function WorkflowStatesSection(): React.ReactElement {
   return (

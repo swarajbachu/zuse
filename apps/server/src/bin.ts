@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 
+import { resolveAuthPolicy } from "./lan-auth/policy.ts";
 import { makeMainLayer } from "./runtime.ts";
 import { wsServerProtocolLayer } from "./transports/ws.ts";
 
@@ -37,6 +38,11 @@ export const runHeadlessServer = (): void => {
   const port = Number(process.env.ZUSE_PORT ?? 8787);
   const host = process.env.ZUSE_HOST ?? "127.0.0.1";
   const userData = resolveUserData();
+  const policy = resolveAuthPolicy(host);
+  const advertisedHost =
+    process.env.ZUSE_ADVERTISED_HOST ??
+    (host === "0.0.0.0" || host === "::" ? null : host);
+  const pairingBootstrap = process.env.ZUSE_ENABLE_PAIRING === "1";
 
   const layer = makeMainLayer({
     userData,
@@ -55,9 +61,12 @@ export const runHeadlessServer = (): void => {
       open: () => Effect.void,
       onCallbackUrl: () => Effect.void,
     },
+    lanAuth: { policy, advertisedHost, port, pairingBootstrap },
   });
 
-  NodeRuntime.runMain(Layer.launch(layer));
+  NodeRuntime.runMain(
+    Layer.launch(layer) as Effect.Effect<never, unknown, never>,
+  );
 };
 
 // Only boot when this file is the process entrypoint, so the re-export above

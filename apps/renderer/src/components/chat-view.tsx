@@ -112,7 +112,10 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return false;
   });
-  const setupActive = worktreeSetupActive || session?.status === "booting";
+  const externalResume =
+    session !== null && session.resumeStrategy !== "none";
+  const setupActive =
+    worktreeSetupActive || (!externalResume && session?.status === "booting");
   const archiveProgress = useChatsStore((s) =>
     session?.chatId === undefined
       ? null

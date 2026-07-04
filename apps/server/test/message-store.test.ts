@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { SqlClient } from "@effect/sql";
-// The server ships on `@effect/sql-sqlite-node` (better-sqlite3), which Bun
-// cannot dlopen. `@effect/sql-sqlite-bun` produces the same generic
-// `SqlClient` tag on top of the built-in `bun:sqlite`, so MessageStoreLive
-// runs unchanged under `bun test`. Test-only — the app keeps the node client.
+// The server ships on the built-in `node:sqlite`, which Bun does not provide.
+// `@effect/sql-sqlite-bun` produces the same generic `SqlClient` tag on top
+// of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
+// `bun test`. Test-only — the app keeps the node client.
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import { Chunk, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,6 +45,7 @@ import { Migration0016QueuedMessagesQueueOrderRepair } from "../src/persistence/
 import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
+import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -67,13 +68,15 @@ const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
  */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
+let providerStartCursors: Array<string | null> = [];
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
-  start: (input) =>
+  start: (input, resumeCursor) =>
     Effect.sync(() => {
       providerStartInputs.push(input);
+      providerStartCursors.push(resumeCursor);
       return {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
@@ -224,6 +227,7 @@ const runAllMigrations = Effect.all(
     Migration0017ChatReadState,
     Migration0018PokemonWorktrees,
     Migration0019QueuePaused,
+    Migration0020Events,
   ],
   { discard: true },
 );
@@ -286,6 +290,7 @@ const store = MessageStore;
 
 beforeEach(() => {
   providerStartInputs = [];
+  providerStartCursors = [];
 });
 
 describe("MessageStore migrations", () => {
@@ -403,6 +408,33 @@ describe("MessageStore — chat & session lifecycle", () => {
       expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(providerStartInputs.at(-1)?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+    });
+  });
+
+  it("creates an external continued thread with a persisted resume cursor and no initial message", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.continueExternalThread({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            title: "Existing Claude thread",
+            resumeCursor: "claude-session-123",
+            resumeStrategy: "claude-session-id",
+          }),
+        ),
+      );
+
+      expect(result.chat.title).toBe("Existing Claude thread");
+      expect(result.initialSession.cursor).toBe("claude-session-123");
+      expect(result.initialSession.resumeStrategy).toBe("claude-session-id");
+      expect(providerStartCursors.at(-1)).toBe("claude-session-123");
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(result.initialSession.id)),
+      );
+      expect(messages).toEqual([]);
     });
   });
 
@@ -1101,5 +1133,122 @@ describe("MessageStore — provider event persistence", () => {
     } finally {
       scriptedEvents = [];
     }
+  });
+});
+
+describe("MessageStore cursor streaming", () => {
+  const userText = (envelope: { readonly message: { content: unknown } }) =>
+    (envelope.message.content as { text?: string }).text;
+
+  it("resumes from sinceSequence with zero gaps or duplicates", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      for (const text of ["m1", "m2", "m3"]) {
+        await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+      }
+
+      // First subscription: full replay of the three persisted rows.
+      const first = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
+      const sequences = first.map((e) => e.sequence);
+      expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
+      const cursor = sequences.at(-1)!;
+
+      // "Network drop": the first stream is gone; more rows land meanwhile.
+      for (const text of ["m4", "m5"]) {
+        await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+      }
+
+      // Resubscribe with the recorded cursor — exactly the delta, in order.
+      const resumed = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(id, cursor).pipe(Stream.take(2))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      expect(resumed.map(userText)).toEqual(["m4", "m5"]);
+      expect(resumed.every((e) => e.sequence > cursor)).toBe(true);
+    });
+  });
+
+  it("delivers a row persisted after subscribe exactly once (live tail)", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      await run(Effect.flatMap(store, (s) => s.sendMessage(id, "m1")));
+
+      // Subscribe past m1, then persist m2/m3 while the stream is live —
+      // they must arrive via the tail, once each, in sequence order.
+      const collected = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const fiber = yield* Effect.fork(
+            Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+          );
+          yield* s.sendMessage(id, "m2");
+          yield* s.sendMessage(id, "m3");
+          return Chunk.toReadonlyArray(
+            yield* fiber.await.pipe(Effect.flatMap((exit) => exit)),
+          );
+        }),
+      );
+      expect(collected.map(userText)).toEqual(["m1", "m2", "m3"]);
+      expect(new Set(collected.map((e) => e.message.id)).size).toBe(3);
+    });
+  });
+
+  it("keeps two sessions' streams isolated while sharing the global sequence", async () => {
+    await withRuntime(async (run) => {
+      const makeSession = Effect.flatMap(store, (s) =>
+        s.createChat({
+          projectId: PROJECT_ID,
+          providerId: "claude",
+          model: "claude-opus-4-8",
+        }),
+      );
+      const a = (await run(makeSession)).initialSession.id;
+      const b = (await run(makeSession)).initialSession.id;
+
+      await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a1")));
+      await run(Effect.flatMap(store, (s) => s.sendMessage(b, "b1")));
+      await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a2")));
+
+      const forA = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(a).pipe(Stream.take(2))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      const forB = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(b).pipe(Stream.take(1))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+
+      expect(forA.map(userText)).toEqual(["a1", "a2"]);
+      expect(forB.map(userText)).toEqual(["b1"]);
+      // Global cursor: b1 landed between a1 and a2.
+      expect(forA[0]!.sequence).toBeLessThan(forB[0]!.sequence);
+      expect(forB[0]!.sequence).toBeLessThan(forA[1]!.sequence);
+    });
   });
 });

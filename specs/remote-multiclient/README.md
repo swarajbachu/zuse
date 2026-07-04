@@ -190,8 +190,8 @@ A, B-renderer, F, G, D are **five genuinely parallel tracks**. C/E/H serialize a
 |----|-------|--------|
 | PR0 | wire contract (`MessageEnvelope`, `sinceSequence`, `providerKind`/`connect.*`) | ✅ landed |
 | PR-B-server | WS transport + headless `bin.ts` | ✅ landed |
-| PR-A1 | `node:sqlite` migration + `events` table + projector (route `MessagePersisted`) | todo |
-| PR-A2 | cursor streaming (`streamMessages(sinceSequence)`, envelope publish, renderer cursor) | todo |
+| PR-A1 | `node:sqlite` migration + `events` table + projector (route `MessagePersisted`) | ✅ landed |
+| PR-A2 | cursor streaming (`streamMessages(sinceSequence)`, envelope publish, renderer cursor) | ✅ landed |
 | PR-B-renderer | browser/renderer WS client + transport selection | todo |
 | PR-G | SSH `packages/ssh` + desktop env + remote launch | todo |
 | PR-C | auth/pairing (local bearer + QR, device DPoP, WorkOS) | todo |
@@ -268,6 +268,19 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
   (`wsServerProtocolLayer`) + headless `bin.ts` (`runHeadlessServer`). Live boot verified:
   the full layer graph + WS protocol construct and reach DB init. Surfaced the `node:sqlite`
   decision (D2) from the native-ABI failure.
+- **2026-07-03 — PR-A1 (`de167bc`, `a7ea02b`, `de39c46`)**: persistence driver →
+  `node:sqlite` (D2 gate verified: Electron 42.1.0 bundles Node 24.15.0 with `node:sqlite`;
+  Bun 1.3.10 has none, so tests keep the bun driver); migration `0020_events` with
+  `(created_at, rowid)` backfill; transactional `appendEvent`/`projectEvent` with bounded
+  `stream_version` retry; boot-time `ProjectorCatchup`; lazy queue DDL removed (0015/0016/0019
+  already owned it). **Deviation from this doc:** the projector watermark lives in `app_state`,
+  not `max(messages.sequence)` — cascade deletes would resurrect deleted history on boot
+  (regression-tested). Headless `zuse serve` now boots end-to-end on system Node.
+- **2026-07-03 — PR-A2 (`54b8f27`)**: `messages.stream` emits `MessageEnvelope` and honors
+  `sinceSequence`; subscribe-first + `lastReplayed` filter replaces the seen-Set; **both**
+  renderer consumers (`store/messages.ts` and `store/sidebar-message-status.ts` — one more
+  than this doc assumed) track per-session cursors and resume on resubscribe. Reconnect,
+  live-tail exactly-once, and cross-session isolation tests green.
 
 ---
 

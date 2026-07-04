@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
+import { Effect } from "effect";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as Path from "node:path";
 
 import {
-  ensureSqliteRenameCompatibility,
+  ensureSqliteRenameCompatibility as ensureSqliteRenameCompatibilityEffect,
   sqliteDbPath,
 } from "../src/persistence/db-path.ts";
+
+const ensureSqliteRenameCompatibility = (userData: string): Promise<void> =>
+  Effect.runPromise(ensureSqliteRenameCompatibilityEffect(userData));
 
 const createProjectsDb = (path: string, projectCount: number): void => {
   const db = new Database(path);
