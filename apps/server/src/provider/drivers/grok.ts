@@ -29,7 +29,9 @@ import {
 } from "./compact.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
+import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
+import type { BrowserSend } from "./browser-tools.ts";
 
 /**
  * Live-only handle for one Grok conversation. Mirrors Codex/Claude handle
@@ -270,9 +272,11 @@ export const startGrokSession = (
   cwd: string,
   apiKey: string | null,
   grokPath: string,
+  browserMcpCommand: string,
   sessionId: AgentSessionId,
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
+  browserSend: BrowserSend,
   resumeCursor: string | null = null,
 ): Effect.Effect<
   GrokSessionHandle,
@@ -302,6 +306,25 @@ export const startGrokSession = (
       ) => requestPermission(sessionId, kind, options),
       getRuntimeMode,
       getPermissionMode: () => currentMode,
+    });
+
+    const browserMcpBridge = yield* Effect.tryPromise({
+      try: () =>
+        startBrowserMcpBridge({
+          send: browserSend,
+          command: browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        }),
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "grok",
+          reason: `Could not start browser MCP bridge: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        }),
     });
 
     let acpSessionId: string | null = null;
@@ -807,7 +830,7 @@ export const startGrokSession = (
 
       const sessionResult = (await request("session/new", {
         cwd,
-        mcpServers: [],
+        mcpServers: [browserMcpBridge.serverConfig],
       })) as { sessionId?: unknown };
 
       if (typeof sessionResult.sessionId !== "string") {
@@ -837,6 +860,7 @@ export const startGrokSession = (
           } catch {
             // ignore — child may not be alive
           }
+          void browserMcpBridge.close();
         }),
       ),
     );
@@ -1068,6 +1092,7 @@ export const startGrokSession = (
           }
           child.kill("SIGTERM");
           rl.close();
+          yield* Effect.promise(() => browserMcpBridge.close());
           yield* events.end;
         }),
       setPermissionMode: (mode) =>
