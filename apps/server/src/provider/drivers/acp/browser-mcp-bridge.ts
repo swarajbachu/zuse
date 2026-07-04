@@ -547,7 +547,6 @@ const readBody = async (req: import("node:http").IncomingMessage) =>
 
 export interface BrowserMcpBridge {
   readonly serverConfig: {
-    readonly type: "stdio";
     readonly name: string;
     readonly command: string;
     readonly args: ReadonlyArray<string>;
@@ -614,10 +613,12 @@ export const startBrowserMcpBridge = async (
   const command = basename(opts.command).includes("bun")
     ? opts.command
     : process.execPath;
+  console.info(
+    `[grok.browser-mcp] listening on 127.0.0.1:${address.port}; command=${command}; child=${childPath}`,
+  );
 
   return {
     serverConfig: {
-      type: "stdio",
       name: "zuse",
       command,
       args: [childPath],
