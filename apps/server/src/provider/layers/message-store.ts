@@ -53,7 +53,13 @@ import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
-import { TitleGenerator, formatBranchName } from "../title-generator.ts";
+import {
+  TitleGenerator,
+  buildConversationText,
+  formatBranchName,
+  isTrivialUserMessage,
+  shouldDeferAutoName,
+} from "../title-generator.ts";
 import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
 import {
   MessageStore,
@@ -479,6 +485,23 @@ const titleFromInitial = (prompt: string | undefined): string => {
   return truncated.length > 0 ? truncated : "New chat";
 };
 
+/** Provisional sidebar title before the LLM auto-namer runs. */
+const deriveProvisionalTitle = (prompt: string | undefined): string => {
+  if (prompt === undefined) return "New chat";
+  if (isTrivialUserMessage(prompt)) return "New chat";
+  return titleFromInitial(prompt);
+};
+
+const textFromMessageContent = (content: MessageContent): string | null => {
+  if (content._tag === "user" || content._tag === "user_rich") {
+    return content.text;
+  }
+  if (content._tag === "assistant") {
+    return content.text;
+  }
+  return null;
+};
+
 /**
  * Render stacked code annotations into the numbered list the model receives.
  * Each entry is `path:lineRange — comment`; the agent's cwd is the workspace
@@ -786,11 +809,10 @@ export const MessageStoreLive = Layer.scoped(
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
 
-    // Chats whose first-message auto-name is in flight, so a second message
-    // arriving mid-rename can't kick off a duplicate pass. One-shot per chat
-    // per process — entries are never removed because the triggering hooks
-    // only fire on the first user message anyway.
-    const autoNamingChats = new Set<string>();
+    // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
+    const autoNamingInFlight = new Set<string>();
+    // Chats that already received a successful LLM title this process lifetime.
+    const autoNamedChats = new Set<string>();
 
     const getOrMakePubsub = (sessionId: SessionId) =>
       Effect.gen(function* () {
@@ -1115,6 +1137,9 @@ export const MessageStoreLive = Layer.scoped(
                   event.status === "idle"
                 ) {
                   yield* setStatus(sessionId, event.status);
+                  if (event.status === "idle") {
+                    yield* maybeForkAutoName(session.chatId, sessionId);
+                  }
                 }
                 return;
               }
@@ -1123,6 +1148,9 @@ export const MessageStoreLive = Layer.scoped(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
                 );
+                if (event.reason !== "error") {
+                  yield* maybeForkAutoName(session.chatId, sessionId);
+                }
                 return;
               }
               if (event._tag === "SessionCursor") {
@@ -1396,7 +1424,7 @@ export const MessageStoreLive = Layer.scoped(
         const now = new Date();
         const nowIso = now.toISOString();
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const agentsJson =
           input.agents !== undefined && Object.keys(input.agents).length > 0
             ? JSON.stringify({
@@ -1890,7 +1918,7 @@ export const MessageStoreLive = Layer.scoped(
         const nowIso = now.toISOString();
         const chatId = crypto.randomUUID() as unknown as ChatId;
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
         yield* sql`
           INSERT INTO chats
@@ -1948,14 +1976,10 @@ export const MessageStoreLive = Layer.scoped(
             )
           : null;
         // Path 1: the chat was created WITH its first message (the common
-        // composer flow). Kick off the background auto-name now — it no-ops
-        // unless the chat has its own worktree.
-        if (
-          hasInitial &&
-          chat.worktreeId !== null &&
-          input.initialPrompt !== undefined
-        ) {
-          yield* forkAutoName(chat.id, initialSession.id, input.initialPrompt);
+        // composer flow). Kick off the background auto-name when there is
+        // enough context (trivial-only greetings wait for a follow-up).
+        if (hasInitial && input.initialPrompt !== undefined) {
+          yield* maybeForkAutoName(chat.id, initialSession.id);
         }
         return { chat, initialSession, initialMessage };
       });
@@ -2024,34 +2048,73 @@ export const MessageStoreLive = Layer.scoped(
       );
 
     /**
-     * Worktree-backed auto-name: on a chat's first user message, summarize it
-     * into a short title (LLM, with truncation fallback) and use that to
-     * rename both the chat and — when the chat has its own worktree — the
-     * worktree's git branch per the user's `branchNamingStyle`. Runs on a
-     * background fiber so the agent's first reply is never delayed; swallows
-     * every failure so a flaky title call can't wedge the session.
-     *
-     * Only chats WITH a worktree are renamed (a bare main-checkout chat keeps
-     * the cheap first-line title set elsewhere).
+     * LLM auto-name: summarize recent user/assistant turns into a short title
+     * and rename the chat (always) plus the worktree git branch (when the chat
+     * has its own worktree). Runs on a background fiber so the agent turn is
+     * never delayed; swallows every failure so a flaky title call can't wedge
+     * the session.
      */
+    const collectAutoNameContext = (
+      chatId: ChatId,
+    ): Effect.Effect<{
+      readonly userTexts: string[];
+      readonly assistantTexts: string[];
+      readonly conversationText: string;
+    }> =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{
+          readonly role: string;
+          readonly content_json: string;
+        }>`
+          SELECT m.role, m.content_json
+          FROM messages m
+          INNER JOIN sessions s ON s.id = m.session_id
+          WHERE s.chat_id = ${chatId}
+            AND m.role IN ('user', 'assistant')
+          ORDER BY m.created_at ASC
+          LIMIT 24
+        `.pipe(Effect.orDie);
+        const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+        const userTexts: string[] = [];
+        const assistantTexts: string[] = [];
+        for (const row of rows) {
+          try {
+            const content = JSON.parse(row.content_json) as MessageContent;
+            const text = textFromMessageContent(content);
+            if (text === null || text.trim().length === 0) continue;
+            if (row.role === "user") {
+              userTexts.push(text);
+              turns.push({ role: "user", text });
+            } else if (row.role === "assistant") {
+              assistantTexts.push(text);
+              turns.push({ role: "assistant", text });
+            }
+          } catch {
+            // Skip malformed rows — title gen can still fall back.
+          }
+        }
+        return {
+          userTexts,
+          assistantTexts,
+          conversationText: buildConversationText(turns),
+        };
+      });
+
     const autoNameChat = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        if (autoNamingChats.has(chatId)) return;
-        autoNamingChats.add(chatId);
         const chat = yield* lookupChat(chatId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
-        if (chat === null || chat.worktreeId === null) return;
-        const worktreeId = chat.worktreeId;
-        const wt = yield* worktrees.get(worktreeId);
-        if (wt === null) return;
+        if (chat === null) return;
 
-        // Name the chat with the SAME provider/model the session uses, so a
-        // user without Claude auth (e.g. Grok-only) still gets an LLM title.
+        const context = yield* collectAutoNameContext(chatId);
+        if (shouldDeferAutoName(context.userTexts, context.assistantTexts)) {
+          return;
+        }
+
         const session = yield* lookupSession(sessionId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
@@ -2060,7 +2123,7 @@ export const MessageStoreLive = Layer.scoped(
           folderId: chat.projectId,
           providerId: session.providerId,
           model: session.model,
-          firstMessage: firstText,
+          conversationText: context.conversationText,
         });
         if (title.length === 0 || title === "New chat") return;
 
@@ -2068,8 +2131,14 @@ export const MessageStoreLive = Layer.scoped(
         // the branch rename below is skipped or fails.
         yield* renameChat(chatId, title);
         yield* sql`
-          UPDATE sessions SET title = ${title} WHERE id = ${sessionId}
+          UPDATE sessions SET title = ${title} WHERE chat_id = ${chatId}
         `.pipe(Effect.ignoreLogged);
+        autoNamedChats.add(chatId);
+
+        if (chat.worktreeId === null) return;
+        const worktreeId = chat.worktreeId;
+        const wt = yield* worktrees.get(worktreeId);
+        if (wt === null) return;
 
         const settings = yield* configStore.getSettings();
         const username = yield* git
@@ -2089,14 +2158,25 @@ export const MessageStoreLive = Layer.scoped(
         );
       }).pipe(Effect.catchAllCause(() => Effect.void));
 
-    const forkAutoName = (
+    const maybeForkAutoName = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
-      Effect.forkDaemon(autoNameChat(chatId, sessionId, firstText)).pipe(
-        Effect.asVoid,
-      );
+      Effect.gen(function* () {
+        if (autoNamedChats.has(chatId) || autoNamingInFlight.has(chatId)) {
+          return;
+        }
+        autoNamingInFlight.add(chatId);
+        yield* Effect.forkDaemon(
+          autoNameChat(chatId, sessionId).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                autoNamingInFlight.delete(chatId);
+              }),
+            ),
+          ),
+        );
+      });
 
     /**
      * Worktrees are immutable past the first user message in any of the
@@ -2819,32 +2899,25 @@ export const MessageStoreLive = Layer.scoped(
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
-        // Auto-title: if the session is still on its placeholder title, derive
-        // a cheap first-line title immediately so the tab never reads
-        // "New chat" while the richer LLM pass (below) runs.
-        if (session.title === "New chat") {
-          const derived = titleFromInitial(text);
-          if (derived !== "New chat") {
+        const chat = yield* lookupChat(session.chatId);
+        // Provisional title: update chat + session immediately for real tasks
+        // so the sidebar/tab never sit on "New chat" while the LLM pass runs.
+        const provisional = deriveProvisionalTitle(text);
+        if (provisional !== "New chat") {
+          if (session.title === "New chat") {
             yield* sql`
-              UPDATE sessions SET title = ${derived}
+              UPDATE sessions SET title = ${provisional}
               WHERE id = ${sessionId} AND title = 'New chat'
             `.pipe(Effect.orDie);
           }
+          if (chat.title === "New chat") {
+            yield* renameChat(session.chatId, provisional);
+          }
         }
-        // Path 2: an empty chat (no initialPrompt) receiving its first user
-        // message via messages.send. When this is the chat's first user
-        // message, kick off the worktree-backed auto-name in the background
-        // (no-ops unless the chat has its own worktree).
-        const firstUserCount = yield* sql<{ readonly c: number }>`
-          SELECT COUNT(*) AS c FROM messages m
-          INNER JOIN sessions s ON s.id = m.session_id
-          WHERE s.chat_id = ${session.chatId} AND m.role = 'user'
-        `.pipe(
-          Effect.map((rows) => rows[0]?.c ?? 0),
-          Effect.catchAll(() => Effect.succeed(0)),
-        );
-        if (firstUserCount === 1 && text.trim().length > 0) {
-          yield* forkAutoName(session.chatId, sessionId, text);
+        // Try LLM auto-name when there is enough context (trivial-only
+        // greetings wait until the assistant replies or the user sends more).
+        if (text.trim().length > 0) {
+          yield* maybeForkAutoName(session.chatId, sessionId);
         }
         if (asGoal === true) {
           const objective = text.trim();

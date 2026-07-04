@@ -40,6 +40,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
@@ -1117,7 +1118,7 @@ function ChatRow({ chat }: { chat: Chat }) {
             className="ml-3"
           />
         )}
-        <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+        <TypewriterText text={chat.title} className="min-w-0 flex-1 truncate" />
         <div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
           <span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
             {showDiff && stats !== null ? (
