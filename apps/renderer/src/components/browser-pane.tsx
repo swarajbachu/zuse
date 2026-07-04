@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Effect, Fiber, Stream } from "effect";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
-import {
-  BrowserCommandResult,
-  type BrowserCommandRequest,
-} from "@zuse/wire";
+import { BrowserCommandResult, type BrowserCommandRequest } from "@zuse/wire";
 
-import type { BrowserInputAction } from "../lib/bridge.ts";
+import type {
+  BrowserInputAction,
+  CdpCommandOutcome,
+  NetworkQueryResult,
+} from "../lib/bridge.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
@@ -48,6 +49,12 @@ export function BrowserPane() {
   // Ring buffer of console messages + page errors, captured per page load so
   // `browser_console` can report them to the agent. Cleared on navigation.
   const consoleBufferRef = useRef<string[]>([]);
+  // Which snapshot minted the refs the agent is currently holding, and (for
+  // the CDP a11y path) the ref → backendNodeId map actions resolve through.
+  // DOM-mode refs live in the page itself as `data-mz-ref` attributes, so the
+  // map stays empty there. Reset on navigation — stale refs must fail with
+  // "re-snapshot" rather than land on the wrong node of a new page.
+  const refStoreRef = useRef<RefStore>({ mode: "dom", map: new Map() });
   // The embedded webview's webContents id — handed to main once we see
   // `dom-ready` so main can attach Chrome DevTools Protocol and dispatch real
   // input events. `null` until the first dom-ready; null disables CDP paths
@@ -101,12 +108,15 @@ export function BrowserPane() {
       // and hit `Browser input bridge is not ready`. Only set it back after
       // main confirms the debugger attached.
       webContentsIdRef.current = null;
-      void browserBridge.registerWebview(id).then((ok) => {
-        if (ok) webContentsIdRef.current = id;
-      }).catch(() => {
-        // Attach failure is non-fatal — leave id null and CDP-using tools
-        // fall back to the synthetic path with a clean cursor animation.
-      });
+      void browserBridge
+        .registerWebview(id)
+        .then((ok) => {
+          if (ok) webContentsIdRef.current = id;
+        })
+        .catch(() => {
+          // Attach failure is non-fatal — leave id null and CDP-using tools
+          // fall back to the synthetic path with a clean cursor animation.
+        });
     };
     const onDidNavigate = (e: Event) => {
       const ev = e as Event & { url?: string };
@@ -118,8 +128,9 @@ export function BrowserPane() {
     };
     const onStart = () => {
       setIsLoading(true);
-      // Fresh page — drop the previous page's console history.
+      // Fresh page — drop the previous page's console history and refs.
       consoleBufferRef.current = [];
+      refStoreRef.current = { mode: "dom", map: new Map() };
     };
     const onStop = () => {
       setIsLoading(false);
@@ -216,6 +227,10 @@ export function BrowserPane() {
           });
         },
         getWebContentsId: () => webContentsIdRef.current,
+        getRefStore: () => refStoreRef.current,
+        setRefStore: (store) => {
+          refStoreRef.current = store;
+        },
       });
       try {
         const client = await getRpcClient();
@@ -376,6 +391,10 @@ async function runBrowserCommand(
      * available (non-Electron build of the renderer).
      */
     getWebContentsId: () => number | null;
+    /** Current snapshot ref store (mode + ref → backendNodeId map). */
+    getRefStore: () => RefStore;
+    /** Replace the ref store after a fresh snapshot. */
+    setRefStore: (store: RefStore) => void;
   },
 ): Promise<BrowserCommandResult> {
   const fail = (error: string) =>
@@ -407,6 +426,29 @@ async function runBrowserCommand(
         // The tab was just made visible; give the compositor a beat to paint
         // before capturing, otherwise the frame can come back blank.
         await delay(180);
+        // Full-page goes through CDP (captures beyond the viewport); without
+        // the debugger we degrade to the viewport capture below rather than
+        // failing — a partial screenshot beats none.
+        if (command.fullPage === true) {
+          const wcId = hooks.getWebContentsId();
+          if (wcId !== null) {
+            const shot = await cdpCall(wcId, "Page.captureScreenshot", {
+              format: "png",
+              captureBeyondViewport: true,
+            });
+            const data = (shot as { data?: unknown } | null)?.data;
+            if (typeof data === "string" && data.length > 0) {
+              hooks.flashShutter();
+              return BrowserCommandResult.make({
+                id: req.id,
+                ok: true,
+                url: current,
+                title: safeCall(() => wv.getTitle(), ""),
+                screenshot: data,
+              });
+            }
+          }
+        }
         const image = await wv.capturePage();
         if (image.isEmpty()) {
           return fail(
@@ -426,7 +468,26 @@ async function runBrowserCommand(
         });
       }
       case "Snapshot": {
+        // Prefer the a11y tree over CDP: full-document coverage, roles and
+        // states the DOM walk can't see, and ~an order of magnitude cheaper
+        // for the model than a screenshot. Any failure (debugger detached,
+        // experimental domain missing) falls back to the v1 DOM walk.
+        const wcId = hooks.getWebContentsId();
+        if (wcId !== null) {
+          const built = await buildA11ySnapshot(wcId);
+          if (built !== null) {
+            hooks.setRefStore({ mode: "cdp", map: built.map });
+            return BrowserCommandResult.make({
+              id: req.id,
+              ok: true,
+              url: safeCall(() => wv.getURL(), ""),
+              title: safeCall(() => wv.getTitle(), ""),
+              snapshot: built.text,
+            });
+          }
+        }
         const raw = await wv.executeJavaScript(SNAPSHOT_JS);
+        hooks.setRefStore({ mode: "dom", map: new Map() });
         return BrowserCommandResult.make({
           id: req.id,
           ok: true,
@@ -437,37 +498,36 @@ async function runBrowserCommand(
       }
       case "Click": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
-        const target = await resolveRefRect(wv, command.ref);
-        if (target === null) {
-          return fail(
-            "No element with that ref — re-snapshot the page first.",
-          );
-        }
         const wcId = hooks.getWebContentsId();
+        const store = hooks.getRefStore();
+        const target = await resolveRefTarget(wv, wcId, store, command.ref);
+        if (target === null) {
+          return fail("No element with that ref — re-snapshot the page first.");
+        }
         // Without CDP attached (preload bridge missing, attach failed) we
         // can't deliver real input. Fall back to the synthetic click so the
         // agent still makes progress — the cursor animation still runs so
         // the user sees *where* the click landed.
         hooks.moveCursor(target.cx, target.cy, { click: true });
-        if (wcId === null) {
-          await wv.executeJavaScript(
-            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (el) el.click(); })()`,
+        const delivered =
+          wcId !== null &&
+          (await dispatchClickViaCdp(wcId, target.cx, target.cy));
+        if (!delivered) {
+          if (wcId === null) await delay(CURSOR_GLIDE_MS + 20);
+          const res = await callOnRefElement(
+            wv,
+            wcId,
+            store,
+            command.ref,
+            CLICK_FN,
+            [],
           );
-          await delay(CURSOR_GLIDE_MS + 20);
-          return BrowserCommandResult.make({
-            id: req.id,
-            ok: true,
-            detail: `Clicked ${target.label} (no-CDP fallback).`,
-          });
-        }
-        const ok = await dispatchClickViaCdp(wcId, target.cx, target.cy);
-        if (!ok) {
-          // Debugger detached mid-action (webview reload, crash). Fall through
-          // to synthetic so the agent still makes progress — the cursor pulse
-          // already fired so the user sees *where* the click landed.
-          await wv.executeJavaScript(
-            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (el) el.click(); })()`,
-          );
+          if (res === null || !res.ok) {
+            return fail(
+              res?.error ??
+                "The click could not be delivered — re-snapshot and retry.",
+            );
+          }
         }
         return BrowserCommandResult.make({
           id: req.id,
@@ -478,49 +538,63 @@ async function runBrowserCommand(
       case "Type": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
         const submit = command.submit === true;
-        const target = await resolveRefRect(wv, command.ref);
+        const wcId = hooks.getWebContentsId();
+        const store = hooks.getRefStore();
+        const target = await resolveRefTarget(wv, wcId, store, command.ref);
         if (target === null) {
           return fail("No element with that ref — re-snapshot first.");
         }
         // Glide the cursor to the field with a click pulse — visually frames
         // the field activation. Real focus happens via CDP click (or .focus()
         // when CDP isn't available) so the input shows its native focus ring.
-        const wcId = hooks.getWebContentsId();
         hooks.moveCursor(target.cx, target.cy, { click: true });
         if (wcId !== null) {
           await dispatchClickViaCdp(wcId, target.cx, target.cy);
         }
-        // The value-setter via the prototype descriptor bypasses React's
-        // value tracker — without it, React thinks the controlled value
-        // didn't change and the next render reverts the input. This is the
-        // industry-standard "type into a React input" approach (used by
-        // Testing Library's `userEvent` and Puppeteer fallbacks); switching
-        // to CDP's `Input.insertText` here would regress on common SPA
-        // login forms. We keep the JS path on purpose; the real click above
-        // already gave the field a true focus event.
-        const res = await runJsObject(
+        // FILL_FIELD_FN keeps v1's prototype-descriptor value setter: it
+        // bypasses React's value tracker — without it, React thinks the
+        // controlled value didn't change and the next render reverts the
+        // input. Switching to CDP's `Input.insertText` here would regress on
+        // common SPA login forms; the real click above already gave the
+        // field a true focus event.
+        const res = await callOnRefElement(
           wv,
-          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); el.focus(); const v = ${JSON.stringify(command.text)}; const tag = el.tagName; if (tag === 'INPUT' || tag === 'TEXTAREA') { const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; } else { el.textContent = v; } el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); return JSON.stringify({ ok:true, detail:'Typed into ' + ((el.getAttribute('name')||el.getAttribute('aria-label')||el.tagName)||'') }); })()`,
+          wcId,
+          store,
+          command.ref,
+          FILL_FIELD_FN,
+          [command.text],
         );
         if (submit) {
           if (wcId !== null) {
             await dispatchKeyTap(wcId, "Enter");
           } else {
-            await wv.executeJavaScript(
-              `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return; const o = { key:'Enter', keyCode:13, which:13, bubbles:true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); const f = el.form; if (f && typeof f.requestSubmit === 'function') { try { f.requestSubmit(); } catch (e) {} } })()`,
-            );
+            await callOnRefElement(wv, wcId, store, command.ref, ENTER_FN, []);
           }
         }
         return resultFromJs(req.id, res, `Typed into ${command.ref}.`);
       }
       case "Wait": {
+        // Bounded below the bridge's 30s deadline so a hopeless wait comes
+        // back as a clean tool error instead of a bridge timeout.
+        const timeoutMs = Math.min(
+          Math.max(command.timeoutMs ?? 10000, 100),
+          25000,
+        );
         if (
           typeof command.selector === "string" &&
           command.selector.length > 0
         ) {
           const res = await runJsObject(
             wv,
-            `(async () => { const sel = ${JSON.stringify(command.selector)}; const deadline = Date.now() + 10000; while (Date.now() < deadline) { if (document.querySelector(sel)) return JSON.stringify({ ok:true, detail:'Element appeared: ' + sel }); await new Promise(r => setTimeout(r, 150)); } return JSON.stringify({ ok:false, error:'Timed out (10s) waiting for ' + sel }); })()`,
+            `(async () => { const sel = ${JSON.stringify(command.selector)}; const deadline = Date.now() + ${timeoutMs}; while (Date.now() < deadline) { if (document.querySelector(sel)) return JSON.stringify({ ok:true, detail:'Element appeared: ' + sel }); await new Promise(r => setTimeout(r, 150)); } return JSON.stringify({ ok:false, error:'Timed out (${timeoutMs}ms) waiting for ' + sel }); })()`,
+          );
+          return resultFromJs(req.id, res, "Done waiting.");
+        }
+        if (typeof command.text === "string" && command.text.length > 0) {
+          const res = await runJsObject(
+            wv,
+            `(async () => { const want = ${JSON.stringify(command.text)}; const deadline = Date.now() + ${timeoutMs}; while (Date.now() < deadline) { if ((document.body?.innerText || '').includes(want)) return JSON.stringify({ ok:true, detail:'Text appeared: "' + want + '"' }); await new Promise(r => setTimeout(r, 150)); } return JSON.stringify({ ok:false, error:'Timed out (${timeoutMs}ms) waiting for text "' + want + '"' }); })()`,
           );
           return resultFromJs(req.id, res, "Done waiting.");
         }
@@ -535,17 +609,23 @@ async function runBrowserCommand(
       case "Scroll": {
         if (typeof command.ref === "string" && command.ref.length > 0) {
           if (!isValidRef(command.ref)) return fail("Invalid element ref.");
+          const wcId = hooks.getWebContentsId();
+          const store = hooks.getRefStore();
           // Use a JS-driven rAF animation instead of `scrollIntoView({behavior:
           // 'smooth'})` — native smooth scroll varies wildly across pages (some
           // override `scroll-behavior`, some cut the animation short on tiny
           // deltas) and feels choppy. We control duration + easing here so the
           // glide looks the same regardless of the page.
-          const res = await runJsObject(
+          const res = await callOnRefElement(
             wv,
-            buildSmoothScrollRefJs(command.ref),
+            wcId,
+            store,
+            command.ref,
+            SMOOTH_SCROLL_REF_FN,
+            [],
           );
           await delay(SMOOTH_SCROLL_MS + 60);
-          const after = await resolveRefRect(wv, command.ref);
+          const after = await resolveRefTarget(wv, wcId, store, command.ref);
           if (after !== null) hooks.moveCursor(after.cx, after.cy);
           return resultFromJs(req.id, res, "Scrolled into view.");
         }
@@ -561,12 +641,13 @@ async function runBrowserCommand(
       }
       case "Hover": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
-        const target = await resolveRefRect(wv, command.ref);
+        const wcId = hooks.getWebContentsId();
+        const store = hooks.getRefStore();
+        const target = await resolveRefTarget(wv, wcId, store, command.ref);
         if (target === null) {
           return fail("No element with that ref — re-snapshot first.");
         }
         hooks.moveCursor(target.cx, target.cy);
-        const wcId = hooks.getWebContentsId();
         if (wcId !== null) {
           // Real `mouseMove` triggers Chromium's hit-testing, which is what
           // makes :hover styles and hover-only menus actually open. Synthetic
@@ -577,9 +658,7 @@ async function runBrowserCommand(
             y: target.cy,
           });
         } else {
-          await wv.executeJavaScript(
-            `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return; const r = el.getBoundingClientRect(); const o = { bubbles:true, clientX: r.left + r.width/2, clientY: r.top + r.height/2 }; for (const t of ['pointerover','mouseover','mouseenter','mousemove']) el.dispatchEvent(new MouseEvent(t, o)); })()`,
-          );
+          await callOnRefElement(wv, wcId, store, command.ref, HOVER_FN, []);
         }
         await delay(CURSOR_GLIDE_MS + 20);
         return BrowserCommandResult.make({
@@ -590,14 +669,19 @@ async function runBrowserCommand(
       }
       case "Select": {
         if (!isValidRef(command.ref)) return fail("Invalid element ref.");
-        const res = await runJsObject(
+        const res = await callOnRefElement(
           wv,
-          `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); if (el.tagName !== 'SELECT') return JSON.stringify({ ok:false, error:'That ref is not a <select> dropdown.' }); const want = ${JSON.stringify(command.value)}; const opt = Array.from(el.options).find((o) => o.value === want || (o.textContent||'').trim() === want); if (!opt) return JSON.stringify({ ok:false, error:'No option matching "' + want + '".' }); el.value = opt.value; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); return JSON.stringify({ ok:true, detail:'Selected ' + (opt.textContent||opt.value) }); })()`,
+          hooks.getWebContentsId(),
+          hooks.getRefStore(),
+          command.ref,
+          SELECT_OPTION_FN,
+          [command.value],
         );
         return resultFromJs(req.id, res, `Selected ${command.value}.`);
       }
       case "Press": {
         const wcId = hooks.getWebContentsId();
+        const store = hooks.getRefStore();
         const hasRef =
           typeof command.ref === "string" && command.ref.length > 0;
         if (hasRef && !isValidRef(command.ref as string)) {
@@ -607,7 +691,12 @@ async function runBrowserCommand(
         // element). With CDP we do a real click → cursor moves to it; without
         // CDP we just call `.focus()` via JS.
         if (hasRef) {
-          const target = await resolveRefRect(wv, command.ref as string);
+          const target = await resolveRefTarget(
+            wv,
+            wcId,
+            store,
+            command.ref as string,
+          );
           if (target === null) {
             return fail("No element with that ref — re-snapshot first.");
           }
@@ -615,8 +704,13 @@ async function runBrowserCommand(
           if (wcId !== null) {
             await dispatchClickViaCdp(wcId, target.cx, target.cy);
           } else {
-            await wv.executeJavaScript(
-              `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(command.ref as string)}]'); if (el && typeof el.focus === 'function') el.focus(); })()`,
+            await callOnRefElement(
+              wv,
+              wcId,
+              store,
+              command.ref as string,
+              FOCUS_FN,
+              [],
             );
             await delay(CURSOR_GLIDE_MS + 20);
           }
@@ -635,15 +729,32 @@ async function runBrowserCommand(
         });
       }
       case "Read": {
-        const refExpr =
-          typeof command.ref === "string" && command.ref.length > 0
-            ? isValidRef(command.ref)
-              ? `document.querySelector('[data-mz-ref=${JSON.stringify(command.ref)}]')`
-              : null
-            : `document.body`;
-        if (refExpr === null) return fail("Invalid element ref.");
+        if (typeof command.ref === "string" && command.ref.length > 0) {
+          if (!isValidRef(command.ref)) return fail("Invalid element ref.");
+          const res = await callOnRefElement(
+            wv,
+            hooks.getWebContentsId(),
+            hooks.getRefStore(),
+            command.ref,
+            READ_TEXT_FN,
+            [],
+          );
+          if (res === null || !res.ok) {
+            return fail(res?.error ?? "Could not read that element.");
+          }
+          return BrowserCommandResult.make({
+            id: req.id,
+            ok: true,
+            url: safeCall(() => wv.getURL(), ""),
+            title: safeCall(() => wv.getTitle(), ""),
+            text:
+              typeof res.text === "string" && res.text.length > 0
+                ? res.text
+                : "(no visible text)",
+          });
+        }
         const raw = await wv.executeJavaScript(
-          `(() => { const el = ${refExpr}; if (!el) return ''; return (el.innerText || el.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 8000); })()`,
+          `(() => { const el = document.body; if (!el) return ''; return (el.innerText || el.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 8000); })()`,
         );
         const text = typeof raw === "string" ? raw : "";
         return BrowserCommandResult.make({
@@ -678,11 +789,179 @@ async function runBrowserCommand(
         });
       }
       case "Console": {
-        const log = hooks.readConsole();
+        // Three sources merged: the webview's console-message events (v1),
+        // uncaught exceptions captured via CDP in main (v2), and — because a
+        // blocked page is the most confusing failure mode — a note when a JS
+        // dialog is sitting open.
+        const parts = [hooks.readConsole()];
+        const wcId = hooks.getWebContentsId();
+        const bridge = window.zuse?.browser;
+        if (wcId !== null && bridge?.getPageErrors !== undefined) {
+          const errors = await bridge.getPageErrors(wcId).catch(() => []);
+          if (errors.length > 0) parts.push(errors.join("\n"));
+        }
+        if (wcId !== null && bridge?.getDialogState !== undefined) {
+          const dialog = await bridge.getDialogState(wcId).catch(() => null);
+          if (dialog !== null) {
+            parts.push(
+              `[dialog open] ${dialog.type}: "${dialog.message}" — the page is blocked until browser_dialog resolves it.`,
+            );
+          }
+        }
         return BrowserCommandResult.make({
           id: req.id,
           ok: true,
-          text: log,
+          text: parts.filter((p) => p.length > 0).join("\n"),
+        });
+      }
+      case "FillForm": {
+        if (command.fields.length === 0) {
+          return fail("No fields given — pass at least one { ref, value }.");
+        }
+        const wcId = hooks.getWebContentsId();
+        const store = hooks.getRefStore();
+        const filled: string[] = [];
+        for (const field of command.fields) {
+          if (!isValidRef(field.ref)) {
+            return fail(`Invalid element ref: ${field.ref}`);
+          }
+          const target = await resolveRefTarget(wv, wcId, store, field.ref);
+          if (target === null) {
+            return fail(
+              `No element for ref ${field.ref} — re-snapshot first. Already filled: ${
+                filled.length > 0 ? filled.join(", ") : "none"
+              }.`,
+            );
+          }
+          // Glide (no click pulse) so the user can follow field to field.
+          hooks.moveCursor(target.cx, target.cy);
+          const res = await callOnRefElement(
+            wv,
+            wcId,
+            store,
+            field.ref,
+            FILL_FIELD_FN,
+            [field.value],
+          );
+          if (res === null || !res.ok) {
+            return fail(
+              `${res?.error ?? `Could not fill ${field.ref}.`} Already filled: ${
+                filled.length > 0 ? filled.join(", ") : "none"
+              }.`,
+            );
+          }
+          filled.push(target.label.length > 0 ? target.label : field.ref);
+          await delay(120);
+        }
+        if (command.submit === true) {
+          const lastRef = command.fields[command.fields.length - 1]!.ref;
+          if (wcId !== null) {
+            await dispatchKeyTap(wcId, "Enter");
+          } else {
+            await callOnRefElement(wv, wcId, store, lastRef, ENTER_FN, []);
+          }
+        }
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          detail: `Filled ${filled.length} field${filled.length === 1 ? "" : "s"} (${filled.join(", ")})${command.submit === true ? " and submitted" : ""}.`,
+        });
+      }
+      case "Network": {
+        const wcId = hooks.getWebContentsId();
+        const bridge = window.zuse?.browser;
+        if (wcId === null || bridge?.getNetwork === undefined) {
+          return fail(
+            "Network capture is unavailable — the browser's debugger is not attached.",
+          );
+        }
+        const res: NetworkQueryResult = await bridge
+          .getNetwork(wcId, {
+            ...(command.filter !== undefined ? { filter: command.filter } : {}),
+            ...(command.id !== undefined ? { id: command.id } : {}),
+          })
+          .catch(() => null);
+        if (res === null) {
+          return fail(
+            command.id !== undefined
+              ? `No captured request with id ${command.id} — list requests first (they reset on navigation).`
+              : "No network activity captured yet.",
+          );
+        }
+        if ("detail" in res) {
+          const d = res.detail;
+          const lines = [
+            `${d.method} ${d.url}`,
+            `status: ${d.failed !== undefined ? `FAILED (${d.failed})` : (d.status ?? "(pending)")}  type: ${d.resourceType ?? "?"}  mime: ${d.mimeType ?? "?"}`,
+          ];
+          const headers = Object.entries(d.responseHeaders ?? {}).slice(0, 30);
+          if (headers.length > 0) {
+            lines.push(
+              "response headers:",
+              ...headers.map(([k, v]) => `  ${k}: ${String(v).slice(0, 200)}`),
+            );
+          }
+          if (typeof d.body === "string" && d.body.length > 0) {
+            lines.push(
+              d.bodyBase64 === true
+                ? "body: (binary, base64 — omitted)"
+                : `body (truncated to 4000 chars):\n${d.body}`,
+            );
+          }
+          return BrowserCommandResult.make({
+            id: req.id,
+            ok: true,
+            text: lines.join("\n"),
+          });
+        }
+        const rows = res.requests
+          .slice(-200)
+          .map(
+            (r) =>
+              `${r.method} ${r.failed !== undefined ? `FAIL(${r.failed})` : (r.status ?? "…")} ${r.resourceType ?? ""} ${r.url.slice(0, 300)}  [id=${r.id}]`,
+          );
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          text:
+            rows.length > 0
+              ? rows.join("\n")
+              : "(no requests captured since the last page load)",
+        });
+      }
+      case "Dialog": {
+        const wcId = hooks.getWebContentsId();
+        const bridge = window.zuse?.browser;
+        if (
+          wcId === null ||
+          bridge?.getDialogState === undefined ||
+          bridge?.cdpCommand === undefined
+        ) {
+          return fail(
+            "Dialog handling is unavailable — the browser's debugger is not attached.",
+          );
+        }
+        const pending = await bridge.getDialogState(wcId).catch(() => null);
+        if (pending === null) {
+          return fail("No JavaScript dialog is open.");
+        }
+        const out = await bridge.cdpCommand(
+          wcId,
+          "Page.handleJavaScriptDialog",
+          {
+            accept: command.action === "accept",
+            ...(command.promptText !== undefined
+              ? { promptText: command.promptText }
+              : {}),
+          },
+        );
+        if (!out.ok) {
+          return fail(out.error ?? "Could not resolve the dialog.");
+        }
+        return BrowserCommandResult.make({
+          id: req.id,
+          ok: true,
+          detail: `${command.action === "accept" ? "Accepted" : "Dismissed"} the ${pending.type}: "${pending.message.slice(0, 200)}".`,
         });
       }
       case "Login": {
@@ -713,6 +992,159 @@ async function runBrowserCommand(
 // Snapshot refs are minted as `e<number>` — validate before string-injecting
 // into a querySelector so a crafted ref can't break out of the selector.
 const isValidRef = (ref: string): boolean => /^e\d+$/.test(ref);
+
+/**
+ * Which snapshot mode minted the refs the agent currently holds. `cdp` refs
+ * resolve through backendNodeIds (a11y tree); `dom` refs live in the page as
+ * `data-mz-ref` attributes (v1 fallback). A store from one page never
+ * survives navigation — see the `did-start-loading` reset.
+ */
+type RefStore = {
+  mode: "dom" | "cdp";
+  map: Map<string, { backendNodeId: number; label: string }>;
+};
+
+/**
+ * One allowlisted CDP call through the preload bridge. Returns the raw CDP
+ * result object, or null on any failure (bridge absent, method rejected,
+ * debugger detached) — callers treat null as "fall back or fail soft".
+ */
+async function cdpCall(
+  webContentsId: number,
+  method: string,
+  params?: unknown,
+): Promise<unknown | null> {
+  const fn = window.zuse?.browser?.cdpCommand;
+  if (fn === undefined) return null;
+  try {
+    const out: CdpCommandOutcome = await fn(webContentsId, method, params);
+    return out.ok ? (out.result ?? {}) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a snapshot ref to webview-relative CSS-pixel center coords + label,
+ * scrolling the element into view first (so a click can't miss because the
+ * page moved between snapshot and action). CDP mode goes backendNodeId →
+ * `DOM.scrollIntoViewIfNeeded` → `DOM.getContentQuads`; DOM mode keeps the
+ * v1 querySelector path. Null → ref is stale, tell the agent to re-snapshot.
+ */
+async function resolveRefTarget(
+  wv: WebviewElement,
+  webContentsId: number | null,
+  store: RefStore,
+  ref: string,
+): Promise<{ cx: number; cy: number; label: string } | null> {
+  if (store.mode === "cdp") {
+    const entry = store.map.get(ref);
+    if (entry === undefined || webContentsId === null) return null;
+    await cdpCall(webContentsId, "DOM.scrollIntoViewIfNeeded", {
+      backendNodeId: entry.backendNodeId,
+    });
+    const res = await cdpCall(webContentsId, "DOM.getContentQuads", {
+      backendNodeId: entry.backendNodeId,
+    });
+    const quads = (res as { quads?: unknown } | null)?.quads;
+    if (!Array.isArray(quads) || quads.length === 0) return null;
+    const q = quads[0] as number[];
+    if (!Array.isArray(q) || q.length < 8) return null;
+    const cx = (q[0]! + q[2]! + q[4]! + q[6]!) / 4;
+    const cy = (q[1]! + q[3]! + q[5]! + q[7]!) / 4;
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
+    return { cx, cy, label: entry.label };
+  }
+  return resolveRefRect(wv, ref);
+}
+
+/**
+ * Run one of the `*_FN` page functions against a ref's element, whichever
+ * mode minted the ref. CDP mode: `DOM.resolveNode` → `Runtime.callFunctionOn`
+ * with the element as `this` (works for a11y refs that have no DOM marker).
+ * DOM mode: the same function source is applied to the `data-mz-ref` element
+ * via `executeJavaScript`. Both return the function's `{ ok, ... }` object.
+ */
+async function callOnRefElement(
+  wv: WebviewElement,
+  webContentsId: number | null,
+  store: RefStore,
+  ref: string,
+  fnDecl: string,
+  args: ReadonlyArray<string | number | boolean>,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  detail?: string;
+  text?: string;
+} | null> {
+  if (store.mode === "cdp") {
+    const entry = store.map.get(ref);
+    if (entry === undefined || webContentsId === null) {
+      return {
+        ok: false,
+        error: "No element with that ref — re-snapshot the page first.",
+      };
+    }
+    const resolved = await cdpCall(webContentsId, "DOM.resolveNode", {
+      backendNodeId: entry.backendNodeId,
+    });
+    const objectId = (resolved as { object?: { objectId?: unknown } } | null)
+      ?.object?.objectId;
+    if (typeof objectId !== "string") {
+      return {
+        ok: false,
+        error: "That element is gone — re-snapshot the page first.",
+      };
+    }
+    const call = await cdpCall(webContentsId, "Runtime.callFunctionOn", {
+      objectId,
+      functionDeclaration: fnDecl,
+      returnByValue: true,
+      arguments: args.map((value) => ({ value })),
+    });
+    const value = (call as { result?: { value?: unknown } } | null)?.result
+      ?.value;
+    return value !== null && typeof value === "object"
+      ? (value as {
+          ok: boolean;
+          error?: string;
+          detail?: string;
+          text?: string;
+        })
+      : { ok: false, error: "The page did not respond to the action." };
+  }
+  return runJsObject(
+    wv,
+    `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot the page first.' }); return JSON.stringify((${fnDecl}).apply(el, ${JSON.stringify(args)})); })()`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page functions shared by both ref modes. Each runs with the target element
+// as `this` and returns a plain `{ ok, error?, detail?, text? }` object —
+// callOnRefElement handles the mode-specific delivery and serialization.
+// ---------------------------------------------------------------------------
+
+const CLICK_FN = `function () { this.click(); return { ok: true }; }`;
+
+const FOCUS_FN = `function () { if (typeof this.focus === 'function') this.focus(); return { ok: true }; }`;
+
+const HOVER_FN = `function () { const el = this; const r = el.getBoundingClientRect(); const o = { bubbles: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; for (const t of ['pointerover', 'mouseover', 'mouseenter', 'mousemove']) el.dispatchEvent(new MouseEvent(t, o)); return { ok: true }; }`;
+
+const READ_TEXT_FN = `function () { const el = this; return { ok: true, text: (el.innerText || el.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 8000) }; }`;
+
+/**
+ * Fill an input/textarea/select/contenteditable. Keeps v1's prototype-
+ * descriptor value setter (bypasses React's value tracker so controlled
+ * inputs don't revert on the next render) and folds in <select> matching so
+ * FillForm can hit mixed forms with one function.
+ */
+const FILL_FIELD_FN = `function (v) { const el = this; el.focus(); const tag = el.tagName; if (tag === 'SELECT') { const opt = Array.from(el.options).find((o) => o.value === v || (o.textContent || '').trim() === v); if (!opt) return { ok: false, error: 'No option matching "' + v + '".' }; el.value = opt.value; } else if (tag === 'INPUT' || tag === 'TEXTAREA') { const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; } else { el.textContent = v; } el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, detail: 'Filled ' + ((el.getAttribute('name') || el.getAttribute('aria-label') || el.tagName) || '') }; }`;
+
+const SELECT_OPTION_FN = `function (v) { const el = this; if (el.tagName !== 'SELECT') return { ok: false, error: 'That ref is not a <select> dropdown.' }; const opt = Array.from(el.options).find((o) => o.value === v || (o.textContent || '').trim() === v); if (!opt) return { ok: false, error: 'No option matching "' + v + '".' }; el.value = opt.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, detail: 'Selected ' + (opt.textContent || opt.value) }; }`;
+
+const ENTER_FN = `function () { const el = this; const o = { key: 'Enter', keyCode: 13, which: 13, bubbles: true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); const f = el.form; if (f && typeof f.requestSubmit === 'function') { try { f.requestSubmit(); } catch (e) {} } return { ok: true }; }`;
 
 /**
  * Resolve a snapshot ref to webview-relative pixel coords + a short label.
@@ -814,7 +1246,10 @@ async function dispatchClickViaCdp(
  * a real `input` event in `<textarea>`/contenteditable; non-printable keys
  * (Enter, arrows) leave `text` blank, mirroring Chromium's own handling.
  */
-async function dispatchKeyTap(webContentsId: number, key: string): Promise<void> {
+async function dispatchKeyTap(
+  webContentsId: number,
+  key: string,
+): Promise<void> {
   const isPrintable = key.length === 1;
   const payload: BrowserInputAction = {
     type: "keyDown",
@@ -828,15 +1263,32 @@ async function dispatchKeyTap(webContentsId: number, key: string): Promise<void>
   });
 }
 
+/**
+ * Center the element in the viewport with the same rAF glide as directional
+ * scroll. Self-contained (returns `{ ok }` on every path — the early-exit
+ * for tiny deltas must not fall through to `undefined`).
+ */
+const SMOOTH_SCROLL_REF_FN = `function () { const el = this; const r = el.getBoundingClientRect(); const targetY = Math.max(0, window.scrollY + r.top - (window.innerHeight - r.height) / 2); const start = window.scrollY; const dist = targetY - start; if (Math.abs(dist) < 2) { window.scrollTo(0, targetY); return { ok: true, detail: 'Already in view.' }; } const dur = ${SMOOTH_SCROLL_MS}; const t0 = performance.now(); const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2); function step(now) { const p = Math.min(1, (now - t0) / dur); window.scrollTo(0, start + dist * ease(p)); if (p < 1) requestAnimationFrame(step); } requestAnimationFrame(step); return { ok: true, detail: 'Scrolled element into view.' }; }`;
+
 /** Run page JS that returns a JSON string and parse it; null on any failure. */
 async function runJsObject(
   wv: WebviewElement,
   code: string,
-): Promise<{ ok: boolean; error?: string; detail?: string } | null> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  detail?: string;
+  text?: string;
+} | null> {
   const raw = await wv.executeJavaScript(code);
   if (typeof raw !== "string") return null;
   try {
-    return JSON.parse(raw) as { ok: boolean; error?: string; detail?: string };
+    return JSON.parse(raw) as {
+      ok: boolean;
+      error?: string;
+      detail?: string;
+      text?: string;
+    };
   } catch {
     return null;
   }
@@ -861,10 +1313,219 @@ const resultFromJs = (
           : { error: res.error ?? "Action failed." }),
       });
 
+// ---------------------------------------------------------------------------
+// Accessibility-tree snapshot (v2). Fetches the full AX tree over CDP and
+// renders the Playwright-style compact text the whole industry converged on:
+// one line per meaningful node, interactive elements carrying `ref=eN`.
+// ---------------------------------------------------------------------------
+
+type AxValue = { value?: unknown };
+type AxNode = {
+  nodeId: string;
+  ignored?: boolean;
+  role?: AxValue;
+  name?: AxValue;
+  value?: AxValue;
+  properties?: Array<{ name?: string; value?: AxValue }>;
+  childIds?: string[];
+  backendDOMNodeId?: number;
+  parentId?: string;
+};
+
+/** Roles the agent can act on — these get a `ref` (needs a backing DOM node). */
+const INTERACTIVE_ROLES = new Set([
+  "link",
+  "button",
+  "textbox",
+  "searchbox",
+  "textfield",
+  "textfieldwithcombobox",
+  "checkbox",
+  "radio",
+  "combobox",
+  "listbox",
+  "option",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "tab",
+  "switch",
+  "slider",
+  "spinbutton",
+  "togglebutton",
+  "popupbutton",
+  "menubutton",
+  "disclosuretriangle",
+]);
+
+/** Structural roles worth a line for context even without interactivity. */
+const STRUCTURAL_ROLES = new Set([
+  "heading",
+  "banner",
+  "navigation",
+  "main",
+  "contentinfo",
+  "form",
+  "search",
+  "region",
+  "complementary",
+  "article",
+  "list",
+  "listitem",
+  "descriptionlist",
+  "table",
+  "row",
+  "cell",
+  "gridcell",
+  "columnheader",
+  "rowheader",
+  "image",
+  "img",
+  "figure",
+  "dialog",
+  "alertdialog",
+  "alert",
+  "status",
+  "tabpanel",
+  "tablist",
+  "menu",
+  "menubar",
+  "toolbar",
+  "tree",
+  "treeitem",
+]);
+
+const SNAPSHOT_MAX_LINES = 800;
+const SNAPSHOT_MAX_CHARS = 20000;
+
 /**
- * Page-side DOM snapshot. Clears stale refs, then tags every visible
- * interactive element with a fresh `data-mz-ref` and returns a compact JSON
- * array `[{ ref, role, name, value, tag }]` for the agent to target.
+ * Fetch `Accessibility.getFullAXTree` and render the pruned text tree +
+ * ref map. Null on any failure (domain unavailable, empty tree) so the
+ * caller can fall back to the v1 DOM snapshot. The `DOM.getDocument` call
+ * warms the DOM agent so later backendNodeId lookups resolve reliably.
+ */
+async function buildA11ySnapshot(webContentsId: number): Promise<{
+  text: string;
+  map: Map<string, { backendNodeId: number; label: string }>;
+} | null> {
+  await cdpCall(webContentsId, "DOM.getDocument", { depth: 0 });
+  const res = await cdpCall(webContentsId, "Accessibility.getFullAXTree", {});
+  const nodes = (res as { nodes?: unknown } | null)?.nodes;
+  if (!Array.isArray(nodes) || nodes.length === 0) return null;
+  const byId = new Map<string, AxNode>();
+  for (const raw of nodes as AxNode[]) {
+    if (typeof raw?.nodeId === "string") byId.set(raw.nodeId, raw);
+  }
+  const root =
+    (nodes as AxNode[]).find((n) => n.parentId === undefined) ??
+    (nodes as AxNode[])[0]!;
+
+  const map = new Map<string, { backendNodeId: number; label: string }>();
+  const lines: string[] = [];
+  let chars = 0;
+  let skipped = 0;
+  let refCounter = 0;
+
+  const prop = (node: AxNode, name: string): unknown =>
+    node.properties?.find((p) => p.name === name)?.value?.value;
+
+  const emitLine = (line: string): boolean => {
+    if (lines.length >= SNAPSHOT_MAX_LINES || chars >= SNAPSHOT_MAX_CHARS) {
+      skipped += 1;
+      return false;
+    }
+    lines.push(line);
+    chars += line.length + 1;
+    return true;
+  };
+
+  const walk = (node: AxNode, depth: number, parentName: string): void => {
+    let nextDepth = depth;
+    let nextParentName = parentName;
+    if (node.ignored !== true) {
+      const role = String(node.role?.value ?? "");
+      const lrole = role.toLowerCase();
+      const name = String(node.name?.value ?? "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 80);
+      const interactive =
+        INTERACTIVE_ROLES.has(lrole) &&
+        typeof node.backendDOMNodeId === "number";
+      const isText = lrole === "statictext" || lrole === "text";
+      const structural = STRUCTURAL_ROLES.has(lrole);
+      // Emit: everything actionable; structure with a name (or a heading —
+      // its text is its name); text that isn't just repeating its parent's
+      // label. Nameless generic containers are flattened away.
+      const emit = interactive
+        ? true
+        : isText
+          ? name.length > 0 && name !== parentName
+          : structural && (name.length > 0 || lrole === "heading");
+      if (emit) {
+        const parts: string[] = [`${"  ".repeat(Math.min(depth, 10))}- `];
+        if (isText) {
+          parts.push(`text "${name}"`);
+        } else {
+          parts.push(lrole);
+          if (name.length > 0) parts.push(` "${name}"`);
+        }
+        if (interactive) {
+          refCounter += 1;
+          const ref = `e${refCounter}`;
+          map.set(ref, {
+            backendNodeId: node.backendDOMNodeId!,
+            label: name.length > 0 ? name : lrole,
+          });
+          parts.push(` [ref=${ref}]`);
+        }
+        const value = String(node.value?.value ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 60);
+        if (value.length > 0 && !isText) parts.push(` [value="${value}"]`);
+        const level = prop(node, "level");
+        if (lrole === "heading" && typeof level === "number") {
+          parts.push(` [level=${level}]`);
+        }
+        for (const flag of [
+          "disabled",
+          "checked",
+          "expanded",
+          "selected",
+          "required",
+        ]) {
+          const v = prop(node, flag);
+          if (v === true || v === "true" || v === "mixed")
+            parts.push(` [${flag}]`);
+        }
+        if (emitLine(parts.join(""))) {
+          nextDepth = depth + 1;
+          nextParentName = name.length > 0 ? name : parentName;
+        }
+      }
+    }
+    for (const childId of node.childIds ?? []) {
+      const child = byId.get(childId);
+      if (child !== undefined) walk(child, nextDepth, nextParentName);
+    }
+  };
+
+  walk(root, 0, "");
+  if (lines.length === 0) return null;
+  if (skipped > 0) {
+    lines.push(
+      `… truncated — ${skipped} more nodes. Use browser_read for full text, or act on the refs above.`,
+    );
+  }
+  return { text: lines.join("\n"), map };
+}
+
+/**
+ * Page-side DOM snapshot (v1 fallback — used when CDP isn't attached).
+ * Clears stale refs, then tags every visible interactive element with a
+ * fresh `data-mz-ref` and returns a compact JSON array
+ * `[{ ref, role, name, value, tag }]` for the agent to target.
  */
 const SNAPSHOT_JS = `(() => {
   document.querySelectorAll('[data-mz-ref]').forEach((e) => e.removeAttribute('data-mz-ref'));
@@ -909,9 +1570,6 @@ const SMOOTH_SCROLL_BODY = `
   }
   requestAnimationFrame(step);
 `;
-
-const buildSmoothScrollRefJs = (ref: string): string =>
-  `(() => { const el = document.querySelector('[data-mz-ref=${JSON.stringify(ref)}]'); if (!el) return JSON.stringify({ ok:false, error:'No element with that ref — re-snapshot first.' }); const r = el.getBoundingClientRect(); const targetY = Math.max(0, window.scrollY + r.top - (window.innerHeight - r.height) / 2); ${SMOOTH_SCROLL_BODY} return JSON.stringify({ ok:true, detail:'Scrolled element into view.' }); })()`;
 
 const buildSmoothScrollDirJs = (
   dir: "up" | "down" | "top" | "bottom",

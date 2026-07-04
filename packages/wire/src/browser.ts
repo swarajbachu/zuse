@@ -12,19 +12,27 @@ import { SessionId } from "./session.ts";
  * on `browser.commands`, the renderer drives the webview, and posts the
  * outcome back via `browser.respond`, which resolves a server-side Deferred.
  *
- * The command union is intentionally small for Phase 1 (navigate + screenshot);
- * interaction commands (snapshot/click/type/wait) and login land in later
- * phases as new members — a wire change, never a stringly-typed addition.
+ * Every capability is a union member here — a wire change, never a
+ * stringly-typed addition. v2 members (FillForm/Network/Dialog + the Wait and
+ * Screenshot extensions) ride the same request/respond round-trip as v1.
  */
 export const BrowserCommand = Schema.Union(
   /** Load a URL into the shared in-app webview and wait for it to settle. */
   Schema.TaggedStruct("Navigate", { url: Schema.String }),
-  /** Capture the visible viewport. The renderer returns a base64 PNG. */
-  Schema.TaggedStruct("Screenshot", {}),
   /**
-   * Walk the page and return a compact list of interactive/visible elements,
-   * each tagged with a stable `ref` the agent then targets with Click/Type.
-   * Cheaper for the model than a screenshot and robust to scroll/DPI.
+   * Capture the page. Default is the visible viewport via `capturePage`;
+   * `fullPage` captures beyond the viewport through CDP
+   * (`Page.captureScreenshot`) when the debugger is attached.
+   */
+  Schema.TaggedStruct("Screenshot", {
+    fullPage: Schema.optional(Schema.Boolean),
+  }),
+  /**
+   * Snapshot the page for targeting. v2: the renderer prefers a pruned
+   * accessibility tree over CDP (roles/names/states, interactive elements
+   * carrying `ref=eN` mapped to backendNodeIds renderer-side) and falls back
+   * to v1's injected DOM walk when CDP isn't attached. Cheaper for the model
+   * than a screenshot and robust to scroll/DPI.
    */
   Schema.TaggedStruct("Snapshot", {}),
   /** Click the element carrying this snapshot `ref`. */
@@ -39,21 +47,24 @@ export const BrowserCommand = Schema.Union(
     submit: Schema.optional(Schema.Boolean),
   }),
   /**
-   * Settle after navigation/AJAX. Either wait a fixed `ms`, or poll until a
-   * CSS `selector` appears (whichever is given; selector wins).
+   * Settle after navigation/AJAX. Wait a fixed `ms`, poll until a CSS
+   * `selector` appears, or poll until `text` shows up in the page's visible
+   * text (selector wins over text; either wins over ms). `timeoutMs` bounds
+   * the poll — capped renderer-side below the bridge's 30s deadline so a
+   * hopeless wait fails as a clean tool error, not a bridge timeout.
    */
   Schema.TaggedStruct("Wait", {
     ms: Schema.optional(Schema.Number),
     selector: Schema.optional(Schema.String),
+    text: Schema.optional(Schema.String),
+    timeoutMs: Schema.optional(Schema.Number),
   }),
   /**
    * Scroll the page (or a `ref` into view). `direction` moves the viewport;
    * `ref` (when given) scrolls that element to center instead.
    */
   Schema.TaggedStruct("Scroll", {
-    direction: Schema.optional(
-      Schema.Literal("up", "down", "top", "bottom"),
-    ),
+    direction: Schema.optional(Schema.Literal("up", "down", "top", "bottom")),
     ref: Schema.optional(Schema.String),
   }),
   /** Hover an element by `ref` (reveal menus / tooltips). */
@@ -79,6 +90,39 @@ export const BrowserCommand = Schema.Union(
   }),
   /** Return recent console messages + page errors captured since last load. */
   Schema.TaggedStruct("Console", {}),
+  /**
+   * Fill several fields in one round-trip — inputs/textareas and <select>s by
+   * snapshot `ref`. One permission prompt covers the whole form. `submit`
+   * presses Enter in the last filled field afterward.
+   */
+  Schema.TaggedStruct("FillForm", {
+    fields: Schema.Array(
+      Schema.Struct({
+        ref: Schema.String,
+        value: Schema.String,
+      }),
+    ),
+    submit: Schema.optional(Schema.Boolean),
+  }),
+  /**
+   * Network activity captured since the last page load (CDP Network domain,
+   * buffered in main). No `id` → compact request list, optionally substring-
+   * filtered by `filter`. With `id` → one request's detail incl. response
+   * headers and a truncated body.
+   */
+  Schema.TaggedStruct("Network", {
+    filter: Schema.optional(Schema.String),
+    id: Schema.optional(Schema.String),
+  }),
+  /**
+   * Resolve the pending JavaScript dialog (alert/confirm/prompt/beforeunload)
+   * via `Page.handleJavaScriptDialog`. `promptText` answers a prompt() when
+   * accepting. Fails cleanly when no dialog is open.
+   */
+  Schema.TaggedStruct("Dialog", {
+    action: Schema.Literal("accept", "dismiss"),
+    promptText: Schema.optional(Schema.String),
+  }),
   /**
    * Autofill + submit the saved (DUMMY/TEST) credentials for this origin.
    * SECURITY: the command carries ONLY the origin — never the password. The
@@ -143,11 +187,17 @@ export class BrowserCommandResult extends Schema.Class<BrowserCommandResult>(
   url: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
   screenshot: Schema.optional(Schema.String),
-  /** Snapshot → JSON array of `{ ref, role, name, value }`. */
+  /**
+   * Snapshot → a11y-tree text (CDP path) or JSON array of
+   * `{ ref, role, name, value }` (v1 DOM fallback).
+   */
   snapshot: Schema.optional(Schema.String),
   /** Click/Type/Scroll/… → short human-readable note for the agent. */
   detail: Schema.optional(Schema.String),
-  /** Read → page/element text; Console → captured console + error log. */
+  /**
+   * Read → page/element text; Console → console + error log;
+   * Network → request list or one request's detail.
+   */
   text: Schema.optional(Schema.String),
 }) {}
 
