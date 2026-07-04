@@ -440,6 +440,7 @@ export const startGrokSession = (
         cwd,
         env: {
           ...process.env,
+          GROK_CURSOR_MCPS_ENABLED: "0",
           ...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
