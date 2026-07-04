@@ -3,7 +3,7 @@ title: "Sub-agent delegation to cut cost"
 description: "Let a lead agent spawn cheaper models for the grunt work, then keep the expensive model for the hard parts."
 date: "2026-05-20"
 timeToRead: "5 min read"
-authorName: "memoize team"
+authorName: "Zuse Alpha team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-subagents-clean.svg"
@@ -18,7 +18,7 @@ labels:
 
 Not every step in a task needs your most capable model. Reading files, grepping, summarizing logs, and running checks are cheap work. Designing the change and reasoning through the tricky cases is where you want the strong model.
 
-memoize lets a lead agent delegate to sub-agents, so the expensive model orchestrates while cheaper models do the legwork.
+Zuse Alpha lets a lead agent delegate to sub-agents, so the expensive model orchestrates while cheaper models do the legwork.
 
 ---
 
@@ -52,7 +52,7 @@ Sub-agent delegation takes advantage of that uneven shape. The lead agent keeps 
 
 Bad delegation would be worse than no delegation. If a lead agent spawns helpers that wander through the repository, make silent edits, or return vague conclusions, the developer gets a distributed mess. The useful version has clear boundaries. A sub-agent should have a specific question, a defined scope, and an output that can be checked by the lead agent and the human reviewer.
 
-memoize treats sub-agent work as part of the visible session. Tool calls and outputs are not hidden behind a single "done" message. You can see what the helper inspected and what it concluded. That matters because agentic work should be auditable. If the lead agent bases a design decision on a sub-agent's summary, you should be able to inspect the summary and decide whether it was grounded.
+Zuse Alpha treats sub-agent work as part of the visible session. Tool calls and outputs are not hidden behind a single "done" message. You can see what the helper inspected and what it concluded. That matters because agentic work should be auditable. If the lead agent bases a design decision on a sub-agent's summary, you should be able to inspect the summary and decide whether it was grounded.
 
 This visibility also makes it easier to tune your own habits. Over time, you learn which tasks are safe to delegate to smaller models and which tasks deserve a stronger one. You might use a cheaper model for repository mapping, a mid-tier model for writing straightforward tests, and the strongest model for the final patch. The point is not to automate the human out of the loop. The point is to spend attention and model budget where they produce the most value.
 
@@ -86,4 +86,4 @@ Start by delegating read-only work. Ask a helper to map related files, summarize
 
 Review the sub-agent output the same way you would review a teammate's notes. Check that it cites concrete files, distinguishes facts from guesses, and does not overstate certainty. If the output is vague, narrow the next prompt. If the helper reads too much, reduce the scope. Delegation improves when the lead agent gives smaller, sharper assignments.
 
-memoize's role is to make that workflow normal inside the app. Multiple agents can work inside the same project-aware environment, their outputs remain visible, and the lead agent can use their findings without turning the session into a tangle of terminals. The economics are useful, but the deeper win is operational: better division of labor for agentic coding.
+Zuse Alpha's role is to make that workflow normal inside the app. Multiple agents can work inside the same project-aware environment, their outputs remain visible, and the lead agent can use their findings without turning the session into a tangle of terminals. The economics are useful, but the deeper win is operational: better division of labor for agentic coding.

@@ -1,4 +1,4 @@
-import type { AgentAvailability, ProviderId } from "@memoize/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/wire";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the

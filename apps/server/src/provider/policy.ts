@@ -1,4 +1,4 @@
-import type { PermissionMode, RuntimeMode } from "@memoize/wire";
+import type { PermissionMode, RuntimeMode } from "@zuse/wire";
 
 /**
  * Shared permission policy helpers used by both SDK drivers (Claude, Codex)

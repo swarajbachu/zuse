@@ -1,4 +1,4 @@
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 export interface ModelPickerEvent {
   providerId: ProviderId;
@@ -13,7 +13,8 @@ export interface ModelPickerRecent {
   lastAt: number;
 }
 
-const STORAGE_KEY = "memoize.modelpicker.events.v2";
+const STORAGE_KEY = "zuse.modelpicker.events.v2";
+const LEGACY_EVENTS_KEY = "memoize.modelpicker.events.v2";
 const LEGACY_KEY = "memoize.modelpicker.recents.v1";
 const MAX_EVENTS = 500;
 const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
@@ -29,7 +30,23 @@ function safeStorage(): Storage | null {
 
 function readRaw(storage: Storage): ModelPickerEvent[] {
   const raw = storage.getItem(STORAGE_KEY);
-  if (raw === null) return migrateLegacy(storage);
+  if (raw === null) {
+    const legacyEvents = storage.getItem(LEGACY_EVENTS_KEY);
+    if (legacyEvents !== null) {
+      try {
+        storage.setItem(STORAGE_KEY, legacyEvents);
+        storage.removeItem(LEGACY_EVENTS_KEY);
+      } catch {
+        // ignore write failures
+      }
+      return parseEvents(legacyEvents);
+    }
+    return migrateLegacy(storage);
+  }
+  return parseEvents(raw);
+}
+
+function parseEvents(raw: string): ModelPickerEvent[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];

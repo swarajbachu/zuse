@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@memoize/wire";
+import type { UpdateStatus } from "@zuse/wire";
 
 /**
  * Dev console helper for previewing the UpdateBanner without cutting a real
@@ -7,16 +7,16 @@ import type { UpdateStatus } from "@memoize/wire";
  * `electron-updater` would emit in production.
  *
  * Usage in DevTools:
- *   __memoizeUpdateDemo.set({ kind: "available", version: "0.1.4" })
- *   __memoizeUpdateDemo.cycle()   // available → downloading → ready over ~6s
- *   __memoizeUpdateDemo.clear()   // back to idle
+ *   __zuseUpdateDemo.set({ kind: "available", version: "0.1.4" })
+ *   __zuseUpdateDemo.cycle()   // available → downloading → ready over ~6s
+ *   __zuseUpdateDemo.clear()   // back to idle
  *
  * Imported only when `import.meta.env.DEV` (see main.tsx) so it can never
  * leak into a packaged build.
  */
 declare global {
   interface Window {
-    __memoizeUpdateDemo?: {
+    __zuseUpdateDemo?: {
       set: (status: UpdateStatus) => void;
       cycle: () => void;
       clear: () => void;
@@ -26,17 +26,17 @@ declare global {
 
 export function installUpdateDemo(): void {
   const send = (status: UpdateStatus) => {
-    const fn = window.memoize?.updates?.__demoSet;
+    const fn = window.zuse?.updates?.__demoSet;
     if (!fn) {
       console.warn(
-        "[update-demo] window.memoize.updates.__demoSet missing — preload may not have reloaded.",
+        "[update-demo] window.zuse.updates.__demoSet missing — preload may not have reloaded.",
       );
       return;
     }
     void fn(status);
   };
 
-  window.__memoizeUpdateDemo = {
+  window.__zuseUpdateDemo = {
     set: send,
     clear: () => send({ kind: "idle" }),
     cycle: () => {
@@ -58,6 +58,6 @@ export function installUpdateDemo(): void {
   };
 
   console.log(
-    "[update-demo] ready. Try __memoizeUpdateDemo.cycle() in DevTools.",
+    "[update-demo] ready. Try __zuseUpdateDemo.cycle() in DevTools.",
   );
 }

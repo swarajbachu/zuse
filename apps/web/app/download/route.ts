@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { GITHUB_URL } from "@/lib/site";
+import { RELEASES_URL } from "@/lib/site";
 
 const RELEASE_API_URL =
-  "https://api.github.com/repos/swarajbachu/memoize/releases/latest";
+  "https://api.github.com/repos/swarajbachu/zuse/releases/latest";
 
 type GitHubReleaseAsset = {
   name?: unknown;
@@ -14,7 +14,7 @@ type GitHubRelease = {
   assets?: unknown;
 };
 
-const FALLBACK_URL = `${GITHUB_URL}/releases`;
+const FALLBACK_URL = RELEASES_URL;
 
 export async function GET() {
   try {

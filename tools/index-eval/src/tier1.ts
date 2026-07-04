@@ -5,7 +5,7 @@ import {
   type IndexDb,
   listFileSymbols,
   lookupSymbol,
-} from "@memoize/index";
+} from "@zuse/index";
 
 import { type EvalTask } from "./tasks.ts";
 import { type RunResult } from "./types.ts";

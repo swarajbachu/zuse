@@ -6,7 +6,7 @@ import {
   indexRepo,
   openIndexDb,
   runMigrations,
-} from "@memoize/index";
+} from "@zuse/index";
 
 import { runBaseline } from "./baseline.ts";
 import { TASKS } from "./tasks.ts";

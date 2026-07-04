@@ -7,7 +7,7 @@ import {
   type FolderId,
   type ProviderId,
   type RuntimeMode,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { ProviderService } from "./services/provider-service.ts";
 

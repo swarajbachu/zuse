@@ -1,4 +1,4 @@
-import type { SessionId } from "@memoize/wire";
+import type { SessionId } from "@zuse/wire";
 import { useState } from "react";
 
 import { useAutoAnimate } from "../../lib/use-auto-animate.ts";

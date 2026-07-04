@@ -3,7 +3,7 @@ export function WelcomeStep() {
     <div className="flex h-full flex-col gap-10">
       <div className="flex flex-col gap-3">
         <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
-          Welcome to memoize
+          Welcome to Zuse Alpha
         </span>
         <h1 className="text-4xl font-semibold leading-[1.05] tracking-tight text-foreground">
           Every agent,

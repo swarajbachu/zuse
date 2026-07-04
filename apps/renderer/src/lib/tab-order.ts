@@ -1,4 +1,4 @@
-import type { ChatId, Session, SessionId } from "@memoize/wire";
+import type { ChatId, Session, SessionId } from "@zuse/wire";
 
 /**
  * Shared tab-strip ordering. The main-pane tab strip (`main-tabs.tsx`) and the

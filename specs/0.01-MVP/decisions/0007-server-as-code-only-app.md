@@ -39,7 +39,7 @@ apps/
                                 # Tomorrow: WS server boot.
   desktop/                      # thin Electron shim
     src/
-      main.ts                   # Electron lifecycle. Imports runtime from @memoize/server.
+      main.ts                   # Electron lifecycle. Imports runtime from @zuse/server.
       preload.ts                # contextBridge
       ipc/                      # electron-server-protocol — Electron-bound transport
   renderer/                     # React UI

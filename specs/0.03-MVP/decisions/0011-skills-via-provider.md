@@ -11,7 +11,7 @@ its own.** Users already author skills inside their preferred coding
 agent — under `~/.claude/skills/` and project-level `.claude/skills/`
 when working with Claude, under `~/.codex/skills/` and project-level
 `.codex/skills/` when working with Codex. Asking them to maintain a
-third copy under `.memoize/skills/` would be a tax on every user with
+third copy under `.zuse/skills/` would be a tax on every user with
 no offsetting benefit.
 
 The question is **how** to plumb those existing directories into
@@ -20,7 +20,7 @@ frontmatter conventions, override semantics, or hot-reload signals.
 
 ## Options
 
-### Option A — Memoize owns `.memoize/skills/`
+### Option A — Memoize owns `.zuse/skills/`
 
 - A new directory the user has to populate.
 - Simplest implementation: memoize reads markdown, parses frontmatter,

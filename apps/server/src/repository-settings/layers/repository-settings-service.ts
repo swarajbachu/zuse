@@ -11,7 +11,7 @@ import {
   type RepositorySettingsFile,
   type RepositorySettingsPatch,
   type RuntimeMode,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { RepositorySettingsService } from "../services/repository-settings-service.ts";
 
@@ -96,8 +96,7 @@ const parseTomlString = (raw: string): string => {
   return trimmed;
 };
 
-const settingsDir = (repoPath: string): string =>
-  Path.join(repoPath, ".memoize");
+const settingsDir = (repoPath: string): string => Path.join(repoPath, ".zuse");
 const jsonPath = (repoPath: string): string =>
   Path.join(settingsDir(repoPath), "settings.json");
 const tomlPath = (repoPath: string): string =>

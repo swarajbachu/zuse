@@ -7,7 +7,7 @@ import {
 
 describe("claudeWorktreePrompt", () => {
   it("pins Claude's location answers to the effective session cwd", () => {
-    const cwd = "/Users/whizzy/.memoize/monkit-ea6cdfdd/cherubi";
+    const cwd = "/Users/whizzy/.zuse/monkit-ea6cdfdd/cherubi";
     const prompt = claudeWorktreePrompt(cwd);
     const forbiddenAppName = ["Con", "ductor"].join("");
 
@@ -15,13 +15,13 @@ describe("claudeWorktreePrompt", () => {
     expect(prompt).toContain("authoritative location");
     expect(prompt).toContain("If the user asks where you are located");
     expect(prompt).toContain("Do not answer with the repository's main checkout path");
-    expect(prompt).toContain("Memoize worktree context");
+    expect(prompt).toContain("Zuse worktree context");
     expect(prompt).not.toContain(forbiddenAppName);
     expect(prompt).not.toContain(["work", "space"].join(""));
   });
 
   it("pins Claude's launch environment to the effective session cwd", () => {
-    const cwd = "/Users/whizzy/.memoize/monkit-ea6cdfdd/cherubi";
+    const cwd = "/Users/whizzy/.zuse/monkit-ea6cdfdd/cherubi";
     const env = applyClaudeWorktreeEnv(
       {
         PWD: "/Users/whizzy/Developer/startups/monkit",
@@ -33,6 +33,7 @@ describe("claudeWorktreePrompt", () => {
     );
 
     expect(env.PWD).toBe(cwd);
+    expect(env.ZUSE_WORKTREE_CWD).toBe(cwd);
     expect(env.MEMOIZE_WORKTREE_CWD).toBe(cwd);
     expect(env[["CON", "DUCTOR_WORKSPACE_CWD"].join("")]).toBeUndefined();
     expect(env.OLDPWD).toBeUndefined();

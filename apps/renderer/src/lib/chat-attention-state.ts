@@ -1,4 +1,4 @@
-import type { Message, PermissionRequest, SessionId } from "@memoize/wire";
+import type { Message, PermissionRequest, SessionId } from "@zuse/wire";
 
 export type ChatAttentionState =
   | "idle"

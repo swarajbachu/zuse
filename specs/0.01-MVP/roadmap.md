@@ -71,7 +71,7 @@ ADR 0007's transport-agnostic split keeps these costs bounded — each becomes a
 | Milestone | What changes |
 |---|---|
 | Remote desktop access | `apps/server/src/bin.ts` becomes a real WS server boot; renderer's transport seam picks WS when running outside Electron. |
-| CLI client | New `apps/cli/` consuming `@memoize/wire` over the WS transport. |
+| CLI client | New `apps/cli/` consuming `@zuse/wire` over the WS transport. |
 | Multi-window | Multiple Electron renderers connected to one backend — backend already supports it. |
 | Mobile client | Native or web mobile app speaking WS to a desktop's server over LAN/tunnel. |
 

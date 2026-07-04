@@ -15,7 +15,7 @@ const data: CardData[] = [
   {
     title: "Bring your own keys",
     description:
-      "Your API keys stay in the macOS Keychain. memoize is not a reseller and never marks up your model usage.",
+      "Your API keys stay in the macOS Keychain. Zuse Alpha is not a reseller and never marks up your model usage.",
     time: "4 min read",
     image: "/assets/blog-preview-keys-clean.svg",
     href: "/blog/bring-your-own-keys",
@@ -45,7 +45,7 @@ const data: CardData[] = [
     href: "/blog/local-first-by-design",
   },
   {
-    title: "memoize is now in public alpha",
+    title: "Zuse Alpha is now in public alpha",
     description:
       "A chat-first macOS app that wraps every coding agent CLI in one project-aware workspace. Free during alpha.",
     time: "4 min read",

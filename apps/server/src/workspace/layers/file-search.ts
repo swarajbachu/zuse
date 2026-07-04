@@ -4,7 +4,7 @@ import { FileSystem, Path } from "@effect/platform";
 import { Effect, Layer } from "effect";
 import fuzzysort from "fuzzysort";
 
-import { FsFolderNotFoundError } from "@memoize/wire";
+import { FsFolderNotFoundError } from "@zuse/wire";
 
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 import {
@@ -22,8 +22,8 @@ const SKIP_DIRS = new Set([
   ".git",
   "node_modules",
   // Memoize's per-project artifacts (code-index sqlite, etc.) live under
-  // <root>/.memoize/. Pickers shouldn't surface them.
-  ".memoize",
+  // <root>/.zuse/. Pickers shouldn't surface them.
+  ".zuse",
   "dist",
   "build",
   ".turbo",

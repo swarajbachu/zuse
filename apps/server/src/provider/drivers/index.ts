@@ -8,7 +8,7 @@ import type {
   AgentTurnId,
   ProviderId,
   StartSessionInput,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import type { ProviderAdapterError } from "../errors.ts";
 

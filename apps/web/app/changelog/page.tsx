@@ -5,7 +5,7 @@ import { getSEO } from "@/lib/seo";
 
 export const metadata = getSEO({
   title: "Change Log",
-  description: "All notable memoize product changes, grouped by release.",
+  description: "All notable Zuse Alpha product changes, grouped by release.",
   path: "/changelog",
 });
 
@@ -28,7 +28,7 @@ export default async function ChangelogPage() {
         <div className="flex max-w-3xl flex-col gap-5">
           <Header>Change Log</Header>
           <p className="text-muted-foreground text-lg leading-8">
-            Product updates, fixes, and release notes for memoize.
+            Product updates, fixes, and release notes for Zuse Alpha.
           </p>
         </div>
 

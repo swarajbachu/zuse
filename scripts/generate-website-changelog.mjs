@@ -35,10 +35,8 @@ function parseChangelog(source) {
 
   if (currentRelease) releases.push(currentRelease);
 
-  return releases.filter(
-    (release) =>
-      release.version !== "Unreleased" &&
-      release.sections.some((section) => section.items.length > 0),
+  return releases.filter((release) =>
+    release.sections.some((section) => section.items.length > 0),
   );
 }
 

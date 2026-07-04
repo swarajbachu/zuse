@@ -475,6 +475,16 @@ const ContextUsageEvent = Schema.TaggedStruct("ContextUsage", {
   source: Schema.optional(Schema.String),
 });
 
+const ContextCompactionEvent = Schema.TaggedStruct("ContextCompaction", {
+  itemId: AgentItemId,
+  providerId: ProviderId,
+  startedAt: Schema.Number,
+  durationMs: Schema.Number,
+  beforeTokens: Schema.NullOr(Schema.Number),
+  afterTokens: Schema.NullOr(Schema.Number),
+  status: Schema.Literal("in_progress", "completed"),
+});
+
 const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
   providerId: ProviderId,
   label: Schema.String,
@@ -489,6 +499,16 @@ const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
 const CompletedEvent = Schema.TaggedStruct("Completed", {
   reason: Schema.Literal("ended", "interrupted", "error"),
 });
+
+/**
+ * Emitted when the user interrupts a running turn. Unlike `Error`, this is a
+ * normal user action — the renderer shows a muted "Interrupted by user" badge
+ * (no red error bubble) and the session stays out of the error state. Drivers
+ * emit this in place of `Error` when they know the turn ended because of an
+ * explicit interrupt (see the Claude driver, which otherwise surfaces the
+ * SDK's `error_during_execution` result as a bogus error).
+ */
+const InterruptedEvent = Schema.TaggedStruct("Interrupted", {});
 
 const ErrorEvent = Schema.TaggedStruct("Error", {
   message: Schema.String,
@@ -597,6 +617,7 @@ export const AgentEvent = Schema.Union(
   SubagentSummaryEvent,
   UsageDeltaEvent,
   ContextUsageEvent,
+  ContextCompactionEvent,
   UsageLimitEvent,
   SessionCursorEvent,
   UserQuestionEvent,
@@ -604,6 +625,7 @@ export const AgentEvent = Schema.Union(
   GoalUpdatedEvent,
   GoalClearedEvent,
   CompletedEvent,
+  InterruptedEvent,
   ErrorEvent,
 );
 export type AgentEvent = typeof AgentEvent.Type;
@@ -711,6 +733,20 @@ export type StartSessionInput = typeof StartSessionInput.Type;
 export interface ModelOption {
   readonly id: string;
   readonly label: string;
+  /**
+   * Optional small picker badge for launch/newness callouts.
+   */
+  readonly badgeLabel?: string;
+  /**
+   * Preferred default for this provider. When omitted, the first visible model
+   * remains the fallback default.
+   */
+  readonly defaultModel?: boolean;
+  /**
+   * Whether this model appears in normal picker/default selectors before the
+   * user opts it back in from provider settings. Omitted means visible.
+   */
+  readonly defaultVisible?: boolean;
   readonly optionDescriptors?: ReadonlyArray<OptionDescriptor>;
   readonly supportsPlanMode?: boolean;
   readonly supportsWebSearch?: "native" | "queryOnly";
@@ -804,10 +840,53 @@ export const MODELS_BY_PROVIDER: Record<
   ProviderId,
   ReadonlyArray<ModelOption>
 > = {
-  // Claude 4.x catalog (May 2026). Effort tiers and per-model knobs match
+  // Claude catalog. Effort tiers and per-model knobs match
   // the published Claude Agent SDK contract. Ordering = newest first so the
-  // picker accordion expands Opus 4.8 by default.
+  // picker accordion opens on the latest recommended model by default.
   claude: [
+    {
+      id: "claude-fable-5",
+      label: "Fable 5",
+      badgeLabel: "Available now",
+      optionDescriptors: [
+        claudeEffortDescriptor({
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "xhigh", label: "Extra High" },
+            { id: "max", label: "Max" },
+            { id: "ultracode", label: "Ultracode" },
+          ],
+          defaultId: "high",
+        }),
+        booleanDescriptor("fastMode", "Fast Mode"),
+        claudeContextWindowDescriptor(),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
+    {
+      id: "claude-sonnet-5",
+      label: "Sonnet 5",
+      badgeLabel: "New",
+      defaultModel: true,
+      optionDescriptors: [
+        claudeEffortDescriptor({
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "max", label: "Max" },
+            { id: "ultracode", label: "Ultracode" },
+          ],
+          defaultId: "high",
+        }),
+        claudeContextWindowDescriptor(),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
     {
       id: "claude-opus-4-8",
       label: "Opus 4.8",
@@ -873,6 +952,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "claude-sonnet-4-6",
       label: "Sonnet 4.6",
+      defaultVisible: false,
       optionDescriptors: [
         claudeEffortDescriptor({
           options: [
@@ -899,6 +979,17 @@ export const MODELS_BY_PROVIDER: Record<
   ],
   codex: [
     {
+      id: "gpt-5.5",
+      label: "GPT-5.5",
+      // Fast tier supported — see gpt-5.4 note above.
+      optionDescriptors: [
+        reasoningSelectDescriptor("medium"),
+        booleanDescriptor("fastMode", "Fast"),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
+    {
       id: "gpt-5.4",
       label: "GPT-5.4",
       // `fastMode` → `serviceTier: "fast"`. OpenAI only offers the fast tier on
@@ -920,19 +1011,9 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "native",
     },
     {
-      id: "gpt-5.5",
-      label: "GPT-5.5",
-      // Fast tier supported — see gpt-5.4 note above.
-      optionDescriptors: [
-        reasoningSelectDescriptor("medium"),
-        booleanDescriptor("fastMode", "Fast"),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
       id: "gpt-5.3-codex",
       label: "GPT-5.3 Codex",
+      defaultVisible: false,
       optionDescriptors: [reasoningSelectDescriptor("medium")],
       supportsPlanMode: true,
       supportsWebSearch: "native",
@@ -940,6 +1021,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gpt-5.3-codex-spark",
       label: "GPT-5.3 Codex Spark",
+      defaultVisible: false,
       optionDescriptors: [reasoningSelectDescriptor("medium")],
       supportsPlanMode: true,
       supportsWebSearch: "native",
@@ -967,6 +1049,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "grok-4",
       label: "Grok 4",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -979,6 +1062,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "grok-code-fast-1",
       label: "Grok Code Fast",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1004,12 +1088,14 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gemini-2.5-pro",
       label: "Gemini 2.5 Pro",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
     {
       id: "gemini-2.5-flash",
       label: "Gemini 2.5 Flash",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1031,7 +1117,12 @@ export const MODELS_BY_PROVIDER: Record<
     { id: "composer-2", label: "Composer 2", supportsPlanMode: true },
     { id: "composer-2.5", label: "Composer 2.5", supportsPlanMode: true },
     { id: "gpt-5.5", label: "GPT-5.5", supportsPlanMode: true },
-    { id: "gpt-5.3-codex", label: "Codex 5.3", supportsPlanMode: true },
+    {
+      id: "gpt-5.3-codex",
+      label: "Codex 5.3",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
     {
       id: "claude-sonnet-4-6",
       label: "Sonnet 4.6",
@@ -1041,10 +1132,16 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "claude-opus-4-7",
       label: "Opus 4.7",
+      defaultVisible: false,
       optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
       supportsPlanMode: true,
     },
-    { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", supportsPlanMode: true },
+    {
+      id: "gemini-3.1-pro",
+      label: "Gemini 3.1 Pro",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
   ],
   // OpenCode is a meta-provider: it spawns a local `opencode serve` and
   // forwards prompts to whichever underlying provider (anthropic, openai,
@@ -1079,7 +1176,56 @@ export const MODELS_BY_PROVIDER: Record<
 };
 
 export const defaultModelFor = (providerId: ProviderId): string =>
-  MODELS_BY_PROVIDER[providerId][0]!.id;
+  (MODELS_BY_PROVIDER[providerId].find(
+    (m) => m.defaultModel === true && m.defaultVisible !== false,
+  ) ??
+    MODELS_BY_PROVIDER[providerId].find((m) => m.defaultVisible !== false) ??
+    MODELS_BY_PROVIDER[providerId][0]!)!.id;
+
+export type ModelEnabledByProvider = Record<
+  ProviderId,
+  Record<string, boolean>
+>;
+
+export const defaultModelEnabledByProvider = (): ModelEnabledByProvider => {
+  const out = {} as ModelEnabledByProvider;
+  for (const providerId of Object.keys(MODELS_BY_PROVIDER) as ProviderId[]) {
+    out[providerId] = {};
+    for (const model of MODELS_BY_PROVIDER[providerId]) {
+      out[providerId][model.id] = model.defaultVisible !== false;
+    }
+  }
+  return out;
+};
+
+export const isModelVisible = (
+  providerId: ProviderId,
+  modelId: string,
+  modelEnabledByProvider?: Partial<
+    Record<ProviderId, Partial<Record<string, boolean>>>
+  >,
+): boolean => {
+  const override = modelEnabledByProvider?.[providerId]?.[modelId];
+  if (typeof override === "boolean") return override;
+  const descriptor = findModelDescriptor(providerId, modelId);
+  if (descriptor === undefined) return true;
+  return descriptor.defaultVisible !== false;
+};
+
+export const visibleModelsForProvider = (
+  providerId: ProviderId,
+  modelEnabledByProvider?: Partial<
+    Record<ProviderId, Partial<Record<string, boolean>>>
+  >,
+  options?: { readonly includeModelId?: string | null },
+): ReadonlyArray<ModelOption> => {
+  const includeModelId = options?.includeModelId ?? null;
+  return MODELS_BY_PROVIDER[providerId].filter(
+    (model) =>
+      isModelVisible(providerId, model.id, modelEnabledByProvider) ||
+      model.id === includeModelId,
+  );
+};
 
 /**
  * Look up a model's descriptor by `(providerId, modelId)`. Returns
@@ -1114,7 +1260,12 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "claude-opus-4.7": "claude-opus-4-7",
     "opus-4.6": "claude-opus-4-6",
     "claude-opus-4.6": "claude-opus-4-6",
-    sonnet: "claude-sonnet-4-6",
+    fable: "claude-fable-5",
+    "fable-5": "claude-fable-5",
+    "claude-fable-5": "claude-fable-5",
+    sonnet: "claude-sonnet-5",
+    "sonnet-5": "claude-sonnet-5",
+    "claude-sonnet-5": "claude-sonnet-5",
     "sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4.6": "claude-sonnet-4-6",
     haiku: "claude-haiku-4-5",
@@ -1122,8 +1273,8 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "claude-haiku-4.5": "claude-haiku-4-5",
   },
   codex: {
-    "gpt-5-codex": "gpt-5.4",
-    "gpt-5": "gpt-5.4",
+    "gpt-5-codex": "gpt-5.5",
+    "gpt-5": "gpt-5.5",
   },
   grok: {},
   gemini: {
@@ -1205,6 +1356,18 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     output: 25,
     cacheRead: 0.5,
     cacheCreate: 6.25,
+  },
+  "claude-fable-5": {
+    input: 10,
+    output: 50,
+    cacheRead: 1,
+    cacheCreate: 12.5,
+  },
+  "claude-sonnet-5": {
+    input: 3,
+    output: 15,
+    cacheRead: 0.3,
+    cacheCreate: 3.75,
   },
   "claude-sonnet-4-6": {
     input: 3,

@@ -3,6 +3,7 @@ import { createPatch, structuredPatch } from "diff";
 import { useMemo } from "react";
 
 import { FileIcon } from "./file-icon.tsx";
+import { isPatchDiffRenderable } from "../lib/patch-diff.ts";
 
 const UNIFIED_DIFF_OPTIONS = { diffStyle: "unified" } as const;
 
@@ -195,6 +196,14 @@ const normalizePatchForDiffViewer = (path: string, patch: string): string => {
   ].join("\n");
 };
 
+function RawPatchBlock({ patch }: { patch: string }) {
+  return (
+    <pre className="code-block-scroll max-h-[420px] overflow-auto whitespace-pre-wrap break-words bg-muted/15 px-3 py-2 font-mono text-[11px] leading-relaxed text-foreground/80">
+      {patch}
+    </pre>
+  );
+}
+
 export function UnifiedPatchDiff({
   path,
   patch,
@@ -215,6 +224,7 @@ export function UnifiedPatchDiff({
   }
 
   const name = basename(path);
+  const renderable = isPatchDiffRenderable(patch);
   const normalizedPatch = normalizePatchForDiffViewer(path, patch);
   return (
     <div className="overflow-hidden rounded-md border border-border/60">
@@ -234,11 +244,15 @@ export function UnifiedPatchDiff({
         className="fz-diff code-block-scroll overflow-auto bg-muted/15 text-[12px] leading-[1.45]"
         style={{ maxHeight: 420 }}
       >
-        <PatchDiff
-          patch={normalizedPatch}
-          options={UNIFIED_DIFF_OPTIONS}
-          disableWorkerPool
-        />
+        {renderable ? (
+          <PatchDiff
+            patch={normalizedPatch}
+            options={UNIFIED_DIFF_OPTIONS}
+            disableWorkerPool
+          />
+        ) : (
+          <RawPatchBlock patch={patch} />
+        )}
       </div>
     </div>
   );

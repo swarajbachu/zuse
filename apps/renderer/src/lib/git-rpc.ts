@@ -5,7 +5,7 @@ import type {
   GitFolderNotFoundError,
   GitNotARepoError,
   GitNotInstalledError,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { formatError } from "./format-error.ts";
 

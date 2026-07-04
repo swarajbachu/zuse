@@ -310,7 +310,7 @@ export const GitPrDetailsRpc = Rpc.make("git.prDetails", {
 /**
  * Captured CI failure artifact. The server pulled logs for every failing
  * check via `gh run view --log-failed`, concatenated them with run-name
- * dividers, and wrote them to `.memoize/failing-checks-<ts>.txt` inside the
+ * dividers, and wrote them to `.zuse/failing-checks-<ts>.txt` inside the
  * worktree. The renderer attaches `relPath` to the composer so the agent can
  * read it as `@<relPath>`.
  */

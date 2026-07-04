@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 import { ClaudeIcon } from "./icons/claude-icon";

@@ -38,7 +38,7 @@ import {
   type GitBranchInfo,
   type GitMergeMethod,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
@@ -51,7 +51,11 @@ import {
 } from "./glass-action.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
 import { useActiveContext } from "../store/active-workspace.ts";
-import { useChatsStore } from "../store/chats.ts";
+import {
+  archiveChatWithConfirm,
+  chatArchiveProgressLabel,
+  useChatsStore,
+} from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -62,6 +66,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
+import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
   DialogClose,
@@ -89,7 +94,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
  * Mirrors `pr-pane.tsx`'s helper.
  */
 const openExternal = (url: string): void => {
-  const bridge = window.memoize?.app;
+  const bridge = window.zuse?.app;
   if (bridge !== undefined) {
     bridge.openExternal(url);
     return;
@@ -117,7 +122,7 @@ export function TopBarLeft() {
       className={`${SECTION_CLASS} pr-1 ${isFullScreen ? "pl-3" : "pl-20"}`}
     >
       <span className="truncate font-semibold tracking-tight text-foreground">
-        Memoize
+        Zuse Alpha
       </span>
       <span className="flex-1" />
       <Tooltip>
@@ -613,7 +618,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const refreshTargets = async (): Promise<void> => {
     if (rootPath === null) return;
-    const bridge = window.memoize?.app;
+    const bridge = window.zuse?.app;
     if (bridge?.listOpenTargets === undefined) return;
     setLoading(true);
     try {
@@ -630,7 +635,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const openTarget = async (target: OpenTarget): Promise<void> => {
     if (rootPath === null) return;
-    const bridge = window.memoize?.app;
+    const bridge = window.zuse?.app;
     if (target.id === "finder") {
       await bridge?.revealPath?.(rootPath);
       return;
@@ -640,7 +645,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const copyPath = async (): Promise<void> => {
     if (rootPath === null) return;
-    await window.memoize?.app?.copyPath?.(rootPath);
+    await window.zuse?.app?.copyPath?.(rootPath);
   };
 
   return (
@@ -888,7 +893,11 @@ export function TopBarRight() {
   );
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const selectedChatId = useChatsStore((s) => s.selectedChatId);
-  const archiveChat = useChatsStore((s) => s.archive);
+  const archiveProgress = useChatsStore((s) =>
+    selectedChatId === null
+      ? null
+      : (s.archiveProgressByChat[selectedChatId] ?? null),
+  );
   const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
   // Auto-submit a new chat message to the active session (no manual Send).
@@ -966,9 +975,18 @@ export function TopBarRight() {
           <DirectActionButton
             tone="zinc"
             icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
-            label="Archive chat"
-            loadingLabel="Archiving…"
-            run={() => archiveChat(selectedChatId)}
+            label={
+              archiveProgress === null
+                ? "Archive chat"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            loadingLabel={
+              archiveProgress === null
+                ? "Archiving…"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            disabled={archiveProgress !== null}
+            run={() => archiveChatWithConfirm(selectedChatId)}
           />
         ) : null}
         {workflow.kind === "open-pr" && workflow.mergeable === "conflicting" ? (
@@ -1111,9 +1129,8 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 
 /**
  * GlassActionButton wrapper for direct (non-agent) git/gh actions. Shows a
- * spinner while the RPC is in flight and, on failure, a red warning affordance
- * whose tooltip carries gh's verbatim error (click to dismiss). The user can
- * retry once it clears.
+ * spinner while the RPC is in flight and reports failures through the global
+ * toast surface. The user can retry once loading clears.
  */
 function DirectActionButton({
   tone,
@@ -1133,55 +1150,38 @@ function DirectActionButton({
   onSuccess?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       await run();
       onSuccess?.();
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: `${label} failed`,
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Action failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
-      <GlassActionButton
-        tone={tone}
-        icon={
-          loading ? (
-            <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
-          ) : (
-            icon
-          )
-        }
-        label={loading ? loadingLabel : label}
-        disabled={disabled || loading}
-        onClick={onClick}
-      />
-    </div>
+    <GlassActionButton
+      tone={tone}
+      icon={
+        loading ? (
+          <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+        ) : (
+          icon
+        )
+      }
+      label={loading ? loadingLabel : label}
+      disabled={disabled || loading}
+      onClick={onClick}
+    />
   );
 }
 
@@ -1282,12 +1282,10 @@ function AutoMergeToggle({
   const method = useMergePrefs((s) => s.method);
   const deleteBranch = useMergePrefs((s) => s.deleteBranch);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const toggle = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
@@ -1301,7 +1299,11 @@ function AutoMergeToggle({
       );
       refreshAfterAction(folderId, worktreeId);
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: "Auto-merge failed",
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
@@ -1313,23 +1315,6 @@ function AutoMergeToggle({
 
   return (
     <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Auto-merge failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -1371,7 +1356,7 @@ const errorMessage = (err: unknown): string => {
 
 /**
  * Failing-checks CTA. Asks the server to drop a captured
- * `.memoize/failing-checks-<ts>.txt` artifact, then **auto-submits** a new chat
+ * `.zuse/failing-checks-<ts>.txt` artifact, then **auto-submits** a new chat
  * message referencing it as a file ref — the agent starts working immediately,
  * no manual Send.
  *

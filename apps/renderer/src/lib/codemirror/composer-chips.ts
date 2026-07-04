@@ -65,7 +65,7 @@ export const clearChipsEffect = StateEffect.define<void>();
 /**
  * Swap the metadata of an existing image chip in place — used when an
  * upload resolves and the renderer wants to replace the blob: preview URL
- * with the durable `memoize://attachments/<id>` URL without disturbing the
+ * with the durable `zuse://attachments/<id>` URL without disturbing the
  * cursor or the chip's position in the doc.
  */
 export const updateImageChipEffect = StateEffect.define<{

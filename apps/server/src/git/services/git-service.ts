@@ -18,7 +18,7 @@ import {
   type GitPrInfo,
   type GitStatusSummary,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 type GitFailure =
   | GitNotARepoError

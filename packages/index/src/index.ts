@@ -1,5 +1,5 @@
 /**
- * Public surface of @memoize/index. Two consumers: apps/server (in-process)
+ * Public surface of @zuse/index. Two consumers: apps/server (in-process)
  * and apps/mcp-server (over MCP). Both build a Layer with their workspace
  * paths injected via {@link IndexConfigTag} and consume {@link IndexService}.
  */

@@ -3,7 +3,7 @@ title: "Git worktrees for every chat"
 description: "Each chat gets an isolated working tree, so parallel agents never clobber each other's changes."
 date: "2026-05-28"
 timeToRead: "5 min read"
-authorName: "memoize team"
+authorName: "Zuse Alpha team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-worktrees-clean.svg"
@@ -18,13 +18,13 @@ labels:
 
 Running two agents against the same checkout is a recipe for conflicts. One edits a file while the other reads a stale version, builds collide, and you end up untangling changes that were never meant to mix.
 
-memoize gives every chat its own git worktree. The branch is isolated, the working directory is isolated, and the agent in that chat sees only its own changes.
+Zuse Alpha gives every chat its own git worktree. The branch is isolated, the working directory is isolated, and the agent in that chat sees only its own changes.
 
 ---
 
 ## Why worktrees
 
-A worktree is a real, native git feature: a second checkout of the same repository on its own branch, sharing one object store. memoize creates one per chat automatically, so you get isolation without cloning the repo or copying files.
+A worktree is a real, native git feature: a second checkout of the same repository on its own branch, sharing one object store. Zuse Alpha creates one per chat automatically, so you get isolation without cloning the repo or copying files.
 
 - Run several agents on the same project at once.
 - Keep an experimental refactor separate from a quick fix.
@@ -48,13 +48,13 @@ The first problem is file edits. One agent may read a file, plan a change, and t
 
 Humans can sometimes manage this manually by stashing, branching, cloning, or carefully sequencing work. Agents make the manual approach too fragile. If the product encourages parallel sessions, isolation has to be the default infrastructure rather than a discipline the user remembers under pressure.
 
-## Worktrees are native git, not a memoize invention
+## Worktrees are native git, not a Zuse Alpha invention
 
 Git worktrees solve this with a feature that already exists in git. A worktree is another checkout of the same repository, usually attached to a different branch, while sharing the underlying object database. It is lighter than cloning because it does not duplicate the full repository history, and it is safer than sharing a single checkout because each worktree has its own working directory and index.
 
-memoize uses that native mechanism instead of inventing a separate file-copy system. When a chat gets a worktree, git still understands what is happening. You can inspect the branch from the command line, use normal git commands, run your usual tooling, and merge or delete the branch with standard workflows. The app adds automation and visibility around a real version-control primitive.
+Zuse Alpha uses that native mechanism instead of inventing a separate file-copy system. When a chat gets a worktree, git still understands what is happening. You can inspect the branch from the command line, use normal git commands, run your usual tooling, and merge or delete the branch with standard workflows. The app adds automation and visibility around a real version-control primitive.
 
-This matters for trust. Developers already know how git branches behave. They know how to review diffs, resolve conflicts, and throw away an experiment. A product-specific isolation layer would have to earn that trust from scratch. Worktrees let memoize integrate with the grain of the tools teams already use.
+This matters for trust. Developers already know how git branches behave. They know how to review diffs, resolve conflicts, and throw away an experiment. A product-specific isolation layer would have to earn that trust from scratch. Worktrees let Zuse Alpha integrate with the grain of the tools teams already use.
 
 ## One chat, one branch, one story
 
@@ -76,7 +76,7 @@ This is especially useful for exploratory work. Suppose you are not sure whether
 
 Worktrees do not magically eliminate merge conflicts. If two branches edit the same code, git will still ask you to reconcile them. That is good. The conflict appears at integration time, where you can make a deliberate decision, rather than silently during two agents' file writes. The difference is that each branch remains internally understandable.
 
-This mirrors how teams already collaborate. Two engineers can work on separate branches and handle conflicts when one branch lands after the other. The branch boundary does not remove all coordination costs, but it preserves intent. memoize applies the same pattern inside a single developer's agent workflow.
+This mirrors how teams already collaborate. Two engineers can work on separate branches and handle conflicts when one branch lands after the other. The branch boundary does not remove all coordination costs, but it preserves intent. Zuse Alpha applies the same pattern inside a single developer's agent workflow.
 
 It also makes sequencing easier. You can land the small fix first, rebase the refactor worktree, and ask the agent to adjust. You can keep a risky experiment around while continuing normal work elsewhere. You can delete stale attempts once the chosen branch merges. The cleanup steps are git steps, not mysterious app-specific recovery.
 
@@ -86,7 +86,7 @@ Cloning per chat would provide isolation, but it is heavier and clumsier. Large 
 
 There are still costs. A worktree has files on disk, can produce build artifacts, and may require dependencies to be installed depending on the project. But it is a better baseline for frequent parallel sessions than full clones. It gives the app a fast path to create isolated work without making the user's machine feel like it is filling with duplicate repositories.
 
-The native git foundation also keeps escape hatches open. If you want to inspect a worktree in your editor, you can. If you want to run a command manually in that directory, you can. If you want to manage the branch from the terminal, git recognizes it. memoize is not asking you to abandon the workflows you already trust.
+The native git foundation also keeps escape hatches open. If you want to inspect a worktree in your editor, you can. If you want to run a command manually in that directory, you can. If you want to manage the branch from the terminal, git recognizes it. Zuse Alpha is not asking you to abandon the workflows you already trust.
 
 ## A calmer way to use more agents
 
@@ -94,4 +94,4 @@ The point of worktrees is not to make the UI look organized. It is to make paral
 
 That changes how you can use the tool. You can let a long task run while starting a short one. You can compare providers on the same issue. You can ask for a conservative fix and a more ambitious refactor, then choose. You can preserve your main checkout as the stable place you return to, instead of letting every agent experiment accumulate there.
 
-memoize makes this the default because the workflow should protect you before you remember to protect yourself. Agents are most useful when they let you explore more options. Git worktrees make that exploration reviewable, reversible, and compatible with the version-control habits developers already have.
+Zuse Alpha makes this the default because the workflow should protect you before you remember to protect yourself. Agents are most useful when they let you explore more options. Git worktrees make that exploration reviewable, reversible, and compatible with the version-control habits developers already have.

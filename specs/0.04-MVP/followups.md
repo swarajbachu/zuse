@@ -15,12 +15,12 @@ rather than scattering it across commit messages or issues.
 
 For context — the surface this doc is building on:
 
-- `@memoize/index` engine: tree-sitter chunking, content-addressed blob
+- `@zuse/index` engine: tree-sitter chunking, content-addressed blob
   store, branch-aware manifest, FTS5 BM25, sqlite-vec scaffolding, RRF
   fusion, cross-encoder rerank with BYOK providers
 - Five MCP tools registered with the bundled Claude agent
   (`code_search`, `symbol_lookup`, `find_references`, `read_chunk`,
-  `list_module`) and as the standalone `@memoize/mcp-server` binary
+  `list_module`) and as the standalone `@zuse/mcp-server` binary
 - Auto-reindex on `workspace.setSelected` and `workspace.add`,
   end-to-end status stream from engine → renderer top-bar chip
 - Seven `index.*` RPCs, full handler layer
@@ -33,7 +33,7 @@ For context — the surface this doc is building on:
   rule of thumb
 - Desktop infrastructure fixes: tree-sitter natives externalized in
   tsdown; `electron-rebuild` whitelist switched to strict; the five
-  `mcp__memoize__*` tools auto-allowed in the Claude permission system
+  `mcp__zuse__*` tools auto-allowed in the Claude permission system
 
 ---
 
@@ -138,12 +138,12 @@ caveat from the rerank ADR.
 
 **Files:** `packages/index/src/rerank/transformers.ts`, wire-up next to #3.
 
-### 5. HTTP transport on `@memoize/mcp-server` — ~half a day
+### 5. HTTP transport on `@zuse/mcp-server` — ~half a day
 
 Spec lists this as Phase F deliverable. Stdio is in; HTTP is two
 handlers (`/messages` POST + `/events` SSE) on a tiny Bun.serve. Lets
 remote agents (Codex, custom clients) reach the server without a child
-process. Acceptance: `npx @memoize/mcp-server --workspace . --http 0`
+process. Acceptance: `npx @zuse/mcp-server --workspace . --http 0`
 boots, `curl /events` streams, all five tools callable.
 
 **Files:** `apps/mcp-server/src/transport-http.ts`, plumb through
@@ -153,7 +153,7 @@ boots, `curl /events` streams, all five tools callable.
 
 Phase F's stretch deliverable. Today the MCP server ships as a Bun
 script; spec calls for a single-file native binary per OS. Verify
-`bun build --compile --target=bun-darwin-arm64 src/bin.ts -o memoize-mcp`
+`bun build --compile --target=bun-darwin-arm64 src/bin.ts -o zuse-mcp`
 produces something that boots, opens the SQLite handle, and serves
 tools over stdio. Document the exact incantation in the mcp-server
 README.
@@ -249,7 +249,7 @@ now with the additional context PR #86 brought:
    tree-sitter only per #7, upgrade later if evals show false
    negatives matter.
 
-4. **MCP server distribution.** Ship `@memoize/mcp-server` as a
+4. **MCP server distribution.** Ship `@zuse/mcp-server` as a
    separate npm package from day 1, or bundle inside the Electron app
    first? Spec recommendation was "ship the npm package in Phase F";
    #6 is the path to that.

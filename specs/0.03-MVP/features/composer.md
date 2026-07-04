@@ -54,7 +54,7 @@ tabular label. Chip variants:
 | ------------- | --------------------------------------------------------------------------- | ---------------------- |
 | `file`        | Material Icon Theme (basename → extension), via `lib/icons/material-icons.ts` (added in 0.02) | basename               |
 | `directory`   | Material Icon Theme folder icon (open / closed by no state — chips are not expandable) | last path segment      |
-| `image`       | a square thumbnail (32×32, object-fit cover) sourced from blob URL → `memoize://attachments/<id>` | original filename      |
+| `image`       | a square thumbnail (32×32, object-fit cover) sourced from blob URL → `zuse://attachments/<id>` | original filename      |
 | `skill`       | lucide `Sparkles`                                                           | skill name             |
 
 Selection / editing semantics for any chip:
@@ -150,7 +150,7 @@ For each accepted image:
    and calls `attachments.upload({sessionId, bytes, mimeType,
    originalName})`.
 4. On success, the chip's preview src swaps from the blob URL to
-   `memoize://attachments/<id>`. The blob URL is revoked.
+   `zuse://attachments/<id>`. The blob URL is revoked.
 5. The chip carries an `AttachmentRef` in the `ComposerInput`'s
    `attachments` array when the message is submitted.
 
@@ -179,7 +179,7 @@ Local storage is the source of truth in 0.03:
 
 The renderer never reads this path directly. It stores only
 `AttachmentRef.id` and renders images through
-`memoize://attachments/<id>`. The desktop protocol handler resolves the
+`zuse://attachments/<id>`. The desktop protocol handler resolves the
 id to the local blob and returns the correct `content-type`.
 
 The database reserves the future cloud shape on day one:
@@ -193,7 +193,7 @@ remote_status  TEXT   -- NULL | "pending" | "uploaded" | "failed"
 Resolution order for rendering:
 
 1. If `remote_url` is set and local blob is missing, use `remote_url`.
-2. Otherwise use `memoize://attachments/<id>`.
+2. Otherwise use `zuse://attachments/<id>`.
 3. If neither resolves, render the image chip in a missing-attachment
    state with filename and size.
 
@@ -399,7 +399,7 @@ Garbage collection (`apps/server/src/attachment/attachment-store.ts`):
   every 30 s with the ids currently in any composer draft or queue
   chip. The server keeps an in-memory `lastTouchedAt[id]` map.
 
-### `memoize://attachments/<id>` protocol
+### `zuse://attachments/<id>` protocol
 
 `apps/desktop/src/main.ts` registers a custom protocol so `<img src>`
 can resolve attachment ids without a JS roundtrip:
@@ -411,7 +411,7 @@ protocol.handle("memoize", (request) => {
 });
 ```
 
-The renderer prefers `memoize://` URLs in `<img>` tags both for live
+The renderer prefers `zuse://` URLs in `<img>` tags both for live
 chips (after upload) and for past-message rendering.
 
 ## Renderer state
@@ -447,7 +447,7 @@ view; it is not lifted into Zustand.
 | `apps/renderer/src/store/skills.ts`                                   | new    | Per-session skill list, fed by `skill.stream`. (see skills.md)             |
 | `apps/renderer/src/store/attachments.ts`                              | new    | Upload + heartbeat.                                                       |
 | `apps/renderer/src/store/messages.ts`                                 | edit   | `send` now takes `ComposerInput`; queue + steer state added in queue-and-steer.md. |
-| `apps/desktop/src/main.ts`                                            | edit   | Register `memoize://attachments/<id>` protocol handler.                  |
+| `apps/desktop/src/main.ts`                                            | edit   | Register `zuse://attachments/<id>` protocol handler.                  |
 | `apps/server/src/attachment/attachment-store.ts`                      | new    | Disk write under userData, GC sweep, heartbeat tracking.                  |
 | `apps/server/src/attachment/image-mime.ts`                            | new    | MIME → extension map.                                                     |
 | `apps/server/src/workspace/file-search.ts`                            | new    | `.gitignore`-aware walker for `workspace.searchFiles`.                    |
@@ -485,7 +485,7 @@ A5. With the cursor immediately after any chip, pressing `Backspace`
 
 A6. Dropping a PNG inserts an `image` chip with a thumbnail; the chip's
     `<img src>` is a blob URL until `attachments.upload` resolves, then
-    swaps to `memoize://attachments/<id>`. The blob URL is revoked.
+    swaps to `zuse://attachments/<id>`. The blob URL is revoked.
 
 A7. With a non-empty editor and no popover open, `Enter` submits;
     `Shift+Enter` inserts a newline; `Cmd+Enter` also submits.
@@ -495,7 +495,7 @@ A8. While `runningBySession[sessionId] === true`, pressing `Enter`
     [queue-and-steer.md](queue-and-steer.md)).
 
 A9. After restarting the app, opening a past session renders historic
-    image attachments via `memoize://attachments/<id>` (no missing
+    image attachments via `zuse://attachments/<id>` (no missing
     images).
 
 A10. Dragging a 110 MB image onto the composer shows a toast `"Image too

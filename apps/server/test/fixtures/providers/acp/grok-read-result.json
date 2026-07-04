@@ -1,0 +1,39 @@
+{
+  "fixtureVersion": 1,
+  "provider": "grok",
+  "translator": "acp",
+  "scenario": "read tool call and result normalization",
+  "source": "sanitized captured ACP session/update frames",
+  "frames": [
+    {
+      "sessionUpdate": "tool_call",
+      "kind": "read_file",
+      "toolCallId": "grok-read-1",
+      "locations": [{ "path": "/fixture/repo/package.json" }]
+    },
+    {
+      "sessionUpdate": "tool_result",
+      "toolCallId": "grok-read-1",
+      "output": {
+        "type": "ReadFile",
+        "FileContent": {
+          "content": "1→{\"name\":\"fixture\"}\n2→"
+        }
+      }
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "ToolUse",
+      "itemId": "grok-read-1",
+      "tool": "Read",
+      "input": { "file_path": "/fixture/repo/package.json" }
+    },
+    {
+      "_tag": "ToolResult",
+      "itemId": "grok-read-1",
+      "output": "{\"name\":\"fixture\"}\n",
+      "isError": false
+    }
+  ]
+}

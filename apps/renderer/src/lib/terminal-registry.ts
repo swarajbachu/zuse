@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 
-import type { PtyId } from "@memoize/wire";
+import type { PtyId } from "@zuse/wire";
 
 import { getRpcClient } from "./rpc-client.ts";
 import type { TerminalInstance } from "../store/terminals.ts";
@@ -31,6 +31,7 @@ type LiveTerminal = {
   /** Dedicated wrapper that xterm renders into; moved between containers. */
   readonly host: HTMLDivElement;
   readonly observer: ResizeObserver;
+  readonly refreshTheme: () => void;
   ptyId: PtyId | null;
   streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
   disposables: { dispose: () => void } | null;
@@ -55,6 +56,21 @@ function readToken(el: HTMLElement, cssVar: string, fallback: string): string {
   return computed || fallback;
 }
 
+function readTerminalTheme(
+  host: HTMLElement,
+): NonNullable<Terminal["options"]["theme"]> {
+  return {
+    // Solid background matching the pane: lets the WebGL renderer draw
+    // cleanly and skips the per-frame cost of a transparent canvas.
+    background: readToken(host, "--background", "#0b0b0c"),
+    foreground: readToken(host, "--foreground", "#e6e6e6"),
+    cursor: readToken(host, "--primary", "#e6e6e6"),
+    cursorAccent: readToken(host, "--background", "#0b0b0c"),
+    selectionBackground: readToken(host, "--accent", "#2c2c33"),
+    selectionForeground: readToken(host, "--accent-foreground", "#e6e6e6"),
+  };
+}
+
 function makeLive(
   instanceId: string,
   container: HTMLElement,
@@ -77,16 +93,7 @@ function makeLive(
     cursorStyle: "bar",
     cursorInactiveStyle: "bar",
     convertEol: false,
-    theme: {
-      // Solid background matching the pane: lets the WebGL renderer draw
-      // cleanly and skips the per-frame cost of a transparent canvas.
-      background: readToken(host, "--background", "#0b0b0c"),
-      foreground: readToken(host, "--foreground", "#e6e6e6"),
-      cursor: readToken(host, "--primary", "#e6e6e6"),
-      cursorAccent: readToken(host, "--background", "#0b0b0c"),
-      selectionBackground: readToken(host, "--accent", "#2c2c33"),
-      selectionForeground: readToken(host, "--accent-foreground", "#e6e6e6"),
-    },
+    theme: readTerminalTheme(host),
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -108,6 +115,9 @@ function makeLive(
     fit,
     host,
     observer: new ResizeObserver(() => safeFit(live)),
+    refreshTheme: () => {
+      term.options.theme = readTerminalTheme(host);
+    },
     ptyId: null,
     streamFiber: null,
     disposables: null,
@@ -119,6 +129,7 @@ function makeLive(
   // inactive terminal tab) it measures 0×0 and `safeFit` no-ops; it fires
   // again with real dimensions once shown.
   live.observer.observe(host);
+  window.addEventListener("zuse:appearance-change", live.refreshTheme);
   window.requestAnimationFrame(() => safeFit(live));
 
   void openPty(live, opts);
@@ -230,7 +241,7 @@ async function openPty(
   } catch (err) {
     if (live.disposed) return;
     // eslint-disable-next-line no-console
-    console.error("[memoize] failed to open pty:", err);
+    console.error("[zuse] failed to open pty:", err);
     term.write(
       "\r\n\x1b[38;5;203mfailed to open terminal — see devtools console\x1b[0m\r\n",
     );
@@ -287,6 +298,7 @@ export function dispose(instanceId: string): void {
   registry.delete(instanceId);
   live.disposed = true;
   live.observer.disconnect();
+  window.removeEventListener("zuse:appearance-change", live.refreshTheme);
   live.disposables?.dispose();
   if (live.resizeTimer !== null) window.clearTimeout(live.resizeTimer);
   if (live.streamFiber !== null) {

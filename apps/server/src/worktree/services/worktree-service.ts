@@ -10,7 +10,7 @@ import {
   type WorktreeRemoveError,
   type WorktreeSetupError,
   type WorktreeSetupEvent,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 export interface WorktreeRestoreSnapshot {
   readonly id: WorktreeId;

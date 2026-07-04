@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { PermissionMode, RuntimeMode } from "@memoize/wire";
+import type { PermissionMode, RuntimeMode } from "@zuse/wire";
 
 import {
   getBashPolicy,

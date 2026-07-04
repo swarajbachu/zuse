@@ -20,7 +20,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import type { UserQuestion, UserQuestionAnswer } from "@memoize/wire";
+import type { UserQuestion, UserQuestionAnswer } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 
@@ -39,13 +39,17 @@ import {
 
 type IconHandle = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
+const normalizeToolName = (tool: string): string =>
+  tool.replace(/^mcp__memoize__/, "mcp__zuse__");
+
 /**
  * Map a tool name to the same Hugeicon used in its expanded ToolRow. Other
  * surfaces (e.g. the turn-summary icon preview) reuse this so the icons
  * stay in lockstep across the timeline.
  */
 export const iconForTool = (tool: string): IconHandle => {
-  switch (tool) {
+  const normalizedTool = normalizeToolName(tool);
+  switch (normalizedTool) {
     case "Bash":
       return TerminalIcon;
     case "Read":
@@ -77,19 +81,19 @@ export const iconForTool = (tool: string): IconHandle => {
       return GlobeIcon;
     case "TodoWrite":
       return CheckListIcon;
-    case "mcp__memoize__browser_navigate":
+    case "mcp__zuse__browser_navigate":
       return BrowserIcon;
-    case "mcp__memoize__browser_screenshot":
+    case "mcp__zuse__browser_screenshot":
       return Camera01Icon;
     default: {
       // Agent browser tools arrive as their MCP FQN; match by suffix so the
       // exact-case list above stays the source of truth.
-      if (tool.endsWith("__browser_screenshot")) return Camera01Icon;
-      if (tool.includes("__browser_")) return BrowserIcon;
+      if (normalizedTool.endsWith("__browser_screenshot")) return Camera01Icon;
+      if (normalizedTool.includes("__browser_")) return BrowserIcon;
       // Heuristic fallback for any Grok-native or future tool we haven't
       // wired an exact case for yet. "list dir", "read file", "run shell"
       // etc. will now get a reasonable icon instead of the generic wrench.
-      const t = tool.toLowerCase();
+      const t = normalizedTool.toLowerCase();
       if (t.includes("dir") || t.includes("folder") || t.includes("list"))
         return Folder01Icon;
       if (t.includes("file") || t.includes("read") || t.includes("write"))
@@ -500,12 +504,13 @@ const buildToolView = (
   input: unknown,
   result: ToolResult | undefined,
 ): ToolView => {
+  const normalizedTool = normalizeToolName(tool);
   const obj =
     input !== null && typeof input === "object"
       ? (input as Record<string, unknown>)
       : {};
 
-  switch (tool) {
+  switch (normalizedTool) {
     case "Bash": {
       const cmd = asString(obj.command);
       const desc = asString(obj.description);
@@ -583,11 +588,13 @@ const buildToolView = (
       const path = asString(obj.file_path);
       const patches = extractPatchEntries(input);
       const edits = patches.length > 0 ? [] : extractEdits(tool, input);
+      const fileCount =
+        patches.length || new Set(edits.map((e) => e.path)).size;
       const label =
         tool === "Write"
           ? "Write"
           : tool === "MultiEdit"
-            ? `MultiEdit (${edits.length || patches.length})`
+            ? `MultiEdit (${fileCount})`
             : "Edit";
       const stats =
         patches.length > 0
@@ -610,6 +617,18 @@ const buildToolView = (
                     : undefined
                 }
               />
+            </span>
+          ) : stats !== null && tool === "MultiEdit" ? (
+            <span className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+              <span>
+                {fileCount} file{fileCount === 1 ? "" : "s"}
+              </span>
+              {stats.added > 0 ? (
+                <span className="text-emerald-400">+{stats.added}</span>
+              ) : null}
+              {stats.removed > 0 ? (
+                <span className="text-red-400">-{stats.removed}</span>
+              ) : null}
             </span>
           ) : undefined,
         fallbackBody:
@@ -939,7 +958,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_navigate": {
+    case "mcp__zuse__browser_navigate": {
       const targetUrl = asString(obj.url);
       return {
         icon: BrowserIcon,
@@ -957,7 +976,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_screenshot": {
+    case "mcp__zuse__browser_screenshot": {
       return {
         icon: Camera01Icon,
         label: "Screenshot",
@@ -973,7 +992,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_snapshot": {
+    case "mcp__zuse__browser_snapshot": {
       return {
         icon: BrowserIcon,
         label: "Read page",
@@ -987,7 +1006,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_click": {
+    case "mcp__zuse__browser_click": {
       const ref = asString(obj.ref);
       return {
         icon: BrowserIcon,
@@ -1002,7 +1021,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_type": {
+    case "mcp__zuse__browser_type": {
       const typed = asString(obj.text);
       return {
         icon: BrowserIcon,
@@ -1020,7 +1039,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_wait": {
+    case "mcp__zuse__browser_wait": {
       const sel = asString(obj.selector);
       const ms = typeof obj.ms === "number" ? `${obj.ms}ms` : null;
       return {
@@ -1030,7 +1049,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_scroll": {
+    case "mcp__zuse__browser_scroll": {
       const dir = asString(obj.direction);
       const ref = asString(obj.ref);
       return {
@@ -1040,7 +1059,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_hover": {
+    case "mcp__zuse__browser_hover": {
       const ref = asString(obj.ref);
       return {
         icon: BrowserIcon,
@@ -1049,7 +1068,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_select": {
+    case "mcp__zuse__browser_select": {
       const value = asString(obj.value);
       return {
         icon: BrowserIcon,
@@ -1067,7 +1086,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_press": {
+    case "mcp__zuse__browser_press": {
       const key = asString(obj.key);
       return {
         icon: BrowserIcon,
@@ -1076,7 +1095,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_read": {
+    case "mcp__zuse__browser_read": {
       return {
         icon: File01Icon,
         label: "Read page",
@@ -1089,7 +1108,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_history": {
+    case "mcp__zuse__browser_history": {
       const action = asString(obj.action);
       return {
         icon: BrowserIcon,
@@ -1102,7 +1121,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_console": {
+    case "mcp__zuse__browser_console": {
       return {
         icon: TerminalIcon,
         label: "Console",
@@ -1115,7 +1134,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_login": {
+    case "mcp__zuse__browser_login": {
       const origin = asString(obj.origin);
       return {
         icon: BrowserIcon,

@@ -6,7 +6,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 
-import type { Message, SessionId } from "@memoize/wire";
+import type { Message, SessionId } from "@zuse/wire";
 
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";

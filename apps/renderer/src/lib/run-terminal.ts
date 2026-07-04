@@ -1,4 +1,4 @@
-import type { ChatId } from "@memoize/wire";
+import type { ChatId } from "@zuse/wire";
 
 import {
   type TerminalInstance,

@@ -1,5 +1,5 @@
 {
-  "name": "@memoize/index-eval",
+  "name": "@zuse/index-eval",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "eval:baseline": "bun src/run.ts --tier 0"
   },
   "dependencies": {
-    "@memoize/index": "*",
+    "@zuse/index": "*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -35,7 +35,7 @@ import {
   type GitPrCheckRunStatus,
   type GitPrReviewState,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
@@ -510,9 +510,12 @@ export const GitServiceLive = Layer.effect(
 
     const status: GitService["Type"]["status"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-        run(folderId, cwd, ["status", "--porcelain=v2", "--branch"]).pipe(
-          Effect.map(parseStatusOutput),
-        ),
+        run(folderId, cwd, [
+          "status",
+          "--porcelain=v2",
+          "--branch",
+          "--untracked-files=all",
+        ]).pipe(Effect.map(parseStatusOutput)),
       );
 
     const branches: GitService["Type"]["branches"] = (folderId, worktreeId) =>
@@ -1416,8 +1419,8 @@ export const GitServiceLive = Layer.effect(
 
     /**
      * Capture logs from every failing GitHub Actions run on the current PR
-     * and drop them in `<worktree>/.memoize/failing-checks-<ts>.txt` so the
-     * renderer can attach the file to the composer (`@.memoize/...txt`) and
+     * and drop them in `<worktree>/.zuse/failing-checks-<ts>.txt` so the
+     * renderer can attach the file to the composer (`@.zuse/...txt`) and
      * ask the agent to fix it.
      *
      * Failing runs are detected via `gh pr view --json statusCheckRollup`;
@@ -1506,13 +1509,13 @@ export const GitServiceLive = Layer.effect(
               ? sections.join("\n")
               : "(no actions run logs available — checks may be external or pending)\n";
 
-          const dir = path.join(cwd, ".memoize");
+          const dir = path.join(cwd, ".zuse");
           yield* fs.makeDirectory(dir, { recursive: true }).pipe(
             Effect.catchAll((err) =>
               Effect.fail(
                 new GitCommandError({
                   folderId,
-                  reason: `failed to create .memoize/: ${String(err)}`,
+                  reason: `failed to create .zuse/: ${String(err)}`,
                 }),
               ),
             ),
@@ -1526,7 +1529,7 @@ export const GitServiceLive = Layer.effect(
             .replace(/-\d{3}Z$/, "Z");
           const fileName = `failing-checks-${ts}.txt`;
           const absPath = path.join(dir, fileName);
-          const relPath = `.memoize/${fileName}`;
+          const relPath = `.zuse/${fileName}`;
 
           yield* fs.writeFileString(absPath, `${header}\n${body}`).pipe(
             Effect.catchAll((err) =>

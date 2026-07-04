@@ -17,15 +17,17 @@ import type {
 export const readUsageSources = async (
   options: UsageReadOptions = {},
 ): Promise<ReadonlyArray<UsageSourceReadResult>> => {
-  const selected = new Set<UsageSourceId>(options.sourceIds ?? ["memoize", ...EXTERNAL_SOURCE_IDS]);
+  const selected = new Set<UsageSourceId>(
+    options.sourceIds ?? ["zuse", ...EXTERNAL_SOURCE_IDS],
+  );
   const results: UsageSourceReadResult[] = [];
-  if (selected.has("memoize")) {
-    results.push(readMemoizeUsage(options.memoizeDbPath));
+  if (selected.has("zuse") || selected.has("memoize")) {
+    results.push(readMemoizeUsage(options.zuseDbPath ?? options.memoizeDbPath));
   }
   // Read external sources sequentially so each one's file scan yields to the
   // event loop in turn rather than flooding it; keeps the host responsive.
   for (const sourceId of EXTERNAL_SOURCE_IDS) {
-    if (!selected.has(sourceId) || sourceId === "memoize") continue;
+    if (!selected.has(sourceId)) continue;
     results.push(await readExternalSource(sourceId, options));
   }
   return results;

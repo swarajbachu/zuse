@@ -1,17 +1,17 @@
 {
   "name": "desktop",
-  "productName": "memoize Alpha",
-  "version": "0.7.1",
-  "description": "memoize desktop app",
+  "productName": "Zuse Alpha",
+  "version": "0.10.0",
+  "description": "Zuse Alpha desktop app",
   "private": true,
   "author": {
     "name": "Swaraj Bachu",
     "email": "swarajkumar4444@gmail.com"
   },
-  "homepage": "https://github.com/swarajbachu/memoize",
+  "homepage": "https://github.com/swarajbachu/zuse",
   "repository": {
     "type": "git",
-    "url": "https://github.com/swarajbachu/memoize.git"
+    "url": "https://github.com/swarajbachu/zuse.git"
   },
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -38,8 +38,8 @@
   "devDependencies": {
     "@effect/rpc": "catalog:",
     "@electron/rebuild": "^4.0.4",
-    "@memoize/server": "*",
-    "@memoize/wire": "*",
+    "@zuse/server": "*",
+    "@zuse/wire": "*",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
     "effect": "catalog:",

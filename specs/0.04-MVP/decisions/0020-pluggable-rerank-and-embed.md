@@ -22,7 +22,7 @@ the engine's internals.
 
 ## Decision
 
-Define two **provider abstractions** in `@memoize/index` —
+Define two **provider abstractions** in `@zuse/index` —
 `EmbeddingProvider` and `RerankProvider` — and ship multiple
 implementations. The user picks via config (env var or
 `memoize-index.config.json` in the workspace).

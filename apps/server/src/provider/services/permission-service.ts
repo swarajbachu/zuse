@@ -8,7 +8,7 @@ import type {
   PermissionRequestNotFoundError,
   SavedDecision,
   SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Bridge between provider drivers (which call `request` from inside their

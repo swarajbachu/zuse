@@ -1,6 +1,7 @@
 import type { UsageSourceId } from "../types.ts";
 
 export const SOURCE_LABELS: Record<UsageSourceId, string> = {
+  zuse: "Zuse Alpha",
   memoize: "Memoize",
   claude: "Claude Code",
   codex: "Codex",
@@ -12,7 +13,7 @@ export const SOURCE_LABELS: Record<UsageSourceId, string> = {
 
 /** Every source id in a stable display order. */
 export const ALL_SOURCE_IDS: ReadonlyArray<UsageSourceId> = [
-  "memoize",
+  "zuse",
   "claude",
   "codex",
   "opencode",
@@ -21,8 +22,10 @@ export const ALL_SOURCE_IDS: ReadonlyArray<UsageSourceId> = [
   "grok",
 ];
 
-/** Non-Memoize agent CLIs (Memoize is read from its own SQLite database). */
-export const EXTERNAL_SOURCE_IDS: ReadonlyArray<UsageSourceId> = [
+/** Non-Zuse agent CLIs (Zuse is read from its own SQLite database). */
+export const EXTERNAL_SOURCE_IDS: ReadonlyArray<
+  Exclude<UsageSourceId, "zuse" | "memoize">
+> = [
   "claude",
   "codex",
   "opencode",

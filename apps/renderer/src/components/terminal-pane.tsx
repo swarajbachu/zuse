@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useRef } from "react";
 
-import type { ChatId } from "@memoize/wire";
+import type { ChatId } from "@zuse/wire";
 
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 import {
   EMPTY_TERMINALS,
   type TerminalInstance,
@@ -40,7 +41,11 @@ export function TerminalSlotPane({ slot }: { slot: number }) {
   const ready = ctx.status === "ready" && !ctx.worktreePending;
 
   if (ctx.status === "loading") {
-    return <TerminalPlaceholder>Loading workspace…</TerminalPlaceholder>;
+    return (
+      <TerminalPlaceholder>
+        <ShimmerText>Loading workspace…</ShimmerText>
+      </TerminalPlaceholder>
+    );
   }
   if (ctx.status === "empty") {
     return (
@@ -50,7 +55,11 @@ export function TerminalSlotPane({ slot }: { slot: number }) {
     );
   }
   if (ctx.worktreePending) {
-    return <TerminalPlaceholder>Preparing worktree…</TerminalPlaceholder>;
+    return (
+      <TerminalPlaceholder>
+        <ShimmerText>Preparing worktree…</ShimmerText>
+      </TerminalPlaceholder>
+    );
   }
   if (!ready || chatId === null) return null;
   return (

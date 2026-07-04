@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ViewIcon, ViewOffIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { useState } from "react";
 
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";

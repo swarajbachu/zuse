@@ -25,7 +25,7 @@ across workspaces sharing a repo.
 
 ## What lands in 0.04
 
-- **Index engine** as a standalone package `@memoize/index`. Tree-sitter
+- **Index engine** as a standalone package `@zuse/index`. Tree-sitter
   chunking, symbol extraction, content-addressed blob store, per-branch
   manifest model. SQLite + `sqlite-vec` extension. Engine is transport-agnostic.
 - **3-tier hybrid retrieval**: symbol lookup (Tier 1) → BM25 (Tier 2) →
@@ -36,7 +36,7 @@ across workspaces sharing a repo.
   `find_references`, `read_chunk`, `list_module`) at session start.
   In-process, no MCP overhead.
 - **Standalone MCP server** as `apps/mcp-server`. A Bun-compiled binary
-  (`memoize-mcp`) plus an npm package `@memoize/mcp-server`. stdio
+  (`zuse-mcp`) plus an npm package `@zuse/mcp-server`. stdio
   transport (default), HTTP transport (optional). Same engine, same tools,
   reusable by any agent runtime.
 - **Local-first by default.** Embedding model: `nomic-embed-code` ONNX via
@@ -49,7 +49,7 @@ across workspaces sharing a repo.
   branches in a parallel workspace is a manifest swap, not a re-index.
   Content-addressed dedup means N parallel workspaces on one repo share
   one blob store.
-- **Renderer scaffolding**. `index.*` RPCs registered in `@memoize/wire`.
+- **Renderer scaffolding**. `index.*` RPCs registered in `@zuse/wire`.
   A command palette entry (`Cmd+P` → "Search code…") wires the renderer to
   the index. The primary consumer is the agent; the renderer surface is
   scaffolding for future UI.

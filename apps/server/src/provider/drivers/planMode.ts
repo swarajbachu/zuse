@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@memoize/wire";
+import type { PermissionMode } from "@zuse/wire";
 
 /**
  * Developer-instructions prefix that emulates plan mode for providers that

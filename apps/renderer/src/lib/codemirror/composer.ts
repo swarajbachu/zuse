@@ -47,6 +47,17 @@ export type ComposerCallbacks = {
    */
   readonly onFilesDropped: (files: ReadonlyArray<File>) => void;
   /**
+   * Called when plain text is pasted into the editor. Return `true` to
+   * consume the paste (CodeMirror will not insert the text) — used to divert
+   * a large paste into a `.context/files` attachment instead of flooding the
+   * composer. Return `false` to let CodeMirror insert the text normally.
+   *
+   * This must live at the CodeMirror layer (not a React `onPaste`): CM's own
+   * paste handler inserts the text at the editor DOM before the event bubbles
+   * to React, so a React-level `preventDefault` fires too late to stop it.
+   */
+  readonly onTextPaste?: (text: string) => boolean;
+  /**
    * Toggle plan mode. Bound to `Shift+Tab` in the composer keymap. The
    * caller is responsible for the actual mode flip and any visual
    * feedback (chip, dashed accent on the composer card).
@@ -127,6 +138,23 @@ export const createComposerView = ({
         // native event still bubbles otherwise.
         event.stopPropagation();
         callbacks.onFilesDropped(Array.from(files));
+        return true;
+      },
+      // Text pastes: give the host first refusal so a large paste can be
+      // diverted into a `.context/files` attachment. File pastes fall
+      // through to the parent Card's React `onPaste` (same upload pipeline
+      // as paperclip / drop). Returning true + preventDefault stops CM from
+      // inserting the raw text.
+      paste: (event) => {
+        const data = event.clipboardData;
+        if (data === null || data === undefined) return false;
+        if (data.files.length > 0) return false;
+        const text = data.getData("text/plain");
+        if (text === "") return false;
+        const consumed = callbacks.onTextPaste?.(text) ?? false;
+        if (!consumed) return false;
+        event.preventDefault();
+        event.stopPropagation();
         return true;
       },
     }),

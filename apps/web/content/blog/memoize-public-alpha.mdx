@@ -1,9 +1,9 @@
 ---
-title: "memoize is now in public alpha"
+title: "Zuse Alpha is now in public alpha"
 description: "A chat-first macOS app that wraps every coding agent CLI in one project-aware workspace. Free during alpha."
 date: "2026-06-16"
 timeToRead: "4 min read"
-authorName: "memoize team"
+authorName: "Zuse Alpha team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-alpha-clean.svg"
@@ -14,9 +14,9 @@ labels:
   ]
 ---
 
-# memoize is now in public alpha
+# Zuse Alpha is now in public alpha
 
-memoize is a chat-first macOS desktop app for developers who run AI coding agents. Instead of juggling six terminals and six CLIs, you get one project-aware workspace that wraps Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode behind a single streaming chat timeline.
+Zuse Alpha is a chat-first macOS desktop app for developers who run AI coding agents. Instead of juggling six terminals and six CLIs, you get one project-aware workspace that wraps Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode behind a single streaming chat timeline.
 
 The public alpha is out today. It is free, runs on Apple Silicon and Intel, and you bring your own keys.
 
@@ -46,11 +46,11 @@ AI coding agents moved from novelty to daily tool very quickly, but the workflow
 
 The friction gets worse when work becomes parallel. You ask one agent to investigate a bug, another to prototype a refactor, and a third to write tests. They all want to read and edit the same checkout. Soon the working tree has unrelated changes, a build is running in the wrong directory, and it is no longer clear which conversation produced which diff. The agent might have done good work, but the surrounding process is brittle enough that reviewing it costs more than it should.
 
-memoize exists because the agent should not be the only part of the workflow that improves. The surface around the agent needs to understand projects, files, branches, diffs, credentials, and review. It needs to make multiple providers feel comparable without flattening them into a lowest-common-denominator runtime. It needs to keep the developer in control while still making it normal to delegate more work.
+Zuse Alpha exists because the agent should not be the only part of the workflow that improves. The surface around the agent needs to understand projects, files, branches, diffs, credentials, and review. It needs to make multiple providers feel comparable without flattening them into a lowest-common-denominator runtime. It needs to keep the developer in control while still making it normal to delegate more work.
 
 ## What alpha means in practical terms
 
-Public alpha means the core product is usable, but the edges are still being discovered with real repositories. We use memoize ourselves every day, and that gives us confidence in the main loop: open a project, start a chat, pick an agent, watch the timeline, inspect changes, and commit the result. The reason to release now is that our own projects are not enough. Agents fail in interesting ways across different monorepos, package managers, shell setups, authentication methods, and team conventions.
+Public alpha means the core product is usable, but the edges are still being discovered with real repositories. We use Zuse Alpha ourselves every day, and that gives us confidence in the main loop: open a project, start a chat, pick an agent, watch the timeline, inspect changes, and commit the result. The reason to release now is that our own projects are not enough. Agents fail in interesting ways across different monorepos, package managers, shell setups, authentication methods, and team conventions.
 
 During alpha, we care most about workflow truth. Does the timeline show enough information to understand a session? Are worktrees created in the place you expect? Does provider switching preserve the context that matters? Are errors visible and actionable? Does the changes pane make review faster, or does it force you back to the terminal? These questions are easier to answer with developers using the app on messy, ordinary codebases.
 
@@ -58,17 +58,17 @@ We are not treating alpha as a waitlist dressed up as a launch. The app is downl
 
 ## A workspace instead of a terminal wrapper
 
-The easiest version of memoize would have been a nicer terminal frame around a few command-line tools. That would not solve the real problem. A coding agent session is not just text in and text out. It has state. It touches a repository. It creates a branch. It produces a diff. It may need credentials. It may need to resume later. It may be one of several competing attempts at the same issue.
+The easiest version of Zuse Alpha would have been a nicer terminal frame around a few command-line tools. That would not solve the real problem. A coding agent session is not just text in and text out. It has state. It touches a repository. It creates a branch. It produces a diff. It may need credentials. It may need to resume later. It may be one of several competing attempts at the same issue.
 
-That is why memoize treats the project as the center of the experience. Chats belong to projects. Each chat can have its own git worktree. The timeline renders structured events like tool calls, thinking blocks, errors, and file changes. The PR / Changes pane gives the review step a first-class home. The app stores local state in SQLite so sessions can be searched, restored, and understood without relying on a hosted memoize backend.
+That is why Zuse Alpha treats the project as the center of the experience. Chats belong to projects. Each chat can have its own git worktree. The timeline renders structured events like tool calls, thinking blocks, errors, and file changes. The PR / Changes pane gives the review step a first-class home. The app stores local state in SQLite so sessions can be searched, restored, and understood without relying on a hosted Zuse Alpha backend.
 
 This also lets provider choice become less disruptive. If one agent is better at broad exploration and another is better at a tight patch, you should be able to use both without rebuilding the whole context by hand. The app does not pretend all providers are identical. It gives them a shared workspace so their outputs are easier to compare, review, and carry forward.
 
 ## Why local-first was part of the launch
 
-We wanted the alpha to start with the trust model we intend to keep. Your projects and chat history live on your machine. API keys live in the macOS Keychain. Model requests go to the provider you configure. memoize is not launching with a hosted account system that quietly becomes the center of the product later.
+We wanted the alpha to start with the trust model we intend to keep. Your projects and chat history live on your machine. API keys live in the macOS Keychain. Model requests go to the provider you configure. Zuse Alpha is not launching with a hosted account system that quietly becomes the center of the product later.
 
-That choice shapes the product in useful ways. Startup is not blocked by a memoize login. A network issue with us does not make your local workspace disappear. Your repository history is not copied to our servers so that we can render a sidebar. When you delete local data, there is no second hidden copy in a vendor database. For a tool that sits next to source code, those defaults matter.
+That choice shapes the product in useful ways. Startup is not blocked by a Zuse Alpha login. A network issue with us does not make your local workspace disappear. Your repository history is not copied to our servers so that we can render a sidebar. When you delete local data, there is no second hidden copy in a vendor database. For a tool that sits next to source code, those defaults matter.
 
 Local-first does create tradeoffs. Sync is harder. Team features need more careful design. Bug reports require users to tell us what happened because we cannot simply open a production dashboard and inspect their sessions. We are accepting those constraints because they are consistent with the kind of product we want to build: a serious desktop tool for developers, not a web account with a thin local shell.
 
@@ -76,6 +76,6 @@ Local-first does create tradeoffs. Sync is harder. Team features need more caref
 
 The most useful feedback is concrete. Tell us which provider you used, what kind of repository you opened, what task you asked the agent to do, and where the workflow got confusing. If an error message was vague, include it. If a worktree ended up somewhere surprising, say where you expected it to be. If the timeline hid a detail you needed for review, tell us what detail would have changed your decision.
 
-We are especially interested in parallel work. Run two agents on the same issue and compare their approaches. Start a quick bug fix while a larger refactor is still running. Try switching providers when a session stalls. Push the parts of the product that are hard to evaluate in a demo because those are the parts that determine whether memoize becomes a daily tool.
+We are especially interested in parallel work. Run two agents on the same issue and compare their approaches. Start a quick bug fix while a larger refactor is still running. Try switching providers when a session stalls. Push the parts of the product that are hard to evaluate in a demo because those are the parts that determine whether Zuse Alpha becomes a daily tool.
 
 The alpha is free because the goal right now is learning and product fit, not extracting rent from early users. Bring your own provider keys, keep control of your model spend, and use the app against real work. If it saves you time, we want to know why. If it gets in your way, we want to know exactly where.

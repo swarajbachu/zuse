@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import type { PokemonPokedexEntry, PokemonRarity } from "@memoize/wire";
+import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/wire";
 
 import { PokemonRarityText } from "../pokemon.tsx";
 import {

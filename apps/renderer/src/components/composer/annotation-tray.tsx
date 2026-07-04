@@ -13,7 +13,7 @@ import type {
   FolderId,
   SessionId,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 

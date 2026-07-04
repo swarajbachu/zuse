@@ -1,7 +1,7 @@
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { Chat, FolderId } from "@memoize/wire";
+import type { Chat, FolderId } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "../store/chats.ts";

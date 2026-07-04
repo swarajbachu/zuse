@@ -22,7 +22,7 @@ first-class queued items the user can steer into the running conversation.
 - **Image attachments** by drag-drop, paste, or paperclip button. Images
   render as inline atomic chips with a thumbnail; binaries are persisted
   under the app's userData directory and served back to the renderer via a
-  custom `memoize://attachments/<id>` protocol. The data model reserves
+  custom `zuse://attachments/<id>` protocol. The data model reserves
   cloud fields so sync can land later without changing message history.
 - **`Enter` to send**, `Shift+Enter` for newline. `Cmd+Enter` continues to
   work as a backstop.

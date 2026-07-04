@@ -1,15 +1,19 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { ArchiveArrowUpIcon, ArchiveIcon } from "@hugeicons-pro/core-solid-rounded";
+import {
+  ArchiveArrowUpIcon,
+  ArchiveIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useMemo, useState } from "react";
 import { Effect } from "effect";
 
-import type { Chat, FolderId } from "@memoize/wire";
+import type { Chat, FolderId } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useUiStore } from "../store/ui.ts";
 import { Button } from "./ui/button.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const formatDate = (date: Date): string =>
   date.toLocaleDateString(undefined, {
@@ -77,7 +81,10 @@ export function ArchivedChatsPage({
     <div className="flex min-h-0 flex-1 flex-col bg-background/55">
       <div className="border-b border-border/50 px-8 py-5">
         <div className="flex items-center gap-3">
-          <HugeiconsIcon icon={ArchiveIcon} className="size-5 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={ArchiveIcon}
+            className="size-5 text-muted-foreground"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold text-foreground">
               Archived chats
@@ -88,7 +95,10 @@ export function ArchivedChatsPage({
           </div>
         </div>
         <label className="mt-5 flex h-9 max-w-xl items-center gap-2 rounded-md border border-border/70 bg-background px-3 text-sm">
-          <HugeiconsIcon icon={Search01Icon} className="size-4 shrink-0 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Search01Icon}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
           <input
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
@@ -102,7 +112,7 @@ export function ArchivedChatsPage({
         {projectId === null ? (
           <EmptyState text="Select a repository to view archived chats." />
         ) : loading ? (
-          <EmptyState text="Loading archived chats..." />
+          <EmptyState text="Loading archived chats..." loading />
         ) : error !== null ? (
           <EmptyState text={error} />
         ) : filtered.length === 0 ? (
@@ -139,7 +149,10 @@ export function ArchivedChatsPage({
                   size="sm"
                   onClick={() => void onRestore(chat)}
                 >
-                  <HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
+                  <HugeiconsIcon
+                    icon={ArchiveArrowUpIcon}
+                    className="size-3.5"
+                  />
                   Unarchive
                 </Button>
               </li>
@@ -151,10 +164,16 @@ export function ArchivedChatsPage({
   );
 }
 
-function EmptyState({ text }: { text: string }) {
+function EmptyState({
+  text,
+  loading = false,
+}: {
+  text: string;
+  loading?: boolean;
+}) {
   return (
     <div className="flex h-full min-h-64 items-center justify-center text-sm text-muted-foreground">
-      {text}
+      {loading ? <ShimmerText>{text}</ShimmerText> : text}
     </div>
   );
 }

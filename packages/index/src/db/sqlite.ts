@@ -100,7 +100,7 @@ const openNode = async (filename: string): Promise<IndexDb> => {
 
 /**
  * Open the per-workspace index DB. The directory is created if missing
- * (Electron may run with no `.memoize` folder on first boot). `:memory:`
+ * (Electron may run with no `.zuse` folder on first boot). `:memory:`
  * is honored for unit tests and benches.
  */
 export const openIndexDb = (filename: string): Effect.Effect<IndexDb, IndexDbError> =>

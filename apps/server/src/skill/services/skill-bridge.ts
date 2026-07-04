@@ -4,7 +4,7 @@ import type {
   SessionId,
   SessionNotFoundError,
   Skill,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Per-session skill listing, plus a live feed that re-emits the full list

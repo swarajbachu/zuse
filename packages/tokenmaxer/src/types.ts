@@ -1,4 +1,5 @@
 export type UsageSourceId =
+  | "zuse"
   | "memoize"
   | "claude"
   | "codex"
@@ -102,6 +103,7 @@ export interface UsageSourceReadResult {
 
 export interface UsageReadOptions {
   readonly sourceIds?: ReadonlyArray<UsageSourceId>;
+  readonly zuseDbPath?: string;
   readonly memoizeDbPath?: string;
   readonly dataDirs?: ReadonlyArray<string>;
   readonly includeExternal?: boolean;

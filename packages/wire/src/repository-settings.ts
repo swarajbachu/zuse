@@ -7,7 +7,7 @@ import { FolderId } from "./ids.ts";
 /**
  * Per-repository overrides on top of the global Settings. A `null` field
  * means "fall through to global default"; the renderer is responsible for
- * collapsing this layer at read-time. Persisted in `.memoize/settings.json`
+ * collapsing this layer at read-time. Persisted in `.zuse/settings.json`
  * under the repository root.
  */
 export class RepositorySettings extends Schema.Class<RepositorySettings>(
@@ -25,7 +25,7 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
   autoCreateWorktree: Schema.Boolean,
   /**
    * Optional override for the worktree base dir. `null` means the global
-   * default: `~/.memoize/<repo-name>-<projectId-short>/`.
+   * default: `~/.zuse/<repo-name>-<projectId-short>/`.
    */
   worktreeBaseDir: Schema.NullOr(Schema.String),
   /**
@@ -71,7 +71,7 @@ export const RepositorySettingsPatch = Schema.Struct({
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
 
 /**
- * On-disk `.memoize/settings.json` shape. It intentionally omits `projectId`
+ * On-disk `.zuse/settings.json` shape. It intentionally omits `projectId`
  * because the file lives inside a single repository.
  */
 export const RepositorySettingsFile = Schema.Struct({

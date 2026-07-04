@@ -7,7 +7,7 @@ import {
   UPDATE_INSTALL_CHANNEL,
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.
@@ -39,6 +39,9 @@ const bridge = {
         ipcRenderer.off("window:fullscreen", wrapped);
       };
     },
+    setAppearanceMode: (mode: "system" | "light" | "dark") => {
+      ipcRenderer.send("window:setAppearanceMode", mode);
+    },
   },
   browser: {
     /**
@@ -64,6 +67,37 @@ const bridge = {
         webContentsId,
         action,
       ) as Promise<boolean>,
+    /**
+     * Allowlisted CDP passthrough (Accessibility/DOM/Runtime/Page) for the
+     * v2 agent-browser tools — a11y snapshots, ref → coordinate resolution,
+     * full-page capture, dialog handling. Main rejects anything off-list.
+     */
+    cdpCommand: (webContentsId: number, method: string, params?: unknown) =>
+      ipcRenderer.invoke(
+        "browser:cdpCommand",
+        webContentsId,
+        method,
+        params ?? {},
+      ) as Promise<{ ok: boolean; result?: unknown; error?: string }>,
+    /** Network requests captured since the last load (buffered in main). */
+    getNetwork: (webContentsId: number, query?: unknown) =>
+      ipcRenderer.invoke(
+        "browser:getNetwork",
+        webContentsId,
+        query ?? {},
+      ) as Promise<unknown>,
+    /** Uncaught page exceptions captured via CDP since the last load. */
+    getPageErrors: (webContentsId: number) =>
+      ipcRenderer.invoke("browser:getPageErrors", webContentsId) as Promise<
+        string[]
+      >,
+    /** The currently open JS dialog (alert/confirm/prompt), if any. */
+    getDialogState: (webContentsId: number) =>
+      ipcRenderer.invoke("browser:getDialogState", webContentsId) as Promise<{
+        type: string;
+        message: string;
+        defaultPrompt?: string;
+      } | null>,
   },
   app: {
     openExternal: (url: string) => {
@@ -84,6 +118,18 @@ const bridge = {
       ipcRenderer.invoke("app:revealPath", path) as Promise<void>,
     copyPath: (path: string) =>
       ipcRenderer.invoke("app:copyPath", path) as Promise<void>,
+    copyFileContents: (path: string) =>
+      ipcRenderer.invoke("app:copyFileContents", path) as Promise<boolean>,
+    getMainDiagnostics: () =>
+      ipcRenderer.invoke("app:getMainDiagnostics") as Promise<
+        ReadonlyArray<{
+          readonly createdAt: string;
+          readonly level: "debug" | "info" | "warn" | "error";
+          readonly source: string;
+          readonly message: string;
+          readonly detail?: string;
+        }>
+      >,
   },
   updates: {
     onStatus: (handler: (status: UpdateStatus) => void) => {
@@ -102,7 +148,7 @@ const bridge = {
     // Dev-only escape hatch: only handled in dev (see updater.ts
     // `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
     __demoSet: (status: UpdateStatus) =>
-      ipcRenderer.invoke("memoize:update-demo-set", status) as Promise<void>,
+      ipcRenderer.invoke("zuse:update-demo-set", status) as Promise<void>,
   },
   menu: {
     onAction: (handler: (action: string) => void) => {
@@ -131,4 +177,5 @@ const bridge = {
   },
 };
 
+contextBridge.exposeInMainWorld("zuse", bridge);
 contextBridge.exposeInMainWorld("memoize", bridge);

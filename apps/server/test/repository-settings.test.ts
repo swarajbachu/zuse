@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { FolderId, RepositorySettingsFile } from "@memoize/wire";
+import type { FolderId, RepositorySettingsFile } from "@zuse/wire";
 
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0008WorktreesAndRepoSettings } from "../src/persistence/migrations/0008_worktrees_and_repo_settings.ts";
@@ -83,13 +83,13 @@ const seedProject = (repoPath: string) =>
   });
 
 const settingsPath = (repoPath: string): string =>
-  join(repoPath, ".memoize", "settings.json");
+  join(repoPath, ".zuse", "settings.json");
 
 const writeRepoSettings = (
   repoPath: string,
   value: Partial<RepositorySettingsFile> | string,
 ): void => {
-  mkdirSync(join(repoPath, ".memoize"), { recursive: true });
+  mkdirSync(join(repoPath, ".zuse"), { recursive: true });
   writeFileSync(
     settingsPath(repoPath),
     typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`,
@@ -121,7 +121,7 @@ describe("RepositorySettingsService JSON persistence", () => {
     });
   });
 
-  it("migrates an existing SQLite row into .memoize/settings.json", async () => {
+  it("migrates an existing SQLite row into .zuse/settings.json", async () => {
     await withRuntime(async ({ run, repoPath }) => {
       await run(
         Effect.gen(function* () {
@@ -165,9 +165,9 @@ describe("RepositorySettingsService JSON persistence", () => {
 
   it("lets JSON override legacy TOML values", async () => {
     await withRuntime(async ({ run, repoPath }) => {
-      mkdirSync(join(repoPath, ".memoize"), { recursive: true });
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
       writeFileSync(
-        join(repoPath, ".memoize", "settings.toml"),
+        join(repoPath, ".zuse", "settings.toml"),
         [
           "[scripts]",
           'run = "bun dev"',
@@ -194,9 +194,9 @@ describe("RepositorySettingsService JSON persistence", () => {
 
   it("uses TOML scripts and env when JSON is absent", async () => {
     await withRuntime(async ({ run, repoPath }) => {
-      mkdirSync(join(repoPath, ".memoize"), { recursive: true });
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
       writeFileSync(
-        join(repoPath, ".memoize", "settings.toml"),
+        join(repoPath, ".zuse", "settings.toml"),
         [
           "[scripts]",
           'setup = "bun install"',

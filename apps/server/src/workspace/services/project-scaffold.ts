@@ -6,7 +6,7 @@ import {
   type WorkspaceCloneFailedError,
   type WorkspaceCreateFailedError,
   type WorkspaceInvalidPathError,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Everything the workspace handlers need to *produce* a project path on

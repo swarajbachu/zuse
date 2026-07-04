@@ -1,4 +1,4 @@
-import type { Command, KeybindingRule } from "@memoize/wire";
+import type { Command, KeybindingRule } from "@zuse/wire";
 
 /**
  * Display metadata for each command. The label is shown in the settings

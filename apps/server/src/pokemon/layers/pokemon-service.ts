@@ -8,7 +8,7 @@ import {
   PokemonPokedexEntry,
   PokemonSpriteVariant,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -29,7 +29,7 @@ interface UnlockRow {
 type CachedSpriteStems = ReadonlySet<string>;
 
 const spriteUrlFor = (number: number, variantId = "default"): string =>
-  `memoize://pokemon/${pokemonSpriteStem(number, variantId)}`;
+  `zuse://pokemon/${pokemonSpriteStem(number, variantId)}`;
 
 const extensionFrom = (url: string, contentType: string | null): string => {
   const clean = url.split("?")[0] ?? url;

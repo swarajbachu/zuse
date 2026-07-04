@@ -1,12 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, CheckmarkCircle02Icon, CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Alert01Icon,
+  CheckmarkCircle02Icon,
+  CircleArrowUp01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import type { UpdateStatus } from "@memoize/wire";
+import type { UpdateStatus } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
+import { ShimmerText } from "~/components/ui/shimmer-text";
 import {
   Progress,
   ProgressIndicator,
@@ -37,7 +42,7 @@ export function UpdateBanner() {
   const installModeRef = useRef<"now" | "quit" | null>(null);
 
   useEffect(() => {
-    const updates = window.memoize?.updates;
+    const updates = window.zuse?.updates;
     if (!updates) return;
     return updates.onStatus(setStatus);
   }, []);
@@ -55,7 +60,7 @@ export function UpdateBanner() {
   // Auto-install on ready when the user explicitly chose "Update now".
   useEffect(() => {
     if (status.kind === "ready" && installModeRef.current === "now") {
-      void window.memoize?.updates?.installNow();
+      void window.zuse?.updates?.installNow();
     }
   }, [status.kind]);
 
@@ -76,21 +81,21 @@ export function UpdateBanner() {
 
   const onUpdateNow = () => {
     installModeRef.current = "now";
-    void window.memoize?.updates?.download();
+    void window.zuse?.updates?.download();
   };
   const onUpdateOnQuit = () => {
     installModeRef.current = "quit";
-    void window.memoize?.updates?.download();
+    void window.zuse?.updates?.download();
   };
   const onLater = () => {
     setDismissed(true);
   };
   const onRestartNow = () => {
-    void window.memoize?.updates?.installNow();
+    void window.zuse?.updates?.installNow();
   };
   const onRetry = () => {
     installModeRef.current = null;
-    void window.memoize?.updates?.check();
+    void window.zuse?.updates?.check();
   };
 
   // Portal to document.body so the toast escapes any ancestor that creates a
@@ -116,13 +121,15 @@ export function UpdateBanner() {
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-[13px] font-medium text-foreground">
             {status.kind === "available" && "Update available"}
-            {status.kind === "downloading" && "Downloading update…"}
+            {status.kind === "downloading" && (
+              <ShimmerText>Downloading update…</ShimmerText>
+            )}
             {status.kind === "ready" && "Update ready"}
             {status.kind === "error" && "Update failed"}
           </span>
           <span className="text-[12px] leading-snug text-muted-foreground">
             {status.kind === "available" &&
-              `memoize ${status.version} is ready to install.`}
+              `Zuse Alpha ${status.version} is ready to install.`}
             {status.kind === "downloading" &&
               `${Math.round(status.percent)}%${
                 status.bytesPerSecond > 0
@@ -130,7 +137,7 @@ export function UpdateBanner() {
                   : ""
               }`}
             {status.kind === "ready" &&
-              `Restart to finish installing memoize ${status.version}.`}
+              `Restart to finish installing Zuse Alpha ${status.version}.`}
             {status.kind === "error" && status.message}
           </span>
         </div>

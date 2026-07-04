@@ -5,7 +5,7 @@ import type {
   CodeAnnotation,
   FolderId,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { useChatsStore } from "./chats.ts";
 
@@ -26,6 +26,7 @@ export type SettingsSection =
   | { readonly kind: "workspace" }
   | { readonly kind: "pokedex" }
   | { readonly kind: "browser" }
+  | { readonly kind: "diagnostics" }
   | { readonly kind: "shortcuts" }
   | { readonly kind: "developer" }
   | { readonly kind: "repository"; readonly projectId: FolderId };
@@ -79,16 +80,41 @@ export type PanelInstance =
 
 /**
  * Which body the file viewer is showing. `edit` is the CodeMirror editor;
- * `diff` is the side-by-side patch view (working tree vs HEAD) — wired up
- * for clicks from the Changes panel and from Edit/Write/MultiEdit tool
- * rows. Toggled in the toolbar; defaults set per entry point.
+ * `diff` is the side-by-side patch view (working tree vs HEAD); `preview`
+ * renders saved markdown / HTML files. Toggled in the toolbar; defaults set
+ * per entry point.
  */
-export type FileView = "edit" | "diff";
+export type FileView = "edit" | "diff" | "preview";
+
+const PREVIEWABLE_EXTENSIONS = new Set([
+  ".htm",
+  ".html",
+  ".markdown",
+  ".md",
+  ".mdown",
+  ".mkd",
+]);
+
+export const isPreviewableFileName = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  if (dot === -1) return false;
+  return PREVIEWABLE_EXTENSIONS.has(lower.slice(dot));
+};
+
+const coerceFileView = (
+  file: { readonly kind: "text" | "external"; readonly name: string },
+  view: FileView,
+): FileView => {
+  if (file.kind === "external" && view === "diff") return "edit";
+  if (view === "preview" && !isPreviewableFileName(file.name)) return "edit";
+  return view;
+};
 
 /**
  * Discriminated by `kind`. `text` is the project-root-relative path the file
  * editor reads via `fs.readFile`; `image` is a raw URL the renderer renders
- * inline (currently used for `memoize://attachments/<id>` so screenshots
+ * inline (currently used for `zuse://attachments/<id>` so screenshots
  * stay inside the app instead of bouncing to the OS handler).
  */
 export type OpenFile =
@@ -115,7 +141,8 @@ export type OpenFile =
        * A file outside any project folder (e.g. a plan or markdown file the
        * agent wrote elsewhere on disk). Read/written by absolute path via the
        * `fs.*ExternalFile` RPCs, which deliberately skip the workspace
-       * sandbox. Edit-only — there's no git/folder context for a diff.
+       * sandbox. External files are edit/preview only — there's no git/folder
+       * context for a diff.
        */
       readonly kind: "external";
       readonly absPath: string;
@@ -267,14 +294,26 @@ export const useUiStore = create<UiState>((set, get) => ({
   openFileInTab: (file) =>
     set({
       openFile:
-        file.kind === "image" ? file : { ...file, view: file.view ?? "edit" },
+        file.kind === "image"
+          ? file
+          : {
+              ...file,
+              view: coerceFileView(file, file.view ?? "edit"),
+            },
       activeMainTab: "file",
       fileDirty: false,
     }),
   setOpenFileView: (view) =>
     set((s) => {
-      if (s.openFile === null || s.openFile.kind !== "text") return s;
-      return { openFile: { ...s.openFile, view } };
+      if (
+        s.openFile === null ||
+        (s.openFile.kind !== "text" && s.openFile.kind !== "external")
+      ) {
+        return s;
+      }
+      return {
+        openFile: { ...s.openFile, view: coerceFileView(s.openFile, view) },
+      };
     }),
   closeFileTab: () =>
     set({ openFile: null, activeMainTab: "chat", fileDirty: false }),

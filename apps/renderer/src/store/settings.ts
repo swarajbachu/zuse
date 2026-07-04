@@ -2,17 +2,21 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import {
+  type AppearanceMode,
   type BranchNamingStyle,
+  defaultModelEnabledByProvider,
   defaultModelFor,
   type CompletionSoundPreset,
   type GitMergeMethod,
+  type ModelEnabledByProvider,
   type ProviderId,
   resolveModelSlug,
   type RuntimeMode,
   type SettingsFile,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client";
+import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 
 /**
  * Renderer view of `settings.json`. Lives in the main process — this store
@@ -53,9 +57,26 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
   return out;
 };
 
+const seedModelEnabledByProvider = defaultModelEnabledByProvider;
+
+const mergeModelEnabled = (
+  input: Partial<Record<ProviderId, Partial<Record<string, boolean>>>>,
+): ModelEnabledByProvider => {
+  const base = seedModelEnabledByProvider();
+  for (const id of PROVIDER_IDS) {
+    const providerFlags = input[id];
+    if (providerFlags === undefined) continue;
+    for (const [modelId, value] of Object.entries(providerFlags)) {
+      if (typeof value === "boolean") base[id][modelId] = value;
+    }
+  }
+  return base;
+};
+
 const OLD_SETTINGS_KEY = "memoize.settings.v1";
 const OLD_SUBAGENTS_KEY = "memoize.subagents";
-const OLD_MERGE_PREFS_KEY = "memoize.mergePrefs.v1";
+const MERGE_PREFS_KEY = "zuse.mergePrefs.v1";
+const OLD_MERGE_PREFS_KEYS = ["memoize.mergePrefs.v1"] as const;
 
 const fallbackSnapshot = (): SettingsSlice => ({
   defaultProviderId: DEFAULT_PROVIDER,
@@ -64,8 +85,10 @@ const fallbackSnapshot = (): SettingsSlice => ({
   defaultAutoCreateWorktree: true,
   completionSoundEnabled: false,
   completionSoundPreset: "chime",
+  appearanceMode: "dark",
   onboardingCompleted: false,
   providerEnabled: seedProviderEnabled(),
+  modelEnabledByProvider: seedModelEnabledByProvider(),
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
   mergePrefs: { method: "merge", deleteBranch: false },
@@ -88,11 +111,13 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
     completionSoundEnabled: file.completionSoundEnabled,
     completionSoundPreset: file.completionSoundPreset,
+    appearanceMode: file.appearanceMode,
     onboardingCompleted: file.onboardingCompleted,
     providerEnabled: {
       ...seedProviderEnabled(),
       ...file.providerEnabled,
     },
+    modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
     mergePrefs: file.mergePrefs,
@@ -106,8 +131,10 @@ interface SettingsSlice {
   readonly defaultAutoCreateWorktree: boolean;
   readonly completionSoundEnabled: boolean;
   readonly completionSoundPreset: CompletionSoundPreset;
+  readonly appearanceMode: AppearanceMode;
   readonly onboardingCompleted: boolean;
   readonly providerEnabled: Record<ProviderId, boolean>;
+  readonly modelEnabledByProvider: ModelEnabledByProvider;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
   readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
@@ -133,8 +160,14 @@ type SettingsState = SettingsSlice & {
   readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
   readonly setCompletionSoundEnabled: (value: boolean) => void;
   readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
+  readonly setAppearanceMode: (mode: AppearanceMode) => void;
   readonly setOnboardingCompleted: (value: boolean) => void;
   readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
+  readonly setModelEnabled: (
+    providerId: ProviderId,
+    modelId: string,
+    value: boolean,
+  ) => void;
   readonly setBranchNamingStyle: (style: BranchNamingStyle) => void;
   readonly setBranchNamingPrefix: (prefix: string) => void;
   readonly setMergePrefs: (prefs: {
@@ -187,7 +220,11 @@ const migrateMergePrefsOnce = async (
   file: SettingsFile,
 ): Promise<SettingsFile> => {
   if (typeof window === "undefined") return file;
-  const raw = window.localStorage.getItem(OLD_MERGE_PREFS_KEY);
+  const raw = readStorageWithLegacy(
+    window.localStorage,
+    MERGE_PREFS_KEY,
+    OLD_MERGE_PREFS_KEYS,
+  );
   if (raw === null) return file;
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -208,7 +245,11 @@ const migrateMergePrefsOnce = async (
     const next = await Effect.runPromise(
       client.settings.update({ patch: { mergePrefs } }),
     );
-    window.localStorage.removeItem(OLD_MERGE_PREFS_KEY);
+    removeStorageKeys(
+      window.localStorage,
+      MERGE_PREFS_KEY,
+      OLD_MERGE_PREFS_KEYS,
+    );
     return next;
   } catch {
     return file;
@@ -314,6 +355,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       );
     })();
   },
+  setAppearanceMode: (mode) => {
+    set({ appearanceMode: mode });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { appearanceMode: mode } }),
+      );
+    })();
+  },
   setOnboardingCompleted: (value) => {
     set({ onboardingCompleted: value });
     void (async () => {
@@ -330,6 +380,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { providerEnabled: next } }),
+      );
+    })();
+  },
+  setModelEnabled: (providerId, modelId, value) => {
+    const current = get().modelEnabledByProvider;
+    const next: ModelEnabledByProvider = {
+      ...current,
+      [providerId]: {
+        ...current[providerId],
+        [modelId]: value,
+      },
+    };
+    set({ modelEnabledByProvider: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { modelEnabledByProvider: next } }),
       );
     })();
   },

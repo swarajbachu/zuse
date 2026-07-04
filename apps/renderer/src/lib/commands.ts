@@ -1,5 +1,5 @@
-import type { ChatId, Command, Session } from "@memoize/wire";
-import { defaultModelFor } from "@memoize/wire";
+import type { ChatId, Command, Session } from "@zuse/wire";
+import { defaultModelFor } from "@zuse/wire";
 
 import { createNewSession } from "../components/projects-sidebar";
 import { activeChatId, orderedChatTabs } from "./tab-order";

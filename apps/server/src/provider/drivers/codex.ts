@@ -20,11 +20,18 @@ import {
   type ThreadGoalSetInput,
   type ThreadGoalStatus,
   type UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { CodexAppServerClient } from "../codex-app-server-client.ts";
+import {
+  finishCompactEvent,
+  nextCompactItemId,
+  startCompactEvent,
+  startCompactSnapshot,
+  type CompactSnapshot,
+} from "./compact.ts";
 import type { ServerNotification } from "../codex-app-protocol/ServerNotification";
 import type { ServerRequest } from "../codex-app-protocol/ServerRequest";
 import type { SandboxPolicy } from "../codex-app-protocol/v2/SandboxPolicy";
@@ -220,8 +227,11 @@ const probeModelFastTier = async (
 const toolIdentifierPart = (value: string): string =>
   value.replace(/[^A-Za-z0-9_]/g, "_");
 
+const normalizeMcpServerName = (server: string): string =>
+  server === "memoize" ? "zuse" : server;
+
 const toMcpToolName = (server: string, tool: string): string =>
-  `mcp__${toolIdentifierPart(server)}__${toolIdentifierPart(tool)}`;
+  `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
 
 const dynamicToolName = (namespace: string | null, tool: string): string =>
   namespace !== null ? `${namespace}.${tool}` : tool;
@@ -368,7 +378,6 @@ const codexFileChangeInput = (
   return {
     tool: "MultiEdit",
     input: {
-      file_path: patches.map((patch) => patch.file_path).join(", "),
       patches,
     },
   };
@@ -440,6 +449,22 @@ const codexResetDate = (value: number | null): string | null => {
 const codexLimitLabel = (value: string | null): string =>
   value !== null && value.trim().length > 0 ? value.trim() : "Codex usage";
 
+const codexWindowLimitLabel = (
+  windowMinutes: number | null,
+  fallback: string | null,
+): string => {
+  if (windowMinutes !== null && Number.isFinite(windowMinutes)) {
+    if (windowMinutes % (60 * 24) === 0) {
+      return `${windowMinutes / (60 * 24)}d limit`;
+    }
+    if (windowMinutes % 60 === 0) {
+      return `${windowMinutes / 60}h limit`;
+    }
+    return `${windowMinutes}m limit`;
+  }
+  return codexLimitLabel(fallback);
+};
+
 interface CodexToolTranslationLogger {
   readonly path: string;
   readonly append: (
@@ -496,9 +521,93 @@ const createCodexToolTranslationLogger = (
   };
 };
 
+interface CodexStatusLogger {
+  readonly path: string;
+  readonly append: (
+    notification: ServerNotification,
+    events: ReadonlyArray<AgentEvent>,
+  ) => void;
+}
+
+const createCodexStatusLogger = (
+  cwd: string,
+  sessionId: AgentSessionId,
+): CodexStatusLogger => {
+  const dir = join(cwd, ".context");
+  const path = join(dir, `codex-status.${sessionId}.ndjson`);
+  const safeJson = (value: unknown): string => {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return JSON.stringify("(unserializable)");
+    }
+  };
+  const statusPayload = (notification: ServerNotification): unknown => {
+    switch (notification.method) {
+      case "thread/tokenUsage/updated":
+        return {
+          threadId: notification.params.threadId,
+          turnId: notification.params.turnId,
+          tokenUsage: {
+            total: notification.params.tokenUsage.total,
+            last: notification.params.tokenUsage.last,
+            modelContextWindow:
+              notification.params.tokenUsage.modelContextWindow,
+          },
+        };
+      case "account/rateLimits/updated":
+        return { rateLimits: notification.params.rateLimits };
+      case "thread/compacted":
+        return notification.params;
+      case "item/completed":
+        return notification.params.item.type === "contextCompaction"
+          ? {
+              threadId: notification.params.threadId,
+              turnId: notification.params.turnId,
+              item: notification.params.item,
+            }
+          : null;
+      default:
+        return null;
+    }
+  };
+  return {
+    path,
+    append: (notification, events) => {
+      const payload = statusPayload(notification);
+      if (payload === null) return;
+      const translated = events.filter(
+        (event) =>
+          event._tag === "ContextUsage" ||
+          event._tag === "UsageLimit" ||
+          event._tag === "ContextCompaction",
+      );
+      try {
+        mkdirSync(dir, { recursive: true });
+        appendFileSync(
+          path,
+          `${safeJson({
+            ts: new Date().toISOString(),
+            provider: "codex",
+            method: notification.method,
+            raw: payload,
+            translated,
+          })}\n`,
+        );
+      } catch {
+        // Best-effort debug log: never disrupt the agent loop.
+      }
+    },
+  };
+};
+
 export const translateCodexItem = (
   item: ThreadItem,
   phase: "started" | "completed",
+  contextCompaction?: CompactSnapshot & {
+    readonly afterTokens: number | null;
+    readonly durationMs?: number;
+  },
 ): ReadonlyArray<AgentEvent> => {
   switch (item.type) {
     case "agentMessage":
@@ -620,13 +729,17 @@ export const translateCodexItem = (
       ];
     case "contextCompaction":
       if (phase !== "completed") return [];
-      return [
-        {
-          _tag: "AssistantMessage",
-          itemId: item.id as AgentItemId,
-          text: "Conversation context compacted.",
-        },
-      ];
+      {
+        return [
+          finishCompactEvent({
+            itemId: contextCompaction?.itemId ?? (item.id as AgentItemId),
+            providerId: "codex",
+            snapshot: contextCompaction ?? null,
+            afterTokens: contextCompaction?.afterTokens ?? null,
+            durationMs: contextCompaction?.durationMs,
+          }),
+        ];
+      }
     default:
       return [];
   }
@@ -643,7 +756,7 @@ export const translateCodexStatusNotification = (
         {
           _tag: "ContextUsage",
           providerId: "codex",
-          usedTokens: notification.params.tokenUsage.total.totalTokens,
+          usedTokens: notification.params.tokenUsage.last.totalTokens,
           windowTokens:
             notification.params.tokenUsage.modelContextWindow ?? null,
           precision: "exact",
@@ -652,18 +765,34 @@ export const translateCodexStatusNotification = (
       ];
     case "account/rateLimits/updated": {
       const limits = notification.params.rateLimits;
-      const primary = limits.primary;
-      if (primary === null) return [];
-      return [
-        {
+      const out: AgentEvent[] = [];
+      if (limits.primary !== null) {
+        out.push({
           _tag: "UsageLimit",
           providerId: "codex",
-          label: codexLimitLabel(limits.limitName),
-          usedPercent: primary.usedPercent,
-          resetsAt: codexResetDate(primary.resetsAt),
-          windowMinutes: primary.windowDurationMins,
-        },
-      ];
+          label: codexWindowLimitLabel(
+            limits.primary.windowDurationMins,
+            limits.limitName,
+          ),
+          usedPercent: limits.primary.usedPercent,
+          resetsAt: codexResetDate(limits.primary.resetsAt),
+          windowMinutes: limits.primary.windowDurationMins,
+        });
+      }
+      if (limits.secondary !== null) {
+        out.push({
+          _tag: "UsageLimit",
+          providerId: "codex",
+          label: codexWindowLimitLabel(
+            limits.secondary.windowDurationMins,
+            limits.limitName,
+          ),
+          usedPercent: limits.secondary.usedPercent,
+          resetsAt: codexResetDate(limits.secondary.resetsAt),
+          windowMinutes: limits.secondary.windowDurationMins,
+        });
+      }
+      return out;
     }
     default:
       return null;
@@ -687,6 +816,7 @@ export const startCodexSession = (
     const attachments = yield* AttachmentService;
     const events = yield* Mailbox.make<AgentEvent>();
     const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
+    const statusLog = createCodexStatusLogger(cwd, sessionId);
     let currentMode: PermissionMode = input.permissionMode ?? "default";
     let activeThreadId = resumeCursor;
     let currentTurnId: string | null = null;
@@ -699,6 +829,8 @@ export const startCodexSession = (
     // does / does not advertise a fast tier. Only a definitive `false` blocks
     // the `serviceTier: "fast"` request in `runTurn`.
     let modelFastTier: boolean | null = null;
+    const latestContextTokensByThread = new Map<string, number>();
+    const pendingCompactionsByThread = new Map<string, CompactSnapshot>();
 
     type QuestionWaiter = {
       readonly questionIds: ReadonlyArray<string>;
@@ -709,6 +841,13 @@ export const startCodexSession = (
     const emit = (event: AgentEvent): void => {
       if (!closed) events.unsafeOffer(event);
     };
+
+    emit({
+      _tag: "Started",
+      sessionId,
+      providerId: "codex",
+      mode: "sdk",
+    });
 
     const app = yield* Effect.tryPromise({
       try: () =>
@@ -748,7 +887,7 @@ export const startCodexSession = (
       cwd,
       approvalPolicy: "never" as const,
       sandbox: toSandboxMode(currentMode),
-      serviceName: "memoize",
+      serviceName: "zuse",
     };
 
     const startOrResume = async (): Promise<void> => {
@@ -958,10 +1097,20 @@ export const startCodexSession = (
 
       switch (command) {
         case "compact":
-          await app.request("thread/compact/start", {
-            threadId: activeThreadId,
-          });
-          say("Compaction started.");
+          {
+            const threadId = activeThreadId;
+            const snapshot = startCompactSnapshot(
+              latestContextTokensByThread.get(threadId) ?? null,
+            );
+            pendingCompactionsByThread.set(threadId, snapshot);
+            emit(startCompactEvent({ providerId: "codex", snapshot }));
+            try {
+              await app.request("thread/compact/start", { threadId });
+            } catch (cause) {
+              pendingCompactionsByThread.delete(threadId);
+              throw cause;
+            }
+          }
           return true;
         case "fork": {
           const forked = await app.request<{ thread: { id: string } }>(
@@ -1051,6 +1200,10 @@ export const startCodexSession = (
         case "debug-tools":
           say(`Codex tool translation log:\n${toolTranslationLog.path}`);
           return true;
+        case "status-log":
+        case "debug-status":
+          say(`Codex status log:\n${statusLog.path}`);
+          return true;
         case "permissions":
           say(
             "Codex approval policy is managed by this app. Current embedded policy: never.",
@@ -1125,11 +1278,24 @@ export const startCodexSession = (
     function translateNotification(
       notification: ServerNotification,
     ): ReadonlyArray<AgentEvent> {
+      if (
+        notification.method === "thread/tokenUsage/updated" &&
+        notification.params.threadId === activeThreadId
+      ) {
+        latestContextTokensByThread.set(
+          notification.params.threadId,
+          notification.params.tokenUsage.last.totalTokens,
+        );
+      }
+
       const statusEvents = translateCodexStatusNotification(
         notification,
         activeThreadId,
       );
-      if (statusEvents !== null) return statusEvents;
+      if (statusEvents !== null) {
+        statusLog.append(notification, statusEvents);
+        return statusEvents;
+      }
 
       switch (notification.method) {
         case "thread/started":
@@ -1182,17 +1348,46 @@ export const startCodexSession = (
         case "item/completed":
           if (notification.params.threadId !== activeThreadId) return [];
           {
+            const compactMetadata =
+              notification.params.item.type === "contextCompaction"
+                ? (() => {
+                    const threadId = notification.params.threadId;
+                    const started =
+                      pendingCompactionsByThread.get(threadId) ?? null;
+                    pendingCompactionsByThread.delete(threadId);
+                    const now = Date.now();
+                    const startedAt = started?.startedAt ?? now;
+                    const beforeTokens = started?.beforeTokens ?? null;
+                    const latestAfter =
+                      latestContextTokensByThread.get(threadId) ?? null;
+                    const afterTokens =
+                      latestAfter !== null && latestAfter !== beforeTokens
+                        ? latestAfter
+                        : null;
+                    return {
+                      itemId: started?.itemId ?? nextCompactItemId(),
+                      startedAt,
+                      beforeTokens,
+                      afterTokens,
+                    };
+                  })()
+                : undefined;
             const translated = translateCodexItem(
               notification.params.item,
               "completed",
+              compactMetadata,
             );
             toolTranslationLog.append(
               "completed",
               notification.params.item,
               translated,
             );
+            statusLog.append(notification, translated);
             return translated;
           }
+        case "thread/compacted":
+          statusLog.append(notification, []);
+          return [];
         case "error":
           return [
             { _tag: "Error", message: notification.params.error.message },

@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zuse — Remote &amp; Multi-Client Spec</title>
+<style>
+  :root {
+    --bg: #0a0a0b; --bg-2: #111114; --bg-3: #17171b; --line: #26262c;
+    --fg: #e7e7ea; --fg-dim: #a1a1aa; --fg-faint: #71717a;
+    --accent: #bef264; --accent-dim: #8aa64a; --blue: #7dd3fc; --amber: #fcd34d; --rose: #fda4af;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--sans); font-size: 15px; line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { display: grid; grid-template-columns: 270px minmax(0,1fr); gap: 0; max-width: 1280px; margin: 0 auto; }
+  /* Sidebar nav */
+  nav {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 28px 20px 60px; border-right: 1px solid var(--line); font-size: 13px;
+  }
+  nav .brand { font-weight: 700; letter-spacing: .04em; color: var(--fg); font-size: 14px; }
+  nav .brand b { color: var(--accent); }
+  nav .tag { color: var(--fg-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; margin: 22px 0 8px; }
+  nav a { display: block; color: var(--fg-dim); text-decoration: none; padding: 3px 0 3px 10px; border-left: 2px solid transparent; }
+  nav a:hover { color: var(--accent); border-left-color: var(--accent-dim); }
+  nav a.sub { padding-left: 22px; color: var(--fg-faint); font-size: 12.5px; }
+  /* Content */
+  main { padding: 40px 52px 120px; min-width: 0; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 6px; letter-spacing: -.01em; }
+  h2 { font-size: 22px; margin: 52px 0 14px; padding-top: 14px; border-top: 1px solid var(--line); letter-spacing: -.01em; }
+  h3 { font-size: 17px; margin: 30px 0 8px; color: #fff; }
+  h4 { font-size: 14px; margin: 20px 0 6px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .08em; }
+  p, li { color: var(--fg); }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; color: #d6d6da; border: 1px solid var(--line); }
+  pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; }
+  pre code { background: none; border: none; padding: 0; color: #cdd2c3; }
+  .lead { font-size: 17px; color: var(--fg-dim); margin: 14px 0 0; max-width: 70ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 8px; }
+  .meta span { font-size: 12px; color: var(--fg-dim); background: var(--bg-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+  .meta b { color: var(--accent); }
+  /* callouts */
+  .box { border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin: 16px 0; background: var(--bg-2); }
+  .box.key { border-left: 3px solid var(--accent); }
+  .box.warn { border-left: 3px solid var(--amber); }
+  .box.note { border-left: 3px solid var(--blue); }
+  .box .t { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-faint); margin-bottom: 6px; }
+  .box.key .t { color: var(--accent); } .box.warn .t { color: var(--amber); } .box.note .t { color: var(--blue); }
+  /* tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--fg-faint); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+  td code { font-size: 12px; }
+  tr:hover td { background: var(--bg-2); }
+  /* status pills */
+  .pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+  .done { background: rgba(190,242,100,.12); color: var(--accent); border: 1px solid rgba(190,242,100,.3); }
+  .todo { background: rgba(161,161,170,.1); color: var(--fg-dim); border: 1px solid var(--line); }
+  .defer { background: rgba(252,211,77,.1); color: var(--amber); border: 1px solid rgba(252,211,77,.25); }
+  .diagram { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 18px; overflow-x: auto; }
+  .diagram pre { background: none; border: none; padding: 0; color: var(--fg-dim); font-size: 12px; }
+  .adr { border: 1px solid var(--line); border-radius: 12px; padding: 4px 22px 18px; margin: 22px 0; background: linear-gradient(180deg, var(--bg-2), var(--bg)); }
+  .adr h3 { display: flex; align-items: center; gap: 10px; }
+  .adr .badge { font-size: 11px; color: var(--bg); background: var(--accent); padding: 2px 8px; border-radius: 5px; font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .del { color: var(--rose); } .add { color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+  .foot { color: var(--fg-faint); font-size: 12px; margin-top: 50px; }
+  @media (max-width: 880px) { .wrap { grid-template-columns: 1fr; } nav { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); } main { padding: 28px 20px 80px; } .grid2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <div class="brand"><b>ZUSE</b> · Remote &amp; Multi-Client</div>
+  <div class="tag">Orientation</div>
+  <a href="#summary">Executive summary</a>
+  <a href="#today">1 · Where we are today</a>
+  <a href="#today-process" class="sub">Process model</a>
+  <a href="#today-transport" class="sub">Transport &amp; RPC</a>
+  <a href="#today-data" class="sub">Persistence &amp; data</a>
+  <a href="#today-gap" class="sub">What's missing</a>
+  <a href="#future">2 · Where we're going</a>
+  <a href="#future-env" class="sub">The environment model</a>
+  <a href="#future-shapes" class="sub">Process shapes</a>
+  <a href="#future-life" class="sub">A day in the life</a>
+  <div class="tag">Decisions</div>
+  <a href="#d1">D1 · Event sourcing</a>
+  <a href="#d2">D2 · node:sqlite</a>
+  <a href="#d3">D3 · Environment abstraction</a>
+  <a href="#d4">D4 · Cloud reach</a>
+  <a href="#d5">D5 · SSH wrapper</a>
+  <a href="#d6">D6 · WebSocket transport</a>
+  <a href="#d7">D7 · Auth model</a>
+  <div class="tag">Build</div>
+  <a href="#changes">4 · What changes</a>
+  <a href="#deep">5 · Core design</a>
+  <a href="#datamodel">6 · Data model</a>
+  <a href="#exec">7 · Execution &amp; parallelism</a>
+  <a href="#risks">8 · Risks</a>
+  <a href="#verify">9 · Verification</a>
+  <a href="#future-scope">10 · Future / out of scope</a>
+  <a href="#glossary">Glossary</a>
+  <a href="#progress">Progress log</a>
+</nav>
+
+<main>
+  <h1>Remote &amp; Multi-Client</h1>
+  <p class="lead">One <code>@zuse/server</code> driven by the desktop, a mobile app, a browser, and remote / cloud dev-boxes — over WebSocket, reachable from anywhere, with gap-free reconnect and offline support.</p>
+  <div class="meta">
+    <span>Status: <b>In progress</b></span>
+    <span>Started: 2026-06-30</span>
+    <span>Foundation landed: PR0 + WS transport</span>
+    <span>Companion: <code>README.md</code>, <code>parallel-handoffs.md</code></span>
+  </div>
+
+  <!-- ============================ SUMMARY ============================ -->
+  <h2 id="summary">Executive summary</h2>
+  <p>Zuse today is a single Electron process: the renderer talks to <code>@zuse/server</code> over Electron IPC, chats live in SQLite as mutable CRUD rows, and live updates come from an in-memory pub/sub. We want the same server to be driven by <b>many clients</b> (desktop, mobile, browser) running on <b>many hosts</b> (laptop, SSH dev-box, cloud container) — all over one WebSocket contract.</p>
+  <div class="box key">
+    <div class="t">The central insight</div>
+    <p style="margin:0">This is <b>additive, not a rewrite.</b> <code>@zuse/server</code> is already an Effect app on <code>@effect/rpc</code> / <code>@effect/sql</code> / <code>@effect/platform-node</code>. <a href="../0.01-MVP/decisions/0007-server-as-code-only-app.md">ADR 0007</a> already forbids <code>electron</code> imports in <code>apps/server</code>, mandates a pure <code>makeMainLayer(deps)</code> factory, and makes the transport pluggable. The base server stays. We add a WebSocket transport, an event-sourced sync core, a cloud relay, an Expo client, and SSH launch — each an independent track.</p>
+  </div>
+  <p>The single genuine architectural gap is <b>persistence</b>: mutable CRUD + in-memory pub/sub cannot give a mobile client gap-free reconnect, offline snapshots, or multi-writer ordering. We close it with <b>event sourcing</b> (an append-only log with a global <code>sequence</code>, projected into the existing tables) and, in the same pass, swap the SQLite driver to Node's built-in <b><code>node:sqlite</code></b> so one persistence layer runs identically under Electron and headless Node.</p>
+
+  <!-- ============================ PART I ============================ -->
+  <h2 id="today">1 · Where we are today</h2>
+
+  <h3 id="today-process">Process model</h3>
+  <p>Everything runs in the Electron <b>main</b> process. <code>apps/server</code> is imported in-process; the renderer (React 19 + Vite, Zustand for ephemeral state) is a thin client. There is no separate server process, no HTTP listener, no WebSocket — yet. The monorepo is Bun workspaces + Turbo:</p>
+  <table>
+    <tr><th>Package</th><th>Role</th></tr>
+    <tr><td><code>apps/desktop</code></td><td>Electron main + preload; builds with tsdown → <code>dist-electron/*.cjs</code>; owns the Electron-specific glue (windows, menus, the IPC transport).</td></tr>
+    <tr><td><code>apps/server</code> (<code>@zuse/server</code>)</td><td>All backend logic as a transport-agnostic Effect library: persistence, providers/drivers, git, pty, worktrees, permissions, credentials, code-index bridge, RPC handlers.</td></tr>
+    <tr><td><code>apps/renderer</code></td><td>React UI; consumes the RPC client; no durable local state.</td></tr>
+    <tr><td><code>packages/wire</code> (<code>@zuse/wire</code>)</td><td>The entire RPC surface (~100 methods) as <code>@effect/rpc</code> + Schema definitions. Transport-agnostic.</td></tr>
+    <tr><td><code>apps/web</code>, <code>apps/mcp-server</code>, <code>packages/index</code>, …</td><td>Marketing site, MCP transport for the index engine, code-index service, etc.</td></tr>
+  </table>
+
+  <h3 id="today-transport">Transport &amp; RPC</h3>
+  <p>The contract lives in <code>packages/wire</code> as one <code>MemoizeRpcs = RpcGroup.make(...)</code>. The transport is a <code>RpcServer.Protocol</code> implementation. Today the only implementation is Electron IPC:</p>
+  <div class="diagram"><pre>renderer (RpcClient)
+   │  electronClientProtocolLayer(bridge.rpc)  ── window.zuse bridge
+   ▼  ipcRenderer.send(IPC_CHANNEL, frame)
+Electron main
+   │  electronServerProtocolLayer(webContents) implements RpcServer.Protocol
+   ▼  RpcServer.layer(MemoizeRpcs) ← Handlers ← services/drivers (in-process)</pre></div>
+  <p>Crucially, <code>runtime.ts</code> already takes the transport as an injected dependency:</p>
+  <pre><code>export interface MainLayerDeps {
+  readonly userData: string;                          // where sqlite/keychain live
+  readonly folderPicker: typeof FolderPicker.Service; // host "choose folder" dialog
+  readonly serverProtocol: Layer.Layer&lt;RpcServer.Protocol&gt;;  // ← the transport seam
+}
+// ServerLayer = RpcServer.layer(MemoizeRpcs) |&gt; provide(Handlers) |&gt; provide(deps.serverProtocol)</code></pre>
+  <p>So a WebSocket transport is a new <code>Layer&lt;RpcServer.Protocol&gt;</code> handed to the same factory — no change to any service.</p>
+
+  <h3 id="today-data">Persistence &amp; data model</h3>
+  <p>Storage is SQLite at <code>&lt;userData&gt;/zuse.sqlite</code> via <code>@effect/sql-sqlite-node</code> (better-sqlite3). Queries are raw <code>@effect/sql</code> template strings (no ORM); migrations are numbered Effect <code>SqliteMigrator</code> files run on boot. The model is <b>direct, mutable CRUD</b>:</p>
+  <table>
+    <tr><th>Table</th><th>Purpose</th></tr>
+    <tr><td><code>projects</code></td><td>Workspace roots.</td></tr>
+    <tr><td><code>chats</code></td><td>Sidebar entries; own 1+ sessions; read/unread tracking.</td></tr>
+    <tr><td><code>sessions</code></td><td>A thread with a provider/model, status, runtime/permission mode, resume cursor, optional worktree.</td></tr>
+    <tr><td><code>messages</code></td><td>One row per renderable item: <code>role</code>, <code>kind</code> (= content <code>_tag</code>), <code>content_json</code>, <code>parent_item_id</code>, <code>created_at</code>.</td></tr>
+    <tr><td><code>queued_messages</code></td><td>Pending user turns between sends. <b>Created via lazy runtime DDL, outside the migrator.</b></td></tr>
+    <tr><td><code>worktrees</code></td><td>memoize-owned <code>git worktree</code> checkouts.</td></tr>
+    <tr><td><code>permissions</code>, <code>repository_settings</code>, <code>app_state</code></td><td>Tool rules, per-repo overrides, key/value app state.</td></tr>
+  </table>
+  <p>A message's <code>content_json</code> is a tagged union — <code>user</code> / <code>user_rich</code> / <code>assistant</code> / <code>thinking</code> / <code>tool_use</code> / <code>tool_result</code> / <code>usage</code> / <code>context_usage</code> / <code>subagent_summary</code> / <code>user_question</code> / <code>error</code> / <code>interrupted</code> and more.</p>
+  <p><b>Streaming today:</b> <code>streamMessages</code> subscribes to a per-session in-memory <code>PubSub&lt;Message&gt;</code> <i>before</i> reading all rows <code>ORDER BY created_at</code>, builds a <code>seen</code> Set, and concatenates backfill + live (filtering dupes). Every reconnect replays the whole table and dedups in memory. Ordering relies on <code>created_at</code>, which is <b>not monotonic</b> within a millisecond.</p>
+
+  <h3 id="today-gap">What's missing for remote / multi-client</h3>
+  <table>
+    <tr><th>Need</th><th>Today</th><th>Why it fails for mobile/remote</th></tr>
+    <tr><td>Reach beyond the renderer</td><td>Electron IPC only</td><td>No way for a phone or browser to connect.</td></tr>
+    <tr><td>Resume after disconnect</td><td>Full table replay + <code>seen</code> Set</td><td>O(history) per reconnect; flaky mobile networks reconnect constantly.</td></tr>
+    <tr><td>Offline / cold start</td><td>No client-side durable state</td><td>Mobile must render instantly offline, then reconcile.</td></tr>
+    <tr><td>Multiple writers</td><td>Single provider-daemon writer assumed</td><td>Two clients sending into one session can interleave with no ordering guard.</td></tr>
+    <tr><td>Run off the laptop</td><td>better-sqlite3 native binding, Electron-only boot</td><td>Headless/cloud needs a host-agnostic boot + a portable SQLite.</td></tr>
+  </table>
+
+  <!-- ============================ PART II ============================ -->
+  <h2 id="future">2 · Where we're going</h2>
+
+  <h3 id="future-env">The environment model</h3>
+  <p>The organizing idea of the end-state is the <b>environment</b>: "a host running <code>@zuse/server</code>." It is a first-class entity with a <code>providerKind</code> and an endpoint. The exact same server binary backs all three kinds:</p>
+  <table>
+    <tr><th><code>providerKind</code></th><th>Where the server runs</th><th>How clients reach it</th></tr>
+    <tr><td><code>"desktop"</code></td><td>The user's laptop</td><td>Electron IPC in-process; or WS + managed tunnel for remote reach</td></tr>
+    <tr><td><code>"ssh"</code></td><td>A remote dev-box, launched by the desktop</td><td>SSH <code>-L</code> tunnel to <code>127.0.0.1:&lt;local&gt;</code></td></tr>
+    <tr><td><code>"cloud"</code></td><td>A cloud container + persistent volume</td><td>Relay-provisioned managed endpoint (= <b>cloud worktrees</b>)</td></tr>
+  </table>
+  <div class="box key"><div class="t">Why this matters</div><p style="margin:0">Everything above the transport — persistence, projector, providers, <b>git worktree management</b> — is host-agnostic (ADR 0007; worktrees are on-disk checkouts under the project path). So a <b>cloud worktree is not a new code path</b>: it is the headless server running on a cloud volume, registered with <code>providerKind:"cloud"</code>, reached through the same link/connect + WS flow as desktop or SSH. We get cloud by holding four rules from day one: nothing in <code>apps/server</code> assumes a local machine; the relay keys by <code>environmentId</code>; connect/link methods carry <code>providerKind</code> + endpoint; worktree lifecycle stays a server-side RPC capability.</p></div>
+
+  <h3 id="future-shapes">Process shapes &amp; the full picture</h3>
+  <div class="diagram"><pre>            ┌────────────── Relay (control plane only) ──────────────┐
+            │  WorkOS identity · device↔environment link              │
+            │  short-lived connect tokens · managed-tunnel provision  │
+            │  push (APNs) fan-out · NOT in the data path             │
+            └──────────────────────────────────────────────────────────┘
+              ▲ WorkOS JWT + device DPoP      ▲ link proof (local bearer)
+  Mobile(Expo)┐                               │
+  Browser ────┤   WebSocket (RpcClient) — DIRECT to the environment
+  Desktop ────┤
+              ▼
+     ┌──────────── @zuse/server — "an environment" ────────────┐
+     │  events ─► projector ─► messages / sessions / chats      │   one binary, by providerKind
+     │  (node:sqlite)                                           │     · desktop → laptop
+     │  RpcServer.Protocol:  Electron IPC | WebSocket           │     · ssh     → remote dev-box
+     │  providers · git · pty · worktrees                       │     · cloud   → container + volume
+     └────────────────────────────────────────────────────────────┘</pre></div>
+  <p>Four process shapes, all from one <code>makeMainLayer(deps)</code>:</p>
+  <ol>
+    <li><b>In-process</b> (today) — Electron; <code>serverProtocol = electronServerProtocolLayer</code>. Never stops working.</li>
+    <li><b>Headless WS</b> — <code>bin.ts</code> / <code>zuse serve</code>; <code>serverProtocol = wsServerProtocolLayer({port})</code>, file-backed AppPaths, no-op FolderPicker. <span class="pill done">landed</span></li>
+    <li><b>Remote-over-SSH</b> — shape 2 launched on a remote box, tunneled back.</li>
+    <li><b>Cloud-hosted</b> — shape 2 on a cloud container + volume, reached via the relay's managed endpoint.</li>
+  </ol>
+
+  <h3 id="future-life">A day in the life</h3>
+  <div class="grid2">
+    <div class="box note"><div class="t">Mobile on the LAN</div><p style="margin:0">Open the desktop → it shows a QR. Phone scans <code>zuse://?pairingUrl=&lt;host&gt;#token=&lt;code&gt;</code>, stores host+bearer in secure storage, opens a WS straight to the laptop, streams the chat from <code>sinceSequence</code>.</p></div>
+    <div class="box note"><div class="t">Mobile from anywhere</div><p style="margin:0">The phone (WorkOS-signed) links the environment to the relay with a DPoP key; the relay returns a managed Cloudflare endpoint + short-lived token; the phone connects directly to the laptop through the tunnel. The relay never sees chat bytes.</p></div>
+    <div class="box note"><div class="t">SSH dev-box</div><p style="margin:0">Pick a host from <code>~/.ssh/config</code>; the desktop runs <code>zuse serve</code> there over SSH, opens a <code>-L</code> tunnel, and the renderer talks to <code>ws://127.0.0.1:&lt;local&gt;/rpc</code> as if local.</p></div>
+    <div class="box note"><div class="t">Cloud worktree</div><p style="margin:0">A provisioner boots <code>zuse serve</code> in a container with a persistent volume, clones the repo / creates the worktree on it, registers <code>providerKind:"cloud"</code>. Identical UI, identical sync — the laptop can be asleep.</p></div>
+  </div>
+
+  <!-- ============================ DECISIONS ============================ -->
+  <h2 id="decisions" style="border:none; margin-bottom:0">3 · Decisions</h2>
+  <p class="lead" style="margin-top:6px">Each decision is recorded ADR-style: context, the call, alternatives weighed, and consequences.</p>
+
+  <div class="adr" id="d1">
+    <h3><span class="badge">D1</span> Event sourcing for chat persistence</h3>
+    <h4>Context</h4>
+    <p>Mobile needs gap-free reconnect, offline snapshots, and multi-writer ordering. Mutable CRUD + in-memory pub/sub gives none of these.</p>
+    <h4>Decision</h4>
+    <p>Introduce an append-only <code>events</code> table with a global monotonic <code>sequence</code> <b>in front of</b> the existing tables. A <b>projector</b> derives <code>messages</code>/<code>sessions</code>/<code>chats</code> from events, so those tables keep their exact shape and every reader + the renderer stay essentially unchanged. <code>messages</code> effectively <b>becomes a projection</b>. Clients resume from a <code>sinceSequence</code> cursor.</p>
+    <h4>Alternatives</h4>
+    <p><b>Cursor-sync (rejected):</b> add a <code>sequence</code> column + change-feed to the CRUD tables without an event log. ~70% of the value for less churn, but keeps mutable truth — no clean replay, audit, or rebuild — and forces a bespoke mobile sync layer. Not worth it for a multi-year foundation.</p>
+    <h4>Consequences</h4>
+    <p>(+) Single source of truth; deterministic rebuild ("drop <code>messages</code>, replay from 0"); trivial resume; aligns with the turn/checkpoint model. (−) Upfront refactor of <code>message-store.ts</code>; the discipline that <b>all writes go through events</b> (no in-place row mutation). Contained by keeping projections identical to today's tables and routing <b>only sessions/messages</b> through events in v1 (the queue stays CRUD — see R2).</p>
+  </div>
+
+  <div class="adr" id="d2">
+    <h3><span class="badge">D2</span> Persistence driver → <code>node:sqlite</code></h3>
+    <h4>Context</h4>
+    <p>The headless server must run off-laptop. Booting <code>bin.ts</code> surfaced two hard facts about the current driver (<code>@effect/sql-sqlite-node</code> = better-sqlite3, a native addon):</p>
+    <ul>
+      <li><b>Bun can't load it at all</b> — <code>better-sqlite3 is not yet supported in Bun</code>.</li>
+      <li><b>Native ABI is runtime-locked</b> — the Electron prebuild is <code>NODE_MODULE_VERSION 130</code>; plain system Node is 131 and rejects it. A headless/SSH/cloud server cannot reuse the Electron binding.</li>
+    </ul>
+    <h4>Decision</h4>
+    <p>Migrate persistence to Node's built-in <b><code>node:sqlite</code></b> (stable-unflagged from Node 22.13 / 23.4). No native addon → <b>no ABI split</b> → the same persistence code runs identically under Electron's Node and a headless Node. Its synchronous API is close to better-sqlite3, so the migration is mechanical. <b>Do it inside the event-sourcing PR</b> (D1) — both touch the persistence layer, so we edit <code>message-store.ts</code> and the migrator once.</p>
+    <h4>Alternatives</h4>
+    <p><b>Ship a Node-ABI better-sqlite3 binding for headless (fallback):</b> keep two code paths and two prebuilt bindings. Strictly worse; reserved only for the case below. <b><code>bun:sqlite</code></b>: would couple the headless runtime to Bun and diverge from Electron's Node — rejected.</p>
+    <h4>Consequences / prerequisite</h4>
+    <div class="box warn"><div class="t">Verify first</div><p style="margin:0">Confirm Electron 42's bundled Node exposes <code>node:sqlite</code> (it ships Node 22+, so it should). If it does not, fall back to the Node-ABI binding for headless and keep better-sqlite3 in Electron. <code>@effect/sql</code>'s <code>SqlClient</code> interface + template queries are driver-agnostic, so migrations and repositories carry over; the work is a thin <code>SqlClient</code> over <code>node:sqlite</code>.</p></div>
+  </div>
+
+  <div class="adr" id="d3">
+    <h3><span class="badge">D3</span> Environment abstraction (<code>providerKind</code>)</h3>
+    <h4>Decision</h4>
+    <p>Model "a host running the server" as an <b>environment</b> with <code>providerKind: "desktop" | "ssh" | "cloud"</code> and an endpoint <code>{ httpBaseUrl, wsBaseUrl }</code>. Carry it through the connect/link wire methods from day one (done in PR0).</p>
+    <h4>Consequences</h4>
+    <p>Cloud-hosted worktrees become a <b>provisioner bolt-on</b> rather than a rearchitecture (see <a href="#future-env">§2</a>). The four design rules (no laptop assumption; relay keys by <code>environmentId</code>; methods carry <code>providerKind</code>; worktree ops stay server-side RPC) are the only cost paid now.</p>
+  </div>
+
+  <div class="adr" id="d4">
+    <h3><span class="badge">D4</span> Cloud reach: WorkOS + thin relay + managed tunnel</h3>
+    <h4>Decision</h4>
+    <p>A <b>control-plane relay</b> links devices↔environments, issues short-lived connect tokens, and provisions a <b>Cloudflare managed tunnel</b> — then steps aside. Chat traffic is always <b>direct</b> client↔environment over WS; the relay is never in the data path. Identity reuses the existing <b>WorkOS</b> login (PKCE/keychain, <code>getAccessToken</code> seam), with a per-device <b>DPoP</b> proof-of-possession key. The environment proves control during linking by signing the relay's challenge with its local bearer token.</p>
+    <h4>Alternatives</h4>
+    <p>A new IdP (Clerk, etc.) — rejected; we already run WorkOS. Relaying chat data through the cloud — rejected (privacy, cost, latency, scaling).</p>
+    <h4>Consequences</h4>
+    <p>(+) Reach-anywhere with minimal trust surface; relay stays small and stateless-ish. (−) A new deployable + a new attack surface (mitigated: short-lived DPoP tokens, WorkOS-gated, no chat data — see R8).</p>
+  </div>
+
+  <div class="adr" id="d5">
+    <h3><span class="badge">D5</span> SSH remote dev-boxes: native <code>ssh</code> wrapper</h3>
+    <h4>Decision</h4>
+    <p>Wrap the <b>native <code>ssh</code> binary</b> (no <code>ssh2</code> library): <code>ssh -G</code> to resolve <code>~/.ssh/config</code>; <code>BatchMode=yes</code> key auth with an <code>SSH_ASKPASS</code> password fallback; <code>-N -L 127.0.0.1:local:127.0.0.1:remote</code> with <code>ServerAliveInterval</code>; Effect <code>Scope</code> finalizers for teardown. A remote launch script runs <code>zuse serve</code>, picks a port, probes readiness, and returns <code>{remotePort, serverKind}</code>.</p>
+    <h4>Consequences</h4>
+    <p>(+) Uses what users already have (keys, agents, config); no native crypto deps. (−) Shells out; must parse <code>ssh</code> output and handle password prompts carefully.</p>
+  </div>
+
+  <div class="adr" id="d6">
+    <h3><span class="badge">D6</span> WebSocket transport via <code>@effect/rpc</code> socket protocol <span class="pill done">landed</span></h3>
+    <h4>Decision</h4>
+    <p>Server: <code>RpcServer.layerProtocolSocketServer</code> over <code>NodeSocketServer.layerWebSocket</code>, JSON framing (matching the Electron path), <code>orDie</code>'d into <code>MainLayerDeps.serverProtocol</code>. Client: <code>RpcClient.layerProtocolSocket</code> over <code>Socket.layerWebSocket</code>. We do <b>not</b> hand-roll the protocol the way the Electron transport must — the framework gives per-connection <code>clientId</code> + automatic disconnect on socket close.</p>
+    <h4>Consequences</h4>
+    <p>The byte-for-byte same wire contract works across IPC and WS; multi-client fan-out comes for free (each socket is a distinct client). Headless <code>bin.ts</code> boots via <code>NodeRuntime.runMain</code>.</p>
+  </div>
+
+  <div class="adr" id="d7">
+    <h3><span class="badge">D7</span> Auth model: LAN bearer + cloud DPoP</h3>
+    <h4>Decision</h4>
+    <p>Two tiers. <b>LAN:</b> the environment mints a bearer token shown as a QR; a paired client sends it as <code>Authorization: Bearer</code> over WS. <b>Cloud:</b> the user authenticates to the relay with WorkOS; the device holds a DPoP keypair; linking binds device→environment by having the environment sign a relay challenge with its local bearer; thereafter the relay issues short-lived DPoP-bound connect tokens for the managed endpoint.</p>
+    <h4>Consequences</h4>
+    <p>No long-lived secrets on the device; revocation is per-device at the relay; the LAN path works with zero cloud dependency.</p>
+  </div>
+
+  <!-- ============================ CHANGES ============================ -->
+  <h2 id="changes">4 · What changes, concretely</h2>
+  <p>Change inventory by area. <span class="add">green = add</span>, <span class="del">red = change/replace</span>.</p>
+  <table>
+    <tr><th>Area</th><th>File(s)</th><th>Change</th><th>Track</th></tr>
+    <tr><td>Wire contract</td><td><code>packages/wire/src/session.ts</code>, <code>connect.ts</code>, <code>ids.ts</code></td><td><span class="add">+ <code>MessageEnvelope</code>, optional <code>sinceSequence</code>, <code>ProviderKind</code>/<code>EnvironmentDescriptor</code>/<code>connect.*</code>, <code>EnvironmentId</code></span>. <span class="del">PR-A2: flip <code>messages.stream</code> success → <code>MessageEnvelope</code></span></td><td>PR0 ✅ / A</td></tr>
+    <tr><td>SQLite driver</td><td><code>apps/server/src/persistence/sqlite.ts</code>, <code>db-path.ts</code></td><td><span class="del">replace better-sqlite3 <code>SqlClient</code> with a <code>node:sqlite</code>-backed one</span></td><td>A</td></tr>
+    <tr><td>Schema</td><td><code>persistence/migrations/0020_events.ts</code>, <code>migrations.ts</code></td><td><span class="add">+ <code>events</code> table, <code>messages.sequence</code> column, backfill</span></td><td>A</td></tr>
+    <tr><td>Write path</td><td><code>provider/layers/message-store.ts</code></td><td><span class="add">+ <code>appendEvent</code> / <code>projectEvent</code></span>; <span class="del"><code>persistMessage</code> routes through events; <code>streamMessages</code> becomes cursor-based; <code>broadcastMessage</code> publishes envelopes</span></td><td>A</td></tr>
+    <tr><td>Boot/projector</td><td><code>apps/server/src/runtime.ts</code></td><td><span class="add">+ <code>ProjectorCatchup</code> layer (between migrator and MessageStore)</span></td><td>A</td></tr>
+    <tr><td>Server transport</td><td><code>apps/server/src/transports/ws.ts</code></td><td><span class="add">+ <code>wsServerProtocolLayer</code></span> <span class="pill done">done</span></td><td>B</td></tr>
+    <tr><td>Headless boot</td><td><code>apps/server/src/bin.ts</code></td><td><span class="add">+ <code>runHeadlessServer</code> (file-backed AppPaths, no-op FolderPicker, WS)</span> <span class="pill done">done</span></td><td>B</td></tr>
+    <tr><td>Renderer transport</td><td><code>apps/renderer/src/lib/ws-client-protocol.ts</code>, <code>rpc-client.ts</code>, <code>package.json</code></td><td><span class="add">+ WS client layer; select WS vs IPC by <code>window.zuse</code>; add <code>@effect/platform</code></span></td><td>B</td></tr>
+    <tr><td>SSH</td><td><code>packages/ssh/**</code>, <code>apps/desktop/src/ssh/**</code></td><td><span class="add">+ native-ssh wrapper (command/auth/config/tunnel/errors), desktop environment service + IPC, remote launch script</span></td><td>G</td></tr>
+    <tr><td>Mobile</td><td><code>apps/mobile/**</code></td><td><span class="add">+ Expo app: WS RpcClient, QR pairing, secure-store catalog, snapshot cache, chat views, interact</span></td><td>F</td></tr>
+    <tr><td>Relay</td><td><code>infra/relay/**</code></td><td><span class="add">+ Cloudflare Worker control plane: link/connect/device/agent-activity endpoints, WorkOS + DPoP</span></td><td>D</td></tr>
+    <tr><td>Auth/pairing</td><td><code>apps/server</code> connect handlers, <code>credentials-service.ts</code></td><td><span class="add">+ register <code>connect.*</code>, bearer/QR pairing, device DPoP, WorkOS wiring</span></td><td>C</td></tr>
+  </table>
+
+  <!-- ============================ DEEP DIVE ============================ -->
+  <h2 id="deep">5 · Core design</h2>
+
+  <h3>5.1 Events table + projector</h3>
+  <pre><code>CREATE TABLE events (
+  sequence       INTEGER PRIMARY KEY AUTOINCREMENT,  -- global monotone cursor
+  event_id       TEXT NOT NULL UNIQUE,               -- UUID, idempotency
+  stream_kind    TEXT NOT NULL,                      -- 'session' | 'chat' | 'queue'
+  stream_id      TEXT NOT NULL,
+  stream_version INTEGER NOT NULL,                   -- per-stream 1..N (optimistic lock)
+  type           TEXT NOT NULL,                      -- 'MessagePersisted' | 'StatusChanged' ...
+  occurred_at    TEXT NOT NULL,
+  actor          TEXT,                               -- clientId / 'system'
+  payload_json   TEXT NOT NULL
+);
+CREATE INDEX        idx_events_stream         ON events(stream_kind, stream_id, sequence);
+CREATE UNIQUE INDEX idx_events_stream_version ON events(stream_kind, stream_id, stream_version);
+ALTER TABLE messages ADD COLUMN sequence INTEGER;     -- messages becomes a projection
+-- backfill: one synthetic MessagePersisted per existing row in (created_at, rowid) order,
+-- stamping the assigned sequence onto both the event and messages.sequence.</code></pre>
+  <p><code>appendEvent</code> inserts the event and projects <b>in the same transaction</b>, retrying on the unique-version conflict; <code>persistMessage</code> keeps its signature and returns the assigned sequence:</p>
+  <pre><code>const appendEvent = (p) =&gt; sql.withTransaction(Effect.gen(function* () {
+  const v = (yield* sql`SELECT MAX(stream_version) AS v FROM events
+                        WHERE stream_kind=${p.streamKind} AND stream_id=${p.streamId}`)[0]?.v ?? 0;
+  const [{ sequence }] = yield* sql`INSERT INTO events (...) VALUES (..., ${v + 1}, ...)
+                                    RETURNING sequence`;
+  yield* projectEvent({ sequence, ...p });   // for MessagePersisted = today's messages INSERT
+  return { sequence };
+})).pipe(Effect.retry({ while: isStreamVersionConflict, times: 5 }), Effect.orDie);</code></pre>
+  <p>A boot-time <code>ProjectorCatchup</code> layer replays events past <code>max(messages.sequence)</code>, giving deterministic rebuild for free. v1 routes <b>only</b> <code>MessagePersisted</code> through events; lifecycle UPDATEs (status/cursor) may stay inline and migrate later. The queue stays CRUD (R2).</p>
+
+  <h3>5.2 Cursor streaming &amp; the reconnect protocol</h3>
+  <p>The wire already has <code>MessageEnvelope { sequence, message }</code> and optional <code>sinceSequence</code> (PR0). The new stream subscribes <i>before</i> reading, replays only the delta, and live-tails past the last replayed sequence — no <code>seen</code> Set, O(1) memory:</p>
+  <pre><code>const streamMessages = (sessionId, sinceSequence) =&gt; Stream.unwrapScoped(Effect.gen(function* () {
+  const since   = sinceSequence ?? 0;
+  const dequeue = yield* (yield* getOrMakePubsub(sessionId)).subscribe;  // subscribe FIRST
+  const rows    = yield* sql`SELECT ... FROM messages
+                             WHERE session_id=${sessionId} AND sequence &gt; ${since}
+                             ORDER BY sequence ASC`;
+  const replay  = rows.map(r =&gt; MessageEnvelope.make({ sequence: r.sequence, message: fromRow(r) }));
+  const last    = rows.at(-1)?.sequence ?? since;
+  const live    = Stream.fromQueue(dequeue).pipe(Stream.filter(e =&gt; e.sequence &gt; last));
+  return Stream.concat(Stream.fromIterable(replay), live);
+}));</code></pre>
+  <div class="diagram"><pre>client            environment
+  │  stream(session, sinceSequence=42)   │
+  │ ───────────────────────────────────► │  SELECT WHERE sequence &gt; 42
+  │ ◄─── env{43}, env{44}, … (replay) ─── │
+  │ ◄─── env{45} live … (tail) ────────── │  broadcast AFTER commit
+  ✗  (network drops at 47)                │
+  │  stream(session, sinceSequence=47)    │  ← resume: only the delta, gap-free
+  │ ───────────────────────────────────► │</pre></div>
+  <p>The renderer records the highest <code>sequence</code> per session and passes it back on resubscribe. <code>broadcastMessage</code> publishes the envelope <b>after</b> commit — a subscriber must never observe an event that later rolls back; the cursor resume closes any crash-between-commit-and-publish gap.</p>
+
+  <h3>5.3 WebSocket transport (landed)</h3>
+  <div class="grid2">
+    <pre><code>// apps/server/src/transports/ws.ts
+export const wsServerProtocolLayer = (o) =&gt;
+  RpcServer.layerProtocolSocketServer.pipe(
+    Layer.provide(NodeSocketServer
+      .layerWebSocket({ port: o.port,
+        host: o.host ?? "127.0.0.1" })),
+    Layer.provide(RpcSerialization.layerJson),
+    Layer.orDie);</code></pre>
+    <pre><code>// renderer (todo)
+export const wsClientProtocolLayer = (url) =&gt;
+  RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(Socket.layerWebSocket(url)),
+    Layer.provide(Socket
+      .layerWebSocketConstructorGlobal),
+    Layer.provide(RpcSerialization.layerJson));</code></pre>
+  </div>
+  <p><code>bin.ts</code> builds host deps without Electron — <code>userData</code> from <code>ZUSE_USER_DATA</code>/<code>$XDG_DATA_HOME</code>, a no-op <code>FolderPicker</code>, the WS transport — and boots via <code>NodeRuntime.runMain</code>, guarded so importing stays side-effect free.</p>
+
+  <h3>5.4 Cloud link / connect protocol</h3>
+  <div class="diagram"><pre>device (WorkOS JWT + DPoP)        relay                       environment (local bearer)
+   │  POST link-challenge ───────►  │                                  │
+   │  ◄──────── challenge ───────── │                                  │
+   │  connect.linkProof(challenge) ──────────────────────────────────► │  sign w/ local bearer
+   │  ◄──────────────────────────────────────────── proof ─────────── │
+   │  POST environment-links {proof, deviceId} ►  │  verify, mint creds │
+   │  ◄── {environmentId, managedEndpoint, environmentCredential} ──── │
+   │  connect.relayConfig(creds) ────────────────────────────────────► │  persist for reuse
+   │  POST /environments/{id}/connect ►  │  short-lived DPoP token       │
+   │  ◄──────────── token + wsBaseUrl ─ │                                │
+   │  WS connect (DPoP token) ═══════════════════════════════════════► │  DIRECT data path</pre></div>
+
+  <h3>5.5 SSH launch &amp; tunnel lifecycle</h3>
+  <p><code>ssh -G host</code> resolves config → <code>ssh user@host sh -s -- &lt;stateKey&gt;</code> pipes a launch script that picks a free port, detects Node, runs <code>zuse serve</code> on <code>127.0.0.1:&lt;port&gt;</code> under <code>~/.zuse</code>, probes HTTP readiness, prints <code>{remotePort, serverKind}</code> → the desktop opens <code>-N -L 127.0.0.1:&lt;local&gt;:127.0.0.1:&lt;remote&gt;</code> and hands the renderer <code>ws://127.0.0.1:&lt;local&gt;/rpc</code>. An Effect <code>Scope</code> finalizer tears down the forward (SIGTERM→SIGKILL) and stops the remote server on disconnect.</p>
+
+  <h3>5.6 Mobile: offline &amp; reconcile</h3>
+  <p>The Expo client imports <code>MemoizeRpcs</code> from <code>@zuse/wire</code> directly (the contract is transport-agnostic — no type duplication). It caches shell/thread snapshots as JSON in <code>expo-file-system</code> and the connection catalog (host + bearer, keyed by <code>environmentId</code>) in <code>expo-secure-store</code>. On launch it renders the snapshot instantly, then opens the stream with the snapshot's highest <code>sequence</code> as <code>sinceSequence</code> and reconciles the delta.</p>
+
+  <!-- ============================ DATA MODEL ============================ -->
+  <h2 id="datamodel">6 · Data model reference</h2>
+  <p>After D1/D2 the write model is event-sourced; the read model is the same tables, now projections. The <code>events</code> table is the only truth; everything else is rebuildable.</p>
+  <table>
+    <tr><th>Table</th><th>Role after the change</th><th>Written by</th></tr>
+    <tr><td><code>events</code></td><td><b>Source of truth</b> — append-only, global <code>sequence</code></td><td><code>appendEvent</code> (transactional)</td></tr>
+    <tr><td><code>messages</code></td><td>Projection (+ <code>sequence</code> column); same shape as today</td><td><code>projectEvent</code></td></tr>
+    <tr><td><code>sessions</code>, <code>chats</code></td><td>Projections for sidebar/metadata</td><td><code>projectEvent</code> (+ inline lifecycle UPDATEs in v1)</td></tr>
+    <tr><td><code>queued_messages</code></td><td>Unchanged CRUD (explicitly not event-sourced in v1 — R2)</td><td>queue service</td></tr>
+    <tr><td><code>worktrees</code>, <code>projects</code>, <code>permissions</code>, …</td><td>Unchanged</td><td>respective services</td></tr>
+    <tr><td><code>projection_state</code> (optional)</td><td>Projector high-water mark for catch-up</td><td><code>ProjectorCatchup</code></td></tr>
+  </table>
+
+  <!-- ============================ EXEC ============================ -->
+  <h2 id="exec">7 · Execution &amp; parallelism</h2>
+  <div class="diagram"><pre>PR0 wire-contract ✅ ── enables everything
+   ├──► A  sync-core (event sourcing + node:sqlite)     ── persistence track
+   ├──► B  ws-transport (server ✅) ─► B-renderer (WS client)
+   │         └──► G  ssh (uses bin.ts ✅)
+   │         └──► F  mobile (LAN/bearer) ─► C auth ─► D relay ─► E tunnel ─► H push
+   └──► D  relay (standalone, stub env until C)</pre></div>
+  <p>Five tracks run concurrently in their own worktrees. Boundaries (the "don't touch" list per track) keep diffs disjoint; ready-to-paste agent prompts live in <a href="./parallel-handoffs.md"><code>parallel-handoffs.md</code></a>.</p>
+  <table>
+    <tr><th>Lane</th><th>Track</th><th>Branch</th><th>Conflict surface</th></tr>
+    <tr><td>1</td><td><b>A</b> event sourcing + node:sqlite</td><td><code>remote-multiclient-event-sourcing</code></td><td><code>persistence/*</code>, <code>message-store.ts</code>, <code>wire/session.ts</code></td></tr>
+    <tr><td>2</td><td><b>B-renderer</b> WS client</td><td><code>remote-multiclient-ws-client</code></td><td><code>renderer/lib/rpc-client.ts</code> (+ new), renderer <code>package.json</code></td></tr>
+    <tr><td>3</td><td><b>F</b> mobile scaffold</td><td><code>remote-multiclient-mobile</code></td><td><code>apps/mobile/**</code> (disjoint)</td></tr>
+    <tr><td>4</td><td><b>G</b> SSH</td><td><code>remote-multiclient-ssh</code></td><td><code>packages/ssh/**</code>, <code>apps/desktop/src/ssh/**</code></td></tr>
+    <tr><td>5</td><td><b>D</b> relay</td><td><code>remote-multiclient-relay</code></td><td><code>infra/relay/**</code> (disjoint)</td></tr>
+  </table>
+  <h4>PR breakdown</h4>
+  <table>
+    <tr><th>PR</th><th>Title</th><th>Status</th></tr>
+    <tr><td>PR0</td><td>wire contract (<code>MessageEnvelope</code>, <code>sinceSequence</code>, <code>providerKind</code>/<code>connect.*</code>)</td><td><span class="pill done">landed</span></td></tr>
+    <tr><td>PR-B-server</td><td>WS transport + headless <code>bin.ts</code></td><td><span class="pill done">landed</span></td></tr>
+    <tr><td>PR-A1</td><td><code>node:sqlite</code> migration + <code>events</code> + projector</td><td><span class="pill done">landed</span></td></tr>
+    <tr><td>PR-A2</td><td>cursor streaming (<code>sinceSequence</code>, envelope, renderer cursor)</td><td><span class="pill done">landed</span></td></tr>
+    <tr><td>PR-B-renderer</td><td>browser/renderer WS client + transport selection</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-G</td><td>SSH package + desktop env + remote launch</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-C</td><td>auth/pairing (bearer + QR, device DPoP, WorkOS)</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-F1 / F2</td><td>mobile scaffold / interact</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-D / PR-E</td><td>relay / managed tunnel</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-H</td><td>push + Live Activities</td><td><span class="pill todo">todo</span></td></tr>
+    <tr><td>PR-I</td><td>cloud-environment provisioner</td><td><span class="pill defer">deferred</span></td></tr>
+  </table>
+  <p><b>Merge order:</b> A lands the <code>wire</code> flip first, then rebase B-renderer. F, G, D touch disjoint trees and merge in any order. C → E → H serialize after their deps.</p>
+
+  <!-- ============================ RISKS ============================ -->
+  <h2 id="risks">8 · Risks &amp; mitigations</h2>
+  <table>
+    <tr><th>#</th><th>Risk</th><th>Mitigation</th></tr>
+    <tr><td>R1</td><td>Partial-streaming assistant rows could break append-only if a driver mutates a row in place.</td><td>Drivers emit deltas as discrete full rows (<code>eventToContent</code>) today; forbid in-place mutation (use a <code>MessageSuperseded</code> event if ever needed). Audit callers.</td></tr>
+    <tr><td>R2</td><td><code>queued_messages</code> uses lazy DDL outside the migrator — races a transactional projector.</td><td>Keep queue as CRUD in v1; fold its DDL into a real migration; don't route it through events.</td></tr>
+    <tr><td>R3</td><td>Multi-client concurrent appends collide on <code>stream_version</code>.</td><td><code>appendEvent</code> bounded-retries recomputing <code>MAX+1</code>; the unique index enforces order.</td></tr>
+    <tr><td>R4</td><td>Existing rows have no originating event.</td><td>Backfill in the events migration, <code>(created_at, rowid)</code> order, before any client connects (migrator runs upstream of MessageStore).</td></tr>
+    <tr><td>R5</td><td>Event committed but broadcast lost on crash.</td><td>Append+project in one txn; broadcast <b>after</b> commit; <code>sinceSequence</code> resume reads the committed row.</td></tr>
+    <tr><td>R6</td><td><code>messages.stream</code> success type flip is a typed flag-day.</td><td>Single repo, ~1 consumer; grep before landing PR-A2.</td></tr>
+    <tr><td>R7</td><td>Electron's bundled Node may predate <code>node:sqlite</code>.</td><td>Verify first (D2 prerequisite); documented better-sqlite3 Node-ABI fallback for headless.</td></tr>
+    <tr><td>R8</td><td>Relay is a new attack surface.</td><td>Short-lived DPoP tokens, WorkOS-gated, no chat data in path; pen-test before exposing.</td></tr>
+  </table>
+
+  <!-- ============================ VERIFY ============================ -->
+  <h2 id="verify">9 · Verification &amp; rollout</h2>
+  <ul>
+    <li><b>A</b> — <code>appendEvent</code> ordering + unique-violation retry tests; property test "replay from 0 reproduces the <code>messages</code> projection"; reconnect test (stream → drop → resubscribe <code>sinceSequence</code> → zero gaps/dupes), in-memory sqlite. Electron app still streams a chat end-to-end.</li>
+    <li><b>B</b> — boot <code>zuse serve</code>, point the renderer at <code>ws://127.0.0.1:&lt;port&gt;/rpc</code>, run a chat; confirm IPC path unaffected.</li>
+    <li><b>G</b> — <code>ssh -G</code> resolve a fixture host; launch + tunnel + drive a chat on a real box; kill tunnel → assert Scope teardown.</li>
+    <li><b>F</b> — Expo on LAN, QR-pair, view a live chat, send + approve; airplane-mode → snapshot renders → reconnect reconciles.</li>
+    <li><b>D/E</b> — link a stub environment, fetch a connect token, reach the desktop through the tunnel from cellular; assert no chat bytes traverse the relay.</li>
+    <li><b>H</b> — trigger an approval; assert APNs delivery + Live Activity update.</li>
+    <li>Gate every PR: <code>turbo build lint check-types test</code>.</li>
+  </ul>
+  <p><b>Rollout:</b> the Electron in-process path is the control throughout — every PR keeps it green. WS, SSH, mobile, and cloud light up additively behind their own entry points, so partial progress never regresses the shipping desktop app.</p>
+
+  <!-- ============================ FUTURE ============================ -->
+  <h2 id="future-scope">10 · Future / explicitly out of scope (v1)</h2>
+  <table>
+    <tr><th>Item</th><th>Why deferred</th></tr>
+    <tr><td><b>Cloud-environment provisioner</b> (PR-I)</td><td>Rides entirely on the headless server + relay + <code>providerKind</code> seam; build when cloud worktrees are prioritized. Host pick (Fly / Firecracker / containers), persistent volume, git auth, idle suspend/resume decided then.</td></tr>
+    <tr><td><b>CLI client</b></td><td>Same WS wire client as mobile/browser; trivial once the WS client exists.</td></tr>
+    <tr><td><b>Multi-window desktop</b></td><td>The Electron transport is single-window today; WS multi-client makes this straightforward later.</td></tr>
+    <tr><td><b>Lifecycle events through the log</b></td><td>v1 routes only <code>MessagePersisted</code>; status/cursor stay inline and migrate to events when convenient.</td></tr>
+    <tr><td><b>Relay-mediated folder prompts</b></td><td>Headless FolderPicker returns null in v1; forwarding the prompt to a connected client is a later refinement.</td></tr>
+  </table>
+
+  <!-- ============================ GLOSSARY ============================ -->
+  <h2 id="glossary">Glossary</h2>
+  <table>
+    <tr><td><b>Environment</b></td><td>A host running <code>@zuse/server</code>; has a <code>providerKind</code> + endpoint.</td></tr>
+    <tr><td><b>Projection</b></td><td>A read-optimized table derived deterministically from the event log.</td></tr>
+    <tr><td><b><code>sequence</code></b></td><td>Global monotonic cursor (events PK); the unit of resume.</td></tr>
+    <tr><td><b><code>stream_version</code></b></td><td>Per-stream counter; the optimistic-concurrency guard for multi-writer ordering.</td></tr>
+    <tr><td><b>DPoP</b></td><td>Demonstrating Proof-of-Possession — binds a token to a device-held key.</td></tr>
+    <tr><td><b>Relay</b></td><td>Control-plane service for linking + token issuance; never in the data path.</td></tr>
+    <tr><td><b>Managed tunnel</b></td><td>Cloudflare Tunnel that exposes the environment's WS endpoint for reach-anywhere.</td></tr>
+  </table>
+
+  <!-- ============================ PROGRESS ============================ -->
+  <h2 id="progress">Progress log</h2>
+  <table>
+    <tr><th>Date</th><th>Commit</th><th>What</th></tr>
+    <tr><td>2026-06-30</td><td><code>9f46554</code></td><td><b>PR0 wire contract.</b> <code>MessageEnvelope</code>, optional <code>sinceSequence</code>, <code>ProviderKind</code>/<code>EnvironmentDescriptor</code>/<code>connect.*</code> in <code>connect.ts</code>, <code>EnvironmentId</code>. Behavior-neutral; whole-repo <code>check-types</code> passes.</td></tr>
+    <tr><td>2026-06-30</td><td><code>1a2db6f</code></td><td><b>PR-B server.</b> <code>transports/ws.ts</code> (<code>wsServerProtocolLayer</code>) + headless <code>bin.ts</code> (<code>runHeadlessServer</code>). Live boot verified: full layer graph + WS protocol construct and reach DB init. Surfaced the <code>node:sqlite</code> decision (D2) from the native-ABI failure.</td></tr>
+    <tr><td>2026-06-30</td><td><code>c9225f5</code></td><td><b>Spec.</b> README + parallel handoffs + this document.</td></tr>
+    <tr><td>2026-07-03</td><td><code>de167bc</code></td><td><b>PR-A1 driver.</b> Persistence driver → <code>node:sqlite</code> (new <code>node-sqlite-client.ts</code>; generic <code>@effect/sql</code> Migrator; Effect-style <code>db-path.ts</code>). D2 gate verified live: Electron 42.1.0 bundles Node 24.15.0 with <code>node:sqlite</code>. Headless <code>zuse serve</code> now boots past DB init on system Node (previously died on the better-sqlite3 ABI); WS <code>/rpc</code> answers.</td></tr>
+    <tr><td>2026-07-03</td><td><code>a7ea02b</code>+<code>de39c46</code></td><td><b>PR-A1 events.</b> Migration <code>0020_events</code> (backfill in <code>(created_at, rowid)</code> order), transactional <code>appendEvent</code>/<code>projectEvent</code> with bounded <code>stream_version</code> retry, boot-time <code>ProjectorCatchup</code>, lazy queue DDL removed. <b>Spec deviation:</b> the projector watermark lives in <code>app_state</code>, not <code>max(messages.sequence)</code> — cascade deletes (deleteChat/deleteSession) would otherwise resurrect deleted history on boot (regression-tested).</td></tr>
+    <tr><td>2026-07-03</td><td><code>54b8f27</code></td><td><b>PR-A2 cursor streaming.</b> <code>messages.stream</code> flips to <code>MessageEnvelope</code>; <code>streamMessages(sessionId, sinceSequence)</code> subscribe-first + <code>lastReplayed</code> filter (no seen-Set); both renderer consumers (messages store + sidebar status store — the spec said one) track per-session cursors and resume via <code>sinceSequence</code>. Reconnect / live-tail / two-session-isolation tests green.</td></tr>
+    <tr><td>2026-07-03</td><td><code>77fe84f</code></td><td><b>R7 fired: runtime driver fallback.</b> The shipping desktop Electron (33, Node 20.18) predates <code>node:sqlite</code> — the D2 gate had been probed against the repo-root Electron 42, not the desktop binary. <code>sqlite.ts</code> now selects the driver at runtime (lazy imports, branch-loaded bundle chunks): <code>node:sqlite</code> on headless/Electron ≥35, better-sqlite3 on the current desktop. Verified live on both paths. Fallback deletes when desktop Electron upgrades to ≥35.</td></tr>
+  </table>
+
+  <p class="foot">Zuse — Remote &amp; Multi-Client · source of truth: <code>specs/remote-multiclient/</code> · the external repository studied for prior art is deliberately unnamed here and in all committed artifacts.</p>
+</main>
+</div>
+</body>
+</html>

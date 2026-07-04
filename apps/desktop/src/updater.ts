@@ -1,5 +1,9 @@
 import { ipcMain, type BrowserWindow } from "electron";
-import { autoUpdater, type ProgressInfo, type UpdateInfo } from "electron-updater";
+import {
+  autoUpdater,
+  type ProgressInfo,
+  type UpdateInfo,
+} from "electron-updater";
 
 import {
   UPDATE_CHECK_CHANNEL,
@@ -7,7 +11,7 @@ import {
   UPDATE_INSTALL_CHANNEL,
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 // electron-updater talks to the GitHub Releases feed configured in
 // apps/desktop/electron-builder.yml (`publish.provider: github`). It reads
@@ -52,9 +56,9 @@ function armStallTimer(): void {
     if (lastStatus.kind !== "downloading") return;
     if (!stallRetried) {
       stallRetried = true;
-      console.warn("[memoize:updater] download stalled — retrying once");
+      console.warn("[zuse:updater] download stalled — retrying once");
       autoUpdater.downloadUpdate().catch((err) => {
-        console.error("[memoize:updater] stall retry failed", err);
+        console.error("[zuse:updater] stall retry failed", err);
         emit({
           kind: "error",
           message: "Download stalled. Check your connection and try again.",
@@ -77,7 +81,7 @@ function emit(status: UpdateStatus): void {
     try {
       listener(status);
     } catch (err) {
-      console.error("[memoize:updater] listener threw", err);
+      console.error("[zuse:updater] listener threw", err);
     }
   }
 }
@@ -122,9 +126,9 @@ export function startAutoUpdater(window: BrowserWindow): void {
   started = true;
 
   autoUpdater.logger = {
-    info: (msg: unknown) => console.log("[memoize:updater]", msg),
-    warn: (msg: unknown) => console.warn("[memoize:updater]", msg),
-    error: (msg: unknown) => console.error("[memoize:updater]", msg),
+    info: (msg: unknown) => console.log("[zuse:updater]", msg),
+    warn: (msg: unknown) => console.warn("[zuse:updater]", msg),
+    error: (msg: unknown) => console.error("[zuse:updater]", msg),
     debug: () => {},
   } as unknown as typeof autoUpdater.logger;
 
@@ -171,12 +175,12 @@ export function startAutoUpdater(window: BrowserWindow): void {
 
   ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
     await autoUpdater.checkForUpdates().catch((err) => {
-      console.error("[memoize:updater] check failed", err);
+      console.error("[zuse:updater] check failed", err);
     });
   });
   ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, async () => {
     await autoUpdater.downloadUpdate().catch((err) => {
-      console.error("[memoize:updater] download failed", err);
+      console.error("[zuse:updater] download failed", err);
     });
   });
   ipcMain.handle(UPDATE_INSTALL_CHANNEL, () => {
@@ -187,7 +191,7 @@ export function startAutoUpdater(window: BrowserWindow): void {
 
   const check = () => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.error("[memoize:updater] check failed", err);
+      console.error("[zuse:updater] check failed", err);
     });
   };
   check();
@@ -196,12 +200,12 @@ export function startAutoUpdater(window: BrowserWindow): void {
 
 /**
  * Imperative entrypoints for the native menu. These bypass the renderer-bound
- * IPC bridge (`window.memoize.updates.*`) because menu clicks run in main —
+ * IPC bridge (`window.zuse.updates.*`) because menu clicks run in main —
  * routing through IPC would just bounce back to the same `autoUpdater` calls.
  */
 export function triggerUpdateCheck(): void {
   autoUpdater.checkForUpdates().catch((err) => {
-    console.error("[memoize:updater] check failed", err);
+    console.error("[zuse:updater] check failed", err);
   });
 }
 
@@ -209,7 +213,7 @@ export function triggerUpdateDownload(): void {
   // Reset the stall retry budget so a manual retry gets a fresh chance.
   stallRetried = false;
   autoUpdater.downloadUpdate().catch((err) => {
-    console.error("[memoize:updater] download failed", err);
+    console.error("[zuse:updater] download failed", err);
   });
 }
 
@@ -219,8 +223,8 @@ export function triggerUpdateInstall(): void {
 
 /**
  * Dev-only IPC bridge for previewing the update banner without cutting a real
- * release. `window.__memoizeUpdateDemo.set(status)` in the renderer round-trips
- * through `memoize:update-demo-set`, which re-broadcasts on the same channel
+ * release. `window.__zuseUpdateDemo.set(status)` in the renderer round-trips
+ * through `zuse:update-demo-set`, which re-broadcasts on the same channel
  * the real updater uses — so the banner sees indistinguishable payloads.
  *
  * Call from `main.ts` only when `isDevelopment`. No-op in packaged builds.
@@ -228,13 +232,10 @@ export function triggerUpdateInstall(): void {
 export function registerUpdaterDemo(window: BrowserWindow): void {
   // Plumb the renderer so demo-pushed statuses reach the banner.
   attachRenderer(window);
-  ipcMain.handle(
-    "memoize:update-demo-set",
-    (_event, status: UpdateStatus) => {
-      if (window.isDestroyed()) return;
-      // Push through `emit` so the menu listener and any other subscribers
-      // see demo events the same way they'd see real ones.
-      emit(status);
-    },
-  );
+  ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
+    if (window.isDestroyed()) return;
+    // Push through `emit` so the menu listener and any other subscribers
+    // see demo events the same way they'd see real ones.
+    emit(status);
+  });
 }
