@@ -48,7 +48,7 @@ const callParent = async (
 };
 
 const server = new Server(
-  { name: "zuse", version: "0.0.1" },
+  { name: "zuse-browser", version: "0.0.1" },
   { capabilities: { tools: {} } },
 );
 

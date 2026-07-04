@@ -622,7 +622,7 @@ export const startBrowserMcpBridge = async (
 
   return {
     serverConfig: {
-      name: "zuse",
+      name: "zuse-browser",
       command,
       args: [childPath],
       env: [
@@ -634,13 +634,7 @@ export const startBrowserMcpBridge = async (
       ],
     },
     projectConfigToml: [
-      `[mcp_servers.zuse]`,
-      `command = ${JSON.stringify(command)}`,
-      `args = ${argsToml}`,
-      `env = { ${envToml} }`,
-      `enabled = true`,
-      ``,
-      `[mcp_servers."cursor-ide-browser"]`,
+      `[mcp_servers."zuse-browser"]`,
       `command = ${JSON.stringify(command)}`,
       `args = ${argsToml}`,
       `env = { ${envToml} }`,

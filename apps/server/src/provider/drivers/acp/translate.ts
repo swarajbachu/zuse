@@ -110,6 +110,12 @@ const toNiceToolLabel = (raw: string): string => {
  */
 const normalizeAcpKind = (rawKind: string): string => {
   const k = rawKind.toLowerCase();
+  if (k.startsWith("zuse-browser__browser_")) {
+    return `mcp__zuse__${k.slice("zuse-browser__".length)}`;
+  }
+  if (k.startsWith("mcp__zuse-browser__browser_")) {
+    return `mcp__zuse__${k.slice("mcp__zuse-browser__".length)}`;
+  }
   switch (k) {
     case "browser_navigate":
     case "browser_screenshot":
