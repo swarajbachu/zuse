@@ -32,6 +32,7 @@ import {
   type ProviderId,
   QueueState,
   QueuedMessage,
+  type ResumeStrategy,
   type RuntimeMode,
   Session,
   SessionId,
@@ -1397,6 +1398,9 @@ export const MessageStoreLive = Layer.scoped(
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
         const background = input.background === true;
+        const resumeCursor = input.resumeCursor ?? null;
+        const resumeStrategy: ResumeStrategy =
+          resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -1412,13 +1416,13 @@ export const MessageStoreLive = Layer.scoped(
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, runtime_mode,
                agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, created_at, updated_at)
+               tool_search, cursor, resume_strategy, created_at, updated_at)
             VALUES
               (${sessionId}, ${projectId}, ${title}, ${input.providerId},
                ${input.model}, ${rowStatus}, ${initialRuntimeMode},
                ${agentsJson}, ${worktreeId}, ${input.chatId},
                ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${nowIso}, ${nowIso})
+               ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
           `.pipe(Effect.orDie);
           yield* sql`
             UPDATE chats
@@ -1452,7 +1456,7 @@ export const MessageStoreLive = Layer.scoped(
                   permissionMode: initialPermissionMode,
                   toolSearch: initialToolSearch,
                 },
-                null,
+                resumeCursor,
                 newSessionRuntimeMode,
               )
               .pipe(
@@ -1490,8 +1494,8 @@ export const MessageStoreLive = Layer.scoped(
             model: input.model,
             status: "booting",
             archivedAt: null,
-            cursor: null,
-            resumeStrategy: "none",
+            cursor: resumeCursor,
+            resumeStrategy,
             runtimeMode: initialRuntimeMode,
             worktreeId,
             chatId: input.chatId,
@@ -1523,7 +1527,7 @@ export const MessageStoreLive = Layer.scoped(
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
             },
-            null,
+            resumeCursor,
             newSessionRuntimeMode,
           )
           .pipe(
@@ -1543,13 +1547,13 @@ export const MessageStoreLive = Layer.scoped(
           INSERT INTO sessions
             (id, project_id, title, provider_id, model, status, runtime_mode,
              agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, created_at, updated_at)
+             tool_search, cursor, resume_strategy, created_at, updated_at)
           VALUES
             (${sessionId}, ${projectId}, ${title}, ${input.providerId},
              ${input.model}, ${rowStatus}, ${initialRuntimeMode},
              ${agentsJson}, ${worktreeId}, ${input.chatId},
              ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${nowIso}, ${nowIso})
+             ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
         yield* sql`
           UPDATE chats
@@ -1572,8 +1576,8 @@ export const MessageStoreLive = Layer.scoped(
           model: input.model,
           status: postBootStatus,
           archivedAt: null,
-          cursor: null,
-          resumeStrategy: "none",
+          cursor: resumeCursor,
+          resumeStrategy,
           runtimeMode: initialRuntimeMode,
           worktreeId,
           chatId: input.chatId,
@@ -1897,6 +1901,8 @@ export const MessageStoreLive = Layer.scoped(
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
           toolSearch: input.toolSearch,
+          resumeCursor: input.resumeCursor,
+          resumeStrategy: input.resumeStrategy,
         }).pipe(
           Effect.tapError(() =>
             // Roll back the chat row if the provider failed to boot —
@@ -1943,6 +1949,32 @@ export const MessageStoreLive = Layer.scoped(
         }
         return { chat, initialSession, initialMessage };
       });
+
+    const continueExternalThread: MessageStoreShape["continueExternalThread"] =
+      (input) =>
+        Effect.gen(function* () {
+          const result = yield* createChat({
+            ...input,
+            resumeCursor: input.resumeCursor,
+            resumeStrategy: input.resumeStrategy,
+          });
+          return {
+            chat: result.chat,
+            initialSession: result.initialSession,
+          };
+        });
+
+    const importExternalMessages: MessageStoreShape["importExternalMessages"] =
+      (sessionId, messages) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          const imported: Message[] = [];
+          for (const content of messages) {
+            const persisted = yield* persistMessage(sessionId, content);
+            imported.push(persisted.message);
+          }
+          return imported;
+        });
 
     const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
       Effect.gen(function* () {
@@ -3257,6 +3289,8 @@ export const MessageStoreLive = Layer.scoped(
       listChats,
       getChat,
       createChat,
+      continueExternalThread,
+      importExternalMessages,
       renameChat,
       markChatRead,
       streamChatChanges,

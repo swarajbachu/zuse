@@ -185,8 +185,7 @@ export const selectCliPathCandidate = (
   // managed binary.
   return (
     candidates.find(
-      (candidate) =>
-        !isManagedCodexShimPath(normalizeCommandPath(candidate)),
+      (candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
     ) ?? null
   );
 };
@@ -437,8 +436,10 @@ const isHomebrewPath = (p: string): boolean =>
   p.startsWith("/usr/local/bin/");
 
 const isManagedCodexShimPath = (p: string): boolean =>
-  p.endsWith("/application support/com.conductor.app/bin/codex") ||
-  (p.includes("/application support/com.conductor.app/agent-binaries/codex/") &&
+  p.endsWith("/application support/app.memoize.desktop/bin/codex") ||
+  (p.includes(
+    "/application support/app.memoize.desktop/agent-binaries/codex/",
+  ) &&
     p.endsWith("/codex"));
 
 // A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's

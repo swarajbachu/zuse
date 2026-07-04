@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
     "dev:desktop": "node scripts/dev.mjs",
+    "kill-port": "node scripts/kill-port.mjs",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",

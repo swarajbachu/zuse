@@ -12,6 +12,7 @@ import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts
 import { IndexRegistryLive } from "./code-index/layers/index-registry.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
@@ -263,6 +264,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
+  const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+    Layer.provide(WorkspaceLayer),
+    Layer.provide(WorktreeLayer),
+    Layer.provide(MessageStoreLayer),
+    Layer.provide(MigratedSqlite),
+    Layer.provide(NodeContext.layer),
+  );
+
   // SkillBridge surfaces the user's per-provider skill library to the
   // composer's slash popover. Discovery walks disk; the bridge caches per
   // (provider, projectCwd) and re-emits on watcher fire so editing a
@@ -317,6 +326,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     SkillBridgeLayer,
     IndexLayer,
     DiagnosticsLayer,
+    ExternalThreadLayer,
     FolderPickerLayer,
   );
 

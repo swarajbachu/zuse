@@ -48,6 +48,10 @@ import {
   FsWriteExternalFileRpc,
   FsWriteFileRpc,
 } from "./fs.ts";
+import {
+  ExternalThreadsContinueRpc,
+  ExternalThreadsListRpc,
+} from "./external-thread.ts";
 import { DiagnosticsExportRpc } from "./diagnostics.ts";
 import {
   GitBranchesRpc,
@@ -196,6 +200,8 @@ export const MemoizeRpcs = RpcGroup.make(
   WorkspaceCreateProjectRpc,
   WorkspaceListGithubReposRpc,
   WorkspaceGhAuthStatusRpc,
+  ExternalThreadsListRpc,
+  ExternalThreadsContinueRpc,
   PtyOpenRpc,
   PtyWriteRpc,
   PtyResizeRpc,
