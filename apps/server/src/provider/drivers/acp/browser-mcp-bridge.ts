@@ -555,6 +555,7 @@ export interface BrowserMcpBridge {
       readonly value: string;
     }>;
   };
+  readonly projectConfigToml: string;
   readonly close: () => Promise<void>;
 }
 
@@ -613,6 +614,8 @@ export const startBrowserMcpBridge = async (
   const command = basename(opts.command).includes("bun")
     ? opts.command
     : process.execPath;
+  const envToml = `ZUSE_BROWSER_MCP_URL = "http://127.0.0.1:${address.port}", ZUSE_BROWSER_MCP_TOKEN = "${token}"`;
+  const argsToml = JSON.stringify([childPath]);
   console.info(
     `[grok.browser-mcp] listening on 127.0.0.1:${address.port}; command=${command}; child=${childPath}`,
   );
@@ -630,6 +633,20 @@ export const startBrowserMcpBridge = async (
         { name: "ZUSE_BROWSER_MCP_TOKEN", value: token },
       ],
     },
+    projectConfigToml: [
+      `[mcp_servers.zuse]`,
+      `command = ${JSON.stringify(command)}`,
+      `args = ${argsToml}`,
+      `env = { ${envToml} }`,
+      `enabled = true`,
+      ``,
+      `[mcp_servers."cursor-ide-browser"]`,
+      `command = ${JSON.stringify(command)}`,
+      `args = ${argsToml}`,
+      `env = { ${envToml} }`,
+      `enabled = true`,
+      ``,
+    ].join("\n"),
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

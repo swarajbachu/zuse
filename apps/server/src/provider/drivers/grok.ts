@@ -1,5 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import * as readline from "node:readline";
 import { Effect, Mailbox, Stream } from "effect";
@@ -100,6 +107,53 @@ type PendingResolver = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
+};
+
+const BROWSER_MCP_CONFIG_START =
+  "# >>> zuse-generated-browser-mcp: do not edit";
+const BROWSER_MCP_CONFIG_END = "# <<< zuse-generated-browser-mcp";
+
+const stripGeneratedBrowserMcpConfig = (value: string): string =>
+  value
+    .replace(
+      new RegExp(
+        `\\n?${BROWSER_MCP_CONFIG_START}[\\s\\S]*?${BROWSER_MCP_CONFIG_END}\\n?`,
+        "g",
+      ),
+      "\n",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
+
+const installProjectBrowserMcpConfig = (
+  cwd: string,
+  toml: string,
+): (() => void) => {
+  const grokDir = join(cwd, ".grok");
+  const configPath = join(grokDir, "config.toml");
+  const previous = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const userConfig = stripGeneratedBrowserMcpConfig(previous);
+  const next = `${userConfig.length > 0 ? `${userConfig}\n\n` : ""}${BROWSER_MCP_CONFIG_START}\n${toml.trimEnd()}\n${BROWSER_MCP_CONFIG_END}\n`;
+
+  mkdirSync(grokDir, { recursive: true });
+  writeFileSync(configPath, next, "utf8");
+  console.info(`[grok.browser-mcp] wrote project MCP config ${configPath}`);
+
+  return () => {
+    try {
+      if (userConfig.length > 0) {
+        writeFileSync(configPath, `${userConfig}\n`, "utf8");
+      } else {
+        rmSync(configPath, { force: true });
+      }
+    } catch (cause) {
+      console.warn(
+        `[grok.browser-mcp] could not restore project MCP config ${configPath}: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
+  };
 };
 
 /**
@@ -326,6 +380,10 @@ export const startGrokSession = (
           }`,
         }),
     });
+    const restoreProjectBrowserMcpConfig = installProjectBrowserMcpConfig(
+      cwd,
+      browserMcpBridge.projectConfigToml,
+    );
 
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
@@ -378,7 +436,7 @@ export const startGrokSession = (
      *  returned promise rejects and the caller decides whether to surface
      *  the error or just bubble it. */
     const connectChild = async (): Promise<string> => {
-      child = spawn(grokPath, ["agent", "stdio"], {
+      child = spawn(grokPath, ["--trust", "agent", "stdio"], {
         cwd,
         env: {
           ...process.env,
@@ -860,6 +918,7 @@ export const startGrokSession = (
           } catch {
             // ignore — child may not be alive
           }
+          restoreProjectBrowserMcpConfig();
           void browserMcpBridge.close();
         }),
       ),
@@ -1092,6 +1151,7 @@ export const startGrokSession = (
           }
           child.kill("SIGTERM");
           rl.close();
+          restoreProjectBrowserMcpConfig();
           yield* Effect.promise(() => browserMcpBridge.close());
           yield* events.end;
         }),
