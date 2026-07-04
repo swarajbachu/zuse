@@ -1,0 +1,17 @@
+{
+  "extends": ["@repo/typescript-config/base.json", "expo/tsconfig.base"],
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "~/*": ["src/*"]
+    }
+  },
+  "include": ["app", "src", "*.js"],
+  "exclude": ["src/**/*.test.ts"]
+}

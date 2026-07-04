@@ -6,6 +6,7 @@ export * from "./code-index.ts";
 export * from "./composer.ts";
 export * from "./connect.ts";
 export * from "./diagnostics.ts";
+export * from "./external-thread.ts";
 export * from "./fs.ts";
 export * from "./git.ts";
 export * from "./ids.ts";

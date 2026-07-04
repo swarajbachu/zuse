@@ -10,6 +10,7 @@ import {
   protocol,
   shell,
   webContents as webContentsModule,
+  type WebContents,
 } from "electron";
 import { Effect, Fiber, Layer } from "effect";
 import fixPath from "fix-path";
@@ -687,11 +688,47 @@ function createMainWindow() {
   // Track which webContentsIds we've attached to so registerWebview is
   // idempotent (the renderer fires it on every `dom-ready`, including reloads).
   const attachedWebContents = new Set<number>();
+  // Event taps (debugger message listener + webContents listeners) survive a
+  // debugger detach/re-attach cycle, so they install once per webContents —
+  // re-installing on every crash-recovery attach would double every buffered
+  // page error and unload-allow.
+  const tappedWebContents = new Set<number>();
+
+  // Per-webview observability buffers, fed by CDP events below. Network keeps
+  // insertion order (Map) so "recent requests" reads oldest→newest; both are
+  // cleared on every main-frame load start so the agent's `browser_network` /
+  // `browser_console` reads describe the current page, mirroring the
+  // renderer's own console ring buffer.
+  type NetworkEntry = {
+    id: string;
+    method: string;
+    url: string;
+    resourceType?: string;
+    status?: number;
+    mimeType?: string;
+    responseHeaders?: Record<string, string>;
+    failed?: string;
+  };
+  const NETWORK_LOG_CAP = 300;
+  const PAGE_ERROR_CAP = 100;
+  const browserNetworkLog = new Map<number, Map<string, NetworkEntry>>();
+  const browserPageErrors = new Map<number, string[]>();
+  const browserPendingDialog = new Map<
+    number,
+    { type: string; message: string; defaultPrompt?: string }
+  >();
+
+  const dropBrowserBuffers = (id: number): void => {
+    browserNetworkLog.delete(id);
+    browserPageErrors.delete(id);
+    browserPendingDialog.delete(id);
+  };
 
   const detachDebugger = (id: number): void => {
     const wc = webContentsModule.fromId(id);
     if (wc === undefined || wc.isDestroyed()) {
       attachedWebContents.delete(id);
+      dropBrowserBuffers(id);
       return;
     }
     try {
@@ -700,6 +737,121 @@ function createMainWindow() {
       // Detach failures are non-fatal — the webContents may be tearing down.
     }
     attachedWebContents.delete(id);
+    dropBrowserBuffers(id);
+  };
+
+  /**
+   * Route CDP events into the per-webview buffers. Registered once per
+   * attach; Electron drops the listener with the webContents.
+   */
+  const installCdpEventTaps = (id: number, wc: WebContents): void => {
+    wc.debugger.on("message", (_event, method, rawParams) => {
+      const params = (rawParams ?? {}) as Record<string, any>;
+      switch (method) {
+        case "Network.requestWillBeSent": {
+          const log =
+            browserNetworkLog.get(id) ??
+            browserNetworkLog.set(id, new Map()).get(id)!;
+          log.set(String(params.requestId), {
+            id: String(params.requestId),
+            method: String(params.request?.method ?? "GET"),
+            url: String(params.request?.url ?? ""),
+            resourceType:
+              typeof params.type === "string" ? params.type : undefined,
+          });
+          if (log.size > NETWORK_LOG_CAP) {
+            const oldest = log.keys().next().value;
+            if (oldest !== undefined) log.delete(oldest);
+          }
+          return;
+        }
+        case "Network.responseReceived": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry === undefined) return;
+          entry.status = Number(params.response?.status ?? 0);
+          entry.mimeType =
+            typeof params.response?.mimeType === "string"
+              ? params.response.mimeType
+              : undefined;
+          const headers = params.response?.headers;
+          if (headers !== null && typeof headers === "object") {
+            entry.responseHeaders = headers as Record<string, string>;
+          }
+          return;
+        }
+        case "Network.loadingFailed": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry !== undefined) {
+            entry.failed = String(params.errorText ?? "failed");
+          }
+          return;
+        }
+        case "Runtime.exceptionThrown": {
+          const details = params.exceptionDetails as
+            | Record<string, any>
+            | undefined;
+          const description =
+            details?.exception?.description ??
+            details?.text ??
+            "Uncaught exception";
+          const where =
+            typeof details?.url === "string" && details.url.length > 0
+              ? ` (${details.url}:${details.lineNumber ?? 0})`
+              : "";
+          const errors = browserPageErrors.get(id) ?? [];
+          errors.push(
+            `[uncaught] ${String(description).slice(0, 500)}${where}`,
+          );
+          if (errors.length > PAGE_ERROR_CAP) {
+            errors.splice(0, errors.length - PAGE_ERROR_CAP);
+          }
+          browserPageErrors.set(id, errors);
+          return;
+        }
+        case "Page.javascriptDialogOpening": {
+          browserPendingDialog.set(id, {
+            type: String(params.type ?? "alert"),
+            message: String(params.message ?? ""),
+            defaultPrompt:
+              typeof params.defaultPrompt === "string"
+                ? params.defaultPrompt
+                : undefined,
+          });
+          return;
+        }
+        case "Page.javascriptDialogClosed": {
+          browserPendingDialog.delete(id);
+          return;
+        }
+        default:
+          return;
+      }
+    });
+  };
+
+  /**
+   * Turn on the CDP domains the v2 tools read from. Best-effort per domain —
+   * a domain that fails to enable (older Chromium, experimental surface)
+   * degrades that one capability, not the whole browser.
+   */
+  const enableCdpDomains = async (wc: WebContents): Promise<void> => {
+    for (const method of [
+      "Network.enable",
+      "Runtime.enable",
+      "Page.enable",
+      "DOM.enable",
+      "Accessibility.enable",
+    ]) {
+      try {
+        await wc.debugger.sendCommand(method);
+      } catch (err) {
+        console.error(`[zuse] CDP ${method} failed`, err);
+      }
+    }
   };
 
   ipcMain.handle("browser:registerWebview", async (_event, rawId: unknown) => {
@@ -711,15 +863,35 @@ function createMainWindow() {
       // Protocol 1.3 is the stable baseline that ships with every modern
       // Chromium; older revisions don't accept `Input.dispatchMouseEvent`
       // payload fields we rely on (`pointerType`, `tangentialPressure`).
+      // Experimental domains (Accessibility) still work — the attached
+      // debugger speaks the running Chromium's full protocol.
       wc.debugger.attach("1.3");
       attachedWebContents.add(rawId);
-      // Auto-cleanup when the webContents goes away (window close, webview
-      // teardown, full crash). Without this, a `Another debugger is already
-      // attached` error fires on the next register-after-reload.
-      wc.once("destroyed", () => {
-        attachedWebContents.delete(rawId);
-      });
-      wc.on("render-process-gone", () => detachDebugger(rawId));
+      if (!tappedWebContents.has(rawId)) {
+        tappedWebContents.add(rawId);
+        installCdpEventTaps(rawId, wc);
+        // Fresh page → the previous page's requests/errors are stale.
+        wc.on("did-start-loading", () => {
+          browserNetworkLog.get(rawId)?.clear();
+          browserPageErrors.get(rawId)?.splice(0);
+        });
+        // A page's beforeunload handler must not wedge agent navigation — the
+        // user watched the agent ask for the navigation, so always let it
+        // proceed (this is what a user clicking "Leave" would do).
+        wc.on("will-prevent-unload", (event) => {
+          event.preventDefault();
+        });
+        // Auto-cleanup when the webContents goes away (window close, webview
+        // teardown, full crash). Without this, a `Another debugger is already
+        // attached` error fires on the next register-after-reload.
+        wc.once("destroyed", () => {
+          attachedWebContents.delete(rawId);
+          tappedWebContents.delete(rawId);
+          dropBrowserBuffers(rawId);
+        });
+        wc.on("render-process-gone", () => detachDebugger(rawId));
+      }
+      await enableCdpDomains(wc);
       return true;
     } catch (err) {
       // The only expected failure here is "already attached by DevTools" —
@@ -727,6 +899,122 @@ function createMainWindow() {
       console.error("[zuse] failed to attach CDP debugger", err);
       return false;
     }
+  });
+
+  /**
+   * Allowlisted CDP passthrough for the agent-browser renderer. The renderer
+   * already holds `executeJavaScript` on the same webview, so this grants no
+   * new page-level power — the list just keeps the seam from becoming a
+   * generic protocol proxy (no Target.*, no Browser.*, no Input.* — input
+   * stays on the dedicated `browser:dispatchInput` path).
+   */
+  const CDP_ALLOWED_METHODS = new Set([
+    "Accessibility.getFullAXTree",
+    "DOM.getDocument",
+    "DOM.scrollIntoViewIfNeeded",
+    "DOM.getContentQuads",
+    "DOM.resolveNode",
+    "Runtime.callFunctionOn",
+    "Page.captureScreenshot",
+    "Page.handleJavaScriptDialog",
+  ]);
+
+  ipcMain.handle(
+    "browser:cdpCommand",
+    async (_event, rawId: unknown, rawMethod: unknown, rawParams: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) {
+        return { ok: false as const, error: "bad webContents id" };
+      }
+      if (
+        typeof rawMethod !== "string" ||
+        !CDP_ALLOWED_METHODS.has(rawMethod)
+      ) {
+        return {
+          ok: false as const,
+          error: `method not allowed: ${String(rawMethod)}`,
+        };
+      }
+      const wc = webContentsModule.fromId(rawId);
+      if (wc === undefined || wc.isDestroyed() || !wc.debugger.isAttached()) {
+        return { ok: false as const, error: "debugger not attached" };
+      }
+      try {
+        const result = await wc.debugger.sendCommand(
+          rawMethod,
+          rawParams !== null && typeof rawParams === "object"
+            ? (rawParams as Record<string, unknown>)
+            : {},
+        );
+        // Dialog resolution isn't always reported back via
+        // javascriptDialogClosed on every Chromium; clear eagerly.
+        if (rawMethod === "Page.handleJavaScriptDialog") {
+          browserPendingDialog.delete(rawId);
+        }
+        return { ok: true as const, result };
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "browser:getNetwork",
+    async (_event, rawId: unknown, rawQuery: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+      const log = browserNetworkLog.get(rawId);
+      if (log === undefined) return { requests: [] };
+      const query = (rawQuery ?? {}) as { filter?: unknown; id?: unknown };
+      if (typeof query.id === "string" && query.id.length > 0) {
+        const entry = log.get(query.id);
+        if (entry === undefined) return null;
+        // Body comes straight from the CDP buffer; truncated so one XHR
+        // can't blow up the agent's context.
+        let body: string | undefined;
+        let bodyBase64 = false;
+        const wc = webContentsModule.fromId(rawId);
+        if (wc !== undefined && !wc.isDestroyed() && wc.debugger.isAttached()) {
+          try {
+            const res = (await wc.debugger.sendCommand(
+              "Network.getResponseBody",
+              { requestId: entry.id },
+            )) as { body?: string; base64Encoded?: boolean };
+            bodyBase64 = res.base64Encoded === true;
+            body =
+              typeof res.body === "string"
+                ? res.body.slice(0, 4000)
+                : undefined;
+          } catch {
+            // Body may be gone (evicted, streamed, or a non-buffered type) —
+            // detail without a body is still useful.
+          }
+        }
+        return { detail: { ...entry, body, bodyBase64 } };
+      }
+      const filter =
+        typeof query.filter === "string" && query.filter.length > 0
+          ? query.filter.toLowerCase()
+          : null;
+      const requests = [...log.values()]
+        .filter(
+          (entry) =>
+            filter === null || entry.url.toLowerCase().includes(filter),
+        )
+        .map(({ responseHeaders: _headers, ...summary }) => summary);
+      return { requests };
+    },
+  );
+
+  ipcMain.handle("browser:getPageErrors", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return [];
+    return [...(browserPageErrors.get(rawId) ?? [])];
+  });
+
+  ipcMain.handle("browser:getDialogState", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+    return browserPendingDialog.get(rawId) ?? null;
   });
 
   ipcMain.handle(

@@ -68,13 +68,15 @@ const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
  */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
+let providerStartCursors: Array<string | null> = [];
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
-  start: (input) =>
+  start: (input, resumeCursor) =>
     Effect.sync(() => {
       providerStartInputs.push(input);
+      providerStartCursors.push(resumeCursor);
       return {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
@@ -288,6 +290,7 @@ const store = MessageStore;
 
 beforeEach(() => {
   providerStartInputs = [];
+  providerStartCursors = [];
 });
 
 describe("MessageStore migrations", () => {
@@ -405,6 +408,33 @@ describe("MessageStore — chat & session lifecycle", () => {
       expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(providerStartInputs.at(-1)?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+    });
+  });
+
+  it("creates an external continued thread with a persisted resume cursor and no initial message", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.continueExternalThread({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            title: "Existing Claude thread",
+            resumeCursor: "claude-session-123",
+            resumeStrategy: "claude-session-id",
+          }),
+        ),
+      );
+
+      expect(result.chat.title).toBe("Existing Claude thread");
+      expect(result.initialSession.cursor).toBe("claude-session-123");
+      expect(result.initialSession.resumeStrategy).toBe("claude-session-id");
+      expect(providerStartCursors.at(-1)).toBe("claude-session-123");
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(result.initialSession.id)),
+      );
+      expect(messages).toEqual([]);
     });
   });
 
