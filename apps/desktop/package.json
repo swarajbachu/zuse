@@ -20,6 +20,7 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "tsdown",
     "check-types": "tsc --noEmit",
+    "test": "bun test",
     "postinstall": "electron-rebuild -f -o node-pty,keytar,better-sqlite3",
     "icon": "node scripts/make-icon.mjs",
     "dist:mac": "electron-builder --mac --universal",

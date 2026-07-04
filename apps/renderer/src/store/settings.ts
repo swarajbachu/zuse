@@ -87,6 +87,8 @@ const fallbackSnapshot = (): SettingsSlice => ({
   modelEnabledByProvider: seedModelEnabledByProvider(),
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
+  notchTrayEnabled: false,
+  notchTrayPinned: false,
 });
 
 const sliceFromFile = (file: SettingsFile): SettingsSlice => {
@@ -115,6 +117,8 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
+    notchTrayEnabled: file.notchTrayEnabled,
+    notchTrayPinned: file.notchTrayPinned,
   };
 };
 
@@ -131,6 +135,8 @@ interface SettingsSlice {
   readonly modelEnabledByProvider: ModelEnabledByProvider;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
+  readonly notchTrayEnabled: boolean;
+  readonly notchTrayPinned: boolean;
 }
 
 type SettingsState = SettingsSlice & {
@@ -163,6 +169,8 @@ type SettingsState = SettingsSlice & {
   ) => void;
   readonly setBranchNamingStyle: (style: BranchNamingStyle) => void;
   readonly setBranchNamingPrefix: (prefix: string) => void;
+  readonly setNotchTrayEnabled: (value: boolean) => void;
+  readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
 let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
@@ -362,6 +370,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { branchNamingPrefix: prefix } }),
+      );
+    })();
+  },
+  setNotchTrayEnabled: (value) => {
+    set({ notchTrayEnabled: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayEnabled: value } }),
+      );
+    })();
+  },
+  setNotchTrayPinned: (value) => {
+    set({ notchTrayPinned: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayPinned: value } }),
       );
     })();
   },

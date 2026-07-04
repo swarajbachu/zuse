@@ -125,6 +125,49 @@ export interface BrowserBridge {
   ) => Promise<boolean>;
 }
 
+export type NotchTrayItemState =
+  | "running"
+  | "completed"
+  | "failed"
+  | "planReady"
+  | "question"
+  | "permission";
+
+export interface NotchTrayItem {
+  readonly id: string;
+  readonly chatId: string;
+  readonly sessionId: string;
+  readonly title: string;
+  readonly subtitle: string;
+  readonly state: NotchTrayItemState;
+  readonly label: string;
+  readonly updatedAt: number;
+}
+
+export interface NotchDisplaySupport {
+  readonly supported: boolean;
+  readonly reason: "supported" | "not-macos" | "no-notched-display";
+}
+
+export interface NotchBridge {
+  readonly setItems: (items: ReadonlyArray<NotchTrayItem>) => void;
+  readonly setEnabled: (enabled: boolean) => void;
+  readonly setPinned: (pinned: boolean) => void;
+  readonly setExpanded?: (expanded: boolean) => void;
+  readonly openChat: (chatId: string, sessionId: string) => void;
+  readonly getDisplaySupport?: () => Promise<NotchDisplaySupport>;
+  readonly onDisplaySupportChanged?: (
+    handler: (support: NotchDisplaySupport) => void,
+  ) => () => void;
+  readonly onItems?: (
+    handler: (items: ReadonlyArray<NotchTrayItem>) => void,
+  ) => () => void;
+  readonly onPinned?: (handler: (pinned: boolean) => void) => () => void;
+  readonly onOpenChat?: (
+    handler: (target: { chatId: string; sessionId: string }) => void,
+  ) => () => void;
+}
+
 export interface ZuseBridge {
   readonly rpc: RpcBridge;
   readonly window?: WindowBridge;
@@ -132,6 +175,7 @@ export interface ZuseBridge {
   readonly app?: AppBridge;
   readonly updates?: UpdatesBridge;
   readonly browser?: BrowserBridge;
+  readonly notch?: NotchBridge;
 }
 
 declare global {

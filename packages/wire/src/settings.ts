@@ -102,6 +102,14 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * Empty falls back to a bare slug.
    */
   branchNamingPrefix: Schema.String,
+  /**
+   * macOS-only notch tray. The main process only shows it on likely notched
+   * MacBook built-in displays; unsupported hardware keeps the preference but
+   * renders nothing.
+   */
+  notchTrayEnabled: Schema.Boolean,
+  /** Keep the notch tray expanded instead of only expanding on hover. */
+  notchTrayPinned: Schema.Boolean,
 }) {}
 
 /**
@@ -141,6 +149,8 @@ export const SettingsPatch = Schema.Struct({
   ),
   branchNamingStyle: Schema.optional(BranchNamingStyle),
   branchNamingPrefix: Schema.optional(Schema.String),
+  notchTrayEnabled: Schema.optional(Schema.Boolean),
+  notchTrayPinned: Schema.optional(Schema.Boolean),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 

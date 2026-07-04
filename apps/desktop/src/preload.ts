@@ -68,6 +68,74 @@ const bridge = {
         action,
       ) as Promise<boolean>,
   },
+  notch: {
+    setItems: (items: unknown) => {
+      ipcRenderer.send("notch:setItems", items);
+    },
+    setEnabled: (enabled: boolean) => {
+      ipcRenderer.send("notch:setEnabled", enabled);
+    },
+    setPinned: (pinned: boolean) => {
+      ipcRenderer.send("notch:setPinned", pinned);
+    },
+    setExpanded: (expanded: boolean) => {
+      ipcRenderer.send("notch:setExpanded", expanded);
+    },
+    openChat: (chatId: string, sessionId: string) => {
+      ipcRenderer.send("notch:openChat", chatId, sessionId);
+    },
+    getDisplaySupport: () =>
+      ipcRenderer.invoke("notch:getDisplaySupport") as Promise<{
+        readonly supported: boolean;
+        readonly reason: "supported" | "not-macos" | "no-notched-display";
+      }>,
+    onDisplaySupportChanged: (
+      handler: (support: {
+        readonly supported: boolean;
+        readonly reason: "supported" | "not-macos" | "no-notched-display";
+      }) => void,
+    ) => {
+      const wrapped = (
+        _event: IpcRendererEvent,
+        support: {
+          readonly supported: boolean;
+          readonly reason: "supported" | "not-macos" | "no-notched-display";
+        },
+      ) => handler(support);
+      ipcRenderer.on("notch:display-support", wrapped);
+      return () => {
+        ipcRenderer.off("notch:display-support", wrapped);
+      };
+    },
+    onItems: (handler: (items: unknown) => void) => {
+      const wrapped = (_event: IpcRendererEvent, items: unknown) =>
+        handler(items);
+      ipcRenderer.on("notch:items", wrapped);
+      return () => {
+        ipcRenderer.off("notch:items", wrapped);
+      };
+    },
+    onPinned: (handler: (pinned: boolean) => void) => {
+      const wrapped = (_event: IpcRendererEvent, pinned: boolean) =>
+        handler(pinned);
+      ipcRenderer.on("notch:pinned", wrapped);
+      return () => {
+        ipcRenderer.off("notch:pinned", wrapped);
+      };
+    },
+    onOpenChat: (
+      handler: (target: { chatId: string; sessionId: string }) => void,
+    ) => {
+      const wrapped = (
+        _event: IpcRendererEvent,
+        target: { chatId: string; sessionId: string },
+      ) => handler(target);
+      ipcRenderer.on("notch:openChat", wrapped);
+      return () => {
+        ipcRenderer.off("notch:openChat", wrapped);
+      };
+    },
+  },
   app: {
     openExternal: (url: string) => {
       ipcRenderer.send("app:openExternal", url);

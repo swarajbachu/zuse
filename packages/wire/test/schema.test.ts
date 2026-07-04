@@ -425,6 +425,8 @@ describe("SettingsFile round-trip", () => {
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
+      notchTrayEnabled: true,
+      notchTrayPinned: false,
     });
   });
 
@@ -459,6 +461,8 @@ describe("SettingsFile round-trip", () => {
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });
@@ -494,6 +498,8 @@ describe("SettingsFile round-trip", () => {
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });

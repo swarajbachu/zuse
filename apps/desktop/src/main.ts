@@ -48,6 +48,10 @@ import {
   registerUpdaterDemo,
   startAutoUpdater,
 } from "./updater.ts";
+import {
+  NotchTrayController,
+  type NotchTrayItem,
+} from "./notch-tray-controller.ts";
 
 /**
  * Privileged scheme registration. Must run before `app.whenReady()` —
@@ -220,6 +224,12 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 
 let mainWindow: BrowserWindow | null = null;
 let runtimeFiber: Fiber.RuntimeFiber<void, never> | null = null;
+let notchTray: NotchTrayController | null = null;
+
+const rendererDistDir = (): string =>
+  app.isPackaged
+    ? Path.join(process.resourcesPath, "app", "renderer", "dist")
+    : Path.resolve(__dirname, "..", "..", "renderer", "dist");
 
 // Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
@@ -944,15 +954,7 @@ function createMainWindow() {
     // packaged bundle the renderer is shipped via `extraResources` to
     // <app>/Contents/Resources/app/renderer/dist (see
     // apps/desktop/electron-builder.yml).
-    const rendererIndex = app.isPackaged
-      ? Path.join(
-          process.resourcesPath,
-          "app",
-          "renderer",
-          "dist",
-          "index.html",
-        )
-      : Path.resolve(__dirname, "..", "..", "renderer", "dist", "index.html");
+    const rendererIndex = Path.join(rendererDistDir(), "index.html");
     void mainWindow.loadFile(rendererIndex);
   }
 
@@ -1114,6 +1116,86 @@ ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
   installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 });
 
+const isNotchItemState = (value: unknown): value is NotchTrayItem["state"] =>
+  value === "running" ||
+  value === "completed" ||
+  value === "failed" ||
+  value === "planReady" ||
+  value === "question" ||
+  value === "permission";
+
+const sanitizeNotchItems = (raw: unknown): ReadonlyArray<NotchTrayItem> => {
+  if (!Array.isArray(raw)) return [];
+  const out: NotchTrayItem[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    if (
+      typeof obj.id !== "string" ||
+      typeof obj.chatId !== "string" ||
+      typeof obj.sessionId !== "string" ||
+      typeof obj.title !== "string" ||
+      typeof obj.subtitle !== "string" ||
+      typeof obj.label !== "string" ||
+      typeof obj.updatedAt !== "number" ||
+      !isNotchItemState(obj.state)
+    ) {
+      continue;
+    }
+    out.push({
+      id: obj.id,
+      chatId: obj.chatId,
+      sessionId: obj.sessionId,
+      title: obj.title.slice(0, 160),
+      subtitle: obj.subtitle.slice(0, 180),
+      state: obj.state,
+      label: obj.label.slice(0, 80),
+      updatedAt: obj.updatedAt,
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+};
+
+ipcMain.on("notch:setItems", (_event, payload: unknown) => {
+  notchTray?.setItems(sanitizeNotchItems(payload));
+});
+
+ipcMain.on("notch:setEnabled", (_event, value: unknown) => {
+  notchTray?.setEnabled(value === true);
+});
+
+ipcMain.on("notch:setPinned", (_event, value: unknown) => {
+  notchTray?.setPinned(value === true);
+});
+
+ipcMain.on("notch:setExpanded", (_event, value: unknown) => {
+  notchTray?.setHovered(value === true);
+});
+
+ipcMain.on(
+  "notch:openChat",
+  (_event, rawChatId: unknown, rawSessionId: unknown) => {
+    if (typeof rawChatId !== "string" || typeof rawSessionId !== "string")
+      return;
+    focusMainWindow();
+    mainWindow?.webContents.send("notch:openChat", {
+      chatId: rawChatId,
+      sessionId: rawSessionId,
+    });
+  },
+);
+
+ipcMain.handle(
+  "notch:getDisplaySupport",
+  () =>
+    notchTray?.getSupport() ?? {
+      supported: false,
+      reason:
+        process.platform === "darwin" ? "no-notched-display" : "not-macos",
+    },
+);
+
 void app.whenReady().then(() => {
   // Non-primary instance is on its way out (lost the single-instance lock) —
   // don't build a window or boot the runtime.
@@ -1128,6 +1210,11 @@ void app.whenReady().then(() => {
   if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
   registerZuseProtocol();
+  notchTray = new NotchTrayController({
+    preloadPath: Path.join(__dirname, "preload.cjs"),
+    devServerUrl: DEV_SERVER_URL,
+    packagedRendererDir: rendererDistDir(),
+  });
 
   // Populate the native About panel so "About Zuse" shows the current
   // version + copyright. Without this, Electron's default panel only shows
@@ -1163,7 +1250,7 @@ void app.whenReady().then(() => {
   }
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow === null) {
       createMainWindow();
     }
   });
@@ -1173,4 +1260,9 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  notchTray?.destroy();
+  notchTray = null;
 });

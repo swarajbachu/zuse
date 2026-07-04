@@ -81,6 +81,8 @@ const freshSettings = (): SettingsFile =>
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
+    notchTrayEnabled: false,
+    notchTrayPinned: false,
   });
 
 const freshKeybindings = (): KeybindingsFile =>
@@ -243,6 +245,16 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.branchNamingPrefix
       : base.branchNamingPrefix;
 
+  const notchTrayEnabled =
+    typeof obj.notchTrayEnabled === "boolean"
+      ? obj.notchTrayEnabled
+      : base.notchTrayEnabled;
+
+  const notchTrayPinned =
+    typeof obj.notchTrayPinned === "boolean"
+      ? obj.notchTrayPinned
+      : base.notchTrayPinned;
+
   return SettingsFile.make({
     schemaVersion: 1,
     defaultProviderId: provider,
@@ -258,6 +270,8 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
+    notchTrayEnabled,
+    notchTrayPinned,
   });
 };
 
@@ -509,6 +523,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
           branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
             patch.branchNamingPrefix ?? cur.branchNamingPrefix,
+          notchTrayEnabled: patch.notchTrayEnabled ?? cur.notchTrayEnabled,
+          notchTrayPinned: patch.notchTrayPinned ?? cur.notchTrayPinned,
         });
         const serialized = serialize(next);
         yield* writeAtomically(settingsPath, serialized);
@@ -627,6 +643,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,
+            notchTrayEnabled: cur.notchTrayEnabled,
+            notchTrayPinned: cur.notchTrayPinned,
           });
 
           const serialized = serialize(merged);
