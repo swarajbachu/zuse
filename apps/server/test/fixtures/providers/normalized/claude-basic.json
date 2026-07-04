@@ -1,0 +1,47 @@
+{
+  "fixtureVersion": 1,
+  "provider": "claude",
+  "translator": "normalized-events",
+  "scenario": "assistant, tool, cursor, and completion events",
+  "source": "sanitized captured normalized Claude AgentEvent stream",
+  "frames": [
+    {
+      "type": "sdk-message",
+      "note": "Claude driver translator is internal; this fixture records the sanitized normalized stream emitted by a live driver run."
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "Started",
+      "sessionId": "claude-fixture-session",
+      "providerId": "claude",
+      "mode": "sdk"
+    },
+    {
+      "_tag": "SessionCursor",
+      "cursor": "claude-session-fixture",
+      "strategy": "claude-session-id"
+    },
+    {
+      "_tag": "ToolUse",
+      "itemId": "claude-tool-1",
+      "tool": "Read",
+      "input": { "file_path": "/fixture/repo/README.md" }
+    },
+    {
+      "_tag": "ToolResult",
+      "itemId": "claude-tool-1",
+      "output": "# Fixture\n",
+      "isError": false
+    },
+    {
+      "_tag": "AssistantMessage",
+      "itemId": "claude-msg-1",
+      "text": "The fixture repo contains a README."
+    },
+    {
+      "_tag": "Completed",
+      "reason": "ended"
+    }
+  ]
+}

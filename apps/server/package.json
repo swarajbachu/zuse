@@ -19,7 +19,8 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:live-agents": "bun test ./test/live/agent-smoke.live.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.126",

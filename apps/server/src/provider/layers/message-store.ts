@@ -195,6 +195,21 @@ const permissionModeFromRow = (raw: string): PermissionMode =>
     ? (raw as PermissionMode)
     : DEFAULT_PERMISSION_MODE;
 
+const RESUME_STRATEGIES: ReadonlySet<Session["resumeStrategy"]> = new Set([
+  "none",
+  "claude-session-id",
+  "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
+]);
+
+const resumeStrategyFromRow = (raw: string): Session["resumeStrategy"] =>
+  RESUME_STRATEGIES.has(raw as Session["resumeStrategy"])
+    ? (raw as Session["resumeStrategy"])
+    : "none";
+
 interface MessageRow {
   readonly id: string;
   readonly session_id: string;
@@ -224,12 +239,7 @@ const sessionFromRow = (row: SessionRow): Session =>
     status: row.status as Session["status"],
     archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
     cursor: row.cursor,
-    resumeStrategy:
-      row.resume_strategy === "claude-session-id"
-        ? "claude-session-id"
-        : row.resume_strategy === "codex-thread-id"
-          ? "codex-thread-id"
-          : "none",
+    resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
     runtimeMode: runtimeModeFromRow(row.runtime_mode),
     worktreeId:
       row.worktree_id === null

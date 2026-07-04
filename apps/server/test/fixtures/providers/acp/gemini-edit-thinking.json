@@ -1,0 +1,48 @@
+{
+  "fixtureVersion": 1,
+  "provider": "gemini",
+  "translator": "acp",
+  "scenario": "thinking stream and edit diff normalization",
+  "source": "sanitized captured ACP session/update frames",
+  "frames": [
+    {
+      "sessionUpdate": "agent_thought_chunk",
+      "content": "Need to patch "
+    },
+    {
+      "sessionUpdate": "agent_thought_chunk",
+      "content": "the file."
+    },
+    {
+      "sessionUpdate": "tool_call",
+      "kind": "edit",
+      "toolCallId": "gemini-edit-1",
+      "content": [
+        {
+          "type": "diff",
+          "path": "/fixture/repo/src/app.ts",
+          "oldText": "old",
+          "newText": "new"
+        }
+      ]
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "Thinking",
+      "itemId": "i_acp_fixture_thinking",
+      "text": "Need to patch the file.",
+      "redacted": false
+    },
+    {
+      "_tag": "ToolUse",
+      "itemId": "gemini-edit-1",
+      "tool": "Edit",
+      "input": {
+        "file_path": "/fixture/repo/src/app.ts",
+        "old_string": "old",
+        "new_string": "new"
+      }
+    }
+  ]
+}

@@ -842,6 +842,13 @@ export const startCodexSession = (
       if (!closed) events.unsafeOffer(event);
     };
 
+    emit({
+      _tag: "Started",
+      sessionId,
+      providerId: "codex",
+      mode: "sdk",
+    });
+
     const app = yield* Effect.tryPromise({
       try: () =>
         CodexAppServerClient.start({

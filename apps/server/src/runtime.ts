@@ -64,7 +64,11 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
 export interface MainLayerDeps {
   readonly userData: string;
   readonly folderPicker: typeof FolderPicker.Service;
-  readonly serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>;
+  readonly serverProtocol: Layer.Layer<
+    RpcServer.Protocol,
+    never,
+    LanAuthService
+  >;
   readonly authShell: typeof AuthShell.Service;
   readonly lanAuth?: {
     readonly policy: LanAuthPolicy;
@@ -312,6 +316,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     AppPathsLayer,
     MigratedSqlite,
     NodeContext.layer,
+    LanAuthConfigLayer,
     // AuthLayer is fully self-contained (its keychain + shell deps are already
     // provided), merged in here to satisfy the auth.* handlers without adding
     // another `.pipe` step — the Handlers pipe is at its 20-arg overload cap.
