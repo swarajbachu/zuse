@@ -24,6 +24,7 @@ export type MenuCommand =
   | "new-chat"
   | "open-project"
   | "settings"
+  | "export-diagnostics"
   | "close-tab"
   | "toggle-left-sidebar"
   | "toggle-right-sidebar"
@@ -49,6 +50,7 @@ export const DEFAULT_MENU_ACCELERATORS: MenuAccelerators = {
   "new-chat": "CmdOrCtrl+N",
   "open-project": "CmdOrCtrl+O",
   settings: "CmdOrCtrl+,",
+  "export-diagnostics": null,
   "close-tab": "CmdOrCtrl+W",
   "toggle-left-sidebar": "CmdOrCtrl+B",
   "toggle-right-sidebar": "CmdOrCtrl+Alt+B",
@@ -58,16 +60,14 @@ export const DEFAULT_MENU_ACCELERATORS: MenuAccelerators = {
 
 const GITHUB_REPO_URL = "https://github.com/swarajbachu/zuse";
 const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
-const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new`;
+const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new?template=bug_report.yml`;
 
 /**
  * Shape of the "Check for Updates…" menu entry, derived from the current
  * updater status. Label + enabled + click target all flip together so the
  * menu is a complete fallback path even when the in-app toast is missing.
  */
-function buildUpdateMenuItem(
-  status: UpdateStatus,
-): MenuItemConstructorOptions {
+function buildUpdateMenuItem(status: UpdateStatus): MenuItemConstructorOptions {
   switch (status.kind) {
     case "checking":
       return { label: "Checking for Updates…", enabled: false };
@@ -127,13 +127,11 @@ export function installAppMenu(
   const isMac = process.platform === "darwin";
   const isDev = !app.isPackaged;
 
-  const sendAction =
-    (action: Exclude<MenuCommand, "close-tab">) =>
-    () => {
-      const win = getWindow();
-      if (win === null) return;
-      win.webContents.send("menu:action", action);
-    };
+  const sendAction = (action: Exclude<MenuCommand, "close-tab">) => () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.send("menu:action", action);
+  };
 
   const sendCloseTab = () => {
     const win = getWindow();
@@ -274,10 +272,14 @@ export function installAppMenu(
         },
       },
       {
-        label: "Report an Issue",
+        label: "Report a Bug",
         click: () => {
           void shell.openExternal(GITHUB_ISSUE_NEW_URL);
         },
+      },
+      {
+        label: "Export Diagnostics for Bug Report...",
+        click: sendAction("export-diagnostics"),
       },
       { type: "separator" },
       {

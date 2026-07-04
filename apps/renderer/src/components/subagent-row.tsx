@@ -1,4 +1,9 @@
-import { ArrowDown01Icon, ArrowRight01Icon, ClipboardIcon, Robot01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  ClipboardIcon,
+  Robot01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -12,6 +17,8 @@ import { MessageRow, type ToolResultRecord } from "./message-row.tsx";
 import { Spinner } from "./ui/spinner";
 
 const MODEL_LABEL: Record<string, string> = {
+  "claude-sonnet-5": "Sonnet 5",
+  "claude-fable-5": "Fable 5",
   "claude-opus-4-7": "Opus 4.7",
   "claude-sonnet-4-6": "Sonnet 4.6",
   "claude-haiku-4-5": "Haiku 4.5",
@@ -115,7 +122,10 @@ export function SubagentRow({
       >
         <div className="relative grid size-4 shrink-0 place-items-center">
           {showActivityLoader ? (
-            <Spinner className="size-3.5 text-muted-foreground" aria-label="Agent running" />
+            <Spinner
+              className="size-3.5 text-muted-foreground"
+              aria-label="Agent running"
+            />
           ) : (
             <HugeiconsIcon
               icon={Robot01Icon}

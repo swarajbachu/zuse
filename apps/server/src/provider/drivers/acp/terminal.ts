@@ -321,7 +321,7 @@ export async function handleTerminalRequest(
         return releaseTerminal(params);
 
       default:
-        throw new Error(`Method not implemented by memoize ACP client: ${method}`);
+        throw new Error(`Method not implemented by Zuse ACP client: ${method}`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

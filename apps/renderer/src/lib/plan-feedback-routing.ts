@@ -63,6 +63,7 @@ export const shouldSendPlanFeedbackNow = ({
       case "subagent_summary":
       case "usage":
       case "context_usage":
+      case "context_compaction":
       case "usage_limit":
       case "user_question_answer":
         continue;
@@ -71,6 +72,22 @@ export const shouldSendPlanFeedbackNow = ({
 
   return false;
 };
+
+export const hasEmulatedPlanAwaitingAction = ({
+  permissionMode,
+  messages,
+  pendingPlanApprovalRequest,
+}: {
+  readonly permissionMode: PermissionMode;
+  readonly messages: ReadonlyArray<Pick<Message, "content">>;
+  readonly pendingPlanApprovalRequest: PermissionRequest | null;
+}): boolean =>
+  pendingPlanApprovalRequest === null &&
+  shouldSendPlanFeedbackNow({
+    permissionMode,
+    messages,
+    pendingPlanApprovalRequest,
+  });
 
 export type ComposerSubmitRoute = "planFeedback" | "goal" | "queue" | "send";
 

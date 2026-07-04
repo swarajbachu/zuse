@@ -326,9 +326,11 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const MessagesStream = MemoizeRpcs.toLayerHandler(
   "messages.stream",
-  ({ sessionId }) =>
+  ({ sessionId, sinceSequence }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamMessages(sessionId)),
+      Effect.map(MessageStore, (svc) =>
+        svc.streamMessages(sessionId, sinceSequence),
+      ),
     ),
 );
 
@@ -366,7 +368,7 @@ const SessionGoalStream = MemoizeRpcs.toLayerHandler(
 
 const MessagesSend = MemoizeRpcs.toLayerHandler(
   "messages.send",
-  ({ sessionId, text, input, asGoal }) => {
+  ({ sessionId, text, input, asGoal, clientMessageId }) => {
     console.log(
       `[rpc.messages.send] sessionId=${sessionId} hasInput=${input !== undefined} attachments=${
         input?.attachments?.length ?? 0
@@ -388,6 +390,7 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
         input?.skillRefs,
         input?.annotations,
         asGoal,
+        clientMessageId,
       ),
     );
   },

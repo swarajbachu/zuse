@@ -10,10 +10,12 @@ import {
   protocol,
   shell,
   webContents as webContentsModule,
+  type WebContents,
 } from "electron";
 import { Effect, Fiber, Layer } from "effect";
 import fixPath from "fix-path";
 import { execFile, spawn } from "node:child_process";
+import * as http from "node:http";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import { homedir } from "node:os";
@@ -48,6 +50,65 @@ import {
   startAutoUpdater,
 } from "./updater.ts";
 
+type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
+
+interface DiagnosticLogEntry {
+  readonly createdAt: string;
+  readonly level: DiagnosticLogLevel;
+  readonly source: string;
+  readonly message: string;
+  readonly detail?: string;
+}
+
+const MAIN_DIAGNOSTIC_LOG_LIMIT = 200;
+const mainDiagnosticLogs: DiagnosticLogEntry[] = [];
+
+function stringifyDiagnosticPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return `${value.name}: ${value.message}`;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function recordMainDiagnostic(
+  level: DiagnosticLogLevel,
+  source: string,
+  parts: ReadonlyArray<unknown>,
+): void {
+  mainDiagnosticLogs.push({
+    createdAt: new Date().toISOString(),
+    level,
+    source,
+    message: parts.map(stringifyDiagnosticPart).join(" ").slice(0, 2000),
+  });
+  if (mainDiagnosticLogs.length > MAIN_DIAGNOSTIC_LOG_LIMIT) {
+    mainDiagnosticLogs.splice(
+      0,
+      mainDiagnosticLogs.length - MAIN_DIAGNOSTIC_LOG_LIMIT,
+    );
+  }
+}
+
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
+console.warn = (...args: unknown[]) => {
+  recordMainDiagnostic("warn", "main.console", args);
+  originalConsoleWarn(...args);
+};
+console.error = (...args: unknown[]) => {
+  recordMainDiagnostic("error", "main.console", args);
+  originalConsoleError(...args);
+};
+process.on("uncaughtException", (error) => {
+  recordMainDiagnostic("error", "main.uncaughtException", [error]);
+});
+process.on("unhandledRejection", (reason) => {
+  recordMainDiagnostic("error", "main.unhandledRejection", [reason]);
+});
+
 /**
  * Privileged scheme registration. Must run before `app.whenReady()` —
  * Electron freezes the scheme registry once the app is ready, so a late
@@ -78,12 +139,111 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+// Register `zuse://` as a default protocol client so the OS routes the
+// WorkOS sign-in deep link (`zuse://auth/callback?...`) back to this app.
+// Safe to call before `whenReady`. On macOS packaged builds the scheme is also
+// declared in Info.plist; calling here covers dev + Win/Linux.
+app.setAsDefaultProtocolClient("zuse");
+
+// ---------------------------------------------------------------------------
+// Auth callback bridge. The WorkOS PKCE flow round-trips through the system
+// browser. We catch the callback two ways and funnel either into the embedded
+// server's AuthService (which registers `deliverAuthUrl` via the `authShell`
+// dep below):
+//
+//   1. A localhost loopback HTTP server (primary). Custom-scheme deep links are
+//      unreliable in dev on macOS — every project's prebuilt `Electron.app`
+//      shares the bundle id `com.github.Electron`, so the OS routes
+//      `zuse://` to an arbitrary one (or a fresh, app-less copy → the
+//      default Electron splash). Loopback HTTP has none of that ambiguity and
+//      works identically in dev and packaged builds.
+//   2. The `zuse://auth/callback` deep link (open-url / second-instance),
+//      kept for the future mobile/packaged path.
+//
+// A callback can arrive before the server runtime (and thus the sink) exists —
+// buffer and flush on register (R2).
+// ---------------------------------------------------------------------------
+const AUTH_LOOPBACK_PORT = 8976;
+const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
+const AUTH_SCHEME_URI = "zuse://auth/callback";
+// Packaged builds use the custom scheme — a signed app with its own bundle id
+// (app.memoize.desktop) + Info.plist `CFBundleURLTypes` (electron-builder
+// `protocols`) resolves it unambiguously, and it's the same mechanism mobile
+// will use. Dev uses the loopback because the prebuilt Electron.app's shared
+// `com.github.Electron` bundle id makes custom schemes unroutable.
+const AUTH_REDIRECT_URI = app.isPackaged ? AUTH_SCHEME_URI : AUTH_LOOPBACK_URI;
+const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
+
+const isAuthDeepLink = (arg: string): boolean =>
+  AUTH_DEEP_LINK_SCHEMES.some((scheme) => arg.startsWith(scheme));
+
+let deliverAuthUrl: ((url: string) => void) | null = null;
+let pendingAuthUrls: string[] = [];
+
+const handleAuthCallback = (url: string): void => {
+  if (deliverAuthUrl !== null) {
+    deliverAuthUrl(url);
+  } else {
+    pendingAuthUrls.push(url);
+  }
+};
+
+const focusMainWindow = (): void => {
+  if (mainWindow === null) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+};
+
+let authLoopbackServer: http.Server | null = null;
+
+const startAuthLoopback = (): void => {
+  if (authLoopbackServer !== null) return;
+  const server = http.createServer((req, res) => {
+    const requestUrl = req.url ?? "";
+    let parsed: URL;
+    try {
+      parsed = new URL(`http://localhost:${AUTH_LOOPBACK_PORT}${requestUrl}`);
+    } catch {
+      res.writeHead(400);
+      res.end();
+      return;
+    }
+    if (parsed.pathname !== "/callback") {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    handleAuthCallback(parsed.toString());
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(
+      `<!doctype html><meta charset="utf-8"><title>Zuse Alpha</title>` +
+        `<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b0c;color:#e5e5e5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">` +
+        `<div style="text-align:center"><h2 style="font-weight:600">Signed in</h2>` +
+        `<p style="color:#a3a3a3">You can close this tab and return to Zuse Alpha.</p></div>`,
+    );
+    focusMainWindow();
+  });
+  server.on("error", (err) => {
+    console.error("[zuse] auth loopback server error", err);
+  });
+  server.listen(AUTH_LOOPBACK_PORT, "127.0.0.1");
+  authLoopbackServer = server;
+};
+
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
 
 const APP_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
+const DEV_ICON_PATH = Path.resolve(__dirname, "..", "build", "icon.png");
 
 app.setName(APP_NAME);
+if (
+  isDevelopment &&
+  process.platform === "darwin" &&
+  fsSync.existsSync(DEV_ICON_PATH)
+) {
+  app.dock?.setIcon(DEV_ICON_PATH);
+}
 
 const ZUSE_USER_DATA_DIR =
   process.env.ZUSE_USER_DATA_DIR?.trim() ||
@@ -93,15 +253,42 @@ if (ZUSE_USER_DATA_DIR) {
   app.setPath("userData", ZUSE_USER_DATA_DIR);
 }
 
-// Lock the app to macOS's dark appearance so the sidebar vibrancy material
-// always renders in its dark variant. Without this, vibrancy follows the
-// user's system theme — on a light-mode Mac the bright material lets the
-// desktop wallpaper bleed through and washes out the (hardcoded-dark)
-// renderer UI.
+// Single-instance lock: required so a deep link launched while the app is
+// already running routes through `second-instance` (Win/Linux) rather than
+// spawning a second copy. macOS delivers via `open-url` regardless. App name
+// and userData must be set first so dev workspaces don't collide with the
+// packaged app or with each other.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+// macOS: deep links arrive here (also on cold launch, before whenReady).
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  handleAuthCallback(url);
+});
+
+// Start dark to preserve the historical launch appearance. The renderer sends
+// the persisted Light / Dark / System preference after settings hydrate.
 nativeTheme.themeSource = "dark";
+
+ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
+  if (value !== "system" && value !== "light" && value !== "dark") return;
+  nativeTheme.themeSource = value;
+});
 
 let mainWindow: BrowserWindow | null = null;
 let runtimeFiber: Fiber.RuntimeFiber<void, never> | null = null;
+
+// Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
+// the primary instance. Pull any auth deep-link arg out of its argv and focus
+// the existing window.
+app.on("second-instance", (_event, argv) => {
+  const url = argv.find(isAuthDeepLink);
+  if (url !== undefined) handleAuthCallback(url);
+  focusMainWindow();
+});
 const USER_APPLICATIONS_DIR = Path.join(homedir(), "Applications");
 const execFileAsync = promisify(execFile);
 
@@ -395,6 +582,26 @@ const folderPicker = {
     ),
 };
 
+// The WorkOS OAuth deep-link seam for the server's AuthService (ADR 0007 keeps
+// apps/server free of electron). `open` launches the system browser; the
+// server hands us its callback sink via `onCallbackUrl`, which we store in the
+// module-level `deliverAuthUrl` and prime with any deep links buffered before
+// the runtime came up.
+const authShell = {
+  redirectUri: AUTH_REDIRECT_URI,
+  open: (url: string) =>
+    Effect.sync(() => {
+      void shell.openExternal(url);
+    }),
+  onCallbackUrl: (handler: (url: string) => void) =>
+    Effect.sync(() => {
+      deliverAuthUrl = handler;
+      const queued = pendingAuthUrls;
+      pendingAuthUrls = [];
+      for (const url of queued) handler(url);
+    }),
+};
+
 function createMainWindow() {
   const isMac = process.platform === "darwin";
   mainWindow = new BrowserWindow({
@@ -415,6 +622,7 @@ function createMainWindow() {
           backgroundColor: "#00000000",
         }
       : { backgroundColor: "#0b0b0c" }),
+    ...(fsSync.existsSync(DEV_ICON_PATH) ? { icon: DEV_ICON_PATH } : {}),
     titleBarStyle: isMac ? "hiddenInset" : "default",
     title: APP_NAME,
     webPreferences: {
@@ -519,6 +727,16 @@ function createMainWindow() {
     clipboard.writeText(rawPath);
   });
 
+  ipcMain.handle("app:copyFileContents", async (_event, rawPath: unknown) => {
+    if (typeof rawPath !== "string") return false;
+    if (!(await pathExists(rawPath))) return false;
+    const text = await fs.readFile(rawPath, "utf8");
+    clipboard.writeText(text);
+    return true;
+  });
+
+  ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+
   // ---------------------------------------------------------------------------
   // Agent browser CDP bridge
   //
@@ -539,11 +757,47 @@ function createMainWindow() {
   // Track which webContentsIds we've attached to so registerWebview is
   // idempotent (the renderer fires it on every `dom-ready`, including reloads).
   const attachedWebContents = new Set<number>();
+  // Event taps (debugger message listener + webContents listeners) survive a
+  // debugger detach/re-attach cycle, so they install once per webContents —
+  // re-installing on every crash-recovery attach would double every buffered
+  // page error and unload-allow.
+  const tappedWebContents = new Set<number>();
+
+  // Per-webview observability buffers, fed by CDP events below. Network keeps
+  // insertion order (Map) so "recent requests" reads oldest→newest; both are
+  // cleared on every main-frame load start so the agent's `browser_network` /
+  // `browser_console` reads describe the current page, mirroring the
+  // renderer's own console ring buffer.
+  type NetworkEntry = {
+    id: string;
+    method: string;
+    url: string;
+    resourceType?: string;
+    status?: number;
+    mimeType?: string;
+    responseHeaders?: Record<string, string>;
+    failed?: string;
+  };
+  const NETWORK_LOG_CAP = 300;
+  const PAGE_ERROR_CAP = 100;
+  const browserNetworkLog = new Map<number, Map<string, NetworkEntry>>();
+  const browserPageErrors = new Map<number, string[]>();
+  const browserPendingDialog = new Map<
+    number,
+    { type: string; message: string; defaultPrompt?: string }
+  >();
+
+  const dropBrowserBuffers = (id: number): void => {
+    browserNetworkLog.delete(id);
+    browserPageErrors.delete(id);
+    browserPendingDialog.delete(id);
+  };
 
   const detachDebugger = (id: number): void => {
     const wc = webContentsModule.fromId(id);
     if (wc === undefined || wc.isDestroyed()) {
       attachedWebContents.delete(id);
+      dropBrowserBuffers(id);
       return;
     }
     try {
@@ -552,6 +806,121 @@ function createMainWindow() {
       // Detach failures are non-fatal — the webContents may be tearing down.
     }
     attachedWebContents.delete(id);
+    dropBrowserBuffers(id);
+  };
+
+  /**
+   * Route CDP events into the per-webview buffers. Registered once per
+   * attach; Electron drops the listener with the webContents.
+   */
+  const installCdpEventTaps = (id: number, wc: WebContents): void => {
+    wc.debugger.on("message", (_event, method, rawParams) => {
+      const params = (rawParams ?? {}) as Record<string, any>;
+      switch (method) {
+        case "Network.requestWillBeSent": {
+          const log =
+            browserNetworkLog.get(id) ??
+            browserNetworkLog.set(id, new Map()).get(id)!;
+          log.set(String(params.requestId), {
+            id: String(params.requestId),
+            method: String(params.request?.method ?? "GET"),
+            url: String(params.request?.url ?? ""),
+            resourceType:
+              typeof params.type === "string" ? params.type : undefined,
+          });
+          if (log.size > NETWORK_LOG_CAP) {
+            const oldest = log.keys().next().value;
+            if (oldest !== undefined) log.delete(oldest);
+          }
+          return;
+        }
+        case "Network.responseReceived": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry === undefined) return;
+          entry.status = Number(params.response?.status ?? 0);
+          entry.mimeType =
+            typeof params.response?.mimeType === "string"
+              ? params.response.mimeType
+              : undefined;
+          const headers = params.response?.headers;
+          if (headers !== null && typeof headers === "object") {
+            entry.responseHeaders = headers as Record<string, string>;
+          }
+          return;
+        }
+        case "Network.loadingFailed": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry !== undefined) {
+            entry.failed = String(params.errorText ?? "failed");
+          }
+          return;
+        }
+        case "Runtime.exceptionThrown": {
+          const details = params.exceptionDetails as
+            | Record<string, any>
+            | undefined;
+          const description =
+            details?.exception?.description ??
+            details?.text ??
+            "Uncaught exception";
+          const where =
+            typeof details?.url === "string" && details.url.length > 0
+              ? ` (${details.url}:${details.lineNumber ?? 0})`
+              : "";
+          const errors = browserPageErrors.get(id) ?? [];
+          errors.push(
+            `[uncaught] ${String(description).slice(0, 500)}${where}`,
+          );
+          if (errors.length > PAGE_ERROR_CAP) {
+            errors.splice(0, errors.length - PAGE_ERROR_CAP);
+          }
+          browserPageErrors.set(id, errors);
+          return;
+        }
+        case "Page.javascriptDialogOpening": {
+          browserPendingDialog.set(id, {
+            type: String(params.type ?? "alert"),
+            message: String(params.message ?? ""),
+            defaultPrompt:
+              typeof params.defaultPrompt === "string"
+                ? params.defaultPrompt
+                : undefined,
+          });
+          return;
+        }
+        case "Page.javascriptDialogClosed": {
+          browserPendingDialog.delete(id);
+          return;
+        }
+        default:
+          return;
+      }
+    });
+  };
+
+  /**
+   * Turn on the CDP domains the v2 tools read from. Best-effort per domain —
+   * a domain that fails to enable (older Chromium, experimental surface)
+   * degrades that one capability, not the whole browser.
+   */
+  const enableCdpDomains = async (wc: WebContents): Promise<void> => {
+    for (const method of [
+      "Network.enable",
+      "Runtime.enable",
+      "Page.enable",
+      "DOM.enable",
+      "Accessibility.enable",
+    ]) {
+      try {
+        await wc.debugger.sendCommand(method);
+      } catch (err) {
+        console.error(`[zuse] CDP ${method} failed`, err);
+      }
+    }
   };
 
   ipcMain.handle("browser:registerWebview", async (_event, rawId: unknown) => {
@@ -563,22 +932,158 @@ function createMainWindow() {
       // Protocol 1.3 is the stable baseline that ships with every modern
       // Chromium; older revisions don't accept `Input.dispatchMouseEvent`
       // payload fields we rely on (`pointerType`, `tangentialPressure`).
+      // Experimental domains (Accessibility) still work — the attached
+      // debugger speaks the running Chromium's full protocol.
       wc.debugger.attach("1.3");
       attachedWebContents.add(rawId);
-      // Auto-cleanup when the webContents goes away (window close, webview
-      // teardown, full crash). Without this, a `Another debugger is already
-      // attached` error fires on the next register-after-reload.
-      wc.once("destroyed", () => {
-        attachedWebContents.delete(rawId);
-      });
-      wc.on("render-process-gone", () => detachDebugger(rawId));
+      if (!tappedWebContents.has(rawId)) {
+        tappedWebContents.add(rawId);
+        installCdpEventTaps(rawId, wc);
+        // Fresh page → the previous page's requests/errors are stale.
+        wc.on("did-start-loading", () => {
+          browserNetworkLog.get(rawId)?.clear();
+          browserPageErrors.get(rawId)?.splice(0);
+        });
+        // A page's beforeunload handler must not wedge agent navigation — the
+        // user watched the agent ask for the navigation, so always let it
+        // proceed (this is what a user clicking "Leave" would do).
+        wc.on("will-prevent-unload", (event) => {
+          event.preventDefault();
+        });
+        // Auto-cleanup when the webContents goes away (window close, webview
+        // teardown, full crash). Without this, a `Another debugger is already
+        // attached` error fires on the next register-after-reload.
+        wc.once("destroyed", () => {
+          attachedWebContents.delete(rawId);
+          tappedWebContents.delete(rawId);
+          dropBrowserBuffers(rawId);
+        });
+        wc.on("render-process-gone", () => detachDebugger(rawId));
+      }
+      await enableCdpDomains(wc);
       return true;
     } catch (err) {
       // The only expected failure here is "already attached by DevTools" —
       // surface so the renderer can fall back gracefully.
-      console.error("[memoize] failed to attach CDP debugger", err);
+      console.error("[zuse] failed to attach CDP debugger", err);
       return false;
     }
+  });
+
+  /**
+   * Allowlisted CDP passthrough for the agent-browser renderer. The renderer
+   * already holds `executeJavaScript` on the same webview, so this grants no
+   * new page-level power — the list just keeps the seam from becoming a
+   * generic protocol proxy (no Target.*, no Browser.*, no Input.* — input
+   * stays on the dedicated `browser:dispatchInput` path).
+   */
+  const CDP_ALLOWED_METHODS = new Set([
+    "Accessibility.getFullAXTree",
+    "DOM.getDocument",
+    "DOM.scrollIntoViewIfNeeded",
+    "DOM.getContentQuads",
+    "DOM.resolveNode",
+    "Runtime.callFunctionOn",
+    "Page.captureScreenshot",
+    "Page.handleJavaScriptDialog",
+  ]);
+
+  ipcMain.handle(
+    "browser:cdpCommand",
+    async (_event, rawId: unknown, rawMethod: unknown, rawParams: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) {
+        return { ok: false as const, error: "bad webContents id" };
+      }
+      if (
+        typeof rawMethod !== "string" ||
+        !CDP_ALLOWED_METHODS.has(rawMethod)
+      ) {
+        return {
+          ok: false as const,
+          error: `method not allowed: ${String(rawMethod)}`,
+        };
+      }
+      const wc = webContentsModule.fromId(rawId);
+      if (wc === undefined || wc.isDestroyed() || !wc.debugger.isAttached()) {
+        return { ok: false as const, error: "debugger not attached" };
+      }
+      try {
+        const result = await wc.debugger.sendCommand(
+          rawMethod,
+          rawParams !== null && typeof rawParams === "object"
+            ? (rawParams as Record<string, unknown>)
+            : {},
+        );
+        // Dialog resolution isn't always reported back via
+        // javascriptDialogClosed on every Chromium; clear eagerly.
+        if (rawMethod === "Page.handleJavaScriptDialog") {
+          browserPendingDialog.delete(rawId);
+        }
+        return { ok: true as const, result };
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "browser:getNetwork",
+    async (_event, rawId: unknown, rawQuery: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+      const log = browserNetworkLog.get(rawId);
+      if (log === undefined) return { requests: [] };
+      const query = (rawQuery ?? {}) as { filter?: unknown; id?: unknown };
+      if (typeof query.id === "string" && query.id.length > 0) {
+        const entry = log.get(query.id);
+        if (entry === undefined) return null;
+        // Body comes straight from the CDP buffer; truncated so one XHR
+        // can't blow up the agent's context.
+        let body: string | undefined;
+        let bodyBase64 = false;
+        const wc = webContentsModule.fromId(rawId);
+        if (wc !== undefined && !wc.isDestroyed() && wc.debugger.isAttached()) {
+          try {
+            const res = (await wc.debugger.sendCommand(
+              "Network.getResponseBody",
+              { requestId: entry.id },
+            )) as { body?: string; base64Encoded?: boolean };
+            bodyBase64 = res.base64Encoded === true;
+            body =
+              typeof res.body === "string"
+                ? res.body.slice(0, 4000)
+                : undefined;
+          } catch {
+            // Body may be gone (evicted, streamed, or a non-buffered type) —
+            // detail without a body is still useful.
+          }
+        }
+        return { detail: { ...entry, body, bodyBase64 } };
+      }
+      const filter =
+        typeof query.filter === "string" && query.filter.length > 0
+          ? query.filter.toLowerCase()
+          : null;
+      const requests = [...log.values()]
+        .filter(
+          (entry) =>
+            filter === null || entry.url.toLowerCase().includes(filter),
+        )
+        .map(({ responseHeaders: _headers, ...summary }) => summary);
+      return { requests };
+    },
+  );
+
+  ipcMain.handle("browser:getPageErrors", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return [];
+    return [...(browserPageErrors.get(rawId) ?? [])];
+  });
+
+  ipcMain.handle("browser:getDialogState", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+    return browserPendingDialog.get(rawId) ?? null;
   });
 
   ipcMain.handle(
@@ -674,7 +1179,7 @@ function createMainWindow() {
             return false;
         }
       } catch (err) {
-        console.error("[memoize] CDP dispatch failed", err);
+        console.error("[zuse] CDP dispatch failed", err);
         return false;
       }
     },
@@ -755,6 +1260,7 @@ function createMainWindow() {
         userData: app.getPath("userData"),
         folderPicker,
         serverProtocol,
+        authShell,
       }),
     ).pipe(
       Effect.catchAllCause((cause) =>
@@ -762,7 +1268,7 @@ function createMainWindow() {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet
           // success-after-restart is preferable to a half-running app.
-          console.error("[memoize] fatal boot error", cause);
+          console.error("[zuse] fatal boot error", cause);
           app.exit(1);
         }),
       ),
@@ -788,7 +1294,7 @@ function createMainWindow() {
 
   if (isDevelopment) {
     void mainWindow.loadURL(DEV_SERVER_URL);
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    mainWindow.webContents.openDevTools({ mode: "right" });
   } else {
     // In dev `dist-electron/main.cjs` lives at apps/desktop/dist-electron/
     // and the renderer is two levels up at apps/renderer/dist. In the
@@ -966,6 +1472,18 @@ ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
 });
 
 void app.whenReady().then(() => {
+  // Non-primary instance is on its way out (lost the single-instance lock) —
+  // don't build a window or boot the runtime.
+  if (!gotSingleInstanceLock) return;
+
+  // Dev only: localhost loopback that catches the WorkOS OAuth callback.
+  // Packaged builds receive it via the `zuse://` deep link instead.
+  if (!app.isPackaged) startAuthLoopback();
+
+  // Win/Linux cold launch from a deep link: the URL is an argv entry.
+  const initialDeepLink = process.argv.find(isAuthDeepLink);
+  if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
+
   registerZuseProtocol();
 
   // Populate the native About panel so "About Zuse" shows the current

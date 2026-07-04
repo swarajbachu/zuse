@@ -64,9 +64,9 @@ const aggregateFileStats = (body: ReadonlyArray<Message>): FileStat[] => {
     }
     const edits = extractEdits(tool, m.content.input);
     if (edits.length === 0) continue;
-    const stats = diffStats(edits);
-    const path = edits[0]!.path;
-    addStats(path, stats);
+    for (const edit of edits) {
+      addStats(edit.path, diffStats([edit]));
+    }
   }
   return Array.from(map.entries()).map(([path, s]) => ({ path, ...s }));
 };

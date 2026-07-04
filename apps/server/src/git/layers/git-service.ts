@@ -510,9 +510,12 @@ export const GitServiceLive = Layer.effect(
 
     const status: GitService["Type"]["status"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-        run(folderId, cwd, ["status", "--porcelain=v2", "--branch"]).pipe(
-          Effect.map(parseStatusOutput),
-        ),
+        run(folderId, cwd, [
+          "status",
+          "--porcelain=v2",
+          "--branch",
+          "--untracked-files=all",
+        ]).pipe(Effect.map(parseStatusOutput)),
       );
 
     const branches: GitService["Type"]["branches"] = (folderId, worktreeId) =>

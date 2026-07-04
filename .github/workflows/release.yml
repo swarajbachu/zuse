@@ -45,6 +45,10 @@ jobs:
           # Renderer bundling pulls in the Hugeicons Pro ESM package and can
           # exceed Node's default ~2GB heap on the macOS release runner.
           NODE_OPTIONS: --max-old-space-size=6144
+          # Public WorkOS client id, inlined into the bundle by tsdown at build
+          # time (apps/desktop/.env is gitignored, so CI must supply it here).
+          # Not sensitive — a repo variable would also work.
+          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
         run: bun run build
 
       - name: Package + sign + notarize + publish

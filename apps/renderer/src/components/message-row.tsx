@@ -6,12 +6,12 @@ import {
   DashboardSpeedIcon,
   Loading02Icon,
   PlayIcon,
-  RotateRight01Icon,
   Settings01Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { RefreshCw as RefreshIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import type {
   AgentItemId,
   AttachmentRef,
@@ -74,6 +74,32 @@ const parseReconnectingStatus = (
   const maxAttempts = Number(match[2]);
   if (!Number.isFinite(attempt) || !Number.isFinite(maxAttempts)) return null;
   return { attempt, maxAttempts };
+};
+
+const formatDuration = (ms: number): string => {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const min = Math.floor(seconds / 60);
+  const sec = seconds - min * 60;
+  return `${min}m, ${sec.toFixed(1)}s`;
+};
+
+const formatTokenCount = (tokens: number): string => tokens.toLocaleString();
+
+const formatCompactTokenDelta = (
+  beforeTokens: number | null,
+  afterTokens: number | null,
+): string | null => {
+  if (beforeTokens !== null && afterTokens !== null) {
+    return `${formatTokenCount(beforeTokens)} -> ${formatTokenCount(afterTokens)} tokens`;
+  }
+  if (beforeTokens !== null) {
+    return `${formatTokenCount(beforeTokens)} tokens before`;
+  }
+  if (afterTokens !== null) {
+    return `${formatTokenCount(afterTokens)} tokens after`;
+  }
+  return null;
 };
 
 /**
@@ -167,6 +193,16 @@ export function MessageRow({
       // The paired `user_question` row above renders the answer inline, so
       // the standalone answer row is suppressed.
       return null;
+    case "context_compaction":
+      return (
+        <CompactRow
+          beforeTokens={message.content.beforeTokens}
+          afterTokens={message.content.afterTokens}
+          startedAt={message.content.startedAt}
+          durationMs={message.content.durationMs}
+          status={message.content.status ?? "completed"}
+        />
+      );
     case "usage":
     case "context_usage":
     case "usage_limit":
@@ -197,6 +233,54 @@ export function MessageRow({
         </div>
       );
   }
+}
+
+function CompactRow({
+  beforeTokens,
+  afterTokens,
+  startedAt,
+  durationMs,
+  status,
+}: {
+  readonly beforeTokens: number | null;
+  readonly afterTokens: number | null;
+  readonly startedAt: number;
+  readonly durationMs: number;
+  readonly status: "in_progress" | "completed";
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const inProgress = status === "in_progress";
+  useEffect(() => {
+    if (!inProgress) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [inProgress]);
+  const elapsedMs = inProgress ? Math.max(0, now - startedAt) : durationMs;
+  const tokenDelta = formatCompactTokenDelta(beforeTokens, afterTokens);
+  const detail =
+    tokenDelta === null
+      ? formatDuration(elapsedMs)
+      : `${tokenDelta} · ${formatDuration(elapsedMs)}`;
+
+  return (
+    <div className="px-4 py-2 text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <RefreshIcon
+          aria-hidden
+          className={cn(
+            "size-3.5 shrink-0 opacity-70",
+            inProgress && "animate-spin",
+          )}
+        />
+        <span className="text-sm font-medium text-foreground/90">
+          {inProgress ? "Compacting..." : "Chat compacted"}
+        </span>
+      </div>
+      <div className="mt-1 pl-5 text-[11px] tabular-nums text-muted-foreground/70">
+        {detail}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -263,7 +347,10 @@ function UserBubble({
     name.length > 28 ? `${name.slice(0, 25)}...` : name;
   return (
     <div className="group/message flex justify-end px-4 py-2">
-      <div className="relative max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 pr-9 text-sm text-user-bubble-foreground">
+      <div
+        data-chat-user-bubble
+        className="relative max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 pr-9 text-sm text-user-bubble-foreground"
+      >
         <CopyButton
           text={display || text}
           label="Copy message"
@@ -300,7 +387,7 @@ function UserBubble({
               const iconUrl = isImage ? null : getFileIconUrl(a.originalName);
               const src = `zuse://attachments/${a.id}`;
               const className =
-                "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)] hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground";
+                "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
               const inner = (
                 <>
                   {isImage ? (
@@ -358,7 +445,7 @@ function UserBubble({
             {(skillRefs ?? []).map((s) => (
               <span
                 key={s.name}
-                className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
+                className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
               >
                 /{s.name}
               </span>
@@ -691,8 +778,8 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
               Gemini CLI needs an upgrade
             </div>
             <p className="mt-1 leading-relaxed text-muted-foreground">
-              Your installed Gemini CLI does not support ACP mode yet, so
-              Zuse Alpha cannot start Gemini sessions until the CLI is updated.
+              Your installed Gemini CLI does not support ACP mode yet, so Zuse
+              Alpha cannot start Gemini sessions until the CLI is updated.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <code className="rounded-md border border-border/60 bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">
@@ -752,7 +839,7 @@ export function ErrorBubble({
   if (rateLimit !== null) {
     return (
       <div className="px-4 py-1.5">
-        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
+        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
           <span className="font-medium">Limit reached</span>
           <span className="text-muted-foreground">
             {formatResetDetail(rateLimit)}
@@ -777,7 +864,7 @@ export function ErrorBubble({
     const isFinalAttempt = reconnecting.attempt >= reconnecting.maxAttempts;
     return (
       <div className="px-4 py-1.5">
-        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
+        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
           <span className="font-medium">Reconnecting</span>
           <span className="font-mono text-muted-foreground">
             {reconnecting.attempt}/{reconnecting.maxAttempts}
@@ -884,11 +971,7 @@ export function ErrorBubble({
                   onClick={onRetry}
                   className="gap-1"
                 >
-                  <HugeiconsIcon
-                    icon={RotateRight01Icon}
-                    className="size-3"
-                    aria-hidden
-                  />
+                  <RefreshIcon className="size-3" aria-hidden />
                   Retry
                 </Button>
                 {error.kind === "auth" && (

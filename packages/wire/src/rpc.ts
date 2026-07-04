@@ -14,6 +14,12 @@ import {
 } from "./agent.ts";
 import { AttachmentTouchRpc, AttachmentUploadRpc } from "./attachment.ts";
 import {
+  AuthGetSessionRpc,
+  AuthSessionChangesRpc,
+  AuthSignInRpc,
+  AuthSignOutRpc,
+} from "./auth.ts";
+import {
   BrowserCommandsRpc,
   BrowserFillForOriginRpc,
   BrowserListCredentialsRpc,
@@ -21,16 +27,7 @@ import {
   BrowserRespondRpc,
   BrowserSetCredentialRpc,
 } from "./browser.ts";
-import {
-  IndexFindReferencesRpc,
-  IndexListModuleRpc,
-  IndexReadChunkRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexSymbolLookupRpc,
-} from "./code-index.ts";
+import { ConnectDescribeRpc } from "./connect.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -42,6 +39,11 @@ import {
   FsWriteExternalFileRpc,
   FsWriteFileRpc,
 } from "./fs.ts";
+import {
+  ExternalThreadsContinueRpc,
+  ExternalThreadsListRpc,
+} from "./external-thread.ts";
+import { DiagnosticsExportRpc } from "./diagnostics.ts";
 import {
   GitBranchesRpc,
   GitChangesRpc,
@@ -72,6 +74,11 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
+import {
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  PairingStartRpc,
+} from "./pairing.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
 import {
@@ -174,6 +181,14 @@ import {
  */
 export const MemoizeRpcs = RpcGroup.make(
   PingRpc,
+  AuthGetSessionRpc,
+  AuthSignInRpc,
+  AuthSignOutRpc,
+  AuthSessionChangesRpc,
+  PairingStartRpc,
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  ConnectDescribeRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,
@@ -185,6 +200,8 @@ export const MemoizeRpcs = RpcGroup.make(
   WorkspaceCreateProjectRpc,
   WorkspaceListGithubReposRpc,
   WorkspaceGhAuthStatusRpc,
+  ExternalThreadsListRpc,
+  ExternalThreadsContinueRpc,
   PtyOpenRpc,
   PtyWriteRpc,
   PtyResizeRpc,
@@ -304,18 +321,11 @@ export const MemoizeRpcs = RpcGroup.make(
   SettingsStreamRpc,
   SettingsMigrateLocalStorageRpc,
   UsageReportRpc,
+  DiagnosticsExportRpc,
   KeybindingsGetRpc,
   KeybindingsReplaceRpc,
   KeybindingsStreamRpc,
   SessionSetWorktreeRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexSymbolLookupRpc,
-  IndexFindReferencesRpc,
-  IndexReadChunkRpc,
-  IndexListModuleRpc,
 );
 export type MemoizeRpcs = typeof MemoizeRpcs;
 
@@ -327,4 +337,4 @@ export type MemoizeRpcs = typeof MemoizeRpcs;
  * Renderer → main: `ipcRenderer.send(IPC_CHANNEL, frame)`
  * Main → renderer: `webContents.send(IPC_CHANNEL, frame)`
  */
-export const IPC_CHANNEL = "memoize:rpc" as const;
+export const IPC_CHANNEL = "zuse:rpc" as const;

@@ -32,13 +32,12 @@ const SUBSCRIPTION_INFO: Partial<
 
 const openExternal = (url: string): void => {
   if (typeof window === "undefined") return;
-  const bridge = (
-    window as unknown as {
-      zuse?: { app?: { openExternal?: (u: string) => void } };
-      memoize?: { app?: { openExternal?: (u: string) => void } };
-    }
-  );
-  const open = bridge.zuse?.app?.openExternal ?? bridge.memoize?.app?.openExternal;
+  const bridge = window as unknown as {
+    zuse?: { app?: { openExternal?: (u: string) => void } };
+    memoize?: { app?: { openExternal?: (u: string) => void } };
+  };
+  const open =
+    bridge.zuse?.app?.openExternal ?? bridge.memoize?.app?.openExternal;
   if (typeof open === "function") {
     open(url);
     return;
@@ -185,11 +184,11 @@ function ProviderCard({
         // information density.
         "group relative flex items-center gap-3 overflow-hidden rounded-xl p-2.5 text-left transition-all",
         active
-          ? "bg-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-          : "bg-white/[0.025] hover:bg-white/[0.05]",
+          ? "bg-accent text-accent-foreground"
+          : "bg-muted/60 hover:bg-muted",
       )}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-foreground">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background/70 text-foreground">
         <ProviderIcon providerId={providerId} className="size-4" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -291,7 +290,7 @@ function ProviderStatus({
         ? `${PROVIDER_LABEL[providerId]} CLI is logged in. You're all set.`
         : `${PROVIDER_LABEL[providerId]} API key saved. You're all set.`;
     return (
-      <div className="flex items-center gap-2 rounded-full bg-emerald-400/[0.08] px-3 py-2 text-[12px] text-emerald-200/90">
+      <div className="flex items-center gap-2 rounded-full bg-alert-success-bg px-3 py-2 text-[12px] text-success">
         <HugeiconsIcon icon={Tick01Icon} className="size-3.5" strokeWidth={3} />
         <span className="leading-none">{label}</span>
       </div>
@@ -301,7 +300,7 @@ function ProviderStatus({
   // Loading: a single quiet line, no big card.
   if (state.kind === "loading") {
     return (
-      <div className="flex items-center gap-2 rounded-full bg-white/[0.025] px-3 py-2 text-[12px] text-muted-foreground">
+      <div className="flex items-center gap-2 rounded-full bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
         <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/60" />
         Checking {PROVIDER_LABEL[providerId]}…
       </div>
@@ -384,8 +383,8 @@ function SubscriptionNotice({
   url: string;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-xl border border-violet-400/25 bg-violet-500/[0.08] px-3 py-2.5">
-      <span className="text-[11px] font-medium text-violet-200">
+    <div className="flex flex-col gap-1.5 rounded-xl border border-violet-500/25 bg-violet-500/[0.08] px-3 py-2.5">
+      <span className="text-[11px] font-medium text-violet-700 dark:text-violet-200">
         Requires {plan} subscription
       </span>
       <p className="text-[11px] leading-snug text-muted-foreground">
@@ -398,7 +397,7 @@ function SubscriptionNotice({
           size="xs"
           variant="ghost"
           onClick={() => openExternal(url)}
-          className="gap-1.5 rounded-full bg-violet-500/15 px-2.5 text-[11px] text-violet-200 hover:bg-violet-500/25 hover:text-violet-100"
+          className="gap-1.5 rounded-full bg-violet-500/15 px-2.5 text-[11px] text-violet-700 hover:bg-violet-500/25 hover:text-violet-800 dark:text-violet-200 dark:hover:text-violet-100"
         >
           <HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
           Subscribe to {plan}
@@ -416,7 +415,7 @@ function CodeRow({
   onRecheck: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl bg-black/30 px-3 py-2 font-mono text-[12px]">
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted px-3 py-2 font-mono text-[12px]">
       <code className="truncate text-foreground/90">$ {command}</code>
       <Button
         size="xs"
@@ -438,38 +437,38 @@ function StatusPill({ state }: { state: ProviderState }) {
     loading: {
       label: "Checking",
       dot: "bg-muted-foreground/50",
-      bg: "bg-white/[0.04]",
+      bg: "bg-muted/70",
       text: "text-muted-foreground",
     },
     missing: {
       label: "Not installed",
       dot: "bg-rose-400",
       bg: "bg-rose-400/12",
-      text: "text-rose-300",
+      text: "text-rose-700 dark:text-rose-300",
     },
     outdated: {
       label: "Update",
       dot: "bg-amber-400",
       bg: "bg-amber-400/12",
-      text: "text-amber-300",
+      text: "text-amber-700 dark:text-amber-300",
     },
     "signed-out": {
       label: "Sign in",
       dot: "bg-amber-400",
       bg: "bg-amber-400/12",
-      text: "text-amber-300",
+      text: "text-amber-700 dark:text-amber-300",
     },
     subscription: {
       label: "Subscribe",
       dot: "bg-amber-400",
       bg: "bg-amber-400/12",
-      text: "text-amber-300",
+      text: "text-amber-700 dark:text-amber-300",
     },
     ready: {
       label: "Connected",
       dot: "bg-emerald-400",
       bg: "bg-emerald-400/12",
-      text: "text-emerald-300",
+      text: "text-emerald-700 dark:text-emerald-300",
     },
   };
   const s = map[state.kind];
@@ -519,7 +518,7 @@ function ApiKeyRow({ providerId }: { providerId: ProviderId }) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             disabled={busy}
-            className="h-9 rounded-xl border-0 bg-white/[0.04]"
+            className="h-9 rounded-xl border-0 bg-muted/70"
           />
           <button
             type="button"

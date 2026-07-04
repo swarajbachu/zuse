@@ -9,6 +9,7 @@ import {
 import {
   chooseComposerSubmitRoute,
   findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
   shouldSendPlanFeedbackNow,
 } from "../src/lib/plan-feedback-routing.ts";
 
@@ -72,6 +73,26 @@ describe("plan feedback routing", () => {
         pendingPlanApprovalRequest: null,
       }),
     ).toBe(true);
+  });
+
+  it("marks emulated provider plans as awaiting an explicit action", () => {
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), assistant()],
+        pendingPlanApprovalRequest: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not use the emulated approval state for native plan permission requests", () => {
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), toolUse("ExitPlanMode")],
+        pendingPlanApprovalRequest: exitPlanRequest,
+      }),
+    ).toBe(false);
   });
 
   it("keeps normal running turns on the queue path before an assistant response", () => {

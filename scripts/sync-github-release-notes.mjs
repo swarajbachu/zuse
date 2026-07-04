@@ -135,7 +135,7 @@ function updateRelease({ tag, body }) {
     return;
   }
 
-  const dir = mkdtempSync(join(tmpdir(), "memoize-release-notes-"));
+  const dir = mkdtempSync(join(tmpdir(), "zuse-release-notes-"));
   const notesFile = join(dir, `${tag}.md`);
   try {
     writeFileSync(notesFile, body);

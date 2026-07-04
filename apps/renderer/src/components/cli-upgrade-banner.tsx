@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleArrowUp01Icon, Copy01Icon, LinkSquare01Icon, RotateRight01Icon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  CircleArrowUp01Icon,
+  Copy01Icon,
+  LinkSquare01Icon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 
 import type { ProviderId } from "@zuse/wire";
@@ -130,7 +136,9 @@ export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
           disabled={refreshing}
           className="gap-1.5 rounded-full text-[11px] text-muted-foreground"
         >
-          <HugeiconsIcon icon={RotateRight01Icon} className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
+          <RefreshIcon
+            className={`size-3 ${refreshing ? "animate-spin" : ""}`}
+          />
           Recheck
         </Button>
       </div>

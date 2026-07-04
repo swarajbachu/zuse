@@ -1,8 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import {
-  ModelSelect,
-} from "~/components/settings-page";
+import { ModelSelect } from "~/components/settings-page";
 import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
 import { Switch } from "~/components/ui/switch";
 import { cn } from "~/lib/utils";
@@ -59,12 +57,16 @@ export function DefaultsStep() {
                   className={cn(
                     "group flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-left transition-all",
                     active
-                      ? "bg-white/[0.08]"
-                      : "bg-white/[0.025] hover:bg-white/[0.05]",
+                      ? "bg-accent text-accent-foreground"
+                      : "bg-muted/60 hover:bg-muted",
                   )}
                 >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-foreground">
-                    <HugeiconsIcon icon={m.Icon} className="size-3.5" strokeWidth={1.75} />
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-background/70 text-foreground">
+                    <HugeiconsIcon
+                      icon={m.Icon}
+                      className="size-3.5"
+                      strokeWidth={1.75}
+                    />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[13px] font-medium leading-none text-foreground">
@@ -76,7 +78,11 @@ export function DefaultsStep() {
                   </span>
                   {active && (
                     <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
-                      <HugeiconsIcon icon={Tick01Icon} className="size-2.5" strokeWidth={3.5} />
+                      <HugeiconsIcon
+                        icon={Tick01Icon}
+                        className="size-2.5"
+                        strokeWidth={3.5}
+                      />
                     </span>
                   )}
                 </button>
@@ -85,7 +91,7 @@ export function DefaultsStep() {
           </div>
         </div>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-white/[0.025] px-3.5 py-3 transition-colors hover:bg-white/[0.05]">
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl bg-muted/60 px-3.5 py-3 transition-colors hover:bg-muted">
           <span className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="flex items-center gap-2">
               <span className="text-[13px] font-medium leading-none text-foreground">
@@ -96,10 +102,10 @@ export function DefaultsStep() {
               </span>
             </span>
             <span className="text-[11px] leading-snug text-muted-foreground">
-              A git worktree is a second checkout of your repo on its own branch.
-              Each chat gets one under <code>~/.zuse/</code>, so agents can run
-              in parallel without stepping on each other or your working tree.
-              You merge the branches you like.
+              A git worktree is a second checkout of your repo on its own
+              branch. Each chat gets one under <code>~/.zuse/</code>, so agents
+              can run in parallel without stepping on each other or your working
+              tree. You merge the branches you like.
             </span>
           </span>
           <Switch

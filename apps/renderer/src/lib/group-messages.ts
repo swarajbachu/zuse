@@ -49,11 +49,18 @@ export function groupMessages(
 
   const childrenByParent = new Map<AgentItemId, Message[]>();
   const summariesByItemId = new Map<AgentItemId, Message>();
+  const completedCompactionItemIds = new Set<AgentItemId>();
   for (const m of messages) {
     const c = m.content;
     if (c._tag === "subagent_summary") {
       summariesByItemId.set(c.itemId, m);
       continue;
+    }
+    if (
+      c._tag === "context_compaction" &&
+      (c.status ?? "completed") === "completed"
+    ) {
+      completedCompactionItemIds.add(c.itemId);
     }
     if ("parentItemId" in c && c.parentItemId !== undefined) {
       const list = childrenByParent.get(c.parentItemId) ?? [];
@@ -73,6 +80,13 @@ export function groupMessages(
     const c = m.content;
     if (c._tag === "usage") continue;
     if (c._tag === "subagent_summary") continue;
+    if (
+      c._tag === "context_compaction" &&
+      c.status === "in_progress" &&
+      completedCompactionItemIds.has(c.itemId)
+    ) {
+      continue;
+    }
     if ("parentItemId" in c && c.parentItemId !== undefined) continue;
     if (c._tag === "tool_result" && agentItemIds.has(c.itemId)) continue;
     if (isAgentToolUse(m) && c._tag === "tool_use") {

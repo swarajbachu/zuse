@@ -133,6 +133,12 @@ const alignGeneratedIds = (
     ) {
       return { ...event, itemId: expected.itemId } as AgentEventType;
     }
+    if (
+      event._tag === "SubagentSummary" &&
+      expected?._tag === "SubagentSummary"
+    ) {
+      return { ...event, durationMs: expected.durationMs };
+    }
     return event;
   });
 

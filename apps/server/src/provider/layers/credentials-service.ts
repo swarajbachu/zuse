@@ -27,6 +27,12 @@ const BROWSER_PREFIX = "browserCred:";
 const browserAccountFor = (origin: string): string =>
   `${BROWSER_PREFIX}${normalizeOrigin(origin)}`;
 
+/**
+ * Single keychain account holding the WorkOS session bundle (JSON). One per
+ * installation — signing in overwrites it, signing out deletes it.
+ */
+const WORKOS_SESSION_ACCOUNT = "workos:session";
+
 const normalizeOrigin = (input: string): string => {
   try {
     return new URL(input).origin;
@@ -79,18 +85,25 @@ const tryKeychain = <A>(
       }),
   });
 
+const getPasswordWithLegacyPromotion = async (
+  account: string,
+): Promise<string | null> => {
+  const current = await keytar.getPassword(SERVICE_NAME, account);
+  if (current !== null) return current;
+
+  const legacy = await keytar.getPassword(LEGACY_SERVICE_NAME, account);
+  if (legacy !== null) {
+    await keytar.setPassword(SERVICE_NAME, account, legacy);
+  }
+  return legacy;
+};
+
 export const CredentialsServiceLive = Layer.succeed(
   CredentialsService,
   CredentialsService.of({
     get: (providerId) =>
       tryKeychain(providerId, () =>
-        keytar
-          .getPassword(SERVICE_NAME, accountFor(providerId))
-          .then(
-            (value) =>
-              value ??
-              keytar.getPassword(LEGACY_SERVICE_NAME, accountFor(providerId)),
-          ),
+        getPasswordWithLegacyPromotion(accountFor(providerId)),
       ),
     set: (providerId, apiKey) =>
       tryKeychain(providerId, () =>
@@ -130,16 +143,7 @@ export const CredentialsServiceLive = Layer.succeed(
       ),
     getBrowser: (origin) =>
       tryKeychain("*", () =>
-        keytar
-          .getPassword(SERVICE_NAME, browserAccountFor(origin))
-          .then(
-            (value) =>
-              value ??
-              keytar.getPassword(
-                LEGACY_SERVICE_NAME,
-                browserAccountFor(origin),
-              ),
-          ),
+        getPasswordWithLegacyPromotion(browserAccountFor(origin)),
       ).pipe(Effect.map(parseBrowserCred)),
     removeBrowser: (origin) =>
       tryKeychain("*", async () =>
@@ -165,5 +169,17 @@ export const CredentialsServiceLive = Layer.succeed(
           return out;
         }),
       ),
+    getWorkosSession: () =>
+      tryKeychain("*", () =>
+        keytar.getPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
+      ),
+    setWorkosSession: (bundleJson) =>
+      tryKeychain("*", () =>
+        keytar.setPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT, bundleJson),
+      ),
+    removeWorkosSession: () =>
+      tryKeychain("*", () =>
+        keytar.deletePassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
+      ).pipe(Effect.asVoid),
   }),
 );

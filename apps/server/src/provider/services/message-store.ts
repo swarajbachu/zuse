@@ -19,10 +19,14 @@ import type {
   FolderId,
   GoalUnsupportedError,
   Message,
+  MessageContent,
+  MessageEnvelope,
+  MessageId,
   PermissionMode,
   ProviderId,
   QueueState,
   QueuedMessage,
+  ResumeStrategy,
   RuntimeMode,
   Session,
   SessionAlreadyStartedError,
@@ -97,6 +101,8 @@ export interface CreateSessionInput {
    * timing is preserved.
    */
   readonly background?: boolean;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
 }
 
 export interface CreateChatInput {
@@ -111,6 +117,8 @@ export interface CreateChatInput {
   readonly enableSubagents?: boolean;
   readonly permissionMode?: PermissionMode;
   readonly toolSearch?: boolean;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
 }
 
 export interface MessageStoreShape {
@@ -230,6 +238,24 @@ export interface MessageStoreShape {
     SessionStartError
   >;
 
+  readonly continueExternalThread: (
+    input: CreateChatInput & {
+      readonly resumeCursor: string;
+      readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+    },
+  ) => Effect.Effect<
+    {
+      readonly chat: Chat;
+      readonly initialSession: Session;
+    },
+    SessionStartError
+  >;
+
+  readonly importExternalMessages: (
+    sessionId: SessionId,
+    messages: ReadonlyArray<MessageContent>,
+  ) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
+
   readonly renameChat: (
     chatId: ChatId,
     title: string,
@@ -303,7 +329,8 @@ export interface MessageStoreShape {
 
   readonly streamMessages: (
     sessionId: SessionId,
-  ) => Stream.Stream<Message, SessionNotFoundError>;
+    sinceSequence?: number,
+  ) => Stream.Stream<MessageEnvelope, SessionNotFoundError>;
 
   /**
    * Live status feed. Emits the current `Session.status` immediately and
@@ -352,6 +379,7 @@ export interface MessageStoreShape {
     skillRefs?: ReadonlyArray<SkillRef>,
     annotations?: ReadonlyArray<CodeAnnotation>,
     asGoal?: boolean,
+    clientMessageId?: MessageId,
   ) => Effect.Effect<void, SessionNotFoundError>;
 
   readonly interruptSession: (

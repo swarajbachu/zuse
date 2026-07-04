@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 
 import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/wire";
 
-const {
-  setMessagesRpcClientForTest,
-  useMessagesStore,
-} = await import("../src/store/messages.ts");
+const { setMessagesRpcClientForTest, useMessagesStore } =
+  await import("../src/store/messages.ts");
 
 const sessionId = "session-queue" as SessionId;
 const input = new ComposerInput({
@@ -26,38 +24,44 @@ const queued = QueuedMessage.make({
 });
 
 let interruptCalls = 0;
-let sendNowCalls: Array<{ readonly sessionId: SessionId; readonly queueId: string }> = [];
+let sendNowCalls: Array<{
+  readonly sessionId: SessionId;
+  readonly queueId: string;
+}> = [];
 let resumeCalls: Array<{ readonly sessionId: SessionId }> = [];
 let flushCalls: Array<{ readonly sessionId: SessionId }> = [];
+let rpcClientFactory: () => Awaited<
+  ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
+>;
 
-setMessagesRpcClientForTest(
-  async () =>
-    ({
-      messages: {
-        interrupt: () =>
-          Effect.sync(() => {
-            interruptCalls += 1;
-          }),
-        "queue.sendNow": (payload: {
-          readonly sessionId: SessionId;
-          readonly queueId: string;
-        }) =>
-          Effect.sync(() => {
-            sendNowCalls.push(payload);
-          }),
-        "queue.resume": (payload: { readonly sessionId: SessionId }) =>
-          Effect.sync(() => {
-            resumeCalls.push(payload);
-          }),
-        "queue.flush": (payload: { readonly sessionId: SessionId }) =>
-          Effect.sync(() => {
-            flushCalls.push(payload);
-          }),
-      },
-    }) as Awaited<
-      ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
-    >,
-);
+const makeQueueClient = () =>
+  ({
+    messages: {
+      interrupt: () =>
+        Effect.sync(() => {
+          interruptCalls += 1;
+        }),
+      "queue.sendNow": (payload: {
+        readonly sessionId: SessionId;
+        readonly queueId: string;
+      }) =>
+        Effect.sync(() => {
+          sendNowCalls.push(payload);
+        }),
+      "queue.resume": (payload: { readonly sessionId: SessionId }) =>
+        Effect.sync(() => {
+          resumeCalls.push(payload);
+        }),
+      "queue.flush": (payload: { readonly sessionId: SessionId }) =>
+        Effect.sync(() => {
+          flushCalls.push(payload);
+        }),
+    },
+  }) as Awaited<
+    ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
+  >;
+
+setMessagesRpcClientForTest(async () => rpcClientFactory());
 
 describe("messages store queue actions", () => {
   beforeEach(() => {
@@ -65,6 +69,7 @@ describe("messages store queue actions", () => {
     sendNowCalls = [];
     resumeCalls = [];
     flushCalls = [];
+    rpcClientFactory = makeQueueClient;
     useMessagesStore.setState({
       messagesBySession: {},
       errorBySession: {},
@@ -106,5 +111,29 @@ describe("messages store queue actions", () => {
 
     expect(flushCalls).toEqual([{ sessionId }]);
     expect(useMessagesStore.getState().runningBySession[sessionId]).toBe(false);
+  });
+
+  it("reconnects the active transcript when it is still empty", async () => {
+    let streamCalls = 0;
+    rpcClientFactory = () =>
+      ({
+        messages: {
+          stream: () => {
+            streamCalls += 1;
+            return streamCalls === 1 ? Stream.never : Stream.empty;
+          },
+          "queue.stream": () => Stream.empty,
+        },
+        session: {
+          streamStatus: () => Stream.empty,
+        },
+      }) as Awaited<
+        ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
+      >;
+
+    await useMessagesStore.getState().hydrate(sessionId);
+    await useMessagesStore.getState().hydrate(sessionId);
+
+    expect(streamCalls).toBe(2);
   });
 });

@@ -19,6 +19,12 @@ import {
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { createAcpTranslator } from "./acp/translate.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
+import {
+  finishCompactEvent,
+  isCompactCommand,
+  startCompactEvent,
+  startCompactSnapshot,
+} from "./compact.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
@@ -62,7 +68,6 @@ export interface GeminiSessionHandle {
   ) => Effect.Effect<void>;
 }
 
-
 interface JsonRpcError {
   readonly code?: number;
   readonly message?: string;
@@ -96,7 +101,7 @@ const formatGeminiDiagnostics = (diagnostics: string): string => {
   ) {
     return [
       "Installed Gemini CLI does not support ACP mode (`gemini --experimental-acp`).",
-      "Upgrade Gemini CLI with `npm i -g @google/gemini-cli@latest`, then restart memoize.",
+      "Upgrade Gemini CLI with `npm i -g @google/gemini-cli@latest`, then restart Zuse.",
     ].join("\n");
   }
   return trimmed;
@@ -131,7 +136,8 @@ const formatRpcError = (
       } else {
         try {
           const serialized = JSON.stringify(err.data);
-          if (serialized !== "{}" && serialized.length > 0) parts.push(serialized);
+          if (serialized !== "{}" && serialized.length > 0)
+            parts.push(serialized);
         } catch {
           // unserialisable — fall through
         }
@@ -145,7 +151,10 @@ const formatRpcError = (
   }
   if (typeof err.code === "number") parts.push(`(code ${err.code})`);
   const trimmedDiagnostics = formatGeminiDiagnostics(diagnosticTail);
-  if (trimmedDiagnostics.length > 0 && parts.every((p) => p !== trimmedDiagnostics)) {
+  if (
+    trimmedDiagnostics.length > 0 &&
+    parts.every((p) => p !== trimmedDiagnostics)
+  ) {
     parts.push(`Diagnostics:\n${trimmedDiagnostics}`);
   }
   if (rawEnvelope !== undefined && rawEnvelope.length > 0) {
@@ -231,7 +240,11 @@ export const startGeminiSession = (
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
   resumeCursor: string | null = null,
-): Effect.Effect<GeminiSessionHandle, AgentSessionStartError, AttachmentService> =>
+): Effect.Effect<
+  GeminiSessionHandle,
+  AgentSessionStartError,
+  AttachmentService
+> =>
   Effect.gen(function* () {
     // Keep AttachmentService in the requirement set so layer wiring stays
     // uniform with the other drivers; attachments themselves are not yet
@@ -403,7 +416,10 @@ export const startGeminiSession = (
 
         // Forward item/* and thread/* notifications (collab swarming, per-thread
         // lifecycle) to the shared translator. Mirrors the Grok driver change.
-        if (msg.method.startsWith("item/") || msg.method.startsWith("thread/")) {
+        if (
+          msg.method.startsWith("item/") ||
+          msg.method.startsWith("thread/")
+        ) {
           if (GEMINI_RPC_TRACE) {
             process.stderr.write(
               `[gemini.rpc] ${msg.method} params=${JSON.stringify(msg.params ?? {})}\n`,
@@ -430,7 +446,8 @@ export const startGeminiSession = (
                 writeMessage({ jsonrpc: "2.0", id: msg.id, result });
               })
               .catch((err) => {
-                const message = err instanceof Error ? err.message : String(err);
+                const message =
+                  err instanceof Error ? err.message : String(err);
                 writeMessage({
                   jsonrpc: "2.0",
                   id: msg.id,
@@ -446,7 +463,8 @@ export const startGeminiSession = (
                 writeMessage({ jsonrpc: "2.0", id: msg.id, result });
               })
               .catch((err) => {
-                const message = err instanceof Error ? err.message : String(err);
+                const message =
+                  err instanceof Error ? err.message : String(err);
                 writeMessage({
                   jsonrpc: "2.0",
                   id: msg.id,
@@ -484,7 +502,7 @@ export const startGeminiSession = (
             id: msg.id,
             error: {
               code: -32601,
-              message: `Method not supported by memoize ACP client: ${msg.method}`,
+              message: `Method not supported by Zuse ACP client: ${msg.method}`,
             },
           });
           console.warn(
@@ -514,7 +532,9 @@ export const startGeminiSession = (
           );
         }
         const detail = formatRpcError(msg.error, diagnosticTail(), rawEnvelope);
-        resolver.reject(new Error(`Gemini ${resolver.method} failed: ${detail}`));
+        resolver.reject(
+          new Error(`Gemini ${resolver.method} failed: ${detail}`),
+        );
       } else {
         resolver.resolve(msg.result ?? {});
       }
@@ -534,9 +554,10 @@ export const startGeminiSession = (
     child.on("close", (code, signal) => {
       rl.close();
       const diagnostics = formatGeminiDiagnostics(diagnosticTail());
-      const exitDetail = diagnostics.length > 0
-        ? `Gemini ACP exited (code ${code ?? "null"}, signal ${signal ?? "null"}): ${diagnostics}`
-        : `Gemini ACP exited unexpectedly (code ${code ?? "null"}, signal ${signal ?? "null"}).`;
+      const exitDetail =
+        diagnostics.length > 0
+          ? `Gemini ACP exited (code ${code ?? "null"}, signal ${signal ?? "null"}): ${diagnostics}`
+          : `Gemini ACP exited unexpectedly (code ${code ?? "null"}, signal ${signal ?? "null"}).`;
       for (const { reject, timer } of pending.values()) {
         clearTimeout(timer);
         reject(new Error(exitDetail));
@@ -636,9 +657,23 @@ export const startGeminiSession = (
     const enqueuePrompt = (text: string): void => {
       const sid = acpSessionId;
       if (sid === null) return;
+      const compactSnapshot = isCompactCommand(text)
+        ? startCompactSnapshot(null)
+        : null;
+      if (compactSnapshot !== null) {
+        events.unsafeOffer(
+          startCompactEvent({
+            providerId: "gemini",
+            snapshot: compactSnapshot,
+          }),
+        );
+      }
       // Plan-mode emulation: gemini ACP has no native read-only switch, so
       // prepend a developer-instructions block while plan mode is active.
-      const promptText = applyPlanModePrefix(currentMode, text);
+      const promptText =
+        compactSnapshot !== null
+          ? text.trim()
+          : applyPlanModePrefix(currentMode, text);
       inflight = inflight
         .then(async () => {
           if (closed) return;
@@ -666,8 +701,19 @@ export const startGeminiSession = (
             if (GEMINI_RPC_TRACE) {
               process.stderr.write(`[gemini.prompt] completed\n`);
             }
+            if (compactSnapshot !== null && !closed) {
+              events.unsafeOffer(
+                finishCompactEvent({
+                  itemId: compactSnapshot.itemId,
+                  providerId: "gemini",
+                  snapshot: compactSnapshot,
+                  afterTokens: null,
+                }),
+              );
+            }
           } catch (cause) {
-            const reason = cause instanceof Error ? cause.message : String(cause);
+            const reason =
+              cause instanceof Error ? cause.message : String(cause);
             if (GEMINI_RPC_TRACE) {
               process.stderr.write(`[gemini.prompt] failed: ${reason}\n`);
             }

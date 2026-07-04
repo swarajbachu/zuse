@@ -10,18 +10,22 @@ import { cn } from "~/lib/utils";
 import { useProvidersStore } from "../../store/providers.ts";
 import { useSettingsStore } from "../../store/settings.ts";
 import { useWorkspaceStore } from "../../store/workspace.ts";
+import { AppearanceStep } from "./steps/appearance.tsx";
 import { DefaultsStep } from "./steps/defaults.tsx";
 import { DoneStep } from "./steps/done.tsx";
 import { MaximizeStep } from "./steps/maximize.tsx";
 import { ProjectStep } from "./steps/project.tsx";
 import { ProviderStep } from "./steps/provider.tsx";
+import { SigninStep } from "./steps/signin.tsx";
 import { WelcomeStep } from "./steps/welcome.tsx";
 
 type StepId =
   | "welcome"
+  | "signin"
   | "maximize"
   | "provider"
   | "project"
+  | "appearance"
   | "defaults"
   | "done";
 
@@ -30,7 +34,9 @@ const STEPS: ReadonlyArray<StepId> = [
   "maximize",
   "provider",
   "project",
+  "appearance",
   "defaults",
+  "signin",
   "done",
 ];
 
@@ -88,7 +94,8 @@ export function OnboardingWizard() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isFirst, isLast, canAdvance, goBack, goNext]);
 
-  const skippable = stepId === "project" || stepId === "defaults";
+  const skippable =
+    stepId === "signin" || stepId === "project" || stepId === "defaults";
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -109,9 +116,11 @@ export function OnboardingWizard() {
 
           <div className="min-h-[24rem] px-1 py-2">
             {stepId === "welcome" && <WelcomeStep />}
+            {stepId === "signin" && <SigninStep />}
             {stepId === "maximize" && <MaximizeStep />}
             {stepId === "provider" && <ProviderStep />}
             {stepId === "project" && <ProjectStep />}
+            {stepId === "appearance" && <AppearanceStep />}
             {stepId === "defaults" && <DefaultsStep />}
             {stepId === "done" && <DoneStep onFinish={finish} />}
           </div>
@@ -124,7 +133,7 @@ export function OnboardingWizard() {
                 onClick={goBack}
                 disabled={isFirst}
                 className={cn(
-                  "rounded-full px-3 text-muted-foreground hover:text-foreground",
+                  "rounded-lg px-3 text-muted-foreground hover:text-foreground",
                   isFirst && "invisible",
                 )}
               >
@@ -137,7 +146,7 @@ export function OnboardingWizard() {
                     variant="ghost"
                     size="sm"
                     onClick={goNext}
-                    className="rounded-full px-3 text-muted-foreground hover:text-foreground"
+                    className="rounded-lg px-3 text-muted-foreground hover:text-foreground"
                   >
                     Skip
                   </Button>
@@ -146,7 +155,7 @@ export function OnboardingWizard() {
                   size="default"
                   onClick={goNext}
                   disabled={!canAdvance}
-                  className="rounded-full px-5"
+                  className="rounded-lg px-5"
                 >
                   {isFirst ? "Get started" : "Continue"}
                   <HugeiconsIcon icon={ArrowRight01Icon} />

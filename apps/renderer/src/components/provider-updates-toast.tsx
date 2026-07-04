@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
+import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { useProvidersStore } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
 
@@ -12,11 +13,16 @@ import { useUiStore } from "~/store/ui";
 // encodes the exact (provider, latestVersion) pairs, so dismissing "Codex
 // v1.2.0 + Claude v1.0.5" stays hidden — but a newer release changes the key
 // and the toast returns.
-const STORAGE_KEY = "memoize.dismissedProviderUpdates";
+const STORAGE_KEY = "zuse.dismissedProviderUpdates";
+const LEGACY_STORAGE_KEYS = ["memoize.dismissedProviderUpdates"] as const;
 
 function loadDismissed(): Set<string> {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStorageWithLegacy(
+      window.localStorage,
+      STORAGE_KEY,
+      LEGACY_STORAGE_KEYS,
+    );
     if (raw === null) return new Set();
     const parsed = JSON.parse(raw) as unknown;
     return Array.isArray(parsed)

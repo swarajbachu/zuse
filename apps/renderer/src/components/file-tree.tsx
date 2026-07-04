@@ -756,7 +756,7 @@ function FileTreeContextMenu({
         {entry?.kind === "file" && (
           <MenuItem onClick={() => onOpenInEditor(entry)}>
             <HugeiconsIcon icon={PencilEdit01Icon} className="size-4" />
-            Open in Conductor editor
+            Open in editor
           </MenuItem>
         )}
         {entry !== null && (

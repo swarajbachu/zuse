@@ -7,6 +7,7 @@ import {
   MODELS_BY_PROVIDER,
   type FolderId,
   type ProviderId,
+  visibleModelsForProvider,
 } from "@zuse/wire";
 
 import { useRepositorySettingsStore } from "../store/repository-settings.ts";
@@ -165,6 +166,9 @@ function ProviderOverrideSection({
     (s) => s.defaultModelByProvider,
   );
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
   const effectiveProvider: ProviderId = defaultProviderId ?? globalProviderId;
   const globalModel = globalModelByProvider[globalProviderId];
   const globalModelLabel =
@@ -186,7 +190,9 @@ function ProviderOverrideSection({
   });
 
   const firstModelFor = (pid: ProviderId): string | null =>
-    MODELS_BY_PROVIDER[pid]?.[0]?.id ?? null;
+    visibleModelsForProvider(pid, modelEnabledByProvider)[0]?.id ??
+    MODELS_BY_PROVIDER[pid]?.[0]?.id ??
+    null;
 
   const onToggle = (next: boolean) => {
     if (next) {
@@ -231,7 +237,14 @@ function ProviderOverrideSection({
         >
           {availableProviders.map((pid) => {
             const selected = effectiveProvider === pid;
-            const models = MODELS_BY_PROVIDER[pid] ?? [];
+            const models = visibleModelsForProvider(
+              pid,
+              modelEnabledByProvider,
+              {
+                includeModelId:
+                  selected && selectedModel !== null ? selectedModel : null,
+              },
+            );
             return (
               <div
                 key={pid}
@@ -335,7 +348,10 @@ function RuntimeModeOverrideSection({
                 onClick={() => onChange(mode)}
                 className="group flex w-full items-start gap-3 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
               >
-                <HugeiconsIcon icon={m.Icon} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <HugeiconsIcon
+                  icon={m.Icon}
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-sm font-medium text-foreground">
                     {m.label}
@@ -377,7 +393,12 @@ function WorktreeSection({
   );
   const refresh = useWorktreesStore((s) => s.refresh);
   const remove = useWorktreesStore((s) => s.remove);
-  const [pendingDirty, setPendingDirty] = useState<string | null>(null);
+  const [pendingDirtyId, setPendingDirtyId] = useState<
+    (typeof worktrees)[number]["id"] | null
+  >(null);
+  const [removingId, setRemovingId] = useState<
+    (typeof worktrees)[number]["id"] | null
+  >(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -394,24 +415,25 @@ function WorktreeSection({
 
   const onRemove = async (
     worktreeId: (typeof worktrees)[number]["id"],
-    name: string,
     force: boolean,
   ) => {
+    if (removingId !== null) return;
+    setRemovingId(worktreeId);
     setPendingError(null);
-    const result = await remove(projectId, worktreeId, force);
-    if (result.ok) {
-      setPendingDirty(null);
-      return;
+    try {
+      const result = await remove(projectId, worktreeId, force);
+      if (result.ok) {
+        setPendingDirtyId(null);
+        return;
+      }
+      if (result.dirty) {
+        setPendingDirtyId(worktreeId);
+        return;
+      }
+      setPendingError(result.reason);
+    } finally {
+      setRemovingId(null);
     }
-    if (
-      !force &&
-      (result.reason.includes("WorktreeDirtyError") ||
-        result.reason.toLowerCase().includes("dirty"))
-    ) {
-      setPendingDirty(name);
-      return;
-    }
-    setPendingError(result.reason);
   };
 
   return (
@@ -446,8 +468,8 @@ function WorktreeSection({
       <div className="flex flex-col">
         {sorted.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-            No worktrees yet. Zuse Alpha creates one for you when you start a new
-            chat.
+            No worktrees yet. Zuse Alpha creates one for you when you start a
+            new chat.
           </p>
         ) : (
           <ul className="flex flex-col divide-y divide-border/40">
@@ -456,11 +478,11 @@ function WorktreeSection({
                 key={wt.id}
                 className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
               >
-                <HugeiconsIcon icon={GitBranchIcon} className="size-4 shrink-0 text-muted-foreground" />
-                <div
-                  className="flex min-w-0 flex-col gap-0.5"
-                  title={wt.path}
-                >
+                <HugeiconsIcon
+                  icon={GitBranchIcon}
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <div className="flex min-w-0 flex-col gap-0.5" title={wt.path}>
                   <span className="truncate text-sm font-medium text-foreground">
                     {wt.name}
                   </span>
@@ -472,19 +494,21 @@ function WorktreeSection({
                     </span>
                   </span>
                 </div>
-                {pendingDirty === wt.name ? (
+                {pendingDirtyId === wt.id ? (
                   <div className="flex items-center gap-1.5">
                     <Button
                       variant="destructive-outline"
                       size="sm"
-                      onClick={() => void onRemove(wt.id, wt.name, true)}
+                      loading={removingId === wt.id}
+                      onClick={() => void onRemove(wt.id, true)}
                     >
                       Force remove
                     </Button>
                     <Button
                       variant="settings"
                       size="sm"
-                      onClick={() => setPendingDirty(null)}
+                      disabled={removingId === wt.id}
+                      onClick={() => setPendingDirtyId(null)}
                     >
                       Cancel
                     </Button>
@@ -493,7 +517,8 @@ function WorktreeSection({
                   <Button
                     variant="settings"
                     size="sm"
-                    onClick={() => void onRemove(wt.id, wt.name, false)}
+                    loading={removingId === wt.id}
+                    onClick={() => void onRemove(wt.id, false)}
                     title="Remove this worktree from disk (branch stays)"
                   >
                     <HugeiconsIcon icon={Delete02Icon} className="size-3" />
@@ -507,10 +532,10 @@ function WorktreeSection({
       </div>
 
       <div className="px-4 py-3">
-        {pendingDirty !== null ? (
+        {pendingDirtyId !== null ? (
           <p className="text-xs leading-relaxed text-amber-400">
-            {pendingDirty} has uncommitted changes. Force-remove to discard
-            them.
+            {sorted.find((wt) => wt.id === pendingDirtyId)?.name ?? "Worktree"}{" "}
+            has uncommitted changes. Force-remove to discard them.
           </p>
         ) : pendingError !== null ? (
           <p className="text-xs leading-relaxed text-red-400">{pendingError}</p>

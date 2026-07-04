@@ -24,7 +24,8 @@ export const DEFAULT_SUBAGENT_PRESETS: ReadonlyArray<SubagentPreset> = [
   {
     name: "research",
     displayName: "Research",
-    summary: "Read-only codebase exploration. Find files, understand patterns, list usages.",
+    summary:
+      "Read-only codebase exploration. Find files, understand patterns, list usages.",
     definition: {
       description:
         "Read-only codebase exploration. Use when you need to find files, " +
@@ -63,7 +64,7 @@ export const DEFAULT_SUBAGENT_PRESETS: ReadonlyArray<SubagentPreset> = [
         "Don't refactor adjacent code, don't add comments, don't 'improve' " +
         "anything that isn't part of the requested change.",
       tools: ["Read", "Edit", "Write", "Glob"],
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       maxTurns: 40,
     },
   },

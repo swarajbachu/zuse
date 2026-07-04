@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
-  ArrowDown01Icon,
   CircleArrowUp01Icon,
   Copy01Icon,
   LinkSquare01Icon,
@@ -16,6 +15,7 @@ import {
   type AgentAvailability,
   type ProviderId,
   type ProviderUpdateEvent,
+  visibleModelsForProvider,
 } from "@zuse/wire";
 
 import { ApiKeyRow } from "~/components/api-key-row";
@@ -96,7 +96,6 @@ export function ProviderCard({
   availability: AgentAvailability | undefined;
   loading: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const subscription = SUBSCRIPTION_INFO[providerId];
   const persistedEnabled =
     useSettingsStore((s) => s.providerEnabled[providerId]) ?? true;
@@ -156,11 +155,7 @@ export function ProviderCard({
         !enabled && !unmetSubscriptionRequirement && "opacity-70",
       )}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((e) => !e)}
-        className="flex w-full items-center gap-3 px-3.5 py-3 text-left group-first:rounded-t-xl group-last:rounded-b-xl transition-colors hover:bg-muted/40"
-      >
+      <div className="flex w-full items-center gap-3 px-3.5 py-3 text-left group-first:rounded-t-xl">
         <span className="flex size-7 shrink-0 items-center justify-center">
           <ProviderIcon providerId={providerId} className="size-5" />
         </span>
@@ -216,56 +211,44 @@ export function ProviderCard({
               : undefined
           }
         />
-        <HugeiconsIcon
-          icon={ArrowDown01Icon}
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-180",
-          )}
-          aria-hidden
-        />
-      </button>
+      </div>
 
-      {expanded && (
-        <div
-          className={cn(
-            "flex flex-col gap-4 border-t border-border/40 px-3.5 py-3 text-xs",
-            !enabled && "pointer-events-none",
-          )}
-        >
-          {showUpgrade && (
-            <CodeRow
-              label="Update CLI"
-              command={
-                availability?.cliUpgradeCommand ?? INSTALL_HINT[providerId]
-              }
-            />
-          )}
-          {availability !== undefined && !availability.cliInstalled && (
-            <CodeRow label="Install" command={INSTALL_HINT[providerId]} />
-          )}
-          {availability?.cliInstalled &&
-            availability.authStatus === "unauthenticated" &&
-            (providerId === "cursor" || providerId === "claude" ? (
-              <ProviderSignInRow providerId={providerId} />
-            ) : (
-              <CodeRow label="Sign in" command={LOGIN_HINT[providerId]} />
-            ))}
-          <SubscriptionRow
-            providerId={providerId}
-            availability={availability}
+      <div
+        className={cn(
+          "flex flex-col gap-4 border-t border-border/40 px-3.5 py-3 text-xs",
+          !enabled && "pointer-events-none",
+        )}
+      >
+        {showUpgrade && (
+          <CodeRow
+            label="Update CLI"
+            command={
+              availability?.cliUpgradeCommand ?? INSTALL_HINT[providerId]
+            }
           />
+        )}
+        {availability !== undefined && !availability.cliInstalled && (
+          <CodeRow label="Install" command={INSTALL_HINT[providerId]} />
+        )}
+        {availability?.cliInstalled &&
+          availability.authStatus === "unauthenticated" &&
+          (providerId === "cursor" || providerId === "claude" ? (
+            <ProviderSignInRow providerId={providerId} />
+          ) : (
+            <CodeRow label="Sign in" command={LOGIN_HINT[providerId]} />
+          ))}
+        <SubscriptionRow providerId={providerId} availability={availability} />
 
-          <ModelDefault providerId={providerId} />
+        <ModelDefault providerId={providerId} />
+        <ModelVisibilitySettings providerId={providerId} />
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              API key (optional)
-            </span>
-            <ApiKeyRow providerId={providerId} />
-          </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            API key (optional)
+          </span>
+          <ApiKeyRow providerId={providerId} />
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -275,7 +258,12 @@ function ModelDefault({ providerId }: { providerId: ProviderId }) {
     (s) => s.defaultModelByProvider[providerId] ?? "",
   );
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
-  const models = MODELS_BY_PROVIDER[providerId] ?? [];
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
+  const models = visibleModelsForProvider(providerId, modelEnabledByProvider, {
+    includeModelId: value,
+  });
   const items = useMemo(
     () => models.map((m) => ({ value: m.id, label: m.label })),
     [models],
@@ -302,6 +290,67 @@ function ModelDefault({ providerId }: { providerId: ProviderId }) {
           ))}
         </SelectPopup>
       </Select>
+    </div>
+  );
+}
+
+function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
+  const setModelEnabled = useSettingsStore((s) => s.setModelEnabled);
+  const models = MODELS_BY_PROVIDER[providerId] ?? [];
+  if (models.length <= 1) return null;
+
+  const visibleCount = models.filter(
+    (m) => modelEnabledByProvider[providerId]?.[m.id] !== false,
+  ).length;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground">
+          Models
+        </span>
+        <span className="text-[10px] text-muted-foreground/70">
+          {visibleCount} shown
+        </span>
+      </div>
+      <div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
+        {models.map((model) => {
+          const checked =
+            modelEnabledByProvider[providerId]?.[model.id] !== false;
+          const onlyVisible = checked && visibleCount <= 1;
+          return (
+            <div
+              key={model.id}
+              className="flex min-h-9 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0"
+            >
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                {model.label}
+              </span>
+              {model.defaultVisible === false && (
+                <span className="rounded bg-muted/70 px-1.5 py-px text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
+                  older
+                </span>
+              )}
+              <Switch
+                checked={checked}
+                disabled={onlyVisible}
+                onCheckedChange={(next) =>
+                  setModelEnabled(providerId, model.id, next)
+                }
+                aria-label={`${checked ? "Hide" : "Show"} ${model.label}`}
+                title={
+                  onlyVisible
+                    ? "At least one model must stay visible"
+                    : undefined
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -98,7 +98,7 @@
     {
       "_tag": "ContextUsage",
       "providerId": "codex",
-      "usedTokens": 1200,
+      "usedTokens": 200,
       "windowTokens": 258400,
       "precision": "exact",
       "source": "Codex app-server"

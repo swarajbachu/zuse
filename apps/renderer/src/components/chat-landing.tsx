@@ -6,7 +6,7 @@ import {
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { X } from "lucide-react";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 
 import {
   type ComposerInput,
@@ -24,11 +24,20 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "~/components/ui/menu";
+import {
+  Frame,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from "~/components/ui/frame";
+import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
 import { useChatsStore } from "~/store/chats";
 import { useMessagesStore } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
+import { useExternalThreadsStore } from "~/store/external-threads";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -36,6 +45,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
 import { composerDraftKeyForLanding } from "~/store/composer-drafts";
 import { ChatComposer } from "./chat-composer.tsx";
 import { PROVIDER_LABEL } from "./settings-page";
+import { ProviderIcon } from "./provider-icons";
 import { SetupCardView } from "./worktree-setup-card.tsx";
 
 /**
@@ -46,12 +56,21 @@ import { SetupCardView } from "./worktree-setup-card.tsx";
  */
 const migrateModelOptions = (fromId: string, toId: string): void => {
   if (typeof window === "undefined") return;
-  const prefix = `memoize.modelOptions.${fromId}.`;
+  const prefix = `zuse.modelOptions.${fromId}.`;
+  const legacyPrefix = `memoize.modelOptions.${fromId}.`;
   const moves: Array<[string, string]> = [];
   for (let i = 0; i < window.sessionStorage.length; i++) {
     const key = window.sessionStorage.key(i);
     if (key !== null && key.startsWith(prefix)) {
-      moves.push([key, `memoize.modelOptions.${toId}.${key.slice(prefix.length)}`]);
+      moves.push([
+        key,
+        `zuse.modelOptions.${toId}.${key.slice(prefix.length)}`,
+      ]);
+    } else if (key !== null && key.startsWith(legacyPrefix)) {
+      moves.push([
+        key,
+        `zuse.modelOptions.${toId}.${key.slice(legacyPrefix.length)}`,
+      ]);
     }
   }
   for (const [from, to] of moves) {
@@ -59,6 +78,17 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
     if (value !== null) window.sessionStorage.setItem(to, value);
     window.sessionStorage.removeItem(from);
   }
+};
+
+const formatThreadRelative = (date: Date): string => {
+  const ms = Math.max(0, Date.now() - date.getTime());
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "now";
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const day = Math.floor(hr / 24);
+  return `${day}d`;
 };
 
 /**
@@ -78,6 +108,15 @@ export function ChatLanding() {
   const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
   const selectFolder = useWorkspaceStore((s) => s.select);
   const addFolder = useWorkspaceStore((s) => s.add);
+  const externalThreads = useExternalThreadsStore((s) => s.threads);
+  const externalThreadsLoading = useExternalThreadsStore((s) => s.loading);
+  const continuingExternalThreadId = useExternalThreadsStore(
+    (s) => s.continuingId,
+  );
+  const hydrateExternalThreads = useExternalThreadsStore((s) => s.hydrate);
+  const continueExternalThread = useExternalThreadsStore(
+    (s) => s.continueThread,
+  );
 
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
   // Goal mode is offered for Codex (version-gated `goalMode` capability) and
@@ -163,6 +202,10 @@ export function ChatLanding() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolderId]);
 
+  useEffect(() => {
+    void hydrateExternalThreads();
+  }, [hydrateExternalThreads]);
+
   const headline = selectedFolder
     ? `What should we build in ${selectedFolder.name}?`
     : "What should we build today?";
@@ -190,14 +233,21 @@ export function ChatLanding() {
     setSubmitError(null);
     setSubmitting(true);
     setPendingProviderId(draft.providerId);
-    setPendingPrompt(input.text.trim().length > 0 ? input.text.trim() : "New chat");
+    setPendingPrompt(
+      input.text.trim().length > 0 ? input.text.trim() : "New chat",
+    );
     const worktreeId = await resolveAutoWorktreeId(selectedFolderId);
     setPendingWorktreeId(worktreeId);
-    const result = await create(selectedFolderId, draft.providerId, draft.model, {
-      runtimeMode: draft.runtimeMode,
-      permissionMode: draft.permissionMode,
-      worktreeId,
-    });
+    const result = await create(
+      selectedFolderId,
+      draft.providerId,
+      draft.model,
+      {
+        runtimeMode: draft.runtimeMode,
+        permissionMode: draft.permissionMode,
+        worktreeId,
+      },
+    );
     if (result === null) {
       const reason =
         useChatsStore.getState().error ??
@@ -297,6 +347,13 @@ export function ChatLanding() {
           </p>
         )}
 
+        <ContinueThreadsSection
+          threads={externalThreads}
+          loading={externalThreadsLoading}
+          continuingId={continuingExternalThreadId}
+          onContinue={(thread) => void continueExternalThread(thread)}
+        />
+
         <div className="flex justify-center">
           <ProjectPicker
             folders={folders}
@@ -308,6 +365,160 @@ export function ChatLanding() {
         </div>
       </div>
     </div>
+  );
+}
+
+function ContinueThreadsSection({
+  threads,
+  loading,
+  continuingId,
+  onContinue,
+}: {
+  threads: ReturnType<typeof useExternalThreadsStore.getState>["threads"];
+  loading: boolean;
+  continuingId: string | null;
+  onContinue: (
+    thread: ReturnType<
+      typeof useExternalThreadsStore.getState
+    >["threads"][number],
+  ) => void;
+}) {
+  if (!loading && threads.length === 0) return null;
+  return (
+    <section className="mt-2 min-w-0">
+      <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          <span>Continue Threads</span>
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tracking-normal text-muted-foreground">
+            {loading && threads.length === 0 ? "..." : threads.length}
+          </span>
+        </div>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-1">
+        {loading && threads.length === 0
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <ContinueThreadSkeleton
+                // eslint-disable-next-line react/no-array-index-key
+                key={index}
+              />
+            ))
+          : threads.map((thread) => {
+              const disabled = !thread.available || continuingId !== null;
+              const active = continuingId === thread.id;
+              return (
+                <button
+                  type="button"
+                  key={thread.id}
+                  disabled={disabled}
+                  onClick={() => onContinue(thread)}
+                  title={
+                    thread.available
+                      ? thread.projectPath
+                      : `${thread.projectPath || "Project folder"} is missing`
+                  }
+                  className={cn(
+                    "group min-w-[17.5rem] max-w-[19rem] text-left outline-none transition-transform focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-ring",
+                    !disabled && "hover:-translate-y-px",
+                    disabled &&
+                      "cursor-default hover:translate-y-0",
+                  )}
+                >
+                  <Frame
+                    className={cn(
+                      "h-40 min-w-[17.5rem] overflow-hidden bg-muted/50 p-1 transition-colors",
+                      !thread.available && "opacity-55",
+                    )}
+                  >
+                    <FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-1.5">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground shadow-xs/5">
+                          <ProviderIcon
+                            providerId={thread.providerId}
+                            className="size-4"
+                          />
+                        </span>
+                        <FrameTitle className="truncate text-[11px] font-medium text-muted-foreground">
+                          {providerThreadLabel(thread.providerId)}
+                        </FrameTitle>
+                      </div>
+                      {active ? (
+                        <Spinner className="size-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {formatThreadRelative(thread.updatedAt)}
+                        </span>
+                      )}
+                    </FrameHeader>
+                    <FramePanel
+                      className={cn(
+                        "min-h-0 flex-1 overflow-hidden px-3 py-2 transition-colors",
+                        !disabled &&
+                          "group-hover:border-border group-hover:bg-muted/20",
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground">
+                          {thread.title}
+                        </div>
+                        <div className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground">
+                          {thread.preview}
+                        </div>
+                      </div>
+                    </FramePanel>
+                    <FrameFooter className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <HugeiconsIcon
+                          icon={Folder01Icon}
+                          className="size-3.5 shrink-0"
+                        />
+                        <span className="truncate">
+                          {thread.projectName}
+                        </span>
+                      </span>
+                      {!thread.available && (
+                        <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] text-destructive">
+                          Missing
+                        </span>
+                      )}
+                    </FrameFooter>
+                  </Frame>
+                </button>
+              );
+            })}
+      </div>
+    </section>
+  );
+}
+
+function providerThreadLabel(providerId: ProviderId): string {
+  if (providerId === "claude") return "Claude Code";
+  if (providerId === "codex") return "Codex";
+  return PROVIDER_LABEL[providerId] ?? providerId;
+}
+
+function ContinueThreadSkeleton() {
+  return (
+    <Frame className="h-40 min-w-[17.5rem] bg-muted/50 p-1">
+      <FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="h-3 w-14" />
+        </div>
+        <Skeleton className="h-3 w-8" />
+      </FrameHeader>
+      <FramePanel className="min-h-0 flex-1 px-3 py-2">
+        <div>
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="mt-2 h-4 w-36" />
+          <Skeleton className="mt-3 h-3 w-52" />
+          <Skeleton className="mt-1.5 h-3 w-40" />
+        </div>
+      </FramePanel>
+      <FrameFooter className="flex items-center gap-1.5 px-3 py-2">
+        <Skeleton className="size-3.5" />
+        <Skeleton className="h-3 w-24" />
+      </FrameFooter>
+    </Frame>
   );
 }
 

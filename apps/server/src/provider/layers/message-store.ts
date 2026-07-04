@@ -14,6 +14,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
   Message,
+  MessageEnvelope,
   MessageId,
   type PermissionMode,
   SessionAlreadyStartedError,
@@ -31,6 +32,7 @@ import {
   type ProviderId,
   QueueState,
   QueuedMessage,
+  type ResumeStrategy,
   type RuntimeMode,
   Session,
   SessionId,
@@ -47,6 +49,7 @@ import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { GitService } from "../../git/services/git-service.ts";
+import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
@@ -278,8 +281,17 @@ const chatFromRow = (row: ChatRow): Chat =>
     updatedAt: new Date(row.updated_at),
   });
 
+const normalizeMessageContent = (content: MessageContent): MessageContent => {
+  if (content._tag === "context_compaction" && content.status === undefined) {
+    return { ...content, status: "completed" };
+  }
+  return content;
+};
+
 const messageFromRow = (row: MessageRow): Message => {
-  const content = JSON.parse(row.content_json) as MessageContent;
+  const content = normalizeMessageContent(
+    JSON.parse(row.content_json) as MessageContent,
+  );
   return Message.make({
     id: MessageId.make(row.id),
     sessionId: SessionId.make(row.session_id),
@@ -315,6 +327,7 @@ const parentItemIdOfContent = (content: MessageContent): string | null => {
     case "user_question_answer":
       return content.parentItemId ?? null;
     case "context_usage":
+    case "context_compaction":
     case "usage_limit":
       return null;
     case "subagent_summary":
@@ -344,6 +357,7 @@ const roleForContent = (content: MessageContent): MessageRole => {
     case "interrupted":
     case "usage":
     case "context_usage":
+    case "context_compaction":
     case "usage_limit":
       return "system";
   }
@@ -416,6 +430,17 @@ const eventToContent = (event: AgentEvent): MessageContent | null => {
         windowTokens: event.windowTokens,
         precision: event.precision,
         source: event.source,
+      };
+    case "ContextCompaction":
+      return {
+        _tag: "context_compaction",
+        itemId: event.itemId,
+        providerId: event.providerId,
+        startedAt: event.startedAt,
+        durationMs: event.durationMs,
+        beforeTokens: event.beforeTokens,
+        afterTokens: event.afterTokens,
+        status: event.status,
       };
     case "UsageLimit":
       return {
@@ -515,10 +540,20 @@ const looksLikeAuthFailure = (reason: string): boolean =>
     reason,
   );
 
+/**
+ * A persisted message together with the global event-log `sequence` its
+ * `MessagePersisted` event was assigned — the cursor clients resume from.
+ */
+interface PersistedMessage {
+  readonly message: Message;
+  readonly sequence: number;
+}
+
 export const MessageStoreLive = Layer.scoped(
   MessageStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const eventStore = makeEventStore(sql);
     const provider = yield* ProviderService;
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -688,9 +723,10 @@ export const MessageStoreLive = Layer.scoped(
 
     const ndjsonAppend = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const message = persisted.message;
         let projectId = projectIdBySession.get(sessionId);
         if (projectId === undefined) {
           const rows = yield* sql<{ readonly project_id: string }>`
@@ -713,7 +749,7 @@ export const MessageStoreLive = Layer.scoped(
     // `streamMessages` subscribers so a single provider event fans out to
     // every connected renderer view of that session.
     const pubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<Message>>
+      ReadonlyMap<SessionId, PubSub.PubSub<MessageEnvelope>>
     >(new Map());
     const fibers = yield* Ref.make<
       ReadonlyMap<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
@@ -761,7 +797,7 @@ export const MessageStoreLive = Layer.scoped(
         const map = yield* Ref.get(pubsubs);
         const existing = map.get(sessionId);
         if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<Message>();
+        const pubsub = yield* PubSub.unbounded<MessageEnvelope>();
         yield* Ref.update(pubsubs, (m) => {
           const next = new Map(m);
           next.set(sessionId, pubsub);
@@ -889,37 +925,49 @@ export const MessageStoreLive = Layer.scoped(
     const persistMessage = (
       sessionId: SessionId,
       content: MessageContent,
-    ): Effect.Effect<Message> =>
+      idOverride?: MessageId,
+    ): Effect.Effect<PersistedMessage> =>
       Effect.gen(function* () {
-        const id = MessageId.make(crypto.randomUUID());
+        // `idOverride` is the renderer-minted `clientMessageId` for an
+        // optimistic user message — reuse it so the live-stream echo carries
+        // the same id the renderer already inserted. All other persists
+        // (assistant/tool/error/goal) omit it and get a fresh server id.
+        const id = idOverride ?? MessageId.make(crypto.randomUUID());
         const role = roleForContent(content);
         const now = new Date();
         const nowIso = now.toISOString();
         const parentItemId = parentItemIdOfContent(content);
-        yield* sql`
-          INSERT INTO messages
-            (id, session_id, role, kind, content_json, parent_item_id, created_at)
-          VALUES
-            (${id}, ${sessionId}, ${role}, ${content._tag},
-             ${JSON.stringify(content)}, ${parentItemId}, ${nowIso})
-        `.pipe(Effect.orDie);
-        yield* sql`
-          UPDATE sessions SET updated_at = ${nowIso} WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
-        // Advance the owning chat's activity clock so the sidebar can mark it
-        // unread. `updated_at` (and sidebar ordering) is intentionally left
-        // untouched — `last_message_at` is a separate read/unread signal.
-        yield* sql`
-          UPDATE chats SET last_message_at = ${nowIso}
-          WHERE id = (SELECT chat_id FROM sessions WHERE id = ${sessionId})
-        `.pipe(Effect.orDie);
-        return Message.make({
-          id,
-          sessionId,
-          role,
-          content,
-          createdAt: now,
-        });
+        // All chat writes flow through the event log; the projection inside
+        // `appendEvent` performs the historical INSERT INTO messages +
+        // sessions.updated_at + chats.last_message_at writes atomically and
+        // assigns the global `sequence` clients resume from.
+        const sequence = yield* eventStore
+          .appendEvent({
+            streamKind: "session",
+            streamId: sessionId,
+            type: "MessagePersisted",
+            actor: null,
+            payload: {
+              messageId: id,
+              sessionId,
+              role,
+              kind: content._tag,
+              contentJson: JSON.stringify(content),
+              parentItemId,
+              createdAt: nowIso,
+            },
+          })
+          .pipe(Effect.orDie);
+        return {
+          message: Message.make({
+            id,
+            sessionId,
+            role,
+            content,
+            createdAt: now,
+          }),
+          sequence,
+        };
       });
 
     const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
@@ -945,56 +993,30 @@ export const MessageStoreLive = Layer.scoped(
 
     const broadcastMessage = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        // Publish AFTER the append transaction committed (persistMessage
+        // returned) — a subscriber must never observe an event that later
+        // rolls back. The sinceSequence cursor closes any
+        // crash-between-commit-and-publish gap.
         const pubsub = yield* getOrMakePubsub(sessionId);
-        yield* PubSub.publish(pubsub, message);
+        yield* PubSub.publish(
+          pubsub,
+          MessageEnvelope.make({
+            sequence: persisted.sequence,
+            message: persisted.message,
+          }),
+        );
       });
 
-    const ensureQueuedMessagesSchema: Effect.Effect<void> = Effect.gen(
-      function* () {
-        yield* sql`
-          CREATE TABLE IF NOT EXISTS queued_messages (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-            queue_order INTEGER NOT NULL,
-            input_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-          )
-        `.pipe(Effect.orDie);
-
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(queued_messages)
-        `.pipe(Effect.orDie);
-        const hasColumn = (name: string): boolean =>
-          columns.some((column) => column.name === name);
-
-        if (!hasColumn("queue_order")) {
-          yield* sql`
-            ALTER TABLE queued_messages
-              ADD COLUMN queue_order INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-          if (hasColumn("position")) {
-            yield* sql`
-              UPDATE queued_messages SET queue_order = "position"
-            `.pipe(Effect.orDie);
-          }
-        }
-
-        yield* sql`
-          CREATE INDEX IF NOT EXISTS idx_queued_messages_session_queue_order
-          ON queued_messages(session_id, queue_order)
-        `.pipe(Effect.orDie);
-      },
-    );
-
+    // The queued_messages schema (and sessions.queue_paused) are owned by
+    // migrations 0015/0016/0019 — the migrator runs upstream of this layer,
+    // so the lazy re-creation this file used to do is gone.
     const listQueuedRows = (
       sessionId: SessionId,
     ): Effect.Effect<ReadonlyArray<QueuedMessage>> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -1004,23 +1026,8 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(queuedMessageFromRow);
       });
 
-    const ensureQueuePausedColumn: Effect.Effect<void> = Effect.gen(
-      function* () {
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(sessions)
-        `.pipe(Effect.orDie);
-        if (!columns.some((column) => column.name === "queue_paused")) {
-          yield* sql`
-            ALTER TABLE sessions
-              ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-        }
-      },
-    );
-
     const isQueuePaused = (sessionId: SessionId): Effect.Effect<boolean> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         const rows = yield* sql<{ readonly queue_paused: number }>`
           SELECT queue_paused
           FROM sessions
@@ -1051,7 +1058,6 @@ export const MessageStoreLive = Layer.scoped(
       paused: boolean,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         yield* sql`
           UPDATE sessions
           SET queue_paused = ${paused ? 1 : 0},
@@ -1074,7 +1080,6 @@ export const MessageStoreLive = Layer.scoped(
       sessionId: SessionId,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<{ readonly id: string }>`
           SELECT id FROM queued_messages
           WHERE session_id = ${sessionId}
@@ -1403,6 +1408,9 @@ export const MessageStoreLive = Layer.scoped(
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
         const background = input.background === true;
+        const resumeCursor = input.resumeCursor ?? null;
+        const resumeStrategy: ResumeStrategy =
+          resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -1418,13 +1426,13 @@ export const MessageStoreLive = Layer.scoped(
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, runtime_mode,
                agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, created_at, updated_at)
+               tool_search, cursor, resume_strategy, created_at, updated_at)
             VALUES
               (${sessionId}, ${projectId}, ${title}, ${input.providerId},
                ${input.model}, ${rowStatus}, ${initialRuntimeMode},
                ${agentsJson}, ${worktreeId}, ${input.chatId},
                ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${nowIso}, ${nowIso})
+               ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
           `.pipe(Effect.orDie);
           yield* sql`
             UPDATE chats
@@ -1458,7 +1466,7 @@ export const MessageStoreLive = Layer.scoped(
                   permissionMode: initialPermissionMode,
                   toolSearch: initialToolSearch,
                 },
-                null,
+                resumeCursor,
                 newSessionRuntimeMode,
               )
               .pipe(
@@ -1496,8 +1504,8 @@ export const MessageStoreLive = Layer.scoped(
             model: input.model,
             status: "booting",
             archivedAt: null,
-            cursor: null,
-            resumeStrategy: "none",
+            cursor: resumeCursor,
+            resumeStrategy,
             runtimeMode: initialRuntimeMode,
             worktreeId,
             chatId: input.chatId,
@@ -1529,7 +1537,7 @@ export const MessageStoreLive = Layer.scoped(
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
             },
-            null,
+            resumeCursor,
             newSessionRuntimeMode,
           )
           .pipe(
@@ -1549,13 +1557,13 @@ export const MessageStoreLive = Layer.scoped(
           INSERT INTO sessions
             (id, project_id, title, provider_id, model, status, runtime_mode,
              agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, created_at, updated_at)
+             tool_search, cursor, resume_strategy, created_at, updated_at)
           VALUES
             (${sessionId}, ${projectId}, ${title}, ${input.providerId},
              ${input.model}, ${rowStatus}, ${initialRuntimeMode},
              ${agentsJson}, ${worktreeId}, ${input.chatId},
              ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${nowIso}, ${nowIso})
+             ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
         yield* sql`
           UPDATE chats
@@ -1578,8 +1586,8 @@ export const MessageStoreLive = Layer.scoped(
           model: input.model,
           status: postBootStatus,
           archivedAt: null,
-          cursor: null,
-          resumeStrategy: "none",
+          cursor: resumeCursor,
+          resumeStrategy,
           runtimeMode: initialRuntimeMode,
           worktreeId,
           chatId: input.chatId,
@@ -1903,6 +1911,8 @@ export const MessageStoreLive = Layer.scoped(
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
           toolSearch: input.toolSearch,
+          resumeCursor: input.resumeCursor,
+          resumeStrategy: input.resumeStrategy,
         }).pipe(
           Effect.tapError(() =>
             // Roll back the chat row if the provider failed to boot —
@@ -1949,6 +1959,32 @@ export const MessageStoreLive = Layer.scoped(
         }
         return { chat, initialSession, initialMessage };
       });
+
+    const continueExternalThread: MessageStoreShape["continueExternalThread"] =
+      (input) =>
+        Effect.gen(function* () {
+          const result = yield* createChat({
+            ...input,
+            resumeCursor: input.resumeCursor,
+            resumeStrategy: input.resumeStrategy,
+          });
+          return {
+            chat: result.chat,
+            initialSession: result.initialSession,
+          };
+        });
+
+    const importExternalMessages: MessageStoreShape["importExternalMessages"] =
+      (sessionId, messages) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          const imported: Message[] = [];
+          for (const content of messages) {
+            const persisted = yield* persistMessage(sessionId, content);
+            imported.push(persisted.message);
+          }
+          return imported;
+        });
 
     const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
       Effect.gen(function* () {
@@ -2356,27 +2392,40 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(messageFromRow);
       });
 
-    const streamMessages: MessageStoreShape["streamMessages"] = (sessionId) =>
+    const streamMessages: MessageStoreShape["streamMessages"] = (
+      sessionId,
+      sinceSequence,
+    ) =>
       Stream.unwrapScoped(
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
-          // Subscribe to the live pubsub *before* reading backfill so a
+          const since = sinceSequence ?? 0;
+          // Subscribe to the live pubsub *before* reading the replay so a
           // message persisted between SELECT and Stream.fromQueue is still
-          // delivered. Filter live emissions against backfill ids to avoid
-          // double-emitting any rows that landed during the SELECT window.
+          // delivered. The cursor makes dedup structural: replay covers
+          // everything ≤ lastReplayed, the live tail admits only envelopes
+          // past it — no seen-Set, O(1) memory, gap-free resume.
           const pubsub = yield* getOrMakePubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
-          const rows = yield* sql<MessageRow>`
-            SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-            FROM messages WHERE session_id = ${sessionId}
-            ORDER BY created_at ASC
+          const rows = yield* sql<MessageRow & { readonly sequence: number }>`
+            SELECT id, session_id, role, kind, content_json, parent_item_id,
+                   created_at, sequence
+            FROM messages
+            WHERE session_id = ${sessionId} AND sequence > ${since}
+            ORDER BY sequence ASC
           `.pipe(Effect.orDie);
-          const backfill = rows.map(messageFromRow);
-          const seen = new Set<string>(backfill.map((m) => m.id));
-          const live = Stream.fromQueue(dequeue).pipe(
-            Stream.filter((m) => !seen.has(m.id)),
+          const replay = rows.map((row) =>
+            MessageEnvelope.make({
+              sequence: row.sequence,
+              message: messageFromRow(row),
+            }),
           );
-          return Stream.concat(Stream.fromIterable(backfill), live);
+          const lastReplayed =
+            replay.length > 0 ? replay[replay.length - 1]!.sequence : since;
+          const live = Stream.fromQueue(dequeue).pipe(
+            Stream.filter((envelope) => envelope.sequence > lastReplayed),
+          );
+          return Stream.concat(Stream.fromIterable(replay), live);
         }),
       );
 
@@ -2704,6 +2753,7 @@ export const MessageStoreLive = Layer.scoped(
       skillRefs?: ReadonlyArray<SkillRef>,
       annotations?: ReadonlyArray<CodeAnnotation>,
       asGoal?: boolean,
+      clientMessageId?: MessageId,
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
@@ -2754,14 +2804,18 @@ export const MessageStoreLive = Layer.scoped(
           annotationList.length > 0
             ? `${serializeAnnotations(annotationList)}\n\n${text}`.trim()
             : text;
-        const persisted = yield* persistMessage(sessionId, content);
+        const persisted = yield* persistMessage(
+          sessionId,
+          content,
+          clientMessageId,
+        );
         // Pin the attachments so the GC sweep treats them as referenced —
         // a separate row per (message, attachment) keeps the existing
         // GC join intact.
         for (const a of cleanAttachments) {
           yield* sql`
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
-            VALUES (${persisted.id}, ${a.id})
+            VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
@@ -2946,6 +3000,7 @@ export const MessageStoreLive = Layer.scoped(
       skillRefs,
       annotations,
       asGoal,
+      clientMessageId,
     ) =>
       Effect.gen(function* () {
         yield* submitUserMessage(
@@ -2956,6 +3011,7 @@ export const MessageStoreLive = Layer.scoped(
           skillRefs,
           annotations,
           asGoal,
+          clientMessageId,
         );
       });
 
@@ -2989,7 +3045,6 @@ export const MessageStoreLive = Layer.scoped(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        yield* ensureQueuedMessagesSchema;
         const maxRows = yield* sql<{ readonly max_position: number | null }>`
           SELECT MAX(queue_order) AS max_position
           FROM queued_messages
@@ -3095,7 +3150,6 @@ export const MessageStoreLive = Layer.scoped(
       queueId: string,
     ): Effect.Effect<QueuedMessage | null> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -3116,7 +3170,6 @@ export const MessageStoreLive = Layer.scoped(
 
     const restoreQueuedMessage = (item: QueuedMessage): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const existing = yield* sql<{ readonly count: number }>`
           SELECT COUNT(*) AS count
           FROM queued_messages
@@ -3246,6 +3299,8 @@ export const MessageStoreLive = Layer.scoped(
       listChats,
       getChat,
       createChat,
+      continueExternalThread,
+      importExternalMessages,
       renameChat,
       markChatRead,
       streamChatChanges,

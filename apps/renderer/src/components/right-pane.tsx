@@ -318,7 +318,7 @@ function PanelLauncher({
               key={kind}
               type="button"
               onClick={() => onAdd(kind)}
-              className="flex w-full items-center gap-3 rounded-lg bg-muted/20 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-muted/60"
+              className="flex w-full items-center gap-3 rounded-lg bg-card/80 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-card/60"
             >
               <HugeiconsIcon
                 icon={meta.icon}

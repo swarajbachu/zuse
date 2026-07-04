@@ -36,7 +36,7 @@ export const composerTheme: Extension = EditorView.theme(
     },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
       {
-        backgroundColor: "rgba(168, 85, 247, 0.18)",
+        backgroundColor: "color-mix(in oklab, var(--primary) 22%, transparent)",
       },
   },
   { dark: true },
