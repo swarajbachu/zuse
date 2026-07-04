@@ -37,6 +37,7 @@ import {
   IndexStatusStreamRpc,
   IndexSymbolLookupRpc,
 } from "./code-index.ts";
+import { ConnectDescribeRpc } from "./connect.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -83,6 +84,11 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
+import {
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  PairingStartRpc,
+} from "./pairing.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
 import {
@@ -189,6 +195,10 @@ export const MemoizeRpcs = RpcGroup.make(
   AuthSignInRpc,
   AuthSignOutRpc,
   AuthSessionChangesRpc,
+  PairingStartRpc,
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  ConnectDescribeRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,

@@ -13,6 +13,7 @@ export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
 export * from "./permission.ts";
+export * from "./pairing.ts";
 export * from "./pokemon.ts";
 export * from "./ping.ts";
 export * from "./pty.ts";

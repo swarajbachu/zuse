@@ -16,6 +16,12 @@ import { ExternalThreadServiceLive } from "./external-thread/layers/external-thr
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import type { LanAuthPolicy } from "./lan-auth/policy.ts";
+import {
+  LanAuthConfig,
+  LanAuthService,
+} from "./lan-auth/services/lan-auth-service.ts";
 import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -59,8 +65,14 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
 export interface MainLayerDeps {
   readonly userData: string;
   readonly folderPicker: typeof FolderPicker.Service;
-  readonly serverProtocol: Layer.Layer<RpcServer.Protocol>;
+  readonly serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>;
   readonly authShell: typeof AuthShell.Service;
+  readonly lanAuth?: {
+    readonly policy: LanAuthPolicy;
+    readonly advertisedHost?: string | null;
+    readonly port?: number | null;
+    readonly pairingBootstrap?: boolean;
+  };
 }
 
 /**
@@ -72,6 +84,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
   const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
   const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
+  const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
+    policy: deps.lanAuth?.policy ?? "local",
+    advertisedHost: deps.lanAuth?.advertisedHost ?? null,
+    port: deps.lanAuth?.port ?? null,
+    pairingBootstrap: deps.lanAuth?.pairingBootstrap ?? false,
+  });
 
   // SqlClient is the shared persistence handle. The migrator runs once on
   // boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
@@ -295,6 +313,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AuthShellLayer),
   );
 
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
@@ -326,6 +349,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     SkillBridgeLayer,
     IndexLayer,
     DiagnosticsLayer,
+    LanAuthLayer,
     ExternalThreadLayer,
     FolderPickerLayer,
   );
@@ -341,7 +365,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
     Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol),
+    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);
