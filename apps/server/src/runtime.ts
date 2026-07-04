@@ -9,7 +9,6 @@ import { AppPaths } from "./app-paths.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
-import { IndexRegistryLive } from "./code-index/layers/index-registry.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
@@ -112,17 +111,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AppPathsLayer),
   );
 
-  // IndexRegistry must be available to WorkspaceService so that
-  // `workspace.setSelected` / `workspace.add` can fire-and-forget an
-  // `ensureIndexed()` the moment the user opens a project. Declared
-  // before WorkspaceLayer because it's a dependency, not the other way
-  // around — there is no upstream from IndexRegistry into Workspace.
-  const IndexLayer = IndexRegistryLive;
-
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(ImportShim),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -229,7 +220,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -347,7 +337,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // browser.* credential RPCs read/write the keychain directly.
     CredentialsServiceLive,
     SkillBridgeLayer,
-    IndexLayer,
     DiagnosticsLayer,
     LanAuthLayer,
     ExternalThreadLayer,

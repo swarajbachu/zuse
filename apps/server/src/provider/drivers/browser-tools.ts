@@ -7,7 +7,7 @@ import type { BrowserCommand, BrowserCommandResult } from "@zuse/wire";
  * Promise-returning send bound to one agent session. Provider-service closes
  * over the session id and the Effect runtime so these tool handlers — which
  * the Claude SDK invokes as plain async functions — stay free of any Effect
- * wiring. Mirrors how `buildIndexTools` binds the workspace handle.
+ * wiring.
  */
 export type BrowserSend = (
   command: BrowserCommand,
