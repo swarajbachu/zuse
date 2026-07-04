@@ -109,8 +109,18 @@ const CURSOR_LOG_PATH = ((): string => {
   }
 })();
 
+const safeStderrWrite = (line: string): void => {
+  if (!process.stderr.writable) return;
+  try {
+    process.stderr.write(line, () => {});
+  } catch {
+    // Stderr can be closed by Electron's parent process. Logging must not
+    // crash provider module initialization.
+  }
+};
+
 const writeCursorLog = (line: string): void => {
-  process.stderr.write(line);
+  safeStderrWrite(line);
   try {
     appendFileSync(CURSOR_LOG_PATH, line);
   } catch {
@@ -119,7 +129,7 @@ const writeCursorLog = (line: string): void => {
 };
 
 // One-time banner at module load so the user knows where to tail.
-process.stderr.write(`[cursor] phase logs → ${CURSOR_LOG_PATH}\n`);
+safeStderrWrite(`[cursor] phase logs → ${CURSOR_LOG_PATH}\n`);
 
 type PhaseLogger = (phase: string, detail?: string) => void;
 

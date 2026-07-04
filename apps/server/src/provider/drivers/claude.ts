@@ -976,6 +976,13 @@ const translate = (
   return [];
 };
 
+export const translateClaudeSdkMessages = (
+  messages: ReadonlyArray<SDKMessage>,
+): ReadonlyArray<AgentEvent> => {
+  const state = newTranslateState();
+  return messages.flatMap((message) => translate(message, state));
+};
+
 /**
  * Tools the agent can run without a prompt. These are pure reads or
  * internal-state tools (`TodoWrite`) with no observable blast radius. The
