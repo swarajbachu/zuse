@@ -14,6 +14,7 @@ import type {
   WorktreeId,
 } from "@zuse/wire";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
 import { useMessagesStore } from "./messages.ts";
@@ -22,6 +23,38 @@ import { useTerminalsStore } from "./terminals.ts";
 import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 import { useWorktreesStore } from "./worktrees.ts";
+
+export type ChatArchiveProgressPhase = "archiving" | "removing-dirty-worktree";
+
+export const chatArchiveProgressLabel = (
+  phase: ChatArchiveProgressPhase,
+): string =>
+  phase === "removing-dirty-worktree"
+    ? "Removing dirty worktree…"
+    : "Archiving chat…";
+
+const FORCED_ARCHIVE_TOAST_DELAY_MS = 700;
+const DIRTY_ARCHIVE_CONFIRM_MESSAGE =
+  "This chat's worktree has uncommitted changes. Discard them and archive anyway?";
+
+type ArchiveDirtyConfirm = () => Promise<boolean>;
+
+const defaultArchiveDirtyConfirm: ArchiveDirtyConfirm = () => {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  return Promise.resolve(window.confirm(DIRTY_ARCHIVE_CONFIRM_MESSAGE));
+};
+
+let archiveDirtyConfirm: ArchiveDirtyConfirm = defaultArchiveDirtyConfirm;
+
+export const setArchiveDirtyConfirm = (
+  confirm: ArchiveDirtyConfirm,
+): void => {
+  archiveDirtyConfirm = confirm;
+};
+
+export const resetArchiveDirtyConfirm = (): void => {
+  archiveDirtyConfirm = defaultArchiveDirtyConfirm;
+};
 
 /**
  * Sidebar-level chat catalog. A chat is the container that holds one or
@@ -43,6 +76,7 @@ type ChatsState = {
   /** Per-project in-flight flag for `create()`. Drives the sidebar
    * "New chat" button's icon swap (SquarePen → Spinner). */
   readonly creatingByProject: Record<string, boolean>;
+  readonly archiveProgressByChat: Record<string, ChatArchiveProgressPhase>;
   readonly error: string | null;
   readonly hydrate: (projectId: FolderId) => Promise<void>;
   readonly create: (
@@ -79,6 +113,11 @@ type ChatsState = {
     | { readonly ok: true }
     | { readonly ok: false; readonly dirty: boolean; readonly reason: string }
   >;
+  readonly setArchiveProgress: (
+    chatId: ChatId,
+    phase: ChatArchiveProgressPhase,
+  ) => void;
+  readonly clearArchiveProgress: (chatId: ChatId) => void;
   readonly unarchive: (chatId: ChatId) => Promise<void>;
   readonly remove: (chatId: ChatId) => Promise<void>;
   readonly select: (chatId: ChatId | null) => void;
@@ -168,6 +207,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
   showArchivedByProject: {},
   loadingByProject: {},
   creatingByProject: {},
+  archiveProgressByChat: {},
   error: null,
   hydrate: async (projectId) => {
     set((s) => ({
@@ -449,6 +489,22 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       return { ok: false, dirty, reason } as const;
     }
   },
+  setArchiveProgress: (chatId, phase) => {
+    set((s) => ({
+      archiveProgressByChat: {
+        ...s.archiveProgressByChat,
+        [chatId]: phase,
+      },
+    }));
+  },
+  clearArchiveProgress: (chatId) => {
+    set((s) => {
+      if (s.archiveProgressByChat[chatId] === undefined) return s;
+      const next = { ...s.archiveProgressByChat };
+      delete next[chatId];
+      return { archiveProgressByChat: next };
+    });
+  },
   unarchive: async (chatId) => {
     set({ error: null });
     try {
@@ -685,16 +741,58 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
  * any other failure so button-level error UI can surface it.
  */
 export async function archiveChatWithConfirm(chatId: ChatId): Promise<void> {
-  const { archive } = useChatsStore.getState();
-  const first = await archive(chatId);
-  if (first.ok) return;
-  if (!first.dirty) throw new Error(first.reason);
-  const confirmed = window.confirm(
-    "This chat's worktree has uncommitted changes. Discard them and archive anyway?",
-  );
-  if (!confirmed) return;
-  const forced = await archive(chatId, true);
-  if (!forced.ok) throw new Error(forced.reason);
+  const { archive, setArchiveProgress, clearArchiveProgress } =
+    useChatsStore.getState();
+  let forcedToastShown = false;
+  let forcedToastTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearForcedToastTimer = (): void => {
+    if (forcedToastTimer === null) return;
+    clearTimeout(forcedToastTimer);
+    forcedToastTimer = null;
+  };
+
+  setArchiveProgress(chatId, "archiving");
+  try {
+    const first = await archive(chatId);
+    if (first.ok) return;
+    if (!first.dirty) throw new Error(first.reason);
+    const confirmed = await archiveDirtyConfirm();
+    if (!confirmed) return;
+
+    setArchiveProgress(chatId, "removing-dirty-worktree");
+    forcedToastTimer = setTimeout(() => {
+      forcedToastShown = true;
+      toastManager.add({
+        type: "loading",
+        title: "Removing dirty worktree…",
+        description: "Discarding local changes and deleting the checkout.",
+      });
+    }, FORCED_ARCHIVE_TOAST_DELAY_MS);
+
+    const forced = await archive(chatId, true);
+    clearForcedToastTimer();
+    if (!forced.ok) throw new Error(forced.reason);
+    if (forcedToastShown) {
+      toastManager.add({
+        type: "success",
+        title: "Worktree removed",
+        description: "The dirty checkout was discarded and archived.",
+      });
+    }
+  } catch (err) {
+    clearForcedToastTimer();
+    if (forcedToastShown) {
+      toastManager.add({
+        type: "error",
+        title: "Archive failed",
+        description: formatError(err),
+      });
+    }
+    throw err;
+  } finally {
+    clearForcedToastTimer();
+    clearArchiveProgress(chatId);
+  }
 }
 
 // Mirror `selectedChatId` from the active project's slot — same pattern

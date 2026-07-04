@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+@import 'uniwind';
+
+@theme {
+  --color-background: hsl(72 5% 6%);
+  --color-foreground: hsl(72 4% 92%);
+  --color-card: hsl(72 4% 13%);
+  --color-card-elevated: hsl(72 4% 16%);
+  --color-muted: hsl(72 4% 20%);
+  --color-muted-foreground: hsl(72 2% 64%);
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-primary: hsl(72 98% 54%);
+  --color-primary-foreground: hsl(72 5% 6%);
+  --color-danger: hsl(2 86% 64%);
+  --color-warning: hsl(42 93% 56%);
+  --font-sans: 'Inter_400Regular';
+  --font-sans-medium: 'Inter_600SemiBold';
+  --font-mono: 'GeistMono_400Regular';
+}

@@ -16,6 +16,7 @@ import {
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { usePrDetailsStore } from "./pr-details.ts";
 import { usePrStateStore } from "./pr-state.ts";
 import { useSessionsStore } from "./sessions.ts";
@@ -73,8 +74,10 @@ const readSessionModelOptions = (
   if (typeof window === "undefined") return null;
   const out: Record<string, string> = {};
   for (const key of SESSION_MODEL_OPTION_KEYS) {
-    const v = window.sessionStorage.getItem(
-      `memoize.modelOptions.${sessionId}.${key}`,
+    const v = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.modelOptions.${sessionId}.${key}`,
+      [`memoize.modelOptions.${sessionId}.${key}`],
     );
     if (v !== null && v.length > 0) out[key] = v;
   }
@@ -82,8 +85,10 @@ const readSessionModelOptions = (
   // bare `memoize.reasoning.<sessionId>` key. Read it if the new key
   // wasn't set so existing sessions don't lose their picker selection.
   if (out["reasoning"] === undefined) {
-    const legacy = window.sessionStorage.getItem(
-      `memoize.reasoning.${sessionId}`,
+    const legacy = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.reasoning.${sessionId}`,
+      [`memoize.reasoning.${sessionId}`],
     );
     if (legacy !== null && legacy.length > 0) out["reasoning"] = legacy;
   }
@@ -236,6 +241,11 @@ let hydrateEpoch = 0;
 // canonical server message instead of skipping it, so server-side fixups
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
+// Highest event-log `sequence` seen per session (from `MessageEnvelope`).
+// Passed back as `sinceSequence` on resubscribe so the server replays only
+// the delta — gap-free reconnect without a full-history backfill. In-memory
+// only: a reload starts from 0 and gets the full replay, which is correct.
+const lastSequenceBySession = new Map<SessionId, number>();
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
 const statusWaiters = new Map<
@@ -397,10 +407,24 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       // never disagree. The `resetOnStreamEnd` / status guards below read
       // `liveSessionId`, so it must be correct before the fibers run.
       liveSessionId = sessionId;
+      // Resume from the recorded cursor only while the store still holds the
+      // rows the cursor accounts for; otherwise (first visit, page reload)
+      // stream the full history. Pre-seeded optimistic rows never record a
+      // cursor, so a fresh chat still gets its full replay + echo id-swap.
+      const sinceSequence =
+        (get().messagesBySession[sessionId]?.length ?? 0) > 0
+          ? lastSequenceBySession.get(sessionId)
+          : undefined;
       const messageProgram = Stream.runForEach(
-        client.messages.stream({ sessionId }),
-        (message) =>
+        client.messages.stream({ sessionId, sinceSequence }),
+        (envelope) =>
           Effect.sync(() => {
+            const { sequence, message } = envelope;
+            // Advance the cursor on EVERY envelope — including optimistic
+            // echoes — before any dedup branch, so a reconnect can never
+            // pass a cursor below an already-delivered row.
+            const prev = lastSequenceBySession.get(sessionId) ?? 0;
+            if (sequence > prev) lastSequenceBySession.set(sessionId, sequence);
             set((s) => {
               const current = s.messagesBySession[sessionId] ?? [];
               // The server echo of a message we inserted optimistically (same

@@ -275,19 +275,19 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 });
 
 describe("selectCliPathCandidate", () => {
-  it("prefers a user Codex install over Conductor's managed Codex shim", () => {
+  it("prefers a user Codex install over a managed Codex shim", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
         "/Users/me/.nvm/versions/node/v23.10.0/bin/codex",
       ]),
     ).toBe("/Users/me/.nvm/versions/node/v23.10.0/bin/codex");
   });
 
-  it("does not select Conductor's managed Codex when it is the only candidate", () => {
+  it("does not select a managed Codex shim when it is the only candidate", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
       ]),
     ).toBeNull();
   });
@@ -303,11 +303,11 @@ describe("selectCliPathCandidate", () => {
 });
 
 describe("buildUpdateCommand — install-method detection", () => {
-  it("does not offer an updater for Conductor's managed standalone Codex", () => {
+  it("does not offer an updater for a managed standalone Codex shim", () => {
     expect(
       buildUpdateCommand("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
-        "/Users/me/Library/Application Support/com.conductor.app/agent-binaries/codex/0.138.0/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/agent-binaries/codex/0.138.0/codex",
       ]),
     ).toBeNull();
   });

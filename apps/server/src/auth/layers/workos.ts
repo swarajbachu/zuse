@@ -1,0 +1,185 @@
+import { createHash, randomBytes } from "node:crypto";
+
+import { Effect } from "effect";
+
+import { AuthTokenError } from "../errors.ts";
+
+/**
+ * Thin WorkOS User Management REST client for the PKCE public-client flow.
+ * Deliberately uses raw `fetch` rather than `@workos-inc/node`: the SDK's
+ * `authenticateWithCode` is oriented around confidential clients with an API
+ * key, whereas a desktop app is a PUBLIC client — it proves possession with a
+ * `code_verifier` and ships no secret (the binary is decompilable). The REST
+ * endpoint accepts exactly that: `code_verifier` is required when
+ * `client_secret` is absent. Keeping it dependency-free also avoids bundling
+ * concerns in the Electron main bundle.
+ */
+
+const WORKOS_API = "https://api.workos.com";
+
+const base64url = (buf: Buffer): string => buf.toString("base64url");
+
+/** RFC 7636 PKCE pair + an anti-CSRF `state` nonce. */
+export interface PkcePair {
+  readonly verifier: string;
+  readonly challenge: string;
+  readonly state: string;
+}
+
+export const makePkce = (): PkcePair => {
+  const verifier = base64url(randomBytes(32));
+  const challenge = base64url(createHash("sha256").update(verifier).digest());
+  const state = base64url(randomBytes(16));
+  return { verifier, challenge, state };
+};
+
+/**
+ * Build the hosted-AuthKit authorization URL the system browser opens. The
+ * `redirectUri` is supplied by the host shell (Electron uses a localhost
+ * loopback in dev/prod; a future mobile shell uses its own scheme) and must
+ * exactly match an entry in the WorkOS dashboard.
+ */
+export const authorizationUrl = (
+  clientId: string,
+  challenge: string,
+  state: string,
+  redirectUri: string,
+): string => {
+  const url = new URL(`${WORKOS_API}/user_management/authorize`);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("provider", "authkit");
+  url.searchParams.set("code_challenge", challenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("state", state);
+  return url.toString();
+};
+
+/** Raw REST shape (snake_case) returned by `/user_management/authenticate`. */
+interface WorkosAuthenticateResponse {
+  readonly access_token: string;
+  readonly refresh_token: string;
+  readonly organization_id?: string | null;
+  readonly user: {
+    readonly id: string;
+    readonly email: string;
+    readonly first_name?: string | null;
+    readonly last_name?: string | null;
+    readonly profile_picture_url?: string | null;
+  };
+}
+
+/** The normalized bundle we persist (keychain) and reason about internally. */
+export interface SessionBundle {
+  readonly accessToken: string;
+  readonly refreshToken: string;
+  readonly expiresAt: number;
+  readonly organizationId: string | null;
+  readonly user: {
+    readonly id: string;
+    readonly email: string;
+    readonly firstName: string | null;
+    readonly lastName: string | null;
+    readonly profilePictureUrl: string | null;
+  };
+}
+
+/**
+ * Read `exp` from a JWT access token without verifying the signature — we only
+ * need it to schedule refresh-on-demand; the token's authority is enforced
+ * server-side wherever it's later presented as a bearer. Falls back to a short
+ * 5-minute window if the token can't be parsed.
+ */
+const expiryFromJwt = (jwt: string): number => {
+  const fallback = Date.now() + 5 * 60_000;
+  const parts = jwt.split(".");
+  if (parts.length < 2 || parts[1] === undefined) return fallback;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64url").toString("utf8"),
+    ) as { exp?: number };
+    return typeof payload.exp === "number" ? payload.exp * 1000 : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const toBundle = (res: WorkosAuthenticateResponse): SessionBundle => ({
+  accessToken: res.access_token,
+  refreshToken: res.refresh_token,
+  expiresAt: expiryFromJwt(res.access_token),
+  organizationId: res.organization_id ?? null,
+  user: {
+    id: res.user.id,
+    email: res.user.email,
+    firstName: res.user.first_name ?? null,
+    lastName: res.user.last_name ?? null,
+    profilePictureUrl: res.user.profile_picture_url ?? null,
+  },
+});
+
+const authenticate = (
+  body: Record<string, string>,
+): Effect.Effect<SessionBundle, AuthTokenError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const res = await fetch(`${WORKOS_API}/user_management/authenticate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`WorkOS ${res.status}: ${text.slice(0, 500)}`);
+      }
+      return (await res.json()) as WorkosAuthenticateResponse;
+    },
+    catch: (cause) =>
+      new AuthTokenError({
+        reason: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      }),
+  }).pipe(Effect.map(toBundle));
+
+/** Exchange an authorization `code` + PKCE `verifier` for a session. */
+export const exchangeCode = (
+  clientId: string,
+  code: string,
+  verifier: string,
+): Effect.Effect<SessionBundle, AuthTokenError> =>
+  authenticate({
+    client_id: clientId,
+    grant_type: "authorization_code",
+    code,
+    code_verifier: verifier,
+  });
+
+/** Mint a fresh session from a refresh token. */
+export const refreshSession = (
+  clientId: string,
+  refreshToken: string,
+): Effect.Effect<SessionBundle, AuthTokenError> =>
+  authenticate({
+    client_id: clientId,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+
+/** Parse the `code`/`state`/`error` out of a `zuse://auth/callback` URL. */
+export const parseCallbackUrl = (
+  raw: string,
+): { code: string | null; state: string | null; error: string | null } => {
+  try {
+    const url = new URL(raw);
+    const params = url.searchParams;
+    const error = params.get("error_description") ?? params.get("error");
+    return {
+      code: params.get("code"),
+      state: params.get("state"),
+      error: error,
+    };
+  } catch {
+    return { code: null, state: null, error: "Malformed callback URL." };
+  }
+};

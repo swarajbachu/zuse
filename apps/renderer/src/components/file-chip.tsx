@@ -146,7 +146,7 @@ export function AnnotationFileChip({
   return (
     <span
       className={cn(
-        "inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-[0.375rem] border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]",
+        "inline-flex max-w-full shrink-0 items-center gap-1.5 rounded-[0.375rem] border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]",
         className,
       )}
       title={`${annotation.relPath}:${range}`}
@@ -275,9 +275,9 @@ export function FileChip({
             onClick={canOpen ? onChipClick : undefined}
             onKeyDown={canOpen ? onKeyDown : undefined}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)] transition-[background-color,color,box-shadow]",
+              "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 transition-[background-color,color,box-shadow] dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]",
               canOpen
-                ? "cursor-pointer hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground hover:shadow-[inset_0_1px_0_color-mix(in_oklch,white_6%,transparent),0_2px_5px_color-mix(in_oklch,black_24%,transparent)]"
+                ? "cursor-pointer hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:hover:shadow-[inset_0_1px_0_color-mix(in_oklch,white_6%,transparent),0_2px_5px_color-mix(in_oklch,black_24%,transparent)]"
                 : "cursor-default",
               className,
             )}

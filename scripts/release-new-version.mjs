@@ -156,7 +156,7 @@ run("git", ["commit", "-m", `Release v${nextVersion}`]);
 run("git", ["push", "-u", "origin", "HEAD"]);
 
 const prBody = `## Summary
-- release memoize v${nextVersion}
+- release Zuse v${nextVersion}
 - update CHANGELOG.md and package metadata
 - keep the website Change Log page rendering release notes from CHANGELOG.md
 

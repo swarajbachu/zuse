@@ -16,7 +16,7 @@ type ShimmerTone = "muted" | "lime";
 
 const TONE_STOPS: Record<ShimmerTone, GradientStop[]> = {
   muted: [{ position: 0.5, color: "oklch(0.97 0.004 260)" }],
-  lime: [{ position: 0.5, color: "oklch(0.94 0.2 122)" }],
+  lime: [{ position: 0.5, color: "hsl(72 98% 54%)" }],
 };
 
 type ShimmerTextProps = {

@@ -11,10 +11,9 @@ import {
 import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ChatSwitcher } from "./components/chat-switcher.tsx";
+import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { NextUnreadButton } from "./components/next-unread-button.tsx";
-import { IndexProgressBanner } from "./components/index-progress-banner.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { ChatView } from "./components/chat-view";
 import { CostFooter } from "./components/cost-footer";
@@ -35,18 +34,19 @@ import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
+import { AppearanceController } from "./lib/appearance.tsx";
+import { useAuthStore } from "./store/auth.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
 import { useProvidersStore } from "./store/providers.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { hydrateSubagentsStore } from "./store/subagents.ts";
-import { useIndexStore } from "./store/code-index.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
 
-const PANEL_GROUP_ID = "memoize.shell.v3";
+const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
 
 const SIDEBAR_ANIM_MS = 200;
@@ -151,6 +151,16 @@ export function App() {
     startPermissionsStream();
   }, [startPermissionsStream]);
 
+  // WorkOS auth: subscribe to session changes + cold-load the current session.
+  // Optional (no gate) — the sidebar account control, onboarding step, and
+  // settings panel all render off this state.
+  const startAuthStream = useAuthStore((s) => s.start);
+  const hydrateAuth = useAuthStore((s) => s.hydrate);
+  useEffect(() => {
+    startAuthStream();
+    void hydrateAuth();
+  }, [startAuthStream, hydrateAuth]);
+
   // Native Application Menu → renderer action dispatcher. Lives on the
   // root so the bindings work in every view (chat, settings, onboarding).
   useMenuShortcuts();
@@ -200,7 +210,7 @@ export function App() {
       } catch (error) {
         if (cancelled) return;
         // eslint-disable-next-line no-console
-        console.error("[memoize] RPC smoke test failed:", error);
+        console.error("[zuse] RPC smoke test failed:", error);
       }
     })();
     return () => {
@@ -214,7 +224,8 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
-        <div className="dark relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+        <AppearanceController />
+        <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
         </div>
       </TooltipProvider>
@@ -224,7 +235,8 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
-        <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+        <AppearanceController />
+        <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
         </div>
       </TooltipProvider>
@@ -233,6 +245,7 @@ export function App() {
 
   return (
     <TooltipProvider>
+      <AppearanceController />
       <MainShell />
     </TooltipProvider>
   );
@@ -279,16 +292,6 @@ function MainShell() {
     }
     closeFileTab();
   }, [selectedFolderId, openFile, closeFileTab]);
-
-  // Open a status subscription for the selected workspace's index. Server
-  // already triggered `ensureIndexed` on `workspace.setSelected`; this just
-  // gives the renderer something to render. `hydrate` no-ops on duplicate
-  // calls, so re-selecting the same folder doesn't re-open the stream.
-  const hydrateIndex = useIndexStore((s) => s.hydrate);
-  useEffect(() => {
-    if (selectedFolderId === null) return;
-    void hydrateIndex(selectedFolderId);
-  }, [selectedFolderId, hydrateIndex]);
 
   // Eagerly hydrate worktrees on project select so the active context can
   // resolve worktree paths without waiting for the chat composer to mount.
@@ -346,7 +349,7 @@ function MainShell() {
   useAnimatedPanelCollapse(rightPanelRef, rightSidebarOpen, 22, rightAnimating);
 
   return (
-    <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
+    <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
       <Group
         id={PANEL_GROUP_ID}
         orientation="horizontal"
@@ -384,7 +387,6 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            <IndexProgressBanner />
             {showMainChrome ? (
               <MainTabs
                 projectId={selectedFolderId}
@@ -405,7 +407,6 @@ function MainShell() {
                   <ChatView sessionId={selectedSessionId} />
                   <CostFooter sessionId={selectedSessionId} />
                   <CliUpgradeBanner providerId={selectedSession.providerId} />
-                  <NextUnreadButton />
                   <ChatComposer
                     key={selectedSession.id}
                     session={selectedSession}
@@ -484,6 +485,7 @@ function MainShell() {
       <SidebarPeekTrigger />
       <SidebarPeekOverlay />
       <ChatSwitcher />
+      <ArchiveDirtyWorktreeDialogHost />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
   Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { EditorView } from "@codemirror/view";
+import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -56,6 +57,8 @@ import {
   setComposerDoc,
   type ActiveTrigger,
 } from "~/lib/codemirror/composer";
+import { getRpcClient } from "~/lib/rpc-client";
+import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { useKeybindingsStore } from "../store/keybindings";
 import {
   addChipEffect,
@@ -79,6 +82,8 @@ import { cn, formatCompactNumber } from "~/lib/utils";
 import {
   chooseComposerSubmitRoute,
   findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
   shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
 import {
@@ -89,7 +94,10 @@ import { parseComposerInput } from "../composer/segment-parser.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
-import { PlanApprovalTray } from "./composer/plan-approval-tray.tsx";
+import {
+  EMULATED_PLAN_APPROVAL_PROMPT,
+  PlanApprovalTray,
+} from "./composer/plan-approval-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
@@ -247,14 +255,40 @@ export function ChatComposer({
       findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
     [requestsById, sessionId],
   );
+  const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
   const sendPlanFeedbackNow = useMemo(
     () =>
       shouldSendPlanFeedbackNow({
         permissionMode: session.permissionMode,
         messages: sessionMessages ?? [],
         pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
       }),
-    [pendingPlanApprovalRequest, session.permissionMode, sessionMessages],
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
+  );
+  const emulatedPlanReady = useMemo(
+    () =>
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: session.permissionMode,
+        messages: sessionMessages ?? [],
+        pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
+      }),
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
   );
   useEffect(() => {
     if (isDraft) return;
@@ -318,7 +352,6 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
-  const forgetActive = useAttachmentsStore((s) => s.forgetActive);
   // Submit reads through a ref so the keymap, captured at editor creation
   // time, always sees the current sessionId / send / inFlight without
   // recreating the editor on every render.
@@ -328,6 +361,10 @@ export function ChatComposer({
   const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
     () => undefined,
   );
+  // Same indirection for large text pastes. Returns whether the paste was
+  // consumed (diverted to a `.context/files` file chip) so CodeMirror knows
+  // to skip its default insert.
+  const textPastedRef = useRef<(text: string) => boolean>(() => false);
   // Same pattern for the Shift+Tab plan-mode toggle. Latest session +
   // mode without reconstructing the editor on every state change.
   const togglePlanModeRef = useRef<() => void>(() => undefined);
@@ -370,6 +407,7 @@ export function ChatComposer({
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
+      onTextPaste: (text: string) => textPastedRef.current(text),
       onTogglePlanMode: () => togglePlanModeRef.current(),
     };
     const view = createComposerView({
@@ -573,7 +611,7 @@ export function ChatComposer({
         }),
       });
 
-      void uploadOne(sessionId, file)
+      void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
           const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
           editorViewRef.current?.dispatch({
@@ -598,6 +636,53 @@ export function ChatComposer({
     }
   };
 
+  /**
+   * A paste counts as "big" when it spans more than 10 lines or 2,000
+   * characters. Such pastes become a `.context/files/paste-<uuid>.md` file
+   * chip instead of flooding the composer with inline text.
+   */
+  const isBigTextPaste = (text: string): boolean =>
+    text.split("\n").length > 10 || text.length > 2000;
+
+  /**
+   * Persist a large paste as a workspace file and drop a file chip for it.
+   * Reuses the `@`-file pipeline (`FileRef`), so the agent reads the file
+   * from its cwd. On failure, fall back to inserting the raw text so nothing
+   * the user pasted is ever lost.
+   */
+  const attachPastedText = async (text: string): Promise<void> => {
+    if (editorViewRef.current === null) return;
+    try {
+      const client = await getRpcClient();
+      const res = await Effect.runPromise(
+        client.context.saveText({
+          sessionId,
+          text,
+          ext: "md",
+          ...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
+        }),
+      );
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      replaceWithChip(view, sel.from, sel.to, `@${res.relPath}`, {
+        kind: "file",
+        relPath: res.relPath,
+        absPath: res.absPath,
+        entryKind: "file",
+      });
+    } catch (err) {
+      console.error("[chat-composer] saveText failed", err);
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      });
+    }
+  };
+
   // Paperclip → hidden file input.
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -607,7 +692,9 @@ export function ChatComposer({
   };
 
   // Paste handler — accepts any file type pasted into the composer (images,
-  // PDFs, docs, etc.).
+  // PDFs, docs, etc.). Large *text* pastes are handled one layer down, inside
+  // CodeMirror (`onTextPaste`), because CM inserts pasted text before this
+  // React handler runs — see `textPastedRef` / composer.ts.
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -650,18 +737,6 @@ export function ChatComposer({
     if (files.length > 0) attachFiles(files);
   };
 
-  // Forget any stale tempId-keyed attachments when the composer unmounts —
-  // the heartbeat tracks ids, so dropping unattached blobs is enough to
-  // let the GC reap them.
-  useEffect(
-    () => () => {
-      // No-op for now: forgetActive is called per-id only when a chip is
-      // dropped explicitly. Server GC handles long-lived orphans.
-      void forgetActive;
-    },
-    [forgetActive],
-  );
-
   const submit = (): boolean => {
     // Don't submit while a popover is open — Enter belongs to the popover.
     if (trigger !== null || modelPickerOpen) return false;
@@ -693,6 +768,14 @@ export function ChatComposer({
             annotations,
           })
         : parsed;
+    const route =
+      onDraftSubmit === undefined
+        ? chooseComposerSubmitRoute({
+            sendPlanFeedbackNow,
+            goalSendMode,
+            shouldQueue: inFlight || holdForSetup,
+          })
+        : null;
     clearComposer(view);
     clearComposerDraft(draftKey);
     setGoalSendMode(false);
@@ -705,13 +788,7 @@ export function ChatComposer({
       onDraftSubmit(input, { asGoal: goalSendMode });
       return true;
     }
-    switch (
-      chooseComposerSubmitRoute({
-        sendPlanFeedbackNow,
-        goalSendMode,
-        shouldQueue: inFlight || holdForSetup,
-      })
-    ) {
+    switch (route) {
       case "planFeedback":
         void (async () => {
           if (pendingPlanApprovalRequest !== null) {
@@ -755,7 +832,22 @@ export function ChatComposer({
     attachFiles(files);
   };
 
+  textPastedRef.current = (text) => {
+    if (!isBigTextPaste(text)) return false;
+    void attachPastedText(text);
+    return true;
+  };
+
   const inPlanMode = session.permissionMode === "plan";
+  const approveEmulatedPlan = () => {
+    void (async () => {
+      await setPermissionMode(sessionId, "default");
+      await send(sessionId, EMULATED_PLAN_APPROVAL_PROMPT);
+    })();
+  };
+  const cancelEmulatedPlan = () => {
+    void setPermissionMode(sessionId, "default");
+  };
   const inUltracodeMode = reasoningLevel === "ultracode";
   // Keep the editor mounted at all times. Permissions / questions render as
   // a sibling above it, and we hide the editor block with `display: none`
@@ -801,7 +893,12 @@ export function ChatComposer({
                   folderId={session.projectId}
                   worktreeId={session.worktreeId}
                 />
-                <PlanApprovalTray sessionId={sessionId} />
+                <PlanApprovalTray
+                  sessionId={sessionId}
+                  emulatedPlanReady={emulatedPlanReady}
+                  onApproveEmulatedPlan={approveEmulatedPlan}
+                  onCancelEmulatedPlan={cancelEmulatedPlan}
+                />
                 {goalCapable && goal !== null ? (
                   <GoalBanner
                     goal={goal}
@@ -1023,18 +1120,27 @@ export function ChatComposer({
  * per-session sessionStorage namespace the send path already reads.
  */
 function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
-  const storageKey = `memoize.modelOptions.${sessionId}.fastMode`;
+  const storageKey = `zuse.modelOptions.${sessionId}.fastMode`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.fastMode`;
   const [enabled, setEnabled] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.sessionStorage.getItem(storageKey) === "true";
+    return (
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true"
+    );
   });
   useEffect(() => {
     if (typeof window === "undefined") {
       setEnabled(false);
       return;
     }
-    setEnabled(window.sessionStorage.getItem(storageKey) === "true");
-  }, [storageKey]);
+    setEnabled(
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true",
+    );
+  }, [legacyStorageKey, storageKey]);
 
   const onClick = () => {
     const next = !enabled;
@@ -1044,6 +1150,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
         window.sessionStorage.setItem(storageKey, "true");
       } else {
         window.sessionStorage.removeItem(storageKey);
+        window.sessionStorage.removeItem(legacyStorageKey);
       }
     }
   };
@@ -1062,7 +1169,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               enabled
-                ? "bg-amber-300/15 text-amber-200 dark:text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1114,7 +1221,7 @@ function PlanModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               isPlan
-                ? "bg-rose-300/15 text-rose-200 dark:text-rose-200 hover:bg-rose-300/25"
+                ? "bg-rose-400/20 text-rose-700 hover:bg-rose-400/30 dark:bg-rose-300/15 dark:text-rose-200 dark:hover:bg-rose-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1152,9 +1259,9 @@ function GoalModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               active
-                ? "bg-amber-300/15 text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : hasGoal
-                  ? "text-amber-200 hover:bg-muted/60"
+                  ? "text-amber-700 hover:bg-muted/60 dark:text-amber-200"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1442,14 +1549,19 @@ function ReasoningPicker({
 
   const defaultId = resolved?.defaultId ?? "medium";
   const descriptorId = resolved?.descriptorId ?? "reasoning";
-  const storageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
+  const storageKey = `zuse.modelOptions.${sessionId}.${descriptorId}`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
   const [level, setLevel] = useState<string>(() => {
     if (typeof window === "undefined") return defaultId;
-    const stored = window.sessionStorage.getItem(storageKey);
+    const stored = readStorageWithLegacy(window.sessionStorage, storageKey, [
+      legacyStorageKey,
+    ]);
     if (stored !== null) return stored;
     // One-shot legacy migration so users mid-session keep their pick.
-    const legacy = window.sessionStorage.getItem(
-      `memoize.reasoning.${sessionId}`,
+    const legacy = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.reasoning.${sessionId}`,
+      [`memoize.reasoning.${sessionId}`],
     );
     if (legacy !== null && legacy.length > 0) return legacy;
     return defaultId;
@@ -1558,8 +1670,10 @@ const selectedContextWindowTokens = (
   if (typeof window === "undefined") {
     return descriptorContextWindowTokens(providerId, model);
   }
-  const stored = window.sessionStorage.getItem(
-    `memoize.modelOptions.${sessionId}.contextWindow`,
+  const stored = readStorageWithLegacy(
+    window.sessionStorage,
+    `zuse.modelOptions.${sessionId}.contextWindow`,
+    [`memoize.modelOptions.${sessionId}.contextWindow`],
   );
   return (
     contextWindowTokensFromId(stored ?? undefined) ??
@@ -1723,17 +1837,27 @@ function ContextStatusPopover({ session }: { session: Session }) {
     return latestUsage;
   }, [messages, session.providerId]);
 
-  const usageLimit = useMemo(() => {
+  const usageLimits = useMemo(() => {
+    const latestByKey = new Map<
+      string,
+      Extract<Message["content"], { _tag: "usage_limit" }>
+    >();
     for (let i = messages.length - 1; i >= 0; i--) {
       const content = messages[i]!.content;
       if (
         content._tag === "usage_limit" &&
         content.providerId === session.providerId
       ) {
-        return content;
+        const key =
+          content.windowMinutes !== null
+            ? `window:${content.windowMinutes}`
+            : `label:${content.label}`;
+        if (!latestByKey.has(key)) {
+          latestByKey.set(key, content);
+        }
       }
     }
-    return null;
+    return [...latestByKey.values()].reverse();
   }, [messages, session.providerId]);
 
   const usedTokens = latestContext?.usedTokens ?? null;
@@ -1758,7 +1882,7 @@ function ContextStatusPopover({ session }: { session: Session }) {
       : null;
 
   const hasContext = usedTokens !== null && windowTokens !== null;
-  const hasLimits = usageLimit !== null;
+  const hasLimits = usageLimits.length > 0;
   if (!hasContext && !hasLimits) return null;
 
   const high = percent !== null && percent >= 90;
@@ -1834,8 +1958,7 @@ function ContextStatusPopover({ session }: { session: Session }) {
               hasContext && "border-t border-border",
             )}
           >
-            {(() => {
-              const limit = usageLimit!;
+            {usageLimits.map((limit) => {
               const reset = resetLabel(limit.resetsAt);
               const used = limit.usedPercent;
               const remaining =
@@ -1844,7 +1967,14 @@ function ContextStatusPopover({ session }: { session: Session }) {
                   : "Active";
               const limitHigh = used !== null && used >= 80;
               return (
-                <>
+                <div
+                  key={
+                    limit.windowMinutes !== null
+                      ? `window:${limit.windowMinutes}`
+                      : `label:${limit.label}`
+                  }
+                  className="flex flex-col gap-3"
+                >
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-medium text-foreground">
                       {limit.label}
@@ -1865,9 +1995,9 @@ function ContextStatusPopover({ session }: { session: Session }) {
                       {reset !== null ? reset : "unknown"}
                     </span>
                   </div>
-                </>
+                </div>
               );
-            })()}
+            })}
           </div>
         ) : null}
       </TooltipPopup>

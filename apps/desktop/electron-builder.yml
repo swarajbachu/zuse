@@ -5,6 +5,15 @@ appId: app.memoize.desktop
 productName: Zuse Alpha
 copyright: © ${author}
 
+# Register the `zuse://` custom scheme so packaged builds receive the WorkOS
+# OAuth callback (`zuse://auth/callback`) as a deep link. On macOS this
+# writes CFBundleURLTypes into Info.plist; combined with the unique appId above
+# the OS routes the scheme unambiguously (unlike dev's shared Electron.app).
+protocols:
+  - name: zuse
+    schemes:
+      - zuse
+
 # Output the .dmg + latest-mac.yml + blockmap to repo-root/dist so all
 # distributables for all apps land in one place. Build resources (icon,
 # entitlements) live in apps/desktop/build/.
@@ -44,9 +53,14 @@ extraResources:
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/
 # and the loader transparently rewrites the path.
+# browser-mcp-child.cjs is spawned by bun (Grok's zuse-browser MCP server) —
+# an external process that can't read inside the asar, so it must be unpacked
+# too; browser-mcp-bridge.ts rewrites app.asar → app.asar.unpacked when
+# resolving it.
 asar: true
 asarUnpack:
   - "**/*.node"
+  - "dist-electron/browser-mcp-child.cjs"
   - "node_modules/better-sqlite3/**"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"

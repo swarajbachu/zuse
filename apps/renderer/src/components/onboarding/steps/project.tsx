@@ -1,5 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Folder01Icon, FolderAddIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Folder01Icon,
+  FolderAddIcon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -35,9 +39,9 @@ export function ProjectStep() {
           type="button"
           onClick={() => void pick()}
           disabled={busy}
-          className="group flex flex-col items-center justify-center gap-4 rounded-2xl bg-white/[0.025] px-6 py-12 text-center transition-all hover:bg-white/[0.05] disabled:cursor-not-allowed disabled:opacity-60"
+          className="group flex flex-col items-center justify-center gap-4 rounded-2xl bg-muted/60 px-6 py-12 text-center transition-all hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <span className="flex size-12 items-center justify-center rounded-2xl bg-white/[0.06] text-foreground transition-transform group-hover:scale-105">
+          <span className="flex size-12 items-center justify-center rounded-2xl bg-background/70 text-foreground transition-transform group-hover:scale-105">
             <HugeiconsIcon icon={FolderAddIcon} className="size-5" />
           </span>
           <span className="flex flex-col gap-1">
@@ -51,8 +55,8 @@ export function ProjectStep() {
         </button>
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-3 rounded-2xl bg-emerald-400/[0.06] px-4 py-3.5">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.08] text-foreground">
+          <div className="flex items-center gap-3 rounded-2xl bg-alert-success-bg px-4 py-3.5">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-background/70 text-foreground">
               <HugeiconsIcon icon={Folder01Icon} className="size-4" />
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
@@ -63,7 +67,7 @@ export function ProjectStep() {
                 {justAdded.path}
               </span>
             </div>
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
               <HugeiconsIcon icon={Tick01Icon} className="size-3" />
             </span>
           </div>

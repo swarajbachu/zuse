@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a Zuse bug and attach diagnostics from the app.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. If you can open Zuse, please attach a diagnostics file:
+
+        1. In Zuse, choose Help -> Export Diagnostics for Bug Report.
+        2. Zuse will create a redacted JSON file, copy the JSON to your clipboard, and reveal the file in Finder.
+        3. Drag the revealed JSON file onto this issue before submitting.
+
+        Diagnostics do not include raw prompts or full transcripts by default.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+      placeholder: Describe the bug and what you were doing when it happened.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the shortest steps that trigger the issue.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Attach the diagnostics JSON file here. If attaching did not work, paste the copied JSON content instead.
+      placeholder: Drag the diagnostics JSON file here, or paste the copied JSON.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Zuse version
+      description: If you know it, enter the version from the diagnostics summary or app settings.
+      placeholder: 0.0.0
+    validations:
+      required: false
+  - type: dropdown
+    id: os
+    attributes:
+      label: macOS version
+      options:
+        - macOS 15 Sequoia
+        - macOS 14 Sonoma
+        - macOS 13 Ventura
+        - Older macOS
+        - Not sure
+    validations:
+      required: false

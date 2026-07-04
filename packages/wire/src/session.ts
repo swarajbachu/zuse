@@ -80,6 +80,10 @@ export type SessionStatus = typeof SessionStatus.Type;
 export const ResumeStrategy = Schema.Literal(
   "claude-session-id",
   "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
   "none",
 );
 export type ResumeStrategy = typeof ResumeStrategy.Type;
@@ -344,6 +348,19 @@ export class Message extends Schema.Class<Message>("Message")({
   role: MessageRole,
   content: MessageContent,
   createdAt: Schema.DateFromString,
+}) {}
+
+/**
+ * A `Message` tagged with its global monotonic `sequence` from the event log.
+ * Clients record the highest `sequence` they have seen per session and pass it
+ * back as `sinceSequence` on reconnect to resume gap-free (no full replay, no
+ * in-memory dedup Set). This is what `messages.stream` emits.
+ */
+export class MessageEnvelope extends Schema.Class<MessageEnvelope>(
+  "MessageEnvelope",
+)({
+  sequence: Schema.Number,
+  message: Message,
 }) {}
 
 export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
@@ -773,14 +790,22 @@ export const MessagesListRpc = Rpc.make("messages.list", {
 });
 
 /**
- * Subscribe to a session's message log. The stream emits each persisted row in
- * `created_at` order (backfill) and continues with live rows as the provider
+ * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
+ * rows in global `sequence` order — a replay of everything past `sinceSequence`
+ * (0 when omitted, i.e. the full history), then live rows as the provider
  * produces events. The renderer treats it as the single source of truth — no
  * separate hydrate / live split.
+ *
+ * Clients record the highest `sequence` seen per session and pass it back as
+ * `sinceSequence` on resubscribe: the server replays only the delta, so a
+ * flaky-network reconnect is O(missed messages) and gap-free by construction.
  */
 export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Message,
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    sinceSequence: Schema.optional(Schema.Number),
+  }),
+  success: MessageEnvelope,
   error: SessionNotFoundError,
   stream: true,
 });

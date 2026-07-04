@@ -1,45 +1,41 @@
-import {
-  HighlightStyle,
-  syntaxHighlighting,
-} from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 
-// Palette aligned with the rest of memoize's chrome (zinc-950 surface,
-// zinc-400/500 muted-foreground). Syntax accents are deliberately desaturated
-// so the editor reads as part of the chat IDE rather than a separate VS Code.
+// Palette aligned with app CSS variables so appearance changes update existing
+// editor instances without remounting CodeMirror.
 const PALETTE = {
   bg: "transparent",
-  fg: "#e4e4e7", // zinc-200
-  mutedFg: "#71717a", // zinc-500
-  faintBorder: "rgba(255,255,255,0.06)",
-  selection: "rgba(168, 85, 247, 0.18)", // soft violet, matches accent
-  cursor: "#e4e4e7",
-  activeLine: "rgba(255,255,255,0.025)",
-  activeLineGutter: "rgba(255,255,255,0.04)",
-  matchingBracket: "rgba(168, 85, 247, 0.25)",
+  fg: "var(--foreground)",
+  mutedFg: "var(--muted-foreground)",
+  faintBorder: "var(--border)",
+  selection: "color-mix(in oklab, var(--primary) 22%, transparent)",
+  cursor: "var(--foreground)",
+  activeLine: "color-mix(in oklab, var(--foreground) 4%, transparent)",
+  activeLineGutter: "color-mix(in oklab, var(--foreground) 6%, transparent)",
+  matchingBracket: "color-mix(in oklab, var(--primary) 26%, transparent)",
 
   // Syntax
-  keyword: "#c084fc", // violet-400
-  control: "#c084fc",
-  string: "#86efac", // green-300
-  number: "#fbbf24", // amber-400
-  bool: "#fbbf24",
-  function: "#7dd3fc", // sky-300
-  variable: "#e4e4e7",
-  property: "#e4e4e7",
-  type: "#67e8f9", // cyan-300
-  className: "#67e8f9",
-  attribute: "#fda4af", // rose-300
-  tag: "#f87171", // red-400
-  punctuation: "#a1a1aa", // zinc-400
-  comment: "#71717a", // zinc-500
-  meta: "#a1a1aa",
-  operator: "#a1a1aa",
-  link: "#7dd3fc",
-  heading: "#fafafa",
-  invalid: "#f87171",
+  keyword: "var(--syntax-keyword)",
+  control: "var(--syntax-keyword)",
+  string: "var(--syntax-string)",
+  number: "var(--syntax-number)",
+  bool: "var(--syntax-number)",
+  function: "var(--syntax-function)",
+  variable: "var(--foreground)",
+  property: "var(--foreground)",
+  type: "var(--syntax-type)",
+  className: "var(--syntax-type)",
+  attribute: "var(--syntax-attribute)",
+  tag: "var(--syntax-tag)",
+  punctuation: "var(--muted-foreground)",
+  comment: "var(--muted-foreground)",
+  meta: "var(--muted-foreground)",
+  operator: "var(--muted-foreground)",
+  link: "var(--syntax-function)",
+  heading: "var(--message-heading)",
+  invalid: "var(--destructive)",
 };
 
 const editorTheme = EditorView.theme(
@@ -97,13 +93,13 @@ const editorTheme = EditorView.theme(
       color: PALETTE.invalid,
     },
     ".cm-tooltip": {
-      backgroundColor: "#18181b", // zinc-900
+      backgroundColor: "var(--popover)",
       color: PALETTE.fg,
       border: `1px solid ${PALETTE.faintBorder}`,
       borderRadius: "6px",
     },
     ".cm-panels": {
-      backgroundColor: "#18181b",
+      backgroundColor: "var(--popover)",
       color: PALETTE.fg,
     },
     ".cm-panels.cm-panels-bottom": {
@@ -159,7 +155,14 @@ const highlightStyle = HighlightStyle.define([
   { tag: t.angleBracket, color: PALETTE.punctuation },
 
   {
-    tag: [t.punctuation, t.separator, t.bracket, t.paren, t.brace, t.squareBracket],
+    tag: [
+      t.punctuation,
+      t.separator,
+      t.bracket,
+      t.paren,
+      t.brace,
+      t.squareBracket,
+    ],
     color: PALETTE.punctuation,
   },
   { tag: t.operator, color: PALETTE.operator },

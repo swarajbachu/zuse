@@ -977,6 +977,13 @@ const translate = (
   return [];
 };
 
+export const translateClaudeSdkMessages = (
+  messages: ReadonlyArray<SDKMessage>,
+): ReadonlyArray<AgentEvent> => {
+  const state = newTranslateState();
+  return messages.flatMap((message) => translate(message, state));
+};
+
 /**
  * Tools the agent can run without a prompt. These are pure reads or
  * internal-state tools (`TodoWrite`) with no observable blast radius. The
@@ -997,18 +1004,9 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "BashOutput",
   "TodoWrite",
   ASK_USER_QUESTION_FQN,
-  // Memoize code-index tools. All five are strict reads against the
-  // worktree-local SQLite — they can't mutate anything, so prompting on
-  // every call (and failing to dedupe because the per-input JSON ends up
-  // in the kindKey) is pure noise. Auto-allow them like Grep/Glob.
-  `mcp__${ZUSE_MCP_NAME}__code_search`,
-  `mcp__${ZUSE_MCP_NAME}__symbol_lookup`,
-  `mcp__${ZUSE_MCP_NAME}__find_references`,
-  `mcp__${ZUSE_MCP_NAME}__read_chunk`,
-  `mcp__${ZUSE_MCP_NAME}__list_module`,
   // Agent browser — navigate / screenshot / snapshot / wait are read-only and
   // fully visible to the user (the page loads in the on-screen webview,
-  // screenshots flash a shutter). Auto-allow like the index reads.
+  // screenshots flash a shutter). Auto-allow like Grep/Glob.
   // `browser_click` and `browser_type` are deliberately absent: they mutate
   // page state, so they fall through to the regular permission prompt.
   `mcp__${ZUSE_MCP_NAME}__browser_navigate`,
@@ -1016,12 +1014,15 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ZUSE_MCP_NAME}__browser_snapshot`,
   `mcp__${ZUSE_MCP_NAME}__browser_wait`,
   // Read-only / non-mutating browsing: scroll, hover, read text, console,
-  // and history (back/forward/reload — like navigate, which also auto-allows).
-  // `browser_select` and `browser_press` change page state, so they prompt.
+  // network (pure read of captured request metadata), and history
+  // (back/forward/reload — like navigate, which also auto-allows).
+  // `browser_select`, `browser_press`, `browser_fill_form`, and
+  // `browser_dialog` change page state, so they prompt.
   `mcp__${ZUSE_MCP_NAME}__browser_scroll`,
   `mcp__${ZUSE_MCP_NAME}__browser_hover`,
   `mcp__${ZUSE_MCP_NAME}__browser_read`,
   `mcp__${ZUSE_MCP_NAME}__browser_console`,
+  `mcp__${ZUSE_MCP_NAME}__browser_network`,
   `mcp__${ZUSE_MCP_NAME}__browser_history`,
 ]);
 
@@ -1326,10 +1327,8 @@ export const startClaudeSession = (
   getRuntimeMode: GetRuntimeMode,
   resumeCursor: string | null = null,
   // Extra MCP tools to register inside the in-process memoize MCP server.
-  // Phase B uses this to expose `code_search`, `symbol_lookup`,
-  // `find_references`, `read_chunk`, `list_module` from `@zuse/index`.
-  // Tools arrive already bound to the session's worktree handle, so the
-  // driver itself stays path-agnostic. Typed loosely because the SDK's
+  // Tools arrive already bound to their session-specific backing service, so
+  // the driver itself stays path-agnostic. Typed loosely because the SDK's
   // `SdkMcpToolDefinition` is parameterized by each tool's zod schema and
   // doesn't compose across distinct shapes in an array.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

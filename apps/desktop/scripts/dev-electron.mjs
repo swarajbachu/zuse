@@ -64,14 +64,26 @@ function tcpReady(host, port, timeoutMs = 500) {
   });
 }
 
-async function waitForResources({ timeoutMs = 120_000, intervalMs = 100 } = {}) {
+async function waitForResources({
+  timeoutMs = 120_000,
+  intervalMs = 100,
+} = {}) {
+  console.log(
+    `[desktop:electron] waiting for ${devServerUrl} and ${requiredFiles.join(", ")}`,
+  );
   const startedAt = Date.now();
   while (true) {
     const filesReady = await Promise.all(
       requiredFiles.map((rel) => fileExists(resolve(desktopDir, rel))),
     ).then((results) => results.every(Boolean));
-    const portReady = await tcpReady(devServer.hostname || "127.0.0.1", devPort);
-    if (filesReady && portReady) return;
+    const portReady = await tcpReady(
+      devServer.hostname || "127.0.0.1",
+      devPort,
+    );
+    if (filesReady && portReady) {
+      console.log("[desktop:electron] resources ready");
+      return;
+    }
     if (Date.now() - startedAt >= timeoutMs) {
       throw new Error(
         `Timed out waiting for dev resources (port ${devPort}, files ${requiredFiles.join(", ")})`,
@@ -90,6 +102,7 @@ function startApp() {
   if (shuttingDown || currentApp !== null) return;
 
   const electronPath = require("electron");
+  console.log(`[desktop:electron] launching ${electronPath}`);
   const app = spawn(electronPath, [".", "--memoize-dev"], {
     cwd: desktopDir,
     // Pass the resolved dev URL through explicitly so main.ts sees it even
@@ -99,12 +112,16 @@ function startApp() {
   });
   currentApp = app;
 
-  app.once("error", () => {
+  app.once("error", (error) => {
+    console.error("[desktop:electron] failed to launch", error);
     if (currentApp === app) currentApp = null;
     if (!shuttingDown) scheduleRestart();
   });
 
   app.once("exit", (code, signal) => {
+    console.log(
+      `[desktop:electron] exited (code=${code ?? "null"} signal=${signal ?? "null"})`,
+    );
     if (currentApp === app) currentApp = null;
     const abnormal = signal !== null || code !== 0;
     if (!shuttingDown && !expectedExits.has(app) && abnormal) scheduleRestart();
@@ -152,9 +169,14 @@ function scheduleRestart() {
 
 function startWatcher() {
   const watchedFiles = new Set(["main.cjs", "preload.cjs"]);
-  return watch(join(desktopDir, "dist-electron"), { persistent: true }, (_event, filename) => {
-    if (typeof filename === "string" && watchedFiles.has(filename)) scheduleRestart();
-  });
+  return watch(
+    join(desktopDir, "dist-electron"),
+    { persistent: true },
+    (_event, filename) => {
+      if (typeof filename === "string" && watchedFiles.has(filename))
+        scheduleRestart();
+    },
+  );
 }
 
 async function shutdown(code) {

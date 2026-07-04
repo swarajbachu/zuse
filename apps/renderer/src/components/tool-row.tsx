@@ -591,11 +591,13 @@ const buildToolView = (
       const path = asString(obj.file_path);
       const patches = extractPatchEntries(input);
       const edits = patches.length > 0 ? [] : extractEdits(tool, input);
+      const fileCount =
+        patches.length || new Set(edits.map((e) => e.path)).size;
       const label =
         tool === "Write"
           ? "Write"
           : tool === "MultiEdit"
-            ? `MultiEdit (${edits.length || patches.length})`
+            ? `MultiEdit (${fileCount})`
             : "Edit";
       const stats =
         patches.length > 0
@@ -618,6 +620,18 @@ const buildToolView = (
                     : undefined
                 }
               />
+            </span>
+          ) : stats !== null && tool === "MultiEdit" ? (
+            <span className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+              <span>
+                {fileCount} file{fileCount === 1 ? "" : "s"}
+              </span>
+              {stats.added > 0 ? (
+                <span className="text-emerald-400">+{stats.added}</span>
+              ) : null}
+              {stats.removed > 0 ? (
+                <span className="text-red-400">-{stats.removed}</span>
+              ) : null}
             </span>
           ) : undefined,
         fallbackBody:

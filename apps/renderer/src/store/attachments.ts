@@ -12,19 +12,11 @@ import { getRpcClient } from "../lib/rpc-client.ts";
  */
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
 
-/**
- * The set of attachment ids the renderer is currently keeping alive. Any
- * id in this set is heartbeat by `attachments.touch` every 30 s so the
- * server's GC sweep doesn't reap a blob that's still referenced by a draft
- * composer chip or a queued message.
- */
 type AttachmentsState = {
-  readonly activeIds: ReadonlySet<string>;
-  readonly registerActive: (id: string) => void;
-  readonly forgetActive: (id: string) => void;
   readonly uploadOne: (
     sessionId: SessionId,
     file: File,
+    rootPath?: string,
   ) => Promise<AttachmentRef>;
 };
 
@@ -40,22 +32,8 @@ const fileToBytes = (file: File): Promise<Uint8Array> =>
     reader.readAsArrayBuffer(file);
   });
 
-export const useAttachmentsStore = create<AttachmentsState>((set, get) => ({
-  activeIds: new Set(),
-  registerActive: (id) =>
-    set((s) => {
-      const next = new Set(s.activeIds);
-      next.add(id);
-      return { activeIds: next };
-    }),
-  forgetActive: (id) =>
-    set((s) => {
-      if (!s.activeIds.has(id)) return s;
-      const next = new Set(s.activeIds);
-      next.delete(id);
-      return { activeIds: next };
-    }),
-  uploadOne: async (sessionId, file) => {
+export const useAttachmentsStore = create<AttachmentsState>(() => ({
+  uploadOne: async (sessionId, file, rootPath) => {
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error(`Image too large (max 100 MB)`);
     }
@@ -67,6 +45,9 @@ export const useAttachmentsStore = create<AttachmentsState>((set, get) => ({
         bytes,
         mimeType: file.type || "application/octet-stream",
         originalName: file.name || "image",
+        // `rootPath` is a fallback the server uses only when it can't resolve
+        // the session's cwd itself (e.g. a brand-new chat before first send).
+        ...(rootPath ? { rootPath } : {}),
       }),
     );
     const ref: AttachmentRef = {
@@ -74,35 +55,6 @@ export const useAttachmentsStore = create<AttachmentsState>((set, get) => ({
       mimeType: result.mimeType,
       originalName: file.name || "image",
     };
-    get().registerActive(result.id);
     return ref;
   },
 }));
-
-/**
- * Heartbeat: ping `attachments.touch` every 30 s with the current active
- * set. Boot once at app start; tears down only when the renderer unloads.
- * The interval is half the server's 90 s GC TTL so a single missed tick
- * still keeps blobs alive.
- */
-export const startAttachmentsHeartbeat = (): (() => void) => {
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) return;
-    const ids = Array.from(useAttachmentsStore.getState().activeIds);
-    if (ids.length === 0) return;
-    try {
-      const client = await getRpcClient();
-      await Effect.runPromise(client.attachments.touch({ ids }));
-    } catch {
-      // Heartbeat is best-effort; a dropped tick just means the GC may run
-      // sooner. The chip will swap to a missing-attachment placeholder if
-      // the blob actually disappears.
-    }
-  };
-  const handle = window.setInterval(tick, 30_000);
-  return () => {
-    stopped = true;
-    window.clearInterval(handle);
-  };
-};

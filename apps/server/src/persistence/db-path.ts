@@ -1,8 +1,8 @@
-import { execFile } from "node:child_process";
+import { Effect, Option } from "effect";
 import { copyFile, rename, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
-import { promisify } from "node:util";
+import type * as NodeSqlite from "node:sqlite";
 
 export const ZUSE_SQLITE_FILENAME = "zuse.sqlite";
 const LEGACY_MEMOIZE_SQLITE_FILENAME = "memoize.sqlite";
@@ -15,21 +15,6 @@ const LEGACY_USER_DATA_DIR_NAMES = [
 ] as const;
 const EMPTY_SQLITE_MAX_BYTES = 64 * 1024;
 const require = createRequire(import.meta.url);
-const execFileAsync = promisify(execFile);
-
-type SqliteRow = Record<string, unknown>;
-type SqliteStatement = {
-  readonly get: () => SqliteRow | undefined;
-};
-type SqliteDatabase = {
-  readonly prepare: (sql: string) => SqliteStatement;
-  readonly close: () => void;
-};
-type SqliteDatabaseConstructor = new (
-  path: string,
-  options: { readonly readonly: boolean; readonly fileMustExist: boolean },
-) => SqliteDatabase;
-const Database = require("better-sqlite3") as SqliteDatabaseConstructor;
 
 export const sqliteDbPath = (userData: string): string =>
   join(userData, ZUSE_SQLITE_FILENAME);
@@ -40,18 +25,31 @@ export const legacySqliteDbPath = (userData: string): string =>
 const migrationStatePath = (userData: string): string =>
   join(userData, MIGRATION_STATE_FILENAME);
 
-const exists = async (path: string): Promise<boolean> => {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
+const exists = (path: string): Effect.Effect<boolean> =>
+  Effect.tryPromise(() => stat(path)).pipe(
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  );
 
-const projectCount = (path: string): number | null => {
-  try {
-    const db = new Database(path, { readonly: true, fileMustExist: true });
+const fileSize = (path: string): Effect.Effect<number> =>
+  Effect.tryPromise(() => stat(path)).pipe(
+    Effect.map((s) => s.size),
+    Effect.orElseSucceed(() => 0),
+  );
+
+/**
+ * Count `projects` rows via a read-only `node:sqlite` probe. `null` means
+ * "could not read the file as sqlite" — callers fall back to a size
+ * heuristic. The require is lazy because this module is also loaded under
+ * Bun (tests), which has no `node:sqlite`; there the probe fails cleanly to
+ * the heuristic, matching how the old better-sqlite3 probe behaved when its
+ * native binding could not load. (The old `/usr/bin/sqlite3` CLI fallback
+ * existed only for native-ABI failures, which a builtin cannot have.)
+ */
+const projectCount = (path: string): Effect.Effect<number | null> =>
+  Effect.try(() => {
+    const { DatabaseSync } = require("node:sqlite") as typeof NodeSqlite;
+    const db = new DatabaseSync(path, { readOnly: true });
     try {
       const hasProjects = db
         .prepare(
@@ -69,139 +67,144 @@ const projectCount = (path: string): number | null => {
     } finally {
       db.close();
     }
-  } catch {
-    return null;
-  }
-};
+  }).pipe(Effect.orElseSucceed(() => null));
 
-const projectCountViaSqliteCli = async (path: string): Promise<number | null> => {
-  try {
-    const { stdout } = await execFileAsync(
-      "/usr/bin/sqlite3",
-      [
-        path,
-        "SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'projects') THEN (SELECT count(*) FROM projects) ELSE 0 END;",
-      ],
-      { timeout: 2_000 },
+const looksEmpty = (path: string): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const projects = yield* projectCount(path);
+    if (projects !== null) return projects === 0;
+    return (yield* fileSize(path)) <= EMPTY_SQLITE_MAX_BYTES;
+  });
+
+const legacySiblingDbCandidates = (
+  userData: string,
+): Effect.Effect<ReadonlyArray<string>> =>
+  Effect.gen(function* () {
+    const appSupportDir = dirname(userData);
+    const currentDirName = basename(userData);
+    const candidates: string[] = [];
+    for (const name of LEGACY_USER_DATA_DIR_NAMES) {
+      if (name === currentDirName) continue;
+      const candidate = join(
+        appSupportDir,
+        name,
+        LEGACY_MEMOIZE_SQLITE_FILENAME,
+      );
+      if (yield* exists(candidate)) candidates.push(candidate);
+    }
+    return candidates;
+  });
+
+const newestNonEmptyLegacyDb = (
+  userData: string,
+): Effect.Effect<Option.Option<string>> =>
+  Effect.gen(function* () {
+    const candidates = yield* legacySiblingDbCandidates(userData);
+    const withStats = yield* Effect.forEach(candidates, (path) =>
+      Effect.gen(function* () {
+        return {
+          path,
+          projects: yield* projectCount(path),
+          size: yield* fileSize(path),
+          mtimeMs: yield* Effect.tryPromise(() => stat(path)).pipe(
+            Effect.map((s) => s.mtimeMs),
+            Effect.orElseSucceed(() => 0),
+          ),
+        };
+      }),
     );
-    const count = Number(stdout.trim());
-    return Number.isFinite(count) ? count : null;
-  } catch {
-    return null;
-  }
-};
+    const nonEmpty = withStats
+      .filter((candidate) =>
+        candidate.projects !== null
+          ? candidate.projects > 0
+          : candidate.size > EMPTY_SQLITE_MAX_BYTES,
+      )
+      .sort((a, b) => {
+        const projectDiff = (b.projects ?? 0) - (a.projects ?? 0);
+        if (projectDiff !== 0) return projectDiff;
+        const sizeDiff = b.size - a.size;
+        if (sizeDiff !== 0) return sizeDiff;
+        return b.mtimeMs - a.mtimeMs;
+      });
+    return Option.fromNullable(nonEmpty[0]?.path);
+  });
 
-const detectedProjectCount = async (path: string): Promise<number | null> =>
-  projectCount(path) ?? (await projectCountViaSqliteCli(path));
-
-const looksEmpty = async (path: string): Promise<boolean> => {
-  const projects = await detectedProjectCount(path);
-  if (projects !== null) return projects === 0;
-  return (await stat(path)).size <= EMPTY_SQLITE_MAX_BYTES;
-};
-
-const legacySiblingDbCandidates = async (
-  userData: string,
-): Promise<ReadonlyArray<string>> => {
-  const appSupportDir = dirname(userData);
-  const currentDirName = basename(userData);
-  const candidates: string[] = [];
-  for (const name of LEGACY_USER_DATA_DIR_NAMES) {
-    if (name === currentDirName) continue;
-    const candidate = join(appSupportDir, name, LEGACY_MEMOIZE_SQLITE_FILENAME);
-    if (await exists(candidate)) candidates.push(candidate);
-  }
-  return candidates;
-};
-
-const newestNonEmptyLegacyDb = async (
-  userData: string,
-): Promise<string | null> => {
-  const candidates = await legacySiblingDbCandidates(userData);
-  const withStats = await Promise.all(
-    candidates.map(async (path) => ({
-      path,
-      projects: await detectedProjectCount(path),
-      stats: await stat(path),
-    })),
-  );
-  const nonEmpty = withStats
-    .filter((candidate) =>
-      candidate.projects !== null
-        ? candidate.projects > 0
-        : candidate.stats.size > EMPTY_SQLITE_MAX_BYTES,
-    )
-    .sort((a, b) => {
-      const projectDiff = (b.projects ?? 0) - (a.projects ?? 0);
-      if (projectDiff !== 0) return projectDiff;
-      const sizeDiff = b.stats.size - a.stats.size;
-      if (sizeDiff !== 0) return sizeDiff;
-      return b.stats.mtimeMs - a.stats.mtimeMs;
-    });
-  return nonEmpty[0]?.path ?? null;
-};
-
-const copyLegacyDb = async (
+const copyLegacyDb = (
   userData: string,
   legacy: string,
   current: string,
   kind: string,
-): Promise<void> => {
-  await copyFile(legacy, current);
-  await writeFile(
-    migrationStatePath(userData),
-    `${JSON.stringify(
-      {
-        kind,
-        from: legacy,
-        to: current,
-        migratedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    )}\n`,
-  );
-};
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    yield* Effect.tryPromise({
+      try: () => copyFile(legacy, current),
+      catch: (cause) =>
+        new Error(`Failed to copy legacy sqlite from ${legacy}`, { cause }),
+    });
+    yield* Effect.tryPromise({
+      try: () =>
+        writeFile(
+          migrationStatePath(userData),
+          `${JSON.stringify(
+            {
+              kind,
+              from: legacy,
+              to: current,
+              migratedAt: new Date().toISOString(),
+            },
+            null,
+            2,
+          )}\n`,
+        ),
+      catch: (cause) =>
+        new Error("Failed to record sqlite migration state", { cause }),
+    });
+  });
 
-export const ensureSqliteRenameCompatibility = async (
+export const ensureSqliteRenameCompatibility = (
   userData: string,
-): Promise<void> => {
-  const current = sqliteDbPath(userData);
-  if (await exists(current)) {
-    if (!(await looksEmpty(current))) return;
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const current = sqliteDbPath(userData);
+    if (yield* exists(current)) {
+      if (!(yield* looksEmpty(current))) return;
 
-    const legacySibling = await newestNonEmptyLegacyDb(userData);
-    if (legacySibling === null) return;
+      const legacySibling = yield* newestNonEmptyLegacyDb(userData);
+      if (Option.isNone(legacySibling)) return;
 
-    const backup = `${current}.empty-before-zuse-migration-${Date.now()}`;
-    await rename(current, backup);
-    await copyLegacyDb(
+      const backup = `${current}.empty-before-zuse-migration-${Date.now()}`;
+      yield* Effect.tryPromise({
+        try: () => rename(current, backup),
+        catch: (cause) =>
+          new Error(`Failed to back up empty sqlite to ${backup}`, { cause }),
+      });
+      yield* copyLegacyDb(
+        userData,
+        legacySibling.value,
+        current,
+        "memoize-app-support-to-zuse-sqlite-copy",
+      );
+      return;
+    }
+
+    const legacy = legacySqliteDbPath(userData);
+    if (yield* exists(legacy)) {
+      yield* copyLegacyDb(
+        userData,
+        legacy,
+        current,
+        "memoize-to-zuse-sqlite-copy",
+      );
+      return;
+    }
+
+    const legacySibling = yield* newestNonEmptyLegacyDb(userData);
+    if (Option.isNone(legacySibling)) return;
+
+    yield* copyLegacyDb(
       userData,
-      legacySibling,
+      legacySibling.value,
       current,
       "memoize-app-support-to-zuse-sqlite-copy",
     );
-    return;
-  }
-
-  const legacy = legacySqliteDbPath(userData);
-  if (await exists(legacy)) {
-    await copyLegacyDb(
-      userData,
-      legacy,
-      current,
-      "memoize-to-zuse-sqlite-copy",
-    );
-    return;
-  }
-
-  const legacySibling = await newestNonEmptyLegacyDb(userData);
-  if (legacySibling === null) return;
-
-  await copyLegacyDb(
-    userData,
-    legacySibling,
-    current,
-    "memoize-app-support-to-zuse-sqlite-copy",
-  );
-};
+  });

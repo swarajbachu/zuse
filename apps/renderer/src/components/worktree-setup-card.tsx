@@ -80,6 +80,8 @@ export function WorktreeSetupCard() {
   const worktreePending = ctx.status === "ready" && ctx.worktreePending;
   const setupStatus = worktree?.setupStatus ?? null;
   const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
+  const externalResume =
+    session !== null && session.resumeStrategy !== "none";
   const providerBooting = session?.status === "booting";
   const providerErrored = session?.status === "error";
 
@@ -88,7 +90,9 @@ export function WorktreeSetupCard() {
   // Once the provider errors we stop occupying the screen with a fake
   // "Starting…" spinner — the ErrorBubble below carries the failure + the
   // inline "Sign in" CTA — so a worktree-less errored session hides the card.
-  const visible = (hasWorktree && !setupDone) || providerBooting === true;
+  const visible =
+    !externalResume &&
+    ((hasWorktree && !setupDone) || providerBooting === true);
   if (!visible) return null;
 
   const providerLabel: string =

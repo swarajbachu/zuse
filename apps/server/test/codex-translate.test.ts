@@ -124,6 +124,47 @@ describe("translateCodexItem", () => {
     });
   });
 
+  it("renders multi-file Codex file changes as patch-backed multi-edit rows", () => {
+    const item: ThreadItem = {
+      type: "fileChange",
+      id: "patch-many",
+      status: "completed",
+      changes: [
+        {
+          path: "a.txt",
+          kind: { type: "update", move_path: null },
+          diff: "@@ -1 +1 @@\n-old\n+new",
+        },
+        {
+          path: "b.txt",
+          kind: { type: "add" },
+          diff: "@@ -0,0 +1 @@\n+created",
+        },
+      ],
+    };
+
+    const out = translateCodexItem(item, "completed");
+    expect(tags(out)).toEqual(["ToolUse", "ToolResult"]);
+    const use = out[0] as Extract<AgentEvent, { _tag: "ToolUse" }>;
+    expect(use.tool).toBe("MultiEdit");
+    expect(use.input).toEqual({
+      patches: [
+        {
+          file_path: "a.txt",
+          kind: "update",
+          patch: "@@ -1 +1 @@\n-old\n+new",
+          move_path: null,
+        },
+        {
+          file_path: "b.txt",
+          kind: "add",
+          patch: "@@ -0,0 +1 @@\n+created",
+          move_path: undefined,
+        },
+      ],
+    });
+  });
+
   it("normalizes MCP tool names to Claude-style names", () => {
     const item: ThreadItem = {
       type: "mcpToolCall",
@@ -166,10 +207,7 @@ describe("translateCodexItem", () => {
   it("renders context compaction gracefully without token counts", () => {
     const item: ThreadItem = { type: "contextCompaction", id: "compact1" };
 
-    const ev = only(
-      translateCodexItem(item, "completed"),
-      "ContextCompaction",
-    );
+    const ev = only(translateCodexItem(item, "completed"), "ContextCompaction");
     expect(ev.beforeTokens).toBeNull();
     expect(ev.afterTokens).toBeNull();
     expect(ev.status).toBe("completed");
@@ -211,9 +249,45 @@ describe("translateCodexStatusNotification", () => {
     );
 
     expect(ev.providerId).toBe("codex");
-    expect(ev.usedTokens).toBe(231_700);
+    expect(ev.usedTokens).toBe(1_000);
     expect(ev.windowTokens).toBe(258_400);
     expect(ev.precision).toBe("exact");
+  });
+
+  it("uses Codex last token usage for context instead of cumulative total", () => {
+    const ev = only(
+      translateCodexStatusNotification(
+        {
+          method: "thread/tokenUsage/updated",
+          params: {
+            threadId: "thread1",
+            turnId: "turn1",
+            tokenUsage: {
+              total: {
+                totalTokens: 8_913_426,
+                inputTokens: 8_888_677,
+                cachedInputTokens: 8_342_528,
+                outputTokens: 24_749,
+                reasoningOutputTokens: 5_466,
+              },
+              last: {
+                totalTokens: 96_517,
+                inputTokens: 96_505,
+                cachedInputTokens: 82_816,
+                outputTokens: 12,
+                reasoningOutputTokens: 0,
+              },
+              modelContextWindow: 258_400,
+            },
+          },
+        },
+        "thread1",
+      ) ?? [],
+      "ContextUsage",
+    );
+
+    expect(ev.usedTokens).toBe(96_517);
+    expect(ev.windowTokens).toBe(258_400);
   });
 
   it("maps account rate-limit notifications to usage limits", () => {
@@ -243,10 +317,55 @@ describe("translateCodexStatusNotification", () => {
     );
 
     expect(ev.providerId).toBe("codex");
-    expect(ev.label).toBe("Codex weekly");
+    expect(ev.label).toBe("7d limit");
     expect(ev.usedPercent).toBe(42);
     expect(ev.windowMinutes).toBe(10_080);
     expect(ev.resetsAt).toBe("2027-01-15T08:00:00.000Z");
+  });
+
+  it("maps primary and secondary Codex rate-limit windows", () => {
+    const events =
+      translateCodexStatusNotification(
+        {
+          method: "account/rateLimits/updated",
+          params: {
+            rateLimits: {
+              limitId: "codex",
+              limitName: "Codex usage",
+              primary: {
+                usedPercent: 14,
+                windowDurationMins: 300,
+                resetsAt: 1_783_010_100,
+              },
+              secondary: {
+                usedPercent: 40,
+                windowDurationMins: 10_080,
+                resetsAt: 1_783_500_240,
+              },
+              credits: {
+                hasCredits: true,
+                unlimited: false,
+                balance: "12.34",
+              },
+              planType: "pro",
+              rateLimitReachedType: null,
+            },
+          },
+        },
+        "thread1",
+      ) ?? [];
+
+    expect(tags(events)).toEqual(["UsageLimit", "UsageLimit"]);
+    const primary = events[0] as Extract<AgentEvent, { _tag: "UsageLimit" }>;
+    const secondary = events[1] as Extract<AgentEvent, { _tag: "UsageLimit" }>;
+    expect(primary.label).toBe("5h limit");
+    expect(primary.usedPercent).toBe(14);
+    expect(primary.windowMinutes).toBe(300);
+    expect(primary.resetsAt).toBe("2026-07-02T16:35:00.000Z");
+    expect(secondary.label).toBe("7d limit");
+    expect(secondary.usedPercent).toBe(40);
+    expect(secondary.windowMinutes).toBe(10_080);
+    expect(secondary.resetsAt).toBe("2026-07-08T08:44:00.000Z");
   });
 });
 

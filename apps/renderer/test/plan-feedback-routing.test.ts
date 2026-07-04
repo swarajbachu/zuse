@@ -9,6 +9,8 @@ import {
 import {
   chooseComposerSubmitRoute,
   findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
   shouldSendPlanFeedbackNow,
 } from "../src/lib/plan-feedback-routing.ts";
 
@@ -48,6 +50,14 @@ const exitPlanRequest = PermissionRequest.make({
 });
 
 describe("plan feedback routing", () => {
+  it("treats Claude as native and every other provider as emulated", () => {
+    expect(providerUsesEmulatedPlanMode("claude")).toBe(false);
+    expect(providerUsesEmulatedPlanMode("codex")).toBe(true);
+    expect(providerUsesEmulatedPlanMode("grok")).toBe(true);
+    expect(providerUsesEmulatedPlanMode("gemini")).toBe(true);
+    expect(providerUsesEmulatedPlanMode("cursor")).toBe(true);
+  });
+
   it("detects a pending ExitPlanMode approval request", () => {
     expect(findPendingPlanApprovalRequest([exitPlanRequest], sessionId)).toBe(
       exitPlanRequest,
@@ -60,6 +70,8 @@ describe("plan feedback routing", () => {
         permissionMode: "plan",
         messages: [user(), toolUse("ExitPlanMode")],
         pendingPlanApprovalRequest: exitPlanRequest,
+        usesEmulatedPlanMode: false,
+        isRunning: true,
       }),
     ).toBe(true);
   });
@@ -70,6 +82,72 @@ describe("plan feedback routing", () => {
         permissionMode: "plan",
         messages: [user(), assistant()],
         pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("marks emulated provider plans as awaiting an explicit action", () => {
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), assistant()],
+        pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not use the emulated approval state for native plan permission requests", () => {
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), toolUse("ExitPlanMode")],
+        pendingPlanApprovalRequest: exitPlanRequest,
+        usesEmulatedPlanMode: false,
+        isRunning: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("never uses the transcript heuristic for a native-plan provider (Claude)", () => {
+    // Claude in plan mode, idle, tail is assistant text, but no ExitPlanMode
+    // request — the tray must NOT show (this is the "Yo!" false-positive).
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), assistant()],
+        pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: false,
+        isRunning: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not flicker the emulated tray mid-turn while streaming", () => {
+    // Same transcript, but the turn is still running — must stay hidden so the
+    // banner can't toggle on/off as chunks stream in.
+    expect(
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: "plan",
+        messages: [user(), assistant()],
+        pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps native pending plan approval feedback flowing even when not running", () => {
+    expect(
+      shouldSendPlanFeedbackNow({
+        permissionMode: "plan",
+        messages: [user(), toolUse("ExitPlanMode")],
+        pendingPlanApprovalRequest: exitPlanRequest,
+        usesEmulatedPlanMode: false,
+        isRunning: false,
       }),
     ).toBe(true);
   });
@@ -80,6 +158,8 @@ describe("plan feedback routing", () => {
         permissionMode: "default",
         messages: [user()],
         pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: false,
       }),
     ).toBe(false);
     expect(
@@ -87,6 +167,8 @@ describe("plan feedback routing", () => {
         permissionMode: "plan",
         messages: [user()],
         pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: false,
       }),
     ).toBe(false);
   });
@@ -97,6 +179,8 @@ describe("plan feedback routing", () => {
         permissionMode: "plan",
         messages: [user(), toolUse("Read")],
         pendingPlanApprovalRequest: null,
+        usesEmulatedPlanMode: true,
+        isRunning: false,
       }),
     ).toBe(false);
   });

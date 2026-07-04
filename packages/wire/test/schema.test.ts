@@ -5,11 +5,17 @@ import {
   AgentEvent,
   Chat,
   ComposerInput,
+  defaultModelEnabledByProvider,
+  defaultModelFor,
   GitBranchInfo,
+  isModelVisible,
   Message,
+  MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
+  resolveModelSlug,
   SettingsFile,
   Session,
+  visibleModelsForProvider,
   Worktree,
 } from "../src/index.ts";
 
@@ -398,6 +404,7 @@ describe("SettingsFile round-trip", () => {
       defaultRuntimeMode: "approval-required",
       defaultAutoCreateWorktree: false,
       onboardingCompleted: true,
+      appearanceMode: "system",
       completionSoundEnabled: true,
       completionSoundPreset: "bloom",
       providerEnabled: {
@@ -407,6 +414,13 @@ describe("SettingsFile round-trip", () => {
         cursor: true,
         gemini: true,
         opencode: true,
+      },
+      modelEnabledByProvider: {
+        ...defaultModelEnabledByProvider(),
+        codex: {
+          ...defaultModelEnabledByProvider().codex,
+          "gpt-5.3-codex": true,
+        },
       },
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
@@ -431,6 +445,7 @@ describe("SettingsFile round-trip", () => {
         defaultRuntimeMode: "approval-required",
         defaultAutoCreateWorktree: false,
         onboardingCompleted: true,
+        appearanceMode: "dark",
         completionSoundEnabled: true,
         completionSoundPreset: "airhorn",
         providerEnabled: {
@@ -441,12 +456,96 @@ describe("SettingsFile round-trip", () => {
           gemini: true,
           opencode: true,
         },
+        modelEnabledByProvider: defaultModelEnabledByProvider(),
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
         planArtifactsEnabled: false,
       }),
     ).toThrow();
+  });
+
+  it("rejects an unknown appearance mode", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(SettingsFile)({
+        schemaVersion: 1,
+        defaultProviderId: "claude",
+        defaultModelByProvider: {
+          claude: "claude-opus-4-8",
+          codex: "gpt-5-codex",
+          grok: "grok-code-fast-1",
+          cursor: "cursor-agent",
+          gemini: "gemini-3-pro",
+          opencode: "sonnet",
+        },
+        defaultRuntimeMode: "approval-required",
+        defaultAutoCreateWorktree: false,
+        onboardingCompleted: true,
+        appearanceMode: "sepia",
+        completionSoundEnabled: true,
+        completionSoundPreset: "chime",
+        providerEnabled: {
+          claude: true,
+          codex: true,
+          grok: true,
+          cursor: true,
+          gemini: true,
+          opencode: true,
+        },
+        modelEnabledByProvider: defaultModelEnabledByProvider(),
+        subagents: { enableForNewSessions: true, presets: {} },
+        branchNamingStyle: "username-slug",
+        branchNamingPrefix: "",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("model visibility helpers", () => {
+  it("uses Sonnet 5 as the default visible Claude model", () => {
+    expect(defaultModelFor("claude")).toBe("claude-sonnet-5");
+    expect(visibleModelsForProvider("claude")[0]?.id).toBe("claude-fable-5");
+    expect(isModelVisible("claude", "claude-sonnet-5")).toBe(true);
+    expect(isModelVisible("claude", "claude-fable-5")).toBe(true);
+    expect(resolveModelSlug("claude", "fable")).toBe("claude-fable-5");
+    expect(
+      MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-sonnet-5")
+        ?.badgeLabel,
+    ).toBe("New");
+    expect(
+      MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-fable-5")
+        ?.badgeLabel,
+    ).toBe("Available now");
+    expect(isModelVisible("claude", "claude-sonnet-4-6")).toBe(false);
+  });
+
+  it("filters hidden models unless they are explicitly enabled", () => {
+    expect(isModelVisible("codex", "gpt-5.3-codex")).toBe(false);
+    expect(
+      visibleModelsForProvider("codex").some(
+        (model) => model.id === "gpt-5.3-codex",
+      ),
+    ).toBe(false);
+
+    const overrides = defaultModelEnabledByProvider();
+    overrides.codex["gpt-5.3-codex"] = true;
+
+    expect(isModelVisible("codex", "gpt-5.3-codex", overrides)).toBe(true);
+    expect(
+      visibleModelsForProvider("codex", overrides).some(
+        (model) => model.id === "gpt-5.3-codex",
+      ),
+    ).toBe(true);
+  });
+
+  it("can include a hidden selected model without making all hidden models visible", () => {
+    const models = visibleModelsForProvider("codex", undefined, {
+      includeModelId: "gpt-5.3-codex",
+    });
+    expect(models.some((model) => model.id === "gpt-5.3-codex")).toBe(true);
+    expect(models.some((model) => model.id === "gpt-5.3-codex-spark")).toBe(
+      false,
+    );
   });
 });
 

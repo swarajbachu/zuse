@@ -6,10 +6,10 @@
  *
  * Channel name lives here so both sides import the same string.
  */
-export const UPDATE_STATUS_CHANNEL = "memoize:update-status" as const;
-export const UPDATE_CHECK_CHANNEL = "memoize:update-check" as const;
-export const UPDATE_DOWNLOAD_CHANNEL = "memoize:update-download" as const;
-export const UPDATE_INSTALL_CHANNEL = "memoize:update-install" as const;
+export const UPDATE_STATUS_CHANNEL = "zuse:update-status" as const;
+export const UPDATE_CHECK_CHANNEL = "zuse:update-check" as const;
+export const UPDATE_DOWNLOAD_CHANNEL = "zuse:update-download" as const;
+export const UPDATE_INSTALL_CHANNEL = "zuse:update-install" as const;
 
 export type UpdateStatus =
   | { readonly kind: "idle" }

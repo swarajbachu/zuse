@@ -25,7 +25,7 @@ export function FramePanel({
   return (
     <div
       className={cn(
-        "relative rounded-md border border-border/70 bg-background bg-clip-padding p-5 shadow-xs/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/5%)]",
+        "relative rounded-md border border-border/70 bg-background bg-clip-padding p-5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] dark:shadow-xs/5 dark:before:shadow-[0_-1px_--theme(--color-white/5%)]",
         className,
       )}
       data-slot="frame-panel"

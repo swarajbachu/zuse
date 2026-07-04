@@ -3,6 +3,7 @@ import { Context, type Effect } from "effect";
 import type {
   AttachmentBadMimeError,
   AttachmentTooLargeError,
+  ContextWriteError,
   SessionId,
   SessionNotFoundError,
 } from "@zuse/wire";
@@ -18,6 +19,7 @@ export interface AttachmentServiceShape {
     bytes: Uint8Array,
     mimeType: string,
     originalName: string,
+    rootPath?: string,
   ) => Effect.Effect<
     {
       readonly id: string;
@@ -27,7 +29,20 @@ export interface AttachmentServiceShape {
     },
     UploadFailure
   >;
-  readonly touch: (ids: ReadonlyArray<string>) => Effect.Effect<void>;
+  /**
+   * Persist raw text as a file under the workspace's `.context/files/`
+   * directory and return its workspace-relative + absolute paths. Backs the
+   * `context.saveText` RPC (big-paste-to-file).
+   */
+  readonly saveText: (
+    sessionId: SessionId,
+    text: string,
+    ext: string,
+    rootPath?: string,
+  ) => Effect.Effect<
+    { readonly relPath: string; readonly absPath: string },
+    ContextWriteError
+  >;
   readonly read: (
     id: string,
   ) => Effect.Effect<

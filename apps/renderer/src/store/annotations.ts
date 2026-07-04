@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 import type { Annotation, NewAnnotation, SessionId } from "@zuse/wire";
 
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
+
 /**
  * Draft code annotations, keyed by chat session. The user selects code in the
  * file editor / diff view and pins a comment; the annotation stacks here and is
@@ -12,13 +14,18 @@ import type { Annotation, NewAnnotation, SessionId } from "@zuse/wire";
  * un-sent annotations survive a window reload / app restart — they're drafty by
  * nature, so a DB-backed queue would be overkill.
  */
-const STORAGE_KEY = "memoize.annotations.v1";
+const STORAGE_KEY = "zuse.annotations.v1";
+const LEGACY_STORAGE_KEYS = ["memoize.annotations.v1"] as const;
 
 type Persisted = Record<string, ReadonlyArray<Annotation>>;
 
 const load = (): Persisted => {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStorageWithLegacy(
+      window.localStorage,
+      STORAGE_KEY,
+      LEGACY_STORAGE_KEYS,
+    );
     if (raw === null) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return {};

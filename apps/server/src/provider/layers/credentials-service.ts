@@ -27,6 +27,12 @@ const BROWSER_PREFIX = "browserCred:";
 const browserAccountFor = (origin: string): string =>
   `${BROWSER_PREFIX}${normalizeOrigin(origin)}`;
 
+/**
+ * Single keychain account holding the WorkOS session bundle (JSON). One per
+ * installation — signing in overwrites it, signing out deletes it.
+ */
+const WORKOS_SESSION_ACCOUNT = "workos:session";
+
 const normalizeOrigin = (input: string): string => {
   try {
     return new URL(input).origin;
@@ -163,5 +169,17 @@ export const CredentialsServiceLive = Layer.succeed(
           return out;
         }),
       ),
+    getWorkosSession: () =>
+      tryKeychain("*", () =>
+        keytar.getPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
+      ),
+    setWorkosSession: (bundleJson) =>
+      tryKeychain("*", () =>
+        keytar.setPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT, bundleJson),
+      ),
+    removeWorkosSession: () =>
+      tryKeychain("*", () =>
+        keytar.deletePassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
+      ).pipe(Effect.asVoid),
   }),
 );
