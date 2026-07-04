@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { GlobeIcon, LockIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useState } from "react";
 
-import type { GithubRepoSummary } from "@memoize/wire";
+import type { GithubRepoSummary } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
 import {

@@ -19,7 +19,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetInput,
   UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import type { CredentialsError } from "../errors.ts";
 

@@ -10,7 +10,7 @@ import {
   MAX_KEYBINDING_RULES,
   parseKey,
   parseWhen,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { mergeWithDefaults } from "../lib/default-keybindings";
 import { getRpcClient } from "../lib/rpc-client";
@@ -152,7 +152,7 @@ const pushMenuAccelerators = (resolved: ReadonlyArray<ResolvedRule>): void => {
   const json = JSON.stringify(map);
   if (json === lastAccelJson) return;
   lastAccelJson = json;
-  const menu = window.memoize?.menu;
+  const menu = window.zuse?.menu;
   menu?.setAccelerators?.(map);
 };
 

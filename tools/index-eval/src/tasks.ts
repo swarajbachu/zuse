@@ -3,7 +3,7 @@
  * typical "agent navigates the repo" question. Two pipelines run against
  * each task:
  *   - **baseline**: grep-only (mimicked by `Bash(rg pattern); Read(file)`)
- *   - **tier1**:    @memoize/index symbol lookup + read_chunk
+ *   - **tier1**:    @zuse/index symbol lookup + read_chunk
  *
  * For each pipeline we record:
  *   - `tokens` — sum of input + output token bytes that would have been

@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect";
 import { createWriteStream, mkdirSync, renameSync, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { FolderId, Message, SessionId } from "@memoize/wire";
+import type { FolderId, Message, SessionId } from "@zuse/wire";
 
 import { AppPaths } from "../app-paths.ts";
 

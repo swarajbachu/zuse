@@ -1,9 +1,11 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { PokemonPokedexEntry } from "@memoize/wire";
+import type { PokemonPokedexEntry } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
+
+const spriteCacheRequests = new Set<number>();
 
 type PokemonState = {
   readonly entries: ReadonlyArray<PokemonPokedexEntry>;
@@ -36,6 +38,8 @@ export const usePokemonStore = create<PokemonState>((set, get) => ({
     }
   },
   ensureSpriteCached: async (number) => {
+    if (spriteCacheRequests.has(number)) return;
+    spriteCacheRequests.add(number);
     try {
       const client = await getRpcClient();
       const updated = await Effect.runPromise(
@@ -50,6 +54,8 @@ export const usePokemonStore = create<PokemonState>((set, get) => ({
       });
     } catch (err) {
       set({ error: formatError(err) });
+    } finally {
+      spriteCacheRequests.delete(number);
     }
   },
 }));

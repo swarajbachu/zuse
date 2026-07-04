@@ -15,6 +15,7 @@ import {
   Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { EditorView } from "@codemirror/view";
+import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -30,7 +31,7 @@ import {
   type Session,
   type SessionId,
   type ThreadGoal,
-} from "@memoize/wire";
+} from "@zuse/wire";
 import { ModelPicker } from "./model-picker.tsx";
 
 import { Card, CardPanel } from "~/components/ui/card";
@@ -56,6 +57,8 @@ import {
   setComposerDoc,
   type ActiveTrigger,
 } from "~/lib/codemirror/composer";
+import { getRpcClient } from "~/lib/rpc-client";
+import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { useKeybindingsStore } from "../store/keybindings";
 import {
   addChipEffect,
@@ -70,11 +73,19 @@ import {
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
+import { usePaneFocus } from "../store/pane-focus.ts";
 import {
   composerDraftKeyForSession,
   useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
+import {
+  chooseComposerSubmitRoute,
+  findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
+  shouldSendPlanFeedbackNow,
+} from "~/lib/plan-feedback-routing";
 import {
   matchBuiltin,
   type BuiltinCommand,
@@ -83,6 +94,10 @@ import { parseComposerInput } from "../composer/segment-parser.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
+import {
+  EMULATED_PLAN_APPROVAL_PROMPT,
+  PlanApprovalTray,
+} from "./composer/plan-approval-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
@@ -221,6 +236,7 @@ export function ChatComposer({
   // because the agent is already mid-tool-call.
   const requestsById = usePermissionsStore((s) => s.requestsById);
   const hydratePermissions = usePermissionsStore((s) => s.hydrate);
+  const decidePermission = usePermissionsStore((s) => s.decide);
   const pendingPermissions = useMemo(() => {
     const out: PermissionRequest[] = [];
     for (const req of Object.values(requestsById)) {
@@ -234,6 +250,46 @@ export function ChatComposer({
     out.sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());
     return out;
   }, [requestsById, sessionId]);
+  const pendingPlanApprovalRequest = useMemo(
+    () =>
+      findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
+    [requestsById, sessionId],
+  );
+  const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
+  const sendPlanFeedbackNow = useMemo(
+    () =>
+      shouldSendPlanFeedbackNow({
+        permissionMode: session.permissionMode,
+        messages: sessionMessages ?? [],
+        pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
+      }),
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
+  );
+  const emulatedPlanReady = useMemo(
+    () =>
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: session.permissionMode,
+        messages: sessionMessages ?? [],
+        pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
+      }),
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
+  );
   useEffect(() => {
     if (isDraft) return;
     void hydratePermissions(sessionId);
@@ -296,7 +352,6 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
-  const forgetActive = useAttachmentsStore((s) => s.forgetActive);
   // Submit reads through a ref so the keymap, captured at editor creation
   // time, always sees the current sessionId / send / inFlight without
   // recreating the editor on every render.
@@ -306,6 +361,10 @@ export function ChatComposer({
   const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
     () => undefined,
   );
+  // Same indirection for large text pastes. Returns whether the paste was
+  // consumed (diverted to a `.context/files` file chip) so CodeMirror knows
+  // to skip its default insert.
+  const textPastedRef = useRef<(text: string) => boolean>(() => false);
   // Same pattern for the Shift+Tab plan-mode toggle. Latest session +
   // mode without reconstructing the editor on every state change.
   const togglePlanModeRef = useRef<() => void>(() => undefined);
@@ -348,6 +407,7 @@ export function ChatComposer({
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
+      onTextPaste: (text: string) => textPastedRef.current(text),
       onTogglePlanMode: () => togglePlanModeRef.current(),
     };
     const view = createComposerView({
@@ -401,6 +461,10 @@ export function ChatComposer({
     bridge.setFocus(() => {
       editorViewRef.current?.focus();
     });
+    // Join the pane Tab-walk (F6 / Ctrl+`) so focus can hop into the composer.
+    usePaneFocus.getState().register("composer", () => {
+      editorViewRef.current?.focus();
+    });
 
     return () => {
       unsubKeybindings();
@@ -408,6 +472,7 @@ export function ChatComposer({
       b.setAttachFile(null);
       b.setInsertText(null);
       b.setFocus(null);
+      usePaneFocus.getState().unregister("composer");
       view.destroy();
       editorViewRef.current = null;
     };
@@ -504,7 +569,7 @@ export function ChatComposer({
   /**
    * Insert chips for `files`. Image files render with a thumbnail; other types
    * (PDFs, docs, archives) get a generic file-icon chip. The chip's underlying
-   * token swaps from a temp id to a `memoize://attachments/<id>` URL once the
+   * token swaps from a temp id to a `zuse://attachments/<id>` URL once the
    * upload resolves. Files beyond the per-turn cap are dropped with a warning.
    */
   const attachFiles = (files: readonly File[]): void => {
@@ -546,9 +611,9 @@ export function ChatComposer({
         }),
       });
 
-      void uploadOne(sessionId, file)
+      void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
-          const finalUrl = isImage ? `memoize://attachments/${ref.id}` : "";
+          const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
           editorViewRef.current?.dispatch({
             effects: updateImageChipEffect.of({
               previousId: tempId,
@@ -571,6 +636,53 @@ export function ChatComposer({
     }
   };
 
+  /**
+   * A paste counts as "big" when it spans more than 10 lines or 2,000
+   * characters. Such pastes become a `.context/files/paste-<uuid>.md` file
+   * chip instead of flooding the composer with inline text.
+   */
+  const isBigTextPaste = (text: string): boolean =>
+    text.split("\n").length > 10 || text.length > 2000;
+
+  /**
+   * Persist a large paste as a workspace file and drop a file chip for it.
+   * Reuses the `@`-file pipeline (`FileRef`), so the agent reads the file
+   * from its cwd. On failure, fall back to inserting the raw text so nothing
+   * the user pasted is ever lost.
+   */
+  const attachPastedText = async (text: string): Promise<void> => {
+    if (editorViewRef.current === null) return;
+    try {
+      const client = await getRpcClient();
+      const res = await Effect.runPromise(
+        client.context.saveText({
+          sessionId,
+          text,
+          ext: "md",
+          ...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
+        }),
+      );
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      replaceWithChip(view, sel.from, sel.to, `@${res.relPath}`, {
+        kind: "file",
+        relPath: res.relPath,
+        absPath: res.absPath,
+        entryKind: "file",
+      });
+    } catch (err) {
+      console.error("[chat-composer] saveText failed", err);
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      });
+    }
+  };
+
   // Paperclip → hidden file input.
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -580,7 +692,9 @@ export function ChatComposer({
   };
 
   // Paste handler — accepts any file type pasted into the composer (images,
-  // PDFs, docs, etc.).
+  // PDFs, docs, etc.). Large *text* pastes are handled one layer down, inside
+  // CodeMirror (`onTextPaste`), because CM inserts pasted text before this
+  // React handler runs — see `textPastedRef` / composer.ts.
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -623,18 +737,6 @@ export function ChatComposer({
     if (files.length > 0) attachFiles(files);
   };
 
-  // Forget any stale tempId-keyed attachments when the composer unmounts —
-  // the heartbeat tracks ids, so dropping unattached blobs is enough to
-  // let the GC reap them.
-  useEffect(
-    () => () => {
-      // No-op for now: forgetActive is called per-id only when a chip is
-      // dropped explicitly. Server GC handles long-lived orphans.
-      void forgetActive;
-    },
-    [forgetActive],
-  );
-
   const submit = (): boolean => {
     // Don't submit while a popover is open — Enter belongs to the popover.
     if (trigger !== null || modelPickerOpen) return false;
@@ -666,6 +768,14 @@ export function ChatComposer({
             annotations,
           })
         : parsed;
+    const route =
+      onDraftSubmit === undefined
+        ? chooseComposerSubmitRoute({
+            sendPlanFeedbackNow,
+            goalSendMode,
+            shouldQueue: inFlight || holdForSetup,
+          })
+        : null;
     clearComposer(view);
     clearComposerDraft(draftKey);
     setGoalSendMode(false);
@@ -678,15 +788,29 @@ export function ChatComposer({
       onDraftSubmit(input, { asGoal: goalSendMode });
       return true;
     }
-    if (goalSendMode) {
-      void send(sessionId, input, { asGoal: true });
-    } else if (inFlight || holdForSetup) {
-      // Mid-turn submit — or a submit while the worktree/provider is still
-      // coming up — becomes a queue chip; auto-flushed when the turn ends,
-      // setup completes, or steered manually.
-      queue(sessionId, input);
-    } else {
-      void send(sessionId, input);
+    switch (route) {
+      case "planFeedback":
+        void (async () => {
+          if (pendingPlanApprovalRequest !== null) {
+            await decidePermission(pendingPlanApprovalRequest.id, {
+              _tag: "Deny",
+            });
+          }
+          await send(sessionId, input);
+        })();
+        break;
+      case "goal":
+        void send(sessionId, input, { asGoal: true });
+        break;
+      case "queue":
+        // Mid-turn submit — or a submit while the worktree/provider is still
+        // coming up — becomes a queue chip; auto-flushed when the turn ends,
+        // setup completes, or steered manually.
+        queue(sessionId, input);
+        break;
+      case "send":
+        void send(sessionId, input);
+        break;
     }
     return true;
   };
@@ -708,7 +832,22 @@ export function ChatComposer({
     attachFiles(files);
   };
 
+  textPastedRef.current = (text) => {
+    if (!isBigTextPaste(text)) return false;
+    void attachPastedText(text);
+    return true;
+  };
+
   const inPlanMode = session.permissionMode === "plan";
+  const approveEmulatedPlan = () => {
+    void (async () => {
+      await setPermissionMode(sessionId, "default");
+      await send(sessionId, EMULATED_PLAN_APPROVAL_PROMPT);
+    })();
+  };
+  const cancelEmulatedPlan = () => {
+    void setPermissionMode(sessionId, "default");
+  };
   const inUltracodeMode = reasoningLevel === "ultracode";
   // Keep the editor mounted at all times. Permissions / questions render as
   // a sibling above it, and we hide the editor block with `display: none`
@@ -740,6 +879,7 @@ export function ChatComposer({
         </div>
       ) : null}
       <div
+        data-pane="composer"
         className="shrink-0 px-3 pb-3 pt-2"
         style={showCard ? { display: "none" } : undefined}
         aria-hidden={showCard || undefined}
@@ -755,14 +895,19 @@ export function ChatComposer({
           <Frame>
             {!isDraft ? (
               <div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
+                <PlanApprovalTray
+                  sessionId={sessionId}
+                  emulatedPlanReady={emulatedPlanReady}
+                  onApproveEmulatedPlan={approveEmulatedPlan}
+                  onCancelEmulatedPlan={cancelEmulatedPlan}
+                />
                 {goalCapable && goal !== null ? (
                   <GoalBanner
                     goal={goal}
                     inPlanMode={inPlanMode}
                     onPause={() =>
                       void setGoal(sessionId, {
-                        status:
-                          goal.status === "active" ? "paused" : "active",
+                        status: goal.status === "active" ? "paused" : "active",
                       })
                     }
                     onSave={(objective, tokenBudget) =>
@@ -977,18 +1122,27 @@ export function ChatComposer({
  * per-session sessionStorage namespace the send path already reads.
  */
 function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
-  const storageKey = `memoize.modelOptions.${sessionId}.fastMode`;
+  const storageKey = `zuse.modelOptions.${sessionId}.fastMode`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.fastMode`;
   const [enabled, setEnabled] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.sessionStorage.getItem(storageKey) === "true";
+    return (
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true"
+    );
   });
   useEffect(() => {
     if (typeof window === "undefined") {
       setEnabled(false);
       return;
     }
-    setEnabled(window.sessionStorage.getItem(storageKey) === "true");
-  }, [storageKey]);
+    setEnabled(
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true",
+    );
+  }, [legacyStorageKey, storageKey]);
 
   const onClick = () => {
     const next = !enabled;
@@ -998,6 +1152,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
         window.sessionStorage.setItem(storageKey, "true");
       } else {
         window.sessionStorage.removeItem(storageKey);
+        window.sessionStorage.removeItem(legacyStorageKey);
       }
     }
   };
@@ -1016,7 +1171,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               enabled
-                ? "bg-amber-300/15 text-amber-200 dark:text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1068,7 +1223,7 @@ function PlanModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               isPlan
-                ? "bg-rose-300/15 text-rose-200 dark:text-rose-200 hover:bg-rose-300/25"
+                ? "bg-rose-400/20 text-rose-700 hover:bg-rose-400/30 dark:bg-rose-300/15 dark:text-rose-200 dark:hover:bg-rose-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1106,9 +1261,9 @@ function GoalModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               active
-                ? "bg-amber-300/15 text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : hasGoal
-                  ? "text-amber-200 hover:bg-muted/60"
+                  ? "text-amber-700 hover:bg-muted/60 dark:text-amber-200"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1158,9 +1313,7 @@ function GoalBanner({
     <>
       <TrayPill
         flush
-        icon={
-          <HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-        }
+        icon={<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />}
         title={GOAL_LABEL[goal.status]}
         subtitle={objective}
         actions={
@@ -1398,14 +1551,19 @@ function ReasoningPicker({
 
   const defaultId = resolved?.defaultId ?? "medium";
   const descriptorId = resolved?.descriptorId ?? "reasoning";
-  const storageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
+  const storageKey = `zuse.modelOptions.${sessionId}.${descriptorId}`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
   const [level, setLevel] = useState<string>(() => {
     if (typeof window === "undefined") return defaultId;
-    const stored = window.sessionStorage.getItem(storageKey);
+    const stored = readStorageWithLegacy(window.sessionStorage, storageKey, [
+      legacyStorageKey,
+    ]);
     if (stored !== null) return stored;
     // One-shot legacy migration so users mid-session keep their pick.
-    const legacy = window.sessionStorage.getItem(
-      `memoize.reasoning.${sessionId}`,
+    const legacy = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.reasoning.${sessionId}`,
+      [`memoize.reasoning.${sessionId}`],
     );
     if (legacy !== null && legacy.length > 0) return legacy;
     return defaultId;
@@ -1514,8 +1672,10 @@ const selectedContextWindowTokens = (
   if (typeof window === "undefined") {
     return descriptorContextWindowTokens(providerId, model);
   }
-  const stored = window.sessionStorage.getItem(
-    `memoize.modelOptions.${sessionId}.contextWindow`,
+  const stored = readStorageWithLegacy(
+    window.sessionStorage,
+    `zuse.modelOptions.${sessionId}.contextWindow`,
+    [`memoize.modelOptions.${sessionId}.contextWindow`],
   );
   return (
     contextWindowTokensFromId(stored ?? undefined) ??
@@ -1591,45 +1751,128 @@ function ContextRing({ percent }: { percent: number | null }) {
   );
 }
 
+function StickMeter({
+  percent,
+  tone = "default",
+}: {
+  readonly percent: number | null;
+  readonly tone?: "default" | "warning";
+}) {
+  const segments = 38;
+  const clamped = percent === null ? 0 : Math.min(Math.max(percent, 0), 100);
+  const filled = percent === null ? 0 : Math.ceil((clamped / 100) * segments);
+  return (
+    <div
+      className="grid h-4 grid-cols-[repeat(38,minmax(0,1fr))] gap-0.5"
+      aria-hidden
+    >
+      {Array.from({ length: segments }, (_, index) => {
+        const active = index < filled;
+        return (
+          <div
+            key={index}
+            className={cn(
+              "rounded-[2px] transition-colors",
+              active
+                ? tone === "warning"
+                  ? "bg-amber-300/65"
+                  : "bg-primary/70"
+                : "bg-muted-foreground/16",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function ContextStatusPopover({ session }: { session: Session }) {
   const messages = useMessagesStore(
     (s) => s.messagesBySession[session.id] ?? EMPTY_MESSAGES,
   );
 
   const latestContext = useMemo(() => {
+    let latestUsage: Extract<
+      Message["content"],
+      { _tag: "context_usage" }
+    > | null = null;
+    let latestUsageIndex = -1;
+    let latestCompact: Extract<
+      Message["content"],
+      { _tag: "context_compaction" }
+    > | null = null;
+    let latestCompactIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       const content = messages[i]!.content;
       if (
         content._tag === "context_usage" &&
         content.providerId === session.providerId
       ) {
-        return content;
+        latestUsage = content;
+        latestUsageIndex = i;
+        break;
       }
     }
-    return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]!.content;
+      if (
+        content._tag === "context_compaction" &&
+        content.providerId === session.providerId &&
+        (content.status ?? "completed") === "completed" &&
+        content.afterTokens !== null
+      ) {
+        latestCompact = content;
+        latestCompactIndex = i;
+        break;
+      }
+    }
+    if (latestCompact !== null && latestCompactIndex > latestUsageIndex) {
+      return {
+        _tag: "context_usage" as const,
+        providerId: latestCompact.providerId,
+        usedTokens: latestCompact.afterTokens,
+        windowTokens: latestUsage?.windowTokens ?? null,
+        precision: "exact" as const,
+        source: "Context compaction",
+      };
+    }
+    return latestUsage;
   }, [messages, session.providerId]);
 
-  const usageLimits = useMemo(
-    () =>
-      messages
-        .filter(
-          (m) =>
-            m.content._tag === "usage_limit" &&
-            m.content.providerId === session.providerId,
-        )
-        .slice(-2)
-        .map((m) => (m.content._tag === "usage_limit" ? m.content : null))
-        .filter((v): v is NonNullable<typeof v> => v !== null),
-    [messages, session.providerId],
-  );
+  const usageLimits = useMemo(() => {
+    const latestByKey = new Map<
+      string,
+      Extract<Message["content"], { _tag: "usage_limit" }>
+    >();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]!.content;
+      if (
+        content._tag === "usage_limit" &&
+        content.providerId === session.providerId
+      ) {
+        const key =
+          content.windowMinutes !== null
+            ? `window:${content.windowMinutes}`
+            : `label:${content.label}`;
+        if (!latestByKey.has(key)) {
+          latestByKey.set(key, content);
+        }
+      }
+    }
+    return [...latestByKey.values()].reverse();
+  }, [messages, session.providerId]);
 
-  // Real numbers only — but the context window itself is a real capacity we
-  // know from the model, so we show it from the first message and fill in
-  // the live bar once Claude/Codex report exact usage.
   const usedTokens = latestContext?.usedTokens ?? null;
+  const reportedWindowTokens = latestContext?.windowTokens ?? null;
+  const fallbackWindowTokens = selectedContextWindowTokens(
+    session.id,
+    session.providerId,
+    session.model,
+  );
   const windowTokens =
-    latestContext?.windowTokens ??
-    selectedContextWindowTokens(session.id, session.providerId, session.model);
+    usedTokens !== null
+      ? (reportedWindowTokens ?? fallbackWindowTokens)
+      : reportedWindowTokens;
 
   const percent =
     usedTokens !== null && windowTokens !== null && windowTokens > 0
@@ -1640,7 +1883,7 @@ function ContextStatusPopover({ session }: { session: Session }) {
       ? Math.max(0, windowTokens - usedTokens)
       : null;
 
-  const hasContext = usedTokens !== null || windowTokens !== null;
+  const hasContext = usedTokens !== null && windowTokens !== null;
   const hasLimits = usageLimits.length > 0;
   if (!hasContext && !hasLimits) return null;
 
@@ -1674,10 +1917,10 @@ function ContextStatusPopover({ session }: { session: Session }) {
         side="top"
         align="end"
         sideOffset={8}
-        className="w-[256px] overflow-hidden rounded-xl border-border bg-popover p-0 text-[13px] shadow-lg"
+        className="w-[300px] overflow-hidden rounded-xl border-border bg-popover p-0 text-[13px] shadow-lg"
       >
         {hasContext ? (
-          <div className="flex flex-col gap-2.5 p-3">
+          <div className="flex flex-col gap-3 p-3.5">
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-medium text-foreground">Context</span>
               <span className="tabular-nums text-muted-foreground">
@@ -1686,22 +1929,19 @@ function ContextStatusPopover({ session }: { session: Session }) {
             </div>
             {percent !== null ? (
               <>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-[width]",
-                      high ? "bg-amber-400" : "bg-foreground",
-                    )}
-                    style={{ width: `${Math.max(percent, 2)}%` }}
-                  />
-                </div>
+                <StickMeter
+                  percent={percent}
+                  tone={high ? "warning" : "default"}
+                />
                 <div className="flex items-center justify-between text-muted-foreground">
-                  <span className="tabular-nums">
-                    {percent.toFixed(1)}% used
-                  </span>
+                  <span>Window used</span>
+                  <span className="tabular-nums">{percent.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground/70">
+                  <span>Available</span>
                   {freeTokens !== null ? (
                     <span className="tabular-nums">
-                      {formatTokens(freeTokens)} free
+                      {formatTokens(freeTokens)}
                     </span>
                   ) : null}
                 </div>
@@ -1716,40 +1956,50 @@ function ContextStatusPopover({ session }: { session: Session }) {
         {hasLimits ? (
           <div
             className={cn(
-              "flex flex-col gap-2 p-3",
+              "flex flex-col gap-3 p-3.5",
               hasContext && "border-t border-border",
             )}
           >
-            <span className="font-medium text-foreground">Usage limits</span>
-            <div className="flex flex-col gap-1.5">
-              {usageLimits.map((limit, index) => {
-                const reset = resetLabel(limit.resetsAt);
-                const remaining =
-                  limit.usedPercent !== null
-                    ? `${Math.max(0, 100 - limit.usedPercent).toFixed(0)}% left`
-                    : "Active";
-                return (
-                  <div
-                    key={`${limit.label}-${index}`}
-                    className="flex flex-col gap-0.5"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-foreground">
-                        {limit.label}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {remaining}
-                      </span>
-                    </div>
-                    {reset !== null ? (
-                      <span className="tabular-nums text-muted-foreground/50">
-                        resets {reset}
-                      </span>
-                    ) : null}
+            {usageLimits.map((limit) => {
+              const reset = resetLabel(limit.resetsAt);
+              const used = limit.usedPercent;
+              const remaining =
+                used !== null
+                  ? `${Math.max(0, 100 - used).toFixed(0)}% left`
+                  : "Active";
+              const limitHigh = used !== null && used >= 80;
+              return (
+                <div
+                  key={
+                    limit.windowMinutes !== null
+                      ? `window:${limit.windowMinutes}`
+                      : `label:${limit.label}`
+                  }
+                  className="flex flex-col gap-3"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium text-foreground">
+                      {limit.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {remaining}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+                  {used !== null ? (
+                    <StickMeter
+                      percent={used}
+                      tone={limitHigh ? "warning" : "default"}
+                    />
+                  ) : null}
+                  <div className="flex items-center justify-between text-muted-foreground/70">
+                    <span>Reset</span>
+                    <span className="tabular-nums">
+                      {reset !== null ? reset : "unknown"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </TooltipPopup>

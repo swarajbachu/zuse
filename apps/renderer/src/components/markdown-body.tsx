@@ -80,6 +80,11 @@ const getMermaid = (): Promise<MermaidApi> => {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
+      // Never let mermaid draw its built-in "bomb" error graphic into the DOM.
+      // On a parse failure it otherwise appends that SVG to document.body,
+      // which renders as a bar below the app and shoves the window upward.
+      // With this on, render() just throws and our own error UI takes over.
+      suppressErrorRendering: true,
       theme: "base",
       themeVariables: {
         background: "transparent",
@@ -316,11 +321,24 @@ function MermaidDiagram({ source }: { source: string }) {
     setState({ status: "loading" });
 
     void getMermaid()
-      .then((mermaid) => mermaid.render(id, source))
+      .then(async (mermaid) => {
+        // Validate before rendering. `parse` with `suppressErrors` returns
+        // false (never throws, never touches the DOM) on invalid input, so a
+        // half-baked or model-mangled diagram never reaches render() and can't
+        // leave an orphan element behind.
+        const parsed = await mermaid.parse(source, { suppressErrors: true });
+        if (parsed === false) {
+          throw new Error("No diagram type detected in the given source.");
+        }
+        return mermaid.render(id, source);
+      })
       .then(({ svg }) => {
         if (!cancelled) setState({ status: "rendered", svg });
       })
       .catch((err: unknown) => {
+        // Defensive sweep in case a future mermaid path still appends a temp
+        // node under this id before throwing.
+        document.getElementById(id)?.remove();
         if (!cancelled) {
           setState({ status: "error", message: errorMessage(err) });
         }
@@ -422,7 +440,7 @@ export function MarkdownBody({
                 if (typeof href !== "string") return;
                 if (/^https?:\/\//i.test(href)) {
                   e.preventDefault();
-                  window.memoize?.app?.openExternal(href);
+                  window.zuse?.app?.openExternal(href);
                   return;
                 }
                 const localPath = localFilePathFromHref(href);

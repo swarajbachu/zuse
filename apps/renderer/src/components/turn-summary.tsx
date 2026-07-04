@@ -7,7 +7,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 
-import type { AgentItemId, Message, UserQuestionAnswer } from "@memoize/wire";
+import type { AgentItemId, Message, UserQuestionAnswer } from "@zuse/wire";
 
 import { groupMessages } from "../lib/group-messages.ts";
 import { cn } from "~/lib/utils";
@@ -64,9 +64,9 @@ const aggregateFileStats = (body: ReadonlyArray<Message>): FileStat[] => {
     }
     const edits = extractEdits(tool, m.content.input);
     if (edits.length === 0) continue;
-    const stats = diffStats(edits);
-    const path = edits[0]!.path;
-    addStats(path, stats);
+    for (const edit of edits) {
+      addStats(edit.path, diffStats([edit]));
+    }
   }
   return Array.from(map.entries()).map(([path, s]) => ({ path, ...s }));
 };
@@ -80,6 +80,7 @@ const findFinalAssistant = (body: ReadonlyArray<Message>): Message | null => {
 };
 
 const MAX_PREVIEW_ICONS = 5;
+const MAX_FILE_CHIPS = 4;
 
 /**
  * Inline summary of a completed turn. The header (chevron + counts + tool
@@ -97,6 +98,7 @@ export function TurnSummary({
   answersByItemId?: ReadonlyMap<AgentItemId, ReadonlyArray<UserQuestionAnswer>>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [filesExpanded, setFilesExpanded] = useState(false);
 
   const toolUses = useMemo(
     () => body.filter((m) => m.content._tag === "tool_use"),
@@ -153,6 +155,22 @@ export function TurnSummary({
     : "text-muted-foreground";
 
   const overflowCount = previewIcons.length - MAX_PREVIEW_ICONS;
+
+  const hasFileOverflow = fileStats.length > MAX_FILE_CHIPS;
+  const visibleFileStats =
+    hasFileOverflow && !filesExpanded
+      ? fileStats.slice(0, MAX_FILE_CHIPS)
+      : fileStats;
+  const hiddenFileStats = hasFileOverflow
+    ? fileStats.slice(MAX_FILE_CHIPS)
+    : [];
+  const hiddenTotals = hiddenFileStats.reduce(
+    (acc, f) => ({
+      added: acc.added + f.added,
+      removed: acc.removed + f.removed,
+    }),
+    { added: 0, removed: 0 },
+  );
 
   return (
     <div className="flex flex-col">
@@ -257,7 +275,7 @@ export function TurnSummary({
             className="size-5 rounded opacity-70 hover:opacity-100"
           />
         ) : null}
-        {fileStats.map((f) => (
+        {visibleFileStats.map((f) => (
           <FileBadge
             key={f.path}
             path={f.path}
@@ -265,6 +283,37 @@ export function TurnSummary({
             diffStats={{ added: f.added, removed: f.removed }}
           />
         ))}
+        {hasFileOverflow ? (
+          <button
+            type="button"
+            onClick={() => setFilesExpanded((e) => !e)}
+            className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            <HugeiconsIcon
+              icon={filesExpanded ? ArrowDown01Icon : ArrowRight01Icon}
+              className="size-3.5 shrink-0 opacity-70"
+            />
+            {filesExpanded ? (
+              <span>Show less</span>
+            ) : (
+              <>
+                <span className="tabular-nums">
+                  +{hiddenFileStats.length} more
+                </span>
+                {hiddenTotals.added > 0 ? (
+                  <span className="font-mono tabular-nums text-emerald-400">
+                    +{hiddenTotals.added}
+                  </span>
+                ) : null}
+                {hiddenTotals.removed > 0 ? (
+                  <span className="font-mono tabular-nums text-red-400">
+                    -{hiddenTotals.removed}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
     </div>
   );

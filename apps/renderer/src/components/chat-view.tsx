@@ -1,34 +1,40 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import {
-  Fragment,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 import type {
   AgentItemId,
   Message,
   SessionId,
   UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { groupMessages } from "../lib/group-messages.ts";
-import { useMessagesStore } from "../store/messages.ts";
+import {
+  chatArchiveProgressLabel,
+  type ChatArchiveProgressPhase,
+  useChatsStore,
+} from "../store/chats.ts";
+import { useChatScroll } from "../lib/use-chat-scroll.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
+import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
+import { usePermissionsStore } from "../store/permissions.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { FileChipProvider } from "./file-chip.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
-import { ErrorBubble, MessageRow, type ToolResultRecord } from "./message-row.tsx";
+import {
+  ErrorBubble,
+  MessageRow,
+  type ToolResultRecord,
+} from "./message-row.tsx";
+import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
+import { NextUnreadButton } from "./next-unread-button.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
-
-const NEAR_BOTTOM_PX = 80;
 
 // Stable empty-array reference for the selector below. Returning a fresh
 // `[]` from a Zustand selector each call breaks `useSyncExternalStore`'s
@@ -38,8 +44,8 @@ const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 /**
  * Read-only timeline of one session. Subscribes to `messages.stream` via the
  * messages store on mount / session-change; the store owns the live fiber.
- * Auto-scrolls to bottom on new messages unless the user has scrolled up out
- * of the "near-bottom" band.
+ * Scroll behavior is owned by `useChatScroll`: it anchors each new turn near
+ * the top and follows the live edge only while the reader is there.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const messages = useMessagesStore(
@@ -48,6 +54,18 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const inFlight = useMessagesStore(
     (s) => s.runningBySession[sessionId] === true,
   );
+  // While a plan sits awaiting approval the turn is technically still "running",
+  // but the agent is blocked on the user — show no spinner, since we're the ones
+  // waiting. The Approve/Cancel decision lives in the pinned PlanApprovalTray.
+  const awaitingPlanApproval = usePermissionsStore((s) => {
+    for (const req of Object.values(s.requestsById)) {
+      if (req.sessionId !== sessionId) continue;
+      if (req.kind._tag !== "Other") continue;
+      if (req.kind.tool !== "ExitPlanMode") continue;
+      return true;
+    }
+    return false;
+  });
   const error = useMessagesStore((s) => s.errorBySession[sessionId] ?? null);
   const clearError = useMessagesStore((s) => s.clearError);
   const hydrate = useMessagesStore((s) => s.hydrate);
@@ -79,41 +97,41 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return false;
   });
-  const setupActive = worktreeSetupActive || session?.status === "booting";
+  const externalResume =
+    session !== null && session.resumeStrategy !== "none";
+  const setupActive =
+    worktreeSetupActive || (!externalResume && session?.status === "booting");
+  const archiveProgress = useChatsStore((s) =>
+    session?.chatId === undefined
+      ? null
+      : (s.archiveProgressByChat[session.chatId] ?? null),
+  );
 
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottomRef = useRef(true);
+  const {
+    scrollRef,
+    contentRef,
+    sentinelRef,
+    spacerRef,
+    spacerHeight,
+    showPill,
+    streaming,
+    jumpToLatest,
+  } = useChatScroll({ sessionId, messages, inFlight });
+  useRegisterPane("chat", scrollRef);
 
   useEffect(() => {
     void hydrate(sessionId);
     void hydrateSkills(sessionId);
+    // Tear down the live message fibers on unmount / session change. Without
+    // this, the previous session's stream lingered until the next hydrate
+    // tore it down, and a hydrate caught mid-await could install orphaned
+    // fibers after the view was gone. `teardownLiveStreams` bumps the hydrate
+    // epoch so any in-flight hydrate bails. The next hydrate re-subscribes;
+    // `messagesBySession` is preserved, so there's no empty-state flash.
+    return () => {
+      void teardownLiveStreams();
+    };
   }, [sessionId, hydrate, hydrateSkills]);
-
-  // Track whether the user is near the bottom of the timeline; if they
-  // scroll up, we stop auto-scrolling so reading older context isn't
-  // disrupted by streaming new replies.
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (el === null) return;
-    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottomRef.current = distance < NEAR_BOTTOM_PX;
-  };
-
-  useLayoutEffect(() => {
-    // A message the user just sent always re-engages auto-scroll, even if
-    // they had scrolled up to read older context.
-    const last = messages[messages.length - 1];
-    if (
-      last?.content._tag === "user" ||
-      last?.content._tag === "user_rich"
-    ) {
-      stickToBottomRef.current = true;
-    }
-    if (!stickToBottomRef.current) return;
-    const el = scrollRef.current;
-    if (el === null) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
 
   // Pair tool_result rows back to their originating tool_use by AgentItemId.
   // The driver assigns the SDK's tool_use id to both events, so each
@@ -184,155 +202,221 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     return map;
   }, [messages]);
 
-
   return (
     <FileChipProvider
       folderId={session?.projectId ?? null}
       worktreeId={session?.worktreeId ?? null}
     >
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto"
-    >
-      <WorktreeSetupCard />
-      {messages.length === 0 ? (
-        setupActive ? null : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-            <HugeiconsIcon
-              icon={Message01Icon}
-              className="size-10 opacity-40"
-            />
-            <div>
-              <p className="text-sm">{session?.title ?? "New chat"}</p>
-              <p className="mt-1 text-xs">
-                Type a message below to get started.
-              </p>
-            </div>
-          </div>
-        )
-      ) : (
-        <div className="flex flex-col py-2">
-          {turns.map((turn, idx) => {
-            const isLastTurn = idx === turns.length - 1;
-            const isLive = inFlight && isLastTurn;
-            const hasToolCalls = turn.body.some(
-              (m) => m.content._tag === "tool_use",
-            );
-            // Only collapse into a summary when there's a final assistant
-            // message worth showing as the body — otherwise a turn with
-            // just tool calls would lose its content behind the accordion.
-            const hasFinalText = turn.body.some(
-              (m) =>
-                m.content._tag === "assistant" &&
-                m.content.text.trim().length > 0,
-            );
-            const showSummary = !isLive && hasToolCalls && hasFinalText;
-            const turnKey = turn.user?.id ?? `turn-${idx}`;
-            // Within an open (non-collapsed) turn, group sub-agent rows
-            // under a SubagentRow wrapper. TurnSummary handles its own
-            // rendering for collapsed turns; sub-agents inside a collapsed
-            // turn render via TurnSummary's existing path.
-            const bodyGroups = groupMessages(turn.body);
-            // Hoist ExitPlanMode rows out of TurnSummary so the Plan card
-            // (and its resolved accordion) stays a top-level row in
-            // scrollback — it's a user-facing decision, not just another
-            // tool call to bury in the "N tool calls" rollup.
-            const planMessages = turn.body.filter(
-              (m) =>
-                m.content._tag === "tool_use" &&
-                m.content.tool === "ExitPlanMode",
-            );
-            const planItemIds = new Set(
-              planMessages.flatMap((m) =>
-                m.content._tag === "tool_use" ? [m.content.itemId] : [],
-              ),
-            );
-            const summaryBody =
-              planMessages.length === 0
-                ? turn.body
-                : turn.body.filter((m) => {
-                    if (
-                      m.content._tag === "tool_use" &&
-                      m.content.tool === "ExitPlanMode"
-                    ) {
-                      return false;
-                    }
-                    if (
-                      m.content._tag === "tool_result" &&
-                      planItemIds.has(m.content.itemId)
-                    ) {
-                      return false;
-                    }
-                    return true;
-                  });
-            return (
-              <Fragment key={turnKey}>
-                {turn.user !== null ? (
-                  <MessageRow
-                    message={turn.user}
-                    resultsByItemId={resultsByItemId}
-                    answersByItemId={answersByItemId}
-                    sessionId={sessionId}
-                  />
-                ) : null}
-                {showSummary ? (
-                  <>
-                    {planMessages.map((m) => (
-                      <MessageRow
-                        key={m.id}
-                        message={m}
-                        resultsByItemId={resultsByItemId}
-                        answersByItemId={answersByItemId}
-                        sessionId={sessionId}
-                      />
-                    ))}
-                    <TurnSummary
-                      body={summaryBody}
-                      resultsByItemId={resultsByItemId}
-                      answersByItemId={answersByItemId}
-                    />
-                  </>
-                ) : (
-                  bodyGroups.map((group) =>
-                    group.kind === "single" ? (
-                      <MessageRow
-                        key={group.message.id}
-                        message={group.message}
-                        resultsByItemId={resultsByItemId}
-                        answersByItemId={answersByItemId}
-                        sessionId={sessionId}
-                      />
+      <div className="relative flex min-h-0 flex-1">
+        <div
+          ref={scrollRef}
+          data-pane="chat"
+          tabIndex={-1}
+          className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+        >
+          <WorktreeSetupCard />
+          {messages.length === 0 ? (
+            setupActive ? null : (
+              <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                <HugeiconsIcon
+                  icon={Message01Icon}
+                  className="size-10 opacity-40"
+                />
+                <div>
+                  <p className="text-sm">{session?.title ?? "New chat"}</p>
+                  <p className="mt-1 text-xs">
+                    Type a message below to get started.
+                  </p>
+                </div>
+              </div>
+            )
+          ) : (
+            <div ref={contentRef} className="flex flex-col py-2">
+              {turns.map((turn, idx) => {
+                const isLastTurn = idx === turns.length - 1;
+                const isLive = inFlight && isLastTurn;
+                const hasToolCalls = turn.body.some(
+                  (m) => m.content._tag === "tool_use",
+                );
+                // Only collapse into a summary when there's a final assistant
+                // message worth showing as the body — otherwise a turn with
+                // just tool calls would lose its content behind the accordion.
+                const hasFinalText = turn.body.some(
+                  (m) =>
+                    m.content._tag === "assistant" &&
+                    m.content.text.trim().length > 0,
+                );
+                const showSummary = !isLive && hasToolCalls && hasFinalText;
+                const turnKey = turn.user?.id ?? `turn-${idx}`;
+                // Within an open (non-collapsed) turn, group sub-agent rows
+                // under a SubagentRow wrapper. TurnSummary handles its own
+                // rendering for collapsed turns; sub-agents inside a collapsed
+                // turn render via TurnSummary's existing path.
+                const bodyGroups = groupMessages(turn.body);
+                // Hoist ExitPlanMode rows out of TurnSummary so the Plan card
+                // (and its resolved accordion) stays a top-level row in
+                // scrollback — it's a user-facing decision, not just another
+                // tool call to bury in the "N tool calls" rollup.
+                const planMessages = turn.body.filter(
+                  (m) =>
+                    m.content._tag === "tool_use" &&
+                    m.content.tool === "ExitPlanMode",
+                );
+                const planItemIds = new Set(
+                  planMessages.flatMap((m) =>
+                    m.content._tag === "tool_use" ? [m.content.itemId] : [],
+                  ),
+                );
+                const summaryBody =
+                  planMessages.length === 0
+                    ? turn.body
+                    : turn.body.filter((m) => {
+                        if (
+                          m.content._tag === "tool_use" &&
+                          m.content.tool === "ExitPlanMode"
+                        ) {
+                          return false;
+                        }
+                        if (
+                          m.content._tag === "tool_result" &&
+                          planItemIds.has(m.content.itemId)
+                        ) {
+                          return false;
+                        }
+                        return true;
+                      });
+                return (
+                  <Fragment key={turnKey}>
+                    {turn.user !== null ? (
+                      <div
+                        data-user-anchor={turn.user.id}
+                        className="chat-row-enter chat-row-enter-user scroll-mt-6"
+                      >
+                        <MessageRow
+                          message={turn.user}
+                          resultsByItemId={resultsByItemId}
+                          answersByItemId={answersByItemId}
+                          sessionId={sessionId}
+                        />
+                      </div>
+                    ) : null}
+                    {showSummary ? (
+                      <>
+                        {planMessages.map((m) => (
+                          <div key={m.id} className="chat-row-enter">
+                            <MessageRow
+                              message={m}
+                              resultsByItemId={resultsByItemId}
+                              answersByItemId={answersByItemId}
+                              sessionId={sessionId}
+                            />
+                          </div>
+                        ))}
+                        <div className="chat-row-enter">
+                          <TurnSummary
+                            body={summaryBody}
+                            resultsByItemId={resultsByItemId}
+                            answersByItemId={answersByItemId}
+                          />
+                        </div>
+                      </>
                     ) : (
-                      <SubagentRow
-                        key={group.parent.id}
-                        agentToolUseId={group.parentItemId}
-                        agentName={group.agentName}
-                        prompt={group.prompt}
-                        modelRequested={group.modelRequested}
-                        children={group.children}
-                        summary={group.summary}
-                        resultsByItemId={resultsByItemId}
-                        answersByItemId={answersByItemId}
-                      />
-                    ),
-                  )
-                )}
-              </Fragment>
-            );
-          })}
-          {inFlight && <WorkingRow messages={messages} />}
+                      bodyGroups.map((group) =>
+                        group.kind === "single" ? (
+                          <div
+                            key={group.message.id}
+                            className="chat-row-enter"
+                          >
+                            <MessageRow
+                              message={group.message}
+                              resultsByItemId={resultsByItemId}
+                              answersByItemId={answersByItemId}
+                              sessionId={sessionId}
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            key={group.parent.id}
+                            className="chat-row-enter"
+                          >
+                            <SubagentRow
+                              agentToolUseId={group.parentItemId}
+                              agentName={group.agentName}
+                              prompt={group.prompt}
+                              modelRequested={group.modelRequested}
+                              children={group.children}
+                              summary={group.summary}
+                              resultsByItemId={resultsByItemId}
+                              answersByItemId={answersByItemId}
+                            />
+                          </div>
+                        ),
+                      )
+                    )}
+                  </Fragment>
+                );
+              })}
+              {inFlight && !awaitingPlanApproval && (
+                <WorkingRow messages={messages} />
+              )}
+            </div>
+          )}
+          {error !== null && (
+            <ErrorBubble
+              error={error}
+              sessionId={sessionId}
+              onDismiss={() => clearError(sessionId)}
+            />
+          )}
+          {/* Live-edge sentinel — must be the last child so it sits at the very
+          bottom of the real content (before the spacer). */}
+          <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
+          {/* Dynamic spacer: lets a freshly-sent turn be read from the top while
+          its answer streams into the space below. */}
+          <div
+            ref={spacerRef}
+            aria-hidden
+            className="shrink-0"
+            style={{ height: spacerHeight }}
+          />
         </div>
-      )}
-      {error !== null && (
-        <ErrorBubble
-          error={error}
-          sessionId={sessionId}
-          onDismiss={() => clearError(sessionId)}
+        <JumpToLatestPill
+          visible={showPill}
+          streaming={streaming}
+          onClick={jumpToLatest}
         />
-      )}
-    </div>
+        <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2">
+          <NextUnreadButton />
+        </div>
+        {archiveProgress !== null ? (
+          <ArchiveProgressOverlay phase={archiveProgress} />
+        ) : null}
+      </div>
     </FileChipProvider>
+  );
+}
+
+function ArchiveProgressOverlay({
+  phase,
+}: {
+  phase: ChatArchiveProgressPhase;
+}) {
+  const label = chatArchiveProgressLabel(phase);
+  const detail =
+    phase === "removing-dirty-worktree"
+      ? "Discarding local changes and removing the checkout."
+      : "Saving the chat to archives.";
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/72 px-6 backdrop-blur-sm">
+      <div className="flex w-full max-w-sm items-center gap-3 rounded-lg border border-border/70 bg-popover px-4 py-3 text-popover-foreground shadow-lg/10">
+        <Spinner className="size-5 shrink-0" />
+        <div className="min-w-0">
+          <div className="font-medium text-sm">{label}</div>
+          <div className="mt-1 text-muted-foreground text-xs">{detail}</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -369,7 +453,9 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
   return (
     <div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
       <Spinner className="size-3" />
-      <span className="tabular-nums">{formatElapsed(elapsed)}</span>
+      <ShimmerText tone="lime" className="tabular-nums">
+        {formatElapsed(elapsed)}
+      </ShimmerText>
     </div>
   );
 }

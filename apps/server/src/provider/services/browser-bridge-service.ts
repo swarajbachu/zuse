@@ -6,7 +6,7 @@ import type {
   BrowserCommandRequest,
   BrowserCommandResult,
   SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Bridge between the in-process browser MCP tools (which call `send` from

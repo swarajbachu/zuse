@@ -117,7 +117,7 @@ export class CodexAppServerClient {
     });
 
     const init = await bootstrap.request<InitializeResponse>("initialize", {
-      clientInfo: { name: "memoize", version: "0.0.0" },
+      clientInfo: { name: "zuse", version: "0.0.0" },
       capabilities: null,
     });
     bootstrap.initializeResponse = init;

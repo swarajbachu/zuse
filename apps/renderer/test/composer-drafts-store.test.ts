@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import type { SessionId } from "@memoize/wire";
+import type { SessionId } from "@zuse/wire";
 
 import type { ChipRange } from "../src/lib/codemirror/composer-chips.ts";
 import {

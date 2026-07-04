@@ -4,7 +4,7 @@ import {
   type FolderId,
   type RepositorySettings,
   type RepositorySettingsPatch,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 export interface RepositorySettingsServiceShape {
   /**

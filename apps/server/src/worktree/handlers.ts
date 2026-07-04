@@ -1,4 +1,4 @@
-import { MemoizeRpcs } from "@memoize/wire";
+import { MemoizeRpcs } from "@zuse/wire";
 import { Effect, Layer, Stream } from "effect";
 
 import { WorktreeService } from "./services/worktree-service.ts";

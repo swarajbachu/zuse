@@ -1,7 +1,6 @@
 /**
  * Pure parsing + evaluation for keybindings. No platform/IO imports — safe to
- * run in main, renderer, or a worker. Mirrors the structure of t3code's
- * `packages/shared/src/keybindings.ts` so the two stay easy to cross-check.
+ * run in main, renderer, or a worker.
  */
 
 /* ────────────────────────── Key tokens ──────────────────────────────── */

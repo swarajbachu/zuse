@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
-    "build": "next build",
+    "dev": "node ../../scripts/generate-website-changelog.mjs && next dev --port 3001",
+    "build": "node ../../scripts/generate-website-changelog.mjs && next build",
     "start": "next start --port 3001",
     "lint": "eslint",
     "check-types": "tsc --noEmit"

@@ -3,7 +3,7 @@ import type { FromClientEncoded } from "@effect/rpc/RpcMessage";
 import { ipcMain, type WebContents } from "electron";
 import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 
-import { IPC_CHANNEL } from "@memoize/wire";
+import { IPC_CHANNEL } from "@zuse/wire";
 
 /**
  * RpcServer.Protocol implementation for Electron IPC. Modeled on

@@ -13,7 +13,7 @@ Agents inside memoize spend most of their token budget on navigation —
 
 Existing tools (Cursor, Sourcegraph Cody, Greptile, Continue, Augment) all
 build codebase indexes. None handle the **N parallel agent workspaces on
-the same repo** shape that Conductor + memoize already produces. That's
+the same repo** shape that memoize produces. That's
 the wedge: not "vector DB for code," but "the only index built for the
 parallel-workspace agent workflow."
 
@@ -22,7 +22,7 @@ parallel-workspace agent workflow."
 1. **Tokens-per-task ↓ 3–10×** vs. baseline grep agent on real memoize tasks.
 2. **Wall-clock-per-task ↓ 2–3×** (driven by fewer LLM round-trips, not
    faster retrieval).
-3. **Branch switches in < 200 ms**, not minutes — Conductor workspace
+3. **Branch switches in < 200 ms**, not minutes — parallel workspace
    ergonomics demand this.
 4. **Local-first**, zero network calls in the default config.
 5. **Reusable**: memoize is one consumer, not the only consumer.
@@ -42,7 +42,7 @@ wraps it as MCP, and a future cloud-sync worker is a third consumer.
 
 ```
 packages/
-  index/                              # @memoize/index — pure engine
+  index/                              # @zuse/index — pure engine
     src/
       schema/migrations/              # SQL files
       chunker/                        # tree-sitter chunking
@@ -62,14 +62,14 @@ packages/
 apps/
   server/
     src/
-      index/                          # consumes @memoize/index
+      index/                          # consumes @zuse/index
         index-service.ts              # Effect.Service wrapping the engine
         index-handlers.ts             # RPC handlers → renderer
   mcp-server/                         # NEW — standalone MCP app
     src/
       server.ts                       # MCP stdio + HTTP entry
       tools/                          # MCP tool wrappers
-      bin.ts                          # `memoize-mcp` executable
+      bin.ts                          # `zuse-mcp` executable
 ```
 
 The desktop renderer never talks to the index directly — it goes through
@@ -152,7 +152,7 @@ manifests (
 CREATE INDEX manifests_blob ON manifests(blob_id);
 ```
 
-**Why content-addressed.** Five Conductor workspaces on the same repo
+**Why content-addressed.** Five parallel workspaces on the same repo
 means five branches checked out concurrently. With a content-addressed
 store, the common 95% of files dedupe across branches; only the changed
 files cost re-parsing. Switching branches is a manifest swap, not a
@@ -349,7 +349,7 @@ Two consumption shapes.
 
 ### Shape 1 — In-process (memoize's bundled agent)
 
-`apps/server` consumes `@memoize/index` directly. The Claude Code SDK and
+`apps/server` consumes `@zuse/index` directly. The Claude Code SDK and
 Codex SDK adapters register five custom tools at session start:
 
 ```ts
@@ -369,13 +369,13 @@ A standalone binary that any agent runtime can spawn. Implements the
 Model Context Protocol over stdio (default) and HTTP (optional).
 
 ```
-memoize-mcp --workspace /path/to/repo
-memoize-mcp --workspace /path/to/repo --http :7421
+zuse-mcp --workspace /path/to/repo
+zuse-mcp --workspace /path/to/repo --http :7421
 ```
 
 Distribution:
 
-- npm: `npx @memoize/mcp-server`
+- npm: `npx @zuse/mcp-server`
 - Bun standalone binary via `bun build --compile` (single executable per OS)
 - Bundled inside the desktop app for users who want their memoize-managed
   index served to outside agents
@@ -403,7 +403,7 @@ A typical external-agent setup (terminal Claude Code) drops a line in
 `~/.claude/mcp.json`:
 
 ```json
-{ "servers": { "memoize": { "command": "memoize-mcp", "args": ["--workspace", "."] } } }
+{ "servers": { "memoize": { "command": "zuse-mcp", "args": ["--workspace", "."] } } }
 ```
 
 …and gets the same tools as the bundled agent.
@@ -439,7 +439,7 @@ scaffolding for future UI.
 
 ## Verification
 
-1. **Unit tests** (`bun --filter @memoize/index test`): chunker fixtures,
+1. **Unit tests** (`bun --filter @zuse/index test`): chunker fixtures,
    symbol extraction fixtures, manifest swap, RRF correctness, router
    classification edge cases.
 2. **Integration tests** (`apps/server`): reindex this repo, run a sample
@@ -472,6 +472,6 @@ Phase B freezes:
 3. **Refs accuracy floor.** Tree-sitter alone gets 70–80% accurate refs;
    full TS resolution needs `ts-morph` (heavy). Recommendation: ship
    tree-sitter-only; upgrade later if evals show false negatives matter.
-4. **MCP server distribution.** Ship `@memoize/mcp-server` as a separate
+4. **MCP server distribution.** Ship `@zuse/mcp-server` as a separate
    npm package from day 1, or bundle inside the Electron app first?
    Recommendation: ship the npm package in Phase F.

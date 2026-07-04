@@ -1,9 +1,113 @@
-import type { Command } from "@memoize/wire";
+import type { ChatId, Command, Session } from "@zuse/wire";
+import { defaultModelFor } from "@zuse/wire";
 
 import { createNewSession } from "../components/projects-sidebar";
+import { activeChatId, orderedChatTabs } from "./tab-order";
+import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
+import { usePaneFocus } from "../store/pane-focus";
+import { useProvidersStore } from "../store/providers";
+import { useSessionsStore } from "../store/sessions";
+import { useSettingsStore } from "../store/settings";
 import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
+
+/* ────────────────────────── Navigation helpers ──────────────────────────
+ * Read state via `.getState()` (no subscription) and fire the same store
+ * actions the mouse path uses. Tab ordering is shared with the tab strip via
+ * `lib/tab-order.ts` so keyboard and click land on the same tab.
+ */
+
+/** Sessions belonging to the currently-selected project. */
+function currentProjectSessions(): ReadonlyArray<Session> {
+  const projectId = useWorkspaceStore.getState().selectedFolderId;
+  if (projectId === null) return [];
+  return useSessionsStore.getState().sessionsByProject[projectId] ?? [];
+}
+
+/** The chat whose sessions fill the tab strip right now. */
+function currentChatId(): ChatId | null {
+  return activeChatId(
+    currentProjectSessions(),
+    useSessionsStore.getState().selectedSessionId,
+    useChatsStore.getState().selectedChatId,
+  );
+}
+
+/** Move the active tab by `delta` within the active chat, wrapping around. */
+function stepTab(delta: 1 | -1): void {
+  const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
+  if (tabs.length === 0) return;
+  const selectedId = useSessionsStore.getState().selectedSessionId;
+  const idx = tabs.findIndex((t) => t.id === selectedId);
+  const base = idx === -1 ? 0 : idx;
+  const next = (base + delta + tabs.length) % tabs.length;
+  useSessionsStore.getState().select(tabs[next]!.id);
+}
+
+/** Select the 1-based Nth tab; no-op if it doesn't exist. */
+function selectTabAt(oneBased: number): void {
+  const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
+  const target = tabs[oneBased - 1];
+  if (target !== undefined) useSessionsStore.getState().select(target.id);
+}
+
+/** Select the last tab in the active chat. */
+function selectLastTab(): void {
+  const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
+  const target = tabs[tabs.length - 1];
+  if (target !== undefined) useSessionsStore.getState().select(target.id);
+}
+
+/** Open a fresh session in the active chat — the tab-strip "+" button, by key. */
+async function newTabInActiveChat(): Promise<void> {
+  const chatId = currentChatId();
+  if (chatId === null) return;
+  const settings = useSettingsStore.getState();
+  const providerId = settings.defaultProviderId;
+  // Warm path skips the provider refresh when a default model is cached;
+  // cold path pays the round-trip first so `create` gets a real model id.
+  if (settings.defaultModelByProvider[providerId] === undefined) {
+    await useProvidersStore.getState().refresh();
+  }
+  const fresh = useSettingsStore.getState();
+  const model =
+    fresh.defaultModelByProvider[providerId] ?? defaultModelFor(providerId);
+  await useSessionsStore.getState().create(chatId, providerId, model, {
+    runtimeMode: fresh.defaultRuntimeMode,
+  });
+}
+
+/** Move the selected chat by `delta` within the project, wrapping around. */
+function stepChat(delta: 1 | -1): void {
+  const projectId = useWorkspaceStore.getState().selectedFolderId;
+  if (projectId === null) return;
+  const chats = useChatsStore.getState();
+  const list = (chats.chatsByProject[projectId] ?? []).filter(
+    (c) => c.archivedAt === null,
+  );
+  if (list.length === 0) return;
+  const idx = list.findIndex((c) => c.id === chats.selectedChatId);
+  const base = idx === -1 ? 0 : idx;
+  const next = (base + delta + list.length) % list.length;
+  chats.select(list[next]!.id);
+}
+
+/** Move the active right-pane panel by `delta`, wrapping around; opens the
+ *  right sidebar first if it's collapsed. */
+function stepPanel(delta: 1 | -1): void {
+  const ui = useUiStore.getState();
+  const chatId = currentChatId();
+  if (chatId === null) return;
+  const panels = ui.rightPanelsByChat[chatId] ?? [];
+  if (panels.length === 0) return;
+  if (!ui.rightSidebarOpen) ui.setRightSidebarOpen(true);
+  const activeId = ui.activeRightPanelByChat[chatId] ?? null;
+  const idx = panels.findIndex((p) => p.id === activeId);
+  const base = idx === -1 ? 0 : idx;
+  const next = (base + delta + panels.length) % panels.length;
+  ui.setActiveRightPanel(panels[next]!.id);
+}
 
 /**
  * One handler per `Command`. Composer / editor commands are no-ops here —
@@ -55,6 +159,27 @@ const HANDLERS: Record<Command, () => void> = {
   "focus-composer": () => {
     useComposerBridge.getState().focus?.();
   },
+  "next-tab": () => stepTab(1),
+  "prev-tab": () => stepTab(-1),
+  "select-tab-1": () => selectTabAt(1),
+  "select-tab-2": () => selectTabAt(2),
+  "select-tab-3": () => selectTabAt(3),
+  "select-tab-4": () => selectTabAt(4),
+  "select-tab-5": () => selectTabAt(5),
+  "select-tab-6": () => selectTabAt(6),
+  "select-tab-7": () => selectTabAt(7),
+  "select-tab-8": () => selectTabAt(8),
+  "select-last-tab": () => selectLastTab(),
+  "new-tab": () => {
+    void newTabInActiveChat();
+  },
+  "next-chat": () => stepChat(1),
+  "prev-chat": () => stepChat(-1),
+  "next-panel": () => stepPanel(1),
+  "prev-panel": () => stepPanel(-1),
+  "focus-next-pane": () => usePaneFocus.getState().focusAdjacent(1),
+  "focus-prev-pane": () => usePaneFocus.getState().focusAdjacent(-1),
+  "open-chat-switcher": () => useUiStore.getState().toggleChatSwitcher(),
   "composer.submit": () => {},
   "composer.newline": () => {},
   "composer.forceSubmit": () => {},
@@ -88,5 +213,24 @@ export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
   "toggle-right-sidebar",
   "toggle-terminal",
   "focus-composer",
+  "next-tab",
+  "prev-tab",
+  "select-tab-1",
+  "select-tab-2",
+  "select-tab-3",
+  "select-tab-4",
+  "select-tab-5",
+  "select-tab-6",
+  "select-tab-7",
+  "select-tab-8",
+  "select-last-tab",
+  "new-tab",
+  "next-chat",
+  "prev-chat",
+  "next-panel",
+  "prev-panel",
+  "focus-next-pane",
+  "focus-prev-pane",
+  "open-chat-switcher",
   // `close-tab` deliberately omitted — see app.tsx's onCloseTab handler.
 ]);

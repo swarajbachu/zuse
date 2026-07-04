@@ -6,7 +6,7 @@ import { ProviderId } from "./agent.ts";
  * Reference to an uploaded attachment. The renderer carries this on
  * `ComposerInput` and on persisted user-rich messages; the actual bytes live
  * under the desktop app's userData directory and are served to the renderer
- * via the `memoize://attachments/<id>` custom protocol.
+ * via the `zuse://attachments/<id>` custom protocol.
  *
  * `id` shape: `<sessionSegment>-<uuid>` (sanitised session id + v4 UUID).
  */

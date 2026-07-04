@@ -11,7 +11,7 @@ import { Projects } from "@/components/projects";
 export const metadata = getSEO({
   title: "Token max every coding agent",
   description:
-    "memoize is a local-first macOS workspace for developers who want to code all day, max out their AI subscriptions, and ship more parallel attempts safely.",
+    "Zuse Alpha is a local-first macOS workspace for developers who want to code all day, max out their AI subscriptions, and ship more parallel attempts safely.",
   path: "/",
 });
 

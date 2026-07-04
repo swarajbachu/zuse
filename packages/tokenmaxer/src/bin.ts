@@ -15,7 +15,7 @@ interface CliOptions {
   json: boolean;
   noCost: boolean;
   offline: boolean;
-  memoizeDbPath?: string;
+  zuseDbPath?: string;
 }
 
 const usage = (): string => `tokenmaxer [source] [daily|weekly|monthly|session|sources] [options]
@@ -31,7 +31,8 @@ Options:
   --json                 Print JSON
   --no-cost              Hide cost column
   --offline              Use bundled pricing; skip the network
-  --memoize-db <path>    Memoize SQLite path
+  --zuse-db <path>       Zuse Alpha SQLite path
+  --memoize-db <path>    Legacy alias for --zuse-db
 `;
 
 const parseDate = (value: string): Date => {
@@ -83,8 +84,9 @@ const parseArgs = (argv: string[]): CliOptions => {
       case "--timezone":
         options.timezone = next();
         break;
+      case "--zuse-db":
       case "--memoize-db":
-        options.memoizeDbPath = next();
+        options.zuseDbPath = next();
         break;
       default:
         if (arg.startsWith("-")) throw new Error(`Unknown argument: ${arg}`);
@@ -119,7 +121,7 @@ const main = async (): Promise<void> => {
   try {
     const options = parseArgs(process.argv.slice(2));
     const sourceIds = options.sourceIds.length ? Array.from(new Set(options.sourceIds)) : undefined;
-    const readOptions = { sourceIds, memoizeDbPath: options.memoizeDbPath };
+    const readOptions = { sourceIds, zuseDbPath: options.zuseDbPath };
     const pricing = { offline: options.offline };
 
     if (options.bucket === "sources") {

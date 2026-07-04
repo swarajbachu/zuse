@@ -80,6 +80,10 @@ export type SessionStatus = typeof SessionStatus.Type;
 export const ResumeStrategy = Schema.Literal(
   "claude-session-id",
   "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
   "none",
 );
 export type ResumeStrategy = typeof ResumeStrategy.Type;
@@ -87,7 +91,7 @@ export type ResumeStrategy = typeof ResumeStrategy.Type;
 // `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
 // new `AgentDefinition.permissionMode` can reuse the same literal set
 // without an import cycle. Re-exported above for back-compat with the
-// existing `import { RuntimeMode } from "@memoize/wire"` callers.
+// existing `import { RuntimeMode } from "@zuse/wire"` callers.
 
 export class Session extends Schema.Class<Session>("Session")({
   id: SessionId,
@@ -216,6 +220,14 @@ const ErrorContent = Schema.TaggedStruct("error", {
 });
 
 /**
+ * Persisted marker for a turn the user explicitly interrupted. Rendered as a
+ * small muted "Interrupted by user" badge — distinct from `error`, which is a
+ * real failure. Carries no fields; its presence in the message list is the
+ * whole signal.
+ */
+const InterruptedContent = Schema.TaggedStruct("interrupted", {});
+
+/**
  * Closing summary persisted for a sub-agent run. Mirrors the streaming
  * `SubagentSummaryEvent` so resume parity holds: the wrapper-row footer
  * reads `summary` / `turns` / `durationMs` from this row when collapsed.
@@ -250,6 +262,18 @@ const ContextUsageContent = Schema.TaggedStruct("context_usage", {
   windowTokens: Schema.NullOr(Schema.Number),
   precision: ContextUsagePrecision,
   source: Schema.optional(Schema.String),
+});
+
+const ContextCompactionContent = Schema.TaggedStruct("context_compaction", {
+  itemId: AgentItemId,
+  providerId: ProviderId,
+  startedAt: Schema.Number,
+  durationMs: Schema.Number,
+  beforeTokens: Schema.NullOr(Schema.Number),
+  afterTokens: Schema.NullOr(Schema.Number),
+  status: Schema.optionalWith(Schema.Literal("in_progress", "completed"), {
+    default: () => "completed" as const,
+  }),
 });
 
 const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
@@ -305,9 +329,11 @@ export const MessageContent = Schema.Union(
   ToolUseContent,
   ToolResultContent,
   ErrorContent,
+  InterruptedContent,
   SubagentSummaryContent,
   UsageContent,
   ContextUsageContent,
+  ContextCompactionContent,
   UsageLimitContent,
   UserQuestionContent,
   UserQuestionAnswerContent,
@@ -322,6 +348,19 @@ export class Message extends Schema.Class<Message>("Message")({
   role: MessageRole,
   content: MessageContent,
   createdAt: Schema.DateFromString,
+}) {}
+
+/**
+ * A `Message` tagged with its global monotonic `sequence` from the event log.
+ * Clients record the highest `sequence` they have seen per session and pass it
+ * back as `sinceSequence` on reconnect to resume gap-free (no full replay, no
+ * in-memory dedup Set). This is what `messages.stream` emits.
+ */
+export class MessageEnvelope extends Schema.Class<MessageEnvelope>(
+  "MessageEnvelope",
+)({
+  sequence: Schema.Number,
+  message: Message,
 }) {}
 
 export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
@@ -727,7 +766,15 @@ export const ChatSetActiveSessionRpc = Rpc.make("chat.setActiveSession", {
 });
 
 export const ChatArchiveRpc = Rpc.make("chat.archive", {
-  payload: Schema.Struct({ chatId: ChatId }),
+  payload: Schema.Struct({
+    chatId: ChatId,
+    /**
+     * Force-remove the chat's worktree even when it has uncommitted or
+     * untracked changes. Callers pass `true` after confirming the discard
+     * with the user (mirrors `worktree.remove`'s `force`).
+     */
+    force: Schema.optional(Schema.Boolean),
+  }),
   success: ChatArchiveResult,
   error: ChatArchiveErrors,
 });
@@ -755,14 +802,22 @@ export const MessagesListRpc = Rpc.make("messages.list", {
 });
 
 /**
- * Subscribe to a session's message log. The stream emits each persisted row in
- * `created_at` order (backfill) and continues with live rows as the provider
+ * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
+ * rows in global `sequence` order — a replay of everything past `sinceSequence`
+ * (0 when omitted, i.e. the full history), then live rows as the provider
  * produces events. The renderer treats it as the single source of truth — no
  * separate hydrate / live split.
+ *
+ * Clients record the highest `sequence` seen per session and pass it back as
+ * `sinceSequence` on resubscribe: the server replays only the delta, so a
+ * flaky-network reconnect is O(missed messages) and gap-free by construction.
  */
 export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Message,
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    sinceSequence: Schema.optional(Schema.Number),
+  }),
+  success: MessageEnvelope,
   error: SessionNotFoundError,
   stream: true,
 });
@@ -779,6 +834,12 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
     text: Schema.optional(Schema.String),
     input: Schema.optional(ComposerInput),
     asGoal: Schema.optional(Schema.Boolean),
+    // Optional renderer-minted id for the user message. When present the
+    // server persists the row under this id instead of generating one, so the
+    // renderer can insert the message optimistically and have the live-stream
+    // echo dedupe against it. Omitted by non-interactive callers (queue
+    // flush), which keep server-generated ids.
+    clientMessageId: Schema.optional(MessageId),
   }),
   success: Schema.Void,
   error: SessionNotFoundError,

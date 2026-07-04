@@ -15,7 +15,7 @@ Phase 3 introduces persisted projects, sessions, and messages. We need:
 
 ## Decision
 
-Use **SQLite** as the storage engine and **`@effect/sql-sqlite-node`** as the client, with **`@effect/sql/Migrator`** for schema evolution. Database file at `<userData>/memoize.sqlite`. All access goes through repository Layers in `apps/server/src/persistence/`.
+Use **SQLite** as the storage engine and **`@effect/sql-sqlite-node`** as the client, with **`@effect/sql/Migrator`** for schema evolution. Database file at `<userData>/zuse.sqlite`. All access goes through repository Layers in `apps/server/src/persistence/`.
 
 ### Why SQLite
 

@@ -8,7 +8,7 @@ import {
   type ProviderId,
   RepositorySettings,
   type RuntimeMode,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { RepositorySettingsService } from "../services/repository-settings-service.ts";
 
@@ -84,7 +84,7 @@ const parseTomlString = (raw: string): string => {
 };
 
 const parseRepoFileSettings = (repoPath: string): RepoFileSettings => {
-  const filePath = Path.join(repoPath, ".memoize", "settings.toml");
+  const filePath = Path.join(repoPath, ".zuse", "settings.toml");
   if (!fsSync.existsSync(filePath)) return emptyRepoFileSettings();
   const settings = emptyRepoFileSettings();
   let section = "";

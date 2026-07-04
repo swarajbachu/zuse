@@ -11,6 +11,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PROVIDER_LABEL } from "./settings-page";
 import { Button } from "./ui/button.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
 
 type StepState = "pending" | "active" | "done" | "failed";
@@ -79,6 +80,8 @@ export function WorktreeSetupCard() {
   const worktreePending = ctx.status === "ready" && ctx.worktreePending;
   const setupStatus = worktree?.setupStatus ?? null;
   const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
+  const externalResume =
+    session !== null && session.resumeStrategy !== "none";
   const providerBooting = session?.status === "booting";
   const providerErrored = session?.status === "error";
 
@@ -87,7 +90,9 @@ export function WorktreeSetupCard() {
   // Once the provider errors we stop occupying the screen with a fake
   // "Starting…" spinner — the ErrorBubble below carries the failure + the
   // inline "Sign in" CTA — so a worktree-less errored session hides the card.
-  const visible = (hasWorktree && !setupDone) || providerBooting === true;
+  const visible =
+    !externalResume &&
+    ((hasWorktree && !setupDone) || providerBooting === true);
   if (!visible) return null;
 
   const providerLabel: string =
@@ -166,7 +171,13 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
             className="size-4 shrink-0 text-muted-foreground"
           />
           <span className="flex-1 text-[13px] font-medium text-foreground/90">
-            Creating a worktree and running setup
+            {busy ? (
+              <ShimmerText tone="lime">
+                Creating a worktree and running setup
+              </ShimmerText>
+            ) : (
+              "Creating a worktree and running setup"
+            )}
           </span>
           {busy ? (
             <Spinner className="size-3.5 text-muted-foreground" />
@@ -273,7 +284,11 @@ function StepRow({ state, label }: { state: StepState; label: string }) {
               : "text-foreground/80"
         }
       >
-        {label}
+        {state === "active" ? (
+          <ShimmerText tone="lime">{label}</ShimmerText>
+        ) : (
+          label
+        )}
       </span>
     </div>
   );

@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import type { CodeAnnotation, FolderId, WorktreeId } from "@memoize/wire";
+import type {
+  ChatId,
+  CodeAnnotation,
+  FolderId,
+  WorktreeId,
+} from "@zuse/wire";
+
+import { useChatsStore } from "./chats.ts";
 
 /**
  * Top-level renderer view. The settings page replaces the chat surface in the
@@ -19,6 +26,7 @@ export type SettingsSection =
   | { readonly kind: "workspace" }
   | { readonly kind: "pokedex" }
   | { readonly kind: "browser" }
+  | { readonly kind: "diagnostics" }
   | { readonly kind: "shortcuts" }
   | { readonly kind: "developer" }
   | { readonly kind: "repository"; readonly projectId: FolderId };
@@ -57,12 +65,11 @@ export const SINGLETON_PANEL_KINDS: ReadonlySet<PanelKind> = new Set([
 
 /**
  * A panel tab in the right dock. `id` is a stable per-tab key used to
- * activate/close it. Terminal panels also carry a workspace-relative `slot`
- * (0-based) that resolves to the active workspace's Nth terminal instance at
- * render time — see `terminals.ts` `ensureSlot`. The dock layout is global
- * (one workbench arrangement); the four singletons are already context-aware
- * internally, and terminals stay correctly keyed by (folderId, worktreeId)
- * via the slot indirection.
+ * activate/close it. Terminal panels also carry a chat-relative `slot`
+ * (0-based) that resolves to the owning chat's Nth terminal instance at
+ * render time — see `terminals.ts` `ensureSlot`. The dock layout is per
+ * sidebar-chat (`rightPanelsByChat`), so each chat keeps its own set of open
+ * tabs and terminals; the singletons are context-aware internally.
  */
 export type PanelInstance =
   | { readonly id: string; readonly kind: "files" }
@@ -73,16 +80,41 @@ export type PanelInstance =
 
 /**
  * Which body the file viewer is showing. `edit` is the CodeMirror editor;
- * `diff` is the side-by-side patch view (working tree vs HEAD) — wired up
- * for clicks from the Changes panel and from Edit/Write/MultiEdit tool
- * rows. Toggled in the toolbar; defaults set per entry point.
+ * `diff` is the side-by-side patch view (working tree vs HEAD); `preview`
+ * renders saved markdown / HTML files. Toggled in the toolbar; defaults set
+ * per entry point.
  */
-export type FileView = "edit" | "diff";
+export type FileView = "edit" | "diff" | "preview";
+
+const PREVIEWABLE_EXTENSIONS = new Set([
+  ".htm",
+  ".html",
+  ".markdown",
+  ".md",
+  ".mdown",
+  ".mkd",
+]);
+
+export const isPreviewableFileName = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  if (dot === -1) return false;
+  return PREVIEWABLE_EXTENSIONS.has(lower.slice(dot));
+};
+
+const coerceFileView = (
+  file: { readonly kind: "text" | "external"; readonly name: string },
+  view: FileView,
+): FileView => {
+  if (file.kind === "external" && view === "diff") return "edit";
+  if (view === "preview" && !isPreviewableFileName(file.name)) return "edit";
+  return view;
+};
 
 /**
  * Discriminated by `kind`. `text` is the project-root-relative path the file
  * editor reads via `fs.readFile`; `image` is a raw URL the renderer renders
- * inline (currently used for `memoize://attachments/<id>` so screenshots
+ * inline (currently used for `zuse://attachments/<id>` so screenshots
  * stay inside the app instead of bouncing to the OS handler).
  */
 export type OpenFile =
@@ -109,7 +141,8 @@ export type OpenFile =
        * A file outside any project folder (e.g. a plan or markdown file the
        * agent wrote elsewhere on disk). Read/written by absolute path via the
        * `fs.*ExternalFile` RPCs, which deliberately skip the workspace
-       * sandbox. Edit-only — there's no git/folder context for a diff.
+       * sandbox. External files are edit/preview only — there's no git/folder
+       * context for a diff.
        */
       readonly kind: "external";
       readonly absPath: string;
@@ -145,9 +178,12 @@ type UiState = {
    */
   readonly leftSidebarPeek: boolean;
   readonly rightSidebarOpen: boolean;
+  /** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
+  readonly chatSwitcherOpen: boolean;
   readonly isFullScreen: boolean;
-  readonly rightPanels: ReadonlyArray<PanelInstance>;
-  readonly activeRightPanelId: string | null;
+  /** Right-dock tab layout, scoped per sidebar-chat. */
+  readonly rightPanelsByChat: Record<string, ReadonlyArray<PanelInstance>>;
+  readonly activeRightPanelByChat: Record<string, string | null>;
   readonly revealedAnnotation: RevealedAnnotation | null;
   readonly setActiveMainTab: (tab: MainTab) => void;
   /** Open the Usage dashboard in the main pane at the given scope. */
@@ -168,19 +204,26 @@ type UiState = {
   readonly setLeftSidebarOpen: (open: boolean) => void;
   readonly setLeftSidebarPeek: (peek: boolean) => void;
   readonly setRightSidebarOpen: (open: boolean) => void;
+  readonly setChatSwitcherOpen: (open: boolean) => void;
+  readonly toggleChatSwitcher: () => void;
   readonly setFullScreen: (full: boolean) => void;
   /** Add a panel to the dock. Singletons that are already open are focused
    * instead of duplicated; terminals always append a new slot. */
   readonly addPanel: (kind: PanelKind) => void;
-  /** Add a terminal panel pinned to a SPECIFIC terminal-list slot (rather
-   * than the auto-computed next slot) and activate it. Used to surface a
-   * command terminal (e.g. Run) whose instance lives at a known list index. */
-  readonly addTerminalPanelForSlot: (slot: number) => void;
-  /** Remove a dock panel by id. Layout-only: callers that close a terminal
-   * panel must also drop its backing PTY instance (the active workspace key
-   * lives in the component layer). Re-indexes remaining terminal slots. */
+  /** Add a terminal panel to a SPECIFIC chat's dock, pinned to a known
+   * terminal-list slot (rather than the auto-computed next slot), and activate
+   * it. Used to surface a command terminal (e.g. Run) whose instance lives at a
+   * known list index — possibly in a chat that isn't currently selected. */
+  readonly addTerminalPanelForSlot: (chatId: ChatId, slot: number) => void;
+  /** Remove a dock panel by id from the active chat's layout. Layout-only:
+   * callers that close a terminal panel must also drop its backing PTY
+   * instance (`useTerminalsStore.remove`). Re-indexes remaining terminal
+   * slots. */
   readonly closePanel: (id: string) => void;
   readonly setActiveRightPanel: (id: string) => void;
+  /** Drop a chat's entire dock layout (on archive/delete). Terminal PTYs are
+   * disposed separately via `useTerminalsStore.disposeChat`. */
+  readonly clearChatPanels: (chatId: ChatId) => void;
   /** Open the sidebar and ensure a panel of `kind` is present + active.
    * Replaces the old `setRightSidebarOpen(true) + setActiveRightTab(kind)`
    * pairs. For terminals, focuses an existing one or adds a new slot. */
@@ -194,8 +237,8 @@ const newPanelId = (): string =>
   `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 /** Renumber terminal panels' slots to stay contiguous (0..n-1) in tab order
- * after one is removed, so they keep mapping to the active workspace's
- * terminal list without gaps. */
+ * after one is removed, so they keep mapping to the owning chat's terminal
+ * list without gaps. */
 const reindexTerminalSlots = (
   panels: ReadonlyArray<PanelInstance>,
 ): ReadonlyArray<PanelInstance> => {
@@ -204,6 +247,28 @@ const reindexTerminalSlots = (
     p.kind === "terminal" ? { ...p, slot: next++ } : p,
   );
 };
+
+/** Stable empty reference so `rightPanelsByChat[chatId] ?? EMPTY_PANELS`
+ * doesn't churn selectors for chats with no dock layout yet. */
+export const EMPTY_PANELS: ReadonlyArray<PanelInstance> = [];
+
+/** The chat that owns the dock layout being mutated — always the selected
+ * one, since the dock only ever renders/edits the active chat. */
+const activeChatId = (): string | null =>
+  useChatsStore.getState().selectedChatId;
+
+const writePanels = (
+  state: UiState,
+  chatId: string,
+  panels: ReadonlyArray<PanelInstance>,
+  activeId: string | null,
+): Pick<UiState, "rightPanelsByChat" | "activeRightPanelByChat"> => ({
+  rightPanelsByChat: { ...state.rightPanelsByChat, [chatId]: panels },
+  activeRightPanelByChat: {
+    ...state.activeRightPanelByChat,
+    [chatId]: activeId,
+  },
+});
 
 export const useUiStore = create<UiState>((set, get) => ({
   view: "chat",
@@ -218,23 +283,37 @@ export const useUiStore = create<UiState>((set, get) => ({
   leftSidebarOpen: true,
   leftSidebarPeek: false,
   rightSidebarOpen: false,
+  chatSwitcherOpen: false,
   isFullScreen: false,
-  rightPanels: [],
-  activeRightPanelId: null,
+  rightPanelsByChat: {},
+  activeRightPanelByChat: {},
   revealedAnnotation: null,
   setActiveMainTab: (tab) => set({ activeMainTab: tab }),
-  openUsage: (scope) => set({ view: "chat", activeMainTab: "usage", usageScope: scope }),
+  openUsage: (scope) =>
+    set({ view: "chat", activeMainTab: "usage", usageScope: scope }),
   openFileInTab: (file) =>
     set({
       openFile:
-        file.kind === "image" ? file : { ...file, view: file.view ?? "edit" },
+        file.kind === "image"
+          ? file
+          : {
+              ...file,
+              view: coerceFileView(file, file.view ?? "edit"),
+            },
       activeMainTab: "file",
       fileDirty: false,
     }),
   setOpenFileView: (view) =>
     set((s) => {
-      if (s.openFile === null || s.openFile.kind !== "text") return s;
-      return { openFile: { ...s.openFile, view } };
+      if (
+        s.openFile === null ||
+        (s.openFile.kind !== "text" && s.openFile.kind !== "external")
+      ) {
+        return s;
+      }
+      return {
+        openFile: { ...s.openFile, view: coerceFileView(s.openFile, view) },
+      };
     }),
   closeFileTab: () =>
     set({ openFile: null, activeMainTab: "chat", fileDirty: false }),
@@ -242,59 +321,87 @@ export const useUiStore = create<UiState>((set, get) => ({
   // Opening the docked panel implicitly drops any peek state so the overlay
   // doesn't sit on top of the docked panel. Closing it also clears peek so a
   // stale hover doesn't immediately re-reveal the overlay.
-  setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open, leftSidebarPeek: false }),
+  setLeftSidebarOpen: (open) =>
+    set({ leftSidebarOpen: open, leftSidebarPeek: false }),
   setLeftSidebarPeek: (peek) => set({ leftSidebarPeek: peek }),
   setRightSidebarOpen: (open) => set({ rightSidebarOpen: open }),
+  setChatSwitcherOpen: (open) => set({ chatSwitcherOpen: open }),
+  toggleChatSwitcher: () =>
+    set((s) => ({ chatSwitcherOpen: !s.chatSwitcherOpen })),
   setFullScreen: (full) => set({ isFullScreen: full }),
   addPanel: (kind) =>
     set((s) => {
+      const chatId = activeChatId();
+      if (chatId === null) return s;
+      const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
       if (SINGLETON_PANEL_KINDS.has(kind)) {
-        const existing = s.rightPanels.find((p) => p.kind === kind);
+        const existing = panels.find((p) => p.kind === kind);
         if (existing !== undefined) {
-          return { activeRightPanelId: existing.id };
+          return {
+            activeRightPanelByChat: {
+              ...s.activeRightPanelByChat,
+              [chatId]: existing.id,
+            },
+          };
         }
         const panel = { id: newPanelId(), kind } as PanelInstance;
-        return {
-          rightPanels: [...s.rightPanels, panel],
-          activeRightPanelId: panel.id,
-        };
+        return writePanels(s, chatId, [...panels, panel], panel.id);
       }
       // terminal: append a new slot at the next contiguous index.
-      const slot = s.rightPanels.filter((p) => p.kind === "terminal").length;
+      const slot = panels.filter((p) => p.kind === "terminal").length;
       const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
-      return {
-        rightPanels: [...s.rightPanels, panel],
-        activeRightPanelId: panel.id,
-      };
+      return writePanels(s, chatId, [...panels, panel], panel.id);
     }),
-  addTerminalPanelForSlot: (slot) =>
+  addTerminalPanelForSlot: (chatId, slot) =>
     set((s) => {
+      const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
       const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
-      return {
-        rightPanels: [...s.rightPanels, panel],
-        activeRightPanelId: panel.id,
-      };
+      return writePanels(s, chatId, [...panels, panel], panel.id);
     }),
   closePanel: (id) =>
     set((s) => {
-      const idx = s.rightPanels.findIndex((p) => p.id === id);
+      const chatId = activeChatId();
+      if (chatId === null) return s;
+      const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+      const idx = panels.findIndex((p) => p.id === id);
       if (idx === -1) return s;
-      const next = reindexTerminalSlots(
-        s.rightPanels.filter((p) => p.id !== id),
-      );
-      const wasActive = s.activeRightPanelId === id;
-      const activeRightPanelId = wasActive
+      const next = reindexTerminalSlots(panels.filter((p) => p.id !== id));
+      const wasActive = s.activeRightPanelByChat[chatId] === id;
+      const activeId = wasActive
         ? (next[Math.max(0, idx - 1)]?.id ?? next[0]?.id ?? null)
-        : s.activeRightPanelId;
-      return { rightPanels: next, activeRightPanelId };
+        : (s.activeRightPanelByChat[chatId] ?? null);
+      return writePanels(s, chatId, next, activeId);
     }),
-  setActiveRightPanel: (id) => set({ activeRightPanelId: id }),
+  setActiveRightPanel: (id) =>
+    set((s) => {
+      const chatId = activeChatId();
+      if (chatId === null) return s;
+      return {
+        activeRightPanelByChat: { ...s.activeRightPanelByChat, [chatId]: id },
+      };
+    }),
+  clearChatPanels: (chatId) =>
+    set((s) => {
+      const { [chatId]: _droppedPanels, ...rightPanelsByChat } =
+        s.rightPanelsByChat;
+      const { [chatId]: _droppedActive, ...activeRightPanelByChat } =
+        s.activeRightPanelByChat;
+      return { rightPanelsByChat, activeRightPanelByChat };
+    }),
   revealPanel: (kind) => {
     const s = get();
     if (!s.rightSidebarOpen) set({ rightSidebarOpen: true });
-    const existing = s.rightPanels.find((p) => p.kind === kind);
+    const chatId = activeChatId();
+    if (chatId === null) return;
+    const panels = s.rightPanelsByChat[chatId] ?? EMPTY_PANELS;
+    const existing = panels.find((p) => p.kind === kind);
     if (existing !== undefined) {
-      set({ activeRightPanelId: existing.id });
+      set((st) => ({
+        activeRightPanelByChat: {
+          ...st.activeRightPanelByChat,
+          [chatId]: existing.id,
+        },
+      }));
       return;
     }
     // No panel of this kind yet — add one (terminals add a fresh slot).

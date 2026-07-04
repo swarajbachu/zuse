@@ -17,18 +17,34 @@ interface MemoizeUsageRow {
 }
 
 export const memoizeDbPathCandidates = (): string[] => {
-  const override = process.env.MEMOIZE_USER_DATA_DIR?.trim();
-  if (override) return [join(override, "memoize.sqlite")];
+  const override =
+    process.env.ZUSE_USER_DATA_DIR?.trim() ??
+    process.env.MEMOIZE_USER_DATA_DIR?.trim();
+  if (override) return [join(override, "zuse.sqlite"), join(override, "memoize.sqlite")];
+  const appDbPaths = (base: string, names: ReadonlyArray<string>): string[] =>
+    names.flatMap((name) => [
+      join(base, name, "zuse.sqlite"),
+      join(base, name, "memoize.sqlite"),
+    ]);
   if (process.platform === "darwin") {
     const base = join(homedir(), "Library", "Application Support");
-    return ["memoize Alpha", "memoize", "memoize Alpha (Dev)", "memoize (Dev)", "monkit Beta"].map(
-      (name) => join(base, name, "memoize.sqlite"),
+    return appDbPaths(
+      base,
+      [
+        "Zuse Alpha",
+        "Zuse Alpha (Dev)",
+        "memoize Alpha",
+        "memoize",
+        "memoize Alpha (Dev)",
+        "memoize (Dev)",
+        "monkit Beta",
+      ],
     );
   }
   if (process.env.XDG_DATA_HOME) {
-    return [join(process.env.XDG_DATA_HOME, "memoize", "memoize.sqlite")];
+    return appDbPaths(process.env.XDG_DATA_HOME, ["zuse", "memoize"]);
   }
-  return [join(homedir(), ".local", "share", "memoize", "memoize.sqlite")];
+  return appDbPaths(join(homedir(), ".local", "share"), ["zuse", "memoize"]);
 };
 
 export const defaultMemoizeDbPath = (): string | null => {
@@ -59,12 +75,12 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
   if (candidates.length === 0) {
     return {
       status: {
-        id: "memoize",
-        label: "Memoize",
+        id: "zuse",
+        label: "Zuse Alpha",
         detected: false,
         recordCount: 0,
         paths: statusPaths,
-        warning: "Memoize SQLite database was not found.",
+        warning: "Zuse Alpha SQLite database was not found.",
       },
       records: [],
     };
@@ -99,9 +115,9 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
           const content = JSON.parse(row.content_json) as Record<string, unknown>;
           records.push(
             makeUsageRecord({
-              sourceId: "memoize",
-              sourceLabel: "Memoize",
-              providerId: row.provider_id ?? "memoize",
+              sourceId: "zuse",
+              sourceLabel: "Zuse Alpha",
+              providerId: row.provider_id ?? "zuse",
               model: resolveModel(content.model, row.session_model) ?? "unknown",
               sessionId: row.session_id,
               projectPath: row.project_path,
@@ -127,18 +143,18 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
       db.close();
       return {
         status: {
-          id: "memoize",
-          label: "Memoize",
+          id: "zuse",
+          label: "Zuse Alpha",
           detected: true,
           recordCount: records.length,
           paths: candidates,
-          // Memoize only records usage for its own native chat sessions. When you
-          // drive Claude Code / Codex (directly or via Memoize spawning the CLI),
+          // Zuse only records usage for its own native chat sessions. When you
+          // drive Claude Code / Codex (directly or via Zuse spawning the CLI),
           // those tokens are logged by the CLIs and counted under their own
-          // sources — so a low/zero Memoize count is expected, not missing data.
+          // sources — so a low/zero Zuse count is expected, not missing data.
           warning:
             records.length === 0
-              ? "No Memoize-native sessions recorded usage. Claude Code / Codex tokens are counted under their own sources."
+              ? "No Zuse-native sessions recorded usage. Claude Code / Codex tokens are counted under their own sources."
               : null,
         },
         records,
@@ -149,8 +165,8 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
   }
   return {
     status: {
-      id: "memoize",
-      label: "Memoize",
+      id: "zuse",
+      label: "Zuse Alpha",
       detected: true,
       recordCount: 0,
       paths: candidates,

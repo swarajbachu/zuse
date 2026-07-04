@@ -19,7 +19,7 @@ import { search } from "./retrieval/search.ts";
  * workspace path; `branch` is the active branch (apps/server resolves via
  * git rev-parse, mcp-server via its CLI flag or git rev-parse).
  *
- * `dbPath` defaults to `<root>/.memoize/index.sqlite`; tests override it to
+ * `dbPath` defaults to `<root>/.zuse/index.sqlite`; tests override it to
  * `:memory:`.
  */
 export interface IndexConfig {
@@ -52,7 +52,7 @@ export const IndexServiceLive = Layer.scoped(
   Effect.gen(function* () {
     const config = yield* IndexConfigTag;
     const dbFile =
-      config.dbPath ?? join(config.root, ".memoize", "index.sqlite");
+      config.dbPath ?? join(config.root, ".zuse", "index.sqlite");
 
     const db: IndexDb = yield* Effect.acquireRelease(
       openIndexDb(dbFile),

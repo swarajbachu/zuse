@@ -1,8 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleArrowUp01Icon, Copy01Icon, LinkSquare01Icon, RotateRight01Icon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  CircleArrowUp01Icon,
+  Copy01Icon,
+  LinkSquare01Icon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
 import { useProvidersStore } from "../store/providers.ts";
@@ -61,7 +67,7 @@ export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
   };
 
   const onOpenDocs = () => {
-    window.memoize?.app?.openExternal(docsUrl);
+    window.zuse?.app?.openExternal(docsUrl);
   };
 
   return (
@@ -77,7 +83,7 @@ export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
           <span className="text-[11.5px] leading-snug text-muted-foreground">
             You have <code className="text-foreground/80">{row.cliVersion ?? "an unknown version"}</code>
             {row.cliVersionMinRequired !== undefined &&
-              ` — memoize needs ${row.cliVersionMinRequired} or newer.`}
+              ` — Zuse Alpha needs ${row.cliVersionMinRequired} or newer.`}
             {" Sending in this session will fail until you upgrade; start a new session with a different provider to keep working in the meantime."}
           </span>
         </div>
@@ -130,7 +136,9 @@ export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
           disabled={refreshing}
           className="gap-1.5 rounded-full text-[11px] text-muted-foreground"
         >
-          <HugeiconsIcon icon={RotateRight01Icon} className={`size-3 ${refreshing ? "animate-spin" : ""}`} />
+          <RefreshIcon
+            className={`size-3 ${refreshing ? "animate-spin" : ""}`}
+          />
           Recheck
         </Button>
       </div>

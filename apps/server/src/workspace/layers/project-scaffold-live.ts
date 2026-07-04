@@ -8,7 +8,7 @@ import {
   WorkspaceCloneFailedError,
   WorkspaceCreateFailedError,
   WorkspaceInvalidPathError,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import {
   deriveCloneTargetName,
@@ -438,6 +438,6 @@ export const ProjectScaffoldLive = Layer.effect(
 
 /**
  * Re-export the closed union so other server modules (e.g. handler tests)
- * can spell out template ids without re-importing from `@memoize/wire`.
+ * can spell out template ids without re-importing from `@zuse/wire`.
  */
 export type { ProjectTemplate };

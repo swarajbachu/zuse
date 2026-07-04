@@ -5,7 +5,7 @@ import { join } from "node:path";
 const IGNORE = new Set([
   ".git",
   "node_modules",
-  ".memoize",
+  ".zuse",
   "dist",
   "build",
   ".turbo",

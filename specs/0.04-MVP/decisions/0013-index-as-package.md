@@ -1,4 +1,4 @@
-# ADR 0013 — `@memoize/index` as a standalone package
+# ADR 0013 — `@zuse/index` as a standalone package
 
 Date: 2026-05-06
 Status: Accepted
@@ -29,7 +29,7 @@ machinery it doesn't need) or duplicate the engine. Both are bad.
 
 ## Decision
 
-Ship the engine as a standalone workspace package: **`@memoize/index`**.
+Ship the engine as a standalone workspace package: **`@zuse/index`**.
 
 ### Layout
 
@@ -104,7 +104,7 @@ embeddings — not about how callers reach it.
   MCP binary.
 - `apps/mcp-server` doesn't import Electron or RPC machinery — it can be
   bundled as a small standalone binary via `bun build --compile`.
-- The package is independently testable: `bun --filter @memoize/index test`
+- The package is independently testable: `bun --filter @zuse/index test`
   runs unit + integration tests without booting Electron.
 - Future cloud-sync worker is a third consumer, not a fork.
 - `IndexService` plugs into the existing Effect Layer pattern with no
@@ -117,7 +117,7 @@ embeddings — not about how callers reach it.
   `transformers.js`'s ONNX runtime) need rebuild handling for Electron in
   `apps/desktop`. Adds to the existing rebuild list (see ADR 0019).
 - Effect Service patterns are now expected in a non-app package. The
-  `@memoize/wire` package is contract-only; this is the first package
+  `@zuse/wire` package is contract-only; this is the first package
   with implementation. We accept the precedent.
 
 ## Alternatives considered
@@ -130,14 +130,14 @@ embeddings — not about how callers reach it.
   becomes a maintenance hazard — and the standalone binary picks up
   cruft.
 
-### Multiple per-domain packages (`@memoize/index-chunker`,
-`@memoize/index-retrieval`, etc.)
+### Multiple per-domain packages (`@zuse/index-chunker`,
+`@zuse/index-retrieval`, etc.)
 
 - Pro: smaller individual packages.
 - Con: premature partitioning. The engine is one concept and changes
   cross domains routinely. Splitting it forces every cross-domain change
   to negotiate package boundaries — same anti-pattern ADR 0005 warned
-  against for `@memoize/wire`.
+  against for `@zuse/wire`.
 
 ### Fork the engine for the MCP binary
 
@@ -148,13 +148,13 @@ embeddings — not about how callers reach it.
 
 ## What we deliberately rejected
 
-- Putting the engine in `@memoize/wire`. Wire is contract-only.
+- Putting the engine in `@zuse/wire`. Wire is contract-only.
 - Making `apps/server` a peer of the engine instead of a consumer.
 - Bundling MCP transport into the engine package — keeps the package
   transport-agnostic.
 
 ## Reference
 
-This mirrors how `@memoize/wire` is structured (one package, multiple
+This mirrors how `@zuse/wire` is structured (one package, multiple
 consumers — main and renderer) and ADR 0007's transport-agnostic split.
 The index is the second cross-cutting package; it follows the same rule.

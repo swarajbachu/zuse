@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import type { PokemonPokedexEntry, PokemonRarity } from "@memoize/wire";
+import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/wire";
 
 import { PokemonRarityText } from "../pokemon.tsx";
 import {
@@ -34,6 +41,9 @@ const rarityOrder: readonly PokemonRarity[] = [
 ];
 
 const DEV_UNLOCKED_NUMBERS = new Set([1, 4, 7, 25, 94, 133, 149, 150, 151]);
+const TILE_MIN_WIDTH = 132;
+const TILE_HEIGHT = 148;
+const GRID_OVERSCAN_ROWS = 4;
 
 export function PokedexPane() {
   const storedEntries = usePokemonStore((s) => s.entries);
@@ -45,8 +55,15 @@ export function PokedexPane() {
   const [unlockFilter, setUnlockFilter] = useState<UnlockFilter>("all");
   const [generation, setGeneration] = useState<GenerationFilter>("all");
   const [rarity, setRarity] = useState<"all" | PokemonRarity>("all");
-  const [selected, setSelected] = useState<PokemonPokedexEntry | null>(null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const [zoom, setZoom] = useState(2);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const [viewport, setViewport] = useState({
+    height: 0,
+    scrollTop: 0,
+    width: 0,
+  });
 
   useEffect(() => {
     void hydrate();
@@ -65,18 +82,6 @@ export function PokedexPane() {
       };
     });
   }, [storedEntries]);
-
-  useEffect(() => {
-    for (const entry of entries) {
-      if (
-        entry.unlocked &&
-        (entry.spriteUrl === null ||
-          entry.variants.some((variant) => variant.spriteUrl === null))
-      ) {
-        void ensureSpriteCached(entry.number);
-      }
-    }
-  }, [ensureSpriteCached, entries]);
 
   const stats = useMemo(() => {
     let unlocked = 0;
@@ -106,6 +111,120 @@ export function PokedexPane() {
       );
     });
   }, [entries, generation, query, rarity, unlockFilter]);
+
+  const selected = useMemo(() => {
+    if (selectedNumber === null) return null;
+    return entries.find((entry) => entry.number === selectedNumber) ?? null;
+  }, [entries, selectedNumber]);
+
+  const virtualGrid = useMemo(() => {
+    const columnCount = Math.max(
+      1,
+      Math.floor(Math.max(viewport.width, TILE_MIN_WIDTH) / TILE_MIN_WIDTH),
+    );
+    const columnWidth =
+      viewport.width > 0 ? viewport.width / columnCount : TILE_MIN_WIDTH;
+    const rowCount = Math.ceil(filtered.length / columnCount);
+    const firstVisibleRow = Math.max(
+      0,
+      Math.floor(viewport.scrollTop / TILE_HEIGHT) - GRID_OVERSCAN_ROWS,
+    );
+    const lastVisibleRow = Math.min(
+      rowCount,
+      Math.ceil((viewport.scrollTop + viewport.height) / TILE_HEIGHT) +
+        GRID_OVERSCAN_ROWS,
+    );
+    const startIndex = firstVisibleRow * columnCount;
+    const endIndex = Math.min(filtered.length, lastVisibleRow * columnCount);
+    const visible = filtered.slice(startIndex, endIndex);
+
+    return {
+      columnCount,
+      columnWidth,
+      startIndex,
+      totalHeight: rowCount * TILE_HEIGHT,
+      visible,
+    };
+  }, [filtered, viewport]);
+
+  const handleGridScroll = useCallback(() => {
+    const node = scrollRef.current;
+    if (node === null) return;
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      const current = scrollRef.current;
+      if (current === null) return;
+      setViewport((prev) =>
+        prev.scrollTop === current.scrollTop
+          ? prev
+          : { ...prev, scrollTop: current.scrollTop },
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node === null) return;
+
+    const updateSize = () => {
+      setViewport((prev) => {
+        const width = node.clientWidth;
+        const height = node.clientHeight;
+        const scrollTop = node.scrollTop;
+        if (
+          prev.width === width &&
+          prev.height === height &&
+          prev.scrollTop === scrollTop
+        ) {
+          return prev;
+        }
+        return { width, height, scrollTop };
+      });
+    };
+
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (node !== null) node.scrollTop = 0;
+    setViewport((prev) =>
+      prev.scrollTop === 0 ? prev : { ...prev, scrollTop: 0 },
+    );
+  }, [generation, query, rarity, unlockFilter]);
+
+  useEffect(() => {
+    for (const entry of virtualGrid.visible) {
+      if (
+        entry.unlocked &&
+        (entry.spriteUrl === null ||
+          entry.variants.some((variant) => variant.spriteUrl === null))
+      ) {
+        void ensureSpriteCached(entry.number);
+      }
+    }
+  }, [ensureSpriteCached, virtualGrid.visible]);
+
+  useEffect(() => {
+    if (
+      selected !== null &&
+      selected.unlocked &&
+      (selected.spriteUrl === null ||
+        selected.variants.some((variant) => variant.spriteUrl === null))
+    ) {
+      void ensureSpriteCached(selected.number);
+    }
+  }, [ensureSpriteCached, selected]);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
@@ -176,24 +295,39 @@ export function PokedexPane() {
         </Select>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto rounded-md border border-border/50">
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-0">
-          {filtered.map((entry) => (
-            <PokedexTile
-              key={entry.number}
-              entry={entry}
-              onSelect={() => {
-                setSelected(entry);
-                setZoom(2);
-              }}
-            />
-          ))}
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto rounded-md border border-border/50 bg-background"
+        onScroll={handleGridScroll}
+      >
+        <div className="relative" style={{ height: virtualGrid.totalHeight }}>
+          {virtualGrid.visible.map((entry, visibleIndex) => {
+            const index = virtualGrid.startIndex + visibleIndex;
+            const row = Math.floor(index / virtualGrid.columnCount);
+            const column = index % virtualGrid.columnCount;
+            return (
+              <PokedexTile
+                key={entry.number}
+                entry={entry}
+                onSelect={() => {
+                  setSelectedNumber(entry.number);
+                  setZoom(2);
+                }}
+                style={{
+                  height: TILE_HEIGHT,
+                  left: column * virtualGrid.columnWidth,
+                  top: row * TILE_HEIGHT,
+                  width: virtualGrid.columnWidth,
+                }}
+              />
+            );
+          })}
         </div>
       </div>
       <PokemonDetailDialog
         entry={selected}
         onOpenChange={(open) => {
-          if (!open) setSelected(null);
+          if (!open) setSelectedNumber(null);
         }}
         onZoomChange={setZoom}
         zoom={zoom}
@@ -205,26 +339,32 @@ export function PokedexPane() {
 function PokedexTile({
   entry,
   onSelect,
+  style,
 }: {
   readonly entry: PokemonPokedexEntry;
   readonly onSelect: () => void;
+  readonly style: CSSProperties;
 }) {
   return (
     <button
       type="button"
-      className="flex min-h-36 flex-col border-b border-r border-border/40 p-3 text-left outline-none transition-colors hover:bg-accent/60 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="absolute flex flex-col overflow-hidden border-b border-r border-border/35 p-2.5 text-left outline-none hover:z-10 hover:bg-accent/45 focus-visible:z-10 focus-visible:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       onClick={onSelect}
+      style={style}
     >
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>#{String(entry.number).padStart(4, "0")}</span>
-        <PokemonRarityText rarity={entry.rarity} />
+        <PokemonRarityText rarity={entry.rarity} className="truncate" />
       </div>
-      <div className="mt-2 flex w-full flex-1 items-center justify-center">
+      <div className="mt-1.5 flex h-16 w-full shrink-0 items-center justify-center">
         {entry.unlocked && entry.spriteUrl !== null ? (
           <img
             src={entry.spriteUrl}
             alt={entry.name}
-            className="mx-auto block size-16 object-contain"
+            className="mx-auto block size-14 object-contain"
+            decoding="async"
+            width={56}
+            height={56}
             loading="lazy"
             draggable={false}
           />
@@ -233,14 +373,17 @@ function PokedexTile({
             src={entry.silhouetteUrl}
             alt=""
             aria-hidden="true"
-            className="mx-auto block size-16 object-contain opacity-50 grayscale brightness-0"
+            className="mx-auto block size-14 object-contain opacity-45 grayscale brightness-0"
+            decoding="async"
+            width={56}
+            height={56}
             loading="lazy"
             draggable={false}
           />
         )}
       </div>
-      <div className="mt-2 min-w-0">
-        <div className="truncate text-sm font-medium">{entry.name}</div>
+      <div className="mt-1.5 min-w-0">
+        <div className="truncate text-[13px] font-medium">{entry.name}</div>
         <div className="text-[11px] text-muted-foreground">
           Gen {entry.generation} · {entry.points} pts
         </div>
@@ -297,6 +440,7 @@ function PokemonDetailDialog({
                           ? "mx-auto block object-contain"
                           : "mx-auto block object-contain opacity-50 grayscale brightness-0"
                       }
+                      decoding="async"
                       draggable={false}
                       style={{ height: imageSize, width: imageSize }}
                     />
@@ -345,6 +489,9 @@ function PokemonDetailDialog({
                                   ? "mx-auto block size-14 object-contain"
                                   : "mx-auto block size-14 object-contain opacity-50 grayscale brightness-0"
                               }
+                              decoding="async"
+                              width={56}
+                              height={56}
                               draggable={false}
                               loading="lazy"
                             />
@@ -378,6 +525,9 @@ function PokemonDetailDialog({
                               src={variant.spriteUrl ?? undefined}
                               alt={`${entry.name} ${variant.label}`}
                               className="mx-auto block size-16 object-contain"
+                              decoding="async"
+                              width={64}
+                              height={64}
                               draggable={false}
                               loading="lazy"
                             />

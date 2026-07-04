@@ -17,7 +17,7 @@ import {
   type PermissionMode,
   type StartSessionInput,
   type UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import {
   createOpencodeClient,
@@ -28,6 +28,12 @@ import {
 } from "@opencode-ai/sdk";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import {
+  finishCompactEvent,
+  isCompactCommand,
+  startCompactEvent,
+  startCompactSnapshot,
+} from "./compact.ts";
 
 /**
  * Live handle for one OpenCode conversation. Mirrors the other driver
@@ -74,11 +80,11 @@ const OPENCODE_DEBUG = process.env.MEMOIZE_DEBUG_OPENCODE === "1";
 const LOG_PATH = ((): string => {
   try {
     const base = process.env.HOME ? homedir() : tmpdir();
-    const dir = join(base, ".cache", "memoize");
+    const dir = join(base, ".cache", "zuse");
     mkdirSync(dir, { recursive: true });
     return join(dir, "opencode.log");
   } catch {
-    return join(tmpdir(), "memoize-opencode.log");
+    return join(tmpdir(), "zuse-opencode.log");
   }
 })();
 
@@ -101,10 +107,8 @@ const ddump = (label: string, value: unknown, maxLen = 2000): void => {
   if (!OPENCODE_DEBUG) return;
   let json: string;
   try {
-    json = JSON.stringify(
-      value,
-      (_, v) =>
-        typeof v === "string" && v.length > 600 ? `${v.slice(0, 600)}…` : v,
+    json = JSON.stringify(value, (_, v) =>
+      typeof v === "string" && v.length > 600 ? `${v.slice(0, 600)}…` : v,
     );
   } catch {
     json = String(value);
@@ -119,8 +123,8 @@ if (OPENCODE_DEBUG) {
 
 const OPENCODE_EMPTY_CONFIG = "{}";
 
-// stdout marker the opencode server prints once it's bound to the port —
-// mirrors t3code's `parseServerUrlFromOutput`. We grep for either the
+// stdout marker the opencode server prints once it's bound to the port. We
+// grep for either the
 // human-readable line or any naked URL on a line by itself so future
 // server message tweaks don't break the handshake.
 const SERVER_READY_REGEX = /(https?:\/\/[^\s]+)/;
@@ -129,8 +133,8 @@ const SERVER_READY_REGEX = /(https?:\/\/[^\s]+)/;
  * Grab a free TCP port. We bind to port 0, read the kernel-assigned port,
  * close the socket, and hand the number to `opencode serve`. A tiny race
  * window remains (another process could grab the port between our close
- * and opencode's bind) but it's the same approach t3code uses and the
- * worst case is a clean spawn error we surface as `AgentSessionStartError`.
+ * and opencode's bind); the worst case is a clean spawn error we surface as
+ * `AgentSessionStartError`.
  */
 const findFreePort = (): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -322,7 +326,8 @@ const canonicalizeOpencodeInput = (
 
   switch (canonicalTool) {
     case "Read": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       if (typeof obj["offset"] === "number") out["offset"] = obj["offset"];
@@ -330,7 +335,8 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "Edit": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       const oldS = asStr(obj["oldString"]) ?? asStr(obj["old_string"]);
@@ -342,17 +348,16 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "MultiEdit": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const rawEdits = Array.isArray(obj["edits"]) ? obj["edits"] : [];
       // Renderer's `extractEdits` reads `{old_string,new_string}` per entry.
       const edits = rawEdits.map((e) => {
         if (e === null || typeof e !== "object") return {};
         const r = e as Record<string, unknown>;
         return {
-          old_string:
-            asStr(r["oldString"]) ?? asStr(r["old_string"]) ?? "",
-          new_string:
-            asStr(r["newString"]) ?? asStr(r["new_string"]) ?? "",
+          old_string: asStr(r["oldString"]) ?? asStr(r["old_string"]) ?? "",
+          new_string: asStr(r["newString"]) ?? asStr(r["new_string"]) ?? "",
         };
       });
       const out: Record<string, unknown> = { edits };
@@ -360,7 +365,8 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "Write": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       if (typeof obj["content"] === "string") out["content"] = obj["content"];
@@ -494,14 +500,13 @@ const translatePart = (
       // call but bump `part.id` between snapshots in some opencode builds)
       // collapse onto a single tool row in the renderer. Falls back to
       // `id` when callID isn't present.
-      const id = ((part.callID ?? part.id) as string) as AgentItemId;
+      const id = (part.callID ?? part.id) as string as AgentItemId;
       const status = part.state.status;
       const rawTool = part.tool;
       const canonicalTool =
         OPENCODE_TOOL_NAME[rawTool.toLowerCase()] ??
         rawTool.charAt(0).toUpperCase() + rawTool.slice(1);
-      const title =
-        asStr((part.state as { title?: unknown }).title) ?? null;
+      const title = asStr((part.state as { title?: unknown }).title) ?? null;
       const canonicalInput = canonicalizeOpencodeInput(
         canonicalTool,
         part.state.input,
@@ -523,10 +528,7 @@ const translatePart = (
           : {};
       const hasUsefulInput = Object.keys(inputObj).length > 0;
       const isTerminal = status === "completed" || status === "error";
-      if (
-        !state.emittedToolUseIds.has(id) &&
-        (hasUsefulInput || isTerminal)
-      ) {
+      if (!state.emittedToolUseIds.has(id) && (hasUsefulInput || isTerminal)) {
         events.push({
           _tag: "ToolUse",
           itemId: id,
@@ -537,8 +539,7 @@ const translatePart = (
       }
       if (status === "completed") {
         const raw = toOutputString(part.state.output);
-        const output =
-          canonicalTool === "Read" ? unwrapReadOutput(raw) : raw;
+        const output = canonicalTool === "Read" ? unwrapReadOutput(raw) : raw;
         events.push({
           _tag: "ToolResult",
           itemId: id,
@@ -663,16 +664,18 @@ const translateEvent = (
     // opencode server emits it as the canonical streaming-text frame
     // (one event per token). We accumulate by `partID` and flush on
     // turn end, so the renderer sees one assistant bubble per part.
-    case ("message.part.delta" as SdkEvent["type"]): {
-      const props = (ev as unknown as {
-        properties: {
-          sessionID: string;
-          messageID?: string;
-          partID: string;
-          field: string;
-          delta: string;
-        };
-      }).properties;
+    case "message.part.delta" as SdkEvent["type"]: {
+      const props = (
+        ev as unknown as {
+          properties: {
+            sessionID: string;
+            messageID?: string;
+            partID: string;
+            field: string;
+            delta: string;
+          };
+        }
+      ).properties;
       if (props.sessionID !== sessionID) return [];
       // Same user-text guard as above — the user message's text part can
       // arrive as deltas in some opencode builds.
@@ -737,7 +740,8 @@ const translateEvent = (
       const message =
         errorData === undefined
           ? "OpenCode session error"
-          : (errorData.data as { message?: string }).message ?? errorData.name;
+          : ((errorData.data as { message?: string }).message ??
+            errorData.name);
       return [
         {
           _tag: "Error",
@@ -780,7 +784,11 @@ export const startOpencodeSession = (
   opencodePath: string,
   sessionId: AgentSessionId,
   resumeCursor: string | null = null,
-): Effect.Effect<OpencodeSessionHandle, AgentSessionStartError, AttachmentService> =>
+): Effect.Effect<
+  OpencodeSessionHandle,
+  AgentSessionStartError,
+  AttachmentService
+> =>
   Effect.gen(function* () {
     yield* AttachmentService;
     const events = yield* Mailbox.make<AgentEvent>();
@@ -815,7 +823,7 @@ export const startOpencodeSession = (
         dlog("SSE subscribed");
         const session = await c.session.create({
           throwOnError: true,
-          body: { title: "memoize session" },
+          body: { title: "Zuse session" },
         });
         const sessionData = session.data;
         if (sessionData === undefined || typeof sessionData.id !== "string") {
@@ -865,9 +873,7 @@ export const startOpencodeSession = (
     };
 
     // === Event pump — translate SSE frames into AgentEvents. ===
-    dlog(
-      `==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`,
-    );
+    dlog(`==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`);
     let eventCount = 0;
     void (async () => {
       try {
@@ -943,6 +949,18 @@ export const startOpencodeSession = (
     // === Prompt queue — serializes turns inside a single session. ===
     let inflight: Promise<void> = Promise.resolve();
     const enqueuePrompt = (text: string): void => {
+      const compactSnapshot = isCompactCommand(text)
+        ? startCompactSnapshot(null)
+        : null;
+      if (compactSnapshot !== null) {
+        events.unsafeOffer(
+          startCompactEvent({
+            providerId: "opencode",
+            snapshot: compactSnapshot,
+          }),
+        );
+      }
+      const promptText = compactSnapshot !== null ? text.trim() : text;
       inflight = inflight
         .then(async () => {
           if (closed) return;
@@ -973,10 +991,10 @@ export const startOpencodeSession = (
           const body = {
             agent,
             ...(modelField !== null ? { model: modelField } : {}),
-            parts: [{ type: "text" as const, text }],
+            parts: [{ type: "text" as const, text: promptText }],
           };
           dlog(
-            `prompt: agent=${agent} providerID=${providerID ?? "(default)"} modelID=${modelID ?? "(default)"} variant=${variantOpt ?? "(default)"} textLen=${text.length}`,
+            `prompt: agent=${agent} providerID=${providerID ?? "(default)"} modelID=${modelID ?? "(default)"} variant=${variantOpt ?? "(default)"} textLen=${promptText.length}`,
           );
           ddump(`  prompt.body`, body);
           try {
@@ -992,7 +1010,9 @@ export const startOpencodeSession = (
             // *something* instead of a silent turn.
             const data = res.data as
               | {
-                  info?: { error?: { data?: { message?: string }; name?: string } };
+                  info?: {
+                    error?: { data?: { message?: string }; name?: string };
+                  };
                   parts?: ReadonlyArray<unknown>;
                 }
               | undefined;
@@ -1020,7 +1040,10 @@ export const startOpencodeSession = (
               // Skip text/reasoning parts already streamed via SSE deltas —
               // those were flushed on session.idle and double-emitting would
               // produce duplicate bubbles.
-              if (partId !== undefined && deltaState.flushedPartIds.has(partId)) {
+              if (
+                partId !== undefined &&
+                deltaState.flushedPartIds.has(partId)
+              ) {
                 continue;
               }
               ddump(`  prompt.part`, part);
@@ -1037,6 +1060,16 @@ export const startOpencodeSession = (
             // prompt resolved before the SSE got there).
             for (const evt of flushDeltaState(deltaState)) {
               events.unsafeOffer(evt);
+            }
+            if (compactSnapshot !== null && !closed) {
+              events.unsafeOffer(
+                finishCompactEvent({
+                  itemId: compactSnapshot.itemId,
+                  providerId: "opencode",
+                  snapshot: compactSnapshot,
+                  afterTokens: null,
+                }),
+              );
             }
             events.unsafeOffer({ _tag: "Completed", reason: "ended" });
           } catch (cause) {

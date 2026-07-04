@@ -19,10 +19,14 @@ import type {
   FolderId,
   GoalUnsupportedError,
   Message,
+  MessageContent,
+  MessageEnvelope,
+  MessageId,
   PermissionMode,
   ProviderId,
   QueueState,
   QueuedMessage,
+  ResumeStrategy,
   RuntimeMode,
   Session,
   SessionAlreadyStartedError,
@@ -35,7 +39,7 @@ import type {
   ThreadGoalSetInput,
   UserQuestionAnswer,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * Persistence-backed orchestration of chat sessions and their message log.
@@ -97,6 +101,8 @@ export interface CreateSessionInput {
    * timing is preserved.
    */
   readonly background?: boolean;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
 }
 
 export interface CreateChatInput {
@@ -118,6 +124,8 @@ export interface CreateChatInput {
    * for user-created chats.
    */
   readonly originSessionId?: SessionId | null;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
 }
 
 export interface MessageStoreShape {
@@ -237,6 +245,24 @@ export interface MessageStoreShape {
     SessionStartError
   >;
 
+  readonly continueExternalThread: (
+    input: CreateChatInput & {
+      readonly resumeCursor: string;
+      readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+    },
+  ) => Effect.Effect<
+    {
+      readonly chat: Chat;
+      readonly initialSession: Session;
+    },
+    SessionStartError
+  >;
+
+  readonly importExternalMessages: (
+    sessionId: SessionId,
+    messages: ReadonlyArray<MessageContent>,
+  ) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
+
   readonly renameChat: (
     chatId: ChatId,
     title: string,
@@ -280,6 +306,7 @@ export interface MessageStoreShape {
 
   readonly archiveChat: (
     chatId: ChatId,
+    force: boolean,
   ) => Effect.Effect<
     ChatArchiveResult,
     | ChatNotFoundError
@@ -309,7 +336,8 @@ export interface MessageStoreShape {
 
   readonly streamMessages: (
     sessionId: SessionId,
-  ) => Stream.Stream<Message, SessionNotFoundError>;
+    sinceSequence?: number,
+  ) => Stream.Stream<MessageEnvelope, SessionNotFoundError>;
 
   /**
    * Live status feed. Emits the current `Session.status` immediately and
@@ -358,6 +386,7 @@ export interface MessageStoreShape {
     skillRefs?: ReadonlyArray<SkillRef>,
     annotations?: ReadonlyArray<CodeAnnotation>,
     asGoal?: boolean,
+    clientMessageId?: MessageId,
   ) => Effect.Effect<void, SessionNotFoundError>;
 
   readonly interruptSession: (

@@ -10,7 +10,7 @@ import { buildTools } from "./tools.ts";
 
 /**
  * Build and start the MCP server. Wired against stdio by default —
- * `memoize-mcp --workspace .` is the canonical invocation. HTTP
+ * `zuse-mcp --workspace .` is the canonical invocation. HTTP
  * transport ships as a separate entry (mod-side opt-in) so the
  * default binary stays single-purpose.
  *
@@ -26,7 +26,7 @@ export const runStdioServer = async (
 
   const server = new Server(
     {
-      name: "memoize-mcp",
+      name: "zuse-mcp",
       version: "0.0.1",
     },
     {

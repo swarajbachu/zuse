@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleIcon, LinkSquare01Icon, Loading02Icon, MinusSignCircleIcon, Tick01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  CircleIcon,
+  LinkSquare01Icon,
+  Loading02Icon,
+  MinusSignCircleIcon,
+  Tick01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { X } from "lucide-react";
 import { useEffect } from "react";
@@ -11,7 +17,7 @@ import type {
   GitPrInfo,
   GitPrReviewState,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { softTone, type Tone } from "../lib/tones.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
@@ -19,9 +25,10 @@ import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const openExternal = (url: string) => {
-  const bridge = window.memoize?.app;
+  const bridge = window.zuse?.app;
   if (bridge !== undefined) {
     bridge.openExternal(url);
     return;
@@ -99,13 +106,13 @@ export function PrPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 text-xs">
       {!hasPr ? (
-        <NoPrState branch={status.branch} dirtyFiles={status.dirtyFiles} ahead={status.ahead} />
-      ) : (
-        <PrBody
-          pr={pr!}
-          details={details}
-          detailsLoading={detailsLoading}
+        <NoPrState
+          branch={status.branch}
+          dirtyFiles={status.dirtyFiles}
+          ahead={status.ahead}
         />
+      ) : (
+        <PrBody pr={pr!} details={details} detailsLoading={detailsLoading} />
       )}
     </div>
   );
@@ -139,7 +146,9 @@ function NoPrState({
         </Row>
         <Row label="Ahead of upstream">
           {ahead > 0 ? (
-            <Pill tone="sky">{ahead} commit{ahead === 1 ? "" : "s"}</Pill>
+            <Pill tone="sky">
+              {ahead} commit{ahead === 1 ? "" : "s"}
+            </Pill>
           ) : (
             <span className="text-muted-foreground">in sync</span>
           )}
@@ -186,7 +195,10 @@ function PrBody({
     <>
       <Section>
         <div className="flex items-start gap-2">
-          <HugeiconsIcon icon={GitPullRequestIcon} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={GitPullRequestIcon}
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex items-baseline gap-2">
               {number !== null ? (
@@ -225,7 +237,9 @@ function PrBody({
       </Section>
 
       {detailsLoading && details === null ? (
-        <p className="text-muted-foreground">Loading PR details…</p>
+        <ShimmerText as="p" className="text-muted-foreground">
+          Loading PR details…
+        </ShimmerText>
       ) : details === null ? (
         <p className="text-amber-300/80">
           <code className="font-mono">gh</code> couldn't read PR details.
@@ -280,13 +294,23 @@ function PrBody({
           >
             {pr.isDraft ? (
               <Indicator
-                icon={<HugeiconsIcon icon={CircleIcon} className="size-4 text-zinc-400" />}
+                icon={
+                  <HugeiconsIcon
+                    icon={CircleIcon}
+                    className="size-4 text-zinc-400"
+                  />
+                }
                 title="Draft"
                 body="Mark the PR as ready for review to start running checks."
               />
             ) : orderedChecks.length === 0 ? (
               <Indicator
-                icon={<HugeiconsIcon icon={CircleIcon} className="size-4 text-muted-foreground" />}
+                icon={
+                  <HugeiconsIcon
+                    icon={CircleIcon}
+                    className="size-4 text-muted-foreground"
+                  />
+                }
                 title="No checks configured"
                 body="There aren't any required status checks on this branch."
               />
@@ -396,7 +420,10 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
         {run.name}
       </span>
       {run.url !== null ? (
-        <HugeiconsIcon icon={LinkSquare01Icon} className="size-3 shrink-0 text-muted-foreground" />
+        <HugeiconsIcon
+          icon={LinkSquare01Icon}
+          className="size-3 shrink-0 text-muted-foreground"
+        />
       ) : null}
     </div>
   );
@@ -419,13 +446,25 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
 function checkIcon(run: GitPrCheckRun) {
   if (run.status !== "completed") {
     if (run.status === "queued" || run.status === "pending") {
-      return <HugeiconsIcon icon={CircleIcon} className="size-4 text-muted-foreground" />;
+      return (
+        <HugeiconsIcon
+          icon={CircleIcon}
+          className="size-4 text-muted-foreground"
+        />
+      );
     }
-    return <HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin text-amber-300" />;
+    return (
+      <HugeiconsIcon
+        icon={Loading02Icon}
+        className="size-4 animate-spin text-amber-300"
+      />
+    );
   }
   switch (run.conclusion) {
     case "success":
-      return <HugeiconsIcon icon={Tick01Icon} className="size-3 text-emerald-400" />;
+      return (
+        <HugeiconsIcon icon={Tick01Icon} className="size-3 text-emerald-400" />
+      );
     case "failure":
     case "cancelled":
     case "timed_out":
@@ -433,9 +472,19 @@ function checkIcon(run: GitPrCheckRun) {
       return <X className="size-3 text-rose-300" strokeWidth={1.8} />;
     case "skipped":
     case "neutral":
-      return <HugeiconsIcon icon={MinusSignCircleIcon} className="size-3.5 text-muted-foreground" />;
+      return (
+        <HugeiconsIcon
+          icon={MinusSignCircleIcon}
+          className="size-3.5 text-muted-foreground"
+        />
+      );
     default:
-      return <HugeiconsIcon icon={CircleIcon} className="size-3.5 text-muted-foreground" />;
+      return (
+        <HugeiconsIcon
+          icon={CircleIcon}
+          className="size-3.5 text-muted-foreground"
+        />
+      );
   }
 }
 
@@ -473,13 +522,7 @@ function Row({
   );
 }
 
-function Pill({
-  tone,
-  children,
-}: {
-  tone: Tone;
-  children: React.ReactNode;
-}) {
+function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
   return (
     <span
       className={`flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-[10px] ${softTone(tone)}`}

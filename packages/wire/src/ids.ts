@@ -28,3 +28,9 @@ export type WorktreeId = typeof WorktreeId.Type;
 
 export const ChatId = makeEntityId("ChatId");
 export type ChatId = typeof ChatId.Type;
+
+export const EnvironmentId = makeEntityId("EnvironmentId");
+export type EnvironmentId = typeof EnvironmentId.Type;
+
+export const AuthTokenId = makeEntityId("AuthTokenId");
+export type AuthTokenId = typeof AuthTokenId.Type;

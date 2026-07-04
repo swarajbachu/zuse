@@ -10,7 +10,7 @@ import {
   AgentSessionStartError,
   type LoginEvent,
   type ProviderId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 // Each provider's interactive login command prints an OAuth URL to stdout (or
 // to stderr inside its TUI frame) and waits for the user to complete the flow

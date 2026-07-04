@@ -30,6 +30,11 @@ export class FsReadError extends Schema.TaggedError<FsReadError>()(
   { folderId: FolderId, path: Schema.String, reason: Schema.String },
 ) {}
 
+export class FsAlreadyExistsError extends Schema.TaggedError<FsAlreadyExistsError>()(
+  "FsAlreadyExistsError",
+  { folderId: FolderId, path: Schema.String },
+) {}
+
 export class FsTooLargeError extends Schema.TaggedError<FsTooLargeError>()(
   "FsTooLargeError",
   { folderId: FolderId, path: Schema.String, size: Schema.Number, limit: Schema.Number },
@@ -99,6 +104,13 @@ const FsWriteFileErrors = Schema.Union(
   FsTooLargeError,
 );
 
+const FsCreateErrors = Schema.Union(
+  FsFolderNotFoundError,
+  FsPathOutsideError,
+  FsReadError,
+  FsAlreadyExistsError,
+);
+
 /**
  * List one directory level. `path` is project-root-relative (use "" or omit
  * for the root). The right-pane tree calls this lazily as the user expands
@@ -118,6 +130,23 @@ export const FsTreeRpc = Rpc.make("fs.tree", {
   }),
   success: Schema.Array(FsEntry),
   error: FsErrors,
+});
+
+/**
+ * Live stream of filesystem changes under the current project/worktree root.
+ * Emits debounced batches of forward-slash, project-relative paths so the
+ * renderer can refresh only the open tree branches affected by disk changes.
+ */
+export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({
+    paths: Schema.Array(Schema.String),
+  }),
+  error: FsErrors,
+  stream: true,
 });
 
 /**
@@ -175,6 +204,49 @@ export const FsWriteFileRpc = Rpc.make("fs.writeFile", {
     mtime: Schema.String,
   }),
   error: FsWriteFileErrors,
+});
+
+/**
+ * Create an empty file inside the project/worktree root. Fails if the target
+ * already exists; parent directories must already exist.
+ */
+export const FsCreateFileRpc = Rpc.make("fs.createFile", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    path: Schema.String,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({}),
+  error: FsCreateErrors,
+});
+
+/**
+ * Create a single directory inside the project/worktree root. Fails if the
+ * target already exists; parent directories must already exist.
+ */
+export const FsCreateDirectoryRpc = Rpc.make("fs.createDirectory", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    path: Schema.String,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({}),
+  error: FsCreateErrors,
+});
+
+/**
+ * Remove a file or directory tree inside the project/worktree root. This is
+ * intentionally scoped to the same project-relative path validation as every
+ * other local fs RPC.
+ */
+export const FsRemoveRpc = Rpc.make("fs.remove", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    path: Schema.String,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({}),
+  error: FsErrors,
 });
 
 /**

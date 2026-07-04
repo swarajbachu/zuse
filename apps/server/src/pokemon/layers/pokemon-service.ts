@@ -8,7 +8,7 @@ import {
   PokemonPokedexEntry,
   PokemonSpriteVariant,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -26,8 +26,10 @@ interface UnlockRow {
   readonly unlocked_at: string;
 }
 
+type CachedSpriteStems = ReadonlySet<string>;
+
 const spriteUrlFor = (number: number, variantId = "default"): string =>
-  `memoize://pokemon/${pokemonSpriteStem(number, variantId)}`;
+  `zuse://pokemon/${pokemonSpriteStem(number, variantId)}`;
 
 const extensionFrom = (url: string, contentType: string | null): string => {
   const clean = url.split("?")[0] ?? url;
@@ -54,23 +56,34 @@ export const PokemonServiceLive = Layer.effect(
 
     yield* fs.makeDirectory(spritesDir, { recursive: true }).pipe(Effect.orDie);
 
-    const cachedSpritePath = (number: number, variantId = "default") =>
+    const cachedSpriteStems = () =>
       Effect.gen(function* () {
         const entries = yield* fs
           .readDirectory(spritesDir)
           .pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
-        const prefix = `${pokemonSpriteStem(number, variantId)}.`;
-        return entries.some((entry) => entry.startsWith(prefix));
+        const stems = new Set<string>();
+        for (const entry of entries) {
+          const dot = entry.lastIndexOf(".");
+          if (dot > 0) stems.add(entry.slice(0, dot));
+        }
+        return stems;
       });
+
+    const hasCachedSprite = (
+      cached: CachedSpriteStems,
+      number: number,
+      variantId = "default",
+    ) => cached.has(pokemonSpriteStem(number, variantId));
 
     const cacheSpriteSource = (
       number: number,
       variantId: string,
       sourceUrl: string,
+      cached: Set<string>,
     ) =>
       Effect.gen(function* () {
-        const alreadyCached = yield* cachedSpritePath(number, variantId);
-        if (alreadyCached) return;
+        const stem = pokemonSpriteStem(number, variantId);
+        if (cached.has(stem)) return;
 
         const response = yield* Effect.promise(async () => {
           try {
@@ -104,6 +117,7 @@ export const PokemonServiceLive = Layer.effect(
             bytes,
           )
           .pipe(Effect.ignoreLogged);
+        cached.add(stem);
       });
 
     const cacheSprite = (number: number) =>
@@ -112,8 +126,9 @@ export const PokemonServiceLive = Layer.effect(
         if (pokemon === undefined) {
           return yield* Effect.fail(new PokemonNotFoundError({ number }));
         }
+        const cached = yield* cachedSpriteStems();
         for (const source of pokemonSpriteSourcesFor(pokemon)) {
-          yield* cacheSpriteSource(number, source.id, source.url);
+          yield* cacheSpriteSource(number, source.id, source.url, cached);
         }
       });
 
@@ -126,7 +141,11 @@ export const PokemonServiceLive = Layer.effect(
         return new Map(rows.map((row) => [row.pokemon_number, row]));
       });
 
-    const entryFor = (number: number, rows: ReadonlyMap<number, UnlockRow>) =>
+    const entryFor = (
+      number: number,
+      rows: ReadonlyMap<number, UnlockRow>,
+      cachedSprites: CachedSpriteStems,
+    ) =>
       Effect.gen(function* () {
         const pokemon = POKEMON_BY_NUMBER.get(number);
         if (pokemon === undefined) {
@@ -136,14 +155,14 @@ export const PokemonServiceLive = Layer.effect(
         const cached =
           unlock === undefined
             ? false
-            : yield* cachedSpritePath(number, "default");
+            : hasCachedSprite(cachedSprites, number, "default");
         const variants = [];
         for (const source of pokemonSpriteSourcesFor(pokemon)) {
           if (source.id === "default") continue;
           const variantCached =
             unlock === undefined
               ? false
-              : yield* cachedSpritePath(number, source.id);
+              : hasCachedSprite(cachedSprites, number, source.id);
           variants.push(
             PokemonSpriteVariant.make({
               id: source.id,
@@ -158,7 +177,7 @@ export const PokemonServiceLive = Layer.effect(
           const familyCached =
             familyUnlock === undefined
               ? false
-              : yield* cachedSpritePath(familyMember.number, "default");
+              : hasCachedSprite(cachedSprites, familyMember.number, "default");
           evolutionLine.push(
             PokemonEvolutionStep.make({
               number: familyMember.number,
@@ -198,10 +217,13 @@ export const PokemonServiceLive = Layer.effect(
       pokedex: () =>
         Effect.gen(function* () {
           const rows = yield* rowsByNumber();
+          const cachedSprites = yield* cachedSpriteStems();
           const entries: PokemonPokedexEntry[] = [];
           for (const pokemon of POKEMON_CATALOG) {
             entries.push(
-              yield* entryFor(pokemon.number, rows).pipe(Effect.orDie),
+              yield* entryFor(pokemon.number, rows, cachedSprites).pipe(
+                Effect.orDie,
+              ),
             );
           }
           return entries;
@@ -210,7 +232,8 @@ export const PokemonServiceLive = Layer.effect(
         Effect.gen(function* () {
           yield* cacheSprite(number);
           const rows = yield* rowsByNumber();
-          return yield* entryFor(number, rows);
+          const cachedSprites = yield* cachedSpriteStems();
+          return yield* entryFor(number, rows, cachedSprites);
         }),
       recordUnlock: (number, worktreeId) =>
         Effect.gen(function* () {

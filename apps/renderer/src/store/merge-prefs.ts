@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
-import type { GitMergeMethod } from "@memoize/wire";
+import type { GitMergeMethod } from "@zuse/wire";
+
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 
 /**
  * Local UI preferences for the top-bar Merge button. Purely cosmetic state —
@@ -10,7 +12,8 @@ import type { GitMergeMethod } from "@memoize/wire";
  * `method` mirrors GitHub's "remember my last choice" behaviour: whatever the
  * user last merged with becomes the default for the next PR.
  */
-const STORAGE_KEY = "memoize.mergePrefs.v1";
+const STORAGE_KEY = "zuse.mergePrefs.v1";
+const LEGACY_STORAGE_KEYS = ["memoize.mergePrefs.v1"] as const;
 
 type Persisted = {
   method: GitMergeMethod;
@@ -21,7 +24,11 @@ const DEFAULTS: Persisted = { method: "merge", deleteBranch: false };
 
 const load = (): Persisted => {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStorageWithLegacy(
+      window.localStorage,
+      STORAGE_KEY,
+      LEGACY_STORAGE_KEYS,
+    );
     if (raw === null) return DEFAULTS;
     const parsed = JSON.parse(raw) as Partial<Persisted>;
     const method =

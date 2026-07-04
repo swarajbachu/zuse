@@ -1,16 +1,27 @@
 import { NodeContext } from "@effect/platform-node";
 import { RpcServer } from "@effect/rpc";
-import { Layer } from "effect";
+import { SqlClient } from "@effect/sql";
+import { Effect, Layer } from "effect";
 
-import { MemoizeRpcs } from "@memoize/wire";
+import { MemoizeRpcs } from "@zuse/wire";
 
 import { AppPaths } from "./app-paths.ts";
+import { AuthServiceLive } from "./auth/layers/auth-service.ts";
+import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
-import { IndexRegistryLive } from "./code-index/layers/index-registry.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
+import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import type { LanAuthPolicy } from "./lan-auth/policy.ts";
+import {
+  LanAuthConfig,
+  LanAuthService,
+} from "./lan-auth/services/lan-auth-service.ts";
+import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
@@ -38,7 +49,7 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
  * UI-toolkit-specific. See ADR 0007 for the rules that make WS extraction
  * cheap later.
  *
- * - `userData`: where persistence files (memoize.sqlite, OS keychain) live.
+ * - `userData`: where persistence files (zuse.sqlite, OS keychain) live.
  *   Electron resolves this from `app.getPath("userData")`; a headless
  *   server resolves it from `XDG_DATA_HOME` or a CLI flag.
  * - `folderPicker`: a callback returning the user-chosen path. Electron
@@ -46,11 +57,25 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
  *   forwards the prompt to a connected client).
  * - `serverProtocol`: the RPC transport. Electron supplies an in-process
  *   IPC protocol; the future WS server will supply a WebSocket protocol.
+ * - `authShell`: the WorkOS OAuth deep-link seam. Electron opens the system
+ *   browser via `shell.openExternal` and funnels the `zuse://auth/callback`
+ *   deep link back in; a headless server supplies a loopback-HTTP variant.
  */
 export interface MainLayerDeps {
   readonly userData: string;
   readonly folderPicker: typeof FolderPicker.Service;
-  readonly serverProtocol: Layer.Layer<RpcServer.Protocol>;
+  readonly serverProtocol: Layer.Layer<
+    RpcServer.Protocol,
+    never,
+    LanAuthService
+  >;
+  readonly authShell: typeof AuthShell.Service;
+  readonly lanAuth?: {
+    readonly policy: LanAuthPolicy;
+    readonly advertisedHost?: string | null;
+    readonly port?: number | null;
+    readonly pairingBootstrap?: boolean;
+  };
 }
 
 /**
@@ -61,6 +86,13 @@ export interface MainLayerDeps {
 export const makeMainLayer = (deps: MainLayerDeps) => {
   const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
   const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
+  const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
+  const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
+    policy: deps.lanAuth?.policy ?? "local",
+    advertisedHost: deps.lanAuth?.advertisedHost ?? null,
+    port: deps.lanAuth?.port ?? null,
+    pairingBootstrap: deps.lanAuth?.pairingBootstrap ?? false,
+  });
 
   // SqlClient is the shared persistence handle. The migrator runs once on
   // boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
@@ -83,17 +115,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AppPathsLayer),
   );
 
-  // IndexRegistry must be available to WorkspaceService so that
-  // `workspace.setSelected` / `workspace.add` can fire-and-forget an
-  // `ensureIndexed()` the moment the user opens a project. Declared
-  // before WorkspaceLayer because it's a dependency, not the other way
-  // around — there is no upstream from IndexRegistry into Workspace.
-  const IndexLayer = IndexRegistryLive;
-
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(ImportShim),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -200,7 +224,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -221,6 +244,17 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
+  // After migrations, before MessageStore: replay any events past the
+  // projector high-water mark. In steady state this is a no-op (append and
+  // projection share a transaction); it makes the projection rebuildable —
+  // drop `messages`, reset the watermark, boot. Same shape as ImportShim.
+  const ProjectorCatchup = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* makeEventStore(sql).catchup;
+    }),
+  ).pipe(Layer.provide(MigratedSqlite));
+
   const MessageStoreLayer = MessageStoreLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
@@ -231,8 +265,23 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
+    Layer.provide(ProjectorCatchup),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
+  );
+
+  const DiagnosticsLayer = DiagnosticsServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(AppPathsLayer),
+    Layer.provide(ProviderLayer),
+  );
+
+  const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+    Layer.provide(WorkspaceLayer),
+    Layer.provide(WorktreeLayer),
+    Layer.provide(MessageStoreLayer),
+    Layer.provide(MigratedSqlite),
+    Layer.provide(NodeContext.layer),
   );
 
   // SkillBridge surfaces the user's per-provider skill library to the
@@ -247,33 +296,60 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MessageStoreLayer),
     Layer.provide(WorkspaceLayer),
   );
+  // AuthService owns the WorkOS PKCE flow + keychain token bundle. Depends on
+  // CredentialsService (keychain) and the host-supplied AuthShell (browser +
+  // deep-link). It registers its callback sink with the shell at build time,
+  // so it must be constructed at boot — Handlers depends on it, which forces
+  // that. No SqlClient: the (non-secret) profile rides along in the keychain
+  // bundle, so there's no users table to migrate.
+  const AuthLayer = AuthServiceLive.pipe(
+    Layer.provide(CredentialsServiceLive),
+    Layer.provide(AuthShellLayer),
+  );
+
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
     NodeContext.layer,
+    LanAuthConfigLayer,
+    // AuthLayer is fully self-contained (its keychain + shell deps are already
+    // provided), merged in here to satisfy the auth.* handlers without adding
+    // another `.pipe` step — the Handlers pipe is at its 20-arg overload cap.
+    AuthLayer,
+  );
+
+  const HandlerDomainLayer = Layer.mergeAll(
+    WorkspaceLayer,
+    PtyLayer,
+    GitLayer,
+    WorktreeLayer,
+    RepositorySettingsLayer,
+    PokemonLayer,
+    ConfigStoreLayer,
+    FsLayer,
+    FileSearchLayer,
+    ProjectScaffoldLayer,
+    ProviderLayer,
+    MessageStoreLayer,
+    PermissionLayer,
+    AttachmentLayer,
+    BrowserBridgeLayer,
+    // browser.* credential RPCs read/write the keychain directly.
+    CredentialsServiceLive,
+    SkillBridgeLayer,
+    DiagnosticsLayer,
+    LanAuthLayer,
+    ExternalThreadLayer,
+    FolderPickerLayer,
   );
 
   const Handlers = HandlersLayer.pipe(
-    Layer.provide(WorkspaceLayer),
-    Layer.provide(PtyLayer),
-    Layer.provide(GitLayer),
-    Layer.provide(WorktreeLayer),
-    Layer.provide(RepositorySettingsLayer),
-    Layer.provide(PokemonLayer),
-    Layer.provide(ConfigStoreLayer),
-    Layer.provide(FsLayer),
-    Layer.provide(FileSearchLayer),
-    Layer.provide(ProjectScaffoldLayer),
-    Layer.provide(ProviderLayer),
-    Layer.provide(MessageStoreLayer),
-    Layer.provide(PermissionLayer),
-    Layer.provide(AttachmentLayer),
-    Layer.provide(BrowserBridgeLayer),
-    // browser.* credential RPCs read/write the keychain directly.
-    Layer.provide(CredentialsServiceLive),
-    Layer.provide(SkillBridgeLayer),
-    Layer.provide(IndexLayer),
-    Layer.provide(FolderPickerLayer),
+    Layer.provide(HandlerDomainLayer),
     // `agent.opencodeInventory` calls `resolveCliPath("opencode")` directly
     // (it spins up a short-lived `opencode serve` to read the user's
     // connected providers + agents). That uses `CommandExecutor` from
@@ -283,7 +359,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
     Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol),
+    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);

@@ -1,4 +1,4 @@
-import type { Command, KeybindingRule } from "@memoize/wire";
+import type { Command, KeybindingRule } from "@zuse/wire";
 
 /**
  * Display metadata for each command. The label is shown in the settings
@@ -53,6 +53,102 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
     description: "Move the cursor into the chat input",
     group: "Application",
   },
+  "next-tab": {
+    label: "Next tab",
+    description: "Switch to the next tab in the active chat",
+    group: "Navigation",
+  },
+  "prev-tab": {
+    label: "Previous tab",
+    description: "Switch to the previous tab in the active chat",
+    group: "Navigation",
+  },
+  "select-tab-1": {
+    label: "Go to tab 1",
+    description: "Jump to the first tab",
+    group: "Navigation",
+  },
+  "select-tab-2": {
+    label: "Go to tab 2",
+    description: "Jump to the second tab",
+    group: "Navigation",
+  },
+  "select-tab-3": {
+    label: "Go to tab 3",
+    description: "Jump to the third tab",
+    group: "Navigation",
+  },
+  "select-tab-4": {
+    label: "Go to tab 4",
+    description: "Jump to the fourth tab",
+    group: "Navigation",
+  },
+  "select-tab-5": {
+    label: "Go to tab 5",
+    description: "Jump to the fifth tab",
+    group: "Navigation",
+  },
+  "select-tab-6": {
+    label: "Go to tab 6",
+    description: "Jump to the sixth tab",
+    group: "Navigation",
+  },
+  "select-tab-7": {
+    label: "Go to tab 7",
+    description: "Jump to the seventh tab",
+    group: "Navigation",
+  },
+  "select-tab-8": {
+    label: "Go to tab 8",
+    description: "Jump to the eighth tab",
+    group: "Navigation",
+  },
+  "select-last-tab": {
+    label: "Go to last tab",
+    description: "Jump to the last tab in the active chat",
+    group: "Navigation",
+  },
+  "new-tab": {
+    label: "New tab",
+    description: "Open a new session in the active chat",
+    group: "Navigation",
+  },
+  "next-chat": {
+    label: "Next chat",
+    description: "Switch to the next chat in the sidebar",
+    group: "Navigation",
+  },
+  "prev-chat": {
+    label: "Previous chat",
+    description: "Switch to the previous chat in the sidebar",
+    group: "Navigation",
+  },
+  "next-panel": {
+    label: "Next panel",
+    description: "Switch to the next panel in the right pane",
+    group: "Navigation",
+  },
+  "prev-panel": {
+    label: "Previous panel",
+    description: "Switch to the previous panel in the right pane",
+    group: "Navigation",
+  },
+  "focus-next-pane": {
+    label: "Focus next pane",
+    description:
+      "Move keyboard focus to the next region (sidebar → chat → composer → right pane)",
+    group: "Navigation",
+  },
+  "focus-prev-pane": {
+    label: "Focus previous pane",
+    description: "Move keyboard focus to the previous region",
+    group: "Navigation",
+  },
+  "open-chat-switcher": {
+    label: "Switch chat…",
+    description: "Open the quick-switcher to jump to any chat in any project",
+    group: "Navigation",
+  },
   "composer.submit": {
     label: "Submit message",
     description: "Send the current composer contents",
@@ -80,7 +176,8 @@ export const COMMAND_META: Record<Command, CommandMeta> = {
   },
   "editor.annotate": {
     label: "Annotate selection",
-    description: "Pin a comment on the selected code and add it to the composer",
+    description:
+      "Pin a comment on the selected code and add it to the composer",
     group: "Editor",
   },
 };
@@ -116,6 +213,26 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+b", command: "toggle-right-sidebar" },
   { key: "mod+j", command: "toggle-terminal" },
   { key: "mod+l", command: "focus-composer" },
+  // Navigation — terminal/browser-familiar tab & chat switching, all rebindable.
+  { key: "mod+shift+]", command: "next-tab" },
+  { key: "mod+shift+[", command: "prev-tab" },
+  { key: "mod+1", command: "select-tab-1" },
+  { key: "mod+2", command: "select-tab-2" },
+  { key: "mod+3", command: "select-tab-3" },
+  { key: "mod+4", command: "select-tab-4" },
+  { key: "mod+5", command: "select-tab-5" },
+  { key: "mod+6", command: "select-tab-6" },
+  { key: "mod+7", command: "select-tab-7" },
+  { key: "mod+8", command: "select-tab-8" },
+  { key: "mod+9", command: "select-last-tab" },
+  { key: "mod+t", command: "new-tab" },
+  { key: "ctrl+tab", command: "next-chat" },
+  { key: "ctrl+shift+tab", command: "prev-chat" },
+  { key: "mod+alt+]", command: "next-panel" },
+  { key: "mod+alt+[", command: "prev-panel" },
+  { key: "ctrl+`", command: "focus-next-pane" },
+  { key: "ctrl+shift+`", command: "focus-prev-pane" },
+  { key: "mod+k", command: "open-chat-switcher" },
   { key: "enter", command: "composer.submit" },
   { key: "shift+enter", command: "composer.newline" },
   { key: "mod+enter", command: "composer.forceSubmit" },

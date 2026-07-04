@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import type { SessionId } from "@memoize/wire";
+import type { SessionId } from "@zuse/wire";
 
 type StorageLike = {
   getItem: (key: string) => string | null;
@@ -95,7 +95,7 @@ describe("annotations store", () => {
       comment: "persist me",
     });
 
-    const raw = localStorage.getItem("memoize.annotations.v1");
+    const raw = localStorage.getItem("zuse.annotations.v1");
     expect(raw).not.toBeNull();
     expect(JSON.parse(raw ?? "{}")).toEqual(
       useAnnotationsStore.getState().bySession,

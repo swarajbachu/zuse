@@ -4,6 +4,7 @@ import { Schema } from "effect";
 import { FolderId } from "./ids.ts";
 
 export const UsageSourceId = Schema.Literal(
+  "zuse",
   "memoize",
   "claude",
   "codex",

@@ -5,7 +5,7 @@ import { FolderId } from "./ids.ts";
 
 /**
  * Wire schemas for the Phase 0.04 code index. The engine in
- * `@memoize/index` defines a richer TS type per kind; here we keep the
+ * `@zuse/index` defines a richer TS type per kind; here we keep the
  * shapes flat and primitive so they cross the @effect/rpc + MCP JSON-schema
  * boundaries without ceremony.
  */

@@ -18,7 +18,7 @@ import {
   type SearchHit,
   type SymbolHit,
   type SymbolSummary,
-} from "@memoize/index";
+} from "@zuse/index";
 
 import { IndexRegistry, type IndexHandle } from "../services/index-registry.ts";
 
@@ -44,7 +44,7 @@ const emptyStatus = (branch: string): IndexStatus => ({
 
 /**
  * Live `IndexRegistry`. Per workspace root we open a single SQLite handle
- * at `<root>/.memoize/index.sqlite`, run migrations once, and serve every
+ * at `<root>/.zuse/index.sqlite`, run migrations once, and serve every
  * subsequent lookup from the same handle.
  *
  * `ensureIndexed()` is the trigger that populates the DB. The workspace
@@ -69,7 +69,7 @@ export const IndexRegistryLive = Layer.scoped(
     );
 
     const construct = async (root: string, branch: string): Promise<Entry> => {
-      const dbPath = join(root, ".memoize", "index.sqlite");
+      const dbPath = join(root, ".zuse", "index.sqlite");
       const configLayer = Layer.succeed(IndexConfigTag, {
         root,
         branch,

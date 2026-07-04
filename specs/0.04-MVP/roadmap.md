@@ -16,7 +16,7 @@ chip are in. Tasks left for the 0.04 release proper are catalogued in
 
 - Semantic tier is **disabled** today (NullProvider) — needs a real local
   embedding provider before `code_search` semantic queries become useful
-- File watcher exists in `@memoize/index` but isn't wired into
+- File watcher exists in `@zuse/index` but isn't wired into
   `IndexRegistry`, so edits don't trigger incremental reindex yet
 - MCP server ships stdio only — HTTP transport + `bun build --compile`
   packaging both still pending
@@ -29,7 +29,7 @@ Tree-sitter chunker, symbol extractor, SQLite schema, content-addressed
 blob store, manifest model. **No retrieval yet.**
 
 - `packages/index/` scaffold + Effect Service contract
-- ADR 0013 — `@memoize/index` as standalone package
+- ADR 0013 — `@zuse/index` as standalone package
 - ADR 0014 — content-addressed chunk store + per-branch manifest
 - ADR 0015 — tree-sitter for chunking & symbols
 - TypeScript + JavaScript + TSX grammars only
@@ -37,7 +37,7 @@ blob store, manifest model. **No retrieval yet.**
 - Tests: index memoize itself; assert chunk count, symbol count, blob
   dedup across two branches with shared files
 
-**Acceptance:** `bun --filter @memoize/index test` passes; indexing this
+**Acceptance:** `bun --filter @zuse/index test` passes; indexing this
 repo produces > 5,000 chunks and > 2,000 symbols; switching `main` ↔ a
 branch with one changed file results in exactly one new blob row.
 
@@ -92,10 +92,10 @@ Incremental updates and fast branch switches.
 - File watcher via `@parcel/watcher` (fast, native, no chokidar polling)
 - Branch detection: hook `git checkout` via `apps/server/src/git/`
 - ADR 0017 — branch-aware manifest
-- Manifest swap path proven against Conductor workspaces (5 branches)
+- Manifest swap path proven against parallel workspaces (5 branches)
 
 **Acceptance:** Branch switch < 200ms on a repo with > 10k files; file edit
-re-indexes only the changed file in < 50ms; running 5 Conductor workspaces
+re-indexes only the changed file in < 50ms; running 5 parallel workspaces
 on the same repo uses one shared blob store (deduped).
 
 ## Phase F — `apps/mcp-server` packaging (~1 week) ◐ stdio only; HTTP + compile pending
@@ -106,14 +106,14 @@ Standalone MCP binary, npm-distributable, Bun-compiled.
 - ADR 0018 — MCP server as standalone app
 - stdio transport (default), HTTP transport (optional)
 - All five tools registered, JSON Schema validated
-- `bun build --compile` produces `memoize-mcp` per OS
-- npm publish: `@memoize/mcp-server`
+- `bun build --compile` produces `zuse-mcp` per OS
+- npm publish: `@zuse/mcp-server`
 - ADR 0021 — credentials and billing (BYOK in 0.04, cloud deferred)
 - Smoke test: terminal Claude Code session pointed at the MCP server can
   call all five tools end-to-end
 
-**Acceptance:** `npx @memoize/mcp-server --workspace .` runs; an external
-agent (terminal `claude`) using only `memoize-mcp` tools (no built-in
+**Acceptance:** `npx @zuse/mcp-server --workspace .` runs; an external
+agent (terminal `claude`) using only `zuse-mcp` tools (no built-in
 grep) finishes ≥ 80% of the eval harness tasks.
 
 ## Phase G — Cloud team index (deferred)

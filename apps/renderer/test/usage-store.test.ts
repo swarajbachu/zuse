@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 
-import type { UsageReport } from "@memoize/wire";
+import type { UsageReport } from "@zuse/wire";
 
 let reportCalls: Array<{ readonly bucket?: string; readonly forceRefresh?: boolean }> = [];
 let pendingReports: Array<{

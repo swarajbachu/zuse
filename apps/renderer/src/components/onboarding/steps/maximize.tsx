@@ -6,7 +6,7 @@ import {
 import { Effect } from "effect";
 import { useEffect, useState } from "react";
 
-import type { UsageReport } from "@memoize/wire";
+import type { UsageReport } from "@zuse/wire";
 
 import { formatTokens, formatUsd, totalTokens } from "~/lib/format-usage.ts";
 import { getRpcClient } from "../../../lib/rpc-client.ts";
@@ -97,10 +97,14 @@ export function MaximizeStep() {
       {loading ? (
         <SpendSkeleton />
       ) : (
-        <MonthlySnapshot usedValue={usedValue} tokens={tokens} sourceLine={sourceLine} />
+        <MonthlySnapshot
+          usedValue={usedValue}
+          tokens={tokens}
+          sourceLine={sourceLine}
+        />
       )}
 
-      <div className="flex flex-col gap-4 rounded-2xl bg-white/[0.025] p-5">
+      <div className="flex flex-col gap-4 rounded-2xl bg-muted/50 p-5">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
             <HugeiconsIcon
@@ -121,7 +125,7 @@ export function MaximizeStep() {
           </div>
         </div>
 
-        <div className="flex flex-col rounded-xl border border-white/[0.06] bg-black/10">
+        <div className="flex flex-col rounded-xl border border-border/60 bg-background/60">
           {MONTHLY_STACK.plans.map((p) => (
             <PlanRow key={p.name} {...p} />
           ))}
@@ -167,7 +171,9 @@ function MonthlySnapshot({
             {usedValue}
           </span>
           <span className="text-[11px] leading-snug text-muted-foreground">
-            {tokens > 0 ? `${formatTokens(tokens)} tokens${sourceLine}` : "No usage found yet"}
+            {tokens > 0
+              ? `${formatTokens(tokens)} tokens${sourceLine}`
+              : "No usage found yet"}
           </span>
         </div>
       </div>
@@ -198,7 +204,7 @@ function CompactMetric({
   detail: string;
 }) {
   return (
-    <div className="flex min-h-[4.5rem] flex-col justify-center gap-1 rounded-2xl bg-white/[0.025] px-4 py-3">
+    <div className="flex min-h-[4.5rem] flex-col justify-center gap-1 rounded-2xl bg-muted/50 px-4 py-3">
       <span className="text-[11px] font-medium text-muted-foreground">
         {label}
       </span>
@@ -222,7 +228,7 @@ function PlanRow({
   potential: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] px-3 py-2.5 first:border-0">
+    <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2.5 first:border-0">
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-[12px] font-medium text-foreground">
           {name}
@@ -241,7 +247,7 @@ function PlanRow({
 
 function SpendSkeleton() {
   return (
-    <div className="flex flex-col gap-4 rounded-2xl bg-white/[0.025] p-5">
+    <div className="flex flex-col gap-4 rounded-2xl bg-muted/50 p-5">
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <HugeiconsIcon
           icon={Loading02Icon}
@@ -251,18 +257,21 @@ function SpendSkeleton() {
         Scanning this month&apos;s local agent logs...
       </div>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
-        <div className="flex h-36 flex-col justify-between rounded-2xl bg-white/[0.035] p-5">
-          <div className="h-3 w-40 animate-pulse rounded bg-white/[0.06]" />
+        <div className="flex h-36 flex-col justify-between rounded-2xl bg-background/60 p-5">
+          <div className="h-3 w-40 animate-pulse rounded bg-muted" />
           <div className="space-y-2">
-            <div className="h-9 w-36 animate-pulse rounded bg-white/[0.06]" />
-            <div className="h-3 w-48 animate-pulse rounded bg-white/[0.06]" />
+            <div className="h-9 w-36 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-48 animate-pulse rounded bg-muted" />
           </div>
         </div>
         <div className="grid gap-3">
           {[0, 1].map((i) => (
-            <div key={i} className="flex flex-col justify-center gap-2 rounded-2xl bg-white/[0.025] px-4 py-3">
-              <div className="h-3 w-20 animate-pulse rounded bg-white/[0.06]" />
-              <div className="h-6 w-28 animate-pulse rounded bg-white/[0.06]" />
+            <div
+              key={i}
+              className="flex flex-col justify-center gap-2 rounded-2xl bg-background/60 px-4 py-3"
+            >
+              <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-28 animate-pulse rounded bg-muted" />
             </div>
           ))}
         </div>

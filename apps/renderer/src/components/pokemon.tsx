@@ -1,4 +1,4 @@
-import type { PokemonRarity, PokemonSummary } from "@memoize/wire";
+import type { PokemonRarity, PokemonSummary } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 

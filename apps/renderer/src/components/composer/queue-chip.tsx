@@ -14,7 +14,7 @@ import {
 import { X } from "lucide-react";
 import { useState } from "react";
 
-import { ComposerInput, type QueuedMessage, type SessionId } from "@memoize/wire";
+import { ComposerInput, type QueuedMessage, type SessionId } from "@zuse/wire";
 
 import {
   Menu,

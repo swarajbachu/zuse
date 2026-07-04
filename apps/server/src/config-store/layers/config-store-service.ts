@@ -5,18 +5,21 @@ import { FileSystem, Path } from "@effect/platform";
 import { Effect, Layer, PubSub, Ref, Stream } from "effect";
 
 import {
+  type AppearanceMode,
   type BranchNamingStyle,
+  type CompletionSoundPreset,
+  defaultModelEnabledByProvider,
   defaultModelFor,
   type KeybindingRule,
   KeybindingsFile,
+  MODELS_BY_PROVIDER,
   MAX_KEYBINDING_RULES,
   type ProviderId,
   resolveModelSlug,
   SettingsFile,
-  type CompletionSoundPreset,
   type SettingsPatch,
   type SubagentPresetState,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -58,6 +61,8 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
   return out;
 };
 
+const seedModelEnabledByProvider = defaultModelEnabledByProvider;
+
 const freshSettings = (): SettingsFile =>
   SettingsFile.make({
     schemaVersion: 1,
@@ -69,9 +74,11 @@ const freshSettings = (): SettingsFile =>
     defaultAutoCreateWorktree: true,
     defaultAutonomyLevel: "off",
     onboardingCompleted: false,
+    appearanceMode: "dark",
     completionSoundEnabled: false,
     completionSoundPreset: "chime",
     providerEnabled: seedProviderEnabled(),
+    modelEnabledByProvider: seedModelEnabledByProvider(),
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
@@ -90,7 +97,8 @@ const isProviderId = (v: unknown): v is ProviderId =>
   v === "codex" ||
   v === "grok" ||
   v === "cursor" ||
-  v === "gemini";
+  v === "gemini" ||
+  v === "opencode";
 
 const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
   v === "approval-required" ||
@@ -110,6 +118,9 @@ const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "bell" ||
   v === "rise" ||
   v === "bloom";
+
+const isAppearanceMode = (v: unknown): v is AppearanceMode =>
+  v === "system" || v === "light" || v === "dark";
 
 const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
   v === "username-slug" || v === "slug" || v === "feat-slug" || v === "custom";
@@ -159,6 +170,10 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.onboardingCompleted
       : base.onboardingCompleted;
 
+  const appearanceMode = isAppearanceMode(obj.appearanceMode)
+    ? obj.appearanceMode
+    : base.appearanceMode;
+
   const completionSoundEnabled =
     typeof obj.completionSoundEnabled === "boolean"
       ? obj.completionSoundEnabled
@@ -178,6 +193,28 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     for (const id of PROVIDER_IDS) {
       const v = flags[id];
       if (typeof v === "boolean") providerEnabled[id] = v;
+    }
+  }
+
+  const modelEnabledByProvider = seedModelEnabledByProvider();
+  if (
+    typeof obj.modelEnabledByProvider === "object" &&
+    obj.modelEnabledByProvider !== null
+  ) {
+    const byProvider = obj.modelEnabledByProvider as Record<string, unknown>;
+    for (const id of PROVIDER_IDS) {
+      const providerModels = byProvider[id];
+      if (typeof providerModels !== "object" || providerModels === null) {
+        continue;
+      }
+      const flags = providerModels as Record<string, unknown>;
+      const knownModelIds = new Set(MODELS_BY_PROVIDER[id].map((m) => m.id));
+      for (const [modelId, value] of Object.entries(flags)) {
+        if (!knownModelIds.has(modelId)) continue;
+        if (typeof value === "boolean") {
+          modelEnabledByProvider[id][modelId] = value;
+        }
+      }
     }
   }
 
@@ -224,9 +261,11 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     defaultAutoCreateWorktree: autoWorktree,
     defaultAutonomyLevel: autonomy,
     onboardingCompleted: onboarding,
+    appearanceMode,
     completionSoundEnabled,
     completionSoundPreset,
     providerEnabled,
+    modelEnabledByProvider,
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
@@ -252,6 +291,10 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
     if (rules.length >= MAX_KEYBINDING_RULES) break;
   }
   return KeybindingsFile.make({ schemaVersion: 1, rules });
+};
+
+export const configStoreTestHelpers = {
+  coerceSettings,
 };
 
 /* ────────────────────────── Service implementation ──────────────────────────── */
@@ -467,11 +510,14 @@ export const ConfigStoreServiceLive = Layer.scoped(
             patch.defaultAutonomyLevel ?? cur.defaultAutonomyLevel,
           onboardingCompleted:
             patch.onboardingCompleted ?? cur.onboardingCompleted,
+          appearanceMode: patch.appearanceMode ?? cur.appearanceMode,
           completionSoundEnabled:
             patch.completionSoundEnabled ?? cur.completionSoundEnabled,
           completionSoundPreset:
             patch.completionSoundPreset ?? cur.completionSoundPreset,
           providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
+          modelEnabledByProvider:
+            patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
           subagents: patch.subagents ?? cur.subagents,
           branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
@@ -514,6 +560,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
               baseline.defaultAutoCreateWorktree &&
             cur.completionSoundEnabled === baseline.completionSoundEnabled &&
             cur.completionSoundPreset === baseline.completionSoundPreset &&
+            cur.appearanceMode === baseline.appearanceMode &&
             cur.onboardingCompleted === false &&
             Object.keys(cur.subagents.presets).length === 0;
           if (!currentLooksFresh) return cur;
@@ -526,8 +573,12 @@ export const ConfigStoreServiceLive = Layer.scoped(
             cur.defaultRuntimeMode;
           let autoWorktree: boolean = cur.defaultAutoCreateWorktree;
           let onboarding: boolean = cur.onboardingCompleted;
+          let appearanceMode: SettingsFile["appearanceMode"] =
+            cur.appearanceMode;
           let providerEnabled: SettingsFile["providerEnabled"] =
             cur.providerEnabled;
+          let modelEnabledByProvider: SettingsFile["modelEnabledByProvider"] =
+            cur.modelEnabledByProvider;
           let subagents: SettingsFile["subagents"] = cur.subagents;
           let completionSoundEnabled = cur.completionSoundEnabled;
           let completionSoundPreset = cur.completionSoundPreset;
@@ -547,9 +598,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
               runtime = fromLs.defaultRuntimeMode;
               autoWorktree = fromLs.defaultAutoCreateWorktree;
               onboarding = fromLs.onboardingCompleted;
+              appearanceMode = fromLs.appearanceMode;
               completionSoundEnabled = fromLs.completionSoundEnabled;
               completionSoundPreset = fromLs.completionSoundPreset;
               providerEnabled = fromLs.providerEnabled;
+              modelEnabledByProvider = fromLs.modelEnabledByProvider;
             } catch {
               /* swallow — keep current values */
             }
@@ -581,9 +634,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
             // Autonomy has no localStorage predecessor — preserve current.
             defaultAutonomyLevel: cur.defaultAutonomyLevel,
             onboardingCompleted: onboarding,
+            appearanceMode,
             completionSoundEnabled,
             completionSoundPreset,
             providerEnabled,
+            modelEnabledByProvider,
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,

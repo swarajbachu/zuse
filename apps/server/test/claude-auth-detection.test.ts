@@ -65,4 +65,24 @@ describe("claudeResultErrorText", () => {
     } as never);
     expect(text).toBe("Not logged in\nPlease run /login");
   });
+
+  it("does not treat answer text on a non-success subtype as a provider error", () => {
+    expect(
+      claudeResultErrorText({
+        type: "result",
+        subtype: "error_during_execution",
+        result:
+          "Two good questions, and the first one has an important gotcha.",
+      } as never),
+    ).toBeNull();
+  });
+
+  it("keeps a generic error for an error subtype with no answer text", () => {
+    expect(
+      claudeResultErrorText({
+        type: "result",
+        subtype: "error_during_execution",
+      } as never),
+    ).toBe("The agent run ended with an error.");
+  });
 });

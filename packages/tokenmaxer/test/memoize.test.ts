@@ -6,10 +6,10 @@ import { join } from "node:path";
 
 import { readMemoizeUsage } from "../src/index.ts";
 
-describe("memoize source", () => {
-  it("reads usage rows from memoize.sqlite", () => {
+describe("zuse source", () => {
+  it("reads usage rows from zuse.sqlite", () => {
     const dir = mkdtempSync(join(tmpdir(), "tokenmaxer-"));
-    const dbPath = join(dir, "memoize.sqlite");
+    const dbPath = join(dir, "zuse.sqlite");
     try {
       const db = new Database(dbPath);
       db.exec(`
@@ -57,7 +57,9 @@ describe("memoize source", () => {
 
       const result = readMemoizeUsage(dbPath);
       expect(result.status.detected).toBe(true);
+      expect(result.status.id).toBe("zuse");
       expect(result.records).toHaveLength(1);
+      expect(result.records[0]?.sourceId).toBe("zuse");
       expect(result.records[0]?.providerId).toBe("grok");
       expect(result.records[0]?.inputTokens).toBe(42);
       expect(result.records[0]?.projectPath).toBe("/repo");

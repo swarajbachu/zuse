@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect, Layer } from "effect";
 
-import { Skill, type ProviderId } from "@memoize/wire";
+import { Skill, type ProviderId } from "@zuse/wire";
 
 import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";

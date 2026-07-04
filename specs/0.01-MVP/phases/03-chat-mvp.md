@@ -44,7 +44,7 @@ Three resizable columns. Left and right are collapsible (≥768px width threshol
 
 ## Persistence
 
-SQLite via `@effect/sql-sqlite-node` + `@effect/sql/Migrator`. Database file at `<userData>/memoize.sqlite`. See [ADR 0008](../decisions/0008-sqlite-persistence.md) for the full rationale.
+SQLite via `@effect/sql-sqlite-node` + `@effect/sql/Migrator`. Database file at `<userData>/zuse.sqlite`. See [ADR 0008](../decisions/0008-sqlite-persistence.md) for the full rationale.
 
 ### Schema (initial migration)
 
@@ -122,11 +122,11 @@ Seven PRs. Each independently shippable.
 - Add `@effect/sql` + `@effect/sql-sqlite-node` deps, write `apps/server/src/persistence/Sqlite.ts` (client + Migrator layer).
 - Migration `001_initial.sql` with `projects`, `sessions`, `messages` tables.
 - `ProjectRepository`, `SessionRepository`, `MessageRepository` Layers (CRUD; no business logic yet).
-- DB file at `<userData>/memoize.sqlite`; `:memory:` flag for tests.
+- DB file at `<userData>/zuse.sqlite`; `:memory:` flag for tests.
 - No UI changes. Existing folders backfill into `projects` on boot.
 
 ### PR 2 — session RPCs + MessageStore
-- Add `session.*` and `messages.*` RPCs to `@memoize/wire`.
+- Add `session.*` and `messages.*` RPCs to `@zuse/wire`.
 - `MessageStore` service: subscribes to `AgentEvent` stream from Phase 2, persists each event as a `messages` row, re-emits.
 - Wire `session.create` to call existing `agent.start` internally.
 - Old `agent.*` RPCs stay (still used by `MessageStore` internally).

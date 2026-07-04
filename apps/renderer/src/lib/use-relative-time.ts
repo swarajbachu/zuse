@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 
 /**
  * Re-renders the caller every `intervalMs` to keep "X seconds ago" strings
- * fresh without anyone having to manage a `setInterval`. Ports the same
- * trivial hook t3code uses in its settings layout.
+ * fresh without anyone having to manage a `setInterval`.
  */
 export function useRelativeTimeTick(intervalMs: number = 30_000): number {
   const [, setTick] = useState(0);

@@ -15,37 +15,37 @@ const data = [
   {
     question: "What do you mean by token maxing?",
     answer:
-      "Token maxing means using the model access you already pay for on more real work: parallel feature attempts, bug fixes, refactors, and reviews. memoize makes that sane by keeping each run visible, isolated, and reviewable.",
+      "Token maxing means using the model access you already pay for on more real work: parallel feature attempts, bug fixes, refactors, and reviews. Zuse Alpha makes that sane by keeping each run visible, isolated, and reviewable.",
   },
   {
-    question: "Who is memoize for?",
+    question: "Who is Zuse Alpha for?",
     answer:
-      "memoize is for developers who want to become power users: people trying to code all day, keep multiple projects moving, max out their AI subscriptions, and still review exactly what ships.",
+      "Zuse Alpha is for developers who want to become power users: people trying to code all day, keep multiple projects moving, max out their AI subscriptions, and still review exactly what ships.",
   },
   {
     question: "Which agents are supported?",
     answer:
-      "memoize wraps six coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode. You can run them side by side and switch providers without leaving the app.",
+      "Zuse Alpha wraps six coding agent CLIs in one workspace: Claude Code, Codex, Cursor, Gemini, Grok, and OpenCode. You can run them side by side and switch providers without leaving the app.",
   },
   {
     question: "Do I need my own API keys or subscriptions?",
     answer:
-      "Yes. memoize is bring your own keys. You plug in your own provider keys or subscriptions, and memoize talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
+      "Yes. Zuse Alpha is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse Alpha talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
   },
   {
     question: "Is my code or data sent anywhere?",
     answer:
-      "No. memoize is local-first. Your chats and history live in a SQLite database on your machine, and your API keys are stored in the macOS Keychain. Your code only goes to the agent providers you configure, the same as running their CLIs yourself.",
+      "No. Zuse Alpha is local-first. Your chats and history live in a SQLite database on your machine, and your API keys are stored in the macOS Keychain. Your code only goes to the agent providers you configure, the same as running their CLIs yourself.",
   },
   {
     question: "Is it macOS only?",
     answer:
-      "For now, yes. memoize is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
+      "For now, yes. Zuse Alpha is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
   },
   {
     question: "How much does it cost?",
     answer:
-      "memoize is free while it is in public alpha. You only pay for the agent usage on your own keys. Paid Pro and Team plans are planned for later, but the alpha is free.",
+      "Zuse Alpha is free while it is in public alpha. You only pay for the agent usage on your own keys. Paid Pro and Team plans are planned for later, but the alpha is free.",
   },
   {
     question: "Can I run multiple agents at once?",

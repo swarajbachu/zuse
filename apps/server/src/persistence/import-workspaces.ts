@@ -3,7 +3,7 @@ import { SqlClient } from "@effect/sql";
 import { Effect, Schema } from "effect";
 import * as Path from "node:path";
 
-import { Folder, FolderId } from "@memoize/wire";
+import { Folder, FolderId } from "@zuse/wire";
 
 import { AppPaths } from "../app-paths.ts";
 
@@ -35,7 +35,9 @@ export const importWorkspacesJson = Effect.gen(function* () {
   const paths = yield* AppPaths;
 
   const filePath = Path.join(paths.userData, "workspaces.json");
-  const exists = yield* fs.exists(filePath).pipe(Effect.orElseSucceed(() => false));
+  const exists = yield* fs
+    .exists(filePath)
+    .pipe(Effect.orElseSucceed(() => false));
   if (!exists) return;
 
   const existingProjects = yield* sql<{ count: number }>`
@@ -47,11 +49,8 @@ export const importWorkspacesJson = Effect.gen(function* () {
     Effect.flatMap(Schema.decode(WorkspaceFile)),
     Effect.catchAllCause((cause) =>
       Effect.logWarning(
-        "[memoize] workspaces.json present but unreadable; skipping import",
-      ).pipe(
-        Effect.zipRight(Effect.logDebug(cause)),
-        Effect.as(null),
-      ),
+        "[zuse] workspaces.json present but unreadable; skipping import",
+      ).pipe(Effect.zipRight(Effect.logDebug(cause)), Effect.as(null)),
     ),
   );
   if (decoded === null) return;
@@ -75,6 +74,6 @@ export const importWorkspacesJson = Effect.gen(function* () {
     .pipe(Effect.catchAll(() => Effect.void));
 
   yield* Effect.logInfo(
-    `[memoize] imported ${decoded.folders.length} project(s) from workspaces.json`,
+    `[zuse] imported ${decoded.folders.length} project(s) from workspaces.json`,
   );
 });

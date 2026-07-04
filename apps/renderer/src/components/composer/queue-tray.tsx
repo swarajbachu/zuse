@@ -1,6 +1,7 @@
-import type { SessionId } from "@memoize/wire";
+import type { SessionId } from "@zuse/wire";
 import { useState } from "react";
 
+import { useAutoAnimate } from "../../lib/use-auto-animate.ts";
 import { useMessagesStore } from "../../store/messages.ts";
 import { QueueChip } from "./queue-chip.tsx";
 import { TrayPill } from "./tray-pill.tsx";
@@ -20,6 +21,9 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
   const reorder = useMessagesStore((s) => s.reorderQueue);
   const resume = useMessagesStore((s) => s.resumeQueue);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Animate add / remove / reorder of queued rows. Clean default ease, no
+  // spring — keeps the tray feeling crisp rather than bouncy.
+  const listRef = useAutoAnimate<HTMLDivElement>();
   if (items.length === 0) return null;
 
   const move = (from: number, to: number) => {
@@ -37,7 +41,7 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
   const showPausedPill = paused && !running;
 
   return (
-    <>
+    <div ref={listRef}>
       {showPausedPill ? (
         <TrayPill
           flush
@@ -73,6 +77,6 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
           onDrop={() => setDragIndex(null)}
         />
       ))}
-    </>
+    </div>
   );
 }

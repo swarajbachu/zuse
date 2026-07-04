@@ -8,11 +8,16 @@ import {
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Plus, X } from "lucide-react";
+import { useRef } from "react";
 
-import type { FolderId, WorktreeId } from "@memoize/wire";
+import type { FolderId, WorktreeId } from "@zuse/wire";
+
+import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 
 import { formatShortcut } from "../lib/shortcuts.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
+import { useChatsStore } from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
@@ -22,6 +27,7 @@ import {
   useTerminalsStore,
 } from "../store/terminals.ts";
 import {
+  EMPTY_PANELS,
   type PanelInstance,
   type PanelKind,
   SINGLETON_PANEL_KINDS,
@@ -97,6 +103,8 @@ function addableKinds(
  * file-tree expansion, the browser webview, and any in-flight PR fetch.
  */
 export function RightPane() {
+  const paneRef = useRef<HTMLElement>(null);
+  useRegisterPane("rightPane", paneRef);
   const ctx = useActiveContext();
   const folders = useWorkspaceStore((s) => s.folders);
   const selectedFolderId = ctx.status === "ready" ? ctx.folderId : null;
@@ -119,19 +127,30 @@ export function RightPane() {
       ? (s.byKey[prDetailsKey(selectedFolderId, worktreeId)] ?? null)
       : null,
   );
-  // Terminal tab titles are sourced from the active workspace's terminal
-  // list (slot → instance) so multiple terminal tabs read "zsh", "zsh 2".
+  // Dock layout + terminals are scoped to the selected sidebar chat, so each
+  // chat keeps its own open tabs and running shells.
+  const chatId = useChatsStore((s) => s.selectedChatId);
+  // Terminal tab titles are sourced from the chat's terminal list (slot →
+  // instance) so multiple terminal tabs read "zsh", "zsh 2".
   const termList = useTerminalsStore((s) =>
-    selectedFolderId
-      ? (s.byKey[terminalsKey(selectedFolderId, worktreeId)] ?? EMPTY_TERMINALS)
+    chatId
+      ? (s.byKey[terminalsKey(chatId)] ?? EMPTY_TERMINALS)
       : EMPTY_TERMINALS,
   );
 
-  const panels = useUiStore((s) => s.rightPanels);
-  const activeId = useUiStore((s) => s.activeRightPanelId);
+  const panels = useUiStore((s) =>
+    chatId ? (s.rightPanelsByChat[chatId] ?? EMPTY_PANELS) : EMPTY_PANELS,
+  );
+  const activeId = useUiStore((s) =>
+    chatId ? (s.activeRightPanelByChat[chatId] ?? null) : null,
+  );
   const addPanel = useUiStore((s) => s.addPanel);
   const closePanel = useUiStore((s) => s.closePanel);
   const setActive = useUiStore((s) => s.setActiveRightPanel);
+
+  // Glide dock tabs when panels are opened or closed. Declared with the other
+  // hooks (above the `selected === null` early return) to satisfy hook rules.
+  const dockTabsRef = useAutoAnimate<HTMLDivElement>();
 
   // Defensive: if the stored active id ever points at a closed panel, fall
   // back to the first one so exactly one panel body is visible.
@@ -140,13 +159,13 @@ export function RightPane() {
       ? activeId
       : (panels[0]?.id ?? null);
 
-  // Closing a terminal tab also drops its backing PTY instance for the
-  // active workspace (the store action is layout-only — it can't know the
-  // active key). `closePanel` then re-indexes remaining terminal slots, so
-  // panels and instances stay aligned.
+  // Closing a terminal tab also drops (and kills) its backing PTY instance
+  // for the chat (the store action is layout-only — it can't know the chat
+  // key). `closePanel` then re-indexes remaining terminal slots, so panels
+  // and instances stay aligned.
   const handleClose = (panel: PanelInstance) => {
-    if (panel.kind === "terminal" && selectedFolderId !== null) {
-      const key = terminalsKey(selectedFolderId, worktreeId);
+    if (panel.kind === "terminal" && chatId !== null) {
+      const key = terminalsKey(chatId);
       const inst = (useTerminalsStore.getState().byKey[key] ?? EMPTY_TERMINALS)[
         panel.slot
       ];
@@ -184,9 +203,17 @@ export function RightPane() {
   const browserActive = activePanel?.kind === "browser";
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col">
+    <aside
+      ref={paneRef}
+      data-pane="rightPane"
+      tabIndex={-1}
+      className="flex h-full min-h-0 w-full flex-col outline-none"
+    >
       {panels.length > 0 ? (
-        <div className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1 text-xs">
+        <div
+          ref={dockTabsRef}
+          className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1 text-xs"
+        >
           {panels.map((panel) => (
             <PanelTab
               key={panel.id}
@@ -201,7 +228,7 @@ export function RightPane() {
           <AddPanelMenu addable={addableKinds(panels)} onAdd={addPanel} />
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {panels.length === 0 ? (
           <PanelLauncher addable={addableKinds(panels)} onAdd={addPanel} />
         ) : null}
@@ -212,7 +239,7 @@ export function RightPane() {
             <div
               key={panel.id}
               hidden={panel.id !== effectiveActiveId}
-              className="flex min-h-0 flex-1 flex-col"
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
             >
               <PanelBody
                 panel={panel}
@@ -226,7 +253,10 @@ export function RightPane() {
             browser tab open or the sidebar collapsed — a command then calls
             revealPanel("browser") to surface it. Mounting it only on add
             would drop commands issued while it's closed. */}
-        <div hidden={!browserActive} className="flex min-h-0 flex-1 flex-col">
+        <div
+          hidden={!browserActive}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
           <BrowserPane />
         </div>
       </div>
@@ -288,7 +318,7 @@ function PanelLauncher({
               key={kind}
               type="button"
               onClick={() => onAdd(kind)}
-              className="flex w-full items-center gap-3 rounded-lg bg-muted/20 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-muted/60"
+              className="flex w-full items-center gap-3 rounded-lg bg-card/80 px-3 py-3 text-left text-sm text-foreground/90 transition-colors hover:bg-card/60"
             >
               <HugeiconsIcon
                 icon={meta.icon}

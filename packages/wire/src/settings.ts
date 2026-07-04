@@ -26,6 +26,9 @@ export const CompletionSoundPreset = Schema.Literal(
 );
 export type CompletionSoundPreset = typeof CompletionSoundPreset.Type;
 
+export const AppearanceMode = Schema.Literal("system", "light", "dark");
+export type AppearanceMode = typeof AppearanceMode.Type;
+
 /**
  * How the auto-namer (PR: "auto-name chat + branch after first message")
  * shapes a worktree's git branch once it has an LLM-derived title slug.
@@ -69,6 +72,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    */
   defaultAutonomyLevel: AutonomyLevel,
   onboardingCompleted: Schema.Boolean,
+  appearanceMode: AppearanceMode,
   completionSoundEnabled: Schema.Boolean,
   completionSoundPreset: CompletionSoundPreset,
   /**
@@ -79,6 +83,14 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   providerEnabled: Schema.Record({
     key: ProviderId,
     value: Schema.Boolean,
+  }),
+  /**
+   * Per-model visibility toggles from provider settings. Missing entries are
+   * filled from each model's catalog `defaultVisible` flag by config-store.
+   */
+  modelEnabledByProvider: Schema.Record({
+    key: ProviderId,
+    value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
   }),
   subagents: Schema.Struct({
     enableForNewSessions: Schema.Boolean,
@@ -115,10 +127,17 @@ export const SettingsPatch = Schema.Struct({
   defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
   defaultAutonomyLevel: Schema.optional(AutonomyLevel),
   onboardingCompleted: Schema.optional(Schema.Boolean),
+  appearanceMode: Schema.optional(AppearanceMode),
   completionSoundEnabled: Schema.optional(Schema.Boolean),
   completionSoundPreset: Schema.optional(CompletionSoundPreset),
   providerEnabled: Schema.optional(
     Schema.Record({ key: ProviderId, value: Schema.Boolean }),
+  ),
+  modelEnabledByProvider: Schema.optional(
+    Schema.Record({
+      key: ProviderId,
+      value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+    }),
   ),
   subagents: Schema.optional(
     Schema.Struct({

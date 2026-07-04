@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import { Session } from "@memoize/wire";
+import { Session } from "@zuse/wire";
 import type {
   AgentItemId,
   ChatId,
@@ -11,7 +11,7 @@ import type {
   RuntimeMode,
   SessionId,
   UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";

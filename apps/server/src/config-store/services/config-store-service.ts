@@ -5,7 +5,7 @@ import {
   type KeybindingsFile,
   type SettingsFile,
   type SettingsPatch,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 /**
  * The on-disk source of truth for global settings and user-overridden

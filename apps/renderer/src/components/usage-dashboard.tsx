@@ -1,4 +1,11 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Info, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Info,
+  RefreshCw,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import type {
@@ -7,7 +14,7 @@ import type {
   UsageGroup,
   UsageReport,
   UsageSourceStatus,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 import {
@@ -18,7 +25,14 @@ import {
   type TokenRow,
 } from "~/lib/format-usage.ts";
 import { Button } from "./ui/button.tsx";
-import { Frame, FrameFooter, FrameHeader, FramePanel, FrameTitle } from "./ui/frame.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
+import {
+  Frame,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from "./ui/frame.tsx";
 import {
   Table,
   TableBody,
@@ -29,7 +43,12 @@ import {
 } from "./ui/table.tsx";
 import { useUsageStore } from "../store/usage.ts";
 
-const BUCKETS: ReadonlyArray<UsageBucket> = ["daily", "weekly", "monthly", "session"];
+const BUCKETS: ReadonlyArray<UsageBucket> = [
+  "daily",
+  "weekly",
+  "monthly",
+  "session",
+];
 const PAGE_SIZE = 10;
 
 /** Token-type series used for the stacked chart, legend, and tooltip. */
@@ -40,10 +59,34 @@ const SERIES: ReadonlyArray<{
   readonly dot: string;
   readonly value: (r: TokenRow) => number;
 }> = [
-  { key: "input", label: "Input", bar: "bg-primary", dot: "bg-primary", value: (r) => r.inputTokens },
-  { key: "output", label: "Output", bar: "bg-primary/65", dot: "bg-primary/65", value: (r) => r.outputTokens },
-  { key: "cache", label: "Cache", bar: "bg-primary/35", dot: "bg-primary/35", value: cacheTokens },
-  { key: "reasoning", label: "Reasoning", bar: "bg-primary/20", dot: "bg-primary/20", value: (r) => r.reasoningTokens },
+  {
+    key: "input",
+    label: "Input",
+    bar: "bg-primary",
+    dot: "bg-primary",
+    value: (r) => r.inputTokens,
+  },
+  {
+    key: "output",
+    label: "Output",
+    bar: "bg-primary/65",
+    dot: "bg-primary/65",
+    value: (r) => r.outputTokens,
+  },
+  {
+    key: "cache",
+    label: "Cache",
+    bar: "bg-primary/35",
+    dot: "bg-primary/35",
+    value: cacheTokens,
+  },
+  {
+    key: "reasoning",
+    label: "Reasoning",
+    bar: "bg-primary/20",
+    dot: "bg-primary/20",
+    value: (r) => r.reasoningTokens,
+  },
 ];
 
 export function UsageDashboard({
@@ -70,7 +113,7 @@ export function UsageDashboard({
         <div>
           <div className="text-sm font-medium">Tokenmaxer · {scopeLabel}</div>
           <div className="text-[11px] text-muted-foreground">
-            Local token usage across Memoize and detected agent CLIs
+            Local token usage across Zuse Alpha and detected agent CLIs
           </div>
         </div>
         <button
@@ -92,7 +135,11 @@ export function UsageDashboard({
 
       {report === null ? (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {loading ? "Loading usage…" : "No usage report loaded."}
+          {loading ? (
+            <ShimmerText>Loading usage…</ShimmerText>
+          ) : (
+            "No usage report loaded."
+          )}
         </div>
       ) : (
         <UsageReportView
@@ -117,7 +164,11 @@ function UsageReportView({
   const summary = report.summary;
   const metrics = useMemo(
     () => [
-      { label: "Total cost", value: formatUsd(summary.costUsd), hint: costHint(summary.costStatus) },
+      {
+        label: "Total cost",
+        value: formatUsd(summary.costUsd),
+        hint: costHint(summary.costStatus),
+      },
       {
         label: "Total tokens",
         value: formatTokens(totalTokens(summary)),
@@ -131,7 +182,10 @@ function UsageReportView({
       {
         label: "Cache",
         value: formatTokens(cacheTokens(summary)),
-        hint: summary.reasoningTokens > 0 ? `${formatTokens(summary.reasoningTokens)} reasoning` : undefined,
+        hint:
+          summary.reasoningTokens > 0
+            ? `${formatTokens(summary.reasoningTokens)} reasoning`
+            : undefined,
       },
     ],
     [summary],
@@ -156,7 +210,6 @@ function UsageReportView({
 
       <UsageChart groups={report.groups} bucket={bucket} onBucket={onBucket} />
 
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Breakdown title="By source" rows={report.bySource} max={8} />
         <Breakdown title="By model" rows={report.byModel} max={12} />
@@ -167,7 +220,9 @@ function UsageReportView({
   );
 }
 
-function costHint(status: UsageReport["summary"]["costStatus"]): string | undefined {
+function costHint(
+  status: UsageReport["summary"]["costStatus"],
+): string | undefined {
   if (status === "partial") return "some models unpriced";
   if (status === "unknown") return "pricing unavailable";
   return undefined;
@@ -186,11 +241,18 @@ function Metric({
 }) {
   return (
     <div className={cn("p-4", divided && "sm:border-l sm:border-border/60")}>
-      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
-      <div className="mt-1.5 truncate text-2xl font-semibold tracking-tight tabular-nums" title={value}>
+      <div className="text-[11px] font-medium text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className="mt-1.5 truncate text-2xl font-semibold tracking-tight tabular-nums"
+        title={value}
+      >
         {value}
       </div>
-      <div className="mt-1 h-3.5 text-[10px] text-muted-foreground">{hint ?? ""}</div>
+      <div className="mt-1 h-3.5 text-[10px] text-muted-foreground">
+        {hint ?? ""}
+      </div>
     </div>
   );
 }
@@ -211,7 +273,9 @@ function BucketSelector({
           onClick={() => onChange(b)}
           className={cn(
             "rounded px-2 py-1 text-[11px] capitalize transition-colors",
-            value === b ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+            value === b
+              ? "bg-foreground text-background"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {b}
@@ -221,7 +285,13 @@ function BucketSelector({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <section>
       <h2 className="mb-2 text-[12px] font-medium uppercase tracking-normal text-muted-foreground">
@@ -234,11 +304,17 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function SourceChip({ source }: { source: UsageSourceStatus }) {
   const active = source.detected && source.recordCount > 0;
-  const dotColor = active ? "bg-emerald-500" : source.detected ? "bg-amber-500" : "bg-muted-foreground/40";
+  const dotColor = active
+    ? "bg-emerald-500"
+    : source.detected
+      ? "bg-amber-500"
+      : "bg-muted-foreground/40";
   // Show the caveat (e.g. Memoize counts under the CLIs, Grok undercount) inline
   // so a low/zero number reads as "expected", not "broken".
   const hasNote = source.warning !== null && source.detected;
-  const title = source.warning ?? (source.detected ? `${source.recordCount} records` : "Not found");
+  const title =
+    source.warning ??
+    (source.detected ? `${source.recordCount} records` : "Not found");
   return (
     <div
       className={cn(
@@ -252,7 +328,9 @@ function SourceChip({ source }: { source: UsageSourceStatus }) {
       <span className="tabular-nums text-muted-foreground">
         {source.detected ? source.recordCount.toLocaleString() : "—"}
       </span>
-      {hasNote ? <Info className="size-3 text-muted-foreground/70" aria-label={title} /> : null}
+      {hasNote ? (
+        <Info className="size-3 text-muted-foreground/70" aria-label={title} />
+      ) : null}
     </div>
   );
 }
@@ -280,7 +358,10 @@ function UsageChart({
       <FramePanel>
         <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
           {SERIES.map((s) => (
-            <div key={s.key} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <div
+              key={s.key}
+              className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+            >
               <span className={cn("size-2 rounded-[2px]", s.dot)} />
               {s.label}
             </div>
@@ -294,7 +375,11 @@ function UsageChart({
         ) : (
           <div className="relative">
             {hovered !== null && visible[hovered] !== undefined ? (
-              <ChartTooltip group={visible[hovered]} index={hovered} count={visible.length} />
+              <ChartTooltip
+                group={visible[hovered]}
+                index={hovered}
+                count={visible.length}
+              />
             ) : null}
             <div className="flex h-44 items-end gap-[3px] border-b border-border/60">
               {visible.map((group, index) => (
@@ -302,7 +387,9 @@ function UsageChart({
                   key={group.key}
                   className="group flex h-full min-w-[3px] flex-1 cursor-default flex-col-reverse overflow-hidden rounded-t-[3px]"
                   onMouseEnter={() => setHovered(index)}
-                  onMouseLeave={() => setHovered((h) => (h === index ? null : h))}
+                  onMouseLeave={() =>
+                    setHovered((h) => (h === index ? null : h))
+                  }
                 >
                   {SERIES.map((s) => {
                     const value = s.value(group);
@@ -313,7 +400,9 @@ function UsageChart({
                         className={cn(
                           s.bar,
                           "transition-opacity",
-                          hovered !== null && hovered !== index ? "opacity-30" : "group-hover:brightness-110",
+                          hovered !== null && hovered !== index
+                            ? "opacity-30"
+                            : "group-hover:brightness-110",
                         )}
                         style={{ height: `${(value / peak) * 100}%` }}
                       />
@@ -333,7 +422,15 @@ function UsageChart({
   );
 }
 
-function ChartTooltip({ group, index, count }: { group: UsageGroup; index: number; count: number }) {
+function ChartTooltip({
+  group,
+  index,
+  count,
+}: {
+  group: UsageGroup;
+  index: number;
+  count: number;
+}) {
   const left = Math.min(Math.max(((index + 0.5) / count) * 100, 14), 86);
   return (
     <div
@@ -344,15 +441,22 @@ function ChartTooltip({ group, index, count }: { group: UsageGroup; index: numbe
         <span className="truncate text-[11px] font-medium" title={group.label}>
           {group.label}
         </span>
-        <span className="text-[11px] tabular-nums text-muted-foreground">{formatUsd(group.costUsd)}</span>
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {formatUsd(group.costUsd)}
+        </span>
       </div>
       <div className="mb-1.5 flex items-center justify-between text-[11px]">
         <span className="text-muted-foreground">Total tokens</span>
-        <span className="font-medium tabular-nums">{formatTokens(totalTokens(group))}</span>
+        <span className="font-medium tabular-nums">
+          {formatTokens(totalTokens(group))}
+        </span>
       </div>
       <div className="space-y-1 border-t border-border/60 pt-1.5">
         {SERIES.filter((s) => s.value(group) > 0).map((s) => (
-          <div key={s.key} className="flex items-center justify-between text-[11px]">
+          <div
+            key={s.key}
+            className="flex items-center justify-between text-[11px]"
+          >
             <span className="flex items-center gap-1.5 text-muted-foreground">
               <span className={cn("size-1.5 rounded-full", s.dot)} />
               {s.label}
@@ -365,9 +469,21 @@ function ChartTooltip({ group, index, count }: { group: UsageGroup; index: numbe
   );
 }
 
-function Breakdown({ title, rows, max }: { title: string; rows: ReadonlyArray<UsageGroup>; max: number }) {
+function Breakdown({
+  title,
+  rows,
+  max,
+}: {
+  title: string;
+  rows: ReadonlyArray<UsageGroup>;
+  max: number;
+}) {
   const visible = useMemo(
-    () => rows.slice().sort((a, b) => totalTokens(b) - totalTokens(a)).slice(0, max),
+    () =>
+      rows
+        .slice()
+        .sort((a, b) => totalTokens(b) - totalTokens(a))
+        .slice(0, max),
     [rows, max],
   );
   const peak = Math.max(1, ...visible.map(totalTokens));
@@ -383,7 +499,10 @@ function Breakdown({ title, rows, max }: { title: string; rows: ReadonlyArray<Us
           <div className="p-3 text-sm text-muted-foreground">No data.</div>
         ) : (
           visible.map((row) => (
-            <div key={row.key} className="relative border-b border-border/50 last:border-0">
+            <div
+              key={row.key}
+              className="relative border-b border-border/50 last:border-0"
+            >
               <div
                 className="absolute inset-y-0 left-0 bg-primary/[0.10]"
                 style={{ width: `${(totalTokens(row) / peak) * 100}%` }}
@@ -399,7 +518,9 @@ function Breakdown({ title, rows, max }: { title: string; rows: ReadonlyArray<Us
                 </div>
                 <div className="ml-3 shrink-0 text-right text-[12px] tabular-nums">
                   <div>{formatTokens(totalTokens(row))}</div>
-                  <div className="text-[10px] text-muted-foreground">{formatUsd(row.costUsd)}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {formatUsd(row.costUsd)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -417,7 +538,8 @@ function SessionsTable({ rows }: { rows: ReadonlyArray<UsageGroup> }) {
   const [pageIndex, setPageIndex] = useState(0);
 
   const sorted = useMemo(() => {
-    const value = (r: UsageGroup) => (sortKey === "cost" ? (r.costUsd ?? 0) : totalTokens(r));
+    const value = (r: UsageGroup) =>
+      sortKey === "cost" ? (r.costUsd ?? 0) : totalTokens(r);
     if (sortKey === "tokens") return rows;
     return rows.slice().sort((a, b) => value(b) - value(a));
   }, [rows, sortKey]);
@@ -435,7 +557,9 @@ function SessionsTable({ rows }: { rows: ReadonlyArray<UsageGroup> }) {
   if (rows.length === 0) {
     return (
       <Frame>
-        <FramePanel className="text-sm text-muted-foreground">No sessions found.</FramePanel>
+        <FramePanel className="text-sm text-muted-foreground">
+          No sessions found.
+        </FramePanel>
       </Frame>
     );
   }
@@ -452,8 +576,16 @@ function SessionsTable({ rows }: { rows: ReadonlyArray<UsageGroup> }) {
           <TableRow className="hover:bg-transparent">
             <TableHead className="w-[46%]">Session</TableHead>
             <TableHead className="w-[18%]">Sources</TableHead>
-            <SortableHead label="Tokens" active={sortKey === "tokens"} onClick={() => toggleSort("tokens")} />
-            <SortableHead label="Cost" active={sortKey === "cost"} onClick={() => toggleSort("cost")} />
+            <SortableHead
+              label="Tokens"
+              active={sortKey === "tokens"}
+              onClick={() => toggleSort("tokens")}
+            />
+            <SortableHead
+              label="Cost"
+              active={sortKey === "cost"}
+              onClick={() => toggleSort("cost")}
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -463,11 +595,19 @@ function SessionsTable({ rows }: { rows: ReadonlyArray<UsageGroup> }) {
                 <div className="truncate font-medium" title={row.label}>
                   {row.label}
                 </div>
-                <div className="truncate text-[10px] text-muted-foreground">{lastActive(row)}</div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {lastActive(row)}
+                </div>
               </TableCell>
-              <TableCell className="truncate text-muted-foreground">{row.sourceIds.join(", ")}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatTokens(totalTokens(row))}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatUsd(row.costUsd)}</TableCell>
+              <TableCell className="truncate text-muted-foreground">
+                {row.sourceIds.join(", ")}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatTokens(totalTokens(row))}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatUsd(row.costUsd)}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -476,7 +616,9 @@ function SessionsTable({ rows }: { rows: ReadonlyArray<UsageGroup> }) {
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
             {start + 1}–{Math.min(start + PAGE_SIZE, sorted.length)} of{" "}
-            <strong className="font-medium text-foreground">{sorted.length.toLocaleString()}</strong>
+            <strong className="font-medium text-foreground">
+              {sorted.length.toLocaleString()}
+            </strong>
           </p>
           <div className="flex items-center gap-1">
             <Button
@@ -512,7 +654,15 @@ function lastActive(row: UsageGroup): string {
   return date === null ? "—" : `Last active ${date.toLocaleDateString()}`;
 }
 
-function SortableHead({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function SortableHead({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <TableHead className="w-[18%] text-right">
       <button
@@ -521,7 +671,11 @@ function SortableHead({ label, active, onClick }: { label: string; active: boole
         className="ml-auto flex items-center gap-1 text-muted-foreground hover:text-foreground"
       >
         {label}
-        {active ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5 opacity-30" />}
+        {active ? (
+          <ChevronDown className="size-3.5" />
+        ) : (
+          <ChevronUp className="size-3.5 opacity-30" />
+        )}
       </button>
     </TableHead>
   );

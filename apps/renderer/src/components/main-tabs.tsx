@@ -1,5 +1,9 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { SquareLock01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { Plus, X } from "lucide-react";
 import { useMemo } from "react";
+
+import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 
 import {
   defaultModelFor,
@@ -8,14 +12,19 @@ import {
   type ProviderId,
   type Session,
   type SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { useChatsStore } from "../store/chats.ts";
 import { useMessagesStore } from "../store/messages.ts";
+import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
+import {
+  activeChatId as deriveActiveChatId,
+  orderedChatTabs,
+} from "../lib/tab-order.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { Spinner } from "./ui/spinner";
@@ -74,37 +83,45 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
   // Per-session running flag — drives the provider-icon → Spinner swap on
   // each tab so the user sees which session is streaming at a glance.
   const runningBySession = useMessagesStore((s) => s.runningBySession);
+  // Sessions with a pending permission prompt. Surfaced on the tab as a lock
+  // so a supervised-mode request is visible without opening the session.
+  // ExitPlanMode is excluded — plan mode owns its own inline approval card.
+  const requestsById = usePermissionsStore((s) => s.requestsById);
+  const awaitingPermission = useMemo(() => {
+    const ids = new Set<SessionId>();
+    for (const req of Object.values(requestsById)) {
+      if (req.kind._tag === "Other" && req.kind.tool === "ExitPlanMode")
+        continue;
+      ids.add(req.sessionId);
+    }
+    return ids;
+  }, [requestsById]);
 
   // The active chat = the chat owning the active session (if any), else
   // the sidebar's selected chat. We prefer the session-derived value
   // because it reflects the actual surface the user is looking at; the
   // chats store's `selectedChatId` may lag during transitions.
   const selectedChatId = useChatsStore((s) => s.selectedChatId);
-  const activeChatId = useMemo(() => {
-    if (selectedSessionId !== null) {
-      const row = projectSessions.find((s) => s.id === selectedSessionId);
-      if (row !== undefined) return row.chatId;
-    }
-    return selectedChatId;
-  }, [selectedSessionId, projectSessions, selectedChatId]);
+  const activeChatId = useMemo(
+    () =>
+      deriveActiveChatId(projectSessions, selectedSessionId, selectedChatId),
+    [selectedSessionId, projectSessions, selectedChatId],
+  );
 
   // Tabs = all non-archived sessions in the active chat, ordered by
-  // creation time so the user's mental order stays stable.
-  const tabs = useMemo(() => {
-    if (activeChatId === null) return EMPTY_SESSIONS;
-    return projectSessions
-      .filter((row) => row.chatId === activeChatId && row.archivedAt === null)
-      .slice()
-      .sort((a, b) => {
-        const aTs = new Date(a.createdAt).getTime();
-        const bTs = new Date(b.createdAt).getTime();
-        return aTs - bTs;
-      });
-  }, [projectSessions, activeChatId]);
+  // creation time so the user's mental order stays stable. Shared with the
+  // keyboard navigation handlers via `lib/tab-order.ts`.
+  const tabs = useMemo(
+    () => orderedChatTabs(projectSessions, activeChatId),
+    [projectSessions, activeChatId],
+  );
+
+  // Glide tabs into place when one is opened, closed, or the file tab appears.
+  const tabStripRef = useAutoAnimate<HTMLDivElement>();
 
   return (
     <header className="flex h-10 shrink-0 items-stretch border-b border-border">
-      <div className="flex items-stretch gap-1 px-2">
+      <div ref={tabStripRef} className="flex items-stretch gap-1 px-2">
         {tabs.length === 0 && (
           <TabButton
             active={activeMainTab === "chat"}
@@ -130,6 +147,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
               title={tooltip}
               providerId={session.providerId}
               running={runningBySession[session.id] === true}
+              awaitingPermission={awaitingPermission.has(session.id)}
               onClick={() => {
                 if (selectedSessionId !== session.id) {
                   selectSession(session.id);
@@ -288,6 +306,7 @@ function ChatTabButton({
   title,
   providerId,
   running,
+  awaitingPermission,
   onClick,
   onClose,
 }: {
@@ -296,6 +315,7 @@ function ChatTabButton({
   title?: string;
   providerId: ProviderId;
   running: boolean;
+  awaitingPermission: boolean;
   onClick: () => void;
   onClose: () => void;
 }) {
@@ -313,7 +333,15 @@ function ChatTabButton({
         title={title ?? label}
         className="flex min-w-0 flex-1 items-center gap-1.5 py-0"
       >
-        {running ? (
+        {awaitingPermission ? (
+          <span
+            className="inline-flex size-3.5 shrink-0 items-center justify-center text-amber-300"
+            aria-label="Waiting for permission"
+            title="Waiting for permission"
+          >
+            <HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
+          </span>
+        ) : running ? (
           <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-foreground">
             <Spinner className="size-3.5" />
           </span>
@@ -343,7 +371,7 @@ function ChatTabButton({
 function NewChatTabButton({
   chatId,
 }: {
-  chatId: import("@memoize/wire").ChatId;
+  chatId: import("@zuse/wire").ChatId;
 }) {
   const refresh = useProvidersStore((s) => s.refresh);
   const create = useSessionsStore((s) => s.create);

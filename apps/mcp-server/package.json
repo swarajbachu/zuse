@@ -1,11 +1,11 @@
 {
-  "name": "@memoize/mcp-server",
+  "name": "@zuse/mcp-server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./src/bin.ts",
   "bin": {
-    "memoize-mcp": "./src/bin.ts"
+    "zuse-mcp": "./src/bin.ts"
   },
   "exports": {
     ".": {
@@ -17,11 +17,11 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "dev": "bun src/bin.ts",
-    "build:bin": "bun build --compile --outfile dist/memoize-mcp src/bin.ts",
+    "build:bin": "bun build --compile --outfile dist/zuse-mcp src/bin.ts",
     "test": "bun test"
   },
   "dependencies": {
-    "@memoize/index": "*",
+    "@zuse/index": "*",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "effect": "catalog:",
     "zod": "^3.23.0"

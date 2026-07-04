@@ -1,6 +1,6 @@
 export const claudeWorktreePrompt = (cwd: string): string =>
   [
-    "Memoize worktree context:",
+    "Zuse worktree context:",
     `- The current working directory for this Claude Code session is: ${cwd}`,
     "- Treat this path as the authoritative location on the user's Mac for this session.",
     "- If the user asks where you are located, where you are running, or what directory you are in, answer with this current working directory.",
@@ -13,6 +13,7 @@ export const applyClaudeWorktreeEnv = (
 ): Record<string, string | undefined> => {
   const next = { ...env };
   next.PWD = cwd;
+  next.ZUSE_WORKTREE_CWD = cwd;
   next.MEMOIZE_WORKTREE_CWD = cwd;
   delete next.OLDPWD;
   delete next.INIT_CWD;

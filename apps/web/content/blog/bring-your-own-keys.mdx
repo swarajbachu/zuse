@@ -1,9 +1,9 @@
 ---
-title: "Bring your own keys: why memoize never resells tokens"
-description: "Your API keys stay in the macOS Keychain. memoize is not a reseller and never marks up your model usage."
+title: "Bring your own keys: why Zuse Alpha never resells tokens"
+description: "Your API keys stay in the macOS Keychain. Zuse Alpha is not a reseller and never marks up your model usage."
 date: "2026-06-04"
 timeToRead: "4 min read"
-authorName: "memoize team"
+authorName: "Zuse Alpha team"
 authorRole: "Product notes"
 authorAvatar: "/app-icon.png"
 previewImage: "/assets/blog-preview-keys-clean.svg"
@@ -14,17 +14,17 @@ labels:
   ]
 ---
 
-# Bring your own keys: why memoize never resells tokens
+# Bring your own keys: why Zuse Alpha never resells tokens
 
 A lot of agent tools sit between you and the model provider. They take your prompt, run it through their account, and bill you a marked-up rate. That means an opaque margin on every token and your code passing through a third party you did not choose.
 
-memoize does not do that. You bring your own keys or your own provider subscription, and your usage is billed directly by the provider at provider rates.
+Zuse Alpha does not do that. You bring your own keys or your own provider subscription, and your usage is billed directly by the provider at provider rates.
 
 ---
 
 ## Where your keys live
 
-API keys are stored in the macOS Keychain, encrypted by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. memoize is local-first by design: your chats and project data live in a local SQLite database on your machine.
+API keys are stored in the macOS Keychain, encrypted by the OS. They are not synced to a server, not logged, and not sent anywhere except the provider you are calling. Zuse Alpha is local-first by design: your chats and project data live in a local SQLite database on your machine.
 
 ---
 
@@ -48,7 +48,7 @@ Bundled credits make a tool feel simpler on day one. You sign in, enter a credit
 
 When a coding app resells tokens, it becomes the middle layer between your machine and the provider. That layer decides which model versions are available, how usage is metered, whether requests are retried, what gets logged for billing, and how quickly new provider features show up. Even when the reseller has good intentions, your workflow is now coupled to their commercial contract with the model provider. If they change prices, change quotas, lose access to a model, or decide to steer traffic toward a cheaper backend, you feel it directly.
 
-Bring-your-own-key keeps that relationship explicit. You decide whether to use Claude, Codex, Gemini, Grok, OpenCode, Cursor, or another provider path supported by the app. You decide which account pays the bill. You decide how keys are rotated, who can create them, and what limits sit on the provider side. memoize becomes the local workspace where agents are orchestrated, not the toll booth for every token.
+Bring-your-own-key keeps that relationship explicit. You decide whether to use Claude, Codex, Gemini, Grok, OpenCode, Cursor, or another provider path supported by the app. You decide which account pays the bill. You decide how keys are rotated, who can create them, and what limits sit on the provider side. Zuse Alpha becomes the local workspace where agents are orchestrated, not the toll booth for every token.
 
 ## Better cost control for real teams
 
@@ -56,13 +56,13 @@ Most engineering teams already have a model procurement story. Some have an Open
 
 That creates awkward accounting. The developer sees one bill in the tool, finance sees another vendor, and security has to review one more processor. Worse, the markup is usually hard to reason about because agent work is bursty. One afternoon of broad repository analysis can cost more than a week of small patch requests. If the tool hides the underlying token price, you cannot tell whether a bill grew because your team did more work, because the model was more expensive, because the product added overhead, or because the reseller margin changed.
 
-With your own keys, provider dashboards remain the source of truth. Rate limits, spend caps, usage exports, and audit controls stay where your organization already manages them. memoize does not need to invent a parallel version of those systems. It can focus on making the local agent workflow better: clear timelines, isolated worktrees, visible tool calls, reviewable diffs, and a clean handoff from conversation to commit.
+With your own keys, provider dashboards remain the source of truth. Rate limits, spend caps, usage exports, and audit controls stay where your organization already manages them. Zuse Alpha does not need to invent a parallel version of those systems. It can focus on making the local agent workflow better: clear timelines, isolated worktrees, visible tool calls, reviewable diffs, and a clean handoff from conversation to commit.
 
 ## Security is simpler when there are fewer custodians
 
 Every additional system that handles credentials becomes a system you have to trust. A hosted token reseller has to store or mint access on your behalf, associate usage with your account, and defend that infrastructure. For many products that is a reasonable trade. For a coding agent workspace, the safer default is to avoid taking custody in the first place.
 
-memoize stores provider keys in the macOS Keychain because that is the native place for application secrets on a Mac. The operating system encrypts the items and controls access. The app can read a key when it needs to call the provider you configured, but the key is not uploaded to a memoize service for billing. There is no remote memoize account that can be compromised to retrieve your provider credentials, and there is no token broker where your requests have to pass through a vendor-controlled gateway.
+Zuse Alpha stores provider keys in the macOS Keychain because that is the native place for application secrets on a Mac. The operating system encrypts the items and controls access. The app can read a key when it needs to call the provider you configured, but the key is not uploaded to a Zuse Alpha service for billing. There is no remote Zuse Alpha account that can be compromised to retrieve your provider credentials, and there is no token broker where your requests have to pass through a vendor-controlled gateway.
 
 That does not mean model requests are private from the provider. If you send a prompt to a hosted model, that provider receives it. BYOK is not magic privacy dust. The point is narrower and more concrete: your request goes to the provider you chose, under the account and policy you control, without an extra application vendor proxying the exchange for markup. That is a smaller trust boundary, and smaller trust boundaries are easier to reason about.
 
@@ -70,7 +70,7 @@ That does not mean model requests are private from the provider. If you send a p
 
 Credentials should be easy to replace. If a teammate leaves, a laptop is lost, a provider changes its policy, or an internal rule says keys must rotate every quarter, you should be able to update the key at the provider and in the app without opening a support ticket. BYOK makes that flow straightforward.
 
-Create a new provider key, paste it into memoize, verify that requests work, then revoke the old key in the provider dashboard. If you want a hard monthly cap, set it with the provider. If you want a separate key for a specific repo, project, or experiment, create one. If you want to stop using a provider entirely, revoke the key and remove it locally. memoize does not need to approve that decision because memoize is not the account of record for the tokens.
+Create a new provider key, paste it into Zuse Alpha, verify that requests work, then revoke the old key in the provider dashboard. If you want a hard monthly cap, set it with the provider. If you want a separate key for a specific repo, project, or experiment, create one. If you want to stop using a provider entirely, revoke the key and remove it locally. Zuse Alpha does not need to approve that decision because Zuse Alpha is not the account of record for the tokens.
 
 This is also useful when evaluating models. Teams often want to try a new provider for one class of task before committing broadly. With BYOK, that can be a local experiment. Add the key, run the same task in a separate chat, compare the diff, and remove the key if it does not earn a place in the workflow. There is no migration from one credit wallet to another.
 
@@ -78,6 +78,6 @@ This is also useful when evaluating models. Teams often want to try a new provid
 
 The deeper reason for BYOK is alignment. A coding agent app should make it easy to see what happened. You should see what the agent read, what command it ran, what changed in the repository, what failed, and what it cost at the provider level. The app should not benefit when your token usage becomes harder to inspect.
 
-memoize is built around that bias. The chat timeline shows tool calls and output instead of turning the session into a mystery. The changes pane makes diffs reviewable before they become commits. Worktrees isolate experiments so one agent's attempt does not silently bleed into another. BYOK fits the same pattern: keep the important mechanics visible, keep ownership close to the developer, and avoid inventing a dependency where the platform does not need one.
+Zuse Alpha is built around that bias. The chat timeline shows tool calls and output instead of turning the session into a mystery. The changes pane makes diffs reviewable before they become commits. Worktrees isolate experiments so one agent's attempt does not silently bleed into another. BYOK fits the same pattern: keep the important mechanics visible, keep ownership close to the developer, and avoid inventing a dependency where the platform does not need one.
 
-There will still be teams that prefer centralized procurement, pooled credits, or a fully hosted product. That is fine. memoize is for the teams and individual developers who want the opposite shape: a Mac app that runs locally, respects the provider relationships they already have, and does not turn model access into a markup layer. If the app earns trust, it should be because it improves the work, not because it controls the meter.
+There will still be teams that prefer centralized procurement, pooled credits, or a fully hosted product. That is fine. Zuse Alpha is for the teams and individual developers who want the opposite shape: a Mac app that runs locally, respects the provider relationships they already have, and does not turn model access into a markup layer. If the app earns trust, it should be because it improves the work, not because it controls the meter.

@@ -6,9 +6,13 @@ import {
   Delete02Icon,
   Edit01Icon,
   HelpCircleIcon,
+  Login03Icon,
+  Logout01Icon,
   PencilIcon,
   Settings01Icon,
+  SquareLock01Icon,
   TaskDone01Icon,
+  UserCircleIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import {
   ArchiveArrowDownIcon,
@@ -25,13 +29,22 @@ import {
   type GitOriginInfo,
   type ProviderId,
   type SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import { Menu, MenuItem, MenuPopup } from "~/components/ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { toastManager } from "~/components/ui/toast.tsx";
+import { useAuth } from "~/hooks/use-auth.ts";
 import {
   deriveChatAttentionState,
+  derivePermissionAttention,
   type ChatAttentionState,
   mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
@@ -39,10 +52,17 @@ import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
-import { isChatUnread, useChatsStore } from "../store/chats.ts";
+import {
+  archiveChatWithConfirm,
+  chatArchiveProgressLabel,
+  isChatUnread,
+  useChatsStore,
+} from "../store/chats.ts";
+import { usePermissionsStore } from "../store/permissions.ts";
 import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
   useSidebarMessageStatusStore,
@@ -54,12 +74,56 @@ import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { Spinner } from "./ui/spinner";
 
+const sidebarErrorToastCache = {
+  chats: null as string | null,
+  sessions: null as string | null,
+  workspace: null as string | null,
+};
+
 const initialsOf = (name: string): string => {
   const parts = name.split(/[-_.\s]+/).filter(Boolean);
   const letters =
     parts.length >= 2 ? parts[0]![0]! + parts[1]![0]! : name.slice(0, 2);
   return letters.toUpperCase();
 };
+
+function showSidebarErrorToast(
+  source: keyof typeof sidebarErrorToastCache,
+  title: string,
+  message: string | null,
+): void {
+  if (message === null) {
+    sidebarErrorToastCache[source] = null;
+    return;
+  }
+  if (sidebarErrorToastCache[source] === message) return;
+  sidebarErrorToastCache[source] = message;
+  toastManager.add({
+    type: "error",
+    title,
+    description: message,
+  });
+}
+
+function SidebarErrorToasts(): null {
+  const workspaceError = useWorkspaceStore((s) => s.error);
+  const chatsError = useChatsStore((s) => s.error);
+  const sessionsError = useSessionsStore((s) => s.error);
+
+  useEffect(() => {
+    showSidebarErrorToast("workspace", "Project error", workspaceError);
+  }, [workspaceError]);
+
+  useEffect(() => {
+    showSidebarErrorToast("chats", "Chats error", chatsError);
+  }, [chatsError]);
+
+  useEffect(() => {
+    showSidebarErrorToast("sessions", "Sessions error", sessionsError);
+  }, [sessionsError]);
+
+  return null;
+}
 
 // GitHub serves owner/org avatars at this path; works for users and orgs alike.
 // Returns null for non-GitHub remotes so the caller falls back to initials.
@@ -203,9 +267,10 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
 }
 
 export function ProjectsSidebar() {
+  const paneRef = useRef<HTMLElement>(null);
+  useRegisterPane("sidebar", paneRef);
   const folders = useWorkspaceStore((s) => s.folders);
   const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
-  const error = useWorkspaceStore((s) => s.error);
   const loading = useWorkspaceStore((s) => s.loading);
   const load = useWorkspaceStore((s) => s.load);
   const remove = useWorkspaceStore((s) => s.remove);
@@ -213,10 +278,8 @@ export function ProjectsSidebar() {
 
   const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
   const hydrateSessions = useSessionsStore((s) => s.hydrate);
-  const sessionsError = useSessionsStore((s) => s.error);
 
   const chatsByProject = useChatsStore((s) => s.chatsByProject);
-  const chatsError = useChatsStore((s) => s.error);
   const hydrateChats = useChatsStore((s) => s.hydrate);
 
   const [origins, setOrigins] = useState<Record<string, GitOriginInfo | null>>(
@@ -318,17 +381,17 @@ export function ProjectsSidebar() {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col backdrop-blur-3xl text-sidebar-foreground">
+    <aside
+      ref={paneRef}
+      data-pane="sidebar"
+      tabIndex={-1}
+      className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none backdrop-blur-3xl"
+    >
       <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
         <span>Projects</span>
         <ProjectAddMenu />
       </div>
-
-      {(error ?? chatsError ?? sessionsError) !== null && (
-        <p className="mx-3 mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
-          {error ?? chatsError ?? sessionsError}
-        </p>
-      )}
+      <SidebarErrorToasts />
 
       <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {folders.length === 0 && !loading && (
@@ -364,9 +427,11 @@ function SidebarFooter() {
   const activeMainTab = useUiStore((s) => s.activeMainTab);
   const usageScope = useUiStore((s) => s.usageScope);
   const view = useUiStore((s) => s.view);
-  const usageActive = view === "chat" && activeMainTab === "usage" && usageScope === "global";
+  const usageActive =
+    view === "chat" && activeMainTab === "usage" && usageScope === "global";
   return (
     <div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-2 py-1.5">
+      <SidebarAccount />
       <Tooltip>
         <TooltipTrigger
           render={
@@ -375,7 +440,8 @@ function SidebarFooter() {
               onClick={() => openUsage("global")}
               className={cn(
                 "flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                usageActive && "bg-sidebar-accent/60 text-sidebar-accent-foreground",
+                usageActive &&
+                  "bg-sidebar-accent/60 text-sidebar-accent-foreground",
               )}
             >
               <HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
@@ -428,6 +494,73 @@ function SidebarFooter() {
         </TooltipPopup>
       </Tooltip>
     </div>
+  );
+}
+
+/**
+ * Bottom-of-sidebar account control. Signed out → a "Sign in" button. Signed
+ * in → avatar + name that opens a menu (Account settings, Sign out). Auth is
+ * optional, so this is the primary place to discover sign-in after onboarding.
+ */
+function SidebarAccount() {
+  const { isSignedIn, user, name, signingIn, signIn, signOut } = useAuth();
+  const setView = useUiStore((s) => s.setView);
+  const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+
+  // Always render an affordance. Until auth state resolves (or whenever signed
+  // out) we show "Sign in" — a brief flash to the signed-in row on cold load
+  // is fine and far better than showing nothing.
+  if (!isSignedIn) {
+    return (
+      <button
+        type="button"
+        onClick={() => void signIn()}
+        disabled={signingIn}
+        className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground disabled:opacity-60"
+      >
+        <HugeiconsIcon icon={Login03Icon} className="size-3.5" />
+        <span>{signingIn ? "Signing in…" : "Sign in"}</span>
+      </button>
+    );
+  }
+
+  const initial = (name || user?.email || "?").charAt(0).toUpperCase();
+
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+          >
+            <Avatar className="size-5 text-[9px]">
+              {user?.profilePictureUrl ? (
+                <AvatarImage src={user.profilePictureUrl} alt={name} />
+              ) : null}
+              <AvatarFallback className="text-[9px]">{initial}</AvatarFallback>
+            </Avatar>
+            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+          </button>
+        }
+      />
+      <MenuPopup side="top" align="start" className="min-w-44">
+        <MenuItem
+          onClick={() => {
+            setSettingsSection({ kind: "general" });
+            setView("settings");
+          }}
+        >
+          <HugeiconsIcon icon={UserCircleIcon} />
+          Account settings
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem variant="destructive" onClick={() => void signOut()}>
+          <HugeiconsIcon icon={Logout01Icon} />
+          Sign out
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -519,9 +652,19 @@ function ProjectGroup({
       ),
     ),
   );
+  const liveSessionIdSet = useMemo(
+    () => new Set(liveSessionIds),
+    [liveSessionIds],
+  );
+  // Pending permission prompts never become messages, so they bypass
+  // `headerMessageAttention`. Pull them straight from the permissions store.
+  const headerPermissionAttention = usePermissionsStore((s) =>
+    derivePermissionAttention(Object.values(s.requestsById), liveSessionIdSet),
+  );
   const headerAttention = mergeChatAttentionStates([
     headerRunning,
     headerMessageAttention,
+    headerPermissionAttention,
   ]);
   const showHeaderAttention = headerAttention !== "idle" && !isExpanded;
 
@@ -746,7 +889,10 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
         }
       />
       <TooltipPopup>
-        <TooltipShortcut label="New chat" shortcut={formatShortcut("new-chat")} />
+        <TooltipShortcut
+          label="New chat"
+          shortcut={formatShortcut("new-chat")}
+        />
       </TooltipPopup>
     </Tooltip>
   );
@@ -780,9 +926,11 @@ function ChatRow({ chat }: { chat: Chat }) {
 
   const selectChat = useChatsStore((s) => s.select);
   const renameChat = useChatsStore((s) => s.rename);
-  const archiveChat = useChatsStore((s) => s.archive);
   const unarchiveChat = useChatsStore((s) => s.unarchive);
   const removeChat = useChatsStore((s) => s.remove);
+  const archiveProgress = useChatsStore(
+    (s) => s.archiveProgressByChat[chat.id] ?? null,
+  );
 
   // PR state is keyed by (project, worktree). A chat owns its worktree,
   // so all its sessions share the same PR row — hydrate once per chat.
@@ -829,9 +977,16 @@ function ChatRow({ chat }: { chat: Chat }) {
       ),
     ),
   );
+  const sessionIdSet = useMemo(() => new Set(sessionIds), [sessionIds]);
+  // Supervised-mode permission prompts live only in the permissions store —
+  // they never arrive as messages, so they'd otherwise leave the row dark.
+  const permissionAttention = usePermissionsStore((s) =>
+    derivePermissionAttention(Object.values(s.requestsById), sessionIdSet),
+  );
   const attentionState = mergeChatAttentionStates([
     runningAttention,
     messageAttention,
+    permissionAttention,
   ]);
 
   // Highlight this row when its own chat is selected, OR when the active
@@ -843,8 +998,13 @@ function ChatRow({ chat }: { chat: Chat }) {
   }, [selectedSessionId, sessionIds]);
   const isSelected = selectedChatId === chat.id || sessionBelongsToChat;
   const isArchived = chat.archivedAt !== null;
-  // Unread = new activity the user hasn't seen. Never on the selected row.
-  const isUnread = !isSelected && isChatUnread(chat, selectedChatId);
+  // Unread = new activity the user hasn't seen. A pending permission prompt
+  // also counts: the agent is blocked on the user even though no new message
+  // landed to advance `lastMessageAt`. Never on the selected row.
+  const isUnread =
+    !isSelected &&
+    (isChatUnread(chat, selectedChatId) ||
+      permissionAttention === "permission");
 
   const branchState: BranchState = isArchived
     ? "archived"
@@ -899,8 +1059,19 @@ function ChatRow({ chat }: { chat: Chat }) {
     setMenuOpen(true);
   };
 
-  const primaryActionIcon = isArchived ? ArchiveArrowUpIcon : ArchiveArrowDownIcon;
-  const primaryActionLabel = isArchived ? "Unarchive" : "Archive";
+  const primaryActionIcon = isArchived
+    ? ArchiveArrowUpIcon
+    : ArchiveArrowDownIcon;
+  const isArchiving = archiveProgress !== null;
+  const archiveProgressText =
+    archiveProgress === null ? null : chatArchiveProgressLabel(archiveProgress);
+  const primaryActionLabel = isArchived
+    ? "Unarchive"
+    : (archiveProgressText ?? "Archive");
+  const archiveChat = () => {
+    if (isArchiving) return;
+    void archiveChatWithConfirm(chat.id);
+  };
 
   return (
     <>
@@ -964,15 +1135,27 @@ function ChatRow({ chat }: { chat: Chat }) {
           </span>
           <button
             type="button"
+            disabled={isArchiving}
             onClick={(e) => {
               e.stopPropagation();
-              void (isArchived ? unarchiveChat(chat.id) : archiveChat(chat.id));
+              if (isArchived) {
+                void unarchiveChat(chat.id);
+              } else {
+                archiveChat();
+              }
             }}
-            className="hidden items-center rounded p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground group-hover:flex motion-reduce:transition-none"
+            className={cn(
+              "items-center rounded p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+              isArchiving ? "flex" : "hidden group-hover:flex",
+            )}
             aria-label={`${primaryActionLabel} ${chat.title}`}
             title={primaryActionLabel}
           >
-            <HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
+            {isArchiving ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <HugeiconsIcon icon={primaryActionIcon} className="size-3.5" />
+            )}
           </button>
         </div>
       </li>
@@ -1000,11 +1183,19 @@ function ChatRow({ chat }: { chat: Chat }) {
             </MenuItem>
           ) : (
             <MenuItem
-              onClick={() => void archiveChat(chat.id)}
+              disabled={isArchiving}
+              onClick={archiveChat}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
-              <HugeiconsIcon icon={ArchiveArrowDownIcon} className="size-3.5" />
-              Archive
+              {isArchiving ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <HugeiconsIcon
+                  icon={ArchiveArrowDownIcon}
+                  className="size-3.5"
+                />
+              )}
+              {archiveProgressText ?? "Archive"}
             </MenuItem>
           )}
           <MenuItem
@@ -1035,7 +1226,7 @@ function ChatAttentionIcon({
 
   const color = selected
     ? "text-sidebar-accent-foreground"
-    : state === "question"
+    : state === "question" || state === "permission"
       ? "text-amber-300"
       : state === "planReady"
         ? "text-emerald-300"
@@ -1045,13 +1236,17 @@ function ChatAttentionIcon({
       ? context === "project"
         ? "A chat is waiting for your answer"
         : "Waiting for your answer"
-      : state === "planReady"
+      : state === "permission"
         ? context === "project"
-          ? "A chat has a plan ready to approve"
-          : "Plan ready to approve"
-        : context === "project"
-          ? "Agent is working in a session"
-          : "Agent is working";
+          ? "A chat is waiting for permission"
+          : "Waiting for permission"
+        : state === "planReady"
+          ? context === "project"
+            ? "A chat has a plan ready to approve"
+            : "Plan ready to approve"
+          : context === "project"
+            ? "Agent is working in a session"
+            : "Agent is working";
 
   return (
     <span
@@ -1067,6 +1262,8 @@ function ChatAttentionIcon({
         <Spinner className="size-4" />
       ) : state === "question" ? (
         <HugeiconsIcon icon={HelpCircleIcon} className="size-3.5" />
+      ) : state === "permission" ? (
+        <HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
       ) : (
         <HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
       )}

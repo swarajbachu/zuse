@@ -275,23 +275,21 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 });
 
 describe("selectCliPathCandidate", () => {
-  it("prefers a user Codex install over Conductor's managed Codex shim", () => {
+  it("prefers a user Codex install over a managed Codex shim", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
         "/Users/me/.nvm/versions/node/v23.10.0/bin/codex",
       ]),
     ).toBe("/Users/me/.nvm/versions/node/v23.10.0/bin/codex");
   });
 
-  it("falls back to Conductor's managed Codex when it is the only candidate", () => {
+  it("does not select a managed Codex shim when it is the only candidate", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
       ]),
-    ).toBe(
-      "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
-    );
+    ).toBeNull();
   });
 
   it("keeps first PATH match for non-Codex providers", () => {
@@ -305,15 +303,13 @@ describe("selectCliPathCandidate", () => {
 });
 
 describe("buildUpdateCommand — install-method detection", () => {
-  it("uses the exact Conductor-managed standalone Codex binary updater", () => {
+  it("does not offer an updater for a managed standalone Codex shim", () => {
     expect(
       buildUpdateCommand("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
-        "/Users/me/Library/Application Support/com.conductor.app/agent-binaries/codex/0.138.0/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/agent-binaries/codex/0.138.0/codex",
       ]),
-    ).toBe(
-      "'/Users/me/Library/Application Support/com.conductor.app/./bin/codex' update",
-    );
+    ).toBeNull();
   });
 
   it("uses the native self-updater for a native Claude install", () => {

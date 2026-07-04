@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-Memoize's value prop, sharpened by Conductor workspaces, is **N parallel
+Memoize's value prop is **N parallel
 agent workspaces on the same repo** — multiple branches checked out
 side-by-side, multiple agents iterating in parallel. Existing code-index
 products (Cursor, Sourcegraph Cody, Greptile, Continue, Augment) struggle
@@ -15,7 +15,7 @@ the agent is actually on).
 
 A typical scenario:
 
-- User has 5 Conductor workspaces open against the same repo
+- User has 5 parallel workspaces open against the same repo
 - Each workspace is on a different branch with 95% file overlap
 - Naive per-branch indexing: 5× the storage, 5× the parsing, 5× the
   embedding API spend
@@ -111,10 +111,10 @@ DELETE FROM blobs WHERE id NOT IN (SELECT DISTINCT blob_id FROM manifests);
 
 Triggered on idle, or explicitly via `index.gc` RPC.
 
-### Workspace sharing across Conductor
+### Workspace sharing
 
 One blob store per **repo identity** (`git rev-parse --show-toplevel` on
-the original clone), not per workspace. Conductor workspaces on the same
+the original clone), not per workspace. Parallel workspaces on the same
 repo share the underlying blob store; each workspace contributes a
 manifest keyed by branch. Five workspaces on five branches = one blob
 store, five manifest sets.
@@ -126,13 +126,13 @@ The DB file lives at:
 ```
 
 `<repo-id>` is `blake3(absolute_path_of_origin_clone)` — stable across
-Conductor workspaces of the same repo.
+parallel workspaces of the same repo.
 
 ## Consequences
 
 ### Positive
 
-- 5 Conductor workspaces on the same repo: 1× storage, not 5×.
+- 5 parallel workspaces on the same repo: 1× storage, not 5×.
 - Branch switch < 200ms target is achievable (manifest swap is a SQL
   transaction over a few hundred rows).
 - File edits invalidate only the changed blob — embeddings, symbols,

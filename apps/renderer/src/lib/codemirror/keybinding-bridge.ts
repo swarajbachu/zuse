@@ -1,4 +1,4 @@
-import type { KeybindingShortcut } from "@memoize/wire";
+import type { KeybindingShortcut } from "@zuse/wire";
 
 /**
  * Convert a parsed `KeybindingShortcut` into the CodeMirror keymap `key`

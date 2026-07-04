@@ -12,8 +12,8 @@ const emptyUsage = (id: string): PricedUsage => ({
   records: [],
   sources: [
     {
-      id: "memoize",
-      label: `Memoize ${id}`,
+      id: "zuse",
+      label: `Zuse Alpha ${id}`,
       detected: true,
       recordCount: 0,
       paths: [],
@@ -37,8 +37,8 @@ describe("usage report cache", () => {
       });
     };
 
-    const first = loadPricedUsageCached("/tmp/memoize.sqlite", "/tmp/tokenmaxer", { load });
-    const second = loadPricedUsageCached("/tmp/memoize.sqlite", "/tmp/tokenmaxer", { load });
+    const first = loadPricedUsageCached("/tmp/zuse.sqlite", "/tmp/tokenmaxer", { load });
+    const second = loadPricedUsageCached("/tmp/zuse.sqlite", "/tmp/tokenmaxer", { load });
 
     expect(calls).toBe(1);
     resolveLoad?.(emptyUsage("cold"));
@@ -50,16 +50,16 @@ describe("usage report cache", () => {
     const load = () => Promise.resolve(emptyUsage(String(++calls)));
     let now = 1_000;
 
-    const first = await loadPricedUsageCached("/tmp/memoize.sqlite", "/tmp/tokenmaxer", {
+    const first = await loadPricedUsageCached("/tmp/zuse.sqlite", "/tmp/tokenmaxer", {
       load,
       now: () => now,
     });
     now += 1;
-    const cached = await loadPricedUsageCached("/tmp/memoize.sqlite", "/tmp/tokenmaxer", {
+    const cached = await loadPricedUsageCached("/tmp/zuse.sqlite", "/tmp/tokenmaxer", {
       load,
       now: () => now,
     });
-    const refreshed = await loadPricedUsageCached("/tmp/memoize.sqlite", "/tmp/tokenmaxer", {
+    const refreshed = await loadPricedUsageCached("/tmp/zuse.sqlite", "/tmp/tokenmaxer", {
       forceRefresh: true,
       load,
       now: () => now,
@@ -73,8 +73,8 @@ describe("usage report cache", () => {
   it("trims raw records and caps sessions by token volume", () => {
     const records = Array.from({ length: 300 }, (_, index) =>
       makeUsageRecord({
-        sourceId: "memoize",
-        sourceLabel: "Memoize",
+        sourceId: "zuse",
+        sourceLabel: "Zuse Alpha",
         providerId: "codex",
         model: "gpt-5.4",
         sessionId: `session-${index}`,

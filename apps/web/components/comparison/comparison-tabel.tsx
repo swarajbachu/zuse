@@ -6,7 +6,7 @@ import React from "react";
 
 export interface ComparisonData {
   title: string;
-  memoize: string;
+  zuse: string;
   traditional: string;
   icon: React.ReactNode;
 }
@@ -27,7 +27,7 @@ export const ComparisonTabel = ({ cards }: { cards: ComparisonData[] }) => {
         <div data-slot="tabel-cell">
           <LogoMark className="size-7" />
           <span className="-tracking-sm text-foreground text-lg leading-4.5 font-medium">
-            memoize
+            Zuse Alpha
           </span>
         </div>
         <div data-slot="tabel-cell">
@@ -57,7 +57,7 @@ export const ComparisonTabel = ({ cards }: { cards: ComparisonData[] }) => {
             <div data-slot="tabel-cell">
               <GreenCheckIcon />
               <span className="-tracking-sm text-foreground text-lg leading-4.5 font-medium">
-                {card.memoize}
+                {card.zuse}
               </span>
             </div>
             <div data-slot="tabel-cell">

@@ -1,0 +1,173 @@
+import { Effect, Fiber, Schedule, Stream } from "effect";
+import { create } from "zustand";
+
+import type { AuthState } from "@zuse/wire";
+
+import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+  readStorageWithLegacy,
+  removeStorageKeys,
+} from "../lib/storage-keys.ts";
+
+/**
+ * WorkOS auth state mirror. Subscribes once to the server's `auth.sessionChanges`
+ * broadcast (sign-in completes inside the blocking `auth.signIn` call, but a
+ * sign-out or background refresh can also fire), and cold-loads via
+ * `auth.getSession`. Modeled on `store/permissions.ts`'s self-healing stream.
+ *
+ * `state === null` means "still loading". Auth is fully OPTIONAL — there's no
+ * gate; sign-in is reachable from the sidebar, onboarding, and settings.
+ *
+ * `displayName` is a local, cosmetic override for how the user's name shows in
+ * the app. We can't rename the WorkOS profile from a public PKCE client (that
+ * needs the API secret), so this is a renderer-only alias persisted to
+ * localStorage.
+ */
+
+const DISPLAY_NAME_KEY = "zuse.auth.displayName";
+const LEGACY_DISPLAY_NAME_KEYS = ["memoize.auth.displayName"] as const;
+
+const readDisplayName = (): string => {
+  try {
+    return (
+      readStorageWithLegacy(
+        window.localStorage,
+        DISPLAY_NAME_KEY,
+        LEGACY_DISPLAY_NAME_KEYS,
+      ) ?? ""
+    );
+  } catch {
+    return "";
+  }
+};
+
+const writeDisplayName = (value: string): void => {
+  try {
+    if (value.trim() === "") {
+      removeStorageKeys(
+        window.localStorage,
+        DISPLAY_NAME_KEY,
+        LEGACY_DISPLAY_NAME_KEYS,
+      );
+    } else window.localStorage.setItem(DISPLAY_NAME_KEY, value);
+  } catch {
+    // Private mode / disabled storage — the alias just won't persist.
+  }
+};
+
+const SIGNED_OUT: AuthState = { _tag: "SignedOut" };
+
+type AuthStore = {
+  /** null until the first getSession / stream emit resolves. */
+  readonly state: AuthState | null;
+  readonly signingIn: boolean;
+  readonly error: string | null;
+  /** Local cosmetic name override (empty = use the WorkOS profile name). */
+  readonly displayName: string;
+  readonly start: () => void;
+  readonly hydrate: () => Promise<void>;
+  readonly signIn: () => Promise<void>;
+  readonly signOut: () => Promise<void>;
+  readonly setDisplayName: (value: string) => void;
+};
+
+let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+// Real double-subscribe guard — `streamFiber` is only a handle (see the same
+// note in store/permissions.ts).
+let started = false;
+
+export const useAuthStore = create<AuthStore>((set, get) => ({
+  state: null,
+  signingIn: false,
+  error: null,
+  displayName: readDisplayName(),
+  start: () => {
+    if (started) return;
+    started = true;
+    void (async () => {
+      let client: Awaited<ReturnType<typeof getRpcClient>>;
+      try {
+        client = await getRpcClient();
+      } catch {
+        started = false;
+        return;
+      }
+      const subscribe = Stream.runForEach(
+        client.auth.sessionChanges({}),
+        (next) => Effect.sync(() => set({ state: next })),
+      );
+      // Self-healing: re-establish after any completion/error with bounded
+      // backoff so a server restart / dev HMR doesn't kill live delivery.
+      const program = subscribe.pipe(
+        Effect.catchAll(() => Effect.void),
+        Effect.repeat(Schedule.spaced("2 seconds")),
+        Effect.ensuring(
+          Effect.sync(() => {
+            streamFiber = null;
+            started = false;
+          }),
+        ),
+      );
+      streamFiber = Effect.runFork(program);
+    })();
+  },
+  hydrate: async () => {
+    try {
+      const client = await getRpcClient();
+      const next = await Effect.runPromise(client.auth.getSession({}));
+      set({ state: next });
+    } catch {
+      // Bridge not up yet / transient — assume signed out so the UI can
+      // render. A later stream emit or re-hydrate corrects it.
+      set((prev) => ({ state: prev.state ?? SIGNED_OUT }));
+    }
+  },
+  signIn: async () => {
+    if (get().signingIn) return;
+    set({ signingIn: true, error: null });
+    try {
+      const client = await getRpcClient();
+      // Match the Effect to a result object so a user-cancel (silent) and a
+      // real failure (shown) are distinguishable without a throw.
+      const result = await Effect.runPromise(
+        client.auth.signIn({}).pipe(
+          Effect.match({
+            onFailure: (err) => ({ ok: false as const, err }),
+            onSuccess: (next) => ({ ok: true as const, next }),
+          }),
+        ),
+      );
+      if (result.ok) {
+        set({ state: result.next, signingIn: false, error: null });
+        return;
+      }
+      set({
+        signingIn: false,
+        error:
+          result.err._tag === "AuthCancelledError"
+            ? "No sign-in callback was received. Check the WorkOS client ID and redirect URI, then try again."
+            : ("reason" in result.err && result.err.reason) ||
+              "Sign-in failed. Please try again.",
+      });
+    } catch (err) {
+      set({
+        signingIn: false,
+        error: err instanceof Error ? err.message : "Sign-in failed.",
+      });
+    }
+  },
+  signOut: async () => {
+    // Optimistic — the server also broadcasts SignedOut.
+    set({ state: SIGNED_OUT });
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(client.auth.signOut({}));
+    } catch {
+      // A failed sign-out leaves the keychain entry; next getSession repairs.
+    }
+  },
+  setDisplayName: (value) => {
+    writeDisplayName(value);
+    set({ displayName: value });
+  },
+}));

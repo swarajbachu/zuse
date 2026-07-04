@@ -1,6 +1,27 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, ArrowDown01Icon, Copy01Icon, GitBranchIcon, GitMergeIcon, LinkSquare01Icon, Loading02Icon, MagicWand01Icon, PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon, PencilEdit01Icon, PlayIcon, Tick01Icon, Upload01Icon, Wrench01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { ArchiveArrowDownIcon, GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
+import {
+  Alert01Icon,
+  ArrowDown01Icon,
+  Copy01Icon,
+  GitBranchIcon,
+  GitMergeIcon,
+  LinkSquare01Icon,
+  Loading02Icon,
+  MagicWand01Icon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
+  PanelRightOpenIcon,
+  PencilEdit01Icon,
+  PlayIcon,
+  Tick01Icon,
+  Upload01Icon,
+  Wrench01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArchiveArrowDownIcon,
+  GitPullRequestIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import {
   type CSSProperties,
@@ -17,7 +38,7 @@ import {
   type GitBranchInfo,
   type GitMergeMethod,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
@@ -30,7 +51,11 @@ import {
 } from "./glass-action.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
 import { useActiveContext } from "../store/active-workspace.ts";
-import { useChatsStore } from "../store/chats.ts";
+import {
+  archiveChatWithConfirm,
+  chatArchiveProgressLabel,
+  useChatsStore,
+} from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -41,6 +66,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
+import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
   DialogClose,
@@ -68,7 +94,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
  * Mirrors `pr-pane.tsx`'s helper.
  */
 const openExternal = (url: string): void => {
-  const bridge = window.memoize?.app;
+  const bridge = window.zuse?.app;
   if (bridge !== undefined) {
     bridge.openExternal(url);
     return;
@@ -96,7 +122,7 @@ export function TopBarLeft() {
       className={`${SECTION_CLASS} pr-1 ${isFullScreen ? "pl-3" : "pl-20"}`}
     >
       <span className="truncate font-semibold tracking-tight text-foreground">
-        Memoize
+        Zuse Alpha
       </span>
       <span className="flex-1" />
       <Tooltip>
@@ -345,7 +371,10 @@ export function TopBarMain() {
               }
             >
               {rightSidebarOpen ? (
-                <HugeiconsIcon icon={PanelRightCloseIcon} className="size-3.5" />
+                <HugeiconsIcon
+                  icon={PanelRightCloseIcon}
+                  className="size-3.5"
+                />
               ) : (
                 <HugeiconsIcon icon={PanelRightOpenIcon} className="size-3.5" />
               )}
@@ -392,7 +421,10 @@ function BranchMenuButton({
         className="flex max-w-64 items-center gap-1 rounded-sm px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-foreground/5 data-[popup-open]:bg-foreground/5"
         aria-label="Switch branch"
       >
-        <HugeiconsIcon icon={GitBranchIcon} className="size-3.5 shrink-0 text-muted-foreground" />
+        <HugeiconsIcon
+          icon={GitBranchIcon}
+          className="size-3.5 shrink-0 text-muted-foreground"
+        />
         <span className="truncate" title={branchLabel}>
           {branchLabel}
         </span>
@@ -400,9 +432,15 @@ function BranchMenuButton({
           <span className="shrink-0 text-muted-foreground">· {dirtyFiles}</span>
         ) : null}
         {loading ? (
-          <HugeiconsIcon icon={Loading02Icon} className="size-3 animate-spin text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Loading02Icon}
+            className="size-3 animate-spin text-muted-foreground"
+          />
         ) : (
-          <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            className="size-3 text-muted-foreground"
+          />
         )}
       </MenuTrigger>
       <MenuPopup align="center" className="min-w-64">
@@ -428,7 +466,10 @@ function BranchMenuButton({
               onClick={() => onSwitch(branch)}
               className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
-              <HugeiconsIcon icon={Tick01Icon} className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`} />
+              <HugeiconsIcon
+                icon={Tick01Icon}
+                className={`size-3.5 ${branch.current ? "opacity-100" : "opacity-0"}`}
+              />
               <span className="min-w-0 flex-1 truncate">{branch.name}</span>
               {branch.upstream !== null ? (
                 <span className="max-w-28 truncate text-[10px] text-muted-foreground">
@@ -577,7 +618,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const refreshTargets = async (): Promise<void> => {
     if (rootPath === null) return;
-    const bridge = window.memoize?.app;
+    const bridge = window.zuse?.app;
     if (bridge?.listOpenTargets === undefined) return;
     setLoading(true);
     try {
@@ -594,7 +635,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const openTarget = async (target: OpenTarget): Promise<void> => {
     if (rootPath === null) return;
-    const bridge = window.memoize?.app;
+    const bridge = window.zuse?.app;
     if (target.id === "finder") {
       await bridge?.revealPath?.(rootPath);
       return;
@@ -604,7 +645,7 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 
   const copyPath = async (): Promise<void> => {
     if (rootPath === null) return;
-    await window.memoize?.app?.copyPath?.(rootPath);
+    await window.zuse?.app?.copyPath?.(rootPath);
   };
 
   return (
@@ -620,7 +661,10 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
             >
               <span className="flex size-7 items-center justify-center border-r border-border/80">
                 {loading ? (
-                  <HugeiconsIcon icon={Loading02Icon} className="size-3.5 animate-spin" />
+                  <HugeiconsIcon
+                    icon={Loading02Icon}
+                    className="size-3.5 animate-spin"
+                  />
                 ) : primary !== undefined ? (
                   <OpenTargetIcon target={primary} />
                 ) : (
@@ -812,13 +856,15 @@ function RunButton() {
   if ((settings?.runScript?.trim().length ?? 0) === 0) return null;
 
   const worktreeId = ctx.worktreeId;
-  const projectId = ctx.folderId;
   const onRun = async () => {
+    // The Run button only renders for the active worktree, which belongs to
+    // the selected chat — so the run terminal lands in that chat's dock.
+    const chatId = useChatsStore.getState().selectedChatId;
+    if (chatId === null) return;
     const run = await startRun(worktreeId);
     if (run === null) return;
     openTerminalCommand({
-      folderId: projectId,
-      worktreeId,
+      chatId,
       cwd: run.cwd,
       title: "Run",
       command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
@@ -847,7 +893,11 @@ export function TopBarRight() {
   );
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const selectedChatId = useChatsStore((s) => s.selectedChatId);
-  const archiveChat = useChatsStore((s) => s.archive);
+  const archiveProgress = useChatsStore((s) =>
+    selectedChatId === null
+      ? null
+      : (s.archiveProgressByChat[selectedChatId] ?? null),
+  );
   const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
 
   // Auto-submit a new chat message to the active session (no manual Send).
@@ -925,9 +975,18 @@ export function TopBarRight() {
           <DirectActionButton
             tone="zinc"
             icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
-            label="Archive chat"
-            loadingLabel="Archiving…"
-            run={() => archiveChat(selectedChatId)}
+            label={
+              archiveProgress === null
+                ? "Archive chat"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            loadingLabel={
+              archiveProgress === null
+                ? "Archiving…"
+                : chatArchiveProgressLabel(archiveProgress)
+            }
+            disabled={archiveProgress !== null}
+            run={() => archiveChatWithConfirm(selectedChatId)}
           />
         ) : null}
         {workflow.kind === "open-pr" && workflow.mergeable === "conflicting" ? (
@@ -1070,9 +1129,8 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 
 /**
  * GlassActionButton wrapper for direct (non-agent) git/gh actions. Shows a
- * spinner while the RPC is in flight and, on failure, a red warning affordance
- * whose tooltip carries gh's verbatim error (click to dismiss). The user can
- * retry once it clears.
+ * spinner while the RPC is in flight and reports failures through the global
+ * toast surface. The user can retry once loading clears.
  */
 function DirectActionButton({
   tone,
@@ -1092,49 +1150,38 @@ function DirectActionButton({
   onSuccess?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const onClick = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       await run();
       onSuccess?.();
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: `${label} failed`,
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Action failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
-      <GlassActionButton
-        tone={tone}
-        icon={loading ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : icon}
-        label={loading ? loadingLabel : label}
-        disabled={disabled || loading}
-        onClick={onClick}
-      />
-    </div>
+    <GlassActionButton
+      tone={tone}
+      icon={
+        loading ? (
+          <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+        ) : (
+          icon
+        )
+      }
+      label={loading ? loadingLabel : label}
+      disabled={disabled || loading}
+      onClick={onClick}
+    />
   );
 }
 
@@ -1203,7 +1250,10 @@ function MergeButton({
               onClick={() => setMethod(m)}
               className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
-              <HugeiconsIcon icon={Tick01Icon} className={`size-3.5 ${method === m ? "opacity-100" : "opacity-0"}`} />
+              <HugeiconsIcon
+                icon={Tick01Icon}
+                className={`size-3.5 ${method === m ? "opacity-100" : "opacity-0"}`}
+              />
               {MERGE_METHOD_LABEL[m]}
             </MenuItem>
           ))}
@@ -1232,12 +1282,10 @@ function AutoMergeToggle({
   const method = useMergePrefs((s) => s.method);
   const deleteBranch = useMergePrefs((s) => s.deleteBranch);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const toggle = async () => {
     if (loading) return;
     setLoading(true);
-    setError(null);
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
@@ -1251,7 +1299,11 @@ function AutoMergeToggle({
       );
       refreshAfterAction(folderId, worktreeId);
     } catch (err) {
-      setError(errorMessage(err));
+      toastManager.add({
+        type: "error",
+        title: "Auto-merge failed",
+        description: errorMessage(err),
+      });
     } finally {
       setLoading(false);
     }
@@ -1263,23 +1315,6 @@ function AutoMergeToggle({
 
   return (
     <div className="flex items-center gap-1">
-      {error !== null ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="flex size-6 items-center justify-center rounded-sm text-[var(--accent-red)] hover:bg-foreground/5"
-                aria-label="Auto-merge failed — dismiss"
-              >
-                <HugeiconsIcon icon={Alert01Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup className="max-w-xs">{error}</TooltipPopup>
-        </Tooltip>
-      ) : null}
       <Tooltip>
         <TooltipTrigger
           render={
@@ -1295,7 +1330,11 @@ function AutoMergeToggle({
               }`}
               aria-pressed={enabled}
             >
-              {loading ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={MagicWand01Icon} />}
+              {loading ? (
+                <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+              ) : (
+                <HugeiconsIcon icon={MagicWand01Icon} />
+              )}
               {enabled ? "Auto-merge on" : "Auto-merge"}
             </button>
           }
@@ -1317,7 +1356,7 @@ const errorMessage = (err: unknown): string => {
 
 /**
  * Failing-checks CTA. Asks the server to drop a captured
- * `.memoize/failing-checks-<ts>.txt` artifact, then **auto-submits** a new chat
+ * `.zuse/failing-checks-<ts>.txt` artifact, then **auto-submits** a new chat
  * message referencing it as a file ref — the agent starts working immediately,
  * no manual Send.
  *
@@ -1371,7 +1410,13 @@ function FixActionsButton({
   return (
     <GlassActionButton
       tone="red"
-      icon={loading ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Wrench01Icon} />}
+      icon={
+        loading ? (
+          <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+        ) : (
+          <HugeiconsIcon icon={Wrench01Icon} />
+        )
+      }
       label={loading ? "Capturing…" : "Fix CI errors"}
       disabled={disabled || loading}
       onClick={onClick}

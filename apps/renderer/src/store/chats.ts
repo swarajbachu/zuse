@@ -12,15 +12,49 @@ import type {
   Session,
   SessionId,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
+import { useTerminalsStore } from "./terminals.ts";
 import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 import { useWorktreesStore } from "./worktrees.ts";
+
+export type ChatArchiveProgressPhase = "archiving" | "removing-dirty-worktree";
+
+export const chatArchiveProgressLabel = (
+  phase: ChatArchiveProgressPhase,
+): string =>
+  phase === "removing-dirty-worktree"
+    ? "Removing dirty worktree…"
+    : "Archiving chat…";
+
+const FORCED_ARCHIVE_TOAST_DELAY_MS = 700;
+const DIRTY_ARCHIVE_CONFIRM_MESSAGE =
+  "This chat's worktree has uncommitted changes. Discard them and archive anyway?";
+
+type ArchiveDirtyConfirm = () => Promise<boolean>;
+
+const defaultArchiveDirtyConfirm: ArchiveDirtyConfirm = () => {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  return Promise.resolve(window.confirm(DIRTY_ARCHIVE_CONFIRM_MESSAGE));
+};
+
+let archiveDirtyConfirm: ArchiveDirtyConfirm = defaultArchiveDirtyConfirm;
+
+export const setArchiveDirtyConfirm = (
+  confirm: ArchiveDirtyConfirm,
+): void => {
+  archiveDirtyConfirm = confirm;
+};
+
+export const resetArchiveDirtyConfirm = (): void => {
+  archiveDirtyConfirm = defaultArchiveDirtyConfirm;
+};
 
 /**
  * Sidebar-level chat catalog. A chat is the container that holds one or
@@ -42,6 +76,7 @@ type ChatsState = {
   /** Per-project in-flight flag for `create()`. Drives the sidebar
    * "New chat" button's icon swap (SquarePen → Spinner). */
   readonly creatingByProject: Record<string, boolean>;
+  readonly archiveProgressByChat: Record<string, ChatArchiveProgressPhase>;
   readonly error: string | null;
   readonly hydrate: (projectId: FolderId) => Promise<void>;
   readonly create: (
@@ -58,13 +93,10 @@ type ChatsState = {
       readonly permissionMode?: PermissionMode;
       readonly toolSearch?: boolean;
     },
-  ) => Promise<
-    | {
-        readonly chatId: ChatId;
-        readonly initialSessionId: SessionId;
-      }
-    | null
-  >;
+  ) => Promise<{
+    readonly chatId: ChatId;
+    readonly initialSessionId: SessionId;
+  } | null>;
   readonly rename: (chatId: ChatId, title: string) => Promise<void>;
   readonly setWorktree: (
     chatId: ChatId,
@@ -74,7 +106,18 @@ type ChatsState = {
     chatId: ChatId,
     sessionId: SessionId,
   ) => Promise<void>;
-  readonly archive: (chatId: ChatId) => Promise<void>;
+  readonly archive: (
+    chatId: ChatId,
+    force?: boolean,
+  ) => Promise<
+    | { readonly ok: true }
+    | { readonly ok: false; readonly dirty: boolean; readonly reason: string }
+  >;
+  readonly setArchiveProgress: (
+    chatId: ChatId,
+    phase: ChatArchiveProgressPhase,
+  ) => void;
+  readonly clearArchiveProgress: (chatId: ChatId) => void;
   readonly unarchive: (chatId: ChatId) => Promise<void>;
   readonly remove: (chatId: ChatId) => Promise<void>;
   readonly select: (chatId: ChatId | null) => void;
@@ -135,24 +178,22 @@ const ensureChangeStream = (projectId: FolderId): void => {
       Effect.flatMap(
         Effect.promise(() => getRpcClient()),
         (client) =>
-          Stream.runForEach(
-            client.chat.streamChanges({ projectId }),
-            (chat) =>
-              Effect.sync(() => {
-                useChatsStore.setState((s) => {
-                  const chats = s.chatsByProject[projectId];
-                  if (chats === undefined) return s;
-                  if (!chats.some((c) => c.id === chat.id)) return s;
-                  return {
-                    chatsByProject: {
-                      ...s.chatsByProject,
-                      [projectId]: chats.map((c) =>
-                        c.id === chat.id ? chat : c,
-                      ),
-                    },
-                  };
-                });
-              }),
+          Stream.runForEach(client.chat.streamChanges({ projectId }), (chat) =>
+            Effect.sync(() => {
+              useChatsStore.setState((s) => {
+                const chats = s.chatsByProject[projectId];
+                if (chats === undefined) return s;
+                if (!chats.some((c) => c.id === chat.id)) return s;
+                return {
+                  chatsByProject: {
+                    ...s.chatsByProject,
+                    [projectId]: chats.map((c) =>
+                      c.id === chat.id ? chat : c,
+                    ),
+                  },
+                };
+              });
+            }),
           ),
       ),
     ),
@@ -166,6 +207,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
   showArchivedByProject: {},
   loadingByProject: {},
   creatingByProject: {},
+  archiveProgressByChat: {},
   error: null,
   hydrate: async (projectId) => {
     set((s) => ({
@@ -372,11 +414,13 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       set({ error: formatError(err) });
     }
   },
-  archive: async (chatId) => {
+  archive: async (chatId, force = false) => {
     set({ error: null });
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client.chat.archive({ chatId }));
+      const result = await Effect.runPromise(
+        client.chat.archive({ chatId, force }),
+      );
       const projectId = findChatProject(get().chatsByProject, chatId);
       if (projectId !== null) {
         set((s) => {
@@ -426,9 +470,40 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
               : s.selectedSessionId,
         };
       });
+      // Tear down the chat's terminals (closing their PTYs) and drop its dock
+      // layout so an archived chat leaks no shells or tab state.
+      useTerminalsStore.getState().disposeChat(chatId);
+      useUiStore.getState().clearChatPanels(chatId);
+      return { ok: true } as const;
     } catch (err) {
-      set({ error: formatError(err) });
+      const reason = formatError(err);
+      // A dirty worktree blocks removal; the caller can re-issue with
+      // `force: true` after confirming the discard with the user.
+      const dirty =
+        !force &&
+        (reason.includes("WorktreeDirtyError") ||
+          reason.toLowerCase().includes("dirty"));
+      // Keep the dirty case out of the global error banner — the caller owns
+      // the confirm-and-retry flow. Surface every other failure as before.
+      set({ error: dirty ? null : reason });
+      return { ok: false, dirty, reason } as const;
     }
+  },
+  setArchiveProgress: (chatId, phase) => {
+    set((s) => ({
+      archiveProgressByChat: {
+        ...s.archiveProgressByChat,
+        [chatId]: phase,
+      },
+    }));
+  },
+  clearArchiveProgress: (chatId) => {
+    set((s) => {
+      if (s.archiveProgressByChat[chatId] === undefined) return s;
+      const next = { ...s.archiveProgressByChat };
+      delete next[chatId];
+      return { archiveProgressByChat: next };
+    });
   },
   unarchive: async (chatId) => {
     set({ error: null });
@@ -526,6 +601,10 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
               : s.selectedSessionId,
         };
       });
+      // Dispose the deleted chat's terminals (closing their PTYs) and drop its
+      // dock layout so nothing lingers after the chat is gone.
+      useTerminalsStore.getState().disposeChat(chatId);
+      useUiStore.getState().clearChatPanels(chatId);
     } catch (err) {
       set({ error: formatError(err) });
     }
@@ -653,6 +732,68 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     void get().hydrate(projectId);
   },
 }));
+
+/**
+ * Archive a chat, surfacing the dirty-worktree case as a confirm prompt.
+ * Mirrors the settings page's force-remove flow: when the chat's worktree has
+ * uncommitted/untracked changes, ask the user to confirm discarding them, then
+ * retry with `force: true`. Resolves quietly when the user declines; throws on
+ * any other failure so button-level error UI can surface it.
+ */
+export async function archiveChatWithConfirm(chatId: ChatId): Promise<void> {
+  const { archive, setArchiveProgress, clearArchiveProgress } =
+    useChatsStore.getState();
+  let forcedToastShown = false;
+  let forcedToastTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearForcedToastTimer = (): void => {
+    if (forcedToastTimer === null) return;
+    clearTimeout(forcedToastTimer);
+    forcedToastTimer = null;
+  };
+
+  setArchiveProgress(chatId, "archiving");
+  try {
+    const first = await archive(chatId);
+    if (first.ok) return;
+    if (!first.dirty) throw new Error(first.reason);
+    const confirmed = await archiveDirtyConfirm();
+    if (!confirmed) return;
+
+    setArchiveProgress(chatId, "removing-dirty-worktree");
+    forcedToastTimer = setTimeout(() => {
+      forcedToastShown = true;
+      toastManager.add({
+        type: "loading",
+        title: "Removing dirty worktree…",
+        description: "Discarding local changes and deleting the checkout.",
+      });
+    }, FORCED_ARCHIVE_TOAST_DELAY_MS);
+
+    const forced = await archive(chatId, true);
+    clearForcedToastTimer();
+    if (!forced.ok) throw new Error(forced.reason);
+    if (forcedToastShown) {
+      toastManager.add({
+        type: "success",
+        title: "Worktree removed",
+        description: "The dirty checkout was discarded and archived.",
+      });
+    }
+  } catch (err) {
+    clearForcedToastTimer();
+    if (forcedToastShown) {
+      toastManager.add({
+        type: "error",
+        title: "Archive failed",
+        description: formatError(err),
+      });
+    }
+    throw err;
+  } finally {
+    clearForcedToastTimer();
+    clearArchiveProgress(chatId);
+  }
+}
 
 // Mirror `selectedChatId` from the active project's slot — same pattern
 // as `useSessionsStore` so switching projects swaps the active chat too.

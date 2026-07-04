@@ -1,5 +1,5 @@
 {
-  "name": "@memoize/wire",
+  "name": "@zuse/wire",
   "version": "0.0.0",
   "private": true,
   "type": "module",

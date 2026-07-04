@@ -6,7 +6,7 @@ import {
   BrowserCommandResult,
   type BrowserCommand,
   type SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import {
   BrowserBridgeService,

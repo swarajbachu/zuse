@@ -7,13 +7,15 @@ import {
 } from "shiki";
 
 import { cn } from "~/lib/utils";
+import { useResolvedAppearance } from "~/lib/appearance.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { FileIcon } from "./file-icon.tsx";
 
-const THEME = "memoize-dark" as const;
+const DARK_THEME = "memoize-dark" as const;
+const LIGHT_THEME = "memoize-light" as const;
 
-const MEMOIZE_SHIKI_THEME: ThemeRegistration = {
-  name: THEME,
+const MEMOIZE_DARK_SHIKI_THEME: ThemeRegistration = {
+  name: DARK_THEME,
   type: "dark",
   colors: {
     "editor.background": "#00000000",
@@ -74,6 +76,76 @@ const MEMOIZE_SHIKI_THEME: ThemeRegistration = {
     {
       scope: ["invalid", "invalid.illegal"],
       settings: { foreground: "#f87171" },
+    },
+  ],
+};
+
+const MEMOIZE_LIGHT_SHIKI_THEME: ThemeRegistration = {
+  name: LIGHT_THEME,
+  type: "light",
+  colors: {
+    "editor.background": "#00000000",
+    "editor.foreground": "var(--foreground)",
+    "editorLineNumber.foreground": "var(--muted-foreground)",
+    "editor.selectionBackground":
+      "color-mix(in oklab, var(--primary) 22%, transparent)",
+  },
+  tokenColors: [
+    {
+      scope: ["comment", "punctuation.definition.comment"],
+      settings: { foreground: "var(--muted-foreground)", fontStyle: "italic" },
+    },
+    {
+      scope: ["keyword", "storage", "storage.type", "constant.language"],
+      settings: { foreground: "var(--syntax-keyword)" },
+    },
+    {
+      scope: ["string", "constant.character", "markup.inline.raw.string"],
+      settings: { foreground: "var(--syntax-string)" },
+    },
+    {
+      scope: ["constant.numeric", "constant.language.boolean"],
+      settings: { foreground: "var(--syntax-number)" },
+    },
+    {
+      scope: ["entity.name.function", "support.function", "variable.function"],
+      settings: { foreground: "var(--syntax-function)" },
+    },
+    {
+      scope: [
+        "entity.name.type",
+        "entity.name.class",
+        "support.type",
+        "support.class",
+      ],
+      settings: { foreground: "var(--syntax-type)" },
+    },
+    {
+      scope: ["entity.other.attribute-name", "variable.parameter"],
+      settings: { foreground: "var(--syntax-attribute)" },
+    },
+    {
+      scope: ["entity.name.tag", "support.class.component"],
+      settings: { foreground: "var(--syntax-tag)" },
+    },
+    {
+      scope: ["punctuation", "meta.brace", "keyword.operator"],
+      settings: { foreground: "var(--muted-foreground)" },
+    },
+    {
+      scope: ["markup.heading", "entity.name.section"],
+      settings: { foreground: "var(--message-heading)", fontStyle: "bold" },
+    },
+    {
+      scope: ["markup.link", "string.other.link"],
+      settings: {
+        foreground: "var(--syntax-function)",
+        fontStyle: "underline",
+      },
+    },
+    {
+      scope: ["invalid", "invalid.illegal"],
+      settings: { foreground: "var(--destructive)" },
     },
   ],
 };
@@ -203,7 +275,7 @@ const basename = (p: string): string => {
 let highlighterPromise: Promise<Highlighter> | null = null;
 const getHighlighter = (): Promise<Highlighter> => {
   highlighterPromise ??= createHighlighter({
-    themes: [MEMOIZE_SHIKI_THEME],
+    themes: [MEMOIZE_DARK_SHIKI_THEME, MEMOIZE_LIGHT_SHIKI_THEME],
     langs: [...LANGS],
   });
   return highlighterPromise;
@@ -238,6 +310,8 @@ export function CodeBlock({
   maxHeight = 420,
   isError = false,
 }: Props) {
+  const resolvedAppearance = useResolvedAppearance();
+  const theme = resolvedAppearance === "dark" ? DARK_THEME : LIGHT_THEME;
   const lang = useMemo(
     () => langForLanguage(language) ?? langForFilename(filename),
     [filename, language],
@@ -266,7 +340,7 @@ export function CodeBlock({
         if (cancelled) return;
         const out = hl.codeToHtml(safeText, {
           lang,
-          theme: THEME,
+          theme,
           transformers: [
             {
               line(node, line) {
@@ -284,7 +358,7 @@ export function CodeBlock({
     return () => {
       cancelled = true;
     };
-  }, [safeText, lang]);
+  }, [safeText, lang, theme]);
 
   const name = title ?? basename(filename);
   const lineCount = safeText.length === 0 ? 0 : safeText.split("\n").length;

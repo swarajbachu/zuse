@@ -6,7 +6,7 @@ import {
   type PtyId,
   type PtyNotFoundError,
   type PtySpawnError,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 export interface PtyServiceShape {
   readonly open: (

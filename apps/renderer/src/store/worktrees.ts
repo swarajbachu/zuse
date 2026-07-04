@@ -6,11 +6,13 @@ import {
   Worktree,
   type WorktreeId,
   type WorktreeSetupEvent,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { toastManager } from "../components/ui/toast.tsx";
+import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
+import { useChatsStore } from "./chats.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useRepositorySettingsStore } from "./repository-settings.ts";
 import { useSessionsStore } from "./sessions.ts";
@@ -63,15 +65,33 @@ type WorktreesState = {
     projectId: FolderId,
     worktreeId: WorktreeId,
     force: boolean,
-  ) => Promise<{ readonly ok: true } | { readonly ok: false; reason: string }>;
+  ) => Promise<
+    | { readonly ok: true }
+    | { readonly ok: false; readonly dirty: boolean; readonly reason: string }
+  >;
 };
 
-const formatError = (err: unknown): string => {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "object" && err !== null && "_tag" in err) {
-    return String((err as { _tag: unknown })._tag);
+let getWorktreesRpcClient: typeof getRpcClient = getRpcClient;
+
+export const setWorktreesRpcClientForTest = (fn: typeof getRpcClient): void => {
+  getWorktreesRpcClient = fn;
+};
+
+const isWorktreeDirtyError = (err: unknown, formatted: string): boolean => {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "_tag" in err &&
+    err._tag === "WorktreeDirtyError"
+  ) {
+    return true;
   }
-  return String(err);
+  if (err instanceof Error && err.name === "WorktreeDirtyError") return true;
+  return (
+    formatted.includes("WorktreeDirtyError") ||
+    formatted.toLowerCase().includes("dirty") ||
+    formatted.toLowerCase().includes("uncommitted changes")
+  );
 };
 
 const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
@@ -80,11 +100,16 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
     (await useRepositorySettingsStore.getState().refresh(projectId));
   if (settings?.autoRunAfterSetup !== true) return;
   if (wt.setupStatus !== "succeeded" && wt.setupStatus !== "skipped") return;
+  // Terminals are per chat — surface the auto-run in the chat that owns this
+  // worktree. Without one (none bound it), there's no dock to land it in.
+  const chat = (useChatsStore.getState().chatsByProject[projectId] ?? []).find(
+    (c) => c.worktreeId === wt.id,
+  );
+  if (chat === undefined) return;
   const run = await useWorktreesStore.getState().startRun(wt.id);
   if (run === null) return;
   openTerminalCommand({
-    folderId: projectId,
-    worktreeId: wt.id,
+    chatId: chat.id,
     cwd: run.cwd,
     title: "Run",
     command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
@@ -129,7 +154,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return { loading: next };
     });
     try {
-      const client = await getRpcClient();
+      const client = await getWorktreesRpcClient();
       const list = await Effect.runPromise(client.worktree.list({ projectId }));
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: list },
@@ -158,7 +183,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return { creatingSetupByProject: next };
     });
     try {
-      const client = await getRpcClient();
+      const client = await getWorktreesRpcClient();
       const wt = await Effect.runPromise(client.worktree.create({ projectId }));
       set((s) => {
         const existing = s.byProject[projectId] ?? [];
@@ -202,7 +227,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return { setupPending: next };
     });
     try {
-      const client = await getRpcClient();
+      const client = await getWorktreesRpcClient();
       const wt = await Effect.runPromise(
         client.worktree.rerunSetup({ worktreeId }),
       );
@@ -237,7 +262,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   },
   startRun: async (worktreeId) => {
     try {
-      const client = await getRpcClient();
+      const client = await getWorktreesRpcClient();
       return await Effect.runPromise(client.worktree.startRun({ worktreeId }));
     } catch (err) {
       set({ error: formatError(err) });
@@ -249,7 +274,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     subscribingSetup.add(worktreeId);
     void (async () => {
       try {
-        const client = await getRpcClient();
+        const client = await getWorktreesRpcClient();
         const apply = (event: WorktreeSetupEvent): void => {
           set((s) => {
             const list = s.byProject[projectId];
@@ -306,7 +331,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   },
   remove: async (projectId, worktreeId, force) => {
     try {
-      const client = await getRpcClient();
+      const client = await getWorktreesRpcClient();
       await Effect.runPromise(client.worktree.remove({ worktreeId, force }));
       get().unsubscribeSetup(worktreeId);
       set((s) => {
@@ -322,8 +347,9 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return { ok: true } as const;
     } catch (err) {
       const reason = formatError(err);
-      set({ error: reason });
-      return { ok: false, reason } as const;
+      const dirty = !force && isWorktreeDirtyError(err, reason);
+      set({ error: dirty ? null : reason });
+      return { ok: false, dirty, reason } as const;
     }
   },
 }));

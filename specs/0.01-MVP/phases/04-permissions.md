@@ -8,7 +8,7 @@
 
 **Depends on**: Phase 3 (chat MVP)
 
-> **Note:** Renumbered from "Phase 3" when the chat-first pivot inserted the new Phase 3. Session persistence already shipped in Phase 3 (SQLite at `<userData>/memoize.sqlite`, sessions list in the projects sidebar). What's left here is permissions UI, inline diff rendering, resume of interrupted turns, and an NDJSON audit/export sink.
+> **Note:** Renumbered from "Phase 3" when the chat-first pivot inserted the new Phase 3. Session persistence already shipped in Phase 3 (SQLite at `<userData>/zuse.sqlite`, sessions list in the projects sidebar). What's left here is permissions UI, inline diff rendering, resume of interrupted turns, and an NDJSON audit/export sink.
 
 ## Deliverables
 
@@ -31,11 +31,11 @@
 
 ## Storage layout
 
-Session metadata, message history, and permission decisions all live in `<userData>/memoize.sqlite` (SQLite is canonical — schema added by migrations 0002 and 0003). NDJSON is a side-write audit/export sink:
+Session metadata, message history, and permission decisions all live in `<userData>/zuse.sqlite` (SQLite is canonical — schema added by migrations 0002 and 0003). NDJSON is a side-write audit/export sink:
 
 ```
 <userData>/
-  memoize.sqlite                                 # canonical: sessions, messages, permission_decisions
+  zuse.sqlite                                 # canonical: sessions, messages, permission_decisions
   sessions/
     <project-id>/
       <session-id>.events.ndjson                  # tail-written; rotates to *.events.<ts>.ndjson at 100MB

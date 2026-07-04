@@ -31,7 +31,7 @@ packages/
 apps/
   server/                       # main-process service implementations
     src/
-      <domain>/                 # workspace, pty, git, provider — t3code Drivers/Layers/Services split
+      <domain>/                 # workspace, pty, git, provider — Drivers/Layers/Services split
       app-paths.ts              # Context.Tag for OS-paths (no electron import)
       runtime.ts                # makeMainLayer(deps) — pure factory, no transport
       handlers.ts               # mergeAll of all per-domain handlers
@@ -39,7 +39,7 @@ apps/
                                 # Tomorrow: WS server boot.
   desktop/                      # thin Electron shim
     src/
-      main.ts                   # Electron lifecycle. Imports runtime from @memoize/server.
+      main.ts                   # Electron lifecycle. Imports runtime from @zuse/server.
       preload.ts                # contextBridge
       ipc/                      # electron-server-protocol — Electron-bound transport
   renderer/                     # React UI

@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef, useState } from "react";
 
-import { type LoginEvent, type ProviderId } from "@memoize/wire";
+import { type LoginEvent, type ProviderId } from "@zuse/wire";
 
 import { getRpcClient } from "./rpc-client";
 
@@ -18,7 +18,7 @@ export type ProviderLoginState =
  * user's real browser session, password manager, and cookies.
  */
 export const openExternal = (url: string): void => {
-  const bridge = window.memoize?.app;
+  const bridge = window.zuse?.app;
   if (bridge !== undefined) {
     bridge.openExternal(url);
     return;

@@ -3,26 +3,27 @@ import { create } from "zustand";
 
 import {
   ComposerInput,
-  type Message,
+  Message,
+  MessageId,
+  type MessageContent,
   type ProviderId,
   type QueuedMessage,
   type SessionStatus,
   type SessionId,
   type ThreadGoal,
   type ThreadGoalSetInput,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { usePrDetailsStore } from "./pr-details.ts";
 import { usePrStateStore } from "./pr-state.ts";
 import { useSessionsStore } from "./sessions.ts";
 
 let getMessagesRpcClient: typeof getRpcClient = getRpcClient;
 
-export const setMessagesRpcClientForTest = (
-  fn: typeof getRpcClient,
-): void => {
+export const setMessagesRpcClientForTest = (fn: typeof getRpcClient): void => {
   getMessagesRpcClient = fn;
 };
 
@@ -73,8 +74,10 @@ const readSessionModelOptions = (
   if (typeof window === "undefined") return null;
   const out: Record<string, string> = {};
   for (const key of SESSION_MODEL_OPTION_KEYS) {
-    const v = window.sessionStorage.getItem(
-      `memoize.modelOptions.${sessionId}.${key}`,
+    const v = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.modelOptions.${sessionId}.${key}`,
+      [`memoize.modelOptions.${sessionId}.${key}`],
     );
     if (v !== null && v.length > 0) out[key] = v;
   }
@@ -82,8 +85,10 @@ const readSessionModelOptions = (
   // bare `memoize.reasoning.<sessionId>` key. Read it if the new key
   // wasn't set so existing sessions don't lose their picker selection.
   if (out["reasoning"] === undefined) {
-    const legacy = window.sessionStorage.getItem(
-      `memoize.reasoning.${sessionId}`,
+    const legacy = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.reasoning.${sessionId}`,
+      [`memoize.reasoning.${sessionId}`],
     );
     if (legacy !== null && legacy.length > 0) out["reasoning"] = legacy;
   }
@@ -220,6 +225,27 @@ let statusFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let queueFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let goalFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
+// Monotonic token guarding `hydrate` against re-entrancy. `hydrate` mutates the
+// module-global fibers + `liveSessionId` across two `await` points, so two
+// overlapping calls (rapid tab switches, or React's mount→cleanup→mount) used
+// to interleave and leave `liveFiber`/`liveSessionId` pointing at a session
+// other than the one on screen — the active session then had no live stream, so
+// freshly-sent / streamed messages never landed until a re-open re-ran the
+// backfill. Each call captures the epoch on entry and bails after every await
+// once a newer call (or `teardownLiveStreams`) has superseded it, so only the
+// latest (rendered) session ever installs fibers.
+let hydrateEpoch = 0;
+// Message ids we minted optimistically in `send()`. When the server echoes the
+// same row back over the live stream (same id, because the renderer passes the
+// id as `clientMessageId`), we replace the optimistic row in place with the
+// canonical server message instead of skipping it, so server-side fixups
+// (stripped `pending-` attachments, server `createdAt`) win.
+const optimisticIds = new Set<MessageId>();
+// Highest event-log `sequence` seen per session (from `MessageEnvelope`).
+// Passed back as `sinceSequence` on resubscribe so the server replays only
+// the delta — gap-free reconnect without a full-history backfill. In-memory
+// only: a reload starts from 0 and gets the full replay, which is correct.
+const lastSequenceBySession = new Map<SessionId, number>();
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
 const statusWaiters = new Map<
@@ -232,6 +258,16 @@ const handoffReleaseTimers = new Map<
 >();
 
 const stopLiveFiber = async () => {
+  // Clear the live marker FIRST, before any interrupt yields the event loop.
+  // The status fiber's `resetOnStreamEnd` + stale-status-event handler both
+  // guard on `liveSessionId === sessionId`. If a yield happens while this
+  // still points at the outgoing session — e.g. the awaited `goalFiber`
+  // interrupt below, which only exists for Codex/Grok — those handlers drain
+  // and wrongly clobber `runningBySession[sessionId]` to false, dropping the
+  // sidebar spinner for a backgrounded-but-still-running Codex/Grok chat the
+  // moment you switch away. Claude has no `goalFiber` and so never yielded
+  // here before this assignment, which is why the bug was Codex/Grok-only.
+  liveSessionId = null;
   const tasks: Array<Promise<unknown>> = [];
   if (liveFiber !== null) {
     tasks.push(Effect.runPromise(Fiber.interrupt(liveFiber)));
@@ -249,7 +285,6 @@ const stopLiveFiber = async () => {
     await Effect.runPromise(Fiber.interrupt(goalFiber));
     goalFiber = null;
   }
-  liveSessionId = null;
   await Promise.all(tasks);
   // We intentionally do NOT clear the prior session's `runningBySession`
   // entry here. The sidebar-root `useSessionRunningSubscriptions` hook
@@ -257,6 +292,17 @@ const stopLiveFiber = async () => {
   // live truth even after switching away. Wiping it would make the
   // previous session's busy indicator disappear in the sidebar until
   // the next transition event.
+};
+
+/**
+ * Tear down the single live message stream — called from the `ChatView`
+ * effect cleanup on unmount / session change. Bumps `hydrateEpoch` first so a
+ * `hydrate` still awaiting its RPC client can't resume and fork orphaned
+ * fibers after the view is gone, then interrupts the live fibers.
+ */
+export const teardownLiveStreams = async (): Promise<void> => {
+  hydrateEpoch++;
+  await stopLiveFiber();
 };
 
 /**
@@ -328,9 +374,18 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   queuePausedBySession: {},
   goalBySession: {},
   hydrate: async (sessionId) => {
-    if (liveSessionId === sessionId && liveFiber !== null) return;
+    if (
+      liveSessionId === sessionId &&
+      liveFiber !== null &&
+      (get().messagesBySession[sessionId]?.length ?? 0) > 0
+    ) {
+      return;
+    }
+    const myEpoch = ++hydrateEpoch;
     await stopLiveFiber();
-    liveSessionId = sessionId;
+    // A newer hydrate (or a teardown) started while we were tearing down — let
+    // it win rather than installing fibers for a session no longer on screen.
+    if (myEpoch !== hydrateEpoch) return;
     set((s) => ({
       // Preserve any pre-seeded messages (e.g. the initial user message
       // that `chats.create` stuffed in optimistically) so the chat view
@@ -345,11 +400,49 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }));
     try {
       const client = await getMessagesRpcClient();
-      liveFiber = Effect.runFork(
-        Stream.runForEach(client.messages.stream({ sessionId }), (message) =>
+      // Superseded while awaiting the client — don't install stale fibers.
+      if (myEpoch !== hydrateEpoch) return;
+      // Set the live target + fork the fibers together (winner-only,
+      // synchronously) so `liveSessionId` and the forked subscriptions can
+      // never disagree. The `resetOnStreamEnd` / status guards below read
+      // `liveSessionId`, so it must be correct before the fibers run.
+      liveSessionId = sessionId;
+      // Resume from the recorded cursor only while the store still holds the
+      // rows the cursor accounts for; otherwise (first visit, page reload)
+      // stream the full history. Pre-seeded optimistic rows never record a
+      // cursor, so a fresh chat still gets its full replay + echo id-swap.
+      const sinceSequence =
+        (get().messagesBySession[sessionId]?.length ?? 0) > 0
+          ? lastSequenceBySession.get(sessionId)
+          : undefined;
+      const messageProgram = Stream.runForEach(
+        client.messages.stream({ sessionId, sinceSequence }),
+        (envelope) =>
           Effect.sync(() => {
+            const { sequence, message } = envelope;
+            // Advance the cursor on EVERY envelope — including optimistic
+            // echoes — before any dedup branch, so a reconnect can never
+            // pass a cursor below an already-delivered row.
+            const prev = lastSequenceBySession.get(sessionId) ?? 0;
+            if (sequence > prev) lastSequenceBySession.set(sessionId, sequence);
             set((s) => {
               const current = s.messagesBySession[sessionId] ?? [];
+              // The server echo of a message we inserted optimistically (same
+              // id, passed as `clientMessageId` on send) — swap our placeholder
+              // row for the canonical server row in place rather than skipping,
+              // so server fixups (stripped `pending-` attachments, server
+              // `createdAt`) take effect without a duplicate.
+              if (optimisticIds.has(message.id)) {
+                optimisticIds.delete(message.id);
+                return {
+                  messagesBySession: {
+                    ...s.messagesBySession,
+                    [sessionId]: current.map((m) =>
+                      m.id === message.id ? message : m,
+                    ),
+                  },
+                };
+              }
               if (current.some((m) => m.id === message.id)) return s;
               const next = [...current, message];
               // Auto-untoggle plan mode when the SDK runs ExitPlanMode
@@ -398,8 +491,28 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               };
             });
           }),
+      ).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error("[messages] message stream errored", err);
+            set((s) => ({
+              errorBySession: {
+                ...s.errorBySession,
+                [sessionId]: classifyError(
+                  err,
+                  lookupSessionProvider(sessionId),
+                ),
+              },
+            }));
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (liveSessionId === sessionId) liveFiber = null;
+          }),
         ),
       );
+      liveFiber = Effect.runFork(messageProgram);
       // Status mirror — keeps the composer's "running" indicator stable
       // across the whole tool-call loop. When a turn ends we also refresh
       // the project's PR state so freshly pushed branches recolor the
@@ -536,11 +649,55 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     // so it should show the running indicator like any normal send.
     const skipOptimisticRunning =
       opts?.asGoal === true && lookupSessionProvider(sessionId) === "codex";
+    // Optimistic message insert — show the user's turn instantly instead of
+    // waiting for the server echo on the live stream. We mint the id here and
+    // pass it as `clientMessageId` so the server persists the row under the
+    // same id; the echo then dedupes against this row (and upgrades it to the
+    // canonical server version in place — see the stream handler).
+    const asGoal = opts?.asGoal === true;
+    const optimisticContent: MessageContent =
+      typeof input === "string"
+        ? { _tag: "user", text: input, goal: asGoal }
+        : (() => {
+            const annotations = input.annotations ?? [];
+            const hasRich =
+              input.attachments.length > 0 ||
+              input.fileRefs.length > 0 ||
+              input.skillRefs.length > 0 ||
+              annotations.length > 0;
+            return hasRich
+              ? {
+                  _tag: "user_rich",
+                  text: input.text,
+                  attachments: input.attachments,
+                  fileRefs: input.fileRefs,
+                  skillRefs: input.skillRefs,
+                  annotations,
+                  goal: asGoal,
+                }
+              : { _tag: "user", text: input.text, goal: asGoal };
+          })();
+    const messageId = MessageId.make(crypto.randomUUID());
+    const optimisticMessage = Message.make({
+      id: messageId,
+      sessionId,
+      role: "user",
+      content: optimisticContent,
+      createdAt: new Date(),
+    });
+    optimisticIds.add(messageId);
     set((s) => ({
       errorBySession: { ...s.errorBySession, [sessionId]: null },
       runningBySession: skipOptimisticRunning
         ? s.runningBySession
         : { ...s.runningBySession, [sessionId]: true },
+      messagesBySession: {
+        ...s.messagesBySession,
+        [sessionId]: [
+          ...(s.messagesBySession[sessionId] ?? []),
+          optimisticMessage,
+        ],
+      },
     }));
     try {
       const client = await getMessagesRpcClient();
@@ -555,12 +712,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               sessionId,
               text: input,
               asGoal: opts?.asGoal,
+              clientMessageId: messageId,
               ...(modelOptions !== null ? { modelOptions } : {}),
             }
           : {
               sessionId,
               input,
               asGoal: opts?.asGoal,
+              clientMessageId: messageId,
               ...(modelOptions !== null ? { modelOptions } : {}),
             };
       await Effect.runPromise(client.messages.send(payload));
@@ -569,12 +728,20 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       // Reset the optimistic running flag — otherwise a failed send leaves
       // the composer stuck on Interrupt with no path back to Send (the
       // status stream won't emit "idle" if the server never saw the turn).
+      // Also drop the optimistic message row so a failed send leaves no ghost.
+      optimisticIds.delete(messageId);
       set((s) => ({
         errorBySession: {
           ...s.errorBySession,
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
         runningBySession: { ...s.runningBySession, [sessionId]: false },
+        messagesBySession: {
+          ...s.messagesBySession,
+          [sessionId]: (s.messagesBySession[sessionId] ?? []).filter(
+            (m) => m.id !== messageId,
+          ),
+        },
       }));
     }
   },

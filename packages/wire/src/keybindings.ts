@@ -23,6 +23,26 @@ export const Command = Schema.Literal(
   "toggle-right-sidebar",
   "toggle-terminal",
   "focus-composer",
+  // navigation — drive tabs / chats / panes from the keyboard
+  "next-tab",
+  "prev-tab",
+  "select-tab-1",
+  "select-tab-2",
+  "select-tab-3",
+  "select-tab-4",
+  "select-tab-5",
+  "select-tab-6",
+  "select-tab-7",
+  "select-tab-8",
+  "select-last-tab",
+  "new-tab",
+  "next-chat",
+  "prev-chat",
+  "next-panel",
+  "prev-panel",
+  "focus-next-pane",
+  "focus-prev-pane",
+  "open-chat-switcher",
   // composer (chat input)
   "composer.submit",
   "composer.newline",
@@ -42,7 +62,7 @@ export type Command = typeof Command.Type;
  * context (e.g. `"composerFocus && !settingsOpen"`).
  *
  * Rules are stored in order; later rules win over earlier ones on the same
- * key+context — matching the precedence VS Code & t3code use.
+ * key+context — matching common editor precedence.
  *
  * Declared as a `Schema.Struct` (not `Schema.Class`) on purpose: rules are
  * pure data with no methods, and the renderer constructs plain objects when
@@ -68,7 +88,7 @@ export class KeybindingsFile extends Schema.Class<KeybindingsFile>(
   rules: Schema.Array(KeybindingRule),
 }) {}
 
-/** Safety cap, matching t3code. Truncates oldest if exceeded. */
+/** Safety cap. Truncates oldest if exceeded. */
 export const MAX_KEYBINDING_RULES = 256;
 
 export const KeybindingsGetRpc = Rpc.make("keybindings.get", {

@@ -2,7 +2,7 @@ import type {
   CompletionSoundPreset,
   SessionId,
   SessionStatus,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { useSettingsStore } from "../store/settings.ts";
 

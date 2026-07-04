@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 import type { CredentialsError } from "../errors.ts";
 
@@ -49,6 +49,19 @@ export interface CredentialsServiceShape {
     ReadonlyArray<{ origin: string; username: string }>,
     CredentialsError
   >;
+
+  /**
+   * WorkOS AuthKit session bundle (access + refresh tokens, expiry, and the
+   * non-secret profile) serialized as JSON under a single `workos:session`
+   * keychain account. Lives alongside `apiKey:` / `browserCred:` in the same
+   * `memoize` service. The tokens NEVER leave the server — only the AuthService
+   * reads this; the renderer sees a redacted `AuthState` over the wire.
+   */
+  readonly getWorkosSession: () => Effect.Effect<string | null, CredentialsError>;
+  readonly setWorkosSession: (
+    bundleJson: string,
+  ) => Effect.Effect<void, CredentialsError>;
+  readonly removeWorkosSession: () => Effect.Effect<void, CredentialsError>;
 }
 
 export class CredentialsService extends Context.Tag(

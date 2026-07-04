@@ -18,7 +18,7 @@ import {
   type IndexDb,
   type SearchHit,
   type SearchInput,
-} from "@memoize/index";
+} from "@zuse/index";
 
 const runP = <A>(eff: Effect.Effect<A, unknown>): Promise<A> =>
   Effect.runPromise(eff as Effect.Effect<A, unknown, never>);
@@ -74,7 +74,7 @@ export const startServerHandle = async (
 ): Promise<ServerHandle> => {
   const workspace = opts.workspace;
   const branch = opts.branch ?? "HEAD";
-  const dbPath = opts.dbPath ?? join(workspace, ".memoize", "index.sqlite");
+  const dbPath = opts.dbPath ?? join(workspace, ".zuse", "index.sqlite");
 
   if (!existsSync(workspace)) {
     throw new Error(`workspace not found: ${workspace}`);

@@ -8,13 +8,9 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
-import {
-  getFsPolicy,
-  isSensitivePath,
-  type FsOp,
-} from "../../policy.ts";
+import { getFsPolicy, isSensitivePath, type FsOp } from "../../policy.ts";
 
 /**
  * ACP FS client implementation.
@@ -189,7 +185,9 @@ async function handleWriteFile(
   } else if (typeof data === "string") {
     buf = Buffer.from(data, "utf8");
   } else {
-    throw new Error("fs/write_file: missing data (expected dataBase64, content, text or data)");
+    throw new Error(
+      "fs/write_file: missing data (expected dataBase64, content, text or data)",
+    );
   }
 
   await fs.writeFile(abs, buf);
@@ -201,7 +199,8 @@ async function handleCreateDirectory(
   ctx: FsHandleContext,
 ): Promise<unknown> {
   const p = (params as any)?.path;
-  if (typeof p !== "string") throw new Error("fs/create_directory: missing path");
+  if (typeof p !== "string")
+    throw new Error("fs/create_directory: missing path");
 
   const abs = ensureUnderCwd(p, ctx.cwd);
   await ensureFsPermission(ctx, "create", abs);
@@ -226,8 +225,12 @@ async function handleMoveFile(
   params: unknown,
   ctx: FsHandleContext,
 ): Promise<unknown> {
-  const src = (params as any)?.source ?? (params as any)?.from ?? (params as any)?.path;
-  const dst = (params as any)?.destination ?? (params as any)?.to ?? (params as any)?.newPath;
+  const src =
+    (params as any)?.source ?? (params as any)?.from ?? (params as any)?.path;
+  const dst =
+    (params as any)?.destination ??
+    (params as any)?.to ??
+    (params as any)?.newPath;
   if (typeof src !== "string" || typeof dst !== "string") {
     throw new Error("fs/move_file: missing source/destination");
   }
@@ -282,7 +285,7 @@ export async function handleFsRequest(
         return await handleMoveFile(params, ctx);
 
       default:
-        throw new Error(`Method not implemented by memoize ACP client: ${method}`);
+        throw new Error(`Method not implemented by Zuse ACP client: ${method}`);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

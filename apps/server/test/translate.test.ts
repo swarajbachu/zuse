@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import type { AgentEvent } from "@memoize/wire";
+import type { AgentEvent } from "@zuse/wire";
 
 import {
   createAcpTranslator,

@@ -1,20 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
-  ArrowRight01Icon,
   ArrowUpRight01Icon,
   Search01Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentAvailability,
@@ -22,13 +13,15 @@ import type {
   ProviderId,
   RuntimeMode,
   SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 import {
   MODELS_BY_PROVIDER,
   findModelDescriptor,
+  isModelVisible,
   type Message,
+  type ModelOption,
   type SelectOptionDescriptor,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 import { useMessagesStore } from "~/store/messages";
@@ -56,18 +49,19 @@ const PROVIDER_LABEL: Record<ProviderId, string> = {
 };
 
 const PROVIDER_CHIP_LABEL: Record<ProviderId, string> = {
-  claude: "claude",
-  codex: "codex",
-  grok: "grok",
-  cursor: "cursor",
-  gemini: "gemini",
-  opencode: "oc",
+  claude: "Claude",
+  codex: "Codex",
+  grok: "Grok",
+  cursor: "Cursor",
+  gemini: "Gemini",
+  opencode: "OpenCode",
 };
 
 interface ModelPickerEntry {
   providerId: ProviderId;
   modelId: string;
   label: string;
+  badgeLabel?: string;
   /**
    * When set, render a small context-window pill on this row. We only show
    * a pill when the model's `contextWindow` descriptor defaults to `"1m"`
@@ -102,6 +96,9 @@ export function ModelPicker(props: ModelPickerProps) {
     (s) => s.defaultModelByProvider,
   );
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
 
   const providerId = isDefault ? defaultProviderId : props.providerId;
   const currentModel = isDefault
@@ -140,9 +137,6 @@ export function ModelPicker(props: ModelPickerProps) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const [events, setEvents] = useState<ModelPickerEvent[]>([]);
-  const [expandedGroup, setExpandedGroup] = useState<ProviderId | null>(
-    providerId,
-  );
   // Inline feedback for failed picks. The session-mode handlers
   // (createSession / setSessionProvider / setSessionModel) used to fire-
   // and-forget, so a failed switch (cursor-agent not installed, ACP
@@ -164,14 +158,15 @@ export function ModelPicker(props: ModelPickerProps) {
       setQuery("");
       setEvents(readModelPickerEvents());
       setScope("all");
-      setExpandedGroup(providerId);
       setPickError(null);
       setPicking(false);
     }
-  }, [open, providerId]);
+  }, [open]);
 
   const modelsForProvider = useCallback(
-    (pid: ProviderId): ReadonlyArray<{ id: string; label: string }> => {
+    (
+      pid: ProviderId,
+    ): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
       if (pid !== "opencode" || opencodeInventory === null) {
         return MODELS_BY_PROVIDER[pid] ?? [];
       }
@@ -203,6 +198,9 @@ export function ModelPicker(props: ModelPickerProps) {
     const out: ModelPickerEntry[] = [];
     for (const pid of pickableProviders) {
       for (const m of modelsForProvider(pid)) {
+        const visible = isModelVisible(pid, m.id, modelEnabledByProvider);
+        const selectedHidden = pid === providerId && m.id === currentModel;
+        if (!visible && !selectedHidden) continue;
         const descriptor = findModelDescriptor(pid, m.id);
         const ctxDescriptor = descriptor?.optionDescriptors?.find(
           (d): d is SelectOptionDescriptor =>
@@ -221,12 +219,19 @@ export function ModelPicker(props: ModelPickerProps) {
           providerId: pid,
           modelId: m.id,
           label: m.label,
+          ...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
           ...(contextWindowLabel !== undefined ? { contextWindowLabel } : {}),
         });
       }
     }
     return out;
-  }, [pickableProviders, modelsForProvider]);
+  }, [
+    pickableProviders,
+    modelsForProvider,
+    modelEnabledByProvider,
+    providerId,
+    currentModel,
+  ]);
 
   const countByProvider = useMemo(() => {
     const map = new globalThis.Map<ProviderId, number>();
@@ -258,13 +263,18 @@ export function ModelPicker(props: ModelPickerProps) {
         (m) => m.providerId === r.providerId && m.modelId === r.modelId,
       );
       if (match === undefined) continue;
+      if (
+        !isModelVisible(match.providerId, match.modelId, modelEnabledByProvider)
+      ) {
+        continue;
+      }
       out.push({ ...match, count: r.count });
     }
     return out;
-  }, [events, scope, allModels]);
+  }, [events, scope, allModels, modelEnabledByProvider]);
 
-  const accordionGroups = useMemo(() => {
-    if (scope !== "all" || query.trim() !== "") return [];
+  const modelGroups = useMemo(() => {
+    if (scope !== "all") return [];
     const order: ProviderId[] = [
       providerId,
       ...pickableProviders.filter((p) => p !== providerId),
@@ -275,7 +285,7 @@ export function ModelPicker(props: ModelPickerProps) {
         models: allModels.filter((m) => m.providerId === pid),
       }))
       .filter((g) => g.models.length > 0);
-  }, [scope, query, allModels, pickableProviders, providerId]);
+  }, [scope, allModels, pickableProviders, providerId]);
 
   const handlePick = async (pid: ProviderId, modelId: string) => {
     if (isDefault) {
@@ -336,9 +346,9 @@ export function ModelPicker(props: ModelPickerProps) {
   const showEmpty =
     flatMatches.length === 0 &&
     scopedRecents.length === 0 &&
-    accordionGroups.length === 0;
+    modelGroups.length === 0;
 
-  const inAccordionView = scope === "all" && query.trim() === "";
+  const inGroupedView = scope === "all" && query.trim() === "";
 
   const shortcutTargets = useMemo<ModelPickerEntry[]>(() => {
     const out: ModelPickerEntry[] = [];
@@ -347,22 +357,19 @@ export function ModelPicker(props: ModelPickerProps) {
         providerId: r.providerId,
         modelId: r.modelId,
         label: r.label,
+        ...(r.badgeLabel !== undefined ? { badgeLabel: r.badgeLabel } : {}),
+        ...(r.contextWindowLabel !== undefined
+          ? { contextWindowLabel: r.contextWindowLabel }
+          : {}),
       });
     }
-    if (inAccordionView) {
-      const group = accordionGroups.find((g) => g.providerId === expandedGroup);
-      if (group !== undefined) out.push(...group.models);
+    if (inGroupedView) {
+      for (const group of modelGroups) out.push(...group.models);
     } else {
       out.push(...flatMatches);
     }
     return out;
-  }, [
-    scopedRecents,
-    inAccordionView,
-    accordionGroups,
-    expandedGroup,
-    flatMatches,
-  ]);
+  }, [scopedRecents, inGroupedView, modelGroups, flatMatches]);
 
   // STABLE REFS — this is the fix so shortcuts actually work while the
   // composer editor is focused and causing re-renders.
@@ -420,173 +427,150 @@ export function ModelPicker(props: ModelPickerProps) {
         >
           <PopoverPrimitive.Popup
             ref={popupRef}
-            className="flex max-h-[480px] w-[320px] flex-col overflow-hidden rounded-lg border border-border/70 bg-popover text-popover-foreground shadow-lg/10 outline-none"
+            className="flex max-h-[540px] w-[430px] overflow-hidden rounded-xl border border-border/70 bg-popover text-popover-foreground shadow-xl/15 outline-none"
           >
-            <div className="flex flex-col gap-1.5 p-2.5">
-              <SearchField
-                value={query}
-                onChange={setQuery}
-                totalCount={totalCount}
-                scope={scope}
+            <div
+              role="tablist"
+              aria-label="Model provider"
+              className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-border/50 bg-muted/20 p-1.5"
+            >
+              <ProviderSidebarItem
+                active={scope === "all"}
+                onClick={() => setScope("all")}
+                label="All models"
+                count={totalCount}
               />
-              <div className="flex flex-wrap gap-1 px-0.5 pt-1">
-                <ChipButton
-                  active={scope === "all"}
-                  onClick={() => setScope("all")}
-                >
-                  <span>all</span>
-                  <ChipCount>{totalCount}</ChipCount>
-                </ChipButton>
-                {pickableProviders.map((pid) => {
-                  const live = pid === "opencode" && opencodeInventory !== null;
-                  return (
-                    <ChipButton
-                      key={pid}
-                      active={scope === pid}
-                      onClick={() => setScope(pid)}
-                    >
-                      <span>{PROVIDER_CHIP_LABEL[pid]}</span>
-                      <ChipCount>{countByProvider.get(pid) ?? 0}</ChipCount>
-                      {live && (
-                        <span
-                          className="size-1.5 rounded-full bg-primary"
-                          title="Live from local daemon"
-                        />
-                      )}
-                    </ChipButton>
-                  );
-                })}
-              </div>
+              {pickableProviders.map((pid) => {
+                const live = pid === "opencode" && opencodeInventory !== null;
+                return (
+                  <ProviderSidebarItem
+                    key={pid}
+                    active={scope === pid}
+                    onClick={() => setScope(pid)}
+                    providerId={pid}
+                    label={PROVIDER_CHIP_LABEL[pid]}
+                    count={countByProvider.get(pid) ?? 0}
+                    live={live}
+                  />
+                );
+              })}
             </div>
 
-            {pickError !== null && (
-              <div className="mx-2.5 mb-1.5 flex items-start gap-2 rounded-md border border-rose-400/30 bg-rose-500/[0.08] px-2.5 py-2 text-[11px] text-rose-200">
-                <span className="mt-px shrink-0">⚠</span>
-                <span className="leading-snug">{pickError}</span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="border-b border-border/50 p-2.5">
+                <SearchField
+                  value={query}
+                  onChange={setQuery}
+                  totalCount={totalCount}
+                  scope={scope}
+                />
               </div>
-            )}
 
-            <div
-              className={cn(
-                "flex-1 overflow-y-auto px-2 pb-2",
-                picking && "pointer-events-none opacity-60",
-              )}
-            >
-              {showEmpty && (
-                <div className="px-3 py-6 text-center text-muted-foreground text-xs">
-                  No models match.
+              {pickError !== null && (
+                <div className="mx-2.5 mt-2 flex items-start gap-2 rounded-md border border-rose-400/30 bg-rose-500/[0.08] px-2.5 py-2 text-[11px] text-rose-200">
+                  <span className="mt-px shrink-0">⚠</span>
+                  <span className="leading-snug">{pickError}</span>
                 </div>
               )}
 
-              {scopedRecents.length > 0 && (
-                <>
-                  <SectionLabel
-                    title={
-                      scope === "all"
-                        ? "recents"
-                        : `recents in ${PROVIDER_CHIP_LABEL[scope]}`
-                    }
-                    meta="last 30 days"
-                  />
-                  {scopedRecents.map((m) => (
-                    <ModelRow
-                      key={`recent-${m.providerId}-${m.modelId}`}
-                      entry={m}
-                      currentProviderId={providerId}
-                      currentModelId={currentModel}
-                      isFresh={isFresh}
-                      onSelect={handlePick}
-                      countSuffix={`${m.count}×`}
-                      showNowBadge
-                      shortcut={shortcutFor(m.providerId, m.modelId)}
-                    />
-                  ))}
-                </>
-              )}
+              <div
+                className={cn(
+                  "min-h-0 flex-1 overflow-y-auto px-2.5 pb-2.5",
+                  picking && "pointer-events-none opacity-60",
+                )}
+              >
+                {showEmpty && (
+                  <div className="px-3 py-6 text-center text-muted-foreground text-xs">
+                    No models match.
+                  </div>
+                )}
 
-              {inAccordionView ? (
-                <>
-                  <SectionLabel title={`all ${totalCount} by provider`} />
-                  {accordionGroups.map((g) => {
-                    const expanded = expandedGroup === g.providerId;
-                    return (
-                      <div key={g.providerId}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedGroup(expanded ? null : g.providerId)
-                          }
-                          aria-expanded={expanded}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60"
-                        >
-                          <span className="flex size-3 items-center justify-center text-muted-foreground">
-                            {expanded ? (
-                              <HugeiconsIcon
-                                icon={ArrowDown01Icon}
-                                className="size-3"
-                              />
-                            ) : (
-                              <HugeiconsIcon
-                                icon={ArrowRight01Icon}
-                                className="size-3"
-                              />
-                            )}
-                          </span>
-                          <ProviderIcon
-                            providerId={g.providerId}
-                            className="size-3.5"
-                          />
-                          <span className="flex-1 font-medium">
-                            {PROVIDER_LABEL[g.providerId]}
-                          </span>
-                          <span className="text-muted-foreground text-xs">
-                            {g.models.length}
-                          </span>
-                        </button>
-                        {expanded && (
-                          <div className="ml-3 border-l border-border/60 pl-2">
-                            {g.models.map((m) => (
-                              <ModelRow
-                                key={`${m.providerId}-${m.modelId}`}
-                                entry={m}
-                                currentProviderId={providerId}
-                                currentModelId={currentModel}
-                                isFresh={isFresh}
-                                onSelect={handlePick}
-                                dense
-                                shortcut={shortcutFor(m.providerId, m.modelId)}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </>
-              ) : (
-                flatMatches.length > 0 && (
+                {scopedRecents.length > 0 && (
                   <>
                     <SectionLabel
                       title={
                         scope === "all"
-                          ? `${flatMatches.length} match${flatMatches.length === 1 ? "" : "es"}`
-                          : `all ${flatMatches.length} models`
+                          ? "recents"
+                          : `recents in ${PROVIDER_CHIP_LABEL[scope]}`
                       }
+                      meta="last 30 days"
                     />
-                    {flatMatches.map((m) => (
-                      <ModelRow
-                        key={`${m.providerId}-${m.modelId}`}
-                        entry={m}
-                        currentProviderId={providerId}
-                        currentModelId={currentModel}
-                        isFresh={isFresh}
-                        onSelect={handlePick}
-                        shortcut={shortcutFor(m.providerId, m.modelId)}
-                      />
+                    <div className="flex flex-col gap-0.5">
+                      {scopedRecents.map((m) => (
+                        <ModelRow
+                          key={`recent-${m.providerId}-${m.modelId}`}
+                          entry={m}
+                          currentProviderId={providerId}
+                          currentModelId={currentModel}
+                          isFresh={isFresh}
+                          onSelect={handlePick}
+                          countSuffix={`${m.count}×`}
+                          showNowBadge
+                          shortcut={shortcutFor(m.providerId, m.modelId)}
+                          showProvider
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {inGroupedView ? (
+                  <>
+                    <SectionLabel title="Models" />
+                    {modelGroups.map((g) => (
+                      <div
+                        key={g.providerId}
+                        className="border-t border-border/50 py-2 first:border-t-0 first:pt-0"
+                      >
+                        <ProviderSectionHeader
+                          providerId={g.providerId}
+                          count={g.models.length}
+                          current={g.providerId === providerId}
+                        />
+                        <div className="flex flex-col gap-0.5">
+                          {g.models.map((m) => (
+                            <ModelRow
+                              key={`${m.providerId}-${m.modelId}`}
+                              entry={m}
+                              currentProviderId={providerId}
+                              currentModelId={currentModel}
+                              isFresh={isFresh}
+                              onSelect={handlePick}
+                              shortcut={shortcutFor(m.providerId, m.modelId)}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </>
-                )
-              )}
+                ) : (
+                  flatMatches.length > 0 && (
+                    <>
+                      <SectionLabel
+                        title={
+                          scope === "all"
+                            ? `${flatMatches.length} match${flatMatches.length === 1 ? "" : "es"}`
+                            : `${flatMatches.length} model${flatMatches.length === 1 ? "" : "s"}`
+                        }
+                      />
+                      <div className="flex flex-col gap-0.5">
+                        {flatMatches.map((m) => (
+                          <ModelRow
+                            key={`${m.providerId}-${m.modelId}`}
+                            entry={m}
+                            currentProviderId={providerId}
+                            currentModelId={currentModel}
+                            isFresh={isFresh}
+                            onSelect={handlePick}
+                            shortcut={shortcutFor(m.providerId, m.modelId)}
+                            showProvider={scope === "all"}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )
+                )}
+              </div>
             </div>
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
@@ -608,10 +592,10 @@ function SearchField({
 }) {
   const placeholder =
     scope === "all"
-      ? `filter ${totalCount} models…`
+      ? `Search ${totalCount} models`
       : `in ${PROVIDER_CHIP_LABEL[scope]}…`;
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-background px-2.5 py-1.5 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
+    <div className="flex min-h-10 items-center gap-2 rounded-lg border bg-background px-3 focus-within:border-foreground/60 focus-within:ring-2 focus-within:ring-primary/30">
       <HugeiconsIcon
         icon={Search01Icon}
         className="size-3.5 text-muted-foreground"
@@ -622,41 +606,81 @@ function SearchField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoFocus
-        className="flex-1 bg-transparent text-foreground text-sm outline-none placeholder:text-muted-foreground/70"
+        className="min-w-0 flex-1 bg-transparent text-foreground text-sm outline-none placeholder:text-muted-foreground/70"
       />
     </div>
   );
 }
 
-function ChipButton({
+function ProviderSidebarItem({
   active,
   onClick,
-  children,
+  label,
+  providerId,
+  live = false,
 }: {
   active: boolean;
   onClick: () => void;
-  children: ReactNode;
+  label: string;
+  count: number;
+  providerId?: ProviderId;
+  live?: boolean;
 }) {
+  const title = `${label} models`;
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={active}
+      role="tab"
+      aria-selected={active}
+      aria-label={title}
+      title={title}
       className={cn(
-        "flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+        "relative flex size-8 shrink-0 items-center justify-center rounded-md text-[11px] transition-colors",
         active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-background text-foreground hover:bg-muted/60",
+          ? "bg-primary/12 text-foreground ring-1 ring-primary/20"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
     >
-      {children}
+      {providerId !== undefined ? (
+        <ProviderIcon providerId={providerId} className="size-3.5 shrink-0" />
+      ) : (
+        <span className="font-semibold">All</span>
+      )}
+      {live && (
+        <span
+          className="absolute right-1 bottom-1 size-1.5 rounded-full bg-primary"
+          title="Live from local daemon"
+        />
+      )}
     </button>
   );
 }
 
-function ChipCount({ children }: { children: ReactNode }) {
+function ProviderSectionHeader({
+  providerId,
+  count,
+  current,
+}: {
+  providerId: ProviderId;
+  count: number;
+  current: boolean;
+}) {
   return (
-    <span className="text-[10px] opacity-60 tabular-nums">{children}</span>
+    <div className="flex items-center gap-2 px-2 pt-1.5 pb-1 text-xs">
+      <ProviderIcon providerId={providerId} className="size-3.5" />
+      <span className="font-medium text-foreground">
+        {PROVIDER_LABEL[providerId]}
+      </span>
+      {current && (
+        <span className="rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary">
+          Current
+        </span>
+      )}
+      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+        {count}
+      </span>
+    </div>
   );
 }
 
@@ -683,6 +707,7 @@ function ModelRow({
   countSuffix,
   showNowBadge = false,
   shortcut,
+  showProvider = false,
 }: {
   entry: ModelPickerEntry;
   currentProviderId: ProviderId;
@@ -693,6 +718,7 @@ function ModelRow({
   countSuffix?: string;
   showNowBadge?: boolean;
   shortcut?: number | null;
+  showProvider?: boolean;
 }) {
   const isActive =
     entry.providerId === currentProviderId && entry.modelId === currentModelId;
@@ -705,10 +731,10 @@ function ModelRow({
       aria-current={isActive || undefined}
       title={opensNewTab ? "Open in new tab" : undefined}
       className={cn(
-        "group relative flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors",
+        "group relative flex min-h-10 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm transition-colors",
         dense ? "py-1" : "py-1.5",
         isActive
-          ? "bg-primary/12 text-foreground"
+          ? "bg-primary/12 text-foreground ring-1 ring-primary/20"
           : "text-foreground hover:bg-muted/60",
       )}
     >
@@ -718,24 +744,45 @@ function ModelRow({
       {!dense && (
         <ProviderIcon
           providerId={entry.providerId}
-          className="size-3.5 shrink-0 text-muted-foreground"
+          className="size-4 shrink-0 text-muted-foreground"
         />
       )}
-      <span className="truncate">{entry.label}</span>
-      {entry.contextWindowLabel !== undefined && (
-        <span
-          title={`${entry.contextWindowLabel} context window`}
-          className="rounded bg-muted/70 px-1 py-px text-[10px] font-medium text-muted-foreground"
-        >
-          {entry.contextWindowLabel}
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-medium">{entry.label}</span>
+          {entry.contextWindowLabel !== undefined && (
+            <span
+              title={`${entry.contextWindowLabel} context window`}
+              className="shrink-0 rounded-[0.25rem] bg-muted px-1.5 py-px text-[10px] font-medium text-foreground/70 dark:bg-muted/70 dark:px-1 dark:text-muted-foreground"
+            >
+              {entry.contextWindowLabel}
+            </span>
+          )}
+        </span>
+        {showProvider && (
+          <span className="truncate text-[11px] text-muted-foreground">
+            {PROVIDER_LABEL[entry.providerId]}
+          </span>
+        )}
+      </span>
+      <span className="flex-1" />
+      {entry.badgeLabel !== undefined && (
+        <span className="shrink-0 rounded-[0.25rem] bg-primary/35 px-1.5 py-px text-[9px] font-semibold text-primary-foreground uppercase tracking-wide dark:bg-primary/15 dark:text-primary">
+          {entry.badgeLabel}
         </span>
       )}
-      <span className="flex-1" />
       {opensNewTab && (
         <HugeiconsIcon
           icon={ArrowUpRight01Icon}
           className="size-3 text-muted-foreground/70"
           aria-label="Open in new tab"
+        />
+      )}
+      {isActive && (
+        <HugeiconsIcon
+          icon={Tick01Icon}
+          className="size-3.5 shrink-0 text-primary"
+          aria-label="Selected"
         />
       )}
       {countSuffix !== undefined && (
@@ -744,12 +791,12 @@ function ModelRow({
         </span>
       )}
       {showNowBadge && isActive && (
-        <span className="rounded bg-primary px-1.5 py-px font-medium text-[9px] text-primary-foreground uppercase tracking-wider">
+        <span className="rounded-[0.25rem] bg-primary/40 px-1.5 py-px font-semibold text-[9px] text-primary-foreground uppercase tracking-wide dark:bg-primary dark:font-medium dark:text-primary-foreground dark:tracking-wider">
           now
         </span>
       )}
       {shortcut !== undefined && shortcut !== null && (
-        <kbd className="ml-0.5 rounded bg-muted/70 px-1 py-px font-medium text-[10px] text-muted-foreground tabular-nums">
+        <kbd className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-[0.25rem] bg-muted px-1 font-medium text-[10px] text-foreground/70 tabular-nums dark:h-auto dark:min-w-0 dark:bg-muted/70 dark:text-muted-foreground">
           {shortcut}
         </kbd>
       )}

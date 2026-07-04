@@ -1,0 +1,41 @@
+{
+  "fixtureVersion": 1,
+  "provider": "opencode",
+  "translator": "normalized-events",
+  "scenario": "streamed assistant and session cursor events",
+  "source": "sanitized captured normalized OpenCode AgentEvent stream",
+  "frames": [
+    {
+      "type": "sdk-event",
+      "note": "OpenCode translator is internal; this fixture records the sanitized normalized stream emitted by a live driver run."
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "Started",
+      "sessionId": "opencode-fixture-session",
+      "providerId": "opencode",
+      "mode": "sdk"
+    },
+    {
+      "_tag": "SessionCursor",
+      "cursor": "opencode-session-fixture",
+      "strategy": "opencode-session-id"
+    },
+    {
+      "_tag": "Thinking",
+      "itemId": "opencode-thinking-1",
+      "text": "Inspecting the request.",
+      "redacted": false
+    },
+    {
+      "_tag": "AssistantMessage",
+      "itemId": "opencode-msg-1",
+      "text": "OpenCode fixture response."
+    },
+    {
+      "_tag": "Completed",
+      "reason": "ended"
+    }
+  ]
+}

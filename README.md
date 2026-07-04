@@ -1,4 +1,4 @@
-# memoize
+# Zuse Alpha
 
 A chat-first desktop app for developers who work with AI coding agents. Wraps Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode in a persistent, project-aware interface — structured chat history, rich composer, file viewer, integrated terminal, git worktrees, and session management, all stored locally.
 
@@ -101,7 +101,7 @@ apps/
   server/      All backend logic — Effect Layers
   web/         Next.js marketing site
 packages/
-  wire/        @memoize/wire — typed RPC contracts + branded IDs
+  wire/        @zuse/wire — typed RPC contracts + branded IDs
   ui/          Shared React components
 specs/
   0.01-MVP/    Foundation
@@ -133,3 +133,12 @@ bun run dist:mac:unsigned
 ```
 
 Requires: Bun 1.3.10+, Node.js ≥ 18, macOS.
+
+---
+
+## Acknowledgements
+
+Zuse Alpha is inspired by T3 code's work and built in our own opinionated way.
+Special thanks to [Julius Marminge](https://github.com/juliusmarminge), a main
+contributor to T3 code, whose work was a primary inspiration for our use of the
+Effect library.

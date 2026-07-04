@@ -43,7 +43,7 @@ Claude-only for v1 — the tools live in Claude's in-process MCP server
 (`createSdkMcpServer`). The bridge is provider-agnostic, so ACP providers
 (Grok/Gemini/Cursor) can be wired later without touching it.
 
-## Tools (all `mcp__memoize__browser_*`)
+## Tools (all `mcp__zuse__browser_*`)
 
 | Tool | Does | Permission |
 |---|---|---|

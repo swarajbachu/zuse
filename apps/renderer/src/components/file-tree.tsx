@@ -1,10 +1,18 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { Plus } from "lucide-react";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  BubbleChatIcon,
+  Copy01Icon,
+  Delete02Icon,
+  FileAddIcon,
+  FolderAddIcon,
+  PencilEdit01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { Effect } from "effect";
+import { Effect, Fiber, Stream } from "effect";
 
-import type { FolderId, FsEntry } from "@memoize/wire";
+import type { FolderId, FsEntry } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
@@ -14,6 +22,17 @@ import {
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
+import { Button } from "./ui/button.tsx";
+import { Menu, MenuItem, MenuPopup, MenuSeparator } from "./ui/menu.tsx";
 import { Skeleton } from "./ui/skeleton.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
@@ -22,6 +41,16 @@ type DirState =
   | { status: "ready"; entries: ReadonlyArray<FsEntry> }
   | { status: "error"; reason: string };
 
+type ContextTarget =
+  | { kind: "empty"; path: "" }
+  | { kind: "entry"; entry: FsEntry };
+
+type ContextMenuState = {
+  readonly open: boolean;
+  readonly target: ContextTarget;
+  readonly anchor: { getBoundingClientRect: () => DOMRect };
+};
+
 const formatError = (err: unknown): string => {
   if (err instanceof Error) return err.message;
   if (typeof err === "object" && err !== null && "_tag" in err) {
@@ -29,6 +58,38 @@ const formatError = (err: unknown): string => {
   }
   return String(err);
 };
+
+const basename = (p: string): string => {
+  const idx = p.lastIndexOf("/");
+  return idx === -1 ? p : p.slice(idx + 1);
+};
+
+const parentPathOf = (p: string): string => {
+  const idx = p.lastIndexOf("/");
+  return idx === -1 ? "" : p.slice(0, idx);
+};
+
+const joinRelPath = (base: string, name: string): string =>
+  base === "" ? name : `${base}/${name}`;
+
+const validateNewName = (raw: string | null): string | null => {
+  const name = raw?.trim() ?? "";
+  if (name.length === 0) return null;
+  if (
+    name.includes("/") ||
+    name.includes("\\") ||
+    name === "." ||
+    name === ".."
+  ) {
+    window.alert("Use a simple name without slashes.");
+    return null;
+  }
+  return name;
+};
+
+const pointAnchor = (clientX: number, clientY: number) => ({
+  getBoundingClientRect: () => new DOMRect(clientX, clientY, 0, 0),
+});
 
 /**
  * Lazy-loading directory tree. Each expanded directory fetches its own
@@ -52,6 +113,14 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
   const [rootState, setRootState] = useState<DirState>({ status: "loading" });
   const [childStates, setChildStates] = useState<Record<string, DirState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  // Entry queued for the delete confirmation dialog. The dialog renders the
+  // last queued entry through its close animation, so a ref retains it after
+  // `deleteTarget` clears on close.
+  const [deleteTarget, setDeleteTarget] = useState<FsEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const lastDeleteEntryRef = useRef<FsEntry | null>(null);
+  if (deleteTarget !== null) lastDeleteEntryRef.current = deleteTarget;
 
   // Mirror state into refs so callbacks can stay stable (and let memoized
   // children skip re-renders driven only by callback identity).
@@ -59,6 +128,33 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
   childStatesRef.current = childStates;
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
+
+  const refreshDirectory = useCallback(
+    async (path: string) => {
+      try {
+        const client = await getRpcClient();
+        const entries = await Effect.runPromise(
+          client.fs.tree({ folderId, path, worktreeId }),
+        );
+        if (path === "") {
+          setRootState({ status: "ready", entries });
+          return;
+        }
+        setChildStates((prev) => ({
+          ...prev,
+          [path]: { status: "ready", entries },
+        }));
+      } catch (err) {
+        const next: DirState = { status: "error", reason: formatError(err) };
+        if (path === "") {
+          setRootState(next);
+          return;
+        }
+        setChildStates((prev) => ({ ...prev, [path]: next }));
+      }
+    },
+    [folderId, worktreeId],
+  );
 
   // Reset everything when the project or active worktree changes — the
   // previous tree's paths wouldn't resolve under the new root.
@@ -84,6 +180,38 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       cancelled = true;
     };
   }, [folderId, worktreeId]);
+
+  useEffect(() => {
+    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let cancelled = false;
+    void (async () => {
+      const client = await getRpcClient();
+      if (cancelled) return;
+      fiber = Effect.runFork(
+        Stream.runForEach(
+          client.fs
+            .watchTree({ folderId, worktreeId })
+            .pipe(Stream.catchAll(() => Stream.empty)),
+          ({ paths }) =>
+            Effect.sync(() => {
+              const toRefresh = new Set<string>([""]);
+              for (const path of paths) {
+                if (expandedRef.current[path] === true) toRefresh.add(path);
+                const parent = parentPathOf(path);
+                if (parent === "" || expandedRef.current[parent] === true) {
+                  toRefresh.add(parent);
+                }
+              }
+              for (const path of toRefresh) void refreshDirectory(path);
+            }),
+        ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+      if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+    };
+  }, [folderId, refreshDirectory, worktreeId]);
 
   const loadChild = useCallback(
     async (path: string) => {
@@ -159,12 +287,164 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
     [folderRoot, setActiveMainTab],
   );
 
+  const openInEditor = useCallback(
+    (entry: FsEntry) => {
+      if (entry.kind !== "file") return;
+      openFileInTab({
+        kind: "text",
+        folderId,
+        path: entry.path,
+        name: entry.name,
+        worktreeId,
+      });
+    },
+    [folderId, openFileInTab, worktreeId],
+  );
+
+  const createInDirectory = useCallback(
+    async (dirPath: string, kind: "file" | "directory") => {
+      const label = kind === "file" ? "file" : "folder";
+      const name = validateNewName(window.prompt(`New ${label} name`));
+      if (name === null) return;
+      const path = joinRelPath(dirPath, name);
+      try {
+        const client = await getRpcClient();
+        if (kind === "file") {
+          await Effect.runPromise(
+            client.fs.createFile({ folderId, path, worktreeId }),
+          );
+          await refreshDirectory(dirPath);
+          openFileInTab({
+            kind: "text",
+            folderId,
+            path,
+            name: basename(path),
+            worktreeId,
+          });
+        } else {
+          await Effect.runPromise(
+            client.fs.createDirectory({ folderId, path, worktreeId }),
+          );
+          setExpanded((prev) =>
+            dirPath === "" ? prev : { ...prev, [dirPath]: true },
+          );
+          await refreshDirectory(dirPath);
+        }
+      } catch (err) {
+        window.alert(formatError(err));
+      }
+    },
+    [folderId, openFileInTab, refreshDirectory, worktreeId],
+  );
+
+  const contextDirectoryPath = contextMenu
+    ? contextMenu.target.kind === "empty"
+      ? ""
+      : contextMenu.target.entry.kind === "directory"
+        ? contextMenu.target.entry.path
+        : parentPathOf(contextMenu.target.entry.path)
+    : "";
+
+  const contextEntry =
+    contextMenu?.target.kind === "entry" ? contextMenu.target.entry : null;
+  const contextPath = contextMenu?.open === true ? contextEntry?.path ?? null : null;
+
+  const onRootContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({
+      open: true,
+      target: { kind: "empty", path: "" },
+      anchor: pointAnchor(event.clientX, event.clientY),
+    });
+  }, []);
+
+  const onEntryContextMenu = useCallback(
+    (event: React.MouseEvent, entry: FsEntry) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setContextMenu({
+        open: true,
+        target: { kind: "entry", entry },
+        anchor: pointAnchor(event.clientX, event.clientY),
+      });
+    },
+    [],
+  );
+
   const onPrefetch = useCallback(
     (entry: FsEntry) => {
       if (entry.kind !== "directory") return;
       void loadChild(entry.path);
     },
     [loadChild],
+  );
+
+  const requestDelete = useCallback((entry: FsEntry) => {
+    setDeleteTarget(entry);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    const entry = deleteTarget;
+    if (entry === null) return;
+    setDeleting(true);
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.fs.remove({ folderId, path: entry.path, worktreeId }),
+      );
+      const parent = parentPathOf(entry.path);
+      setExpanded((prev) => {
+        const next = { ...prev };
+        delete next[entry.path];
+        for (const key of Object.keys(next)) {
+          if (key.startsWith(`${entry.path}/`)) delete next[key];
+        }
+        return next;
+      });
+      setChildStates((prev) => {
+        const next = { ...prev };
+        delete next[entry.path];
+        for (const key of Object.keys(next)) {
+          if (key.startsWith(`${entry.path}/`)) delete next[key];
+        }
+        return next;
+      });
+      await refreshDirectory(parent);
+      setDeleteTarget(null);
+    } catch (err) {
+      window.alert(`Couldn't delete: ${formatError(err)}`);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, folderId, refreshDirectory, worktreeId]);
+
+  // Context menu + delete confirmation render in every branch below; build
+  // them once so the three return paths stay in sync.
+  const overlays = (
+    <>
+      <FileTreeContextMenu
+        state={contextMenu}
+        entry={contextEntry}
+        directoryPath={contextDirectoryPath}
+        rootPath={folderRoot}
+        onOpenChange={(open) =>
+          setContextMenu((prev) => (prev === null ? null : { ...prev, open }))
+        }
+        onOpenInEditor={openInEditor}
+        onAttach={onAttach}
+        onCreate={createInDirectory}
+        onDelete={requestDelete}
+      />
+      <DeleteConfirmDialog
+        entry={deleteTarget ?? lastDeleteEntryRef.current}
+        open={deleteTarget !== null}
+        deleting={deleting}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        onConfirm={confirmDelete}
+      />
+    </>
   );
 
   if (rootState.status === "loading") {
@@ -183,28 +463,43 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
     );
   }
   if (rootState.status === "error") {
-    return <Empty>{rootState.reason}</Empty>;
+    return (
+      <>
+        <Empty onContextMenu={onRootContextMenu}>{rootState.reason}</Empty>
+        {overlays}
+      </>
+    );
   }
   if (rootState.entries.length === 0) {
-    return <Empty>Empty directory.</Empty>;
+    return (
+      <>
+        <Empty onContextMenu={onRootContextMenu}>Empty directory.</Empty>
+        {overlays}
+      </>
+    );
   }
 
   return (
-    <ul className="flex flex-col py-1 text-sm">
-      {rootState.entries.map((entry) => (
-        <TreeNode
-          key={entry.path}
-          entry={entry}
-          depth={0}
-          expanded={expanded}
-          childStates={childStates}
-          onActivate={onActivate}
-          onPrefetch={onPrefetch}
-          onAttach={onAttach}
-          activePath={activePath}
-        />
-      ))}
-    </ul>
+    <div className="min-h-full" onContextMenu={onRootContextMenu}>
+      <ul className="flex flex-col py-1 text-sm">
+        {rootState.entries.map((entry) => (
+          <TreeNode
+            key={entry.path}
+            entry={entry}
+            depth={0}
+            expanded={expanded}
+            childStates={childStates}
+            onActivate={onActivate}
+            onPrefetch={onPrefetch}
+            onAttach={onAttach}
+            onContextMenu={onEntryContextMenu}
+            activePath={activePath}
+            contextPath={contextPath}
+          />
+        ))}
+      </ul>
+      {overlays}
+    </div>
   );
 }
 
@@ -216,7 +511,9 @@ type TreeNodeProps = {
   onActivate: (entry: FsEntry) => void;
   onPrefetch: (entry: FsEntry) => void;
   onAttach: (entry: FsEntry) => void;
+  onContextMenu: (event: React.MouseEvent, entry: FsEntry) => void;
   activePath: string | null;
+  contextPath: string | null;
 };
 
 const TreeNode = memo(
@@ -228,19 +525,23 @@ const TreeNode = memo(
     onActivate,
     onPrefetch,
     onAttach,
+    onContextMenu,
     activePath,
+    contextPath,
   }: TreeNodeProps) {
     const isDir = entry.kind === "directory";
     const isOpen = isDir && expanded[entry.path] === true;
     const child = isOpen ? childStates[entry.path] : undefined;
     const chevron = isOpen ? ArrowDown01Icon : ArrowRight01Icon;
-    const isActive = !isDir && activePath === entry.path;
+    const isActive =
+      (!isDir && activePath === entry.path) || contextPath === entry.path;
 
     return (
       <li>
         <div
           className="group/row relative px-1.5"
           onMouseEnter={isDir ? () => onPrefetch(entry) : undefined}
+          onContextMenu={(event) => onContextMenu(event, entry)}
         >
           <button
             type="button"
@@ -269,7 +570,7 @@ const TreeNode = memo(
                     }}
                     className="pointer-events-auto flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover/row:opacity-100"
                   >
-                    <Plus className="size-3.5" strokeWidth={1.8} />
+                    <HugeiconsIcon icon={BubbleChatIcon} className="size-3.5" />
                   </button>
                 }
               />
@@ -298,7 +599,9 @@ const TreeNode = memo(
             onActivate={onActivate}
             onPrefetch={onPrefetch}
             onAttach={onAttach}
+            onContextMenu={onContextMenu}
             activePath={activePath}
+            contextPath={contextPath}
           />
         )}
       </li>
@@ -314,7 +617,9 @@ const TreeNode = memo(
       prev.activePath !== next.activePath ||
       prev.onActivate !== next.onActivate ||
       prev.onPrefetch !== next.onPrefetch ||
-      prev.onAttach !== next.onAttach
+      prev.onAttach !== next.onAttach ||
+      prev.onContextMenu !== next.onContextMenu ||
+      prev.contextPath !== next.contextPath
     ) {
       return false;
     }
@@ -341,7 +646,9 @@ function ChildList({
   onActivate,
   onPrefetch,
   onAttach,
+  onContextMenu,
   activePath,
+  contextPath,
 }: {
   state: DirState;
   depth: number;
@@ -350,7 +657,9 @@ function ChildList({
   onActivate: (entry: FsEntry) => void;
   onPrefetch: (entry: FsEntry) => void;
   onAttach: (entry: FsEntry) => void;
+  onContextMenu: (event: React.MouseEvent, entry: FsEntry) => void;
   activePath: string | null;
+  contextPath: string | null;
 }) {
   if (state.status === "loading") {
     // Render nothing during the prefetch window — a brief gap reads as
@@ -389,17 +698,158 @@ function ChildList({
           onActivate={onActivate}
           onPrefetch={onPrefetch}
           onAttach={onAttach}
+          onContextMenu={onContextMenu}
           activePath={activePath}
+          contextPath={contextPath}
         />
       ))}
     </ul>
   );
 }
 
-function Empty({ children }: { children: React.ReactNode }) {
+function Empty({
+  children,
+  onContextMenu,
+}: {
+  children: React.ReactNode;
+  onContextMenu?: React.MouseEventHandler;
+}) {
   return (
-    <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+    <p
+      className="px-3 py-6 text-center text-xs text-muted-foreground"
+      onContextMenu={onContextMenu}
+    >
       {children}
     </p>
+  );
+}
+
+function FileTreeContextMenu({
+  state,
+  entry,
+  directoryPath,
+  rootPath,
+  onOpenChange,
+  onOpenInEditor,
+  onAttach,
+  onCreate,
+  onDelete,
+}: {
+  state: ContextMenuState | null;
+  entry: FsEntry | null;
+  directoryPath: string;
+  rootPath: string | null;
+  onOpenChange: (open: boolean) => void;
+  onOpenInEditor: (entry: FsEntry) => void;
+  onAttach: (entry: FsEntry) => void;
+  onCreate: (dirPath: string, kind: "file" | "directory") => void;
+  onDelete: (entry: FsEntry) => void;
+}) {
+  return (
+    <Menu open={state?.open ?? false} onOpenChange={onOpenChange}>
+      <MenuPopup
+        anchor={state?.anchor}
+        align="start"
+        side="bottom"
+        className="min-w-[190px]"
+      >
+        {entry?.kind === "file" && (
+          <MenuItem onClick={() => onOpenInEditor(entry)}>
+            <HugeiconsIcon icon={PencilEdit01Icon} className="size-4" />
+            Open in editor
+          </MenuItem>
+        )}
+        {entry !== null && (
+          <MenuItem onClick={() => onAttach(entry)}>
+            <HugeiconsIcon icon={BubbleChatIcon} className="size-4" />
+            Attach to chat
+          </MenuItem>
+        )}
+        {entry !== null && (
+          <MenuItem
+            onClick={() => {
+              const path =
+                rootPath === null ? entry.path : `${rootPath}/${entry.path}`;
+              void navigator.clipboard?.writeText(path);
+            }}
+          >
+            <HugeiconsIcon icon={Copy01Icon} className="size-4" />
+            Copy path
+          </MenuItem>
+        )}
+        {entry !== null && <MenuSeparator />}
+        <MenuItem onClick={() => onCreate(directoryPath, "file")}>
+          <HugeiconsIcon icon={FileAddIcon} className="size-4" />
+          New File
+        </MenuItem>
+        <MenuItem onClick={() => onCreate(directoryPath, "directory")}>
+          <HugeiconsIcon icon={FolderAddIcon} className="size-4" />
+          New Folder
+        </MenuItem>
+        {entry !== null && (
+          <>
+            <MenuSeparator />
+            <MenuItem
+              onClick={() => onDelete(entry)}
+              className="text-red-300 data-highlighted:bg-red-500/20 data-highlighted:text-red-200"
+            >
+              <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+              Delete
+            </MenuItem>
+          </>
+        )}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function DeleteConfirmDialog({
+  entry,
+  open,
+  deleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  entry: FsEntry | null;
+  open: boolean;
+  deleting: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const isDir = entry?.kind === "directory";
+  const detail = isDir
+    ? "This deletes the folder and everything inside it."
+    : "This deletes the file from disk.";
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogPopup className="max-w-sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Delete {isDir ? "folder" : "file"}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            <span className="font-mono text-foreground">{entry?.name}</span>{" "}
+            will be permanently deleted. {detail} This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={
+              <Button type="button" variant="ghost" disabled={deleting}>
+                Cancel
+              </Button>
+            }
+          />
+          <Button
+            type="button"
+            variant="destructive"
+            loading={deleting}
+            onClick={onConfirm}
+          >
+            Delete
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogPopup>
+    </AlertDialog>
   );
 }

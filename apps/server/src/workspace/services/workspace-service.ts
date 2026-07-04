@@ -6,7 +6,7 @@ import {
   type WorkspaceDuplicatePathError,
   type WorkspaceInvalidPathError,
   type WorkspaceNotFoundError,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 export interface WorkspaceServiceShape {
   readonly add: (
