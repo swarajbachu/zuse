@@ -80,6 +80,10 @@ export type SessionStatus = typeof SessionStatus.Type;
 export const ResumeStrategy = Schema.Literal(
   "claude-session-id",
   "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
   "none",
 );
 export type ResumeStrategy = typeof ResumeStrategy.Type;
