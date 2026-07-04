@@ -1,5 +1,30 @@
 [
   {
+    "version": "0.10.0",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix flickering plan-approval banner (#244)",
+          "Fix mermaid error bomb bar + jittery send animation (#243)",
+          "[codex] add provider contract test fixtures (#242)",
+          "[codex] Improve bug report diagnostics flow (#241)",
+          "[codex] Disable runtime code indexing (#240)",
+          "Add LAN auth pairing for WS server (#238)",
+          "[codex] add renderer websocket rpc client (#239)",
+          "[codex] continue external agent threads (#237)",
+          "[codex] add agent browser v2 (#236)",
+          "[codex] Add Expo mobile read-only client (#235)",
+          "[codex] Add renderer toast notifications (#234)",
+          "[codex] Add markdown and HTML preview tab (#233)",
+          "[codex] add event-sourced persistence and cursor streaming (#232)",
+          "Remote/multi-client foundation: wire contract + WS transport + spec (#218)",
+          "[codex] add light and system appearance support (#229)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.9.0",
     "sections": [
       {
