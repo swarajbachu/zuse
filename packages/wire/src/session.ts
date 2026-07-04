@@ -350,8 +350,7 @@ export class Message extends Schema.Class<Message>("Message")({
  * A `Message` tagged with its global monotonic `sequence` from the event log.
  * Clients record the highest `sequence` they have seen per session and pass it
  * back as `sinceSequence` on reconnect to resume gap-free (no full replay, no
- * in-memory dedup Set). See the event-sourcing core: `messages.stream` flips to
- * emit this in the sync-core PR; until then it is additive and unused.
+ * in-memory dedup Set). This is what `messages.stream` emits.
  */
 export class MessageEnvelope extends Schema.Class<MessageEnvelope>(
   "MessageEnvelope",
@@ -787,23 +786,22 @@ export const MessagesListRpc = Rpc.make("messages.list", {
 });
 
 /**
- * Subscribe to a session's message log. The stream emits each persisted row in
- * `created_at` order (backfill) and continues with live rows as the provider
+ * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
+ * rows in global `sequence` order — a replay of everything past `sinceSequence`
+ * (0 when omitted, i.e. the full history), then live rows as the provider
  * produces events. The renderer treats it as the single source of truth — no
  * separate hydrate / live split.
  *
- * `sinceSequence` is additive and currently ignored by the server: once the
- * event-sourcing core lands, passing it resumes from that cursor (replaying only
- * events with `sequence > sinceSequence`) and `success` becomes
- * {@link MessageEnvelope}. Omitting it preserves today's "from the beginning"
- * behavior, so existing callers are unaffected.
+ * Clients record the highest `sequence` seen per session and pass it back as
+ * `sinceSequence` on resubscribe: the server replays only the delta, so a
+ * flaky-network reconnect is O(missed messages) and gap-free by construction.
  */
 export const MessagesStreamRpc = Rpc.make("messages.stream", {
   payload: Schema.Struct({
     sessionId: SessionId,
     sinceSequence: Schema.optional(Schema.Number),
   }),
-  success: Message,
+  success: MessageEnvelope,
   error: SessionNotFoundError,
   stream: true,
 });

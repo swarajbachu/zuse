@@ -40,6 +40,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { toastManager } from "~/components/ui/toast.tsx";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
   deriveChatAttentionState,
@@ -73,12 +74,56 @@ import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { Spinner } from "./ui/spinner";
 
+const sidebarErrorToastCache = {
+  chats: null as string | null,
+  sessions: null as string | null,
+  workspace: null as string | null,
+};
+
 const initialsOf = (name: string): string => {
   const parts = name.split(/[-_.\s]+/).filter(Boolean);
   const letters =
     parts.length >= 2 ? parts[0]![0]! + parts[1]![0]! : name.slice(0, 2);
   return letters.toUpperCase();
 };
+
+function showSidebarErrorToast(
+  source: keyof typeof sidebarErrorToastCache,
+  title: string,
+  message: string | null,
+): void {
+  if (message === null) {
+    sidebarErrorToastCache[source] = null;
+    return;
+  }
+  if (sidebarErrorToastCache[source] === message) return;
+  sidebarErrorToastCache[source] = message;
+  toastManager.add({
+    type: "error",
+    title,
+    description: message,
+  });
+}
+
+function SidebarErrorToasts(): null {
+  const workspaceError = useWorkspaceStore((s) => s.error);
+  const chatsError = useChatsStore((s) => s.error);
+  const sessionsError = useSessionsStore((s) => s.error);
+
+  useEffect(() => {
+    showSidebarErrorToast("workspace", "Project error", workspaceError);
+  }, [workspaceError]);
+
+  useEffect(() => {
+    showSidebarErrorToast("chats", "Chats error", chatsError);
+  }, [chatsError]);
+
+  useEffect(() => {
+    showSidebarErrorToast("sessions", "Sessions error", sessionsError);
+  }, [sessionsError]);
+
+  return null;
+}
 
 // GitHub serves owner/org avatars at this path; works for users and orgs alike.
 // Returns null for non-GitHub remotes so the caller falls back to initials.
@@ -226,7 +271,6 @@ export function ProjectsSidebar() {
   useRegisterPane("sidebar", paneRef);
   const folders = useWorkspaceStore((s) => s.folders);
   const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
-  const error = useWorkspaceStore((s) => s.error);
   const loading = useWorkspaceStore((s) => s.loading);
   const load = useWorkspaceStore((s) => s.load);
   const remove = useWorkspaceStore((s) => s.remove);
@@ -234,10 +278,8 @@ export function ProjectsSidebar() {
 
   const sessionsByProject = useSessionsStore((s) => s.sessionsByProject);
   const hydrateSessions = useSessionsStore((s) => s.hydrate);
-  const sessionsError = useSessionsStore((s) => s.error);
 
   const chatsByProject = useChatsStore((s) => s.chatsByProject);
-  const chatsError = useChatsStore((s) => s.error);
   const hydrateChats = useChatsStore((s) => s.hydrate);
 
   const [origins, setOrigins] = useState<Record<string, GitOriginInfo | null>>(
@@ -349,12 +391,7 @@ export function ProjectsSidebar() {
         <span>Projects</span>
         <ProjectAddMenu />
       </div>
-
-      {(error ?? chatsError ?? sessionsError) !== null && (
-        <p className="mx-3 mb-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
-          {error ?? chatsError ?? sessionsError}
-        </p>
-      )}
+      <SidebarErrorToasts />
 
       <ul className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {folders.length === 0 && !loading && (

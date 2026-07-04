@@ -27,6 +27,7 @@ import {
   BrowserRespondRpc,
   BrowserSetCredentialRpc,
 } from "./browser.ts";
+import { ConnectDescribeRpc } from "./connect.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -38,6 +39,10 @@ import {
   FsWriteExternalFileRpc,
   FsWriteFileRpc,
 } from "./fs.ts";
+import {
+  ExternalThreadsContinueRpc,
+  ExternalThreadsListRpc,
+} from "./external-thread.ts";
 import { DiagnosticsExportRpc } from "./diagnostics.ts";
 import {
   GitBranchesRpc,
@@ -69,6 +74,11 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
+import {
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  PairingStartRpc,
+} from "./pairing.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
 import {
@@ -175,6 +185,10 @@ export const MemoizeRpcs = RpcGroup.make(
   AuthSignInRpc,
   AuthSignOutRpc,
   AuthSessionChangesRpc,
+  PairingStartRpc,
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  ConnectDescribeRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,
@@ -186,6 +200,8 @@ export const MemoizeRpcs = RpcGroup.make(
   WorkspaceCreateProjectRpc,
   WorkspaceListGithubReposRpc,
   WorkspaceGhAuthStatusRpc,
+  ExternalThreadsListRpc,
+  ExternalThreadsContinueRpc,
   PtyOpenRpc,
   PtyWriteRpc,
   PtyResizeRpc,

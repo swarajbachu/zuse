@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/wire";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
 
 /**
@@ -50,6 +51,42 @@ const fetchPrState = async (
   }
 };
 
+const prLabel = (info: GitPrInfo): string =>
+  info.number === null ? "Pull request" : `Pull request #${info.number}`;
+
+const prDescription = (info: GitPrInfo): string => {
+  if (info.branch !== null && info.baseBranch !== null) {
+    return `${info.branch} into ${info.baseBranch}`;
+  }
+  if (info.branch !== null) return info.branch;
+  return "";
+};
+
+const notifyPrStateTransition = (
+  previous: GitPrInfo | undefined,
+  next: GitPrInfo,
+): void => {
+  if (previous === undefined) return;
+  if (previous.state !== "open" || next.state === previous.state) return;
+
+  if (next.state === "merged") {
+    toastManager.add({
+      type: "success",
+      title: `${prLabel(next)} merged`,
+      description: prDescription(next),
+    });
+    return;
+  }
+
+  if (next.state === "closed") {
+    toastManager.add({
+      type: "info",
+      title: `${prLabel(next)} closed`,
+      description: prDescription(next),
+    });
+  }
+};
+
 export const usePrStateStore = create<PrState>((set, get) => ({
   byKey: {},
   hydrate: async (folderId, worktreeId) => {
@@ -63,6 +100,9 @@ export const usePrStateStore = create<PrState>((set, get) => ({
     const info = await fetchPrState(folderId, worktreeId);
     if (info === null) return;
     const key = prStateKey(folderId, worktreeId);
-    set((s) => ({ byKey: { ...s.byKey, [key]: info } }));
+    set((s) => {
+      notifyPrStateTransition(s.byKey[key], info);
+      return { byKey: { ...s.byKey, [key]: info } };
+    });
   },
 }));

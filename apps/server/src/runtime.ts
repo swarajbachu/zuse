@@ -1,6 +1,7 @@
 import { NodeContext } from "@effect/platform-node";
 import { RpcServer } from "@effect/rpc";
-import { Layer } from "effect";
+import { SqlClient } from "@effect/sql";
+import { Effect, Layer } from "effect";
 
 import { MemoizeRpcs } from "@zuse/wire";
 
@@ -10,9 +11,17 @@ import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import type { LanAuthPolicy } from "./lan-auth/policy.ts";
+import {
+  LanAuthConfig,
+  LanAuthService,
+} from "./lan-auth/services/lan-auth-service.ts";
+import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
@@ -55,8 +64,14 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
 export interface MainLayerDeps {
   readonly userData: string;
   readonly folderPicker: typeof FolderPicker.Service;
-  readonly serverProtocol: Layer.Layer<RpcServer.Protocol>;
+  readonly serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>;
   readonly authShell: typeof AuthShell.Service;
+  readonly lanAuth?: {
+    readonly policy: LanAuthPolicy;
+    readonly advertisedHost?: string | null;
+    readonly port?: number | null;
+    readonly pairingBootstrap?: boolean;
+  };
 }
 
 /**
@@ -68,6 +83,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
   const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
   const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
+  const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
+    policy: deps.lanAuth?.policy ?? "local",
+    advertisedHost: deps.lanAuth?.advertisedHost ?? null,
+    port: deps.lanAuth?.port ?? null,
+    pairingBootstrap: deps.lanAuth?.pairingBootstrap ?? false,
+  });
 
   // SqlClient is the shared persistence handle. The migrator runs once on
   // boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
@@ -219,6 +240,17 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
+  // After migrations, before MessageStore: replay any events past the
+  // projector high-water mark. In steady state this is a no-op (append and
+  // projection share a transaction); it makes the projection rebuildable —
+  // drop `messages`, reset the watermark, boot. Same shape as ImportShim.
+  const ProjectorCatchup = Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* makeEventStore(sql).catchup;
+    }),
+  ).pipe(Layer.provide(MigratedSqlite));
+
   const MessageStoreLayer = MessageStoreLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
@@ -229,6 +261,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
+    Layer.provide(ProjectorCatchup),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );
@@ -237,6 +270,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MigratedSqlite),
     Layer.provide(AppPathsLayer),
     Layer.provide(ProviderLayer),
+  );
+
+  const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+    Layer.provide(WorkspaceLayer),
+    Layer.provide(WorktreeLayer),
+    Layer.provide(MessageStoreLayer),
+    Layer.provide(MigratedSqlite),
+    Layer.provide(NodeContext.layer),
   );
 
   // SkillBridge surfaces the user's per-provider skill library to the
@@ -260,6 +301,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const AuthLayer = AuthServiceLive.pipe(
     Layer.provide(CredentialsServiceLive),
     Layer.provide(AuthShellLayer),
+  );
+
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
   );
 
   const HandlerSupportLayer = Layer.mergeAll(
@@ -292,6 +338,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     CredentialsServiceLive,
     SkillBridgeLayer,
     DiagnosticsLayer,
+    LanAuthLayer,
+    ExternalThreadLayer,
     FolderPickerLayer,
   );
 
@@ -306,7 +354,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
     Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol),
+    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);

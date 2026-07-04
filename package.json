@@ -7,6 +7,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
     "dev:desktop": "node scripts/dev.mjs",
+    "kill-port": "node scripts/kill-port.mjs",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
@@ -32,6 +33,7 @@
       "tools/*"
     ],
     "catalog": {
+      "@effect/experimental": "^0.60.0",
       "@effect/platform": "^0.96.0",
       "@effect/platform-node": "^0.106.0",
       "@effect/rpc": "^0.75.0",

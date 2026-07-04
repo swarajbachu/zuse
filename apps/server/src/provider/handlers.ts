@@ -326,9 +326,11 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const MessagesStream = MemoizeRpcs.toLayerHandler(
   "messages.stream",
-  ({ sessionId }) =>
+  ({ sessionId, sinceSequence }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamMessages(sessionId)),
+      Effect.map(MessageStore, (svc) =>
+        svc.streamMessages(sessionId, sinceSequence),
+      ),
     ),
 );
 

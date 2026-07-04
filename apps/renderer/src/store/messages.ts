@@ -241,6 +241,11 @@ let hydrateEpoch = 0;
 // canonical server message instead of skipping it, so server-side fixups
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
+// Highest event-log `sequence` seen per session (from `MessageEnvelope`).
+// Passed back as `sinceSequence` on resubscribe so the server replays only
+// the delta — gap-free reconnect without a full-history backfill. In-memory
+// only: a reload starts from 0 and gets the full replay, which is correct.
+const lastSequenceBySession = new Map<SessionId, number>();
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
 const statusWaiters = new Map<
@@ -402,10 +407,24 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       // never disagree. The `resetOnStreamEnd` / status guards below read
       // `liveSessionId`, so it must be correct before the fibers run.
       liveSessionId = sessionId;
+      // Resume from the recorded cursor only while the store still holds the
+      // rows the cursor accounts for; otherwise (first visit, page reload)
+      // stream the full history. Pre-seeded optimistic rows never record a
+      // cursor, so a fresh chat still gets its full replay + echo id-swap.
+      const sinceSequence =
+        (get().messagesBySession[sessionId]?.length ?? 0) > 0
+          ? lastSequenceBySession.get(sessionId)
+          : undefined;
       const messageProgram = Stream.runForEach(
-        client.messages.stream({ sessionId }),
-        (message) =>
+        client.messages.stream({ sessionId, sinceSequence }),
+        (envelope) =>
           Effect.sync(() => {
+            const { sequence, message } = envelope;
+            // Advance the cursor on EVERY envelope — including optimistic
+            // echoes — before any dedup branch, so a reconnect can never
+            // pass a cursor below an already-delivered row.
+            const prev = lastSequenceBySession.get(sessionId) ?? 0;
+            if (sequence > prev) lastSequenceBySession.set(sessionId, sequence);
             set((s) => {
               const current = s.messagesBySession[sessionId] ?? [];
               // The server echo of a message we inserted optimistically (same
