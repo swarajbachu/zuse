@@ -27,6 +27,16 @@ export interface AppBridge {
   readonly openPathInApp?: (path: string, appId: string) => Promise<void>;
   readonly revealPath?: (path: string) => Promise<void>;
   readonly copyPath?: (path: string) => Promise<void>;
+  readonly copyFileContents?: (path: string) => Promise<boolean>;
+  readonly getMainDiagnostics?: () => Promise<ReadonlyArray<DiagnosticLogEntry>>;
+}
+
+export interface DiagnosticLogEntry {
+  readonly createdAt: string;
+  readonly level: "debug" | "info" | "warn" | "error";
+  readonly source: string;
+  readonly message: string;
+  readonly detail?: string;
 }
 
 export interface OpenTarget {

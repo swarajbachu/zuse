@@ -118,6 +118,18 @@ const bridge = {
       ipcRenderer.invoke("app:revealPath", path) as Promise<void>,
     copyPath: (path: string) =>
       ipcRenderer.invoke("app:copyPath", path) as Promise<void>,
+    copyFileContents: (path: string) =>
+      ipcRenderer.invoke("app:copyFileContents", path) as Promise<boolean>,
+    getMainDiagnostics: () =>
+      ipcRenderer.invoke("app:getMainDiagnostics") as Promise<
+        ReadonlyArray<{
+          readonly createdAt: string;
+          readonly level: "debug" | "info" | "warn" | "error";
+          readonly source: string;
+          readonly message: string;
+          readonly detail?: string;
+        }>
+      >,
   },
   updates: {
     onStatus: (handler: (status: UpdateStatus) => void) => {
