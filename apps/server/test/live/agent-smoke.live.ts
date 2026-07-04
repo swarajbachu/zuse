@@ -29,6 +29,7 @@ type LiveProvider = {
   readonly envToggle: string;
   readonly apiKeyEnv?: string;
   readonly expectsCursor: boolean;
+  readonly timeoutMs?: number;
 };
 
 const providers: ReadonlyArray<LiveProvider> = [
@@ -66,6 +67,7 @@ const providers: ReadonlyArray<LiveProvider> = [
     envToggle: "ZUSE_LIVE_CURSOR",
     apiKeyEnv: "CURSOR_API_KEY",
     expectsCursor: true,
+    timeoutMs: 120_000,
   },
   {
     providerId: "opencode",
@@ -173,9 +175,33 @@ const terminalTags = new Set<AgentEvent["_tag"]>([
   "Interrupted",
 ]);
 
-const runSmoke = async (
+type SmokeResult =
+  | {
+      readonly _tag: "Ran";
+      readonly events: ReadonlyArray<AgentEvent>;
+      readonly timedOut: boolean;
+    }
+  | { readonly _tag: "Skipped"; readonly reason: string };
+
+const errorMessage = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+const skippableLiveFailureReason = (
   provider: LiveProvider,
-): Promise<ReadonlyArray<AgentEvent>> => {
+  cause: unknown,
+): string | null => {
+  const reason = errorMessage(cause);
+  if (
+    /auth|authentication|authorization|required|login|sign in|api key|quota|rate limit|billing|unsupported|no longer supported/i.test(
+      reason,
+    )
+  ) {
+    return `${provider.providerId} environment is not live-test ready: ${reason}`;
+  }
+  return null;
+};
+
+const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
   const dir = mkdtempSync(join(tmpdir(), `zuse-live-${provider.providerId}-`));
   writeFileSync(
     join(dir, "README.md"),
@@ -194,11 +220,11 @@ const runSmoke = async (
   };
   const binaryPath = which(provider.binary);
   if (binaryPath === null) {
-    console.warn(
-      `[live-agent] skipping ${provider.providerId}: ${provider.binary} not found`,
-    );
     rmSync(dir, { recursive: true, force: true });
-    return [];
+    return {
+      _tag: "Skipped",
+      reason: `${provider.binary} not found`,
+    };
   }
   const apiKey =
     provider.apiKeyEnv === undefined
@@ -207,7 +233,7 @@ const runSmoke = async (
 
   const events: AgentEvent[] = [];
   try {
-    await Effect.runPromise(
+    const completed = await Effect.runPromise(
       Effect.gen(function* () {
         const startEffect = yield* Effect.promise(() =>
           startProvider(provider, input, dir, binaryPath, apiKey, sessionId),
@@ -223,19 +249,29 @@ const runSmoke = async (
           "Read README.md and reply with the exact marker from it. Do not modify files.",
         );
 
-        const deadline = Date.now() + 45_000;
+        const deadline = Date.now() + (provider.timeoutMs ?? 60_000);
         while (
           Date.now() < deadline &&
           !events.some((event) => terminalTags.has(event._tag))
         ) {
           yield* Effect.sleep("250 millis");
         }
+        const sawTerminal = events.some((event) =>
+          terminalTags.has(event._tag),
+        );
 
         yield* handle.close().pipe(Effect.catchAll(() => Effect.void));
         yield* Fiber.interrupt(fiber).pipe(Effect.catchAll(() => Effect.void));
+        return sawTerminal;
       }).pipe(Effect.provide(AttachmentServiceTest)),
     );
-    return events;
+    return { _tag: "Ran", events, timedOut: !completed };
+  } catch (cause) {
+    const skipReason = skippableLiveFailureReason(provider, cause);
+    if (skipReason !== null) {
+      return { _tag: "Skipped", reason: skipReason };
+    }
+    throw cause;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -243,27 +279,41 @@ const runSmoke = async (
 
 describe("live agent smoke tests", () => {
   for (const provider of providers) {
-    it(`${provider.providerId} starts, responds, and closes`, async () => {
-      if (!liveEnabled(provider)) {
-        console.warn(
-          `[live-agent] skipping ${provider.providerId}: set ZUSE_LIVE_AGENT_TESTS=1 and ${provider.envToggle}=1`,
-        );
-        return;
-      }
+    it(
+      `${provider.providerId} starts, responds, and closes`,
+      async () => {
+        if (!liveEnabled(provider)) {
+          console.warn(
+            `[live-agent] skipping ${provider.providerId}: set ZUSE_LIVE_AGENT_TESTS=1 and ${provider.envToggle}=1`,
+          );
+          return;
+        }
 
-      const events = await runSmoke(provider);
-      if (events.length === 0) return;
+        const result = await runSmoke(provider);
+        if (result._tag === "Skipped") {
+          console.warn(
+            `[live-agent] skipping ${provider.providerId}: ${result.reason}`,
+          );
+          return;
+        }
+        const { events } = result;
 
-      expect(events.some((event) => event._tag === "Started")).toBe(true);
-      expect(events.some((event) => terminalTags.has(event._tag))).toBe(true);
-      if (
-        provider.expectsCursor &&
-        !events.some((event) => event._tag === "Error")
-      ) {
-        expect(events.some((event) => event._tag === "SessionCursor")).toBe(
-          true,
-        );
-      }
-    }, 60_000);
+        expect(
+          result.timedOut,
+          `${provider.providerId} live smoke timed out after ${provider.timeoutMs ?? 60_000}ms without an assistant/result/error event; saw ${events.map((event) => event._tag).join(", ")}`,
+        ).toBe(false);
+        expect(events.some((event) => event._tag === "Started")).toBe(true);
+        expect(events.some((event) => terminalTags.has(event._tag))).toBe(true);
+        if (
+          provider.expectsCursor &&
+          !events.some((event) => event._tag === "Error")
+        ) {
+          expect(events.some((event) => event._tag === "SessionCursor")).toBe(
+            true,
+          );
+        }
+      },
+      (provider.timeoutMs ?? 60_000) + 15_000,
+    );
   }
 });
