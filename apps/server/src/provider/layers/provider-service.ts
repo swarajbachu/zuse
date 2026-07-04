@@ -232,14 +232,31 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            const bunPath = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            );
+            if (bunPath === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "grok",
+                  reason:
+                    "Bun was not found on PATH. It is required to expose Zuse browser tools to Grok via ACP MCP.",
+                }),
+              );
+            }
             handle = yield* startGrokSession(
               input,
               cwd,
               apiKey,
               grokPath,
+              bunPath,
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Runtime.runPromise(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {

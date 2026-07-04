@@ -1015,12 +1015,15 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ZUSE_MCP_NAME}__browser_snapshot`,
   `mcp__${ZUSE_MCP_NAME}__browser_wait`,
   // Read-only / non-mutating browsing: scroll, hover, read text, console,
-  // and history (back/forward/reload — like navigate, which also auto-allows).
-  // `browser_select` and `browser_press` change page state, so they prompt.
+  // network (pure read of captured request metadata), and history
+  // (back/forward/reload — like navigate, which also auto-allows).
+  // `browser_select`, `browser_press`, `browser_fill_form`, and
+  // `browser_dialog` change page state, so they prompt.
   `mcp__${ZUSE_MCP_NAME}__browser_scroll`,
   `mcp__${ZUSE_MCP_NAME}__browser_hover`,
   `mcp__${ZUSE_MCP_NAME}__browser_read`,
   `mcp__${ZUSE_MCP_NAME}__browser_console`,
+  `mcp__${ZUSE_MCP_NAME}__browser_network`,
   `mcp__${ZUSE_MCP_NAME}__browser_history`,
 ]);
 
