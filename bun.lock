@@ -79,6 +79,7 @@
         "@codemirror/language": "^6.11.4",
         "@codemirror/state": "^6.5.2",
         "@codemirror/view": "^6.39.0",
+        "@effect/platform": "catalog:",
         "@effect/rpc": "catalog:",
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@fontsource-variable/inter": "^5.2.8",
