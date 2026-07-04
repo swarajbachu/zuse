@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import { basename } from "node:path";
+import { basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -241,6 +242,36 @@ export const BROWSER_MCP_TOOLS: ReadonlyArray<BrowserMcpToolDef> = [
     ),
   },
 ];
+
+/**
+ * Compact per-session context hint for ACP models. Grok's CLI surfaces MCP
+ * tools through a generic `CallMcpTool` + on-disk schema descriptors instead
+ * of inlining schemas into the model's context — without this hint the model
+ * burns a dozen Glob/Grep/Read calls hunting for the descriptor files before
+ * its first browser action. Generated from BROWSER_MCP_TOOLS so the tool list
+ * can never drift from what the child actually serves.
+ */
+export const browserMcpPromptHint = (): string => {
+  const signature = (tool: BrowserMcpToolDef): string => {
+    const properties =
+      (tool.inputSchema["properties"] as Record<string, unknown> | undefined) ??
+      {};
+    const required = new Set(
+      (tool.inputSchema["required"] as ReadonlyArray<string> | undefined) ?? [],
+    );
+    const args = Object.keys(properties)
+      .map((key) => (required.has(key) ? key : `${key}?`))
+      .join(",");
+    return `${tool.name}{${args}}`;
+  };
+  return [
+    "<zuse-browser-tools>",
+    'The "zuse-browser" MCP server controls Zuse\'s visible in-app browser. Call its tools directly via MCP (server name "zuse-browser") — do NOT search the filesystem for tool schemas or descriptor files.',
+    `Tools: ${BROWSER_MCP_TOOLS.map(signature).join(", ")}.`,
+    "Typical flow: browser_navigate → browser_snapshot (a11y tree with refs; read it before clicking/typing) → act by ref → browser_console/browser_network to verify.",
+    "</zuse-browser-tools>",
+  ].join("\n");
+};
 
 const READ_ONLY_BROWSER_TOOLS = new Set([
   "browser_navigate",
@@ -559,6 +590,44 @@ export interface BrowserMcpBridge {
   readonly close: () => Promise<void>;
 }
 
+/**
+ * Locate the stdio MCP child script the ACP provider will spawn. This module
+ * gets bundled into `dist-electron/main.cjs` by tsdown, so `import.meta.url`
+ * points at the bundle directory, NOT the source tree — a bare
+ * `./browser-mcp-child.ts` sibling lookup resolves to a file that was never
+ * emitted and the child dies at spawn ("Transport channel closed", every
+ * tool call "Tool not found"). Resolution order:
+ *
+ *   1. `browser-mcp-child.cjs` next to the bundle (built by the dedicated
+ *      tsdown entry), remapped out of the asar in packaged builds — bun is
+ *      an external process and cannot read inside `app.asar`.
+ *   2. The `.ts` source sibling — running unbundled from source (headless
+ *      server under bun, tests), where bun executes TypeScript directly.
+ */
+const resolveChildScript = (): string => {
+  const bundled = fileURLToPath(
+    new URL("./browser-mcp-child.cjs", import.meta.url),
+  );
+  const unpacked = bundled.replace(
+    `${sep}app.asar${sep}`,
+    `${sep}app.asar.unpacked${sep}`,
+  );
+  if (existsSync(unpacked)) return unpacked;
+  if (existsSync(bundled)) return bundled;
+  const source = fileURLToPath(
+    new URL("./browser-mcp-child.ts", import.meta.url),
+  );
+  if (!existsSync(source)) {
+    // Don't fail the whole agent session over browser tools, but be loud:
+    // this exact silent failure already shipped once.
+    console.error(
+      `[grok.browser-mcp] child script missing — looked for ${unpacked}, ${bundled}, ${source}. ` +
+        "Browser tools will be unavailable to this ACP session (did the desktop build emit browser-mcp-child.cjs?).",
+    );
+  }
+  return source;
+};
+
 export const startBrowserMcpBridge = async (
   opts: BrowserMcpBridgeOptions,
 ): Promise<BrowserMcpBridge> => {
@@ -608,9 +677,7 @@ export const startBrowserMcpBridge = async (
     throw new Error("Could not bind browser MCP bridge.");
   }
 
-  const childPath = fileURLToPath(
-    new URL("./browser-mcp-child.ts", import.meta.url),
-  );
+  const childPath = resolveChildScript();
   const command = basename(opts.command).includes("bun")
     ? opts.command
     : process.execPath;

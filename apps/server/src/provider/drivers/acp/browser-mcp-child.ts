@@ -85,5 +85,15 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 });
 
+// No top-level await: this file is also bundled to CJS for the packaged app
+// (dist-electron/browser-mcp-child.cjs), where TLA is unsupported. The stdio
+// transport keeps the event loop alive once connected.
 const transport = new StdioServerTransport();
-await server.connect(transport);
+server.connect(transport).catch((cause: unknown) => {
+  process.stderr.write(
+    `[zuse-browser-mcp] failed to connect stdio transport: ${
+      cause instanceof Error ? cause.message : String(cause)
+    }\n`,
+  );
+  process.exit(1);
+});

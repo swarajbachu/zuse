@@ -89,4 +89,21 @@ export default defineConfig([
     ...shared,
     entry: ["src/preload.ts"],
   },
+  {
+    ...shared,
+    // The zuse-browser MCP child that ACP providers (Grok) spawn via bun to
+    // reach the in-app browser. It runs OUTSIDE Electron — and, packaged,
+    // outside the asar — so it can't resolve node_modules at runtime: bundle
+    // every dependency in (the runtime graph is just @modelcontextprotocol/sdk
+    // plus node builtins; the @zuse imports are type-only). The bridge resolves
+    // this artifact next to the main bundle (browser-mcp-bridge.ts).
+    entry: {
+      "browser-mcp-child":
+        "../server/src/provider/drivers/acp/browser-mcp-child.ts",
+    },
+    deps: {
+      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+    },
+    external: [],
+  },
 ]);

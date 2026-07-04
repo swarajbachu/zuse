@@ -254,10 +254,12 @@ export function BrowserPane() {
     setInputValue(resolved);
     const wv = webviewRef.current as WebviewElement | null;
     // Setting `src` programmatically also works, but loadURL is more
-    // predictable when the same URL is re-entered (forces a reload).
+    // predictable when the same URL is re-entered (forces a reload). The
+    // rejection catch matters: a load superseded by a newer navigation
+    // rejects with ERR_ABORTED, which is routine, not an error.
     if (wv !== null) {
       try {
-        void wv.loadURL(resolved);
+        void wv.loadURL(resolved).catch(() => {});
       } catch {
         wv.src = resolved;
       }
@@ -348,7 +350,12 @@ export function BrowserPane() {
         ) : null}
         <webview
           ref={webviewRef as unknown as React.RefObject<HTMLElement>}
-          src={url === "" ? "about:blank" : url}
+          // src is intentionally NOT bound to `url` state. All navigation is
+          // imperative (loadURL); if src tracked state, every navigation would
+          // fire twice — once from loadURL, once from React re-setting the
+          // attribute — and the loads abort each other (ERR_ABORTED -3, agent
+          // navigations intermittently reporting about:blank).
+          src="about:blank"
           allowpopups={true}
           style={{
             display: url === "" ? "none" : "flex",
