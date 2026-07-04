@@ -117,7 +117,6 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip";
 import { useMessagesStore } from "../store/messages.ts";
-import { useChatMotionStore } from "../store/chat-motion.ts";
 import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
@@ -132,17 +131,6 @@ import { ProviderIcon } from "./provider-icons.tsx";
 const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 240;
 const MAX_ATTACHMENTS_PER_TURN = 20;
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const motionSnippet = (text: string): string => {
-  const trimmed = text.replace(/\s+/g, " ").trim();
-  if (trimmed.length === 0) return "Message sent";
-  return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
-};
 
 export function ChatComposer({
   session,
@@ -341,7 +329,6 @@ export function ChatComposer({
   const [isDragging, setIsDragging] = useState(false);
   const editorHostRef = useRef<HTMLDivElement | null>(null);
   const editorViewRef = useRef<EditorView | null>(null);
-  const composerCardRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
@@ -365,7 +352,6 @@ export function ChatComposer({
   const revealPanel = useUiStore((s) => s.revealPanel);
   const setView = useUiStore((s) => s.setView);
   const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-  const startSendMotion = useChatMotionStore((s) => s.startSend);
   const workspaceRoot = useActiveWorkspaceRoot(session.projectId);
   const annotationCount = useAnnotationsStore(
     (s) => (s.bySession[sessionId] ?? []).length,
@@ -729,23 +715,6 @@ export function ChatComposer({
             shouldQueue: inFlight || holdForSetup,
           })
         : null;
-    const sourceRect = composerCardRef.current?.getBoundingClientRect() ?? null;
-    if (
-      route !== null &&
-      route !== "queue" &&
-      sourceRect !== null &&
-      !prefersReducedMotion()
-    ) {
-      startSendMotion(sessionId, {
-        text: motionSnippet(input.text),
-        sourceRect: {
-          left: sourceRect.left,
-          top: sourceRect.top,
-          width: sourceRect.width,
-          height: sourceRect.height,
-        },
-      });
-    }
     clearComposer(view);
     clearComposerDraft(draftKey);
     setGoalSendMode(false);
@@ -889,7 +858,6 @@ export function ChatComposer({
               </div>
             ) : null}
             <Card
-              ref={composerCardRef}
               className={cn(
                 "min-h-30 rounded-lg transition-colors",
                 goalSendMode
