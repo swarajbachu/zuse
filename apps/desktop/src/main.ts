@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { makeMainLayer } from "@zuse/server";
+import { AGENTS_RUNNING_COUNT_CHANNEL } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -45,6 +46,7 @@ import {
   type MenuCommand,
 } from "./menu.ts";
 import {
+  getIsInstallingUpdate,
   getLastStatus,
   onStatusChange,
   registerUpdaterDemo,
@@ -1620,4 +1622,69 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Quit guard. Agents (Claude/Codex/Grok/… turns) run as child processes owned
+// by the embedded server. Quitting mid-turn kills them, so if any are running
+// we confirm first. The renderer store is the source of truth for "how many
+// are running"; it pushes the count here on every change (see preload
+// `updates.reportRunningCount`). We mirror the latest value so the
+// synchronous `before-quit` handler can read it without a round-trip.
+// ---------------------------------------------------------------------------
+let runningAgentCount = 0;
+// Set once the user has confirmed a quit (or an update install begins) so a
+// re-entrant `before-quit` — Electron fires it again after `app.quit()` — does
+// not pop the dialog a second time.
+let quitConfirmed = false;
+// Armed by the dialog's "Quit when idle" choice: keep running, then quit
+// automatically the moment the last agent finishes.
+let quitWhenIdle = false;
+
+ipcMain.on(AGENTS_RUNNING_COUNT_CHANNEL, (_event, payload: unknown) => {
+  runningAgentCount = typeof payload === "number" && payload >= 0 ? payload : 0;
+  if (quitWhenIdle && runningAgentCount === 0) {
+    quitConfirmed = true;
+    app.quit();
+  }
+});
+
+function pluralAgents(count: number): string {
+  return count === 1 ? "1 agent is running" : `${count} agents are running`;
+}
+
+app.on("before-quit", (event) => {
+  // An update-driven quit (user picked "Restart now") or an already-confirmed
+  // quit passes straight through — the user has opted in, and re-prompting
+  // would strand the relaunch.
+  if (quitConfirmed || getIsInstallingUpdate()) return;
+  if (runningAgentCount <= 0) return;
+
+  event.preventDefault();
+
+  const choice = dialog.showMessageBoxSync({
+    type: "warning",
+    buttons: ["Cancel", "Quit anyway", "Quit when idle"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Quit Zuse Alpha?",
+    message: `${pluralAgents(runningAgentCount)} currently.`,
+    detail:
+      "Quitting now will stop them mid-turn. You can quit anyway, or have Zuse quit automatically once they finish.",
+  });
+
+  if (choice === 1) {
+    quitConfirmed = true;
+    app.quit();
+  } else if (choice === 2) {
+    quitWhenIdle = true;
+    // Stay open; the running-count handler quits once the count hits zero.
+    // Guard against the race where every agent already finished between the
+    // count push and this click.
+    if (runningAgentCount === 0) {
+      quitConfirmed = true;
+      app.quit();
+    }
+  }
+  // choice === 0 (Cancel): stay open — quit already prevented.
 });
