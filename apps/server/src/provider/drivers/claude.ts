@@ -1689,9 +1689,15 @@ export const startClaudeSession = (
     });
 
     // If the caller has a resume cursor, hand it to the SDK before opening
-    // the conversation. Mutually exclusive with `forkSession` per SDK docs.
+    // the conversation. When `forkFromResume` is set (the "Fork chat"
+    // feature), also pass `forkSession: true` so the SDK branches the resumed
+    // transcript into a NEW session_id — the source session's transcript is
+    // left untouched and both can run independently.
     if (resumeCursor !== null) {
       options.resume = resumeCursor;
+      if (input.forkFromResume === true) {
+        options.forkSession = true;
+      }
     }
 
     let q: Query;

@@ -556,6 +556,49 @@ export const SessionDeleteRpc = Rpc.make("session.delete", {
   error: SessionNotFoundError,
 });
 
+/**
+ * Where a forked conversation lands. `tab` creates a new session inside the
+ * source chat (sharing its worktree); `chat` creates a fresh sidebar chat
+ * (with its own worktree) for isolated parallel exploration.
+ */
+export const ForkDestination = Schema.Literal("tab", "chat");
+export type ForkDestination = typeof ForkDestination.Type;
+
+/**
+ * How the fork inherited its context. `resume` means the provider forked the
+ * live transcript so the new session has real agent memory (Claude
+ * `forkSession` / Codex `thread/fork`); `copy` means the visible transcript
+ * was replayed into the new session (no KV memory) because the fork point was
+ * not the conversation tail, or the provider lacks native fork support.
+ */
+export const ForkMode = Schema.Literal("resume", "copy");
+export type ForkMode = typeof ForkMode.Type;
+
+/**
+ * Serialise a session's transcript to Markdown, optionally truncated at
+ * `uptoMessageId` (inclusive). Backs the "Attach transcript" handoff button
+ * and the copy-mode fork context file.
+ */
+export const SessionExportTranscriptRpc = Rpc.make("session.exportTranscript", {
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    uptoMessageId: Schema.optional(MessageId),
+  }),
+  success: Schema.Struct({ markdown: Schema.String }),
+  error: SessionNotFoundError,
+});
+
+/**
+ * The most recent `ExitPlanMode` plan text for a session, or `null` if it has
+ * never proposed a plan. Backs the "Add plans" chip on a new chat — cheap
+ * enough to probe candidate sources without hydrating their full message log.
+ */
+export const SessionLatestPlanRpc = Rpc.make("session.latestPlan", {
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Struct({ plan: Schema.NullOr(Schema.String) }),
+  error: SessionNotFoundError,
+});
+
 // ---------------------------------------------------------------------------
 // Chats (sidebar containers; each chat hosts ≥1 session as tabs)
 // ---------------------------------------------------------------------------
@@ -713,6 +756,32 @@ export const ChatRenameRpc = Rpc.make("chat.rename", {
   payload: Schema.Struct({ chatId: ChatId, title: Schema.String }),
   success: Schema.Void,
   error: ChatNotFoundError,
+});
+
+/**
+ * Branch a conversation from a specific message into a new tab or chat. The
+ * server picks `resume` vs `copy` based on the fork point and provider; the
+ * new session records `forkedFromSessionId` / `forkedFromMessageId`.
+ * `providerId` / `model` default to the source session's; `worktreeId` only
+ * applies to `destination: "chat"`. (Declared here — below `Chat` — because
+ * its success payload references the `Chat` class.)
+ */
+export const SessionForkRpc = Rpc.make("session.fork", {
+  payload: Schema.Struct({
+    sourceSessionId: SessionId,
+    fromMessageId: MessageId,
+    destination: ForkDestination,
+    providerId: Schema.optional(ProviderId),
+    model: Schema.optional(Schema.String),
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    title: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    chat: Chat,
+    session: Session,
+    forkMode: ForkMode,
+  }),
+  error: Schema.Union(SessionNotFoundError, SessionStartError),
 });
 
 /**

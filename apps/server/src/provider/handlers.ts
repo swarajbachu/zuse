@@ -283,6 +283,38 @@ const SessionResume = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageStore, (svc) => svc.resumeSession(sessionId)),
 );
 
+const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
+  Effect.flatMap(MessageStore, (svc) =>
+    svc.forkSession({
+      sourceSessionId: input.sourceSessionId,
+      fromMessageId: input.fromMessageId,
+      destination: input.destination,
+      providerId: input.providerId,
+      model: input.model,
+      worktreeId: input.worktreeId,
+      title: input.title,
+    }),
+  ),
+);
+
+const SessionExportTranscript = MemoizeRpcs.toLayerHandler(
+  "session.exportTranscript",
+  ({ sessionId, uptoMessageId }) =>
+    Effect.flatMap(MessageStore, (svc) =>
+      svc
+        .exportTranscript(sessionId, uptoMessageId)
+        .pipe(Effect.map((markdown) => ({ markdown }))),
+    ),
+);
+
+const SessionLatestPlan = MemoizeRpcs.toLayerHandler(
+  "session.latestPlan",
+  ({ sessionId }) =>
+    Effect.flatMap(MessageStore, (svc) =>
+      svc.latestPlan(sessionId).pipe(Effect.map((plan) => ({ plan }))),
+    ),
+);
+
 const SessionSetRuntimeMode = MemoizeRpcs.toLayerHandler(
   "session.setRuntimeMode",
   ({ sessionId, runtimeMode }) =>
@@ -590,6 +622,9 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   ChatUnarchive,
   ChatDelete,
   SessionResume,
+  SessionFork,
+  SessionExportTranscript,
+  SessionLatestPlan,
   SessionSetRuntimeMode,
   SessionSetPermissionMode,
   SessionAnswerQuestion,
