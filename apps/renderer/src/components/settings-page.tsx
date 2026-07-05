@@ -1028,7 +1028,7 @@ function GeneralPane() {
       >
         <SettingsRow
           title="Branch naming"
-          description="When a new chat with its own worktree gets its first message, Zuse Alpha summarizes it and renames the chat plus its git branch in this shape."
+          description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
           action={
             <Select
               value={branchNamingStyle}

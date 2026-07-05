@@ -193,6 +193,22 @@ const ensureChangeStream = (projectId: FolderId): void => {
                   },
                 };
               });
+              // Mirror the server-side auto-namer onto member session tabs.
+              useSessionsStore.setState((s) => {
+                const sessions = s.sessionsByProject[projectId];
+                if (sessions === undefined) return s;
+                if (!sessions.some((row) => row.chatId === chat.id)) return s;
+                return {
+                  sessionsByProject: {
+                    ...s.sessionsByProject,
+                    [projectId]: sessions.map((row) =>
+                      row.chatId === chat.id
+                        ? { ...row, title: chat.title }
+                        : row,
+                    ),
+                  },
+                };
+              });
             }),
           ),
       ),
