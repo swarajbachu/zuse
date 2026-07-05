@@ -13,7 +13,7 @@ import {
   ViewOffIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { Effect } from "effect";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { OpencodeInventoryProvider } from "@zuse/wire";
 
@@ -106,9 +106,13 @@ const rpc = async (
 const LOGO_BASE = "https://models.dev/logos";
 
 /**
- * Provider mark. models.dev serves an SVG per catalog provider id; on 404 /
- * offline (and for custom providers) we fall back to a monogram chip so every
- * row still has a consistent glyph.
+ * Provider mark. models.dev serves a (usually monochrome black) SVG per
+ * catalog provider id. Rendering it as an `<img>` leaves it black — invisible
+ * on a dark card. Instead we paint the SVG as a CSS **mask** over a
+ * `currentColor` fill, so the glyph adapts to the theme (near-white on dark,
+ * near-black on light). A hidden preload verifies the URL first; on 404 /
+ * offline / custom providers we fall back to a monogram so every row has a
+ * consistent glyph.
  */
 function ProviderLogo({
   id,
@@ -121,27 +125,51 @@ function ProviderLogo({
   custom?: boolean;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const showMonogram = custom || failed || id.length === 0;
+  const canLogo = !custom && id.length > 0;
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    if (!canLogo) {
+      setOk(false);
+      return;
+    }
+    let alive = true;
+    const img = new Image();
+    img.onload = () => alive && setOk(true);
+    img.onerror = () => alive && setOk(false);
+    img.src = `${LOGO_BASE}/${id}.svg`;
+    return () => {
+      alive = false;
+    };
+  }, [id, canLogo]);
+
+  const url = `${LOGO_BASE}/${id}.svg`;
   return (
     <span
       className={cn(
-        "flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/60 ring-1 ring-border/50",
+        "flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/50 ring-1 ring-inset ring-border/50",
         className,
       )}
     >
-      {showMonogram ? (
-        <span className="text-[10px] font-semibold text-muted-foreground">
+      {ok ? (
+        <span
+          aria-hidden
+          className="size-4 bg-foreground/90"
+          style={{
+            maskImage: `url("${url}")`,
+            WebkitMaskImage: `url("${url}")`,
+            maskRepeat: "no-repeat",
+            WebkitMaskRepeat: "no-repeat",
+            maskPosition: "center",
+            WebkitMaskPosition: "center",
+            maskSize: "contain",
+            WebkitMaskSize: "contain",
+          }}
+        />
+      ) : (
+        <span className="text-[11px] font-semibold text-muted-foreground">
           {name.slice(0, 1).toUpperCase()}
         </span>
-      ) : (
-        <img
-          src={`${LOGO_BASE}/${id}.svg`}
-          alt=""
-          draggable={false}
-          onError={() => setFailed(true)}
-          className="size-3.5 object-contain"
-        />
       )}
     </span>
   );
@@ -411,19 +439,21 @@ function ProviderBrowserDialog({
             />
           </div>
 
-          <div className="max-h-[24rem] overflow-y-auto rounded-lg border border-border/50">
+          <div className="-mx-1 max-h-[22rem] overflow-y-auto px-1">
             {shown.length === 0 ? (
-              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+              <p className="px-3 py-10 text-center text-xs text-muted-foreground">
                 No providers match “{query}”.
               </p>
             ) : (
-              shown.map((p) => (
-                <ProviderBrowserRow
-                  key={p.id}
-                  provider={p}
-                  onChanged={onChanged}
-                />
-              ))
+              <div className="flex flex-col gap-0.5">
+                {shown.map((p) => (
+                  <ProviderBrowserRow
+                    key={p.id}
+                    provider={p}
+                    onChanged={onChanged}
+                  />
+                ))}
+              </div>
             )}
           </div>
 
@@ -431,9 +461,9 @@ function ProviderBrowserDialog({
             <button
               type="button"
               onClick={() => setShowAll(true)}
-              className="text-center text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-md py-1 text-center text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
             >
-              View all providers ({filtered.length})
+              View all {filtered.length} providers
             </button>
           )}
         </div>
@@ -442,7 +472,7 @@ function ProviderBrowserDialog({
   );
 }
 
-/** One accordion row in the browser: logo + name, expands to the key form. */
+/** One row in the browser: logo + name, expands into the key form. */
 function ProviderBrowserRow({
   provider,
   onChanged,
@@ -451,24 +481,46 @@ function ProviderBrowserRow({
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const toggle = () =>
+    setOpen((o) => {
+      const next = !o;
+      if (next) {
+        // Expanding a row near the bottom of the scroll area would otherwise
+        // open its key field off-screen — pull it into view.
+        requestAnimationFrame(() =>
+          ref.current?.scrollIntoView({ block: "nearest" }),
+        );
+      }
+      return next;
+    });
 
   return (
-    <div className="border-b border-border/40 last:border-b-0">
+    <div
+      ref={ref}
+      className={cn(
+        "rounded-xl transition-colors",
+        open
+          ? "bg-muted/40 ring-1 ring-inset ring-border/60"
+          : "hover:bg-muted/40",
+      )}
+    >
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
+        onClick={toggle}
+        className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left"
       >
         <ProviderLogo
           id={provider.id}
           name={provider.name}
           custom={provider.custom}
         />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
           {provider.name}
         </span>
         {provider.connected ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
             <HugeiconsIcon
               icon={CheckmarkCircle02Icon}
               className="size-3"
@@ -477,13 +529,18 @@ function ProviderBrowserRow({
             Connected
           </span>
         ) : (
-          <span className="text-[10px] text-muted-foreground/60">
-            {open ? "Cancel" : "Connect"}
+          <span
+            className={cn(
+              "shrink-0 text-[11px] font-medium transition-colors",
+              open ? "text-foreground" : "text-muted-foreground/70",
+            )}
+          >
+            {open ? "Close" : "Connect"}
           </span>
         )}
       </button>
       {open && (
-        <div className="flex flex-col gap-2 px-3 pb-3">
+        <div className="flex flex-col gap-2 px-2.5 pb-3 pt-0.5">
           {provider.apiKeyUrl.length > 0 && (
             <button
               type="button"
