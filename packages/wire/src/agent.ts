@@ -1540,6 +1540,17 @@ export const OpencodeInventoryProvider = Schema.Struct({
    * opposed to entries from opencode's built-in models.dev catalog.
    */
   custom: Schema.Boolean,
+  /**
+   * Name of the environment variable this provider's key is read from
+   * (`provider.list().env[0]`, e.g. `"OPENAI_API_KEY"`, `"GITHUB_TOKEN"`).
+   * Used as the API-key input placeholder. Empty for oauth-only / custom.
+   */
+  apiKeyEnv: Schema.String,
+  /**
+   * models.dev doc URL for this provider (the "Get an API key" link).
+   * Empty when unknown (custom providers, or if the catalog fetch failed).
+   */
+  apiKeyUrl: Schema.String,
 });
 export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 

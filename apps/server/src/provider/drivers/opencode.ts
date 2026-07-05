@@ -1231,8 +1231,39 @@ interface InventoryProviderModel {
 interface InventoryProvider {
   readonly id: string;
   readonly name: string;
+  // Env var(s) the provider's key is read from (e.g. `["OPENAI_API_KEY"]`).
+  readonly env?: ReadonlyArray<string>;
   readonly models: { readonly [key: string]: InventoryProviderModel };
 }
+
+/**
+ * Best-effort fetch of models.dev's catalog to pull each provider's
+ * "get an API key" doc URL (opencode's `provider.list()` doesn't expose it).
+ * Returns an id→doc-url map; on any failure returns an empty map so inventory
+ * still loads (the UI just omits the doc link). opencode already fetches
+ * models.dev for its own catalog, so the data is authoritative.
+ */
+const fetchModelsDevDocs = async (): Promise<Map<string, string>> => {
+  const out = new Map<string, string>();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const resp = await fetch("https://models.dev/api.json", {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return out;
+    const json = (await resp.json()) as Record<string, { doc?: string }>;
+    for (const [id, meta] of Object.entries(json)) {
+      if (typeof meta?.doc === "string" && meta.doc.length > 0) {
+        out.set(id, meta.doc);
+      }
+    }
+  } catch {
+    // offline / models.dev down — inventory loads without doc links
+  }
+  return out;
+};
 
 // OpenCode reports every model its provider definitions know about — alpha,
 // beta, deprecated, audio-only, etc. For agentic chat we need active models
@@ -1249,6 +1280,7 @@ const collectInventoryProviders = (
   all: ReadonlyArray<InventoryProvider>,
   connected: ReadonlyArray<string>,
   customIds: ReadonlySet<string>,
+  docById: ReadonlyMap<string, string>,
 ): ReadonlyArray<OpencodeInventoryProvider> => {
   const connectedSet = new Set(connected);
   return (
@@ -1260,6 +1292,8 @@ const collectInventoryProviders = (
           name: p.name,
           connected: isConnected,
           custom: customIds.has(p.id),
+          apiKeyEnv: p.env?.[0] ?? "",
+          apiKeyUrl: docById.get(p.id) ?? "",
           // Only enumerate models for connected providers. The catalog carries
           // ~150 providers with thousands of models between them; shipping every
           // unconnected provider's full model list would bloat the RPC payload
@@ -1303,9 +1337,10 @@ export const loadOpencodeInventory = (
       const client = createOpencodeClient({ baseUrl: proc.url });
       const customIds = new Set(customProviders.map((p) => p.id));
       try {
-        const [providersResp, agentsResp] = await Promise.all([
+        const [providersResp, agentsResp, docById] = await Promise.all([
           client.provider.list({ throwOnError: true }),
           client.app.agents({ throwOnError: true }),
+          fetchModelsDevDocs(),
         ]);
         const providersData = providersResp.data;
         const agentsData = agentsResp.data;
@@ -1331,6 +1366,7 @@ export const loadOpencodeInventory = (
                 providersData.all as ReadonlyArray<InventoryProvider>,
                 providersData.connected,
                 customIds,
+                docById,
               );
         const agents =
           agentsData === undefined

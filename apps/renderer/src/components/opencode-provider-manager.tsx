@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  ArrowUpRight01Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Delete02Icon,
+  Loading02Icon,
   PlugSocketIcon,
   RefreshIcon,
   Search01Icon,
@@ -16,10 +18,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { OpencodeInventoryProvider } from "@zuse/wire";
 
 import { getRpcClient } from "~/lib/rpc-client";
+import { openExternal } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useOpencodeInventory } from "~/store/opencode-inventory";
 import { useSettingsStore } from "~/store/settings";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -39,24 +43,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { Switch } from "~/components/ui/switch";
 import { ShimmerText } from "~/components/ui/shimmer-text";
+import { Switch } from "~/components/ui/switch";
 
 /**
  * OpenCode is a meta-harness fronting ~150 model providers (models.dev) plus
  * any OpenAI-compatible endpoint the user brings. This panel replaces the
- * generic model-default / api-key block on the OpenCode provider card:
+ * generic model-default / api-key block on the OpenCode card:
  *
- *  - **Providers** — connect a catalog provider by pasting its API key, or
- *    define a custom OpenAI-compatible one from a base URL. Keys are written
- *    through to opencode's own `auth.json` (via `agent.opencodeSetProviderAuth`
- *    / `agent.opencodeAddCustomProvider`) so they also work in a terminal.
- *  - **Models** — pick which connected providers' models show in the picker.
+ *  - **Providers** — browse the catalog (logo + "get an API key" link) and
+ *    connect one by pasting its key, or define a custom OpenAI-compatible
+ *    provider. Keys are written through to opencode's own `auth.json`.
+ *  - **Models** — a searchable dialog to pick which connected models show.
  *  - **Advanced** — default model + per-provider picker visibility.
- *
- * The catalog + connected state comes from `useOpencodeInventory`
- * (`provider.list()` behind a short-lived `opencode serve`); visibility state
- * lives in settings.json.
  */
 export function OpencodeProviderManager() {
   const inventory = useOpencodeInventory((s) => s.inventory);
@@ -73,28 +72,80 @@ export function OpencodeProviderManager() {
     () => providers.filter((p) => p.connected),
     [providers],
   );
+  const refresh = () => void refreshInventory();
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <ProvidersSection
         providers={providers}
         connected={connected}
         loading={invLoading}
-        onRefresh={() => void refreshInventory()}
+        loaded={inventory !== null}
+        onRefresh={refresh}
       />
-      {connected.length > 0 && <ModelsSection connected={connected} />}
-      {connected.length > 0 && <AdvancedSection connected={connected} />}
+      {connected.length > 0 && (
+        <>
+          <ModelsSection connected={connected} />
+          <AdvancedSection connected={connected} />
+        </>
+      )}
     </div>
   );
 }
 
-/** Fire an opencode provider-management RPC, then refresh the inventory. */
-const runOpencodeMutation = async (
+/** Fire an opencode provider-management RPC (caller refreshes inventory). */
+const rpc = async (
   fn: (client: Awaited<ReturnType<typeof getRpcClient>>) => Promise<unknown>,
 ): Promise<void> => {
   const client = await getRpcClient();
   await fn(client);
 };
+
+/* ─────────────────────────────── Logo ────────────────────────────────── */
+
+const LOGO_BASE = "https://models.dev/logos";
+
+/**
+ * Provider mark. models.dev serves an SVG per catalog provider id; on 404 /
+ * offline (and for custom providers) we fall back to a monogram chip so every
+ * row still has a consistent glyph.
+ */
+function ProviderLogo({
+  id,
+  name,
+  custom,
+  className,
+}: {
+  id: string;
+  name: string;
+  custom?: boolean;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showMonogram = custom || failed || id.length === 0;
+  return (
+    <span
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/60 ring-1 ring-border/50",
+        className,
+      )}
+    >
+      {showMonogram ? (
+        <span className="text-[10px] font-semibold text-muted-foreground">
+          {name.slice(0, 1).toUpperCase()}
+        </span>
+      ) : (
+        <img
+          src={`${LOGO_BASE}/${id}.svg`}
+          alt=""
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="size-3.5 object-contain"
+        />
+      )}
+    </span>
+  );
+}
 
 /* ────────────────────────────── Providers ────────────────────────────── */
 
@@ -102,96 +153,107 @@ function ProvidersSection({
   providers,
   connected,
   loading,
+  loaded,
   onRefresh,
 }: {
   providers: ReadonlyArray<OpencodeInventoryProvider>;
   connected: ReadonlyArray<OpencodeInventoryProvider>;
   loading: boolean;
+  loaded: boolean;
   onRefresh: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between">
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">
+          <span className="text-xs font-semibold text-foreground">
             Providers
           </span>
-          <span className="text-[10px] text-muted-foreground/70">
+          <span className="text-[11px] text-muted-foreground/70">
             {connected.length} configured
           </span>
         </div>
-        <Button
-          variant="ghost"
-          size="icon-xs"
+        <button
+          type="button"
           onClick={onRefresh}
           disabled={loading}
           aria-label="Refresh providers"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:opacity-50"
         >
           <HugeiconsIcon
             icon={RefreshIcon}
             className={cn("size-3.5", loading && "animate-spin")}
             aria-hidden
           />
-        </Button>
+        </button>
       </div>
 
-      {connected.length === 0 ? (
-        <ProviderCatalogDialog
+      {!loaded ? (
+        <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-background/40 px-3 py-3 text-xs text-muted-foreground">
+          <HugeiconsIcon
+            icon={Loading02Icon}
+            className="size-3.5 animate-spin"
+            aria-hidden
+          />
+          <ShimmerText as="span">Loading providers…</ShimmerText>
+        </div>
+      ) : connected.length === 0 ? (
+        <ProviderBrowserDialog
           providers={providers}
           onChanged={onRefresh}
           trigger={
-            <Button size="sm" variant="default" className="self-start">
+            <Button size="sm" className="self-start">
               Add your first provider
             </Button>
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
-          {connected.map((p) => (
-            <ConnectedProviderRow
-              key={p.id}
-              provider={p}
+        <>
+          <div className="flex flex-col gap-1.5">
+            {connected.map((p) => (
+              <ConnectedProviderRow
+                key={p.id}
+                provider={p}
+                onChanged={onRefresh}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <ProviderBrowserDialog
+              providers={providers}
               onChanged={onRefresh}
+              trigger={
+                <Button size="xs" variant="outline">
+                  <HugeiconsIcon
+                    icon={Add01Icon}
+                    className="mr-1 size-3"
+                    aria-hidden
+                  />
+                  Add provider
+                </Button>
+              }
             />
-          ))}
-        </div>
-      )}
-
-      {connected.length > 0 && (
-        <div className="flex items-center gap-2">
-          <ProviderCatalogDialog
-            providers={providers}
-            onChanged={onRefresh}
-            trigger={
-              <Button size="xs" variant="outline">
-                <HugeiconsIcon
-                  icon={Add01Icon}
-                  className="mr-1 size-3"
-                  aria-hidden
-                />
-                Add provider
-              </Button>
-            }
-          />
-          <CustomProviderDialog
-            onChanged={onRefresh}
-            trigger={
-              <Button size="xs" variant="ghost">
-                <HugeiconsIcon
-                  icon={PlugSocketIcon}
-                  className="mr-1 size-3"
-                  aria-hidden
-                />
-                Add custom provider
-              </Button>
-            }
-          />
-        </div>
+            <CustomProviderDialog
+              onChanged={onRefresh}
+              trigger={
+                <Button size="xs" variant="ghost">
+                  <HugeiconsIcon
+                    icon={PlugSocketIcon}
+                    className="mr-1 size-3"
+                    aria-hidden
+                  />
+                  Custom endpoint
+                </Button>
+              }
+            />
+          </div>
+        </>
       )}
     </div>
   );
 }
 
+/** A compact connected-provider row (logo · name · models · remove). */
 function ConnectedProviderRow({
   provider,
   onChanged,
@@ -200,11 +262,10 @@ function ConnectedProviderRow({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-
   const remove = async () => {
     setBusy(true);
     try {
-      await runOpencodeMutation((client) =>
+      await rpc((client) =>
         provider.custom
           ? Effect.runPromise(
               client.agent.opencodeRemoveCustomProvider({ id: provider.id }),
@@ -222,39 +283,66 @@ function ConnectedProviderRow({
   };
 
   return (
-    <div className="flex min-h-10 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0">
-      <HugeiconsIcon
-        icon={CheckmarkCircle02Icon}
-        className="size-3.5 shrink-0 text-emerald-400"
-        aria-hidden
+    <div className="group flex items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 px-3 py-2 transition-colors hover:border-border">
+      <ProviderLogo
+        id={provider.id}
+        name={provider.name}
+        custom={provider.custom}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-xs font-medium text-foreground">
-          {provider.name}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-xs font-medium text-foreground">
+            {provider.name}
+          </span>
+          <HugeiconsIcon
+            icon={CheckmarkCircle02Icon}
+            className="size-3 shrink-0 text-emerald-400"
+            aria-hidden
+          />
+        </div>
         <span className="text-[10px] text-muted-foreground/70">
           {provider.custom ? "Custom · " : ""}
           {provider.models.length} model
           {provider.models.length === 1 ? "" : "s"}
         </span>
       </div>
-      <Button
-        variant="ghost"
-        size="icon-xs"
+      <button
+        type="button"
         onClick={() => void remove()}
         disabled={busy}
         aria-label={`Remove ${provider.name}`}
         title="Remove credential"
+        className="rounded p-1.5 text-muted-foreground opacity-0 transition-all hover:bg-muted/60 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-50"
       >
-        <HugeiconsIcon icon={Delete02Icon} className="size-3.5" aria-hidden />
-      </Button>
+        <HugeiconsIcon
+          icon={busy ? Loading02Icon : Delete02Icon}
+          className={cn("size-3.5", busy && "animate-spin")}
+          aria-hidden
+        />
+      </button>
     </div>
   );
 }
 
-/* ─────────────────────────── Catalog dialog ──────────────────────────── */
+/* ───────────────────────── Provider browser ──────────────────────────── */
 
-function ProviderCatalogDialog({
+// Surfaced first (before "View all") — the providers most people reach for.
+const POPULAR_IDS = [
+  "opencode",
+  "openai",
+  "anthropic",
+  "google",
+  "openrouter",
+  "github-copilot",
+  "vercel",
+  "groq",
+  "xai",
+  "deepseek",
+  "mistral",
+  "azure",
+];
+
+function ProviderBrowserDialog({
   providers,
   onChanged,
   trigger,
@@ -264,27 +352,35 @@ function ProviderCatalogDialog({
   trigger: React.ReactElement;
 }) {
   const [query, setQuery] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list =
-      q.length === 0
-        ? providers
-        : providers.filter(
-            (p) =>
-              p.name.toLowerCase().includes(q) ||
-              p.id.toLowerCase().includes(q),
-          );
-    // Connected first (already sorted server-side, re-apply after filter).
-    return [...list].sort((a, b) => {
+  const q = query.trim().toLowerCase();
+  const searching = q.length > 0;
+
+  const sorted = useMemo(() => {
+    const rank = new Map(POPULAR_IDS.map((id, i) => [id, i]));
+    return [...providers].sort((a, b) => {
       if (a.connected !== b.connected) return a.connected ? -1 : 1;
+      const ra = rank.get(a.id) ?? Infinity;
+      const rb = rank.get(b.id) ?? Infinity;
+      if (ra !== rb) return ra - rb;
       return a.name.localeCompare(b.name);
     });
-  }, [providers, query]);
+  }, [providers]);
+
+  const filtered = useMemo(() => {
+    if (!searching) return sorted;
+    return sorted.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q),
+    );
+  }, [sorted, searching, q]);
+
+  const CURATED = 6;
+  const shown = searching || showAll ? filtered : filtered.slice(0, CURATED);
+  const hiddenCount = filtered.length - shown.length;
 
   return (
-    <Dialog>
+    <Dialog onOpenChange={(open) => open && setShowAll(false)}>
       <DialogTrigger render={trigger} />
       <DialogPopup className="max-w-md" showCloseButton={false}>
         <div className="flex flex-col gap-3 p-4">
@@ -299,6 +395,7 @@ function ProviderCatalogDialog({
               <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
             </DialogClose>
           </div>
+
           <div className="relative">
             <HugeiconsIcon
               icon={Search01Icon}
@@ -313,54 +410,61 @@ function ProviderCatalogDialog({
               className="h-9 rounded-md ps-8"
             />
           </div>
-          <div className="max-h-[22rem] overflow-y-auto rounded-md border border-border/50">
-            {filtered.length === 0 ? (
-              <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+
+          <div className="max-h-[24rem] overflow-y-auto rounded-lg border border-border/50">
+            {shown.length === 0 ? (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
                 No providers match “{query}”.
               </p>
             ) : (
-              filtered.map((p) => (
-                <CatalogRow
+              shown.map((p) => (
+                <ProviderBrowserRow
                   key={p.id}
                   provider={p}
-                  expanded={expandedId === p.id}
-                  onToggle={() =>
-                    setExpandedId((cur) => (cur === p.id ? null : p.id))
-                  }
                   onChanged={onChanged}
                 />
               ))
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            {providers.length} providers available. Keys are stored in
-            opencode&apos;s own auth so they work in your terminal too.
-          </p>
+
+          {!searching && hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="text-center text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              View all providers ({filtered.length})
+            </button>
+          )}
         </div>
       </DialogPopup>
     </Dialog>
   );
 }
 
-function CatalogRow({
+/** One accordion row in the browser: logo + name, expands to the key form. */
+function ProviderBrowserRow({
   provider,
-  expanded,
-  onToggle,
   onChanged,
 }: {
   provider: OpencodeInventoryProvider;
-  expanded: boolean;
-  onToggle: () => void;
   onChanged: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="border-b border-border/40 last:border-b-0">
       <button
         type="button"
-        onClick={onToggle}
-        className="flex min-h-10 w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-muted/40"
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-h-11 w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40"
       >
-        <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+        <ProviderLogo
+          id={provider.id}
+          name={provider.name}
+          custom={provider.custom}
+        />
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {provider.name}
         </span>
         {provider.connected ? (
@@ -373,17 +477,32 @@ function CatalogRow({
             Connected
           </span>
         ) : (
-          <HugeiconsIcon
-            icon={Add01Icon}
-            className="size-3.5 text-muted-foreground"
-            aria-hidden
-          />
+          <span className="text-[10px] text-muted-foreground/60">
+            {open ? "Cancel" : "Connect"}
+          </span>
         )}
       </button>
-      {expanded && (
-        <div className="px-3 pb-2.5">
+      {open && (
+        <div className="flex flex-col gap-2 px-3 pb-3">
+          {provider.apiKeyUrl.length > 0 && (
+            <button
+              type="button"
+              onClick={() => openExternal(provider.apiKeyUrl)}
+              className="inline-flex w-fit items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Get an API key
+              <HugeiconsIcon
+                icon={ArrowUpRight01Icon}
+                className="size-3"
+                aria-hidden
+              />
+            </button>
+          )}
           <ConnectKeyForm
             providerId={provider.id}
+            placeholder={
+              provider.apiKeyEnv.length > 0 ? provider.apiKeyEnv : "API key"
+            }
             connected={provider.connected}
             onChanged={onChanged}
           />
@@ -395,10 +514,12 @@ function CatalogRow({
 
 function ConnectKeyForm({
   providerId,
+  placeholder,
   connected,
   onChanged,
 }: {
   providerId: string;
+  placeholder: string;
   connected: boolean;
   onChanged: () => void;
 }) {
@@ -412,7 +533,7 @@ function ConnectKeyForm({
     setBusy(true);
     setStatus(null);
     try {
-      await runOpencodeMutation((client) =>
+      await rpc((client) =>
         Effect.runPromise(
           client.agent.opencodeSetProviderAuth({
             providerId,
@@ -434,7 +555,7 @@ function ConnectKeyForm({
     setBusy(true);
     setStatus(null);
     try {
-      await runOpencodeMutation((client) =>
+      await rpc((client) =>
         Effect.runPromise(
           client.agent.opencodeRemoveProviderAuth({ providerId }),
         ),
@@ -453,11 +574,14 @@ function ConnectKeyForm({
         <div className="relative flex-1">
           <Input
             type={reveal ? "text" : "password"}
-            placeholder={`${providerId.toUpperCase()}_API_KEY`}
+            placeholder={placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void save();
+            }}
             disabled={busy}
-            className="h-8 rounded-md font-mono text-[11px]"
+            className="h-8 rounded-md pe-8 font-mono text-[11px]"
           />
           <button
             type="button"
@@ -477,7 +601,14 @@ function ConnectKeyForm({
           onClick={() => void save()}
           disabled={busy || value.trim().length === 0}
         >
-          Save
+          {busy ? (
+            <HugeiconsIcon
+              icon={Loading02Icon}
+              className="size-3.5 animate-spin"
+            />
+          ) : (
+            "Save"
+          )}
         </Button>
         {connected && (
           <Button
@@ -545,7 +676,7 @@ function CustomProviderDialog({
     setBusy(true);
     setError(null);
     try {
-      await runOpencodeMutation((client) =>
+      await rpc((client) =>
         Effect.runPromise(
           client.agent.opencodeAddCustomProvider({
             id,
@@ -581,7 +712,7 @@ function CustomProviderDialog({
         <div className="flex flex-col gap-3 p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-foreground">
-              Custom provider
+              Custom endpoint
             </span>
             <DialogClose
               render={<Button size="icon-xs" variant="ghost" />}
@@ -591,8 +722,9 @@ function CustomProviderDialog({
             </DialogClose>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Any OpenAI-compatible endpoint. opencode talks to it via
-            <code className="mx-1 font-mono">@ai-sdk/openai-compatible</code>.
+            Any OpenAI-compatible endpoint (vLLM, LM Studio, Groq, LiteLLM, a
+            proxy…). opencode connects via{" "}
+            <code className="font-mono">@ai-sdk/openai-compatible</code>.
           </p>
 
           <Field label="Name">
@@ -603,12 +735,12 @@ function CustomProviderDialog({
               onChange={(e) => setName(e.target.value)}
               className="h-9 rounded-md"
             />
+            {name.trim().length > 0 && (
+              <span className="text-[10px] text-muted-foreground/70">
+                id: <code className="font-mono">{id || "—"}</code>
+              </span>
+            )}
           </Field>
-          {name.trim().length > 0 && (
-            <p className="-mt-1 text-[10px] text-muted-foreground/70">
-              id: <code className="font-mono">{id || "—"}</code>
-            </p>
-          )}
 
           <Field label="Base URL">
             <Input
@@ -629,10 +761,7 @@ function CustomProviderDialog({
             />
           </Field>
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Models
-            </span>
+          <Field label="Models">
             <div className="flex flex-col gap-1.5">
               {models.map((m, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -660,9 +789,8 @@ function CustomProviderDialog({
                     }
                     className="h-8 rounded-md text-[11px]"
                   />
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
+                  <button
+                    type="button"
                     onClick={() =>
                       setModels((cur) =>
                         cur.length === 1
@@ -671,22 +799,25 @@ function CustomProviderDialog({
                       )
                     }
                     aria-label="Remove model"
+                    className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                   >
                     <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
-                  </Button>
+                  </button>
                 </div>
               ))}
+              <Button
+                size="xs"
+                variant="ghost"
+                className="self-start"
+                onClick={() =>
+                  setModels((cur) => [...cur, { id: "", name: "" }])
+                }
+              >
+                <HugeiconsIcon icon={Add01Icon} className="mr-1 size-3" />
+                Add model
+              </Button>
             </div>
-            <Button
-              size="xs"
-              variant="ghost"
-              className="self-start"
-              onClick={() => setModels((cur) => [...cur, { id: "", name: "" }])}
-            >
-              <HugeiconsIcon icon={Add01Icon} className="mr-1 size-3" />
-              Add model
-            </Button>
-          </div>
+          </Field>
 
           {error !== null && (
             <p className="text-[11px] text-rose-400">{error}</p>
@@ -704,7 +835,7 @@ function CustomProviderDialog({
               {busy ? (
                 <ShimmerText as="span">Saving…</ShimmerText>
               ) : (
-                "Add provider"
+                "Add endpoint"
               )}
             </Button>
           </div>
@@ -741,71 +872,143 @@ function ModelsSection({
   const modelVisible = useSettingsStore(
     (s) => s.opencodeModelVisibleByProvider,
   );
-  const setModelVisible = useSettingsStore((s) => s.setOpencodeModelVisible);
 
-  const selectedCount = useMemo(() => {
-    let n = 0;
+  const { selected, total } = useMemo(() => {
+    let sel = 0;
+    let tot = 0;
     for (const p of connected) {
       for (const m of p.models) {
-        if (modelVisible[p.id]?.[m.id] !== false) n += 1;
+        tot += 1;
+        if (modelVisible[p.id]?.[m.id] !== false) sel += 1;
       }
     }
-    return n;
+    return { selected: sel, total: tot };
   }, [connected, modelVisible]);
 
   return (
-    <Collapsible>
-      <div className="flex items-baseline justify-between">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            Models
-          </span>
-          <span className="text-[10px] text-muted-foreground/70">
-            {selectedCount} selected
-          </span>
-        </div>
-        <CollapsibleTrigger
-          render={
-            <Button size="xs" variant="outline">
-              Configure
-            </Button>
-          }
-        />
+    <div className="flex items-center justify-between">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xs font-semibold text-foreground">Models</span>
+        <span className="text-[11px] text-muted-foreground/70">
+          {selected} of {total} shown
+        </span>
       </div>
-      <CollapsibleContent>
-        <div className="mt-2 flex flex-col gap-3">
-          {connected.map((p) => (
-            <div key={p.id} className="flex flex-col gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                {p.name}
-              </span>
-              <div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
-                {p.models.map((m) => {
-                  const checked = modelVisible[p.id]?.[m.id] !== false;
-                  return (
-                    <div
-                      key={m.id}
-                      className="flex min-h-9 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0"
-                    >
-                      <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                        {m.label}
-                      </span>
-                      <Switch
-                        checked={checked}
-                        onCheckedChange={(next) =>
-                          setModelVisible(p.id, m.id, next)
-                        }
-                        aria-label={`${checked ? "Hide" : "Show"} ${m.label}`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+      <ModelFilterDialog connected={connected} />
+    </div>
+  );
+}
+
+function ModelFilterDialog({
+  connected,
+}: {
+  connected: ReadonlyArray<OpencodeInventoryProvider>;
+}) {
+  const [query, setQuery] = useState("");
+  const modelVisible = useSettingsStore(
+    (s) => s.opencodeModelVisibleByProvider,
+  );
+  const setModelVisible = useSettingsStore((s) => s.setOpencodeModelVisible);
+
+  const q = query.trim().toLowerCase();
+  const groups = useMemo(
+    () =>
+      connected
+        .map((p) => ({
+          provider: p,
+          models: p.models.filter(
+            (m) => q.length === 0 || m.label.toLowerCase().includes(q),
+          ),
+        }))
+        .filter((g) => g.models.length > 0),
+    [connected, q],
+  );
+
+  return (
+    <Dialog onOpenChange={() => setQuery("")}>
+      <DialogTrigger
+        render={
+          <Button size="xs" variant="outline">
+            Configure
+          </Button>
+        }
+      />
+      <DialogPopup className="max-w-md" showCloseButton={false}>
+        <div className="flex flex-col gap-3 p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-foreground">
+              Models
+            </span>
+            <DialogClose
+              render={<Button size="icon-xs" variant="ghost" />}
+              aria-label="Close"
+            >
+              <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+            </DialogClose>
+          </div>
+
+          <div className="relative">
+            <HugeiconsIcon
+              icon={Search01Icon}
+              className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              autoFocus
+              placeholder="Filter models"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-9 rounded-md ps-8"
+            />
+          </div>
+
+          <div className="flex max-h-[24rem] flex-col gap-4 overflow-y-auto">
+            {groups.length === 0 ? (
+              <p className="px-1 py-6 text-center text-xs text-muted-foreground">
+                No models match “{query}”.
+              </p>
+            ) : (
+              groups.map(({ provider, models }) => (
+                <div key={provider.id} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 px-1">
+                    <ProviderLogo
+                      id={provider.id}
+                      name={provider.name}
+                      custom={provider.custom}
+                      className="size-4"
+                    />
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      {provider.name}
+                    </span>
+                  </div>
+                  <div className="flex flex-col">
+                    {models.map((m) => {
+                      const checked =
+                        modelVisible[provider.id]?.[m.id] !== false;
+                      return (
+                        <label
+                          key={m.id}
+                          className="flex min-h-9 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(next) =>
+                              setModelVisible(provider.id, m.id, next === true)
+                            }
+                          />
+                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                            {m.label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -828,7 +1031,6 @@ function AdvancedSection({
   );
   const setDefaultModel = useSettingsStore((s) => s.setDefaultModel);
 
-  // Default-model choices = visible models of visible connected providers.
   const modelItems = useMemo(() => {
     const items: { value: string; label: string }[] = [];
     for (const p of connected) {
@@ -848,7 +1050,7 @@ function AdvancedSection({
           <Button
             variant="ghost"
             size="xs"
-            className="self-start text-muted-foreground"
+            className="-ml-2 self-start text-muted-foreground"
           >
             Advanced
           </Button>
@@ -857,10 +1059,7 @@ function AdvancedSection({
       <CollapsibleContent>
         <div className="mt-2 flex flex-col gap-4">
           {modelItems.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-muted-foreground">
-                Default model
-              </span>
+            <Field label="Default model">
               <Select
                 value={defaultModel}
                 onValueChange={(next) =>
@@ -879,21 +1078,27 @@ function AdvancedSection({
                   ))}
                 </SelectPopup>
               </Select>
-            </div>
+            </Field>
           )}
 
           <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">
               Show in picker
             </span>
-            <div className="overflow-hidden rounded-md border border-border/50 bg-background/45">
+            <div className="flex flex-col gap-1.5">
               {connected.map((p) => {
                 const checked = providerVisible[p.id] !== false;
                 return (
                   <div
                     key={p.id}
-                    className="flex min-h-9 items-center gap-2 border-b border-border/40 px-2.5 py-1.5 last:border-b-0"
+                    className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-background/40 px-3 py-2"
                   >
+                    <ProviderLogo
+                      id={p.id}
+                      name={p.name}
+                      custom={p.custom}
+                      className="size-5"
+                    />
                     <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                       {p.name}
                     </span>

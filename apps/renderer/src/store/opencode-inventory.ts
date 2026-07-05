@@ -28,8 +28,9 @@ type State = {
 // Bumped when the inventory shape changes — old payloads (e.g. providers
 // without the `connected`/`custom` flags added for the provider manager)
 // would misrender the picker if we read them back as the new type.
-const STORAGE_KEY = "zuse.opencode.inventory.v3";
+const STORAGE_KEY = "zuse.opencode.inventory.v4";
 const LEGACY_STORAGE_KEYS = [
+  "zuse.opencode.inventory.v3",
   "zuse.opencode.inventory.v2",
   "memoize.opencode.inventory.v2",
 ] as const;
