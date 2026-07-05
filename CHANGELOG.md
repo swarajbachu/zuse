@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1]
+
+### Fixed
+- Supply the public WorkOS client id at release build time so sign-in works in packaged builds instead of surfacing "WorkOS is not configured".
+
+### Changed
+- Fork chat + plan/context handoff (#252)
+- Route pasted text & dropped files into .context/files (#246)
+
 ## [0.10.0]
 
 ### Changed
