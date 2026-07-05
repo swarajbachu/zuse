@@ -30,6 +30,7 @@ import {
   MessageRow,
   type ToolResultRecord,
 } from "./message-row.tsx";
+import { ChatLookupsProvider } from "./chat-lookups.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
@@ -45,8 +46,8 @@ const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 /**
  * Read-only timeline of one session. Subscribes to `messages.stream` via the
  * messages store on mount / session-change; the store owns the live fiber.
- * Scroll behavior is owned by `useChatScroll`: it anchors each new turn near
- * the top and follows the live edge only while the reader is there.
+ * Scroll behavior is owned by `useChatScroll`: it sticks to the bottom while
+ * the reader is there and releases the instant they scroll up.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const forkMenu = useForkMenu();
@@ -99,8 +100,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return false;
   });
-  const externalResume =
-    session !== null && session.resumeStrategy !== "none";
+  const externalResume = session !== null && session.resumeStrategy !== "none";
   const setupActive =
     worktreeSetupActive || (!externalResume && session?.status === "booting");
   const archiveProgress = useChatsStore((s) =>
@@ -109,16 +109,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       : (s.archiveProgressByChat[session.chatId] ?? null),
   );
 
-  const {
-    scrollRef,
-    contentRef,
-    sentinelRef,
-    spacerRef,
-    spacerHeight,
-    showPill,
-    streaming,
-    jumpToLatest,
-  } = useChatScroll({ sessionId, messages, inFlight });
+  const { scrollRef, contentRef, showPill, streaming, jumpToLatest } =
+    useChatScroll({ sessionId, messages, inFlight });
   useRegisterPane("chat", scrollRef);
 
   useEffect(() => {
@@ -204,6 +196,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     return map;
   }, [messages]);
 
+  const chatLookups = useMemo(
+    () => ({ resultsByItemId, answersByItemId }),
+    [resultsByItemId, answersByItemId],
+  );
+
   return (
     <FileChipProvider
       folderId={session?.projectId ?? null}
@@ -234,146 +231,132 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
             )
           ) : (
             <div ref={contentRef} className="flex flex-col py-2">
-              {turns.map((turn, idx) => {
-                const isLastTurn = idx === turns.length - 1;
-                const isLive = inFlight && isLastTurn;
-                const hasToolCalls = turn.body.some(
-                  (m) => m.content._tag === "tool_use",
-                );
-                // Only collapse into a summary when there's a final assistant
-                // message worth showing as the body — otherwise a turn with
-                // just tool calls would lose its content behind the accordion.
-                const hasFinalText = turn.body.some(
-                  (m) =>
-                    m.content._tag === "assistant" &&
-                    m.content.text.trim().length > 0,
-                );
-                const showSummary = !isLive && hasToolCalls && hasFinalText;
-                const turnKey = turn.user?.id ?? `turn-${idx}`;
-                // Within an open (non-collapsed) turn, group sub-agent rows
-                // under a SubagentRow wrapper. TurnSummary handles its own
-                // rendering for collapsed turns; sub-agents inside a collapsed
-                // turn render via TurnSummary's existing path.
-                const bodyGroups = groupMessages(turn.body);
-                // Hoist ExitPlanMode rows out of TurnSummary so the Plan card
-                // (and its resolved accordion) stays a top-level row in
-                // scrollback — it's a user-facing decision, not just another
-                // tool call to bury in the "N tool calls" rollup.
-                const planMessages = turn.body.filter(
-                  (m) =>
-                    m.content._tag === "tool_use" &&
-                    m.content.tool === "ExitPlanMode",
-                );
-                const planItemIds = new Set(
-                  planMessages.flatMap((m) =>
-                    m.content._tag === "tool_use" ? [m.content.itemId] : [],
-                  ),
-                );
-                const summaryBody =
-                  planMessages.length === 0
-                    ? turn.body
-                    : turn.body.filter((m) => {
-                        if (
-                          m.content._tag === "tool_use" &&
-                          m.content.tool === "ExitPlanMode"
-                        ) {
-                          return false;
-                        }
-                        if (
-                          m.content._tag === "tool_result" &&
-                          planItemIds.has(m.content.itemId)
-                        ) {
-                          return false;
-                        }
-                        return true;
-                      });
-                return (
-                  <Fragment key={turnKey}>
-                    {turn.user !== null ? (
-                      <div
-                        data-user-anchor={turn.user.id}
-                        className="chat-row-enter chat-row-enter-user scroll-mt-6"
-                        onContextMenu={(e) =>
-                          forkMenu.openAt(e, sessionId, turn.user!.id)
-                        }
-                      >
-                        <MessageRow
-                          message={turn.user}
-                          resultsByItemId={resultsByItemId}
-                          answersByItemId={answersByItemId}
-                          sessionId={sessionId}
-                        />
-                      </div>
-                    ) : null}
-                    {showSummary ? (
-                      <>
-                        {planMessages.map((m) => (
-                          <div key={m.id} className="chat-row-enter">
-                            <MessageRow
-                              message={m}
-                              resultsByItemId={resultsByItemId}
-                              answersByItemId={answersByItemId}
-                              sessionId={sessionId}
-                            />
-                          </div>
-                        ))}
-                        <div className="chat-row-enter">
-                          <TurnSummary
-                            body={summaryBody}
-                            resultsByItemId={resultsByItemId}
-                            answersByItemId={answersByItemId}
+              <ChatLookupsProvider value={chatLookups}>
+                {turns.map((turn, idx) => {
+                  const isLastTurn = idx === turns.length - 1;
+                  const isLive = inFlight && isLastTurn;
+                  const hasToolCalls = turn.body.some(
+                    (m) => m.content._tag === "tool_use",
+                  );
+                  // Only collapse into a summary when there's a final assistant
+                  // message worth showing as the body — otherwise a turn with
+                  // just tool calls would lose its content behind the accordion.
+                  const hasFinalText = turn.body.some(
+                    (m) =>
+                      m.content._tag === "assistant" &&
+                      m.content.text.trim().length > 0,
+                  );
+                  const showSummary = !isLive && hasToolCalls && hasFinalText;
+                  const turnKey = turn.user?.id ?? `turn-${idx}`;
+                  // Within an open (non-collapsed) turn, group sub-agent rows
+                  // under a SubagentRow wrapper. TurnSummary handles its own
+                  // rendering for collapsed turns; sub-agents inside a collapsed
+                  // turn render via TurnSummary's existing path.
+                  const bodyGroups = groupMessages(turn.body);
+                  // Hoist ExitPlanMode rows out of TurnSummary so the Plan card
+                  // (and its resolved accordion) stays a top-level row in
+                  // scrollback — it's a user-facing decision, not just another
+                  // tool call to bury in the "N tool calls" rollup.
+                  const planMessages = turn.body.filter(
+                    (m) =>
+                      m.content._tag === "tool_use" &&
+                      m.content.tool === "ExitPlanMode",
+                  );
+                  const planItemIds = new Set(
+                    planMessages.flatMap((m) =>
+                      m.content._tag === "tool_use" ? [m.content.itemId] : [],
+                    ),
+                  );
+                  const summaryBody =
+                    planMessages.length === 0
+                      ? turn.body
+                      : turn.body.filter((m) => {
+                          if (
+                            m.content._tag === "tool_use" &&
+                            m.content.tool === "ExitPlanMode"
+                          ) {
+                            return false;
+                          }
+                          if (
+                            m.content._tag === "tool_result" &&
+                            planItemIds.has(m.content.itemId)
+                          ) {
+                            return false;
+                          }
+                          return true;
+                        });
+                  return (
+                    <Fragment key={turnKey}>
+                      {turn.user !== null ? (
+                        <div
+                          className="chat-row-enter chat-row-enter-user"
+                          onContextMenu={(e) =>
+                            forkMenu.openAt(e, sessionId, turn.user!.id)
+                          }
+                        >
+                          <MessageRow
+                            message={turn.user}
+                            sessionId={sessionId}
                           />
                         </div>
-                      </>
-                    ) : (
-                      bodyGroups.map((group) =>
-                        group.kind === "single" ? (
-                          <div
-                            key={group.message.id}
-                            className="chat-row-enter"
-                            onContextMenu={
-                              group.message.content._tag === "assistant"
-                                ? (e) =>
-                                    forkMenu.openAt(
-                                      e,
-                                      sessionId,
-                                      group.message.id,
-                                    )
-                                : undefined
-                            }
-                          >
-                            <MessageRow
-                              message={group.message}
-                              resultsByItemId={resultsByItemId}
-                              answersByItemId={answersByItemId}
-                              sessionId={sessionId}
-                            />
+                      ) : null}
+                      {showSummary ? (
+                        <>
+                          {planMessages.map((m) => (
+                            <div key={m.id} className="chat-row-enter">
+                              <MessageRow message={m} sessionId={sessionId} />
+                            </div>
+                          ))}
+                          <div className="chat-row-enter">
+                            <TurnSummary body={summaryBody} />
                           </div>
-                        ) : (
-                          <div
-                            key={group.parent.id}
-                            className="chat-row-enter"
-                          >
-                            <SubagentRow
-                              agentToolUseId={group.parentItemId}
-                              agentName={group.agentName}
-                              prompt={group.prompt}
-                              modelRequested={group.modelRequested}
-                              children={group.children}
-                              summary={group.summary}
-                              resultsByItemId={resultsByItemId}
-                              answersByItemId={answersByItemId}
-                            />
-                          </div>
-                        ),
-                      )
-                    )}
-                  </Fragment>
-                );
-              })}
-              {inFlight && !awaitingPlanApproval && (
-                <WorkingRow messages={messages} />
-              )}
+                        </>
+                      ) : (
+                        bodyGroups.map((group) =>
+                          group.kind === "single" ? (
+                            <div
+                              key={group.message.id}
+                              className="chat-row-enter"
+                              onContextMenu={
+                                group.message.content._tag === "assistant"
+                                  ? (e) =>
+                                      forkMenu.openAt(
+                                        e,
+                                        sessionId,
+                                        group.message.id,
+                                      )
+                                  : undefined
+                              }
+                            >
+                              <MessageRow
+                                message={group.message}
+                                sessionId={sessionId}
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              key={group.parent.id}
+                              className="chat-row-enter"
+                            >
+                              <SubagentRow
+                                agentToolUseId={group.parentItemId}
+                                agentName={group.agentName}
+                                prompt={group.prompt}
+                                modelRequested={group.modelRequested}
+                                children={group.children}
+                                summary={group.summary}
+                              />
+                            </div>
+                          ),
+                        )
+                      )}
+                    </Fragment>
+                  );
+                })}
+                {inFlight && !awaitingPlanApproval && (
+                  <WorkingRow messages={messages} />
+                )}
+              </ChatLookupsProvider>
             </div>
           )}
           {error !== null && (
@@ -383,17 +366,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
               onDismiss={() => clearError(sessionId)}
             />
           )}
-          {/* Live-edge sentinel — must be the last child so it sits at the very
-          bottom of the real content (before the spacer). */}
-          <div ref={sentinelRef} aria-hidden className="h-px w-full shrink-0" />
-          {/* Dynamic spacer: lets a freshly-sent turn be read from the top while
-          its answer streams into the space below. */}
-          <div
-            ref={spacerRef}
-            aria-hidden
-            className="shrink-0"
-            style={{ height: spacerHeight }}
-          />
         </div>
         <JumpToLatestPill
           visible={showPill}
