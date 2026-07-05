@@ -166,7 +166,7 @@ const OpencodeRemoveProviderAuth = MemoizeRpcs.toLayerHandler(
 
 const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
   "agent.opencodeAddCustomProvider",
-  ({ id, name, baseURL, apiKey, models }) =>
+  ({ id, name, baseURL, npm, apiKey, models }) =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
       const configStore = yield* ConfigStoreService;
@@ -180,7 +180,7 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
       yield* configStore.updateSettings({
         opencodeCustomProviders: [
           ...others,
-          { id, name, baseURL, models: [...models] },
+          { id, name, baseURL, npm, models: [...models] },
         ],
       });
     }),

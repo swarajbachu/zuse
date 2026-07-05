@@ -311,6 +311,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     id: string;
     name: string;
     baseURL: string;
+    npm: string;
     models: { id: string; name: string }[];
   }[] = [];
   if (Array.isArray(obj.opencodeCustomProviders)) {
@@ -338,6 +339,11 @@ const coerceSettings = (raw: unknown): SettingsFile => {
         id: p.id,
         name: p.name,
         baseURL: p.baseURL,
+        // Legacy entries (pre-type-picker) default to OpenAI-compatible.
+        npm:
+          typeof p.npm === "string" && p.npm.length > 0
+            ? p.npm
+            : "@ai-sdk/openai-compatible",
         models,
       });
     }

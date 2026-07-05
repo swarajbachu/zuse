@@ -381,6 +381,9 @@ function ProviderBrowserDialog({
 }) {
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
+  // Single-open accordion — opening one provider collapses the others so the
+  // list never turns into a wall of open key fields.
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const q = query.trim().toLowerCase();
   const searching = q.length > 0;
@@ -408,7 +411,15 @@ function ProviderBrowserDialog({
   const hiddenCount = filtered.length - shown.length;
 
   return (
-    <Dialog onOpenChange={(open) => open && setShowAll(false)}>
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) {
+          setShowAll(false);
+          setOpenId(null);
+          setQuery("");
+        }
+      }}
+    >
       <DialogTrigger render={trigger} />
       <DialogPopup className="max-w-md" showCloseButton={false}>
         <div className="flex flex-col gap-3 p-4">
@@ -450,6 +461,8 @@ function ProviderBrowserDialog({
                   <ProviderBrowserRow
                     key={p.id}
                     provider={p}
+                    open={openId === p.id}
+                    onOpenChange={(next) => setOpenId(next ? p.id : null)}
                     onChanged={onChanged}
                   />
                 ))}
@@ -475,26 +488,28 @@ function ProviderBrowserDialog({
 /** One row in the browser: logo + name, expands into the key form. */
 function ProviderBrowserRow({
   provider,
+  open,
+  onOpenChange,
   onChanged,
 }: {
   provider: OpencodeInventoryProvider;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChanged: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const toggle = () =>
-    setOpen((o) => {
-      const next = !o;
-      if (next) {
-        // Expanding a row near the bottom of the scroll area would otherwise
-        // open its key field off-screen — pull it into view.
-        requestAnimationFrame(() =>
-          ref.current?.scrollIntoView({ block: "nearest" }),
-        );
-      }
-      return next;
-    });
+  const toggle = () => {
+    const next = !open;
+    onOpenChange(next);
+    if (next) {
+      // Expanding a row near the bottom of the scroll area would otherwise
+      // open its key field off-screen — pull it into view.
+      requestAnimationFrame(() =>
+        ref.current?.scrollIntoView({ block: "nearest" }),
+      );
+    }
+  };
 
   return (
     <div
@@ -562,6 +577,7 @@ function ProviderBrowserRow({
             }
             connected={provider.connected}
             onChanged={onChanged}
+            onSaved={() => onOpenChange(false)}
           />
         </div>
       )}
@@ -574,11 +590,13 @@ function ConnectKeyForm({
   placeholder,
   connected,
   onChanged,
+  onSaved,
 }: {
   providerId: string;
   placeholder: string;
   connected: boolean;
   onChanged: () => void;
+  onSaved?: () => void;
 }) {
   const [value, setValue] = useState("");
   const [reveal, setReveal] = useState(false);
@@ -599,8 +617,9 @@ function ConnectKeyForm({
         ),
       );
       setValue("");
-      setStatus("Connected.");
       onChanged();
+      // Collapse the row — the refreshed inventory now shows it Connected.
+      onSaved?.();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : String(err));
     } finally {
@@ -694,6 +713,18 @@ const slugify = (name: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+// The AI-SDK package opencode loads for a custom endpoint. "OpenAI-compatible"
+// covers virtually every self-hosted / proxy / gateway (they all speak the
+// OpenAI API); the rest are for endpoints that mimic a specific vendor's shape.
+const CUSTOM_NPM_OTHER = "__other__";
+const PROVIDER_TYPES: { value: string; label: string }[] = [
+  { value: "@ai-sdk/openai-compatible", label: "OpenAI-compatible" },
+  { value: "@openrouter/ai-sdk-provider", label: "OpenRouter-compatible" },
+  { value: "@ai-sdk/anthropic", label: "Anthropic-compatible" },
+  { value: "@ai-sdk/google", label: "Google-compatible" },
+  { value: CUSTOM_NPM_OTHER, label: "Other npm package…" },
+];
+
 function CustomProviderDialog({
   onChanged,
   trigger,
@@ -703,6 +734,8 @@ function CustomProviderDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [type, setType] = useState(PROVIDER_TYPES[0]!.value);
+  const [customNpm, setCustomNpm] = useState("");
   const [baseURL, setBaseURL] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [models, setModels] = useState<{ id: string; name: string }[]>([
@@ -712,15 +745,19 @@ function CustomProviderDialog({
   const [error, setError] = useState<string | null>(null);
 
   const id = slugify(name);
+  const npm = type === CUSTOM_NPM_OTHER ? customNpm.trim() : type;
   const validModels = models.filter((m) => m.id.trim().length > 0);
   const canSubmit =
     name.trim().length > 0 &&
     baseURL.trim().length > 0 &&
     apiKey.trim().length > 0 &&
+    npm.length > 0 &&
     validModels.length > 0;
 
   const reset = () => {
     setName("");
+    setType(PROVIDER_TYPES[0]!.value);
+    setCustomNpm("");
     setBaseURL("");
     setApiKey("");
     setModels([{ id: "", name: "" }]);
@@ -739,6 +776,7 @@ function CustomProviderDialog({
             id,
             name: name.trim(),
             baseURL: baseURL.trim(),
+            npm,
             apiKey: apiKey.trim(),
             models: validModels.map((m) => ({
               id: m.id.trim(),
@@ -779,9 +817,8 @@ function CustomProviderDialog({
             </DialogClose>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Any OpenAI-compatible endpoint (vLLM, LM Studio, Groq, LiteLLM, a
-            proxy…). opencode connects via{" "}
-            <code className="font-mono">@ai-sdk/openai-compatible</code>.
+            Bring any endpoint that speaks a known API shape — vLLM, LM Studio,
+            Groq, LiteLLM, a gateway or proxy.
           </p>
 
           <Field label="Name">
@@ -796,6 +833,33 @@ function CustomProviderDialog({
               <span className="text-[10px] text-muted-foreground/70">
                 id: <code className="font-mono">{id || "—"}</code>
               </span>
+            )}
+          </Field>
+
+          <Field label="Type">
+            <Select
+              value={type}
+              onValueChange={(v) => setType(v as string)}
+              items={PROVIDER_TYPES}
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {PROVIDER_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {type === CUSTOM_NPM_OTHER && (
+              <Input
+                placeholder="@scope/ai-sdk-package"
+                value={customNpm}
+                onChange={(e) => setCustomNpm(e.target.value)}
+                className="mt-1.5 h-8 rounded-md font-mono text-[11px]"
+              />
             )}
           </Field>
 

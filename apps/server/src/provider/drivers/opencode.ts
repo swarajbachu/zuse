@@ -154,7 +154,7 @@ const buildOpencodeConfigContent = (
     for (const m of p.models) models[m.id] = { name: m.name };
     provider[p.id] = {
       name: p.name,
-      npm: "@ai-sdk/openai-compatible",
+      npm: p.npm.length > 0 ? p.npm : "@ai-sdk/openai-compatible",
       options: { baseURL: p.baseURL },
       models,
     };

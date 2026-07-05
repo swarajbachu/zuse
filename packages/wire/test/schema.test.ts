@@ -432,6 +432,7 @@ describe("SettingsFile round-trip", () => {
           id: "my-llm",
           name: "My LLM",
           baseURL: "https://api.example.com/v1",
+          npm: "@ai-sdk/openai-compatible",
           models: [{ id: "my-model", name: "My Model" }],
         },
       ],

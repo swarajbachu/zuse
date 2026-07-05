@@ -1604,6 +1604,12 @@ export const OpencodeCustomProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   baseURL: Schema.String,
+  /**
+   * The AI-SDK provider package opencode loads for this endpoint (e.g.
+   * `"@ai-sdk/openai-compatible"`, `"@openrouter/ai-sdk-provider"`). Picked
+   * from a small preset list in the UI; defaults to OpenAI-compatible.
+   */
+  npm: Schema.String,
   models: Schema.Array(OpencodeCustomModel),
 });
 export type OpencodeCustomProvider = typeof OpencodeCustomProvider.Type;
@@ -1636,6 +1642,7 @@ export const AgentOpencodeAddCustomProviderRpc = Rpc.make(
       id: Schema.String,
       name: Schema.String,
       baseURL: Schema.String,
+      npm: Schema.String,
       apiKey: Schema.String,
       models: Schema.Array(OpencodeCustomModel),
     }),
