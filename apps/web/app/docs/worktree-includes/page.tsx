@@ -26,7 +26,11 @@ export default function WorktreeIncludesDocs() {
           untouched.
         </p>
         <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/30 p-4 text-sm">
-          {`file_include_globs = ".env\\n.env.local\\napps/web/.env.local\\n"`}
+          {`file_include_globs = [
+  ".env",
+  ".env.local",
+  "apps/web/.env.local",
+]`}
         </pre>
       </section>
 

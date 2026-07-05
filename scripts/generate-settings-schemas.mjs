@@ -100,9 +100,18 @@ writeSchema("repository-settings.schema.json", {
     worktreeBaseDir: nullableString,
     archiveRemoveWorktree: { type: "boolean" },
     file_include_globs: {
-      type: "string",
+      anyOf: [
+        {
+          type: "array",
+          items: { type: "string" },
+        },
+        {
+          type: "string",
+          description: "Legacy newline-separated pattern list.",
+        },
+      ],
       description:
-        "Newline-separated patterns linked from the main checkout into every Zuse worktree.",
+        "Patterns linked from the main checkout into every Zuse worktree.",
     },
     scripts: {
       type: "object",

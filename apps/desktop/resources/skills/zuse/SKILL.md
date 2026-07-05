@@ -24,7 +24,12 @@ Canonical repository settings file:
 schemaVersion = 1
 autoCreateWorktree = false
 archiveRemoveWorktree = false
-file_include_globs = ".env\n.env.local\n.env.*.local\n"
+
+file_include_globs = [
+  ".env",
+  ".env.local",
+  ".env.*.local",
+]
 
 [scripts]
 setup = "bun install"
@@ -38,9 +43,8 @@ NODE_ENV = "development"
 
 Important fields:
 
-- `file_include_globs`: newline-separated patterns linked from the main
-  checkout into every worktree. Existing files in the worktree are never
-  overwritten.
+- `file_include_globs`: file patterns linked from the main checkout into every
+  worktree. Existing files in the worktree are never overwritten.
 - `[scripts].setup`: runs after a worktree is created.
 - `[scripts].run`: runs when the user starts the repository run script.
 - `[scripts].archive`: runs before archiving a worktree-backed chat.
@@ -52,10 +56,10 @@ compatibility, but `.zuse/settings.toml` is the shared format to create or edit.
 
 ## Worktree Includes
 
-Prefer explicit `file_include_globs` in `.zuse/settings.toml` for local files
-that every worktree needs. Typical entries are `.env`, `.env.local`,
-`.env.*.local`, app-specific env files, local certificates, or private config
-files. Do not commit secrets themselves.
+Prefer explicit `file_include_globs` entries in `.zuse/settings.toml` for local
+files that every worktree needs. Typical entries are `.env`,
+`.env.local`, `.env.*.local`, app-specific env files, local certificates, or
+private config files. Do not commit secrets themselves.
 
 ## Schemas
 

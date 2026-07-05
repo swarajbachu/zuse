@@ -8,7 +8,12 @@ const DEFAULT_SETTINGS_TOML = `# Zuse repository settings. Commit this file to s
 schemaVersion = 1
 autoCreateWorktree = false
 archiveRemoveWorktree = false
-file_include_globs = ".env\\n.env.local\\n.env.*.local\\n"
+
+file_include_globs = [
+  ".env",
+  ".env.local",
+  ".env.*.local",
+]
 
 [scripts]
 setup = ""

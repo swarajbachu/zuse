@@ -203,7 +203,11 @@ describe("RepositorySettingsService repository file persistence", () => {
       writeFileSync(
         join(repoPath, ".zuse", "settings.toml"),
         [
-          'file_include_globs = ".env\\n.env.local\\n"',
+          "file_include_globs = [",
+          '  ".env",',
+          '  ".env.local",',
+          "]",
+          "",
           "",
           "[scripts]",
           'setup = "bun install"',
@@ -223,10 +227,48 @@ describe("RepositorySettingsService repository file persistence", () => {
       expect(settings.setupScript).toBe("bun install");
       expect(settings.runScript).toBe("bun dev");
       expect(settings.autoRunAfterSetup).toBe(true);
-      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local\n");
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local");
       expect(settings.environmentVariables.API_BASE).toBe(
         "http://localhost:3000",
       );
+    });
+  });
+
+  it("still reads legacy root file_include_globs strings", async () => {
+    await withRuntime(async ({ run, repoPath }) => {
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
+      writeFileSync(
+        join(repoPath, ".zuse", "settings.toml"),
+        'file_include_globs = ".env\\n.env.local\\n"\n',
+        "utf8",
+      );
+
+      const settings = await run(
+        Effect.flatMap(RepositorySettingsService, (svc) => svc.get(PROJECT_ID)),
+      );
+
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local\n");
+    });
+  });
+
+  it("still reads legacy file_include_globs tables", async () => {
+    await withRuntime(async ({ run, repoPath }) => {
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
+      writeFileSync(
+        join(repoPath, ".zuse", "settings.toml"),
+        [
+          "[file_include_globs]",
+          'env = ".env"',
+          'env_local = ".env.local"',
+        ].join("\n"),
+        "utf8",
+      );
+
+      const settings = await run(
+        Effect.flatMap(RepositorySettingsService, (svc) => svc.get(PROJECT_ID)),
+      );
+
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local");
     });
   });
 
@@ -286,7 +328,8 @@ describe("RepositorySettingsService repository file persistence", () => {
       expect(toml).toContain('defaultProviderId = "claude"');
       expect(toml).toContain('run = "bun dev"');
       expect(toml).toContain("auto_run_after_setup = true");
-      expect(toml).toContain('file_include_globs = ".env\\n"');
+      expect(toml).toContain("file_include_globs = [");
+      expect(toml).toContain('  ".env",');
     });
   });
 });

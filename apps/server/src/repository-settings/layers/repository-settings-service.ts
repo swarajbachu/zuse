@@ -149,9 +149,30 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
     environmentVariables: {},
   };
   let section = "";
+  const legacyIncludeSectionValues: string[] = [];
+  let pendingArrayKey: "file_include_globs" | null = null;
+  let pendingArrayRaw = "";
+  const parseTomlStringArray = (raw: string): string[] =>
+    [...raw.matchAll(/"(?:\\.|[^"\\])*"|'[^']*'/g)]
+      .map((match) => parseTomlString(match[0] ?? ""))
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+  const finishPendingArray = (): void => {
+    if (pendingArrayKey === "file_include_globs") {
+      settings.fileIncludeGlobs =
+        parseTomlStringArray(pendingArrayRaw).join("\n");
+    }
+    pendingArrayKey = null;
+    pendingArrayRaw = "";
+  };
   for (const line of fsSync.readFileSync(filePath, "utf8").split(/\r?\n/)) {
     const trimmed = line.trim();
     if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    if (pendingArrayKey !== null) {
+      pendingArrayRaw = `${pendingArrayRaw}\n${trimmed}`;
+      if (trimmed.includes("]")) finishPendingArray();
+      continue;
+    }
     const sectionMatch = trimmed.match(/^\[([^\]]+)\]$/);
     if (sectionMatch) {
       section = sectionMatch[1] ?? "";
@@ -193,6 +214,10 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
           value,
           settings.archiveRemoveWorktree,
         );
+      } else if (key === "file_include_globs" && value.trim().startsWith("[")) {
+        pendingArrayKey = "file_include_globs";
+        pendingArrayRaw = value;
+        if (value.includes("]")) finishPendingArray();
       } else if (key === "file_include_globs") {
         settings.fileIncludeGlobs = parseTomlString(value);
       }
@@ -208,7 +233,14 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
       }
     } else if (section === "environment_variables") {
       settings.environmentVariables[key] = parseTomlString(value);
+    } else if (section === "file_include_globs") {
+      const parsed = parseTomlNullableString(value)?.trim() ?? "";
+      if (parsed.length > 0) legacyIncludeSectionValues.push(parsed);
     }
+  }
+  if (pendingArrayKey !== null) finishPendingArray();
+  if (legacyIncludeSectionValues.length > 0) {
+    settings.fileIncludeGlobs = legacyIncludeSectionValues.join("\n");
   }
   return settings;
 };
@@ -309,6 +341,21 @@ const tomlString = (value: string): string => JSON.stringify(value);
 const tomlNullableString = (value: string | null): string =>
   value === null ? '""' : tomlString(value);
 
+const includeGlobValues = (value: string): string[] =>
+  value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+
+const tomlStringArray = (key: string, values: string[]): string[] => {
+  if (values.length === 0) return [`${key} = []`];
+  return [
+    `${key} = [`,
+    ...values.map((value) => `  ${tomlString(value)},`),
+    "]",
+  ];
+};
+
 const writeTomlSettings = (
   repoPath: string,
   settings: RepositorySettingsFile,
@@ -320,7 +367,6 @@ const writeTomlSettings = (
   const lines = [
     "# Zuse repository settings. Commit this file to share setup with your team.",
     "# Add files below that should be linked from the main checkout into every Zuse worktree.",
-    '# Example: file_include_globs = ".env\\n.env.local\\n.env.*.local\\n"',
     "",
     `schemaVersion = ${settings.schemaVersion}`,
     `defaultProviderId = ${tomlNullableString(settings.defaultProviderId)}`,
@@ -329,7 +375,11 @@ const writeTomlSettings = (
     `autoCreateWorktree = ${settings.autoCreateWorktree ? "true" : "false"}`,
     `worktreeBaseDir = ${tomlNullableString(settings.worktreeBaseDir)}`,
     `archiveRemoveWorktree = ${settings.archiveRemoveWorktree ? "true" : "false"}`,
-    `file_include_globs = ${tomlString(settings.fileIncludeGlobs)}`,
+    "",
+    ...tomlStringArray(
+      "file_include_globs",
+      includeGlobValues(settings.fileIncludeGlobs),
+    ),
     "",
     "[scripts]",
     `setup = ${tomlNullableString(cleanScript(settings.setupScript))}`,
