@@ -166,13 +166,16 @@ app.setAsDefaultProtocolClient("zuse");
 // ---------------------------------------------------------------------------
 const AUTH_LOOPBACK_PORT = 8976;
 const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
-const AUTH_SCHEME_URI = "zuse://auth/callback";
-// Packaged builds use the custom scheme — a signed app with its own bundle id
-// (app.memoize.desktop) + Info.plist `CFBundleURLTypes` (electron-builder
-// `protocols`) resolves it unambiguously, and it's the same mechanism mobile
-// will use. Dev uses the loopback because the prebuilt Electron.app's shared
-// `com.github.Electron` bundle id makes custom schemes unroutable.
-const AUTH_REDIRECT_URI = app.isPackaged ? AUTH_SCHEME_URI : AUTH_LOOPBACK_URI;
+// Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
+// RFC 8252 native-app pattern and gives a strictly better sign-in finish:
+//   - the browser lands on a real HTML page ("Signed in, you can close this
+//     tab") instead of a dead `zuse://` URL that leaves the tab hanging, and
+//   - no OS "Open in Zuse Alpha?" prompt — the browser hits localhost and the
+//     already-running app answers directly, no deep-link handoff needed.
+// The `zuse://auth/callback` scheme handler stays registered below as a
+// fallback (and the future mobile path), but is no longer the primary flow.
+// Register `http://localhost:8976/callback` in the WorkOS dashboard.
+const AUTH_REDIRECT_URI = AUTH_LOOPBACK_URI;
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
@@ -1561,9 +1564,11 @@ void app.whenReady().then(() => {
   // don't build a window or boot the runtime.
   if (!gotSingleInstanceLock) return;
 
-  // Dev only: localhost loopback that catches the WorkOS OAuth callback.
-  // Packaged builds receive it via the `zuse://` deep link instead.
-  if (!app.isPackaged) startAuthLoopback();
+  // Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
+  // It's the redirect_uri for both, so the browser finishes on a real HTML
+  // page and no `zuse://` deep-link handoff/prompt is needed. The scheme
+  // handler stays registered below as a fallback.
+  startAuthLoopback();
 
   // Win/Linux cold launch from a deep link: the URL is an argv entry.
   const initialDeepLink = process.argv.find(isAuthDeepLink);
