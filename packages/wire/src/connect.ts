@@ -102,3 +102,47 @@ export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
   success: Schema.Void,
   error: ConnectAuthError,
 });
+
+// ---------------------------------------------------------------------------
+// Relay link orchestration (renderer ↔ server)
+// ---------------------------------------------------------------------------
+//
+// The desktop self-registers with the relay: because it is already
+// WorkOS-signed-in and holds its Ed25519 identity, the server runs the whole
+// link flow (challenge → sign → submit → persist → heartbeat). The renderer's
+// "Devices" pane drives it with these RPCs.
+
+/** Whether this environment is linked to a relay, plus how to describe it. */
+export class RelayLinkStatus extends Schema.Class<RelayLinkStatus>(
+  "RelayLinkStatus",
+)({
+  linked: Schema.Boolean,
+  relayUrl: Schema.optional(Schema.String),
+  environmentId: Schema.optional(EnvironmentId),
+  label: Schema.optional(Schema.String),
+  heartbeatActive: Schema.Boolean,
+}) {}
+
+/** Link this environment to a relay under the signed-in WorkOS account. */
+export const RelayLinkRpc = Rpc.make("relay.link", {
+  payload: Schema.Struct({
+    relayUrl: Schema.String,
+    label: Schema.optional(Schema.String),
+  }),
+  success: RelayLinkStatus,
+  error: ConnectAuthError,
+});
+
+/** Current relay link status. */
+export const RelayStatusRpc = Rpc.make("relay.status", {
+  payload: Schema.Void,
+  success: RelayLinkStatus,
+  error: ConnectAuthError,
+});
+
+/** Remove this environment's relay link. */
+export const RelayUnlinkRpc = Rpc.make("relay.unlink", {
+  payload: Schema.Void,
+  success: Schema.Void,
+  error: ConnectAuthError,
+});

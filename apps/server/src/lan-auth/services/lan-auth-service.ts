@@ -63,6 +63,19 @@ export interface LanAuthServiceShape {
     PairingRedeemError | LanAuthError
   >;
   readonly environmentId: () => Effect.Effect<EnvironmentId, LanAuthError>;
+  /**
+   * The environment's Ed25519 keypair (generated + persisted on first use). The
+   * private JWK signs link proofs; the public JWK is sent to the relay so it can
+   * verify them.
+   */
+  readonly environmentKeys: () => Effect.Effect<
+    {
+      readonly envId: EnvironmentId;
+      readonly privateJwk: string;
+      readonly publicJwk: string;
+    },
+    LanAuthError
+  >;
   readonly linkProof: (input: {
     readonly challenge: string;
     readonly relayIssuer: string;
@@ -73,7 +86,21 @@ export interface LanAuthServiceShape {
     readonly relayIssuer: string;
     readonly environmentId: EnvironmentId;
     readonly environmentCredential: string;
+    readonly label?: string;
   }) => Effect.Effect<void, LanAuthError>;
+  /** Current relay link, or null if this environment isn't linked. */
+  readonly getRelayConfig: () => Effect.Effect<
+    {
+      readonly relayUrl: string;
+      readonly relayIssuer: string;
+      readonly environmentId: EnvironmentId;
+      readonly environmentCredential: string;
+      readonly label: string | undefined;
+    } | null,
+    LanAuthError
+  >;
+  /** Remove the relay link for this environment. */
+  readonly clearRelayConfig: () => Effect.Effect<void, LanAuthError>;
 }
 
 export class LanAuthService extends Context.Tag("zuse/LanAuthService")<

@@ -38,6 +38,7 @@
     "@zuse/wire": "*",
     "effect": "catalog:",
     "fuzzysort": "catalog:",
+    "jose": "^6.2.3",
     "keytar": "^7.9.0",
     "node-pty": "^1.1.0",
     "tokenmaxer": "*",

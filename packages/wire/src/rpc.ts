@@ -32,6 +32,9 @@ import {
   ConnectDescribeRpc,
   ConnectLinkProofRpc,
   ConnectRelayConfigRpc,
+  RelayLinkRpc,
+  RelayStatusRpc,
+  RelayUnlinkRpc,
 } from "./connect.ts";
 import {
   FsCreateDirectoryRpc,
@@ -202,6 +205,9 @@ export const MemoizeRpcs = RpcGroup.make(
   ConnectDescribeRpc,
   ConnectLinkProofRpc,
   ConnectRelayConfigRpc,
+  RelayLinkRpc,
+  RelayStatusRpc,
+  RelayUnlinkRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,

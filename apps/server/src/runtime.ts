@@ -16,6 +16,7 @@ import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
   LanAuthConfig,
@@ -313,6 +314,16 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthConfigLayer),
   );
 
+  // RelayLinkService orchestrates the desktop's self-registration with the
+  // account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
+  // reuses the environment identity (LanAuthService) and the WorkOS token
+  // (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
+  const RelayLinkLayer = RelayLinkServiceLive.pipe(
+    Layer.provide(LanAuthLayer),
+    Layer.provide(LanAuthConfigLayer),
+    Layer.provide(AuthLayer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
@@ -345,6 +356,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     SkillBridgeLayer,
     DiagnosticsLayer,
     LanAuthLayer,
+    RelayLinkLayer,
     ExternalThreadLayer,
     FolderPickerLayer,
   );
