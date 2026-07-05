@@ -42,12 +42,13 @@ Tests wire `RelayStoreMemory` + `WorkosVerifierTest` and simulate the desktop
 connect, cross-account isolation, proof forgery, and replay rejection.
 
 ## Deploy (needs Cloudflare + PlanetScale accounts)
-1. **Mint the relay Ed25519 keypair** (JWK), keep the private key secret:
+1. **Mint the relay Ed25519 keypair** (JWK) — run from `infra/relay` (where `jose`
+   is a dependency; a bare `node -e` from the repo root can't resolve it):
    ```
-   node -e "const {generateKeyPair,exportJWK}=require('jose');generateKeyPair('EdDSA',{extractable:true}).then(async k=>{console.log('PRIVATE',JSON.stringify(await exportJWK(k.privateKey)));console.log('PUBLIC',JSON.stringify(await exportJWK(k.publicKey)))})"
+   node scripts/mint-keys.mjs
    ```
-   Put the public JWK in `wrangler.jsonc` `RELAY_MINT_PUBLIC_JWK`; set the private one:
-   `bunx wrangler secret put RELAY_MINT_PRIVATE_JWK`.
+   Put the printed PUBLIC JWK in `wrangler.jsonc` `RELAY_MINT_PUBLIC_JWK`; set the
+   PRIVATE one as a secret: `bunx wrangler secret put RELAY_MINT_PRIVATE_JWK`.
 2. **PlanetScale**: create a Postgres database, apply `migrations/postgres/0001_init.sql`
    (`psql "$CONNECTION_STRING" -f migrations/postgres/0001_init.sql`).
 3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
