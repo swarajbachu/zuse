@@ -42,6 +42,28 @@ describe("prepareProjectRegistration", () => {
     );
   });
 
+  it("creates a commented .zuse/settings.toml when missing", async () => {
+    await prepareProjectRegistration(dir);
+
+    const content = await fs.readFile(
+      Path.join(dir, ".zuse", "settings.toml"),
+      "utf8",
+    );
+    expect(content).toContain("Zuse repository settings");
+    expect(content).toContain("file_include_globs");
+  });
+
+  it("does not overwrite an existing .zuse/settings.toml", async () => {
+    await fs.mkdir(Path.join(dir, ".zuse"), { recursive: true });
+    await fs.writeFile(Path.join(dir, ".zuse", "settings.toml"), "custom");
+
+    await prepareProjectRegistration(dir);
+
+    expect(
+      await fs.readFile(Path.join(dir, ".zuse", "settings.toml"), "utf8"),
+    ).toBe("custom");
+  });
+
   it("does not duplicate .context", async () => {
     await fs.writeFile(Path.join(dir, ".gitignore"), ".context\n");
 

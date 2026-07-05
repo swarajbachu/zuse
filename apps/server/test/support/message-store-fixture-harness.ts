@@ -154,6 +154,11 @@ const makeRuntime = (
           worktreeBaseDir: null,
           archiveCleanupScript: null,
           archiveRemoveWorktree: false,
+          setupScript: null,
+          runScript: null,
+          autoRunAfterSetup: false,
+          environmentVariables: {},
+          fileIncludeGlobs: "",
         }),
       ),
     update: (projectId, patch) =>
@@ -167,6 +172,11 @@ const makeRuntime = (
           worktreeBaseDir: patch.worktreeBaseDir ?? null,
           archiveCleanupScript: patch.archiveCleanupScript ?? null,
           archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
+          setupScript: patch.setupScript ?? null,
+          runScript: patch.runScript ?? null,
+          autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
+          environmentVariables: patch.environmentVariables ?? {},
+          fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
         }),
       ),
   });

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zuse.dev/schemas/repository-settings.schema.json",
+  "title": "Zuse Repository Settings",
+  "description": "Committed repository settings for .zuse/settings.toml.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "defaultProviderId": {
+      "anyOf": [
+        {
+          "enum": [
+            "claude",
+            "codex",
+            "grok",
+            "gemini",
+            "cursor",
+            "opencode"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "defaultModel": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "defaultRuntimeMode": {
+      "anyOf": [
+        {
+          "enum": [
+            "approval-required",
+            "auto-accept-edits",
+            "auto-accept-edits-and-bash",
+            "full-access"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "autoCreateWorktree": {
+      "type": "boolean"
+    },
+    "worktreeBaseDir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "archiveRemoveWorktree": {
+      "type": "boolean"
+    },
+    "file_include_globs": {
+      "type": "string",
+      "description": "Newline-separated patterns linked from the main checkout into every Zuse worktree."
+    },
+    "scripts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "setup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "archive": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "auto_run_after_setup": {
+          "type": "boolean"
+        }
+      }
+    },
+    "environment_variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -46,6 +46,12 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
     key: Schema.String,
     value: Schema.String,
   }),
+  /**
+   * Newline-separated gitignore-style patterns for local files that should be
+   * linked into every Zuse worktree from the main checkout. Empty means "use
+   * Zuse's built-in env-file discovery fallback".
+   */
+  fileIncludeGlobs: Schema.String,
 }) {}
 
 /**
@@ -67,6 +73,7 @@ export const RepositorySettingsPatch = Schema.Struct({
   environmentVariables: Schema.optional(
     Schema.Record({ key: Schema.String, value: Schema.String }),
   ),
+  fileIncludeGlobs: Schema.optional(Schema.String),
 });
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
 
@@ -90,6 +97,7 @@ export const RepositorySettingsFile = Schema.Struct({
     key: Schema.String,
     value: Schema.String,
   }),
+  fileIncludeGlobs: Schema.String,
 });
 export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;
 

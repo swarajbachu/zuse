@@ -111,6 +111,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
         archiveScript={settings.archiveCleanupScript}
         autoRunAfterSetup={settings.autoRunAfterSetup}
         environmentVariables={settings.environmentVariables}
+        fileIncludeGlobs={settings.fileIncludeGlobs}
         onSetupScriptChange={(value) =>
           void update(projectId, { setupScript: value })
         }
@@ -125,6 +126,9 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
         }
         onEnvironmentVariablesChange={(value) =>
           void update(projectId, { environmentVariables: value })
+        }
+        onFileIncludeGlobsChange={(value) =>
+          void update(projectId, { fileIncludeGlobs: value })
         }
       />
 
@@ -556,22 +560,26 @@ function ScriptsSection({
   archiveScript,
   autoRunAfterSetup,
   environmentVariables,
+  fileIncludeGlobs,
   onSetupScriptChange,
   onRunScriptChange,
   onArchiveScriptChange,
   onAutoRunAfterSetupChange,
   onEnvironmentVariablesChange,
+  onFileIncludeGlobsChange,
 }: {
   setupScript: string | null;
   runScript: string | null;
   archiveScript: string | null;
   autoRunAfterSetup: boolean;
   environmentVariables: Readonly<Record<string, string>>;
+  fileIncludeGlobs: string;
   onSetupScriptChange: (v: string | null) => void;
   onRunScriptChange: (v: string | null) => void;
   onArchiveScriptChange: (v: string | null) => void;
   onAutoRunAfterSetupChange: (v: boolean) => void;
   onEnvironmentVariablesChange: (v: Record<string, string>) => void;
+  onFileIncludeGlobsChange: (v: string) => void;
 }) {
   const envText = Object.entries(environmentVariables)
     .map(([key, value]) => `${key}=${value}`)
@@ -643,13 +651,51 @@ function ScriptsSection({
           minHeightClassName="min-h-24"
         />
       </div>
+      <FileIncludesEditor
+        value={fileIncludeGlobs}
+        onChange={onFileIncludeGlobsChange}
+      />
       <div className="px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
           Want to hand-edit or share repository settings? Use{" "}
-          <span className="font-mono">.zuse/settings.json</span>.
+          <span className="font-mono">.zuse/settings.toml</span>.
         </p>
       </div>
     </SettingsGroup>
+  );
+}
+
+function FileIncludesEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const persist = () => {
+    if (draft !== value) onChange(draft);
+  };
+  return (
+    <div className="px-4 py-3.5">
+      <div className="mb-2">
+        <p className="text-sm font-medium text-foreground">
+          Worktree file includes
+        </p>
+        <p className="text-xs text-muted-foreground">
+          One pattern per line, linked from the main checkout into each new
+          worktree.
+        </p>
+      </div>
+      <CodeTextarea
+        value={draft}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={persist}
+        placeholder={".env\n.env.local\n.env.*.local"}
+        minHeightClassName="min-h-20"
+      />
+    </div>
   );
 }
 

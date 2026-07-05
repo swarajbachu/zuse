@@ -4,7 +4,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as Path from "node:path";
 
-import { isEnvFileName, linkEnvFiles } from "../src/worktree/layers/env-files.ts";
+import {
+  isEnvFileName,
+  linkEnvFiles,
+  linkIncludedFiles,
+} from "../src/worktree/layers/env-files.ts";
 
 describe("isEnvFileName", () => {
   const cases: ReadonlyArray<readonly [string, boolean]> = [
@@ -108,5 +112,41 @@ describe("linkEnvFiles", () => {
     await linkEnvFiles(repo, worktree);
 
     expect(fsSync.existsSync(Path.join(worktree, "vendored/.env"))).toBe(false);
+  });
+
+  it("links configured include globs instead of only env files", async () => {
+    await write(repo, ".env.local", "ENV=1");
+    await write(repo, "certs/dev.pem", "CERT=1");
+    await write(repo, "apps/web/.env.preview", "WEB=1");
+
+    const output = await linkIncludedFiles(
+      repo,
+      worktree,
+      ".env.local\ncerts/*.pem\napps/web/.env.*\n",
+    );
+
+    expect(await fs.readlink(Path.join(worktree, ".env.local"))).toBe(
+      Path.join(repo, ".env.local"),
+    );
+    expect(await fs.readlink(Path.join(worktree, "certs/dev.pem"))).toBe(
+      Path.join(repo, "certs/dev.pem"),
+    );
+    expect(
+      await fs.readlink(Path.join(worktree, "apps/web/.env.preview")),
+    ).toBe(Path.join(repo, "apps/web/.env.preview"));
+    expect(output).toContain("linked certs/dev.pem ");
+  });
+
+  it("leaves existing configured include targets untouched", async () => {
+    await write(repo, "certs/dev.pem", "FROM_REPO=1");
+    await write(worktree, "certs/dev.pem", "LOCAL=1");
+
+    await linkIncludedFiles(repo, worktree, "certs/*.pem\n");
+
+    const stat = await fs.lstat(Path.join(worktree, "certs/dev.pem"));
+    expect(stat.isSymbolicLink()).toBe(false);
+    expect(
+      await fs.readFile(Path.join(worktree, "certs/dev.pem"), "utf8"),
+    ).toBe("LOCAL=1");
   });
 });

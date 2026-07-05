@@ -68,6 +68,7 @@ const emptyFileSettings = (): RepositorySettingsFile => ({
   runScript: null,
   autoRunAfterSetup: false,
   environmentVariables: {},
+  fileIncludeGlobs: "",
 });
 
 const parseEnvJson = (value: string | null): Record<string, string> => {
@@ -87,13 +88,30 @@ const parseEnvJson = (value: string | null): Record<string, string> => {
 
 const parseTomlString = (raw: string): string => {
   const trimmed = raw.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed) as string;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
+};
+
+const parseTomlNullableString = (raw: string): string | null => {
+  if (raw.trim() === "null") return null;
+  const parsed = parseTomlString(raw);
+  return parsed.length === 0 ? null : parsed;
+};
+
+const parseTomlBoolean = (raw: string, fallback: boolean): boolean => {
+  const trimmed = raw.trim();
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  return fallback;
 };
 
 const settingsDir = (repoPath: string): string => Path.join(repoPath, ".zuse");
@@ -101,12 +119,33 @@ const jsonPath = (repoPath: string): string =>
   Path.join(settingsDir(repoPath), "settings.json");
 const tomlPath = (repoPath: string): string =>
   Path.join(settingsDir(repoPath), "settings.toml");
+const worktreeIncludePath = (repoPath: string): string =>
+  Path.join(repoPath, ".worktreeinclude");
+
+const readLegacyWorktreeInclude = (repoPath: string): string => {
+  const filePath = worktreeIncludePath(repoPath);
+  if (!fsSync.existsSync(filePath)) return "";
+  try {
+    return fsSync
+      .readFileSync(filePath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("#"))
+      .join("\n");
+  } catch {
+    return "";
+  }
+};
 
 const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
   const filePath = tomlPath(repoPath);
-  if (!fsSync.existsSync(filePath)) return emptyFileSettings();
-  const settings: MutableRepositorySettingsFile = {
+  const fallback: RepositorySettingsFile = {
     ...emptyFileSettings(),
+    fileIncludeGlobs: readLegacyWorktreeInclude(repoPath),
+  };
+  if (!fsSync.existsSync(filePath)) return fallback;
+  const settings: MutableRepositorySettingsFile = {
+    ...fallback,
     environmentVariables: {},
   };
   let section = "";
@@ -122,11 +161,48 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
     if (!match) continue;
     const key = match[1]!;
     const value = match[2]!;
-    if (section === "scripts") {
-      if (key === "setup") settings.setupScript = parseTomlString(value);
-      else if (key === "run") settings.runScript = parseTomlString(value);
+    if (section === "") {
+      if (key === "schemaVersion") {
+        // v1 is the only supported shape; keep parsing with v1 defaults if a
+        // future value appears so a hand-edit does not blank settings.
+      } else if (key === "defaultProviderId") {
+        const parsed = parseTomlNullableString(value);
+        settings.defaultProviderId = isProviderId(parsed)
+          ? parsed
+          : parsed === null
+            ? null
+            : settings.defaultProviderId;
+      } else if (key === "defaultModel") {
+        settings.defaultModel = parseTomlNullableString(value);
+      } else if (key === "defaultRuntimeMode") {
+        const parsed = parseTomlNullableString(value);
+        settings.defaultRuntimeMode = isRuntimeMode(parsed)
+          ? parsed
+          : parsed === null
+            ? null
+            : settings.defaultRuntimeMode;
+      } else if (key === "autoCreateWorktree") {
+        settings.autoCreateWorktree = parseTomlBoolean(
+          value,
+          settings.autoCreateWorktree,
+        );
+      } else if (key === "worktreeBaseDir") {
+        settings.worktreeBaseDir = parseTomlNullableString(value);
+      } else if (key === "archiveRemoveWorktree") {
+        settings.archiveRemoveWorktree = parseTomlBoolean(
+          value,
+          settings.archiveRemoveWorktree,
+        );
+      } else if (key === "file_include_globs") {
+        settings.fileIncludeGlobs = parseTomlString(value);
+      }
+    } else if (section === "scripts") {
+      if (key === "setup")
+        settings.setupScript = parseTomlNullableString(value);
+      else if (key === "run")
+        settings.runScript = parseTomlNullableString(value);
       else if (key === "archive") {
-        settings.archiveCleanupScript = parseTomlString(value);
+        settings.archiveCleanupScript = parseTomlNullableString(value);
       } else if (key === "auto_run_after_setup") {
         settings.autoRunAfterSetup = value.trim() === "true";
       }
@@ -205,6 +281,12 @@ const coerceJsonSettings = (
         ? obj.autoRunAfterSetup
         : fallback.autoRunAfterSetup,
     environmentVariables,
+    fileIncludeGlobs:
+      typeof obj.fileIncludeGlobs === "string"
+        ? obj.fileIncludeGlobs
+        : typeof obj.file_include_globs === "string"
+          ? obj.file_include_globs
+          : fallback.fileIncludeGlobs,
   };
 };
 
@@ -222,16 +304,55 @@ const readJsonSettings = (
   }
 };
 
-const writeJsonSettings = (
+const tomlString = (value: string): string => JSON.stringify(value);
+
+const tomlNullableString = (value: string | null): string =>
+  value === null ? '""' : tomlString(value);
+
+const writeTomlSettings = (
   repoPath: string,
   settings: RepositorySettingsFile,
 ): void => {
   const dir = settingsDir(repoPath);
   fsSync.mkdirSync(dir, { recursive: true });
-  const filePath = jsonPath(repoPath);
+  const filePath = tomlPath(repoPath);
   const tmp = `${filePath}.${randomBytes(6).toString("hex")}.tmp`;
-  fsSync.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  const lines = [
+    "# Zuse repository settings. Commit this file to share setup with your team.",
+    "# Add files below that should be linked from the main checkout into every Zuse worktree.",
+    '# Example: file_include_globs = ".env\\n.env.local\\n.env.*.local\\n"',
+    "",
+    `schemaVersion = ${settings.schemaVersion}`,
+    `defaultProviderId = ${tomlNullableString(settings.defaultProviderId)}`,
+    `defaultModel = ${tomlNullableString(settings.defaultModel)}`,
+    `defaultRuntimeMode = ${tomlNullableString(settings.defaultRuntimeMode)}`,
+    `autoCreateWorktree = ${settings.autoCreateWorktree ? "true" : "false"}`,
+    `worktreeBaseDir = ${tomlNullableString(settings.worktreeBaseDir)}`,
+    `archiveRemoveWorktree = ${settings.archiveRemoveWorktree ? "true" : "false"}`,
+    `file_include_globs = ${tomlString(settings.fileIncludeGlobs)}`,
+    "",
+    "[scripts]",
+    `setup = ${tomlNullableString(cleanScript(settings.setupScript))}`,
+    `run = ${tomlNullableString(cleanScript(settings.runScript))}`,
+    `archive = ${tomlNullableString(cleanScript(settings.archiveCleanupScript))}`,
+    `auto_run_after_setup = ${settings.autoRunAfterSetup ? "true" : "false"}`,
+    "",
+    "[environment_variables]",
+    ...Object.entries(settings.environmentVariables)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key} = ${tomlString(value)}`),
+    "",
+  ];
+  fsSync.writeFileSync(tmp, lines.join("\n"), "utf8");
   fsSync.renameSync(tmp, filePath);
+};
+
+const removeLegacyJsonSettings = (repoPath: string): void => {
+  try {
+    fsSync.rmSync(jsonPath(repoPath), { force: true });
+  } catch {
+    // Best-effort migration cleanup only.
+  }
 };
 
 const fileToSettings = (
@@ -251,6 +372,7 @@ const fileToSettings = (
     runScript: cleanScript(file.runScript),
     autoRunAfterSetup: file.autoRunAfterSetup,
     environmentVariables: file.environmentVariables,
+    fileIncludeGlobs: file.fileIncludeGlobs,
   });
 
 const settingsToFile = (
@@ -268,6 +390,7 @@ const settingsToFile = (
   runScript: cleanScript(settings.runScript),
   autoRunAfterSetup: settings.autoRunAfterSetup,
   environmentVariables: settings.environmentVariables,
+  fileIncludeGlobs: settings.fileIncludeGlobs,
 });
 
 const rowToFile = (
@@ -297,6 +420,7 @@ const rowToFile = (
       ...fallback.environmentVariables,
       ...parseEnvJson(row.environment_variables_json),
     },
+    fileIncludeGlobs: fallback.fileIncludeGlobs,
   };
 };
 
@@ -339,6 +463,7 @@ const applyPatch = (
     autoRunAfterSetup: patch.autoRunAfterSetup ?? current.autoRunAfterSetup,
     environmentVariables:
       patch.environmentVariables ?? current.environmentVariables,
+    fileIncludeGlobs: patch.fileIncludeGlobs ?? current.fileIncludeGlobs,
   });
 
 export const RepositorySettingsServiceLive = Layer.effect(
@@ -426,7 +551,7 @@ export const RepositorySettingsServiceLive = Layer.effect(
         const rows = yield* legacyRow(projectId);
         if (rows[0] !== undefined) {
           const migrated = rowToFile(rows[0], toml);
-          writeJsonSettings(repoPath, migrated);
+          writeTomlSettings(repoPath, migrated);
           yield* clearLegacyRow(projectId);
           return migrated;
         }
@@ -453,7 +578,8 @@ export const RepositorySettingsServiceLive = Layer.effect(
         const current = yield* get(projectId);
         const next = applyPatch(projectId, current, patch);
         if (repoPath !== null) {
-          writeJsonSettings(repoPath, settingsToFile(next));
+          writeTomlSettings(repoPath, settingsToFile(next));
+          removeLegacyJsonSettings(repoPath);
           yield* clearLegacyRow(projectId);
         }
         return next;
