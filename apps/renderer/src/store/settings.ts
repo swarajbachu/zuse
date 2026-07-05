@@ -7,6 +7,7 @@ import {
   defaultModelEnabledByProvider,
   defaultModelFor,
   type CompletionSoundPreset,
+  type GitMergeMethod,
   type ModelEnabledByProvider,
   type ProviderId,
   resolveModelSlug,
@@ -15,6 +16,7 @@ import {
 } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client";
+import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 
 /**
  * Renderer view of `settings.json`. Lives in the main process — this store
@@ -73,6 +75,8 @@ const mergeModelEnabled = (
 
 const OLD_SETTINGS_KEY = "memoize.settings.v1";
 const OLD_SUBAGENTS_KEY = "memoize.subagents";
+const MERGE_PREFS_KEY = "zuse.mergePrefs.v1";
+const OLD_MERGE_PREFS_KEYS = ["memoize.mergePrefs.v1"] as const;
 
 const fallbackSnapshot = (): SettingsSlice => ({
   defaultProviderId: DEFAULT_PROVIDER,
@@ -87,6 +91,7 @@ const fallbackSnapshot = (): SettingsSlice => ({
   modelEnabledByProvider: seedModelEnabledByProvider(),
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
+  mergePrefs: { method: "merge", deleteBranch: false },
   notchTrayEnabled: false,
   notchTrayPinned: false,
 });
@@ -117,6 +122,7 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
+    mergePrefs: file.mergePrefs,
     notchTrayEnabled: file.notchTrayEnabled,
     notchTrayPinned: file.notchTrayPinned,
   };
@@ -135,6 +141,7 @@ interface SettingsSlice {
   readonly modelEnabledByProvider: ModelEnabledByProvider;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
+  readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
   readonly notchTrayEnabled: boolean;
   readonly notchTrayPinned: boolean;
 }
@@ -169,6 +176,10 @@ type SettingsState = SettingsSlice & {
   ) => void;
   readonly setBranchNamingStyle: (style: BranchNamingStyle) => void;
   readonly setBranchNamingPrefix: (prefix: string) => void;
+  readonly setMergePrefs: (prefs: {
+    method: GitMergeMethod;
+    deleteBranch: boolean;
+  }) => void;
   readonly setNotchTrayEnabled: (value: boolean) => void;
   readonly setNotchTrayPinned: (value: boolean) => void;
 };
@@ -213,6 +224,46 @@ const migrateLocalStorageOnce = async (): Promise<SettingsFile | null> => {
   }
 };
 
+const migrateMergePrefsOnce = async (
+  file: SettingsFile,
+): Promise<SettingsFile> => {
+  if (typeof window === "undefined") return file;
+  const raw = readStorageWithLegacy(
+    window.localStorage,
+    MERGE_PREFS_KEY,
+    OLD_MERGE_PREFS_KEYS,
+  );
+  if (raw === null) return file;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const method =
+      parsed.method === "merge" ||
+      parsed.method === "squash" ||
+      parsed.method === "rebase"
+        ? parsed.method
+        : file.mergePrefs.method;
+    const mergePrefs = {
+      method,
+      deleteBranch:
+        typeof parsed.deleteBranch === "boolean"
+          ? parsed.deleteBranch
+          : file.mergePrefs.deleteBranch,
+    };
+    const client = await getRpcClient();
+    const next = await Effect.runPromise(
+      client.settings.update({ patch: { mergePrefs } }),
+    );
+    removeStorageKeys(
+      window.localStorage,
+      MERGE_PREFS_KEY,
+      OLD_MERGE_PREFS_KEYS,
+    );
+    return next;
+  } catch {
+    return file;
+  }
+};
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...fallbackSnapshot(),
   loaded: false,
@@ -224,7 +275,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     try {
       const client = await getRpcClient();
-      const file = await Effect.runPromise(client.settings.get());
+      const file = await migrateMergePrefsOnce(
+        await Effect.runPromise(client.settings.get()),
+      );
       set({ ...sliceFromFile(file), loaded: true });
 
       await stopStream();
@@ -370,6 +423,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { branchNamingPrefix: prefix } }),
+      );
+    })();
+  },
+  setMergePrefs: (mergePrefs) => {
+    set({ mergePrefs });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { mergePrefs } }),
       );
     })();
   },

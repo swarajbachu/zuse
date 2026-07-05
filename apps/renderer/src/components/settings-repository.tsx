@@ -645,8 +645,8 @@ function ScriptsSection({
       </div>
       <div className="px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Want to share scripts with your team? Create a{" "}
-          <span className="font-mono">.zuse/settings.toml</span> file.
+          Want to hand-edit or share repository settings? Use{" "}
+          <span className="font-mono">.zuse/settings.json</span>.
         </p>
       </div>
     </SettingsGroup>
