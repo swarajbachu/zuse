@@ -470,9 +470,14 @@ function ExpandableIconRow({
             />
           ) : null}
         </div>
-        <span className="font-medium text-foreground/90 shrink-0">{label}</span>
+        <span
+          className="max-w-[12rem] shrink-0 truncate font-medium text-foreground/90"
+          title={typeof label === "string" ? label : undefined}
+        >
+          {label}
+        </span>
         {trailing !== undefined ? (
-          <span className="flex min-w-0 flex-1 items-center overflow-hidden">
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap [&>*]:min-w-0 [&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis">
             {trailing}
           </span>
         ) : null}
