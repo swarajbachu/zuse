@@ -26,10 +26,13 @@ export type NotchTrayItem = {
 
 const TRAY_WIDTH = 248;
 const NOTCH_CAP_HEIGHT = 66;
-const MIN_EXPANDED_HEIGHT = 156;
-const MAX_EXPANDED_HEIGHT = 344;
+const MIN_EXPANDED_HEIGHT = 128;
+const MAX_EXPANDED_HEIGHT = 372;
 const TOP_OFFSET = -1;
-const ROW_HEIGHT = 34;
+const ROW_HEIGHT = 32;
+const MAX_ROWS = 8;
+const LIST_PADDING = 22;
+const FOOTER_HEIGHT = 18;
 const RESIZE_ANIMATION_MS = 220;
 
 type ControllerOptions = {
@@ -170,8 +173,10 @@ export class NotchTrayController {
 
   private targetHeight(): number {
     if (!this.expanded()) return NOTCH_CAP_HEIGHT;
+    const rowCount = Math.min(MAX_ROWS, Math.max(1, this.items.length));
+    const footer = this.items.length > MAX_ROWS ? FOOTER_HEIGHT : 0;
     const contentHeight =
-      NOTCH_CAP_HEIGHT + 20 + Math.max(2, this.items.length) * ROW_HEIGHT;
+      NOTCH_CAP_HEIGHT + LIST_PADDING + rowCount * ROW_HEIGHT + footer;
     return Math.max(
       MIN_EXPANDED_HEIGHT,
       Math.min(MAX_EXPANDED_HEIGHT, contentHeight),
