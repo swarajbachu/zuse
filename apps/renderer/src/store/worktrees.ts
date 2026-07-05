@@ -4,6 +4,7 @@ import { create } from "zustand";
 import {
   type FolderId,
   Worktree,
+  type WorktreeCreateSource,
   type WorktreeId,
   type WorktreeSetupEvent,
 } from "@zuse/wire";
@@ -41,7 +42,10 @@ type WorktreesState = {
   readonly setupPending: ReadonlySet<WorktreeId>;
   readonly error: string | null;
   readonly refresh: (projectId: FolderId) => Promise<void>;
-  readonly create: (projectId: FolderId) => Promise<Worktree | null>;
+  readonly create: (
+    projectId: FolderId,
+    source?: WorktreeCreateSource,
+  ) => Promise<Worktree | null>;
   readonly rerunSetup: (
     projectId: FolderId,
     worktreeId: WorktreeId,
@@ -176,7 +180,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       }));
     }
   },
-  create: async (projectId) => {
+  create: async (projectId, source) => {
     set((s) => {
       const next = new Set(s.creatingSetupByProject);
       next.add(projectId);
@@ -184,7 +188,11 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     });
     try {
       const client = await getWorktreesRpcClient();
-      const wt = await Effect.runPromise(client.worktree.create({ projectId }));
+      const wt = await Effect.runPromise(
+        client.worktree.create(
+          source === undefined ? { projectId } : { projectId, source },
+        ),
+      );
       set((s) => {
         const existing = s.byProject[projectId] ?? [];
         return {

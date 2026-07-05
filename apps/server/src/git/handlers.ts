@@ -73,6 +73,22 @@ const PrDetails = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const ListPrs = MemoizeRpcs.toLayerHandler("git.listPrs", ({ folderId }) =>
+  Effect.flatMap(GitService, (svc) => svc.listPrs(folderId)),
+);
+
+const ListIssues = MemoizeRpcs.toLayerHandler(
+  "git.listIssues",
+  ({ folderId }) =>
+    Effect.flatMap(GitService, (svc) => svc.listIssues(folderId)),
+);
+
+const IssueMarkdown = MemoizeRpcs.toLayerHandler(
+  "git.issueMarkdown",
+  ({ folderId, number }) =>
+    Effect.flatMap(GitService, (svc) => svc.issueMarkdown(folderId, number)),
+);
+
 const Changes = MemoizeRpcs.toLayerHandler(
   "git.changes",
   ({ folderId, worktreeId }) =>
@@ -166,6 +182,9 @@ export const GitHandlersLayer = Layer.mergeAll(
   Origin,
   PrState,
   PrDetails,
+  ListPrs,
+  ListIssues,
+  IssueMarkdown,
   Changes,
   Diff,
   Commit,
