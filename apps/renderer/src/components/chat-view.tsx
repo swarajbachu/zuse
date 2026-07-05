@@ -230,7 +230,10 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
               </div>
             )
           ) : (
-            <div ref={contentRef} className="flex flex-col py-2">
+            <div
+              ref={contentRef}
+              className="mx-auto flex w-full max-w-4xl flex-col py-2"
+            >
               <ChatLookupsProvider value={chatLookups}>
                 {turns.map((turn, idx) => {
                   const isLastTurn = idx === turns.length - 1;

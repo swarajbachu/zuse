@@ -485,7 +485,7 @@ function AssistantBubble({
 }) {
   return (
     <div className="px-4 py-2">
-      <div className="max-w-[88%]">
+      <div className="max-w-full">
         <MarkdownBody>{text}</MarkdownBody>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {createdAt !== undefined ? (

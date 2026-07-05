@@ -863,7 +863,7 @@ export function ChatComposer({
     <TooltipProvider delay={0}>
       {showCard ? (
         <div className="shrink-0 px-3 pb-3 pt-2">
-          <div className="mx-auto">
+          <div className="mx-auto w-full max-w-4xl">
             {headPermission !== undefined ? (
               <PermissionCard
                 head={headPermission}
@@ -885,7 +885,7 @@ export function ChatComposer({
         style={showCard ? { display: "none" } : undefined}
         aria-hidden={showCard || undefined}
       >
-        <div className="mx-auto">
+        <div className="mx-auto w-full max-w-4xl">
           {!isDraft ? (
             <AnnotationTray
               sessionId={sessionId}

@@ -47,8 +47,8 @@ const formatDuration = (ms: number): string => {
  * message tagged with this `parentItemId`. Closes with the sub-agent's
  * final assistant text once the `SubagentSummary` lands.
  *
- * Default expansion: open while running (no summary yet), collapsed once
- * the sub-agent finishes.
+ * Sub-agent rows stay collapsed by default, including while running, so long
+ * nested agent work does not dominate the main transcript.
  */
 function SubagentRowImpl({
   agentToolUseId,
@@ -71,9 +71,7 @@ function SubagentRowImpl({
     readonly isError: boolean;
   } | null;
 }) {
-  // Auto-expand while running (no summary yet) so the user can watch the
-  // sub-agent work. Once finished, collapse to a one-line meta summary.
-  const [expanded, setExpanded] = useState<boolean>(summary === null);
+  const [expanded, setExpanded] = useState(false);
 
   const trailingMeta = useMemo(() => {
     if (summary !== null) {

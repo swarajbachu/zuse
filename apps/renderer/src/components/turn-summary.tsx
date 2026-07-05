@@ -239,7 +239,7 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
       {finalAssistant !== null &&
       finalAssistant.content._tag === "assistant" ? (
         <div className="px-4 py-2">
-          <div className="max-w-[88%]">
+          <div className="max-w-full">
             <MarkdownBody>{finalAssistant.content.text}</MarkdownBody>
           </div>
         </div>
