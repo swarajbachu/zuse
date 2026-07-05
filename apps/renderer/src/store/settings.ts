@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import {
   type AppearanceMode,
+  type AutonomyLevel,
   type BranchNamingStyle,
   defaultModelEnabledByProvider,
   defaultModelFor,
@@ -29,6 +30,7 @@ import { getRpcClient } from "../lib/rpc-client";
 
 const DEFAULT_PROVIDER: ProviderId = "claude";
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
+const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "off";
 const DEFAULT_BRANCH_NAMING_STYLE: BranchNamingStyle = "username-slug";
 
 const PROVIDER_IDS: ReadonlyArray<ProviderId> = [
@@ -79,6 +81,7 @@ const fallbackSnapshot = (): SettingsSlice => ({
   defaultModelByProvider: seedModels(),
   defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
   defaultAutoCreateWorktree: true,
+  defaultAutonomyLevel: DEFAULT_AUTONOMY_LEVEL,
   completionSoundEnabled: false,
   completionSoundPreset: "chime",
   appearanceMode: "dark",
@@ -104,6 +107,7 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     defaultModelByProvider: models,
     defaultRuntimeMode: file.defaultRuntimeMode,
     defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
+    defaultAutonomyLevel: file.defaultAutonomyLevel,
     completionSoundEnabled: file.completionSoundEnabled,
     completionSoundPreset: file.completionSoundPreset,
     appearanceMode: file.appearanceMode,
@@ -123,6 +127,7 @@ interface SettingsSlice {
   readonly defaultModelByProvider: Record<ProviderId, string>;
   readonly defaultRuntimeMode: RuntimeMode;
   readonly defaultAutoCreateWorktree: boolean;
+  readonly defaultAutonomyLevel: AutonomyLevel;
   readonly completionSoundEnabled: boolean;
   readonly completionSoundPreset: CompletionSoundPreset;
   readonly appearanceMode: AppearanceMode;
@@ -151,6 +156,7 @@ type SettingsState = SettingsSlice & {
   ) => void;
   readonly setDefaultRuntimeMode: (mode: RuntimeMode) => void;
   readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
+  readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
   readonly setCompletionSoundEnabled: (value: boolean) => void;
   readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
   readonly setAppearanceMode: (mode: AppearanceMode) => void;
@@ -280,6 +286,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await Effect.runPromise(
         client.settings.update({
           patch: { defaultAutoCreateWorktree: value },
+        }),
+      );
+    })();
+  },
+  setDefaultAutonomyLevel: (level) => {
+    set({ defaultAutonomyLevel: level });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({
+          patch: { defaultAutonomyLevel: level },
         }),
       );
     })();
