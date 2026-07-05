@@ -1340,7 +1340,21 @@ const MIME_BY_EXT: Record<string, string> = {
   webp: "image/webp",
   gif: "image/gif",
   avif: "image/avif",
+  svg: "image/svg+xml",
+  css: "text/css",
+  js: "text/javascript",
+  mjs: "text/javascript",
+  json: "application/json",
+  html: "text/html",
+  htm: "text/html",
+  txt: "text/plain",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
 };
+
+const PREVIEW_HOST = "preview";
 
 type AssetFilenameCache = {
   readonly byStem: Map<string, string>;
@@ -1435,6 +1449,59 @@ const isServableAttachmentPath = (
   );
 };
 
+/**
+ * Decodes a `zuse://preview/<abs path>` request's pathname back into an
+ * absolute filesystem path. Segments mirror the renderer's
+ * `fileUrlForDirectory` encoding (each path segment `encodeURIComponent`'d,
+ * joined with "/"), so this is just that in reverse. Rejects `..` segments
+ * defensively, though nothing here narrows scope below `readExternal`'s
+ * existing "any absolute path" trust model.
+ */
+const decodePreviewPath = (pathname: string): string | null => {
+  const segments = pathname.split("/").map((segment) => {
+    try {
+      return decodeURIComponent(segment);
+    } catch {
+      return null;
+    }
+  });
+  if (segments.some((segment) => segment === null || segment === "..")) {
+    return null;
+  }
+  return segments.join("/");
+};
+
+/**
+ * Serves the local files an HTML preview's relative `<link>`/`<script>`/
+ * `<img>` tags point at. The preview iframe uses `srcDoc`, which Chromium
+ * gives an opaque origin — it can't fetch `file://` subresources directly
+ * (blocked regardless of the `sandbox` attribute), so the injected
+ * `<base href>` points here instead and this hands the bytes back over the
+ * privileged `zuse://` scheme, which has a normal origin.
+ */
+const handlePreviewAssetRequest = async (url: URL): Promise<Response> => {
+  const absPath = decodePreviewPath(url.pathname);
+  if (absPath === null || absPath === "") {
+    return new Response(null, { status: 400 });
+  }
+
+  const base = Path.basename(absPath);
+  const ext = base.slice(base.lastIndexOf(".") + 1).toLowerCase();
+  const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
+
+  try {
+    const response = await net.fetch(pathToFileURL(absPath).toString());
+    const headers = new Headers(response.headers);
+    headers.set("content-type", mime);
+    return new Response(response.body, {
+      status: response.status,
+      headers,
+    });
+  } catch {
+    return new Response(null, { status: 404 });
+  }
+};
+
 const registerZuseProtocol = (): void => {
   const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
   const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
@@ -1449,6 +1516,9 @@ const registerZuseProtocol = (): void => {
 
   const handleAssetRequest = async (request: Request) => {
     const url = new URL(request.url);
+    if (url.host === PREVIEW_HOST) {
+      return handlePreviewAssetRequest(url);
+    }
     if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
       return new Response(null, { status: 404 });
     }

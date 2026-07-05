@@ -106,12 +106,18 @@ const dirname = (path: string): string => {
 const joinPath = (base: string, rel: string): string =>
   base.endsWith("/") ? `${base}${rel}` : `${base}/${rel}`;
 
-const fileUrlForDirectory = (dir: string): string => {
+// The preview iframe renders via `srcDoc`, which Chromium gives an opaque
+// origin — it can't load `file://` subresources directly (blocked
+// regardless of the iframe's `sandbox` attribute). Routing through the
+// privileged `zuse://preview` scheme instead (see `registerZuseProtocol` in
+// apps/desktop/src/main.ts) gives the base href a normal origin that CSS/JS/
+// image requests actually resolve against.
+const previewBaseHrefForDirectory = (dir: string): string => {
   const normalized = dir.endsWith("/") ? dir : `${dir}/`;
   const segments = normalized.split("/").map((segment) =>
     segment === "" ? "" : encodeURIComponent(segment),
   );
-  return `file://${segments.join("/")}`;
+  return `zuse://preview${segments.join("/")}`;
 };
 
 const escapeHtmlAttribute = (value: string): string =>
@@ -857,7 +863,7 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
           status: "ready",
           kind,
           content: result.content,
-          baseHref: fileUrlForDirectory(fileDir),
+          baseHref: previewBaseHrefForDirectory(fileDir),
         });
       } catch (err) {
         if (!cancelled) {
