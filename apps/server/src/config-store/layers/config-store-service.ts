@@ -41,6 +41,7 @@ const WATCH_DEBOUNCE_MS = 100;
 const SETTINGS_FILENAME = "settings.json";
 const KEYBINDINGS_FILENAME = "keybindings.json";
 const USER_CONFIG_DIRNAME = ".zuse";
+const DEV_USER_CONFIG_DIRNAME = ".zuse-dev";
 
 const PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -164,6 +165,18 @@ const isCommand = (v: unknown): v is Command =>
   v === "composer.togglePlanMode" ||
   v === "editor.save" ||
   v === "editor.annotate";
+
+const isDevConfigProfile = (): boolean =>
+  process.env.ZUSE_CONFIG_PROFILE?.trim() === "dev" ||
+  process.env.ZUSE_DEV_CONFIG?.trim() === "1" ||
+  Boolean(process.env.VITE_DEV_SERVER_URL?.trim());
+
+const defaultUserConfigDirname = (): string =>
+  isDevConfigProfile() ? DEV_USER_CONFIG_DIRNAME : USER_CONFIG_DIRNAME;
+
+const resolveUserConfigDir = (join: (a: string, b: string) => string): string =>
+  process.env.ZUSE_CONFIG_DIR?.trim() ||
+  join(homedir(), defaultUserConfigDirname());
 
 /**
  * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
@@ -357,9 +370,7 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
 
 export const configStoreTestHelpers = {
   coerceSettings,
-  userConfigDir: () =>
-    process.env.ZUSE_CONFIG_DIR?.trim() ||
-    NodePath.join(homedir(), USER_CONFIG_DIRNAME),
+  userConfigDir: () => resolveUserConfigDir(NodePath.join),
 };
 
 /* ────────────────────────── Service implementation ──────────────────────────── */
@@ -370,9 +381,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const fs = yield* FileSystem.FileSystem;
     const pathSvc = yield* Path.Path;
     const { userData } = yield* AppPaths;
-    const userConfigDir =
-      process.env.ZUSE_CONFIG_DIR?.trim() ||
-      pathSvc.join(homedir(), USER_CONFIG_DIRNAME);
+    const userConfigDir = resolveUserConfigDir(pathSvc.join);
 
     yield* fs.makeDirectory(userData, { recursive: true }).pipe(Effect.orDie);
     yield* fs

@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { configStoreTestHelpers } from "../src/config-store/layers/config-store-service.ts";
 import { ConfigStoreServiceLive } from "../src/config-store/layers/config-store-service.ts";
@@ -21,6 +21,9 @@ const { coerceSettings } = configStoreTestHelpers;
 
 const tempDirs: string[] = [];
 const originalZuseConfigDir = process.env.ZUSE_CONFIG_DIR;
+const originalZuseConfigProfile = process.env.ZUSE_CONFIG_PROFILE;
+const originalZuseDevConfig = process.env.ZUSE_DEV_CONFIG;
+const originalViteDevServerUrl = process.env.VITE_DEV_SERVER_URL;
 
 const makeRuntime = (userData: string, userConfig: string) => {
   process.env.ZUSE_CONFIG_DIR = userConfig;
@@ -57,6 +60,14 @@ const withRuntime = async <A>(
 afterEach(() => {
   if (originalZuseConfigDir === undefined) delete process.env.ZUSE_CONFIG_DIR;
   else process.env.ZUSE_CONFIG_DIR = originalZuseConfigDir;
+  if (originalZuseConfigProfile === undefined) {
+    delete process.env.ZUSE_CONFIG_PROFILE;
+  } else process.env.ZUSE_CONFIG_PROFILE = originalZuseConfigProfile;
+  if (originalZuseDevConfig === undefined) delete process.env.ZUSE_DEV_CONFIG;
+  else process.env.ZUSE_DEV_CONFIG = originalZuseDevConfig;
+  if (originalViteDevServerUrl === undefined) {
+    delete process.env.VITE_DEV_SERVER_URL;
+  } else process.env.VITE_DEV_SERVER_URL = originalViteDevServerUrl;
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -130,6 +141,17 @@ describe("config-store settings coercion", () => {
 });
 
 describe("config-store user JSON storage", () => {
+  it("uses a separate dev config directory by default", () => {
+    delete process.env.ZUSE_CONFIG_DIR;
+    delete process.env.ZUSE_CONFIG_PROFILE;
+    delete process.env.ZUSE_DEV_CONFIG;
+    delete process.env.VITE_DEV_SERVER_URL;
+    expect(basename(configStoreTestHelpers.userConfigDir())).toBe(".zuse");
+
+    process.env.VITE_DEV_SERVER_URL = "http://localhost:5173";
+    expect(basename(configStoreTestHelpers.userConfigDir())).toBe(".zuse-dev");
+  });
+
   it("creates global settings and keybindings under ~/.zuse", async () => {
     await withRuntime(async ({ run, userConfig, userData }) => {
       await run(Effect.flatMap(ConfigStoreService, (svc) => svc.getSettings()));

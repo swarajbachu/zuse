@@ -9,7 +9,8 @@ import {
 
 /**
  * The on-disk source of truth for global settings and user-overridden
- * keybindings. Two user-editable JSON files in `~/.zuse`:
+ * keybindings. Two user-editable JSON files in `~/.zuse` for packaged builds
+ * and `~/.zuse-dev` for dev builds:
  *
  *   - `settings.json`     — provider/model/runtime mode/auto-worktree/
  *                           onboarding + the sub-agents overlay map.
@@ -27,7 +28,7 @@ import {
  * a small debounce — same UX as VS Code's `keybindings.json`.
  *
  * Legacy files under Electron `app.getPath("userData")` are migrated on first
- * read when the matching `~/.zuse` file does not exist. SQLite and other app
+ * read when the matching user config file does not exist. SQLite and other app
  * state intentionally stay under `userData`.
  */
 export interface ConfigStoreServiceShape {

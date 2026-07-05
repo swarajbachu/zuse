@@ -154,8 +154,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const PtyLayer = PtyServiceLive;
 
   // Global settings + user keybindings live in user-editable JSON files under
-  // ~/.zuse, with one-time migration from Electron userData. Watched for
-  // external hand-edits.
+  // ~/.zuse (or ~/.zuse-dev for dev builds), with one-time migration from
+  // Electron userData. Watched for external hand-edits.
   const ConfigStoreLayer = ConfigStoreServiceLive.pipe(
     Layer.provide(AppPathsLayer),
     Layer.provide(NodeContext.layer),
