@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import {
   type AgentItemId,
   type AgentSessionId,
   type AttachmentRef,
+  type OpencodeCustomProvider,
   type OpencodeInventory,
   type OpencodeInventoryAgent,
   type OpencodeInventoryProvider,
@@ -123,6 +125,45 @@ if (OPENCODE_DEBUG) {
 
 const OPENCODE_EMPTY_CONFIG = "{}";
 
+/**
+ * Resolve opencode's global `auth.json` — the same file `opencode auth login`
+ * writes, so credentials we manage in-app are shared with the user's terminal
+ * opencode. Honours `XDG_DATA_HOME`, else the platform default.
+ */
+const opencodeAuthPath = (): string => {
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share");
+  return join(base, "opencode", "auth.json");
+};
+
+/**
+ * Build the `OPENCODE_CONFIG_CONTENT` JSON handed to `opencode serve`. It
+ * injects the user's custom OpenAI-compatible providers so both inventory
+ * scans and live sessions see them. API keys are deliberately NOT included
+ * here — opencode reads them from its own `auth.json` (written via
+ * `auth.set`), keyed by provider id. Returns `"{}"` when there are no custom
+ * providers, preserving the original behaviour.
+ */
+const buildOpencodeConfigContent = (
+  customProviders: ReadonlyArray<OpencodeCustomProvider>,
+): string => {
+  if (customProviders.length === 0) return OPENCODE_EMPTY_CONFIG;
+  const provider: Record<string, unknown> = {};
+  for (const p of customProviders) {
+    const models: Record<string, { name: string }> = {};
+    for (const m of p.models) models[m.id] = { name: m.name };
+    provider[p.id] = {
+      name: p.name,
+      npm: "@ai-sdk/openai-compatible",
+      options: { baseURL: p.baseURL },
+      models,
+    };
+  }
+  return JSON.stringify({ provider });
+};
+
+type OpencodeClient = ReturnType<typeof createOpencodeClient>;
+
 // stdout marker the opencode server prints once it's bound to the port. We
 // grep for either the
 // human-readable line or any naked URL on a line by itself so future
@@ -167,6 +208,7 @@ interface OpencodeServerProcess {
 const spawnOpencodeServer = (
   opencodePath: string,
   cwd: string,
+  configContent: string = OPENCODE_EMPTY_CONFIG,
   timeoutMs = 10_000,
 ): Promise<OpencodeServerProcess> =>
   // eslint-disable-next-line no-async-promise-executor
@@ -186,7 +228,7 @@ const spawnOpencodeServer = (
         cwd,
         env: {
           ...process.env,
-          OPENCODE_CONFIG_CONTENT: OPENCODE_EMPTY_CONFIG,
+          OPENCODE_CONFIG_CONTENT: configContent,
         },
         // Detach so SIGTERM can take down the whole process group on Unix.
         // On Windows we leave the default — `child.kill` walks the tree.
@@ -780,7 +822,7 @@ const translateEvent = (
 export const startOpencodeSession = (
   input: StartSessionInput,
   cwd: string,
-  _apiKey: string | null,
+  customProviders: ReadonlyArray<OpencodeCustomProvider>,
   opencodePath: string,
   sessionId: AgentSessionId,
   resumeCursor: string | null = null,
@@ -815,7 +857,11 @@ export const startOpencodeSession = (
     // it connects, which manifests as "I sent a message and saw nothing".
     const boot = Effect.tryPromise({
       try: async () => {
-        const proc = await spawnOpencodeServer(opencodePath, cwd);
+        const proc = await spawnOpencodeServer(
+          opencodePath,
+          cwd,
+          buildOpencodeConfigContent(customProviders),
+        );
         dlog(`server ready at ${proc.url}`);
         const c = createOpencodeClient({ baseUrl: proc.url });
         const ac = new AbortController();
@@ -1202,35 +1248,60 @@ const isUsableInventoryModel = (m: InventoryProviderModel): boolean => {
 const collectInventoryProviders = (
   all: ReadonlyArray<InventoryProvider>,
   connected: ReadonlyArray<string>,
+  customIds: ReadonlySet<string>,
 ): ReadonlyArray<OpencodeInventoryProvider> => {
   const connectedSet = new Set(connected);
-  return all
-    .filter((p) => connectedSet.has(p.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      models: Object.values(p.models)
-        .filter(isUsableInventoryModel)
-        .map((m) => ({
-          id: `${p.id}/${m.id}`,
-          label: m.name,
-          variants: Object.keys(m.variants ?? {}),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    }))
-    .filter((p) => p.models.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    all
+      .map((p) => {
+        const isConnected = connectedSet.has(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          connected: isConnected,
+          custom: customIds.has(p.id),
+          // Only enumerate models for connected providers. The catalog carries
+          // ~150 providers with thousands of models between them; shipping every
+          // unconnected provider's full model list would bloat the RPC payload
+          // and the renderer's localStorage cache. The picker only ever renders
+          // connected providers' models, and connecting one triggers a refresh
+          // that fills them in.
+          models: isConnected
+            ? Object.values(p.models)
+                .filter(isUsableInventoryModel)
+                .map((m) => ({
+                  id: `${p.id}/${m.id}`,
+                  label: m.name,
+                  variants: Object.keys(m.variants ?? {}),
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label))
+            : [],
+        };
+      })
+      // Connected providers first (each with usable models), then the rest of
+      // the catalog alphabetically for the "add provider" browser.
+      .sort((a, b) => {
+        if (a.connected !== b.connected) return a.connected ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      })
+  );
 };
 
 export const loadOpencodeInventory = (
   opencodePath: string,
   cwd: string,
+  customProviders: ReadonlyArray<OpencodeCustomProvider> = [],
 ): Effect.Effect<OpencodeInventory, AgentSessionStartError> =>
   Effect.tryPromise({
     try: async () => {
       dlog(`inventory: spawning opencode server`);
-      const proc = await spawnOpencodeServer(opencodePath, cwd);
+      const proc = await spawnOpencodeServer(
+        opencodePath,
+        cwd,
+        buildOpencodeConfigContent(customProviders),
+      );
       const client = createOpencodeClient({ baseUrl: proc.url });
+      const customIds = new Set(customProviders.map((p) => p.id));
       try {
         const [providersResp, agentsResp] = await Promise.all([
           client.provider.list({ throwOnError: true }),
@@ -1259,6 +1330,7 @@ export const loadOpencodeInventory = (
             : collectInventoryProviders(
                 providersData.all as ReadonlyArray<InventoryProvider>,
                 providersData.connected,
+                customIds,
               );
         const agents =
           agentsData === undefined
@@ -1276,6 +1348,98 @@ export const loadOpencodeInventory = (
           // ignore — child may already be gone
         }
       }
+    },
+    catch: (cause) =>
+      new AgentSessionStartError({
+        providerId: "opencode",
+        reason: cause instanceof Error ? cause.message : String(cause),
+      }),
+  });
+
+/**
+ * Short-live an `opencode serve`, run `fn` against its SDK client, and tear
+ * the server down — the shared shape behind the provider-management effects
+ * below (mirrors `loadOpencodeInventory`'s spawn/try/finally). Failures wrap
+ * into `AgentSessionStartError` so the renderer surfaces them the same way as
+ * inventory / session-start errors.
+ */
+const withOpencodeServer = <A>(
+  opencodePath: string,
+  cwd: string,
+  configContent: string,
+  fn: (client: OpencodeClient) => Promise<A>,
+): Effect.Effect<A, AgentSessionStartError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const proc = await spawnOpencodeServer(opencodePath, cwd, configContent);
+      const client = createOpencodeClient({ baseUrl: proc.url });
+      try {
+        return await fn(client);
+      } finally {
+        try {
+          proc.child.kill("SIGTERM");
+        } catch {
+          // ignore — child may already be gone
+        }
+      }
+    },
+    catch: (cause) =>
+      new AgentSessionStartError({
+        providerId: "opencode",
+        reason: cause instanceof Error ? cause.message : String(cause),
+      }),
+  });
+
+/**
+ * Store an API key for an opencode provider (catalog or custom) by writing it
+ * through to opencode's persistent `auth.json` via the SDK `auth.set` (PUT
+ * /auth/{id}). Once set, `provider.list()` reports the provider as
+ * `connected` and its models become usable — in this app AND in the user's
+ * terminal `opencode`.
+ */
+export const setOpencodeProviderAuth = (
+  opencodePath: string,
+  cwd: string,
+  providerId: string,
+  apiKey: string,
+): Effect.Effect<void, AgentSessionStartError> =>
+  withOpencodeServer(
+    opencodePath,
+    cwd,
+    OPENCODE_EMPTY_CONFIG,
+    async (client) => {
+      await client.auth.set({
+        throwOnError: true,
+        path: { id: providerId },
+        body: { type: "api", key: apiKey },
+      });
+    },
+  );
+
+/**
+ * Remove an opencode provider's stored credential. The SDK exposes no
+ * generic "delete credential" endpoint (its `auth.remove` is MCP-only), so we
+ * edit `auth.json` directly — the same file `auth.set` writes — which keeps
+ * the change consistent with terminal opencode. A missing file or missing key
+ * is a no-op.
+ */
+export const removeOpencodeProviderAuth = (
+  providerId: string,
+): Effect.Effect<void, AgentSessionStartError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const authPath = opencodeAuthPath();
+      const raw = await readFile(authPath, "utf8").catch(() => null);
+      if (raw === null) return;
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (!(providerId in json)) return;
+      delete json[providerId];
+      await writeFile(authPath, `${JSON.stringify(json, null, 2)}\n`);
     },
     catch: (cause) =>
       new AgentSessionStartError({

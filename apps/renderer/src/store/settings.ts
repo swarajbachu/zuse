@@ -9,6 +9,7 @@ import {
   type CompletionSoundPreset,
   type GitMergeMethod,
   type ModelEnabledByProvider,
+  type OpencodeCustomProvider,
   type ProviderId,
   resolveModelSlug,
   type RuntimeMode,
@@ -89,6 +90,9 @@ const fallbackSnapshot = (): SettingsSlice => ({
   onboardingCompleted: false,
   providerEnabled: seedProviderEnabled(),
   modelEnabledByProvider: seedModelEnabledByProvider(),
+  opencodeProviderVisible: {},
+  opencodeModelVisibleByProvider: {},
+  opencodeCustomProviders: [],
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
   mergePrefs: { method: "merge", deleteBranch: false },
@@ -120,6 +124,17 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
       ...file.providerEnabled,
     },
     modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
+    opencodeProviderVisible: { ...file.opencodeProviderVisible },
+    opencodeModelVisibleByProvider: Object.fromEntries(
+      Object.entries(file.opencodeModelVisibleByProvider).map(([k, v]) => [
+        k,
+        { ...v },
+      ]),
+    ),
+    opencodeCustomProviders: file.opencodeCustomProviders.map((p) => ({
+      ...p,
+      models: p.models.map((m) => ({ ...m })),
+    })),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
     mergePrefs: file.mergePrefs,
@@ -139,6 +154,14 @@ interface SettingsSlice {
   readonly onboardingCompleted: boolean;
   readonly providerEnabled: Record<ProviderId, boolean>;
   readonly modelEnabledByProvider: ModelEnabledByProvider;
+  /** OpenCode sub-provider visibility in the model picker (id → shown). */
+  readonly opencodeProviderVisible: Record<string, boolean>;
+  /** OpenCode per-sub-provider model visibility (providerId → modelId → shown). */
+  readonly opencodeModelVisibleByProvider: Record<
+    string,
+    Record<string, boolean>
+  >;
+  readonly opencodeCustomProviders: ReadonlyArray<OpencodeCustomProvider>;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
   readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
@@ -171,6 +194,15 @@ type SettingsState = SettingsSlice & {
   readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
   readonly setModelEnabled: (
     providerId: ProviderId,
+    modelId: string,
+    value: boolean,
+  ) => void;
+  readonly setOpencodeProviderVisible: (
+    providerId: string,
+    value: boolean,
+  ) => void;
+  readonly setOpencodeModelVisible: (
+    providerId: string,
     modelId: string,
     value: boolean,
   ) => void;
@@ -405,6 +437,32 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { modelEnabledByProvider: next } }),
+      );
+    })();
+  },
+  setOpencodeProviderVisible: (providerId, value) => {
+    const next = { ...get().opencodeProviderVisible, [providerId]: value };
+    set({ opencodeProviderVisible: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { opencodeProviderVisible: next } }),
+      );
+    })();
+  },
+  setOpencodeModelVisible: (providerId, modelId, value) => {
+    const current = get().opencodeModelVisibleByProvider;
+    const next: Record<string, Record<string, boolean>> = {
+      ...current,
+      [providerId]: { ...current[providerId], [modelId]: value },
+    };
+    set({ opencodeModelVisibleByProvider: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({
+          patch: { opencodeModelVisibleByProvider: next },
+        }),
       );
     })();
   },

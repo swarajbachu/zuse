@@ -19,6 +19,7 @@ import {
 } from "@zuse/wire";
 
 import { ApiKeyRow } from "~/components/api-key-row";
+import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
@@ -239,15 +240,25 @@ export function ProviderCard({
           ))}
         <SubscriptionRow providerId={providerId} availability={availability} />
 
-        <ModelDefault providerId={providerId} />
-        <ModelVisibilitySettings providerId={providerId} />
+        {providerId === "opencode" ? (
+          // OpenCode fronts ~150 model providers; its card gets a dedicated
+          // provider manager (connect catalog providers, add custom
+          // OpenAI-compatible ones, pick which models show) instead of the
+          // single-model defaults + one API key the other harnesses use.
+          <OpencodeProviderManager />
+        ) : (
+          <>
+            <ModelDefault providerId={providerId} />
+            <ModelVisibilitySettings providerId={providerId} />
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            API key (optional)
-          </span>
-          <ApiKeyRow providerId={providerId} />
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                API key (optional)
+              </span>
+              <ApiKeyRow providerId={providerId} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

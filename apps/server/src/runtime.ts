@@ -225,6 +225,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
+    // OpenCode session-start reads `opencodeCustomProviders` from settings to
+    // inject user-defined providers into `opencode serve`.
+    Layer.provide(ConfigStoreLayer),
     Layer.provide(NodeContext.layer),
   );
 

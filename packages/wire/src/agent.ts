@@ -1526,6 +1526,20 @@ export const OpencodeInventoryProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   models: Schema.Array(OpencodeInventoryModel),
+  /**
+   * `true` when opencode reports this provider in `provider.list().connected`
+   * — i.e. it has a stored credential (via `auth.set`) or an injected custom
+   * definition — so its models are actually usable. The catalog now returns
+   * every provider opencode knows about (~150), most of them unconnected; the
+   * settings UI uses this flag to split "connected" from "available to add".
+   */
+  connected: Schema.Boolean,
+  /**
+   * `true` for user-defined OpenAI-compatible providers we inject via
+   * `OPENCODE_CONFIG_CONTENT` (see `settings.opencodeCustomProviders`), as
+   * opposed to entries from opencode's built-in models.dev catalog.
+   */
+  custom: Schema.Boolean,
 });
 export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 
@@ -1550,6 +1564,83 @@ export const AgentOpencodeInventoryRpc = Rpc.make("agent.opencodeInventory", {
   // the same shape the renderer already knows how to surface.
   error: AgentSessionStartError,
 });
+
+// ---------------------------------------------------------------------------
+// OpenCode provider management. The settings UI lets the user connect any of
+// opencode's ~150 catalog providers by pasting an API key, and define custom
+// OpenAI-compatible providers from a base URL. Keys are written through to
+// opencode's own persistent `auth.json` (via the SDK `auth.set`) so they also
+// work when the user runs `opencode` in a terminal; custom provider *shapes*
+// live in our settings.json and are injected at spawn. Each handler
+// short-lives an `opencode serve` to make the SDK call, mirroring
+// `agent.opencodeInventory`.
+// ---------------------------------------------------------------------------
+
+/** A single model exposed by a user-defined OpenAI-compatible provider. */
+export const OpencodeCustomModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+});
+export type OpencodeCustomModel = typeof OpencodeCustomModel.Type;
+
+/**
+ * User-defined OpenAI-compatible provider. `id` is the slug opencode keys the
+ * provider by (also the `auth.set` id); `apiKey` is only present on the
+ * add/update RPC payload — it is never persisted to settings.json, only to
+ * opencode's `auth.json`.
+ */
+export const OpencodeCustomProvider = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  baseURL: Schema.String,
+  models: Schema.Array(OpencodeCustomModel),
+});
+export type OpencodeCustomProvider = typeof OpencodeCustomProvider.Type;
+
+export const AgentOpencodeSetProviderAuthRpc = Rpc.make(
+  "agent.opencodeSetProviderAuth",
+  {
+    payload: Schema.Struct({
+      providerId: Schema.String,
+      apiKey: Schema.String,
+    }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeRemoveProviderAuthRpc = Rpc.make(
+  "agent.opencodeRemoveProviderAuth",
+  {
+    payload: Schema.Struct({ providerId: Schema.String }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeAddCustomProviderRpc = Rpc.make(
+  "agent.opencodeAddCustomProvider",
+  {
+    payload: Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      baseURL: Schema.String,
+      apiKey: Schema.String,
+      models: Schema.Array(OpencodeCustomModel),
+    }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeRemoveCustomProviderRpc = Rpc.make(
+  "agent.opencodeRemoveCustomProvider",
+  {
+    payload: Schema.Struct({ id: Schema.String }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
 
 // ---------------------------------------------------------------------------
 // One-click sign-in flow. The renderer subscribes to `agent.startLogin`,
