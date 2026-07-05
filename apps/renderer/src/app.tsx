@@ -33,6 +33,7 @@ import { UpdateBanner } from "./components/update-banner.tsx";
 import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
+import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { useAuthStore } from "./store/auth.ts";
@@ -170,6 +171,10 @@ export function App() {
   // and editor commands are handled by CodeMirror keymaps, so this hook
   // ignores them.
   useKeybindingDispatch();
+
+  // Mirror the running-agent count to main so the before-quit guard and the
+  // "quit/restart when idle" deferrals have a live value.
+  useReportRunningAgents();
 
   // Hydrate settings + keybindings + subagents from the on-disk config
   // store. Each call is idempotent; subsequent emits flow through the

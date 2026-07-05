@@ -28,7 +28,9 @@ export interface AppBridge {
   readonly revealPath?: (path: string) => Promise<void>;
   readonly copyPath?: (path: string) => Promise<void>;
   readonly copyFileContents?: (path: string) => Promise<boolean>;
-  readonly getMainDiagnostics?: () => Promise<ReadonlyArray<DiagnosticLogEntry>>;
+  readonly getMainDiagnostics?: () => Promise<
+    ReadonlyArray<DiagnosticLogEntry>
+  >;
 }
 
 export interface DiagnosticLogEntry {
@@ -51,6 +53,12 @@ export interface UpdatesBridge {
   readonly check: () => Promise<void>;
   readonly download: () => Promise<void>;
   readonly installNow: () => Promise<void>;
+  /**
+   * Push the current running-agent count to main (for the before-quit guard
+   * and "quit/restart when idle" deferrals). Renderer store is the source of
+   * truth; call on every change.
+   */
+  readonly reportRunningCount: (count: number) => void;
   /** Dev-only: round-trips a synthetic status through the real IPC channel. */
   readonly __demoSet?: (status: UpdateStatus) => Promise<void>;
 }

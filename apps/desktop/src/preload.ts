@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import {
+  AGENTS_RUNNING_COUNT_CHANNEL,
   IPC_CHANNEL,
   UPDATE_CHECK_CHANNEL,
   UPDATE_DOWNLOAD_CHANNEL,
@@ -145,6 +146,14 @@ const bridge = {
       ipcRenderer.invoke(UPDATE_DOWNLOAD_CHANNEL) as Promise<void>,
     installNow: () =>
       ipcRenderer.invoke(UPDATE_INSTALL_CHANNEL) as Promise<void>,
+    /**
+     * Push the current running-agent count to main so the `before-quit` guard
+     * and the "quit/restart when idle" deferrals have a fresh value. Fire on
+     * every change (and once on mount). Renderer store is the source of truth.
+     */
+    reportRunningCount: (count: number) => {
+      ipcRenderer.send(AGENTS_RUNNING_COUNT_CHANNEL, count);
+    },
     // Dev-only escape hatch: only handled in dev (see updater.ts
     // `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
     __demoSet: (status: UpdateStatus) =>
