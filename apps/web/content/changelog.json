@@ -1,5 +1,23 @@
 [
   {
+    "version": "0.10.1",
+    "sections": [
+      {
+        "title": "Fixed",
+        "items": [
+          "Supply the public WorkOS client id at release build time so sign-in works in packaged builds instead of surfacing \"WorkOS is not configured\"."
+        ]
+      },
+      {
+        "title": "Changed",
+        "items": [
+          "Fork chat + plan/context handoff (#252)",
+          "Route pasted text & dropped files into .context/files (#246)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.10.0",
     "sections": [
       {
