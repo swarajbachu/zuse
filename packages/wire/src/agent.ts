@@ -700,6 +700,15 @@ export const StartSessionInput = Schema.Struct({
    */
   toolSearch: Schema.optional(Schema.Boolean),
   /**
+   * When true AND a resume cursor is supplied, the driver FORKS the resumed
+   * transcript into a fresh provider session instead of continuing it
+   * (Claude `Options.forkSession`, Codex `thread/fork`), leaving the source
+   * transcript untouched. Ignored without a resume cursor, and by providers
+   * that lack native fork support (they fall back to a transcript copy at a
+   * higher layer). Backs the "Fork chat" feature.
+   */
+  forkFromResume: Schema.optional(Schema.Boolean),
+  /**
    * Opaque per-model knob values. Keys map to
    * `ModelDescriptor.optionDescriptors[].id` (e.g. `"reasoning"`); values
    * are the selected option id (`"low" | "medium" | "high"`) for selects

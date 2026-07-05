@@ -98,6 +98,7 @@ import {
   EMULATED_PLAN_APPROVAL_PROMPT,
   PlanApprovalTray,
 } from "./composer/plan-approval-tray.tsx";
+import { ContextTray } from "./composer/context-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
@@ -920,6 +921,7 @@ export function ChatComposer({
                     onClear={() => void clearGoal(sessionId)}
                   />
                 ) : null}
+                <ContextTray sessionId={sessionId} />
                 <ProjectPlanTray key={sessionId} sessionId={sessionId} />
                 <QueueTray sessionId={sessionId} />
               </div>
