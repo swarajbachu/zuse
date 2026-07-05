@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3]
+
+### Changed
+- Finish WorkOS sign-in on a proper "Signed in — you can close this tab" page instead of leaving the browser hanging on a dead `zuse://` URL, and drop the OS "Open in Zuse Alpha?" prompt. Packaged builds now use the localhost loopback redirect (like dev); the `zuse://` scheme handler stays registered as a fallback.
+
 ## [0.10.2]
 
 ### Fixed
