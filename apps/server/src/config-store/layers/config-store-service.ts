@@ -1,5 +1,7 @@
 import * as fsSync from "node:fs";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import * as NodePath from "node:path";
 
 import { FileSystem, Path } from "@effect/platform";
 import { Effect, Layer, PubSub, Ref, Stream } from "effect";
@@ -7,6 +9,7 @@ import { Effect, Layer, PubSub, Ref, Stream } from "effect";
 import {
   type AppearanceMode,
   type BranchNamingStyle,
+  type Command,
   type CompletionSoundPreset,
   defaultModelEnabledByProvider,
   defaultModelFor,
@@ -37,6 +40,7 @@ const WATCH_DEBOUNCE_MS = 100;
 
 const SETTINGS_FILENAME = "settings.json";
 const KEYBINDINGS_FILENAME = "keybindings.json";
+const USER_CONFIG_DIRNAME = ".zuse";
 
 const PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -125,6 +129,41 @@ const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
 
 const isMergeMethod = (v: unknown): v is MergePrefs["method"] =>
   v === "merge" || v === "squash" || v === "rebase";
+
+const isCommand = (v: unknown): v is Command =>
+  v === "new-chat" ||
+  v === "open-project" ||
+  v === "settings" ||
+  v === "close-tab" ||
+  v === "toggle-left-sidebar" ||
+  v === "toggle-right-sidebar" ||
+  v === "toggle-terminal" ||
+  v === "focus-composer" ||
+  v === "next-tab" ||
+  v === "prev-tab" ||
+  v === "select-tab-1" ||
+  v === "select-tab-2" ||
+  v === "select-tab-3" ||
+  v === "select-tab-4" ||
+  v === "select-tab-5" ||
+  v === "select-tab-6" ||
+  v === "select-tab-7" ||
+  v === "select-tab-8" ||
+  v === "select-last-tab" ||
+  v === "new-tab" ||
+  v === "next-chat" ||
+  v === "prev-chat" ||
+  v === "next-panel" ||
+  v === "prev-panel" ||
+  v === "focus-next-pane" ||
+  v === "focus-prev-pane" ||
+  v === "open-chat-switcher" ||
+  v === "composer.submit" ||
+  v === "composer.newline" ||
+  v === "composer.forceSubmit" ||
+  v === "composer.togglePlanMode" ||
+  v === "editor.save" ||
+  v === "editor.annotate";
 
 /**
  * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
@@ -303,11 +342,11 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
   for (const item of inRules) {
     if (typeof item !== "object" || item === null) continue;
     const r = item as Record<string, unknown>;
-    if (typeof r.key !== "string" || typeof r.command !== "string") continue;
+    if (typeof r.key !== "string" || !isCommand(r.command)) continue;
     // Keep the original strings; the renderer / matcher revalidates on parse.
     const rule: KeybindingRule = {
       key: r.key,
-      command: r.command as KeybindingRule["command"],
+      command: r.command,
       when: typeof r.when === "string" ? r.when : undefined,
     };
     rules.push(rule);
@@ -318,6 +357,9 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
 
 export const configStoreTestHelpers = {
   coerceSettings,
+  userConfigDir: () =>
+    process.env.ZUSE_CONFIG_DIR?.trim() ||
+    NodePath.join(homedir(), USER_CONFIG_DIRNAME),
 };
 
 /* ────────────────────────── Service implementation ──────────────────────────── */
@@ -328,11 +370,19 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const fs = yield* FileSystem.FileSystem;
     const pathSvc = yield* Path.Path;
     const { userData } = yield* AppPaths;
+    const userConfigDir =
+      process.env.ZUSE_CONFIG_DIR?.trim() ||
+      pathSvc.join(homedir(), USER_CONFIG_DIRNAME);
 
     yield* fs.makeDirectory(userData, { recursive: true }).pipe(Effect.orDie);
+    yield* fs
+      .makeDirectory(userConfigDir, { recursive: true })
+      .pipe(Effect.orDie);
 
-    const settingsPath = pathSvc.join(userData, SETTINGS_FILENAME);
-    const keybindingsPath = pathSvc.join(userData, KEYBINDINGS_FILENAME);
+    const settingsPath = pathSvc.join(userConfigDir, SETTINGS_FILENAME);
+    const keybindingsPath = pathSvc.join(userConfigDir, KEYBINDINGS_FILENAME);
+    const legacySettingsPath = pathSvc.join(userData, SETTINGS_FILENAME);
+    const legacyKeybindingsPath = pathSvc.join(userData, KEYBINDINGS_FILENAME);
 
     /**
      * Read a JSON file from disk, returning the parsed object or `null` if
@@ -386,8 +436,17 @@ export const ConfigStoreServiceLive = Layer.scoped(
         );
       });
 
-    const initialSettingsRaw = yield* readJsonOrNull(settingsPath);
-    const initialKeybindingsRaw = yield* readJsonOrNull(keybindingsPath);
+    const settingsExists = yield* fs.exists(settingsPath).pipe(Effect.orDie);
+    const keybindingsExists = yield* fs
+      .exists(keybindingsPath)
+      .pipe(Effect.orDie);
+
+    const initialSettingsRaw = settingsExists
+      ? yield* readJsonOrNull(settingsPath)
+      : yield* readJsonOrNull(legacySettingsPath);
+    const initialKeybindingsRaw = keybindingsExists
+      ? yield* readJsonOrNull(keybindingsPath)
+      : yield* readJsonOrNull(legacyKeybindingsPath);
 
     const initialSettings = coerceSettings(initialSettingsRaw);
     const initialKeybindings = coerceKeybindings(initialKeybindingsRaw);
@@ -399,12 +458,13 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const initialSettingsSerialized = serialize(initialSettings);
     const initialKeybindingsSerialized = serialize(initialKeybindings);
     if (
+      !settingsExists ||
       initialSettingsRaw === null ||
       serialize(initialSettingsRaw) !== initialSettingsSerialized
     ) {
       yield* writeAtomically(settingsPath, initialSettingsSerialized);
     }
-    if (initialKeybindingsRaw === null) {
+    if (!keybindingsExists || initialKeybindingsRaw === null) {
       yield* writeAtomically(keybindingsPath, initialKeybindingsSerialized);
     }
 
@@ -470,11 +530,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
     };
 
     const watchers: fsSync.FSWatcher[] = [];
-    // Watch the userData directory, not the files themselves — atomic
+    // Watch the user config directory, not the files themselves — atomic
     // rename swaps the inode out from under a per-file watcher and the
     // events stop arriving. Directory-level watch survives that.
     try {
-      const w = fsSync.watch(userData, (_eventType, filename) => {
+      const w = fsSync.watch(userConfigDir, (_eventType, filename) => {
         if (filename === SETTINGS_FILENAME) {
           if (settingsDebounce !== null) clearTimeout(settingsDebounce);
           settingsDebounce = setTimeout(() => {
