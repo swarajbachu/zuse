@@ -17,7 +17,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.10.1",
+      "version": "0.10.2",
       "dependencies": {
         "better-sqlite3": "^12.9.0",
         "electron-updater": "^6.3.9",
