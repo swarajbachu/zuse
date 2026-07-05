@@ -902,9 +902,7 @@ export function ChatComposer({
           ) : null}
           <Frame>
             {headerSlot !== undefined ? (
-              <div className="mb-1 flex items-center justify-end px-1">
-                {headerSlot}
-              </div>
+              <div className="mb-1 flex items-center px-1">{headerSlot}</div>
             ) : null}
             {!isDraft ? (
               <div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">

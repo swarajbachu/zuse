@@ -472,33 +472,42 @@ export function ChatLanding() {
             composerDraftKey={composerDraftKeyForLanding(selectedFolderId)}
             onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
             headerSlot={
-              <div className="flex items-center gap-1.5">
-                {createSource !== null && (
-                  <span className="flex items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground">
-                    {createSource.kind === "issue" ? (
-                      <span>Issue {createSource.label} attached</span>
-                    ) : (
-                      <span className="max-w-[16rem] truncate">
-                        {createSource.label}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setCreateSource(null)}
-                      aria-label="Clear create-from source"
-                      className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
-                    >
-                      <X className="size-3" strokeWidth={2} />
-                    </button>
-                  </span>
-                )}
-                {creatingSource && (
-                  <Spinner className="size-3.5 text-muted-foreground" />
-                )}
-                <CreateFromMenu
-                  folderId={selectedFolderId}
-                  onSelect={(sel) => void handleCreateFromSelect(sel)}
+              <div className="flex w-full items-center justify-between gap-2">
+                <ProjectPicker
+                  folders={folders}
+                  selectedFolderId={selectedFolderId}
+                  selectedName={selectedFolder?.name ?? null}
+                  onPick={onPick}
+                  onAdd={onAdd}
                 />
+                <div className="flex min-w-0 items-center gap-1.5">
+                  {createSource !== null && (
+                    <span className="flex min-w-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground">
+                      {createSource.kind === "issue" ? (
+                        <span>Issue {createSource.label} attached</span>
+                      ) : (
+                        <span className="max-w-[16rem] truncate">
+                          {createSource.label}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setCreateSource(null)}
+                        aria-label="Clear create-from source"
+                        className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
+                      >
+                        <X className="size-3" strokeWidth={2} />
+                      </button>
+                    </span>
+                  )}
+                  {creatingSource && (
+                    <Spinner className="size-3.5 text-muted-foreground" />
+                  )}
+                  <CreateFromMenu
+                    folderId={selectedFolderId}
+                    onSelect={(sel) => void handleCreateFromSelect(sel)}
+                  />
+                </div>
               </div>
             }
           />
@@ -514,16 +523,6 @@ export function ChatLanding() {
           continuingId={continuingExternalThreadId}
           onContinue={(thread) => void continueExternalThread(thread)}
         />
-
-        <div className="flex justify-center">
-          <ProjectPicker
-            folders={folders}
-            selectedFolderId={selectedFolderId}
-            selectedName={selectedFolder?.name ?? null}
-            onPick={onPick}
-            onAdd={onAdd}
-          />
-        </div>
       </div>
     </div>
   );
@@ -722,14 +721,14 @@ function ProjectPicker({
   return (
     <Menu>
       <MenuTrigger
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60"
+        className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent data-[popup-open]:bg-accent"
         aria-label="Pick a project"
       >
         <HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
-        <span>{selectedName ?? "Pick a project"}</span>
+        <span className="truncate">{selectedName ?? "Pick a project"}</span>
         <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
       </MenuTrigger>
-      <MenuPopup side="top" align="start" className="w-64 p-1">
+      <MenuPopup side="bottom" align="start" className="w-64 p-1">
         {folders.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted-foreground">
             No projects yet.
