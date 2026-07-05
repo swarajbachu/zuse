@@ -34,6 +34,7 @@ import {
   startCompactEvent,
   startCompactSnapshot,
 } from "./compact.ts";
+import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live handle for one OpenCode conversation. Mirrors the other driver
@@ -948,6 +949,7 @@ export const startOpencodeSession = (
 
     // === Prompt queue — serializes turns inside a single session. ===
     let inflight: Promise<void> = Promise.resolve();
+    let workspaceInstructionsPending = input.workspaceInstructions;
     const enqueuePrompt = (text: string): void => {
       const compactSnapshot = isCompactCommand(text)
         ? startCompactSnapshot(null)
@@ -960,7 +962,14 @@ export const startOpencodeSession = (
           }),
         );
       }
-      const promptText = compactSnapshot !== null ? text.trim() : text;
+      const promptText =
+        compactSnapshot !== null
+          ? text.trim()
+          : prefixFirstPromptWithWorkspaceInstructions(
+              workspaceInstructionsPending,
+              text,
+            );
+      if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       inflight = inflight
         .then(async () => {
           if (closed) return;

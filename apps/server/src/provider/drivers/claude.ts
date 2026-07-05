@@ -1574,7 +1574,9 @@ export const startClaudeSession = (
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: claudeWorktreePrompt(cwd),
+        append: [input.workspaceInstructions, claudeWorktreePrompt(cwd)]
+          .filter((part): part is string => part !== undefined)
+          .join("\n\n"),
       },
       abortController: abort,
       ...(claudeExecutablePath !== null
