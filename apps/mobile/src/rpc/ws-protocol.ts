@@ -6,6 +6,12 @@ export type WsProtocolOptions = {
   host: string;
   port: number;
   token?: string | null;
+  /**
+   * A full ws(s):// base URL, used for relay-connected environments reached via
+   * a managed tunnel (e.g. `wss://env-x.relay.example/rpc`). When present it
+   * takes precedence over host/port.
+   */
+  wsBaseUrl?: string | null;
 };
 
 export const connectionKey = (host: string, port: number): string =>
@@ -14,13 +20,10 @@ export const connectionKey = (host: string, port: number): string =>
 export const wsUrl = ({ host, port }: WsProtocolOptions): string =>
   `ws://${host.trim()}:${port}`;
 
-export const authenticatedWsUrl = ({
-  host,
-  port,
-  token
-}: WsProtocolOptions): string => {
-  const url = new URL(wsUrl({ host, port }));
-  if (token?.trim()) url.searchParams.set("token", token.trim());
+export const authenticatedWsUrl = (options: WsProtocolOptions): string => {
+  const base = options.wsBaseUrl?.trim();
+  const url = new URL(base && base.length > 0 ? base : wsUrl(options));
+  if (options.token?.trim()) url.searchParams.set("token", options.token.trim());
   return url.toString();
 };
 
