@@ -1,13 +1,20 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const workspaceRoot = process.cwd();
-const commonDir = execFileSync("git", [
-  "rev-parse",
-  "--path-format=absolute",
-  "--git-common-dir",
-], { cwd: workspaceRoot, encoding: "utf8" }).trim();
+const commonDir = execFileSync(
+  "git",
+  ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+  { cwd: workspaceRoot, encoding: "utf8" },
+).trim();
 const repoRoot = join(commonDir, "..");
 
 const lockfiles = [
@@ -29,7 +36,8 @@ function lockfilesMatch() {
   for (const lockfile of lockfiles) {
     const source = join(repoRoot, lockfile);
     const target = join(workspaceRoot, lockfile);
-    if (existsSync(source) || existsSync(target)) return sameFile(source, target);
+    if (existsSync(source) || existsSync(target))
+      return sameFile(source, target);
   }
   return false;
 }

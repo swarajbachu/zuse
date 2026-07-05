@@ -660,6 +660,13 @@ export const StartSessionInput = Schema.Struct({
   providerId: ProviderId,
   mode: SessionMode,
   initialPrompt: Schema.optional(Schema.String),
+  /**
+   * Internal Zuse-provided workspace context. The renderer does not set this;
+   * ProviderService fills it after resolving the project/worktree cwd so
+   * drivers can pass it through native system/developer instruction channels
+   * where available.
+   */
+  workspaceInstructions: Schema.optional(Schema.String),
   // Optional caller-supplied id. When omitted, ProviderService mints a fresh
   // one. MessageStore uses this to lazy-restart a closed session without
   // moving its persisted history to a new row.

@@ -37,7 +37,7 @@ import {
   WorktreeService,
   type WorktreeRestoreSnapshot,
 } from "../services/worktree-service.ts";
-import { linkEnvFiles } from "./env-files.ts";
+import { linkIncludedFiles } from "./env-files.ts";
 
 interface WorktreeRow {
   readonly id: string;
@@ -178,6 +178,7 @@ const isEmptyDirectory = async (path: string): Promise<boolean> => {
 const prepareLocalFiles = async (
   repoPath: string,
   worktreePath: string,
+  includeGlobs: string,
 ): Promise<string> => {
   let output = "";
 
@@ -219,7 +220,7 @@ const prepareLocalFiles = async (
     }
   }
 
-  output += await linkEnvFiles(repoPath, worktreePath);
+  output += await linkIncludedFiles(repoPath, worktreePath, includeGlobs);
 
   return output;
 };
@@ -988,7 +989,12 @@ export const WorktreeServiceLive = Layer.effect(
         emitStatus(worktreeId, "running", startedAtDate, null);
 
         const prep = yield* Effect.tryPromise({
-          try: () => prepareLocalFiles(folder.path, worktree.path),
+          try: () =>
+            prepareLocalFiles(
+              folder.path,
+              worktree.path,
+              settings.fileIncludeGlobs,
+            ),
           catch: (err) =>
             new WorktreeSetupError({
               worktreeId,

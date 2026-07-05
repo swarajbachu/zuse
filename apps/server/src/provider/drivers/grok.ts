@@ -42,6 +42,7 @@ import {
 } from "./acp/browser-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import type { BrowserSend } from "./browser-tools.ts";
+import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live-only handle for one Grok conversation. Mirrors Codex/Claude handle
@@ -134,7 +135,9 @@ const installProjectBrowserMcpConfig = (
 ): (() => void) => {
   const grokDir = join(cwd, ".grok");
   const configPath = join(grokDir, "config.toml");
-  const previous = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const previous = existsSync(configPath)
+    ? readFileSync(configPath, "utf8")
+    : "";
   const userConfig = stripGeneratedBrowserMcpConfig(previous);
   const next = `${userConfig.length > 0 ? `${userConfig}\n\n` : ""}${BROWSER_MCP_CONFIG_START}\n${toml.trimEnd()}\n${BROWSER_MCP_CONFIG_END}\n`;
 
@@ -406,6 +409,7 @@ export const startGrokSession = (
     // calls tools directly instead of hunting the filesystem for schemas.
     let browserHintPending = true;
     let inflight: Promise<void> = Promise.resolve();
+    let workspaceInstructionsPending = input.workspaceInstructions;
     const pending = new Map<number, PendingResolver>();
     // Trailing window of grok's stderr — used to enrich error reports when
     // the JSON-RPC envelope itself is opaque ("Internal error" with no data).
@@ -967,7 +971,14 @@ export const startGrokSession = (
       const promptText =
         compactSnapshot !== null
           ? text.trim()
-          : applyPlanModePrefix(currentMode, text);
+          : applyPlanModePrefix(
+              currentMode,
+              prefixFirstPromptWithWorkspaceInstructions(
+                workspaceInstructionsPending,
+                text,
+              ),
+            );
+      if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       inflight = inflight
         .then(async () => {
           if (closed) return;

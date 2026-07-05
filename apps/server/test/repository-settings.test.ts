@@ -84,6 +84,8 @@ const seedProject = (repoPath: string) =>
 
 const settingsPath = (repoPath: string): string =>
   join(repoPath, ".zuse", "settings.json");
+const tomlSettingsPath = (repoPath: string): string =>
+  join(repoPath, ".zuse", "settings.toml");
 
 const writeRepoSettings = (
   repoPath: string,
@@ -102,13 +104,16 @@ const readRepoSettings = (repoPath: string): RepositorySettingsFile =>
     readFileSync(settingsPath(repoPath), "utf8"),
   ) as RepositorySettingsFile;
 
+const readRepoSettingsToml = (repoPath: string): string =>
+  readFileSync(tomlSettingsPath(repoPath), "utf8");
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-describe("RepositorySettingsService JSON persistence", () => {
+describe("RepositorySettingsService repository file persistence", () => {
   it("returns defaults when no JSON, TOML, or legacy row exists", async () => {
     await withRuntime(async ({ run }) => {
       const settings = await run(
@@ -121,7 +126,7 @@ describe("RepositorySettingsService JSON persistence", () => {
     });
   });
 
-  it("migrates an existing SQLite row into .zuse/settings.json", async () => {
+  it("migrates an existing SQLite row into .zuse/settings.toml", async () => {
     await withRuntime(async ({ run, repoPath }) => {
       await run(
         Effect.gen(function* () {
@@ -157,8 +162,8 @@ describe("RepositorySettingsService JSON persistence", () => {
       expect(settings.autoCreateWorktree).toBe(true);
       expect(settings.archiveRemoveWorktree).toBe(true);
       expect(settings.environmentVariables.NODE_ENV).toBe("development");
-      expect(existsSync(settingsPath(repoPath))).toBe(true);
-      expect(readRepoSettings(repoPath).runScript).toBe("bun dev");
+      expect(existsSync(tomlSettingsPath(repoPath))).toBe(true);
+      expect(readRepoSettingsToml(repoPath)).toContain('run = "bun dev"');
       expect(rows[0]?.count).toBe(0);
     });
   });
@@ -198,6 +203,12 @@ describe("RepositorySettingsService JSON persistence", () => {
       writeFileSync(
         join(repoPath, ".zuse", "settings.toml"),
         [
+          "file_include_globs = [",
+          '  ".env",',
+          '  ".env.local",',
+          "]",
+          "",
+          "",
           "[scripts]",
           'setup = "bun install"',
           'run = "bun dev"',
@@ -216,9 +227,64 @@ describe("RepositorySettingsService JSON persistence", () => {
       expect(settings.setupScript).toBe("bun install");
       expect(settings.runScript).toBe("bun dev");
       expect(settings.autoRunAfterSetup).toBe(true);
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local");
       expect(settings.environmentVariables.API_BASE).toBe(
         "http://localhost:3000",
       );
+    });
+  });
+
+  it("still reads legacy root file_include_globs strings", async () => {
+    await withRuntime(async ({ run, repoPath }) => {
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
+      writeFileSync(
+        join(repoPath, ".zuse", "settings.toml"),
+        'file_include_globs = ".env\\n.env.local\\n"\n',
+        "utf8",
+      );
+
+      const settings = await run(
+        Effect.flatMap(RepositorySettingsService, (svc) => svc.get(PROJECT_ID)),
+      );
+
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local\n");
+    });
+  });
+
+  it("still reads legacy file_include_globs tables", async () => {
+    await withRuntime(async ({ run, repoPath }) => {
+      mkdirSync(join(repoPath, ".zuse"), { recursive: true });
+      writeFileSync(
+        join(repoPath, ".zuse", "settings.toml"),
+        [
+          "[file_include_globs]",
+          'env = ".env"',
+          'env_local = ".env.local"',
+        ].join("\n"),
+        "utf8",
+      );
+
+      const settings = await run(
+        Effect.flatMap(RepositorySettingsService, (svc) => svc.get(PROJECT_ID)),
+      );
+
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local");
+    });
+  });
+
+  it("uses .worktreeinclude as a legacy include fallback", async () => {
+    await withRuntime(async ({ run, repoPath }) => {
+      writeFileSync(
+        join(repoPath, ".worktreeinclude"),
+        "# local files\n.env\n.env.local\n",
+        "utf8",
+      );
+
+      const settings = await run(
+        Effect.flatMap(RepositorySettingsService, (svc) => svc.get(PROJECT_ID)),
+      );
+
+      expect(settings.fileIncludeGlobs).toBe(".env\n.env.local");
     });
   });
 
@@ -239,12 +305,13 @@ describe("RepositorySettingsService JSON persistence", () => {
     });
   });
 
-  it("updates JSON atomically while preserving unspecified fields", async () => {
+  it("updates TOML atomically while preserving unspecified fields", async () => {
     await withRuntime(async ({ run, repoPath }) => {
       writeRepoSettings(repoPath, {
         schemaVersion: 1,
         defaultProviderId: "claude",
         runScript: "bun dev",
+        fileIncludeGlobs: ".env\n",
       });
 
       const settings = await run(
@@ -252,14 +319,17 @@ describe("RepositorySettingsService JSON persistence", () => {
           svc.update(PROJECT_ID, { autoRunAfterSetup: true }),
         ),
       );
-      const file = readRepoSettings(repoPath);
+      const toml = readRepoSettingsToml(repoPath);
 
       expect(settings.defaultProviderId).toBe("claude");
       expect(settings.runScript).toBe("bun dev");
       expect(settings.autoRunAfterSetup).toBe(true);
-      expect(file.defaultProviderId).toBe("claude");
-      expect(file.runScript).toBe("bun dev");
-      expect(file.autoRunAfterSetup).toBe(true);
+      expect(existsSync(settingsPath(repoPath))).toBe(false);
+      expect(toml).toContain('defaultProviderId = "claude"');
+      expect(toml).toContain('run = "bun dev"');
+      expect(toml).toContain("auto_run_after_setup = true");
+      expect(toml).toContain("file_include_globs = [");
+      expect(toml).toContain('  ".env",');
     });
   });
 });

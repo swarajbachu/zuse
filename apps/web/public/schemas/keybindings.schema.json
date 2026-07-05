@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zuse.dev/schemas/keybindings.schema.json",
+  "title": "Zuse Keybindings",
+  "description": "User keybinding overrides stored in ~/.zuse/keybindings.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "rules"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "rules": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "command"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "command": {
+            "enum": [
+              "new-chat",
+              "open-project",
+              "settings",
+              "close-tab",
+              "toggle-left-sidebar",
+              "toggle-right-sidebar",
+              "toggle-terminal",
+              "focus-composer",
+              "next-tab",
+              "prev-tab",
+              "select-tab-1",
+              "select-tab-2",
+              "select-tab-3",
+              "select-tab-4",
+              "select-tab-5",
+              "select-tab-6",
+              "select-tab-7",
+              "select-tab-8",
+              "select-last-tab",
+              "new-tab",
+              "next-chat",
+              "prev-chat",
+              "next-panel",
+              "prev-panel",
+              "focus-next-pane",
+              "focus-prev-pane",
+              "open-chat-switcher",
+              "composer.submit",
+              "composer.newline",
+              "composer.forceSubmit",
+              "composer.togglePlanMode",
+              "editor.save",
+              "editor.annotate"
+            ]
+          },
+          "when": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

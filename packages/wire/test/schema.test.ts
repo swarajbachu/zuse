@@ -574,6 +574,7 @@ describe("RepositorySettingsFile round-trip", () => {
       environmentVariables: {
         NODE_ENV: "development",
       },
+      fileIncludeGlobs: ".env\n.env.local\n",
     });
   });
 });
