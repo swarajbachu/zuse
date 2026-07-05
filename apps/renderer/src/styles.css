@@ -271,12 +271,12 @@ body,
   --accent-red: hsl(0 74% 56%);
   --accent-zinc: hsl(72 4% 42%);
 
-  --secondary: hsl(74 10% 93%);
+  --secondary: hsl(74 10% 92%);
   --secondary-foreground: var(--foreground);
-  --muted: hsl(74 10% 93%);
-  --muted-foreground: hsl(72 6% 39%);
-  --accent: hsl(74 18% 90%);
-  --accent-foreground: hsl(72 34% 14%);
+  --muted: hsl(74 10% 90%);
+  --muted-foreground: hsl(72 7% 34%);
+  --accent: hsl(73 22% 84%);
+  --accent-foreground: hsl(72 36% 11%);
 
   --destructive: hsl(0 74% 50%);
   --destructive-foreground: hsl(72 22% 99%);
@@ -370,10 +370,14 @@ body,
   --secondary: hsl(72 4% 10%);
   --secondary-foreground: hsl(72 4% 92%);
 
-  --muted: hsl(72 4% 10%);
-  --muted-foreground: hsl(72 2% 64%);
+  /* Muted + accent sit ABOVE --card/--popover (both 13%) on the moss ramp so
+     hover/selected states and muted surfaces read clearly against cards and
+     the 6% background. Previously accent == card (13%), making every dropdown
+     hover invisible. */
+  --muted: hsl(72 3% 18%);
+  --muted-foreground: hsl(72 3% 70%);
 
-  --accent: hsl(72 4% 13%);
+  --accent: hsl(72 4% 27%);
   --accent-foreground: hsl(72 4% 92%);
 
   --destructive: hsl(0 91% 71%);
