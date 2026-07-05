@@ -24,11 +24,12 @@ export const sendMessage = (options: {
 }) =>
   Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.messages.send({
+    const payload = {
       sessionId: options.sessionId,
-      input: options.input,
-      asGoal: options.asGoal,
-    });
+      text: options.input.text,
+      ...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
+    };
+    yield* client.messages.send(payload);
   });
 
 export const interruptSession = (options: {
