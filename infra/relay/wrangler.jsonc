@@ -1,0 +1,30 @@
+{
+  // Cloudflare Worker deploy config for the relay control plane.
+  // Deploy: `bunx wrangler deploy`.  Local: `bunx wrangler dev`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zuse-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-01",
+  // Node/TCP compat so @effect/sql-pg (postgres driver) can reach Hyperdrive.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Non-secret configuration. Secrets go via `wrangler secret put` (see README).
+  "vars": {
+    "RELAY_ISSUER": "https://relay.zuse.example",
+    "WORKOS_ISSUER": "https://api.workos.com",
+    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/REPLACE_WITH_CLIENT_ID",
+    // Public key only — the matching private key is a secret (RELAY_MINT_PRIVATE_JWK).
+    "RELAY_MINT_PUBLIC_JWK": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"REPLACE\"}"
+  },
+
+  // Hyperdrive fronting PlanetScale Postgres. Create with:
+  //   bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"
+  // then paste the returned id here.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "REPLACE_WITH_HYPERDRIVE_ID"
+    }
+  ]
+}

@@ -9,7 +9,15 @@
     "check-types": "tsc --noEmit",
     "test": "bun test"
   },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/sql": "catalog:",
+    "@effect/sql-pg": "^0.52.1",
+    "effect": "catalog:",
+    "jose": "^6.2.3"
+  },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
