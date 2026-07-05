@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocalSearchParams } from "expo-router";
-import { FlatList, Text, View } from "react-native";
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Text,
+  View,
+} from "react-native";
 import type { SessionId } from "@zuse/wire";
 
 import { ComposerStub } from "~/components/composer-stub";
@@ -37,7 +43,10 @@ export default function ThreadScreen() {
   }, [connKey, hydrate, normalizedSessionId, options]);
 
   return (
-    <View className="flex-1 bg-background">
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      className="flex-1 bg-background"
+    >
       <View className="border-b border-border px-4 pb-3">
         <Text className="font-sans-medium text-base text-foreground" numberOfLines={1}>
           {detail?.chat?.title ?? detail?.session.title ?? "Thread"}
@@ -62,7 +71,7 @@ export default function ThreadScreen() {
         contentContainerClassName="py-3"
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
       />
-      <ComposerStub />
-    </View>
+      <ComposerStub connection={options} sessionId={normalizedSessionId} />
+    </KeyboardAvoidingView>
   );
 }

@@ -23,6 +23,7 @@ import { Migration0019QueuePaused } from "./migrations/0019_queue_paused.ts";
 import { Migration0020Events } from "./migrations/0020_events.ts";
 import { Migration0021AuthTokens } from "./migrations/0021_auth_tokens.ts";
 import { Migration0022AttachmentAbsPath } from "./migrations/0022_attachment_abs_path.ts";
+import { Migration0024RemoteConnectState } from "./migrations/0024_remote_connect_state.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -64,6 +65,7 @@ export const MigrationsLive = Layer.effectDiscard(
       "0020_events": Migration0020Events,
       "0021_auth_tokens": Migration0021AuthTokens,
       "0022_attachment_abs_path": Migration0022AttachmentAbsPath,
+      "0024_remote_connect_state": Migration0024RemoteConnectState,
     }),
   }),
 );

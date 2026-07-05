@@ -199,6 +199,11 @@ export interface BrowserBridge {
   ) => Promise<BrowserDialogState | null>;
 }
 
+export interface SshBridge {
+  readonly listHosts: () => Promise<ReadonlyArray<string>>;
+  readonly ensureEnvironment: (host: string) => Promise<unknown>;
+}
+
 export type NotchTrayItemState =
   | "running"
   | "completed"
@@ -250,6 +255,7 @@ export interface ZuseBridge {
   readonly updates?: UpdatesBridge;
   readonly browser?: BrowserBridge;
   readonly notch?: NotchBridge;
+  readonly ssh?: SshBridge;
 }
 
 declare global {

@@ -5,6 +5,7 @@
     "scheme": "zuse",
     "version": "0.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "ios": {
@@ -15,7 +16,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
-      }
+      },
+      "bundleIdentifier": "com.swarajbachu.zuse-mobile"
     },
     "plugins": [
       "expo-router",

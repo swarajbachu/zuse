@@ -5,10 +5,11 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
     "lint": "eslint .",
     "check-types": "tsc --noEmit",
-    "test": "bun test src"
+    "test": "bun test src",
+    "android": "expo run:android"
   },
   "dependencies": {
     "@effect/platform": "catalog:",

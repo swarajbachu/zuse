@@ -1,0 +1,17 @@
+{
+  "name": "@zuse/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

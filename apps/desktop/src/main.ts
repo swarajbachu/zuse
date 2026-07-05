@@ -40,6 +40,11 @@ if (process.platform === "darwin" && app.isPackaged) {
 
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import {
+  ensureSshEnvironment,
+  listSshHosts,
+  type SshEnvironmentHandle,
+} from "./ssh/environment-service.ts";
+import {
   DEFAULT_MENU_ACCELERATORS,
   installAppMenu,
   type MenuAccelerators,
@@ -664,6 +669,8 @@ function createMainWindow() {
     if (mainWindow === null) return;
     mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
   };
+
+  const sshEnvironmentHandles = new Map<string, SshEnvironmentHandle>();
   mainWindow.on("enter-full-screen", sendFullScreenState);
   mainWindow.on("leave-full-screen", sendFullScreenState);
   mainWindow.webContents.on("did-finish-load", sendFullScreenState);
@@ -752,6 +759,20 @@ function createMainWindow() {
   });
 
   ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+
+  ipcMain.handle("ssh:listHosts", async () => listSshHosts());
+
+  ipcMain.handle("ssh:ensureEnvironment", async (_event, rawHost: unknown) => {
+    if (typeof rawHost !== "string" || rawHost.trim().length === 0) {
+      return null;
+    }
+    const host = rawHost.trim();
+    const existing = sshEnvironmentHandles.get(host);
+    if (existing !== undefined) return existing.descriptor;
+    const handle = await ensureSshEnvironment(host);
+    sshEnvironmentHandles.set(host, handle);
+    return handle.descriptor;
+  });
 
   // ---------------------------------------------------------------------------
   // Agent browser CDP bridge

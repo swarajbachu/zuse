@@ -19,6 +19,7 @@
       "name": "desktop",
       "version": "0.10.3",
       "dependencies": {
+        "@zuse/ssh": "*",
         "better-sqlite3": "^12.9.0",
         "electron-updater": "^6.3.9",
         "keytar": "^7.9.0",
@@ -235,6 +236,15 @@
         "typescript": "^5",
       },
     },
+    "infra/relay": {
+      "name": "@zuse/relay",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/eslint-config": {
       "name": "@repo/eslint-config",
       "version": "0.0.0",
@@ -268,6 +278,18 @@
       "devDependencies": {
         "@repo/typescript-config": "*",
         "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/ssh": {
+      "name": "@zuse/ssh",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
         "@types/node": "catalog:",
         "typescript": "catalog:",
       },
@@ -1629,7 +1651,11 @@
 
     "@zuse/mcp-server": ["@zuse/mcp-server@workspace:apps/mcp-server"],
 
+    "@zuse/relay": ["@zuse/relay@workspace:infra/relay"],
+
     "@zuse/server": ["@zuse/server@workspace:apps/server"],
+
+    "@zuse/ssh": ["@zuse/ssh@workspace:packages/ssh"],
 
     "@zuse/wire": ["@zuse/wire@workspace:packages/wire"],
 

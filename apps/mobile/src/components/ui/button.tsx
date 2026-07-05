@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { Children, forwardRef } from "react";
 import { Pressable, Text, View, type PressableProps } from "react-native";
 
 import { cn } from "~/lib/cn";
@@ -8,6 +8,21 @@ type ButtonProps = PressableProps & {
   variant?: "primary" | "secondary" | "ghost" | "danger";
   size?: "sm" | "md";
 };
+
+function textClassName(variant: NonNullable<ButtonProps["variant"]>) {
+  return cn(
+    "font-sans-medium text-sm",
+    variant === "primary" || variant === "danger" ? "text-primary-foreground" : "text-foreground"
+  );
+}
+
+function renderButtonChild(child: React.ReactNode, variant: NonNullable<ButtonProps["variant"]>) {
+  if (typeof child === "string" || typeof child === "number") {
+    return <Text className={textClassName(variant)}>{child}</Text>;
+  }
+
+  return child;
+}
 
 export const Button = forwardRef<React.ElementRef<typeof Pressable>, ButtonProps>(
   ({ className, children, variant = "primary", size = "md", disabled, ...props }, ref) => (
@@ -26,20 +41,9 @@ export const Button = forwardRef<React.ElementRef<typeof Pressable>, ButtonProps
       )}
       {...props}
     >
-      {typeof children === "string" ? (
-        <Text
-          className={cn(
-            "font-sans-medium text-sm",
-            variant === "primary" || variant === "danger"
-              ? "text-primary-foreground"
-              : "text-foreground"
-          )}
-        >
-          {children}
-        </Text>
-      ) : (
-        <View className="flex-row items-center justify-center gap-2">{children}</View>
-      )}
+      <View className="flex-row items-center justify-center gap-2">
+        {Children.map(children, (child) => renderButtonChild(child, variant))}
+      </View>
     </Pressable>
   )
 );

@@ -1,6 +1,6 @@
 import { SqlClient } from "@effect/sql";
 import { Clock, Effect, Layer, Ref } from "effect";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 
 import {
@@ -24,6 +24,11 @@ interface TokenRow {
   readonly created_at: string;
   readonly last_used_at: string | null;
   readonly revoked_at: string | null;
+}
+
+interface EnvironmentIdentityRow {
+  readonly id: string;
+  readonly signing_secret: string | null;
 }
 
 interface PairingCodeState {
@@ -91,24 +96,57 @@ export const LanAuthServiceLive = Layer.effect(
 
     const environmentId = () =>
       Effect.gen(function* () {
-        const existing = yield* sql<{ readonly id: string }>`
-          SELECT id
+        const existing = yield* sql<EnvironmentIdentityRow>`
+          SELECT id, signing_secret
           FROM environment_identity
           ORDER BY created_at ASC
           LIMIT 1
         `;
         if (existing[0]?.id !== undefined) {
+          if (existing[0].signing_secret === null) {
+            const secret = yield* randomBase64Url(32);
+            yield* sql`
+              UPDATE environment_identity
+              SET signing_secret = ${secret}
+              WHERE id = ${existing[0].id}
+            `;
+          }
           return existing[0].id as EnvironmentId;
         }
 
         const id = `env_${yield* randomBase64Url(16)}` as EnvironmentId;
+        const signingSecret = yield* randomBase64Url(32);
         const createdAt = yield* nowIso;
         yield* sql`
-          INSERT INTO environment_identity (id, created_at)
-          VALUES (${id}, ${createdAt})
+          INSERT INTO environment_identity (id, created_at, signing_secret)
+          VALUES (${id}, ${createdAt}, ${signingSecret})
         `;
         return id;
       }).pipe(Effect.mapError(toLanAuthError));
+
+    const signingSecret = () =>
+      Effect.gen(function* () {
+        const envId = yield* environmentId();
+        const rows = yield* sql<{ readonly signing_secret: string | null }>`
+          SELECT signing_secret
+          FROM environment_identity
+          WHERE id = ${envId}
+          LIMIT 1
+        `;
+        if (
+          rows[0]?.signing_secret !== null &&
+          rows[0]?.signing_secret !== undefined
+        ) {
+          return { envId, secret: rows[0].signing_secret } as const;
+        }
+        const secret = yield* randomBase64Url(32);
+        yield* sql`
+          UPDATE environment_identity
+          SET signing_secret = ${secret}
+          WHERE id = ${envId}
+        `;
+        return { envId, secret } as const;
+      });
 
     const makePairingUrls = (code: string) =>
       Effect.gen(function* () {
@@ -234,6 +272,42 @@ export const LanAuthServiceLive = Layer.effect(
           return { token: minted.token, environmentId: envId } as const;
         }),
       environmentId,
+      linkProof: (input) =>
+        Effect.gen(function* () {
+          const { envId, secret } = yield* signingSecret();
+          const payload = JSON.stringify({
+            challenge: input.challenge,
+            relayIssuer: input.relayIssuer,
+            environmentId: envId,
+            endpoint: input.endpoint,
+          });
+          const proof = createHmac("sha256", secret)
+            .update(payload)
+            .digest("base64url");
+          return { proof: `zlp_${proof}` } as const;
+        }).pipe(Effect.mapError(toLanAuthError)),
+      saveRelayConfig: (input) =>
+        Effect.gen(function* () {
+          const actualEnvironmentId = yield* environmentId();
+          if (input.environmentId !== actualEnvironmentId) {
+            return yield* Effect.fail(
+              new LanAuthError({ reason: "environment_id_mismatch" }),
+            );
+          }
+          const updatedAt = yield* nowIso;
+          yield* sql`
+            INSERT INTO relay_config
+              (environment_id, relay_url, relay_issuer, environment_credential, updated_at)
+            VALUES
+              (${input.environmentId}, ${input.relayUrl}, ${input.relayIssuer},
+               ${input.environmentCredential}, ${updatedAt})
+            ON CONFLICT(environment_id) DO UPDATE SET
+              relay_url = excluded.relay_url,
+              relay_issuer = excluded.relay_issuer,
+              environment_credential = excluded.environment_credential,
+              updated_at = excluded.updated_at
+          `;
+        }).pipe(Effect.asVoid, Effect.mapError(toLanAuthError)),
     });
 
     return service;

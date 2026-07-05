@@ -3150,7 +3150,9 @@ export const MessageStoreLive = Layer.scoped(
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
-        const chat = yield* lookupChat(session.chatId);
+        const chat = yield* lookupChat(session.chatId).pipe(
+          Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+        );
         // Provisional title: update chat + session immediately for real tasks
         // so the sidebar/tab never sit on "New chat" while the LLM pass runs.
         const provisional = deriveProvisionalTitle(text);
@@ -3162,7 +3164,9 @@ export const MessageStoreLive = Layer.scoped(
             `.pipe(Effect.orDie);
           }
           if (chat.title === "New chat") {
-            yield* renameChat(session.chatId, provisional);
+            yield* renameChat(session.chatId, provisional).pipe(
+              Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+            );
           }
         }
         // Try LLM auto-name when there is enough context (trivial-only
