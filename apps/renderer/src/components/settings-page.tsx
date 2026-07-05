@@ -1213,14 +1213,14 @@ function ProvidersPane() {
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
-  // Refresh once on mount + re-poll when the window regains focus so the
-  // "Checked X ago" line reflects reality without forcing the user to hit
-  // refresh themselves.
+  // Refresh once when the pane opens. We deliberately do NOT re-poll on every
+  // window focus: `refresh()` → `agent.availability` reads the OS keychain
+  // (`credentials.listConfigured`), and on unsigned/dev builds macOS re-prompts
+  // for the "zuse" keychain on each access — so a focus-triggered refresh meant
+  // a keychain prompt every time the window regained focus. The manual refresh
+  // button covers the occasional "re-check now" case.
   useEffect(() => {
     void refresh();
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
   const now = useRelativeTimeTick(15_000);

@@ -190,7 +190,9 @@ export function App() {
 
   // Probe provider availability once on boot so the "update available" launch
   // toast can fire without the user first opening settings. ProvidersPane
-  // keeps its own mount/focus refresh for live updates while settings is open.
+  // re-probes on mount while settings is open (it no longer re-polls on window
+  // focus — that read the keychain and made macOS re-prompt on every refocus
+  // for unsigned/dev builds).
   const refreshProviders = useProvidersStore((s) => s.refresh);
   useEffect(() => {
     void refreshProviders();
