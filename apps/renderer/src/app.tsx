@@ -20,6 +20,7 @@ import { CostFooter } from "./components/cost-footer";
 import { FileEditor } from "./components/file-editor.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard.tsx";
+import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import { RightPane } from "./components/right-pane";
@@ -229,6 +230,7 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
@@ -240,6 +242,7 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
@@ -250,6 +253,7 @@ export function App() {
 
   return (
     <TooltipProvider>
+      <NotchTrayBridge />
       <AppearanceController />
       <MainShell />
     </TooltipProvider>
