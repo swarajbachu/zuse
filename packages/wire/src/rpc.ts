@@ -28,7 +28,11 @@ import {
   BrowserRespondRpc,
   BrowserSetCredentialRpc,
 } from "./browser.ts";
-import { ConnectDescribeRpc } from "./connect.ts";
+import {
+  ConnectDescribeRpc,
+  ConnectLinkProofRpc,
+  ConnectRelayConfigRpc,
+} from "./connect.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -196,6 +200,8 @@ export const MemoizeRpcs = RpcGroup.make(
   PairingListTokensRpc,
   PairingRevokeTokenRpc,
   ConnectDescribeRpc,
+  ConnectLinkProofRpc,
+  ConnectRelayConfigRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,

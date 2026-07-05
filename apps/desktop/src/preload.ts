@@ -200,6 +200,12 @@ const bridge = {
         }>
       >,
   },
+  ssh: {
+    listHosts: () =>
+      ipcRenderer.invoke("ssh:listHosts") as Promise<ReadonlyArray<string>>,
+    ensureEnvironment: (host: string) =>
+      ipcRenderer.invoke("ssh:ensureEnvironment", host) as Promise<unknown>,
+  },
   updates: {
     onStatus: (handler: (status: UpdateStatus) => void) => {
       const wrapped = (_event: IpcRendererEvent, status: UpdateStatus) =>

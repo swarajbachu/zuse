@@ -149,7 +149,7 @@ const patchChat = (bundles: readonly ProjectBundle[], chat: Chat): ProjectBundle
           chats: [
             chat,
             ...bundle.chats.filter((existing) => existing.id !== chat.id)
-          ].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt))
         }
   );
 
@@ -170,7 +170,17 @@ export const selectSessionChat = (
   return null;
 };
 
-export const isUnread = (chat: Chat): boolean =>
-  chat.lastMessageAt !== null &&
-  chat.lastReadAt !== null &&
-  chat.lastMessageAt.getTime() > chat.lastReadAt.getTime();
+const timestampOf = (value: unknown): number => {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "string" || typeof value === "number") {
+    const timestamp = new Date(value).getTime();
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+  return 0;
+};
+
+export const isUnread = (chat: Chat): boolean => {
+  const lastMessageAt = timestampOf(chat.lastMessageAt);
+  const lastReadAt = timestampOf(chat.lastReadAt);
+  return lastMessageAt > 0 && lastReadAt > 0 && lastMessageAt > lastReadAt;
+};

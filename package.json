@@ -30,6 +30,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
+      "infra/*",
       "packages/*",
       "tools/*"
     ],

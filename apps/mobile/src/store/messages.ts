@@ -62,6 +62,16 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
     const run = async () => {
       try {
         const client = await Effect.runPromise(getConnectionClient(options));
+        const listed = await Effect.runPromise(client.messages.list({ sessionId }));
+        if (listed.length > 0) {
+          set((state) => ({
+            messagesBySession: {
+              ...state.messagesBySession,
+              [sessionId]: listed
+            }
+          }));
+          void get().flush(connKey, sessionId);
+        }
         const sinceSequence = highestSequenceBySession.get(liveKey);
         console.info("[mobile] messages.stream", { sessionId, sinceSequence });
         const program = Stream.runForEach(

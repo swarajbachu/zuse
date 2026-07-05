@@ -1,24 +1,21 @@
 import "../global.css";
 import "~/polyfills";
 
-import {
-  GeistMono_400Regular,
-  useFonts as useGeistMono
-} from "@expo-google-fonts/geist-mono";
-import {
-  Inter_400Regular,
-  Inter_600SemiBold,
-  useFonts as useInter
-} from "@expo-google-fonts/inter";
+import { GeistMono_400Regular } from "@expo-google-fonts/geist-mono";
+import { Inter_400Regular, Inter_600SemiBold } from "@expo-google-fonts/inter";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 
 export default function RootLayout() {
-  const [interLoaded] = useInter({ Inter_400Regular, Inter_600SemiBold });
-  const [monoLoaded] = useGeistMono({ GeistMono_400Regular });
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_600SemiBold,
+    GeistMono_400Regular
+  });
 
-  if (!interLoaded || !monoLoaded) {
+  if (!fontsLoaded) {
     return <View className="flex-1 bg-background" />;
   }
 

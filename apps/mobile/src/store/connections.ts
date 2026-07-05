@@ -2,10 +2,12 @@ import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { Effect } from "effect";
 
+import { getConnectionClient } from "~/rpc/connection";
 import { connectionKey } from "~/rpc/ws-protocol";
 
 export type ConnectionRecord = {
   key: string;
+  environmentId?: string;
   host: string;
   port: number;
   token?: string | null;
@@ -17,7 +19,11 @@ type ConnectionsState = {
   connections: ConnectionRecord[];
   hydrated: boolean;
   hydrate: () => Promise<void>;
-  add: (input: { host: string; port: number; token?: string | null }) => Promise<ConnectionRecord>;
+  add: (input: {
+    host: string;
+    port: number;
+    token?: string | null;
+  }) => Promise<ConnectionRecord>;
   remove: (key: string) => Promise<void>;
 };
 
@@ -46,13 +52,25 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     set({ connections, hydrated: true });
   },
   add: async ({ host, port, token }) => {
-    const key = connectionKey(host, port);
+    const trimmedHost = host.trim();
+    const redeemed = await redeemPairingCodeIfNeeded({
+      host: trimmedHost,
+      port,
+      token
+    });
+    const descriptor = await describeEnvironment({
+      host: trimmedHost,
+      port,
+      token: redeemed
+    });
+    const key = descriptor?.environmentId ?? connectionKey(trimmedHost, port);
     const record: ConnectionRecord = {
       key,
-      host: host.trim(),
+      environmentId: descriptor?.environmentId,
+      host: trimmedHost,
       port,
-      token: token?.trim() || null,
-      label: key,
+      token: redeemed,
+      label: descriptor?.label ?? descriptor?.environmentId ?? key,
       updatedAt: Date.now()
     };
     const next = [record, ...get().connections.filter((c) => c.key !== key)];
@@ -66,3 +84,44 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     await Effect.runPromise(saveConnections(next));
   }
 }));
+
+const redeemPairingCodeIfNeeded = async ({
+  host,
+  port,
+  token
+}: {
+  host: string;
+  port: number;
+  token?: string | null;
+}): Promise<string | null> => {
+  const trimmed = token?.trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith("zp_")) return trimmed;
+
+  const response = await fetch(`http://${host}:${port}/pair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: trimmed })
+  });
+  if (!response.ok) {
+    throw new Error(`Pairing failed (${response.status})`);
+  }
+  const body = (await response.json()) as { token?: string };
+  if (typeof body.token !== "string" || !body.token.startsWith("zt_")) {
+    throw new Error("Pairing response did not include a bearer token");
+  }
+  return body.token;
+};
+
+const describeEnvironment = async (options: {
+  host: string;
+  port: number;
+  token: string | null;
+}) => {
+  try {
+    const client = await Effect.runPromise(getConnectionClient(options));
+    return await Effect.runPromise(client.connect.describe());
+  } catch {
+    return null;
+  }
+};

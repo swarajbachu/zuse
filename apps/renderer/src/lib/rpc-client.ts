@@ -20,9 +20,21 @@ let runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null = n
 let cachedClient: Promise<MemoizeClient> | null = null;
 
 function resolveWebSocketUrl() {
+  const env = (import.meta as { readonly env?: Record<string, string | undefined> })
+    .env;
   return (
-    import.meta.env.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`
+    env?.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`
   );
+}
+
+export function resolveRendererRpcTransportForTest(): {
+  readonly kind: "electron" | "websocket";
+  readonly wsUrl?: string;
+} {
+  const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+  return bridge
+    ? { kind: "electron" }
+    : { kind: "websocket", wsUrl: resolveWebSocketUrl() };
 }
 
 function getRuntime() {

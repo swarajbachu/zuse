@@ -45,6 +45,7 @@ const shared = {
       "@zuse/wire",
       "@zuse/server",
       "@zuse/index",
+      "@zuse/ssh",
       "fix-path",
     ],
   },

@@ -1,6 +1,11 @@
 import { Context, type Effect, Schema } from "effect";
 
-import type { AuthTokenId, AuthTokenSummary, EnvironmentId } from "@zuse/wire";
+import type {
+  AuthTokenId,
+  AuthTokenSummary,
+  EnvironmentEndpoint,
+  EnvironmentId,
+} from "@zuse/wire";
 
 import type { LanAuthPolicy } from "../policy.ts";
 
@@ -58,6 +63,17 @@ export interface LanAuthServiceShape {
     PairingRedeemError | LanAuthError
   >;
   readonly environmentId: () => Effect.Effect<EnvironmentId, LanAuthError>;
+  readonly linkProof: (input: {
+    readonly challenge: string;
+    readonly relayIssuer: string;
+    readonly endpoint: EnvironmentEndpoint;
+  }) => Effect.Effect<{ readonly proof: string }, LanAuthError>;
+  readonly saveRelayConfig: (input: {
+    readonly relayUrl: string;
+    readonly relayIssuer: string;
+    readonly environmentId: EnvironmentId;
+    readonly environmentCredential: string;
+  }) => Effect.Effect<void, LanAuthError>;
 }
 
 export class LanAuthService extends Context.Tag("zuse/LanAuthService")<
