@@ -16,7 +16,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { EditorView } from "@codemirror/view";
 import { Effect } from "effect";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   ComposerInput,
@@ -98,6 +98,7 @@ import {
   EMULATED_PLAN_APPROVAL_PROMPT,
   PlanApprovalTray,
 } from "./composer/plan-approval-tray.tsx";
+import { ContextTray } from "./composer/context-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
@@ -139,9 +140,16 @@ export function ChatComposer({
   session,
   onDraftSubmit,
   composerDraftKey,
+  headerSlot,
 }: {
   session: Session;
   composerDraftKey?: string;
+  /**
+   * Optional content rendered as a header row inside the composer frame, above
+   * the editor. Used by the new-chat landing to host the "Create from…" picker
+   * (draft mode only). Non-draft composers pass nothing.
+   */
+  headerSlot?: ReactNode;
   /**
    * When set, the composer runs in "draft" mode for the new-chat landing:
    * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
@@ -893,6 +901,9 @@ export function ChatComposer({
             />
           ) : null}
           <Frame>
+            {headerSlot !== undefined ? (
+              <div className="mb-1 flex items-center px-1">{headerSlot}</div>
+            ) : null}
             {!isDraft ? (
               <div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
                 <PlanApprovalTray
@@ -920,6 +931,7 @@ export function ChatComposer({
                     onClear={() => void clearGoal(sessionId)}
                   />
                 ) : null}
+                <ContextTray sessionId={sessionId} />
                 <ProjectPlanTray key={sessionId} sessionId={sessionId} />
                 <QueueTray sessionId={sessionId} />
               </div>

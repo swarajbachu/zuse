@@ -427,6 +427,8 @@ describe("SettingsFile round-trip", () => {
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
       mergePrefs: { method: "squash", deleteBranch: true },
+      notchTrayEnabled: true,
+      notchTrayPinned: false,
     });
   });
 
@@ -462,6 +464,8 @@ describe("SettingsFile round-trip", () => {
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
         mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });
@@ -498,6 +502,8 @@ describe("SettingsFile round-trip", () => {
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
         mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });

@@ -53,7 +53,13 @@ import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
-import { TitleGenerator, formatBranchName } from "../title-generator.ts";
+import {
+  TitleGenerator,
+  buildConversationText,
+  formatBranchName,
+  isTrivialUserMessage,
+  shouldDeferAutoName,
+} from "../title-generator.ts";
 import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
 import {
   MessageStore,
@@ -301,6 +307,103 @@ const messageFromRow = (row: MessageRow): Message => {
   });
 };
 
+/**
+ * Message kinds that are pure telemetry / lifecycle noise — excluded from a
+ * forked transcript copy and from the exported Markdown so the handed-off
+ * context reads like a conversation, not a metrics dump.
+ */
+const TRANSCRIPT_SKIP_KINDS: ReadonlySet<string> = new Set([
+  "usage",
+  "context_usage",
+  "context_compaction",
+  "usage_limit",
+]);
+
+/** Trim a serialised tool payload so a transcript export stays readable. */
+const clampBlock = (value: string, max = 2000): string =>
+  value.length > max
+    ? `${value.slice(0, max)}\n… (${value.length - max} more chars truncated)`
+    : value;
+
+const stringifyUnknown = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+/**
+ * Render a session transcript to Markdown. Used for the "Attach transcript"
+ * handoff and the copy-mode fork context file. Skips telemetry rows and
+ * truncates large tool payloads.
+ */
+const transcriptToMarkdown = (
+  title: string,
+  messages: ReadonlyArray<Message>,
+): string => {
+  const lines: string[] = [`# Transcript — ${title}`, ""];
+  for (const m of messages) {
+    const c = m.content;
+    if (TRANSCRIPT_SKIP_KINDS.has(c._tag)) continue;
+    switch (c._tag) {
+      case "user":
+      case "user_rich":
+        lines.push("## User", "", c.text.trim(), "");
+        break;
+      case "assistant":
+        lines.push("## Assistant", "", c.text.trim(), "");
+        break;
+      case "thinking":
+        if (!c.redacted && c.text.trim().length > 0) {
+          lines.push(
+            "> _(thinking)_ " + c.text.trim().replace(/\n/g, "\n> "),
+            "",
+          );
+        }
+        break;
+      case "tool_use":
+        lines.push(
+          `### 🛠 ${c.tool}`,
+          "",
+          "```json",
+          clampBlock(stringifyUnknown(c.input)),
+          "```",
+          "",
+        );
+        break;
+      case "tool_result":
+        lines.push(
+          c.isError ? "### ⚠ Tool result (error)" : "### Tool result",
+          "",
+          "```",
+          clampBlock(stringifyUnknown(c.output)),
+          "```",
+          "",
+        );
+        break;
+      case "error":
+        lines.push(`> **Error:** ${c.message}`, "");
+        break;
+      case "interrupted":
+        lines.push("> _(interrupted by user)_", "");
+        break;
+      case "subagent_summary":
+        lines.push(`### Sub-agent ${c.agentName}`, "", c.summary.trim(), "");
+        break;
+      default:
+        break;
+    }
+  }
+  return (
+    lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd() + "\n"
+  );
+};
+
 const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
   QueuedMessage.make({
     id: row.id,
@@ -477,6 +580,23 @@ const titleFromInitial = (prompt: string | undefined): string => {
   const firstLine = prompt.trim().split("\n")[0] ?? "";
   const truncated = firstLine.slice(0, 60).trim();
   return truncated.length > 0 ? truncated : "New chat";
+};
+
+/** Provisional sidebar title before the LLM auto-namer runs. */
+const deriveProvisionalTitle = (prompt: string | undefined): string => {
+  if (prompt === undefined) return "New chat";
+  if (isTrivialUserMessage(prompt)) return "New chat";
+  return titleFromInitial(prompt);
+};
+
+const textFromMessageContent = (content: MessageContent): string | null => {
+  if (content._tag === "user" || content._tag === "user_rich") {
+    return content.text;
+  }
+  if (content._tag === "assistant") {
+    return content.text;
+  }
+  return null;
 };
 
 /**
@@ -786,11 +906,10 @@ export const MessageStoreLive = Layer.scoped(
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
 
-    // Chats whose first-message auto-name is in flight, so a second message
-    // arriving mid-rename can't kick off a duplicate pass. One-shot per chat
-    // per process — entries are never removed because the triggering hooks
-    // only fire on the first user message anyway.
-    const autoNamingChats = new Set<string>();
+    // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
+    const autoNamingInFlight = new Set<string>();
+    // Chats that already received a successful LLM title this process lifetime.
+    const autoNamedChats = new Set<string>();
 
     const getOrMakePubsub = (sessionId: SessionId) =>
       Effect.gen(function* () {
@@ -1115,6 +1234,9 @@ export const MessageStoreLive = Layer.scoped(
                   event.status === "idle"
                 ) {
                   yield* setStatus(sessionId, event.status);
+                  if (event.status === "idle") {
+                    yield* maybeForkAutoName(session.chatId, sessionId);
+                  }
                 }
                 return;
               }
@@ -1123,6 +1245,9 @@ export const MessageStoreLive = Layer.scoped(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
                 );
+                if (event.reason !== "error") {
+                  yield* maybeForkAutoName(session.chatId, sessionId);
+                }
                 return;
               }
               if (event._tag === "SessionCursor") {
@@ -1396,7 +1521,7 @@ export const MessageStoreLive = Layer.scoped(
         const now = new Date();
         const nowIso = now.toISOString();
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const agentsJson =
           input.agents !== undefined && Object.keys(input.agents).length > 0
             ? JSON.stringify({
@@ -1411,6 +1536,11 @@ export const MessageStoreLive = Layer.scoped(
         const resumeCursor = input.resumeCursor ?? null;
         const resumeStrategy: ResumeStrategy =
           resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
+        const forkedFromSessionId = input.forkedFromSessionId ?? null;
+        const forkedFromMessageId = input.forkedFromMessageId ?? null;
+        // Only fork the transcript when we actually have a cursor to fork.
+        const forkFromResume =
+          input.forkFromResume === true && resumeCursor !== null;
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -1426,13 +1556,15 @@ export const MessageStoreLive = Layer.scoped(
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, runtime_mode,
                agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, cursor, resume_strategy, created_at, updated_at)
+               tool_search, cursor, resume_strategy, forked_from_session_id,
+               forked_from_message_id, created_at, updated_at)
             VALUES
               (${sessionId}, ${projectId}, ${title}, ${input.providerId},
                ${input.model}, ${rowStatus}, ${initialRuntimeMode},
                ${agentsJson}, ${worktreeId}, ${input.chatId},
                ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
+               ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+               ${forkedFromMessageId}, ${nowIso}, ${nowIso})
           `.pipe(Effect.orDie);
           yield* sql`
             UPDATE chats
@@ -1465,6 +1597,7 @@ export const MessageStoreLive = Layer.scoped(
                   cwdOverride,
                   permissionMode: initialPermissionMode,
                   toolSearch: initialToolSearch,
+                  forkFromResume,
                 },
                 resumeCursor,
                 newSessionRuntimeMode,
@@ -1509,8 +1642,8 @@ export const MessageStoreLive = Layer.scoped(
             runtimeMode: initialRuntimeMode,
             worktreeId,
             chatId: input.chatId,
-            forkedFromSessionId: null,
-            forkedFromMessageId: null,
+            forkedFromSessionId,
+            forkedFromMessageId,
             permissionMode: initialPermissionMode,
             toolSearch: initialToolSearch,
             createdAt: now,
@@ -1536,6 +1669,7 @@ export const MessageStoreLive = Layer.scoped(
               cwdOverride,
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
+              forkFromResume,
             },
             resumeCursor,
             newSessionRuntimeMode,
@@ -1557,13 +1691,15 @@ export const MessageStoreLive = Layer.scoped(
           INSERT INTO sessions
             (id, project_id, title, provider_id, model, status, runtime_mode,
              agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, cursor, resume_strategy, created_at, updated_at)
+             tool_search, cursor, resume_strategy, forked_from_session_id,
+             forked_from_message_id, created_at, updated_at)
           VALUES
             (${sessionId}, ${projectId}, ${title}, ${input.providerId},
              ${input.model}, ${rowStatus}, ${initialRuntimeMode},
              ${agentsJson}, ${worktreeId}, ${input.chatId},
              ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${resumeCursor}, ${resumeStrategy}, ${nowIso}, ${nowIso})
+             ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+             ${forkedFromMessageId}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
         yield* sql`
           UPDATE chats
@@ -1591,8 +1727,8 @@ export const MessageStoreLive = Layer.scoped(
           runtimeMode: initialRuntimeMode,
           worktreeId,
           chatId: input.chatId,
-          forkedFromSessionId: null,
-          forkedFromMessageId: null,
+          forkedFromSessionId,
+          forkedFromMessageId,
           permissionMode: initialPermissionMode,
           toolSearch: initialToolSearch,
           createdAt: now,
@@ -1890,7 +2026,7 @@ export const MessageStoreLive = Layer.scoped(
         const nowIso = now.toISOString();
         const chatId = crypto.randomUUID() as unknown as ChatId;
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
         yield* sql`
           INSERT INTO chats
@@ -1913,6 +2049,9 @@ export const MessageStoreLive = Layer.scoped(
           toolSearch: input.toolSearch,
           resumeCursor: input.resumeCursor,
           resumeStrategy: input.resumeStrategy,
+          forkedFromSessionId: input.forkedFromSessionId,
+          forkedFromMessageId: input.forkedFromMessageId,
+          forkFromResume: input.forkFromResume,
         }).pipe(
           Effect.tapError(() =>
             // Roll back the chat row if the provider failed to boot —
@@ -1948,14 +2087,10 @@ export const MessageStoreLive = Layer.scoped(
             )
           : null;
         // Path 1: the chat was created WITH its first message (the common
-        // composer flow). Kick off the background auto-name now — it no-ops
-        // unless the chat has its own worktree.
-        if (
-          hasInitial &&
-          chat.worktreeId !== null &&
-          input.initialPrompt !== undefined
-        ) {
-          yield* forkAutoName(chat.id, initialSession.id, input.initialPrompt);
+        // composer flow). Kick off the background auto-name when there is
+        // enough context (trivial-only greetings wait for a follow-up).
+        if (hasInitial && input.initialPrompt !== undefined) {
+          yield* maybeForkAutoName(chat.id, initialSession.id);
         }
         return { chat, initialSession, initialMessage };
       });
@@ -1985,6 +2120,157 @@ export const MessageStoreLive = Layer.scoped(
           }
           return imported;
         });
+
+    const exportTranscript: MessageStoreShape["exportTranscript"] = (
+      sessionId,
+      uptoMessageId,
+    ) =>
+      Effect.gen(function* () {
+        const session = yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${sessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        let slice = rows;
+        if (uptoMessageId !== undefined) {
+          const idx = rows.findIndex((r) => r.id === uptoMessageId);
+          if (idx !== -1) slice = rows.slice(0, idx + 1);
+        }
+        return transcriptToMarkdown(session.title, slice.map(messageFromRow));
+      });
+
+    const latestPlan: MessageStoreShape["latestPlan"] = (sessionId) =>
+      Effect.gen(function* () {
+        yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages
+          WHERE session_id = ${sessionId} AND kind = 'tool_use'
+          ORDER BY created_at DESC, sequence DESC
+        `.pipe(Effect.orDie);
+        for (const row of rows) {
+          const c = messageFromRow(row).content;
+          if (c._tag === "tool_use" && c.tool === "ExitPlanMode") {
+            const input = c.input;
+            if (
+              typeof input === "object" &&
+              input !== null &&
+              "plan" in input &&
+              typeof (input as { plan?: unknown }).plan === "string"
+            ) {
+              return (input as { plan: string }).plan;
+            }
+          }
+        }
+        return null;
+      });
+
+    const forkSession: MessageStoreShape["forkSession"] = (input) =>
+      Effect.gen(function* () {
+        // Source must exist; `lookupSession` fails `SessionNotFoundError`.
+        const source = yield* lookupSession(input.sourceSessionId);
+
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${input.sourceSessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        const forkIdx = rows.findIndex((r) => r.id === input.fromMessageId);
+        if (forkIdx === -1) {
+          return yield* Effect.fail(
+            new SessionStartError({
+              providerId: source.providerId,
+              reason: `fork message ${input.fromMessageId} not found in session ${input.sourceSessionId}`,
+            }),
+          );
+        }
+
+        const providerId = input.providerId ?? source.providerId;
+        const model = input.model ?? source.model;
+        // Real provider memory is only possible when the fork point is the
+        // conversation tail, the provider is the SAME as the source (a fork
+        // resumes the source's own transcript), the provider supports native
+        // fork, and we have a cursor to fork from. Otherwise we replay the
+        // visible transcript into a fresh session (`copy`).
+        const isTail = forkIdx === rows.length - 1;
+        const providerCanFork =
+          providerId === "claude" || providerId === "codex";
+        const forkMode: "resume" | "copy" =
+          isTail &&
+          providerId === source.providerId &&
+          providerCanFork &&
+          source.cursor !== null &&
+          source.resumeStrategy !== "none"
+            ? "resume"
+            : "copy";
+
+        const title =
+          input.title?.trim() || `Fork of ${source.title}`.slice(0, 120);
+
+        // Visible transcript up to (and including) the fork message — shown in
+        // the new session's chat view for BOTH modes. In `resume` mode the
+        // provider also carries real KV memory; the copied rows are display
+        // only and are never re-sent to the model.
+        const transcript = rows
+          .slice(0, forkIdx + 1)
+          .map(messageFromRow)
+          .filter((m) => !TRANSCRIPT_SKIP_KINDS.has(m.content._tag))
+          .map((m) => m.content);
+
+        const resumeCursor = forkMode === "resume" ? source.cursor : null;
+        const resumeStrategy: ResumeStrategy =
+          forkMode === "resume" ? source.resumeStrategy : "none";
+
+        let chat: Chat;
+        let session: Session;
+        if (input.destination === "tab") {
+          session = yield* createSession({
+            chatId: source.chatId,
+            providerId,
+            model,
+            title,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            background: true,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = yield* lookupChat(source.chatId).pipe(Effect.orDie);
+        } else {
+          const created = yield* createChat({
+            projectId: source.projectId,
+            providerId,
+            model,
+            title,
+            worktreeId: input.worktreeId ?? null,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = created.chat;
+          session = created.initialSession;
+        }
+
+        // Seed the new session's visible history. Failures here are
+        // non-fatal — the branch still exists and is usable.
+        if (transcript.length > 0) {
+          yield* importExternalMessages(session.id, transcript).pipe(
+            Effect.catchAll(() => Effect.succeed([])),
+          );
+        }
+
+        return { chat, session, forkMode };
+      });
 
     const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
       Effect.gen(function* () {
@@ -2024,34 +2310,73 @@ export const MessageStoreLive = Layer.scoped(
       );
 
     /**
-     * Worktree-backed auto-name: on a chat's first user message, summarize it
-     * into a short title (LLM, with truncation fallback) and use that to
-     * rename both the chat and — when the chat has its own worktree — the
-     * worktree's git branch per the user's `branchNamingStyle`. Runs on a
-     * background fiber so the agent's first reply is never delayed; swallows
-     * every failure so a flaky title call can't wedge the session.
-     *
-     * Only chats WITH a worktree are renamed (a bare main-checkout chat keeps
-     * the cheap first-line title set elsewhere).
+     * LLM auto-name: summarize recent user/assistant turns into a short title
+     * and rename the chat (always) plus the worktree git branch (when the chat
+     * has its own worktree). Runs on a background fiber so the agent turn is
+     * never delayed; swallows every failure so a flaky title call can't wedge
+     * the session.
      */
+    const collectAutoNameContext = (
+      chatId: ChatId,
+    ): Effect.Effect<{
+      readonly userTexts: string[];
+      readonly assistantTexts: string[];
+      readonly conversationText: string;
+    }> =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{
+          readonly role: string;
+          readonly content_json: string;
+        }>`
+          SELECT m.role, m.content_json
+          FROM messages m
+          INNER JOIN sessions s ON s.id = m.session_id
+          WHERE s.chat_id = ${chatId}
+            AND m.role IN ('user', 'assistant')
+          ORDER BY m.created_at ASC
+          LIMIT 24
+        `.pipe(Effect.orDie);
+        const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+        const userTexts: string[] = [];
+        const assistantTexts: string[] = [];
+        for (const row of rows) {
+          try {
+            const content = JSON.parse(row.content_json) as MessageContent;
+            const text = textFromMessageContent(content);
+            if (text === null || text.trim().length === 0) continue;
+            if (row.role === "user") {
+              userTexts.push(text);
+              turns.push({ role: "user", text });
+            } else if (row.role === "assistant") {
+              assistantTexts.push(text);
+              turns.push({ role: "assistant", text });
+            }
+          } catch {
+            // Skip malformed rows — title gen can still fall back.
+          }
+        }
+        return {
+          userTexts,
+          assistantTexts,
+          conversationText: buildConversationText(turns),
+        };
+      });
+
     const autoNameChat = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        if (autoNamingChats.has(chatId)) return;
-        autoNamingChats.add(chatId);
         const chat = yield* lookupChat(chatId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
-        if (chat === null || chat.worktreeId === null) return;
-        const worktreeId = chat.worktreeId;
-        const wt = yield* worktrees.get(worktreeId);
-        if (wt === null) return;
+        if (chat === null) return;
 
-        // Name the chat with the SAME provider/model the session uses, so a
-        // user without Claude auth (e.g. Grok-only) still gets an LLM title.
+        const context = yield* collectAutoNameContext(chatId);
+        if (shouldDeferAutoName(context.userTexts, context.assistantTexts)) {
+          return;
+        }
+
         const session = yield* lookupSession(sessionId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
@@ -2060,7 +2385,7 @@ export const MessageStoreLive = Layer.scoped(
           folderId: chat.projectId,
           providerId: session.providerId,
           model: session.model,
-          firstMessage: firstText,
+          conversationText: context.conversationText,
         });
         if (title.length === 0 || title === "New chat") return;
 
@@ -2068,8 +2393,14 @@ export const MessageStoreLive = Layer.scoped(
         // the branch rename below is skipped or fails.
         yield* renameChat(chatId, title);
         yield* sql`
-          UPDATE sessions SET title = ${title} WHERE id = ${sessionId}
+          UPDATE sessions SET title = ${title} WHERE chat_id = ${chatId}
         `.pipe(Effect.ignoreLogged);
+        autoNamedChats.add(chatId);
+
+        if (chat.worktreeId === null) return;
+        const worktreeId = chat.worktreeId;
+        const wt = yield* worktrees.get(worktreeId);
+        if (wt === null) return;
 
         const settings = yield* configStore.getSettings();
         const username = yield* git
@@ -2089,14 +2420,25 @@ export const MessageStoreLive = Layer.scoped(
         );
       }).pipe(Effect.catchAllCause(() => Effect.void));
 
-    const forkAutoName = (
+    const maybeForkAutoName = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
-      Effect.forkDaemon(autoNameChat(chatId, sessionId, firstText)).pipe(
-        Effect.asVoid,
-      );
+      Effect.gen(function* () {
+        if (autoNamedChats.has(chatId) || autoNamingInFlight.has(chatId)) {
+          return;
+        }
+        autoNamingInFlight.add(chatId);
+        yield* Effect.forkDaemon(
+          autoNameChat(chatId, sessionId).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                autoNamingInFlight.delete(chatId);
+              }),
+            ),
+          ),
+        );
+      });
 
     /**
      * Worktrees are immutable past the first user message in any of the
@@ -2819,32 +3161,29 @@ export const MessageStoreLive = Layer.scoped(
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
-        // Auto-title: if the session is still on its placeholder title, derive
-        // a cheap first-line title immediately so the tab never reads
-        // "New chat" while the richer LLM pass (below) runs.
-        if (session.title === "New chat") {
-          const derived = titleFromInitial(text);
-          if (derived !== "New chat") {
+        const chat = yield* lookupChat(session.chatId).pipe(
+          Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+        );
+        // Provisional title: update chat + session immediately for real tasks
+        // so the sidebar/tab never sit on "New chat" while the LLM pass runs.
+        const provisional = deriveProvisionalTitle(text);
+        if (provisional !== "New chat") {
+          if (session.title === "New chat") {
             yield* sql`
-              UPDATE sessions SET title = ${derived}
+              UPDATE sessions SET title = ${provisional}
               WHERE id = ${sessionId} AND title = 'New chat'
             `.pipe(Effect.orDie);
           }
+          if (chat.title === "New chat") {
+            yield* renameChat(session.chatId, provisional).pipe(
+              Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+            );
+          }
         }
-        // Path 2: an empty chat (no initialPrompt) receiving its first user
-        // message via messages.send. When this is the chat's first user
-        // message, kick off the worktree-backed auto-name in the background
-        // (no-ops unless the chat has its own worktree).
-        const firstUserCount = yield* sql<{ readonly c: number }>`
-          SELECT COUNT(*) AS c FROM messages m
-          INNER JOIN sessions s ON s.id = m.session_id
-          WHERE s.chat_id = ${session.chatId} AND m.role = 'user'
-        `.pipe(
-          Effect.map((rows) => rows[0]?.c ?? 0),
-          Effect.catchAll(() => Effect.succeed(0)),
-        );
-        if (firstUserCount === 1 && text.trim().length > 0) {
-          yield* forkAutoName(session.chatId, sessionId, text);
+        // Try LLM auto-name when there is enough context (trivial-only
+        // greetings wait until the assistant replies or the user sends more).
+        if (text.trim().length > 0) {
+          yield* maybeForkAutoName(session.chatId, sessionId);
         }
         if (asGoal === true) {
           const objective = text.trim();
@@ -3301,6 +3640,9 @@ export const MessageStoreLive = Layer.scoped(
       createChat,
       continueExternalThread,
       importExternalMessages,
+      forkSession,
+      exportTranscript,
+      latestPlan,
       renameChat,
       markChatRead,
       streamChatChanges,

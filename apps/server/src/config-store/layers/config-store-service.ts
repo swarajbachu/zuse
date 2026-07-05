@@ -83,6 +83,8 @@ const freshSettings = (): SettingsFile =>
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
     mergePrefs: { method: "merge", deleteBranch: false },
+    notchTrayEnabled: false,
+    notchTrayPinned: false,
   });
 
 const freshKeybindings = (): KeybindingsFile =>
@@ -262,6 +264,16 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     };
   }
 
+  const notchTrayEnabled =
+    typeof obj.notchTrayEnabled === "boolean"
+      ? obj.notchTrayEnabled
+      : base.notchTrayEnabled;
+
+  const notchTrayPinned =
+    typeof obj.notchTrayPinned === "boolean"
+      ? obj.notchTrayPinned
+      : base.notchTrayPinned;
+
   return SettingsFile.make({
     schemaVersion: 1,
     defaultProviderId: provider,
@@ -278,6 +290,8 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     branchNamingStyle,
     branchNamingPrefix,
     mergePrefs,
+    notchTrayEnabled,
+    notchTrayPinned,
   });
 };
 
@@ -530,6 +544,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
           branchNamingPrefix:
             patch.branchNamingPrefix ?? cur.branchNamingPrefix,
           mergePrefs: patch.mergePrefs ?? cur.mergePrefs,
+          notchTrayEnabled: patch.notchTrayEnabled ?? cur.notchTrayEnabled,
+          notchTrayPinned: patch.notchTrayPinned ?? cur.notchTrayPinned,
         });
         const serialized = serialize(next);
         yield* writeAtomically(settingsPath, serialized);
@@ -572,7 +588,9 @@ export const ConfigStoreServiceLive = Layer.scoped(
             cur.onboardingCompleted === false &&
             Object.keys(cur.subagents.presets).length === 0 &&
             cur.mergePrefs.method === baseline.mergePrefs.method &&
-            cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch;
+            cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch &&
+            cur.notchTrayEnabled === baseline.notchTrayEnabled &&
+            cur.notchTrayPinned === baseline.notchTrayPinned;
           if (!currentLooksFresh) return cur;
 
           let provider: SettingsFile["defaultProviderId"] =
@@ -651,6 +669,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,
             mergePrefs: cur.mergePrefs,
+            notchTrayEnabled: cur.notchTrayEnabled,
+            notchTrayPinned: cur.notchTrayPinned,
           });
 
           const serialized = serialize(merged);

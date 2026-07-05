@@ -5,8 +5,8 @@ import { WorktreeService } from "./services/worktree-service.ts";
 
 const Create = MemoizeRpcs.toLayerHandler(
   "worktree.create",
-  ({ projectId }) =>
-    Effect.flatMap(WorktreeService, (svc) => svc.create(projectId)),
+  ({ projectId, source }) =>
+    Effect.flatMap(WorktreeService, (svc) => svc.create(projectId, source)),
 );
 
 const List = MemoizeRpcs.toLayerHandler("worktree.list", ({ projectId }) =>

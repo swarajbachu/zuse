@@ -92,6 +92,8 @@ const fallbackSnapshot = (): SettingsSlice => ({
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
   mergePrefs: { method: "merge", deleteBranch: false },
+  notchTrayEnabled: false,
+  notchTrayPinned: false,
 });
 
 const sliceFromFile = (file: SettingsFile): SettingsSlice => {
@@ -121,6 +123,8 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
     mergePrefs: file.mergePrefs,
+    notchTrayEnabled: file.notchTrayEnabled,
+    notchTrayPinned: file.notchTrayPinned,
   };
 };
 
@@ -138,6 +142,8 @@ interface SettingsSlice {
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
   readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
+  readonly notchTrayEnabled: boolean;
+  readonly notchTrayPinned: boolean;
 }
 
 type SettingsState = SettingsSlice & {
@@ -174,6 +180,8 @@ type SettingsState = SettingsSlice & {
     method: GitMergeMethod;
     deleteBranch: boolean;
   }) => void;
+  readonly setNotchTrayEnabled: (value: boolean) => void;
+  readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
 let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
@@ -424,6 +432,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { mergePrefs } }),
+      );
+    })();
+  },
+  setNotchTrayEnabled: (value) => {
+    set({ notchTrayEnabled: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayEnabled: value } }),
+      );
+    })();
+  },
+  setNotchTrayPinned: (value) => {
+    set({ notchTrayPinned: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayPinned: value } }),
       );
     })();
   },

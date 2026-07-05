@@ -20,6 +20,7 @@ import { CostFooter } from "./components/cost-footer";
 import { FileEditor } from "./components/file-editor.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard.tsx";
+import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import { RightPane } from "./components/right-pane";
@@ -33,6 +34,7 @@ import { UpdateBanner } from "./components/update-banner.tsx";
 import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
+import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { useAuthStore } from "./store/auth.ts";
@@ -171,6 +173,10 @@ export function App() {
   // ignores them.
   useKeybindingDispatch();
 
+  // Mirror the running-agent count to main so the before-quit guard and the
+  // "quit/restart when idle" deferrals have a live value.
+  useReportRunningAgents();
+
   // Hydrate settings + keybindings + subagents from the on-disk config
   // store. Each call is idempotent; subsequent emits flow through the
   // RPC streams maintained by the stores themselves.
@@ -224,6 +230,7 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
@@ -235,6 +242,7 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
@@ -245,6 +253,7 @@ export function App() {
 
   return (
     <TooltipProvider>
+      <NotchTrayBridge />
       <AppearanceController />
       <MainShell />
     </TooltipProvider>

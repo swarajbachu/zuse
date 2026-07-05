@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -19,9 +19,7 @@ const require = createRequire(import.meta.url);
 const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 // .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
 //                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
-const bunStoreRoot = dirname(
-  dirname(dirname(dirname(dirname(fontPkgPath)))),
-);
+const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
   // Relative base so file:// loads work in the packaged Electron build.
@@ -44,5 +42,11 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        notch: resolve(__dirname, "notch.html"),
+      },
+    },
   },
 });

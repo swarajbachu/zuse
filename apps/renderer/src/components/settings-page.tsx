@@ -124,6 +124,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "browser" },
   },
   {
+    id: "notch",
+    label: "Notch",
+    Icon: Alert01Icon,
+    section: { kind: "notch" },
+  },
+  {
     id: "diagnostics",
     label: "Diagnostics",
     Icon: DocumentAttachmentIcon,
@@ -330,6 +336,12 @@ function SectionTitle({
         subtitle: "Dummy test logins the agent browser can autofill.",
       };
     }
+    if (section.kind === "notch") {
+      return {
+        title: "Notch",
+        subtitle: "Show agent notifications in the MacBook notch area.",
+      };
+    }
     if (section.kind === "diagnostics") {
       return {
         title: "Diagnostics",
@@ -381,6 +393,7 @@ function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "workspace") return <WorkspacePane />;
   if (section.kind === "pokedex") return <PokedexPane />;
   if (section.kind === "browser") return <BrowserSettingsPane />;
+  if (section.kind === "notch") return <NotchSettingsPane />;
   if (section.kind === "diagnostics") return <DiagnosticsPane />;
   if (section.kind === "shortcuts") return <KeybindingsPane />;
   if (section.kind === "developer") return <DeveloperPane />;
@@ -714,6 +727,85 @@ function BrowserSettingsPane() {
   );
 }
 
+function NotchSettingsPane() {
+  const enabled = useSettingsStore((s) => s.notchTrayEnabled);
+  const pinned = useSettingsStore((s) => s.notchTrayPinned);
+  const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
+  const setPinned = useSettingsStore((s) => s.setNotchTrayPinned);
+  const [support, setSupport] = useState<{
+    supported: boolean;
+    reason: "supported" | "not-macos" | "no-notched-display";
+  } | null>(null);
+
+  useEffect(() => {
+    const notch = window.zuse?.notch ?? window.memoize?.notch;
+    let cancelled = false;
+    void notch?.getDisplaySupport?.().then((next) => {
+      if (!cancelled) setSupport(next);
+    });
+    const unsubscribe = notch?.onDisplaySupportChanged?.((next) => {
+      setSupport(next);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const supported = support?.supported === true;
+  const unsupportedText =
+    support?.reason === "not-macos"
+      ? "Requires macOS and a MacBook display with a notch."
+      : "Requires a MacBook display with a notch.";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!supported && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
+          <HugeiconsIcon
+            icon={Alert01Icon}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>{unsupportedText}</span>
+        </div>
+      )}
+
+      <SettingsGroup
+        title="Notch tray"
+        description="Show active agents near the MacBook notch. Hover the notch area to expand the tray, then click an agent to jump to its chat."
+      >
+        <SettingsRow
+          title="Enable Notch Tray"
+          description="Show running agents, pending approvals, questions, plans, completions, and failures near the notch."
+          action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+        />
+        <SettingsRow
+          title="Keep tray expanded"
+          description="Keep the agent list open instead of only expanding while the pointer is over the notch area."
+          action={
+            <Switch
+              checked={pinned}
+              disabled={!enabled}
+              onCheckedChange={setPinned}
+            />
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsFrame
+        title="What appears"
+        description="The tray is intentionally quiet: it shows actionable agent states first, then recently completed turns for about 30 seconds."
+      >
+        <ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
+          <li>Permission requests, questions, and plan approvals</li>
+          <li>Running agents as compact status circles</li>
+          <li>Completed turns and failures from background chats</li>
+        </ul>
+      </SettingsFrame>
+    </div>
+  );
+}
+
 function CredInput({
   placeholder,
   value,
@@ -1028,7 +1120,7 @@ function GeneralPane() {
       >
         <SettingsRow
           title="Branch naming"
-          description="When a new chat with its own worktree gets its first message, Zuse Alpha summarizes it and renames the chat plus its git branch in this shape."
+          description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
           action={
             <Select
               value={branchNamingStyle}

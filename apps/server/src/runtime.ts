@@ -260,8 +260,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(WorktreeLayer),
     Layer.provide(RepositorySettingsLayer),
     Layer.provide(PtyLayer),
-    // GitService + ConfigStore + TitleGenerator back the first-message
-    // auto-namer (rename chat + branch); see message-store `autoNameChat`.
+    // GitService + ConfigStore + TitleGenerator back the background auto-namer
+    // (rename chat + optional branch); see message-store `autoNameChat`.
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),

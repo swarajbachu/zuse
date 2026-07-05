@@ -21,6 +21,8 @@ describe("config-store settings coercion", () => {
     const settings = coerceSettings({});
 
     expect(settings.appearanceMode).toBe("dark");
+    expect(settings.notchTrayEnabled).toBe(false);
+    expect(settings.notchTrayPinned).toBe(false);
     expect(settings.modelEnabledByProvider.claude["claude-sonnet-5"]).toBe(
       true,
     );
@@ -56,5 +58,15 @@ describe("config-store settings coercion", () => {
     expect(coerceSettings({ appearanceMode: "sepia" }).appearanceMode).toBe(
       "dark",
     );
+  });
+
+  it("preserves valid notch tray settings", () => {
+    const settings = coerceSettings({
+      notchTrayEnabled: true,
+      notchTrayPinned: true,
+    });
+
+    expect(settings.notchTrayEnabled).toBe(true);
+    expect(settings.notchTrayPinned).toBe(true);
   });
 });
