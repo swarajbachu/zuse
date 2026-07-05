@@ -10,12 +10,14 @@ import {
   type GitDiffResult,
   type GitFailingChecksArtifact,
   type GitFolderNotFoundError,
+  type GitIssueSummary,
   type GitMergeMethod,
   type GitNotARepoError,
   type GitNotInstalledError,
   type GitOriginInfo,
   type GitPrDetails,
   type GitPrInfo,
+  type GitPrSummary,
   type GitStatusSummary,
   type WorktreeId,
 } from "@zuse/wire";
@@ -71,6 +73,30 @@ export interface GitServiceShape {
     folderId: FolderId,
     worktreeId?: WorktreeId | null,
   ) => Effect.Effect<GitPrDetails, GitFailure>;
+  /**
+   * Open PRs via `gh pr list`, most-recently-updated first. Degrades to `[]`
+   * when `gh` is missing / unauthenticated / there's no GitHub remote.
+   */
+  readonly listPrs: (
+    folderId: FolderId,
+  ) => Effect.Effect<ReadonlyArray<GitPrSummary>, GitFailure>;
+  /** Open issues via `gh issue list`. Same graceful degradation as listPrs. */
+  readonly listIssues: (
+    folderId: FolderId,
+  ) => Effect.Effect<ReadonlyArray<GitIssueSummary>, GitFailure>;
+  /** Render a single issue as Markdown for attachment to a new chat. */
+  readonly issueMarkdown: (
+    folderId: FolderId,
+    number: number,
+  ) => Effect.Effect<
+    {
+      readonly number: number;
+      readonly title: string;
+      readonly url: string;
+      readonly markdown: string;
+    },
+    GitFailure
+  >;
   readonly changes: (
     folderId: FolderId,
     worktreeId?: WorktreeId | null,

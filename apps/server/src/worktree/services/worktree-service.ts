@@ -4,6 +4,7 @@ import {
   type FolderId,
   type Worktree,
   type WorktreeCreateError,
+  type WorktreeCreateSource,
   type WorktreeDirtyError,
   type WorktreeId,
   type WorktreeNotFoundError,
@@ -25,6 +26,7 @@ export interface WorktreeRestoreSnapshot {
 export interface WorktreeServiceShape {
   readonly create: (
     projectId: FolderId,
+    source?: WorktreeCreateSource,
   ) => Effect.Effect<Worktree, WorktreeCreateError>;
   readonly list: (
     projectId: FolderId,

@@ -321,7 +321,9 @@ const TRANSCRIPT_SKIP_KINDS: ReadonlySet<string> = new Set([
 
 /** Trim a serialised tool payload so a transcript export stays readable. */
 const clampBlock = (value: string, max = 2000): string =>
-  value.length > max ? `${value.slice(0, max)}\n… (${value.length - max} more chars truncated)` : value;
+  value.length > max
+    ? `${value.slice(0, max)}\n… (${value.length - max} more chars truncated)`
+    : value;
 
 const stringifyUnknown = (value: unknown): string => {
   if (typeof value === "string") return value;
@@ -355,7 +357,10 @@ const transcriptToMarkdown = (
         break;
       case "thinking":
         if (!c.redacted && c.text.trim().length > 0) {
-          lines.push("> _(thinking)_ " + c.text.trim().replace(/\n/g, "\n> "), "");
+          lines.push(
+            "> _(thinking)_ " + c.text.trim().replace(/\n/g, "\n> "),
+            "",
+          );
         }
         break;
       case "tool_use":
@@ -391,7 +396,12 @@ const transcriptToMarkdown = (
         break;
     }
   }
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+  return (
+    lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd() + "\n"
+  );
 };
 
 const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
@@ -1529,7 +1539,8 @@ export const MessageStoreLive = Layer.scoped(
         const forkedFromSessionId = input.forkedFromSessionId ?? null;
         const forkedFromMessageId = input.forkedFromMessageId ?? null;
         // Only fork the transcript when we actually have a cursor to fork.
-        const forkFromResume = input.forkFromResume === true && resumeCursor !== null;
+        const forkFromResume =
+          input.forkFromResume === true && resumeCursor !== null;
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -2183,7 +2194,8 @@ export const MessageStoreLive = Layer.scoped(
         // fork, and we have a cursor to fork from. Otherwise we replay the
         // visible transcript into a fresh session (`copy`).
         const isTail = forkIdx === rows.length - 1;
-        const providerCanFork = providerId === "claude" || providerId === "codex";
+        const providerCanFork =
+          providerId === "claude" || providerId === "codex";
         const forkMode: "resume" | "copy" =
           isTail &&
           providerId === source.providerId &&
@@ -2194,8 +2206,7 @@ export const MessageStoreLive = Layer.scoped(
             : "copy";
 
         const title =
-          input.title?.trim() ||
-          `Fork of ${source.title}`.slice(0, 120);
+          input.title?.trim() || `Fork of ${source.title}`.slice(0, 120);
 
         // Visible transcript up to (and including) the fork message — shown in
         // the new session's chat view for BOTH modes. In `resume` mode the

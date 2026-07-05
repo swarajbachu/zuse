@@ -697,18 +697,16 @@ const probeClaudeAccount: Effect.Effect<
   FileSystem.FileSystem | CommandExecutor.CommandExecutor
 > = Effect.gen(function* () {
   if (platform() === "darwin") {
-    // macOS: `security find-generic-password -w` prints the password (the
-    // OAuth credential blob) to stdout when present, exits non-zero
-    // otherwise. The presence-check (without `-w`) used to live in
-    // `probeClaudeLogin`; we now read the value so we can extract the
-    // subscription tier and email.
+    // macOS can prompt for Keychain permission when reading the Claude Code
+    // OAuth secret. Provider availability runs on app boot, so keep this probe
+    // to a metadata presence check and let the Claude CLI perform entitlement
+    // validation when a session starts.
     const result = yield* runCapture(
       Command.make(
         "security",
         "find-generic-password",
         "-s",
         "Claude Code-credentials",
-        "-w",
       ),
     ).pipe(
       Effect.timeoutOption(ACCOUNT_PROBE_TIMEOUT),
@@ -717,7 +715,11 @@ const probeClaudeAccount: Effect.Effect<
     if (result._tag !== "Some" || result.value.exitCode !== 0) {
       return { authStatus: "unauthenticated" } satisfies AccountInfo;
     }
-    return parseClaudeCredentials(result.value.stdout);
+    return {
+      authStatus: "authenticated",
+      authType: "oauth",
+      authLabel: "Claude subscription",
+    } satisfies AccountInfo;
   }
   const fs = yield* FileSystem.FileSystem;
   const path = join(homedir(), ".claude", ".credentials.json");
