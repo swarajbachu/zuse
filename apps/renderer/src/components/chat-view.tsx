@@ -23,6 +23,7 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { FileChipProvider } from "./file-chip.tsx";
+import { useForkMenu } from "./fork-menu.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 import {
   ErrorBubble,
@@ -48,6 +49,7 @@ const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
  * the top and follows the live edge only while the reader is there.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
+  const forkMenu = useForkMenu();
   const messages = useMessagesStore(
     (s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
   );
@@ -291,6 +293,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                       <div
                         data-user-anchor={turn.user.id}
                         className="chat-row-enter chat-row-enter-user scroll-mt-6"
+                        onContextMenu={(e) =>
+                          forkMenu.openAt(e, sessionId, turn.user!.id)
+                        }
                       >
                         <MessageRow
                           message={turn.user}
@@ -326,6 +331,16 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                           <div
                             key={group.message.id}
                             className="chat-row-enter"
+                            onContextMenu={
+                              group.message.content._tag === "assistant"
+                                ? (e) =>
+                                    forkMenu.openAt(
+                                      e,
+                                      sessionId,
+                                      group.message.id,
+                                    )
+                                : undefined
+                            }
                           >
                             <MessageRow
                               message={group.message}
@@ -392,6 +407,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
           <ArchiveProgressOverlay phase={archiveProgress} />
         ) : null}
       </div>
+      {forkMenu.menu}
     </FileChipProvider>
   );
 }

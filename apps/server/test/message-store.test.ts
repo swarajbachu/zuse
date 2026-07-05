@@ -1252,3 +1252,162 @@ describe("MessageStore cursor streaming", () => {
     });
   });
 });
+
+describe("MessageStore — fork & transcript export", () => {
+  it("exportTranscript renders the user prompt as Markdown", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "fix the bug",
+          }),
+        ),
+      );
+      const md = await run(
+        Effect.flatMap(store, (s) => s.exportTranscript(chat.initialSession.id)),
+      );
+      expect(md).toContain("## User");
+      expect(md).toContain("fix the bug");
+    });
+  });
+
+  it("forks to a new tab in copy mode when the source has no resume cursor", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const sourceId = chat.initialSession.id;
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(sourceId)),
+      );
+      const userMsgId = messages[0]!.id;
+
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: sourceId,
+            fromMessageId: userMsgId,
+            destination: "tab",
+          }),
+        ),
+      );
+
+      expect(result.forkMode).toBe("copy");
+      // Same chat (tab), new session, provenance recorded.
+      expect(result.session.chatId).toBe(chat.chat.id);
+      expect(result.session.id).not.toBe(sourceId);
+      expect(result.session.forkedFromSessionId).toBe(sourceId);
+      expect(result.session.forkedFromMessageId).toBe(userMsgId);
+      expect(result.session.cursor).toBeNull();
+      // No fork-of-transcript request to the provider in copy mode.
+      expect(providerStartInputs.at(-1)?.forkFromResume ?? false).toBe(false);
+
+      // The visible transcript up to the fork message was replayed.
+      const forked = await run(
+        Effect.flatMap(store, (s) => s.listMessages(result.session.id)),
+      );
+      expect(forked.map((m) => m.content)).toMatchObject([
+        { _tag: "user", text: "hello" },
+      ]);
+    });
+  });
+
+  it("latestPlan returns null for a session with no proposed plan", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const plan = await run(
+        Effect.flatMap(store, (s) => s.latestPlan(chat.initialSession.id)),
+      );
+      expect(plan).toBeNull();
+    });
+  });
+
+  it("forks to a brand-new sidebar chat", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(chat.initialSession.id)),
+      );
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: chat.initialSession.id,
+            fromMessageId: messages[0]!.id,
+            destination: "chat",
+          }),
+        ),
+      );
+      expect(result.chat.id).not.toBe(chat.chat.id);
+      expect(result.session.chatId).toBe(result.chat.id);
+    });
+  });
+
+  it("forks with real provider memory at the conversation tail", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.continueExternalThread({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            title: "Existing thread",
+            resumeCursor: "claude-session-xyz",
+            resumeStrategy: "claude-session-id",
+          }),
+        ),
+      );
+      const sourceId = chat.initialSession.id;
+      // Add a user message so there is a tail to fork from.
+      await run(Effect.flatMap(store, (s) => s.sendMessage(sourceId, "keep going")));
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(sourceId)),
+      );
+      const tailId = messages.at(-1)!.id;
+
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: sourceId,
+            fromMessageId: tailId,
+            destination: "tab",
+          }),
+        ),
+      );
+
+      expect(result.forkMode).toBe("resume");
+      expect(result.session.cursor).toBe("claude-session-xyz");
+      expect(result.session.resumeStrategy).toBe("claude-session-id");
+      // The driver was told to fork the resumed transcript.
+      expect(providerStartInputs.at(-1)?.forkFromResume).toBe(true);
+      expect(providerStartCursors.at(-1)).toBe("claude-session-xyz");
+    });
+  });
+});
