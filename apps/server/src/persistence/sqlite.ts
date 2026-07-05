@@ -2,6 +2,7 @@ import type { SqlClient } from "@effect/sql";
 import type { SqlError } from "@effect/sql/SqlError";
 import type { ConfigError } from "effect";
 import { Effect, Layer } from "effect";
+import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 
 import { AppPaths } from "../app-paths.ts";
@@ -32,9 +33,21 @@ export const SqliteLive = Layer.unwrapEffect(
       process.env.ZUSE_SQLITE_MEMORY === "1" ||
       process.env.MEMOIZE_SQLITE_MEMORY === "1";
     if (!inMemory) {
+      yield* Effect.tryPromise(() =>
+        mkdir(paths.userData, { recursive: true }),
+      ).pipe(Effect.orDie);
+    }
+    if (!inMemory) {
       yield* ensureSqliteRenameCompatibility(paths.userData).pipe(Effect.orDie);
     }
     const filename = inMemory ? ":memory:" : sqliteDbPath(paths.userData);
+
+    if (process.versions.bun !== undefined) {
+      const bunSqlite = yield* Effect.tryPromise(
+        () => import("@effect/sql-sqlite-bun"),
+      ).pipe(Effect.orDie);
+      return bunSqlite.SqliteClient.layer({ filename });
+    }
 
     const nodeSqliteAvailable = yield* Effect.try(() => {
       require("node:sqlite");

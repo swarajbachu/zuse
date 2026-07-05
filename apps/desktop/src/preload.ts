@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import {
+  AGENTS_RUNNING_COUNT_CHANNEL,
   IPC_CHANNEL,
   UPDATE_CHECK_CHANNEL,
   UPDATE_DOWNLOAD_CHANNEL,
@@ -67,6 +68,37 @@ const bridge = {
         webContentsId,
         action,
       ) as Promise<boolean>,
+    /**
+     * Allowlisted CDP passthrough (Accessibility/DOM/Runtime/Page) for the
+     * v2 agent-browser tools — a11y snapshots, ref → coordinate resolution,
+     * full-page capture, dialog handling. Main rejects anything off-list.
+     */
+    cdpCommand: (webContentsId: number, method: string, params?: unknown) =>
+      ipcRenderer.invoke(
+        "browser:cdpCommand",
+        webContentsId,
+        method,
+        params ?? {},
+      ) as Promise<{ ok: boolean; result?: unknown; error?: string }>,
+    /** Network requests captured since the last load (buffered in main). */
+    getNetwork: (webContentsId: number, query?: unknown) =>
+      ipcRenderer.invoke(
+        "browser:getNetwork",
+        webContentsId,
+        query ?? {},
+      ) as Promise<unknown>,
+    /** Uncaught page exceptions captured via CDP since the last load. */
+    getPageErrors: (webContentsId: number) =>
+      ipcRenderer.invoke("browser:getPageErrors", webContentsId) as Promise<
+        string[]
+      >,
+    /** The currently open JS dialog (alert/confirm/prompt), if any. */
+    getDialogState: (webContentsId: number) =>
+      ipcRenderer.invoke("browser:getDialogState", webContentsId) as Promise<{
+        type: string;
+        message: string;
+        defaultPrompt?: string;
+      } | null>,
   },
   notch: {
     setItems: (items: unknown) => {
@@ -155,6 +187,18 @@ const bridge = {
       ipcRenderer.invoke("app:revealPath", path) as Promise<void>,
     copyPath: (path: string) =>
       ipcRenderer.invoke("app:copyPath", path) as Promise<void>,
+    copyFileContents: (path: string) =>
+      ipcRenderer.invoke("app:copyFileContents", path) as Promise<boolean>,
+    getMainDiagnostics: () =>
+      ipcRenderer.invoke("app:getMainDiagnostics") as Promise<
+        ReadonlyArray<{
+          readonly createdAt: string;
+          readonly level: "debug" | "info" | "warn" | "error";
+          readonly source: string;
+          readonly message: string;
+          readonly detail?: string;
+        }>
+      >,
   },
   updates: {
     onStatus: (handler: (status: UpdateStatus) => void) => {
@@ -170,6 +214,14 @@ const bridge = {
       ipcRenderer.invoke(UPDATE_DOWNLOAD_CHANNEL) as Promise<void>,
     installNow: () =>
       ipcRenderer.invoke(UPDATE_INSTALL_CHANNEL) as Promise<void>,
+    /**
+     * Push the current running-agent count to main so the `before-quit` guard
+     * and the "quit/restart when idle" deferrals have a fresh value. Fire on
+     * every change (and once on mount). Renderer store is the source of truth.
+     */
+    reportRunningCount: (count: number) => {
+      ipcRenderer.send(AGENTS_RUNNING_COUNT_CHANNEL, count);
+    },
     // Dev-only escape hatch: only handled in dev (see updater.ts
     // `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
     __demoSet: (status: UpdateStatus) =>

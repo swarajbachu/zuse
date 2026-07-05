@@ -842,6 +842,13 @@ export const startCodexSession = (
       if (!closed) events.unsafeOffer(event);
     };
 
+    emit({
+      _tag: "Started",
+      sessionId,
+      providerId: "codex",
+      mode: "sdk",
+    });
+
     const app = yield* Effect.tryPromise({
       try: () =>
         CodexAppServerClient.start({
@@ -884,7 +891,19 @@ export const startCodexSession = (
     };
 
     const startOrResume = async (): Promise<void> => {
-      if (activeThreadId !== null) {
+      if (activeThreadId !== null && input.forkFromResume === true) {
+        // "Fork chat": branch the source thread into a NEW thread so the
+        // original transcript stays intact. The forked thread id becomes this
+        // session's cursor via the SessionCursor emit below.
+        const forked = await app.request<{ thread: { id: string } }>(
+          "thread/fork",
+          {
+            threadId: activeThreadId,
+            ...commonThreadParams,
+          },
+        );
+        activeThreadId = forked.thread.id;
+      } else if (activeThreadId !== null) {
         const resumed = await app.request<{ thread: { id: string } }>(
           "thread/resume",
           {

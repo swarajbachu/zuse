@@ -60,7 +60,7 @@ export const DEFAULT_MENU_ACCELERATORS: MenuAccelerators = {
 
 const GITHUB_REPO_URL = "https://github.com/swarajbachu/zuse";
 const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
-const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new`;
+const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new?template=bug_report.yml`;
 
 /**
  * Shape of the "Check for Updates…" menu entry, derived from the current
@@ -272,13 +272,13 @@ export function installAppMenu(
         },
       },
       {
-        label: "Report an Issue",
+        label: "Report a Bug",
         click: () => {
           void shell.openExternal(GITHUB_ISSUE_NEW_URL);
         },
       },
       {
-        label: "Export Diagnostics…",
+        label: "Export Diagnostics for Bug Report...",
         click: sendAction("export-diagnostics"),
       },
       { type: "separator" },

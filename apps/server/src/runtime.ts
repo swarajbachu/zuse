@@ -9,12 +9,18 @@ import { AppPaths } from "./app-paths.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
-import { IndexRegistryLive } from "./code-index/layers/index-registry.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
+import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import type { LanAuthPolicy } from "./lan-auth/policy.ts";
+import {
+  LanAuthConfig,
+  LanAuthService,
+} from "./lan-auth/services/lan-auth-service.ts";
 import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -58,8 +64,18 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
 export interface MainLayerDeps {
   readonly userData: string;
   readonly folderPicker: typeof FolderPicker.Service;
-  readonly serverProtocol: Layer.Layer<RpcServer.Protocol>;
+  readonly serverProtocol: Layer.Layer<
+    RpcServer.Protocol,
+    never,
+    LanAuthService
+  >;
   readonly authShell: typeof AuthShell.Service;
+  readonly lanAuth?: {
+    readonly policy: LanAuthPolicy;
+    readonly advertisedHost?: string | null;
+    readonly port?: number | null;
+    readonly pairingBootstrap?: boolean;
+  };
 }
 
 /**
@@ -71,6 +87,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
   const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
   const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
+  const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
+    policy: deps.lanAuth?.policy ?? "local",
+    advertisedHost: deps.lanAuth?.advertisedHost ?? null,
+    port: deps.lanAuth?.port ?? null,
+    pairingBootstrap: deps.lanAuth?.pairingBootstrap ?? false,
+  });
 
   // SqlClient is the shared persistence handle. The migrator runs once on
   // boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
@@ -93,17 +115,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AppPathsLayer),
   );
 
-  // IndexRegistry must be available to WorkspaceService so that
-  // `workspace.setSelected` / `workspace.add` can fire-and-forget an
-  // `ensureIndexed()` the moment the user opens a project. Declared
-  // before WorkspaceLayer because it's a dependency, not the other way
-  // around — there is no upstream from IndexRegistry into Workspace.
-  const IndexLayer = IndexRegistryLive;
-
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(ImportShim),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -210,7 +224,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
-    Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -263,6 +276,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
+  const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
+    Layer.provide(WorkspaceLayer),
+    Layer.provide(WorktreeLayer),
+    Layer.provide(MessageStoreLayer),
+    Layer.provide(MigratedSqlite),
+    Layer.provide(NodeContext.layer),
+  );
+
   // SkillBridge surfaces the user's per-provider skill library to the
   // composer's slash popover. Discovery walks disk; the bridge caches per
   // (provider, projectCwd) and re-emits on watcher fire so editing a
@@ -286,10 +307,16 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AuthShellLayer),
   );
 
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
     NodeContext.layer,
+    LanAuthConfigLayer,
     // AuthLayer is fully self-contained (its keychain + shell deps are already
     // provided), merged in here to satisfy the auth.* handlers without adding
     // another `.pipe` step — the Handlers pipe is at its 20-arg overload cap.
@@ -315,8 +342,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // browser.* credential RPCs read/write the keychain directly.
     CredentialsServiceLive,
     SkillBridgeLayer,
-    IndexLayer,
     DiagnosticsLayer,
+    LanAuthLayer,
+    ExternalThreadLayer,
     FolderPickerLayer,
   );
 
@@ -331,7 +359,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
     Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol),
+    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);

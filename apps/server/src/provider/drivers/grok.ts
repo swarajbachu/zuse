@@ -1,5 +1,12 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import * as readline from "node:readline";
 import { Effect, Mailbox, Stream } from "effect";
@@ -29,7 +36,12 @@ import {
 } from "./compact.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
+import {
+  browserMcpPromptHint,
+  startBrowserMcpBridge,
+} from "./acp/browser-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
+import type { BrowserSend } from "./browser-tools.ts";
 
 /**
  * Live-only handle for one Grok conversation. Mirrors Codex/Claude handle
@@ -98,6 +110,53 @@ type PendingResolver = {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
+};
+
+const BROWSER_MCP_CONFIG_START =
+  "# >>> zuse-generated-browser-mcp: do not edit";
+const BROWSER_MCP_CONFIG_END = "# <<< zuse-generated-browser-mcp";
+
+const stripGeneratedBrowserMcpConfig = (value: string): string =>
+  value
+    .replace(
+      new RegExp(
+        `\\n?${BROWSER_MCP_CONFIG_START}[\\s\\S]*?${BROWSER_MCP_CONFIG_END}\\n?`,
+        "g",
+      ),
+      "\n",
+    )
+    .replace(/\n{3,}/g, "\n\n")
+    .trimEnd();
+
+const installProjectBrowserMcpConfig = (
+  cwd: string,
+  toml: string,
+): (() => void) => {
+  const grokDir = join(cwd, ".grok");
+  const configPath = join(grokDir, "config.toml");
+  const previous = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const userConfig = stripGeneratedBrowserMcpConfig(previous);
+  const next = `${userConfig.length > 0 ? `${userConfig}\n\n` : ""}${BROWSER_MCP_CONFIG_START}\n${toml.trimEnd()}\n${BROWSER_MCP_CONFIG_END}\n`;
+
+  mkdirSync(grokDir, { recursive: true });
+  writeFileSync(configPath, next, "utf8");
+  console.info(`[grok.browser-mcp] wrote project MCP config ${configPath}`);
+
+  return () => {
+    try {
+      if (userConfig.length > 0) {
+        writeFileSync(configPath, `${userConfig}\n`, "utf8");
+      } else {
+        rmSync(configPath, { force: true });
+      }
+    } catch (cause) {
+      console.warn(
+        `[grok.browser-mcp] could not restore project MCP config ${configPath}: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
+  };
 };
 
 /**
@@ -270,9 +329,11 @@ export const startGrokSession = (
   cwd: string,
   apiKey: string | null,
   grokPath: string,
+  browserMcpCommand: string,
   sessionId: AgentSessionId,
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
+  browserSend: BrowserSend,
   resumeCursor: string | null = null,
 ): Effect.Effect<
   GrokSessionHandle,
@@ -304,6 +365,29 @@ export const startGrokSession = (
       getPermissionMode: () => currentMode,
     });
 
+    const browserMcpBridge = yield* Effect.tryPromise({
+      try: () =>
+        startBrowserMcpBridge({
+          send: browserSend,
+          command: browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        }),
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "grok",
+          reason: `Could not start browser MCP bridge: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        }),
+    });
+    const restoreProjectBrowserMcpConfig = installProjectBrowserMcpConfig(
+      cwd,
+      browserMcpBridge.projectConfigToml,
+    );
+
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
     let closed = false;
@@ -316,6 +400,11 @@ export const startGrokSession = (
      *  instead of queuing doomed RPCs that will 5-minute timeout.
      */
     let dead = false;
+    // One-shot browser-tools hint for the model. True whenever the ACP
+    // server-side context is fresh (initial connect + every respawn); the
+    // next session/prompt prepends the zuse-browser tool list so the model
+    // calls tools directly instead of hunting the filesystem for schemas.
+    let browserHintPending = true;
     let inflight: Promise<void> = Promise.resolve();
     const pending = new Map<number, PendingResolver>();
     // Trailing window of grok's stderr — used to enrich error reports when
@@ -355,10 +444,11 @@ export const startGrokSession = (
      *  returned promise rejects and the caller decides whether to surface
      *  the error or just bubble it. */
     const connectChild = async (): Promise<string> => {
-      child = spawn(grokPath, ["agent", "stdio"], {
+      child = spawn(grokPath, ["--trust", "agent", "--no-leader", "stdio"], {
         cwd,
         env: {
           ...process.env,
+          GROK_CURSOR_MCPS_ENABLED: "0",
           ...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -807,7 +897,7 @@ export const startGrokSession = (
 
       const sessionResult = (await request("session/new", {
         cwd,
-        mcpServers: [],
+        mcpServers: [browserMcpBridge.serverConfig],
       })) as { sessionId?: unknown };
 
       if (typeof sessionResult.sessionId !== "string") {
@@ -819,6 +909,10 @@ export const startGrokSession = (
       });
       acpSessionId = sessionResult.sessionId;
       dead = false;
+      // Fresh server-side context → the model hasn't seen the browser-tools
+      // hint yet. Re-arm it so the next prompt carries the tool list (also
+      // covers transparent respawns after a child death).
+      browserHintPending = true;
       return sessionResult.sessionId;
     };
 
@@ -837,6 +931,8 @@ export const startGrokSession = (
           } catch {
             // ignore — child may not be alive
           }
+          restoreProjectBrowserMcpConfig();
+          void browserMcpBridge.close();
         }),
       ),
     );
@@ -911,13 +1007,22 @@ export const startGrokSession = (
           }
           const sid = acpSessionId;
           if (sid === null) return;
+          // Prepend the browser-tools hint on the first prompt of each fresh
+          // ACP context (computed here, after the potential respawn above,
+          // so a respawned context gets it too). Compact turns skip it —
+          // they replay a synthetic summary, not a user ask.
+          const finalPromptText =
+            browserHintPending && compactSnapshot === null
+              ? `${browserMcpPromptHint()}\n\n${promptText}`
+              : promptText;
+          browserHintPending = false;
           if (GROK_RPC_TRACE || GROK_DIAG) {
             process.stderr.write(
-              `[grok.prompt] enqueue len=${promptText.length} mode=${currentMode}\n`,
+              `[grok.prompt] enqueue len=${finalPromptText.length} mode=${currentMode}\n`,
             );
           }
           grokDiag("session/prompt starting", {
-            promptLen: promptText.length,
+            promptLen: finalPromptText.length,
             permissionMode: currentMode,
             model: input.model,
           });
@@ -928,7 +1033,7 @@ export const startGrokSession = (
               "session/prompt",
               {
                 sessionId: sid,
-                prompt: [{ type: "text", text: promptText }],
+                prompt: [{ type: "text", text: finalPromptText }],
                 // Server may ignore unknown keys; pass mode + model as
                 // metadata so a future ACP rev can honour them without a
                 // driver change.
@@ -1068,6 +1173,8 @@ export const startGrokSession = (
           }
           child.kill("SIGTERM");
           rl.close();
+          restoreProjectBrowserMcpConfig();
+          yield* Effect.promise(() => browserMcpBridge.close());
           yield* events.end;
         }),
       setPermissionMode: (mode) =>

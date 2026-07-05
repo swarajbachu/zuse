@@ -32,6 +32,7 @@ import {
   type ProviderId,
   QueueState,
   QueuedMessage,
+  type ResumeStrategy,
   type RuntimeMode,
   Session,
   SessionId,
@@ -194,6 +195,21 @@ const permissionModeFromRow = (raw: string): PermissionMode =>
     ? (raw as PermissionMode)
     : DEFAULT_PERMISSION_MODE;
 
+const RESUME_STRATEGIES: ReadonlySet<Session["resumeStrategy"]> = new Set([
+  "none",
+  "claude-session-id",
+  "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
+]);
+
+const resumeStrategyFromRow = (raw: string): Session["resumeStrategy"] =>
+  RESUME_STRATEGIES.has(raw as Session["resumeStrategy"])
+    ? (raw as Session["resumeStrategy"])
+    : "none";
+
 interface MessageRow {
   readonly id: string;
   readonly session_id: string;
@@ -223,12 +239,7 @@ const sessionFromRow = (row: SessionRow): Session =>
     status: row.status as Session["status"],
     archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
     cursor: row.cursor,
-    resumeStrategy:
-      row.resume_strategy === "claude-session-id"
-        ? "claude-session-id"
-        : row.resume_strategy === "codex-thread-id"
-          ? "codex-thread-id"
-          : "none",
+    resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
     runtimeMode: runtimeModeFromRow(row.runtime_mode),
     worktreeId:
       row.worktree_id === null
@@ -288,6 +299,93 @@ const messageFromRow = (row: MessageRow): Message => {
     content,
     createdAt: new Date(row.created_at),
   });
+};
+
+/**
+ * Message kinds that are pure telemetry / lifecycle noise — excluded from a
+ * forked transcript copy and from the exported Markdown so the handed-off
+ * context reads like a conversation, not a metrics dump.
+ */
+const TRANSCRIPT_SKIP_KINDS: ReadonlySet<string> = new Set([
+  "usage",
+  "context_usage",
+  "context_compaction",
+  "usage_limit",
+]);
+
+/** Trim a serialised tool payload so a transcript export stays readable. */
+const clampBlock = (value: string, max = 2000): string =>
+  value.length > max ? `${value.slice(0, max)}\n… (${value.length - max} more chars truncated)` : value;
+
+const stringifyUnknown = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+/**
+ * Render a session transcript to Markdown. Used for the "Attach transcript"
+ * handoff and the copy-mode fork context file. Skips telemetry rows and
+ * truncates large tool payloads.
+ */
+const transcriptToMarkdown = (
+  title: string,
+  messages: ReadonlyArray<Message>,
+): string => {
+  const lines: string[] = [`# Transcript — ${title}`, ""];
+  for (const m of messages) {
+    const c = m.content;
+    if (TRANSCRIPT_SKIP_KINDS.has(c._tag)) continue;
+    switch (c._tag) {
+      case "user":
+      case "user_rich":
+        lines.push("## User", "", c.text.trim(), "");
+        break;
+      case "assistant":
+        lines.push("## Assistant", "", c.text.trim(), "");
+        break;
+      case "thinking":
+        if (!c.redacted && c.text.trim().length > 0) {
+          lines.push("> _(thinking)_ " + c.text.trim().replace(/\n/g, "\n> "), "");
+        }
+        break;
+      case "tool_use":
+        lines.push(
+          `### 🛠 ${c.tool}`,
+          "",
+          "```json",
+          clampBlock(stringifyUnknown(c.input)),
+          "```",
+          "",
+        );
+        break;
+      case "tool_result":
+        lines.push(
+          c.isError ? "### ⚠ Tool result (error)" : "### Tool result",
+          "",
+          "```",
+          clampBlock(stringifyUnknown(c.output)),
+          "```",
+          "",
+        );
+        break;
+      case "error":
+        lines.push(`> **Error:** ${c.message}`, "");
+        break;
+      case "interrupted":
+        lines.push("> _(interrupted by user)_", "");
+        break;
+      case "subagent_summary":
+        lines.push(`### Sub-agent ${c.agentName}`, "", c.summary.trim(), "");
+        break;
+      default:
+        break;
+    }
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
 };
 
 const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
@@ -1397,6 +1495,13 @@ export const MessageStoreLive = Layer.scoped(
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
         const background = input.background === true;
+        const resumeCursor = input.resumeCursor ?? null;
+        const resumeStrategy: ResumeStrategy =
+          resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
+        const forkedFromSessionId = input.forkedFromSessionId ?? null;
+        const forkedFromMessageId = input.forkedFromMessageId ?? null;
+        // Only fork the transcript when we actually have a cursor to fork.
+        const forkFromResume = input.forkFromResume === true && resumeCursor !== null;
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -1412,13 +1517,15 @@ export const MessageStoreLive = Layer.scoped(
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, runtime_mode,
                agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, created_at, updated_at)
+               tool_search, cursor, resume_strategy, forked_from_session_id,
+               forked_from_message_id, created_at, updated_at)
             VALUES
               (${sessionId}, ${projectId}, ${title}, ${input.providerId},
                ${input.model}, ${rowStatus}, ${initialRuntimeMode},
                ${agentsJson}, ${worktreeId}, ${input.chatId},
                ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${nowIso}, ${nowIso})
+               ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+               ${forkedFromMessageId}, ${nowIso}, ${nowIso})
           `.pipe(Effect.orDie);
           yield* sql`
             UPDATE chats
@@ -1451,8 +1558,9 @@ export const MessageStoreLive = Layer.scoped(
                   cwdOverride,
                   permissionMode: initialPermissionMode,
                   toolSearch: initialToolSearch,
+                  forkFromResume,
                 },
-                null,
+                resumeCursor,
                 newSessionRuntimeMode,
               )
               .pipe(
@@ -1490,13 +1598,13 @@ export const MessageStoreLive = Layer.scoped(
             model: input.model,
             status: "booting",
             archivedAt: null,
-            cursor: null,
-            resumeStrategy: "none",
+            cursor: resumeCursor,
+            resumeStrategy,
             runtimeMode: initialRuntimeMode,
             worktreeId,
             chatId: input.chatId,
-            forkedFromSessionId: null,
-            forkedFromMessageId: null,
+            forkedFromSessionId,
+            forkedFromMessageId,
             permissionMode: initialPermissionMode,
             toolSearch: initialToolSearch,
             createdAt: now,
@@ -1522,8 +1630,9 @@ export const MessageStoreLive = Layer.scoped(
               cwdOverride,
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
+              forkFromResume,
             },
-            null,
+            resumeCursor,
             newSessionRuntimeMode,
           )
           .pipe(
@@ -1543,13 +1652,15 @@ export const MessageStoreLive = Layer.scoped(
           INSERT INTO sessions
             (id, project_id, title, provider_id, model, status, runtime_mode,
              agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, created_at, updated_at)
+             tool_search, cursor, resume_strategy, forked_from_session_id,
+             forked_from_message_id, created_at, updated_at)
           VALUES
             (${sessionId}, ${projectId}, ${title}, ${input.providerId},
              ${input.model}, ${rowStatus}, ${initialRuntimeMode},
              ${agentsJson}, ${worktreeId}, ${input.chatId},
              ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${nowIso}, ${nowIso})
+             ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+             ${forkedFromMessageId}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
         yield* sql`
           UPDATE chats
@@ -1572,13 +1683,13 @@ export const MessageStoreLive = Layer.scoped(
           model: input.model,
           status: postBootStatus,
           archivedAt: null,
-          cursor: null,
-          resumeStrategy: "none",
+          cursor: resumeCursor,
+          resumeStrategy,
           runtimeMode: initialRuntimeMode,
           worktreeId,
           chatId: input.chatId,
-          forkedFromSessionId: null,
-          forkedFromMessageId: null,
+          forkedFromSessionId,
+          forkedFromMessageId,
           permissionMode: initialPermissionMode,
           toolSearch: initialToolSearch,
           createdAt: now,
@@ -1897,6 +2008,11 @@ export const MessageStoreLive = Layer.scoped(
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
           toolSearch: input.toolSearch,
+          resumeCursor: input.resumeCursor,
+          resumeStrategy: input.resumeStrategy,
+          forkedFromSessionId: input.forkedFromSessionId,
+          forkedFromMessageId: input.forkedFromMessageId,
+          forkFromResume: input.forkFromResume,
         }).pipe(
           Effect.tapError(() =>
             // Roll back the chat row if the provider failed to boot —
@@ -1942,6 +2058,183 @@ export const MessageStoreLive = Layer.scoped(
           yield* forkAutoName(chat.id, initialSession.id, input.initialPrompt);
         }
         return { chat, initialSession, initialMessage };
+      });
+
+    const continueExternalThread: MessageStoreShape["continueExternalThread"] =
+      (input) =>
+        Effect.gen(function* () {
+          const result = yield* createChat({
+            ...input,
+            resumeCursor: input.resumeCursor,
+            resumeStrategy: input.resumeStrategy,
+          });
+          return {
+            chat: result.chat,
+            initialSession: result.initialSession,
+          };
+        });
+
+    const importExternalMessages: MessageStoreShape["importExternalMessages"] =
+      (sessionId, messages) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          const imported: Message[] = [];
+          for (const content of messages) {
+            const persisted = yield* persistMessage(sessionId, content);
+            imported.push(persisted.message);
+          }
+          return imported;
+        });
+
+    const exportTranscript: MessageStoreShape["exportTranscript"] = (
+      sessionId,
+      uptoMessageId,
+    ) =>
+      Effect.gen(function* () {
+        const session = yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${sessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        let slice = rows;
+        if (uptoMessageId !== undefined) {
+          const idx = rows.findIndex((r) => r.id === uptoMessageId);
+          if (idx !== -1) slice = rows.slice(0, idx + 1);
+        }
+        return transcriptToMarkdown(session.title, slice.map(messageFromRow));
+      });
+
+    const latestPlan: MessageStoreShape["latestPlan"] = (sessionId) =>
+      Effect.gen(function* () {
+        yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages
+          WHERE session_id = ${sessionId} AND kind = 'tool_use'
+          ORDER BY created_at DESC, sequence DESC
+        `.pipe(Effect.orDie);
+        for (const row of rows) {
+          const c = messageFromRow(row).content;
+          if (c._tag === "tool_use" && c.tool === "ExitPlanMode") {
+            const input = c.input;
+            if (
+              typeof input === "object" &&
+              input !== null &&
+              "plan" in input &&
+              typeof (input as { plan?: unknown }).plan === "string"
+            ) {
+              return (input as { plan: string }).plan;
+            }
+          }
+        }
+        return null;
+      });
+
+    const forkSession: MessageStoreShape["forkSession"] = (input) =>
+      Effect.gen(function* () {
+        // Source must exist; `lookupSession` fails `SessionNotFoundError`.
+        const source = yield* lookupSession(input.sourceSessionId);
+
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${input.sourceSessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        const forkIdx = rows.findIndex((r) => r.id === input.fromMessageId);
+        if (forkIdx === -1) {
+          return yield* Effect.fail(
+            new SessionStartError({
+              providerId: source.providerId,
+              reason: `fork message ${input.fromMessageId} not found in session ${input.sourceSessionId}`,
+            }),
+          );
+        }
+
+        const providerId = input.providerId ?? source.providerId;
+        const model = input.model ?? source.model;
+        // Real provider memory is only possible when the fork point is the
+        // conversation tail, the provider is the SAME as the source (a fork
+        // resumes the source's own transcript), the provider supports native
+        // fork, and we have a cursor to fork from. Otherwise we replay the
+        // visible transcript into a fresh session (`copy`).
+        const isTail = forkIdx === rows.length - 1;
+        const providerCanFork = providerId === "claude" || providerId === "codex";
+        const forkMode: "resume" | "copy" =
+          isTail &&
+          providerId === source.providerId &&
+          providerCanFork &&
+          source.cursor !== null &&
+          source.resumeStrategy !== "none"
+            ? "resume"
+            : "copy";
+
+        const title =
+          input.title?.trim() ||
+          `Fork of ${source.title}`.slice(0, 120);
+
+        // Visible transcript up to (and including) the fork message — shown in
+        // the new session's chat view for BOTH modes. In `resume` mode the
+        // provider also carries real KV memory; the copied rows are display
+        // only and are never re-sent to the model.
+        const transcript = rows
+          .slice(0, forkIdx + 1)
+          .map(messageFromRow)
+          .filter((m) => !TRANSCRIPT_SKIP_KINDS.has(m.content._tag))
+          .map((m) => m.content);
+
+        const resumeCursor = forkMode === "resume" ? source.cursor : null;
+        const resumeStrategy: ResumeStrategy =
+          forkMode === "resume" ? source.resumeStrategy : "none";
+
+        let chat: Chat;
+        let session: Session;
+        if (input.destination === "tab") {
+          session = yield* createSession({
+            chatId: source.chatId,
+            providerId,
+            model,
+            title,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            background: true,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = yield* lookupChat(source.chatId).pipe(Effect.orDie);
+        } else {
+          const created = yield* createChat({
+            projectId: source.projectId,
+            providerId,
+            model,
+            title,
+            worktreeId: input.worktreeId ?? null,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = created.chat;
+          session = created.initialSession;
+        }
+
+        // Seed the new session's visible history. Failures here are
+        // non-fatal — the branch still exists and is usable.
+        if (transcript.length > 0) {
+          yield* importExternalMessages(session.id, transcript).pipe(
+            Effect.catchAll(() => Effect.succeed([])),
+          );
+        }
+
+        return { chat, session, forkMode };
       });
 
     const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
@@ -3257,6 +3550,11 @@ export const MessageStoreLive = Layer.scoped(
       listChats,
       getChat,
       createChat,
+      continueExternalThread,
+      importExternalMessages,
+      forkSession,
+      exportTranscript,
+      latestPlan,
       renameChat,
       markChatRead,
       streamChatChanges,

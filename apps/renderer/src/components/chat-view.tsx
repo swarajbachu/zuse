@@ -1,7 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 
 import type {
   AgentItemId,
@@ -19,12 +18,12 @@ import {
 import { useChatScroll } from "../lib/use-chat-scroll.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
-import { useChatMotionStore } from "../store/chat-motion.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { FileChipProvider } from "./file-chip.tsx";
+import { useForkMenu } from "./fork-menu.tsx";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 import {
   ErrorBubble,
@@ -43,19 +42,6 @@ import { Spinner } from "./ui/spinner";
 // snapshot-equality check and triggers an infinite re-render loop.
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
-const isUserMessage = (m: Message | undefined): boolean =>
-  m !== undefined &&
-  (m.content._tag === "user" || m.content._tag === "user_rich");
-
-type SendFlight = {
-  readonly id: string;
-  readonly text: string;
-  readonly style: CSSProperties & {
-    readonly "--chat-send-x": string;
-    readonly "--chat-send-y": string;
-  };
-};
-
 /**
  * Read-only timeline of one session. Subscribes to `messages.stream` via the
  * messages store on mount / session-change; the store owns the live fiber.
@@ -63,6 +49,7 @@ type SendFlight = {
  * the top and follows the live edge only while the reader is there.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
+  const forkMenu = useForkMenu();
   const messages = useMessagesStore(
     (s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
   );
@@ -112,7 +99,10 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return false;
   });
-  const setupActive = worktreeSetupActive || session?.status === "booting";
+  const externalResume =
+    session !== null && session.resumeStrategy !== "none";
+  const setupActive =
+    worktreeSetupActive || (!externalResume && session?.status === "booting");
   const archiveProgress = useChatsStore((s) =>
     session?.chatId === undefined
       ? null
@@ -129,11 +119,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     streaming,
     jumpToLatest,
   } = useChatScroll({ sessionId, messages, inFlight });
-  const pendingSendMotion = useChatMotionStore(
-    (s) => s.pendingBySession[sessionId as string] ?? null,
-  );
-  const consumeSendMotion = useChatMotionStore((s) => s.consumeSend);
-  const [sendFlight, setSendFlight] = useState<SendFlight | null>(null);
   useRegisterPane("chat", scrollRef);
 
   useEffect(() => {
@@ -149,55 +134,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       void teardownLiveStreams();
     };
   }, [sessionId, hydrate, hydrateSkills]);
-
-  useEffect(() => {
-    if (pendingSendMotion === null) return;
-    let latestUser: Message | null = null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const candidate = messages[i]!;
-      if (isUserMessage(candidate)) {
-        latestUser = candidate;
-        break;
-      }
-    }
-    if (latestUser === null) return;
-    if (latestUser.createdAt.getTime() + 1_000 < pendingSendMotion.createdAt) {
-      return;
-    }
-
-    const content = contentRef.current;
-    if (content === null) return;
-    const anchor = content.querySelector<HTMLElement>(
-      `[data-user-anchor="${CSS.escape(String(latestUser.id))}"]`,
-    );
-    if (anchor === null) return;
-    const bubble =
-      anchor.querySelector<HTMLElement>("[data-chat-user-bubble]") ?? anchor;
-    const target = bubble.getBoundingClientRect();
-    const source = pendingSendMotion.sourceRect;
-    const fromLeft = source.left + 12;
-    const fromTop = source.top + 8;
-    setSendFlight({
-      id: pendingSendMotion.id,
-      text: pendingSendMotion.text,
-      style: {
-        left: fromLeft,
-        top: fromTop,
-        maxWidth: Math.max(160, Math.min(source.width - 24, 420)),
-        "--chat-send-x": `${target.left - fromLeft}px`,
-        "--chat-send-y": `${target.top - fromTop}px`,
-      },
-    });
-    consumeSendMotion(sessionId, pendingSendMotion.id);
-    const timeout = window.setTimeout(() => setSendFlight(null), 260);
-    return () => window.clearTimeout(timeout);
-  }, [
-    contentRef,
-    consumeSendMotion,
-    messages,
-    pendingSendMotion,
-    sessionId,
-  ]);
 
   // Pair tool_result rows back to their originating tool_use by AgentItemId.
   // The driver assigns the SDK's tool_use id to both events, so each
@@ -357,6 +293,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                       <div
                         data-user-anchor={turn.user.id}
                         className="chat-row-enter chat-row-enter-user scroll-mt-6"
+                        onContextMenu={(e) =>
+                          forkMenu.openAt(e, sessionId, turn.user!.id)
+                        }
                       >
                         <MessageRow
                           message={turn.user}
@@ -392,6 +331,16 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                           <div
                             key={group.message.id}
                             className="chat-row-enter"
+                            onContextMenu={
+                              group.message.content._tag === "assistant"
+                                ? (e) =>
+                                    forkMenu.openAt(
+                                      e,
+                                      sessionId,
+                                      group.message.id,
+                                    )
+                                : undefined
+                            }
                           >
                             <MessageRow
                               message={group.message}
@@ -451,15 +400,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
           streaming={streaming}
           onClick={jumpToLatest}
         />
-        {sendFlight !== null ? (
-          <div
-            key={sendFlight.id}
-            className="chat-send-flight fixed z-50 truncate rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 text-sm text-user-bubble-foreground shadow-lg/20"
-            style={sendFlight.style}
-          >
-            {sendFlight.text}
-          </div>
-        ) : null}
         <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2">
           <NextUnreadButton />
         </div>
@@ -467,6 +407,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
           <ArchiveProgressOverlay phase={archiveProgress} />
         ) : null}
       </div>
+      {forkMenu.menu}
     </FileChipProvider>
   );
 }

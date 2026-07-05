@@ -10,6 +10,7 @@ import {
   protocol,
   shell,
   webContents as webContentsModule,
+  type WebContents,
 } from "electron";
 import { Effect, Fiber, Layer } from "effect";
 import fixPath from "fix-path";
@@ -17,12 +18,14 @@ import { execFile, spawn } from "node:child_process";
 import * as http from "node:http";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { makeMainLayer } from "@zuse/server";
+import { AGENTS_RUNNING_COUNT_CHANNEL } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -43,6 +46,7 @@ import {
   type MenuCommand,
 } from "./menu.ts";
 import {
+  getIsInstallingUpdate,
   getLastStatus,
   onStatusChange,
   registerUpdaterDemo,
@@ -52,6 +56,65 @@ import {
   NotchTrayController,
   type NotchTrayItem,
 } from "./notch-tray-controller.ts";
+
+type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
+
+interface DiagnosticLogEntry {
+  readonly createdAt: string;
+  readonly level: DiagnosticLogLevel;
+  readonly source: string;
+  readonly message: string;
+  readonly detail?: string;
+}
+
+const MAIN_DIAGNOSTIC_LOG_LIMIT = 200;
+const mainDiagnosticLogs: DiagnosticLogEntry[] = [];
+
+function stringifyDiagnosticPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return `${value.name}: ${value.message}`;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function recordMainDiagnostic(
+  level: DiagnosticLogLevel,
+  source: string,
+  parts: ReadonlyArray<unknown>,
+): void {
+  mainDiagnosticLogs.push({
+    createdAt: new Date().toISOString(),
+    level,
+    source,
+    message: parts.map(stringifyDiagnosticPart).join(" ").slice(0, 2000),
+  });
+  if (mainDiagnosticLogs.length > MAIN_DIAGNOSTIC_LOG_LIMIT) {
+    mainDiagnosticLogs.splice(
+      0,
+      mainDiagnosticLogs.length - MAIN_DIAGNOSTIC_LOG_LIMIT,
+    );
+  }
+}
+
+const originalConsoleWarn = console.warn.bind(console);
+const originalConsoleError = console.error.bind(console);
+console.warn = (...args: unknown[]) => {
+  recordMainDiagnostic("warn", "main.console", args);
+  originalConsoleWarn(...args);
+};
+console.error = (...args: unknown[]) => {
+  recordMainDiagnostic("error", "main.console", args);
+  originalConsoleError(...args);
+};
+process.on("uncaughtException", (error) => {
+  recordMainDiagnostic("error", "main.uncaughtException", [error]);
+});
+process.on("unhandledRejection", (reason) => {
+  recordMainDiagnostic("error", "main.unhandledRejection", [reason]);
+});
 
 /**
  * Privileged scheme registration. Must run before `app.whenReady()` —
@@ -109,13 +172,16 @@ app.setAsDefaultProtocolClient("zuse");
 // ---------------------------------------------------------------------------
 const AUTH_LOOPBACK_PORT = 8976;
 const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
-const AUTH_SCHEME_URI = "zuse://auth/callback";
-// Packaged builds use the custom scheme — a signed app with its own bundle id
-// (app.memoize.desktop) + Info.plist `CFBundleURLTypes` (electron-builder
-// `protocols`) resolves it unambiguously, and it's the same mechanism mobile
-// will use. Dev uses the loopback because the prebuilt Electron.app's shared
-// `com.github.Electron` bundle id makes custom schemes unroutable.
-const AUTH_REDIRECT_URI = app.isPackaged ? AUTH_SCHEME_URI : AUTH_LOOPBACK_URI;
+// Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
+// RFC 8252 native-app pattern and gives a strictly better sign-in finish:
+//   - the browser lands on a real HTML page ("Signed in, you can close this
+//     tab") instead of a dead `zuse://` URL that leaves the tab hanging, and
+//   - no OS "Open in Zuse Alpha?" prompt — the browser hits localhost and the
+//     already-running app answers directly, no deep-link handoff needed.
+// The `zuse://auth/callback` scheme handler stays registered below as a
+// fallback (and the future mobile path), but is no longer the primary flow.
+// Register `http://localhost:8976/callback` in the WorkOS dashboard.
+const AUTH_REDIRECT_URI = AUTH_LOOPBACK_URI;
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
@@ -677,6 +743,16 @@ function createMainWindow() {
     clipboard.writeText(rawPath);
   });
 
+  ipcMain.handle("app:copyFileContents", async (_event, rawPath: unknown) => {
+    if (typeof rawPath !== "string") return false;
+    if (!(await pathExists(rawPath))) return false;
+    const text = await fs.readFile(rawPath, "utf8");
+    clipboard.writeText(text);
+    return true;
+  });
+
+  ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+
   // ---------------------------------------------------------------------------
   // Agent browser CDP bridge
   //
@@ -697,11 +773,47 @@ function createMainWindow() {
   // Track which webContentsIds we've attached to so registerWebview is
   // idempotent (the renderer fires it on every `dom-ready`, including reloads).
   const attachedWebContents = new Set<number>();
+  // Event taps (debugger message listener + webContents listeners) survive a
+  // debugger detach/re-attach cycle, so they install once per webContents —
+  // re-installing on every crash-recovery attach would double every buffered
+  // page error and unload-allow.
+  const tappedWebContents = new Set<number>();
+
+  // Per-webview observability buffers, fed by CDP events below. Network keeps
+  // insertion order (Map) so "recent requests" reads oldest→newest; both are
+  // cleared on every main-frame load start so the agent's `browser_network` /
+  // `browser_console` reads describe the current page, mirroring the
+  // renderer's own console ring buffer.
+  type NetworkEntry = {
+    id: string;
+    method: string;
+    url: string;
+    resourceType?: string;
+    status?: number;
+    mimeType?: string;
+    responseHeaders?: Record<string, string>;
+    failed?: string;
+  };
+  const NETWORK_LOG_CAP = 300;
+  const PAGE_ERROR_CAP = 100;
+  const browserNetworkLog = new Map<number, Map<string, NetworkEntry>>();
+  const browserPageErrors = new Map<number, string[]>();
+  const browserPendingDialog = new Map<
+    number,
+    { type: string; message: string; defaultPrompt?: string }
+  >();
+
+  const dropBrowserBuffers = (id: number): void => {
+    browserNetworkLog.delete(id);
+    browserPageErrors.delete(id);
+    browserPendingDialog.delete(id);
+  };
 
   const detachDebugger = (id: number): void => {
     const wc = webContentsModule.fromId(id);
     if (wc === undefined || wc.isDestroyed()) {
       attachedWebContents.delete(id);
+      dropBrowserBuffers(id);
       return;
     }
     try {
@@ -710,6 +822,121 @@ function createMainWindow() {
       // Detach failures are non-fatal — the webContents may be tearing down.
     }
     attachedWebContents.delete(id);
+    dropBrowserBuffers(id);
+  };
+
+  /**
+   * Route CDP events into the per-webview buffers. Registered once per
+   * attach; Electron drops the listener with the webContents.
+   */
+  const installCdpEventTaps = (id: number, wc: WebContents): void => {
+    wc.debugger.on("message", (_event, method, rawParams) => {
+      const params = (rawParams ?? {}) as Record<string, any>;
+      switch (method) {
+        case "Network.requestWillBeSent": {
+          const log =
+            browserNetworkLog.get(id) ??
+            browserNetworkLog.set(id, new Map()).get(id)!;
+          log.set(String(params.requestId), {
+            id: String(params.requestId),
+            method: String(params.request?.method ?? "GET"),
+            url: String(params.request?.url ?? ""),
+            resourceType:
+              typeof params.type === "string" ? params.type : undefined,
+          });
+          if (log.size > NETWORK_LOG_CAP) {
+            const oldest = log.keys().next().value;
+            if (oldest !== undefined) log.delete(oldest);
+          }
+          return;
+        }
+        case "Network.responseReceived": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry === undefined) return;
+          entry.status = Number(params.response?.status ?? 0);
+          entry.mimeType =
+            typeof params.response?.mimeType === "string"
+              ? params.response.mimeType
+              : undefined;
+          const headers = params.response?.headers;
+          if (headers !== null && typeof headers === "object") {
+            entry.responseHeaders = headers as Record<string, string>;
+          }
+          return;
+        }
+        case "Network.loadingFailed": {
+          const entry = browserNetworkLog
+            .get(id)
+            ?.get(String(params.requestId));
+          if (entry !== undefined) {
+            entry.failed = String(params.errorText ?? "failed");
+          }
+          return;
+        }
+        case "Runtime.exceptionThrown": {
+          const details = params.exceptionDetails as
+            | Record<string, any>
+            | undefined;
+          const description =
+            details?.exception?.description ??
+            details?.text ??
+            "Uncaught exception";
+          const where =
+            typeof details?.url === "string" && details.url.length > 0
+              ? ` (${details.url}:${details.lineNumber ?? 0})`
+              : "";
+          const errors = browserPageErrors.get(id) ?? [];
+          errors.push(
+            `[uncaught] ${String(description).slice(0, 500)}${where}`,
+          );
+          if (errors.length > PAGE_ERROR_CAP) {
+            errors.splice(0, errors.length - PAGE_ERROR_CAP);
+          }
+          browserPageErrors.set(id, errors);
+          return;
+        }
+        case "Page.javascriptDialogOpening": {
+          browserPendingDialog.set(id, {
+            type: String(params.type ?? "alert"),
+            message: String(params.message ?? ""),
+            defaultPrompt:
+              typeof params.defaultPrompt === "string"
+                ? params.defaultPrompt
+                : undefined,
+          });
+          return;
+        }
+        case "Page.javascriptDialogClosed": {
+          browserPendingDialog.delete(id);
+          return;
+        }
+        default:
+          return;
+      }
+    });
+  };
+
+  /**
+   * Turn on the CDP domains the v2 tools read from. Best-effort per domain —
+   * a domain that fails to enable (older Chromium, experimental surface)
+   * degrades that one capability, not the whole browser.
+   */
+  const enableCdpDomains = async (wc: WebContents): Promise<void> => {
+    for (const method of [
+      "Network.enable",
+      "Runtime.enable",
+      "Page.enable",
+      "DOM.enable",
+      "Accessibility.enable",
+    ]) {
+      try {
+        await wc.debugger.sendCommand(method);
+      } catch (err) {
+        console.error(`[zuse] CDP ${method} failed`, err);
+      }
+    }
   };
 
   ipcMain.handle("browser:registerWebview", async (_event, rawId: unknown) => {
@@ -721,15 +948,35 @@ function createMainWindow() {
       // Protocol 1.3 is the stable baseline that ships with every modern
       // Chromium; older revisions don't accept `Input.dispatchMouseEvent`
       // payload fields we rely on (`pointerType`, `tangentialPressure`).
+      // Experimental domains (Accessibility) still work — the attached
+      // debugger speaks the running Chromium's full protocol.
       wc.debugger.attach("1.3");
       attachedWebContents.add(rawId);
-      // Auto-cleanup when the webContents goes away (window close, webview
-      // teardown, full crash). Without this, a `Another debugger is already
-      // attached` error fires on the next register-after-reload.
-      wc.once("destroyed", () => {
-        attachedWebContents.delete(rawId);
-      });
-      wc.on("render-process-gone", () => detachDebugger(rawId));
+      if (!tappedWebContents.has(rawId)) {
+        tappedWebContents.add(rawId);
+        installCdpEventTaps(rawId, wc);
+        // Fresh page → the previous page's requests/errors are stale.
+        wc.on("did-start-loading", () => {
+          browserNetworkLog.get(rawId)?.clear();
+          browserPageErrors.get(rawId)?.splice(0);
+        });
+        // A page's beforeunload handler must not wedge agent navigation — the
+        // user watched the agent ask for the navigation, so always let it
+        // proceed (this is what a user clicking "Leave" would do).
+        wc.on("will-prevent-unload", (event) => {
+          event.preventDefault();
+        });
+        // Auto-cleanup when the webContents goes away (window close, webview
+        // teardown, full crash). Without this, a `Another debugger is already
+        // attached` error fires on the next register-after-reload.
+        wc.once("destroyed", () => {
+          attachedWebContents.delete(rawId);
+          tappedWebContents.delete(rawId);
+          dropBrowserBuffers(rawId);
+        });
+        wc.on("render-process-gone", () => detachDebugger(rawId));
+      }
+      await enableCdpDomains(wc);
       return true;
     } catch (err) {
       // The only expected failure here is "already attached by DevTools" —
@@ -737,6 +984,122 @@ function createMainWindow() {
       console.error("[zuse] failed to attach CDP debugger", err);
       return false;
     }
+  });
+
+  /**
+   * Allowlisted CDP passthrough for the agent-browser renderer. The renderer
+   * already holds `executeJavaScript` on the same webview, so this grants no
+   * new page-level power — the list just keeps the seam from becoming a
+   * generic protocol proxy (no Target.*, no Browser.*, no Input.* — input
+   * stays on the dedicated `browser:dispatchInput` path).
+   */
+  const CDP_ALLOWED_METHODS = new Set([
+    "Accessibility.getFullAXTree",
+    "DOM.getDocument",
+    "DOM.scrollIntoViewIfNeeded",
+    "DOM.getContentQuads",
+    "DOM.resolveNode",
+    "Runtime.callFunctionOn",
+    "Page.captureScreenshot",
+    "Page.handleJavaScriptDialog",
+  ]);
+
+  ipcMain.handle(
+    "browser:cdpCommand",
+    async (_event, rawId: unknown, rawMethod: unknown, rawParams: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) {
+        return { ok: false as const, error: "bad webContents id" };
+      }
+      if (
+        typeof rawMethod !== "string" ||
+        !CDP_ALLOWED_METHODS.has(rawMethod)
+      ) {
+        return {
+          ok: false as const,
+          error: `method not allowed: ${String(rawMethod)}`,
+        };
+      }
+      const wc = webContentsModule.fromId(rawId);
+      if (wc === undefined || wc.isDestroyed() || !wc.debugger.isAttached()) {
+        return { ok: false as const, error: "debugger not attached" };
+      }
+      try {
+        const result = await wc.debugger.sendCommand(
+          rawMethod,
+          rawParams !== null && typeof rawParams === "object"
+            ? (rawParams as Record<string, unknown>)
+            : {},
+        );
+        // Dialog resolution isn't always reported back via
+        // javascriptDialogClosed on every Chromium; clear eagerly.
+        if (rawMethod === "Page.handleJavaScriptDialog") {
+          browserPendingDialog.delete(rawId);
+        }
+        return { ok: true as const, result };
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    "browser:getNetwork",
+    async (_event, rawId: unknown, rawQuery: unknown) => {
+      if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+      const log = browserNetworkLog.get(rawId);
+      if (log === undefined) return { requests: [] };
+      const query = (rawQuery ?? {}) as { filter?: unknown; id?: unknown };
+      if (typeof query.id === "string" && query.id.length > 0) {
+        const entry = log.get(query.id);
+        if (entry === undefined) return null;
+        // Body comes straight from the CDP buffer; truncated so one XHR
+        // can't blow up the agent's context.
+        let body: string | undefined;
+        let bodyBase64 = false;
+        const wc = webContentsModule.fromId(rawId);
+        if (wc !== undefined && !wc.isDestroyed() && wc.debugger.isAttached()) {
+          try {
+            const res = (await wc.debugger.sendCommand(
+              "Network.getResponseBody",
+              { requestId: entry.id },
+            )) as { body?: string; base64Encoded?: boolean };
+            bodyBase64 = res.base64Encoded === true;
+            body =
+              typeof res.body === "string"
+                ? res.body.slice(0, 4000)
+                : undefined;
+          } catch {
+            // Body may be gone (evicted, streamed, or a non-buffered type) —
+            // detail without a body is still useful.
+          }
+        }
+        return { detail: { ...entry, body, bodyBase64 } };
+      }
+      const filter =
+        typeof query.filter === "string" && query.filter.length > 0
+          ? query.filter.toLowerCase()
+          : null;
+      const requests = [...log.values()]
+        .filter(
+          (entry) =>
+            filter === null || entry.url.toLowerCase().includes(filter),
+        )
+        .map(({ responseHeaders: _headers, ...summary }) => summary);
+      return { requests };
+    },
+  );
+
+  ipcMain.handle("browser:getPageErrors", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return [];
+    return [...(browserPageErrors.get(rawId) ?? [])];
+  });
+
+  ipcMain.handle("browser:getDialogState", async (_event, rawId: unknown) => {
+    if (typeof rawId !== "number" || !Number.isInteger(rawId)) return null;
+    return browserPendingDialog.get(rawId) ?? null;
   });
 
   ipcMain.handle(
@@ -1019,6 +1382,66 @@ const findAssetFilename = async (
   return cache.byStem.get(id) ?? null;
 };
 
+const ZUSE_SQLITE_FILENAME = "zuse.sqlite";
+
+// Attachment ids resolve to an immutable on-disk path, so caching id → path
+// avoids re-opening the DB for every `<img>` request.
+const attachmentPathCache = new Map<string, string>();
+
+/**
+ * Resolve `<id>` → the attachment blob's absolute path via a read-only probe
+ * of the app database. Blobs now live in each workspace's per-session
+ * `.context/files/` dir (recorded in `attachments.abs_path`), so a single-dir
+ * scan can no longer find them. Returns `null` on any failure (missing row,
+ * NULL `abs_path`, or DB unavailable) — the caller then tries the legacy
+ * flat-dir layout.
+ */
+const resolveAttachmentAbsPathFromDb = (
+  userData: string,
+  id: string,
+): string | null => {
+  const cached = attachmentPathCache.get(id);
+  if (cached !== undefined) return cached;
+  try {
+    // Lazy require: `node:sqlite` is a builtin in this Electron's Node
+    // runtime — the same client the server uses.
+    const req = createRequire(import.meta.url);
+    const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
+    const db = new DatabaseSync(Path.join(userData, ZUSE_SQLITE_FILENAME), {
+      readOnly: true,
+    });
+    try {
+      const row = db
+        .prepare("SELECT abs_path FROM attachments WHERE id = ?")
+        .get(id) as { abs_path?: string | null } | undefined;
+      const abs = typeof row?.abs_path === "string" ? row.abs_path : null;
+      if (abs !== null) attachmentPathCache.set(id, abs);
+      return abs;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Defense-in-depth: only serve a DB-recorded path when it lives inside the
+ * legacy attachments dir or a `.context/files` directory. The path is
+ * server-written and the id is already sanitised, but this keeps a corrupted
+ * row from turning the protocol into an arbitrary-file reader.
+ */
+const isServableAttachmentPath = (
+  attachmentsDir: string,
+  p: string,
+): boolean => {
+  const norm = Path.normalize(p);
+  return (
+    norm.startsWith(attachmentsDir + Path.sep) ||
+    norm.includes(`${Path.sep}.context${Path.sep}files${Path.sep}`)
+  );
+};
+
 const registerZuseProtocol = (): void => {
   const attachmentsDir = Path.join(app.getPath("userData"), "attachments");
   const pokemonDir = Path.join(app.getPath("userData"), "pokemon-sprites");
@@ -1033,33 +1456,57 @@ const registerZuseProtocol = (): void => {
 
   const handleAssetRequest = async (request: Request) => {
     const url = new URL(request.url);
-    const asset =
-      url.host === ATTACHMENTS_HOST
-        ? { cache: attachmentFilenames, dir: attachmentsDir }
-        : url.host === POKEMON_HOST
-          ? { cache: pokemonFilenames, dir: pokemonDir }
-          : null;
-    if (asset === null) {
+    if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
       return new Response(null, { status: 404 });
     }
 
     // The path is `/<id>`; sanitise to a single segment so a crafted url
-    // like `zuse://attachments/../foo` cannot escape `attachmentsDir`.
+    // like `zuse://attachments/../foo` cannot escape the asset dirs.
     const id = decodeURIComponent(url.pathname.replace(/^\//, ""));
     if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) {
       return new Response(null, { status: 400 });
     }
 
-    let filename: string | null;
-    try {
-      filename = await findAssetFilename(asset.dir, asset.cache, id);
-    } catch {
-      return new Response(null, { status: 404 });
+    let absPath: string | null = null;
+    if (url.host === ATTACHMENTS_HOST) {
+      // Prefer the DB-recorded absolute path (new `.context/files` layout).
+      const fromDb = resolveAttachmentAbsPathFromDb(
+        app.getPath("userData"),
+        id,
+      );
+      if (fromDb !== null && isServableAttachmentPath(attachmentsDir, fromDb)) {
+        absPath = fromDb;
+      } else {
+        // Legacy fallback: scan the flat userData/attachments dir for
+        // pre-migration blobs.
+        try {
+          const filename = await findAssetFilename(
+            attachmentsDir,
+            attachmentFilenames,
+            id,
+          );
+          if (filename) absPath = Path.join(attachmentsDir, filename);
+        } catch {
+          absPath = null;
+        }
+      }
+    } else {
+      try {
+        const filename = await findAssetFilename(
+          pokemonDir,
+          pokemonFilenames,
+          id,
+        );
+        if (filename) absPath = Path.join(pokemonDir, filename);
+      } catch {
+        absPath = null;
+      }
     }
-    if (!filename) return new Response(null, { status: 404 });
 
-    const absPath = Path.join(asset.dir, filename);
-    const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
+    if (absPath === null) return new Response(null, { status: 404 });
+
+    const base = Path.basename(absPath);
+    const ext = base.slice(base.lastIndexOf(".") + 1).toLowerCase();
     const mime = MIME_BY_EXT[ext] ?? "application/octet-stream";
 
     const response = await net.fetch(pathToFileURL(absPath).toString());
@@ -1201,9 +1648,11 @@ void app.whenReady().then(() => {
   // don't build a window or boot the runtime.
   if (!gotSingleInstanceLock) return;
 
-  // Dev only: localhost loopback that catches the WorkOS OAuth callback.
-  // Packaged builds receive it via the `zuse://` deep link instead.
-  if (!app.isPackaged) startAuthLoopback();
+  // Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
+  // It's the redirect_uri for both, so the browser finishes on a real HTML
+  // page and no `zuse://` deep-link handoff/prompt is needed. The scheme
+  // handler stays registered below as a fallback.
+  startAuthLoopback();
 
   // Win/Linux cold launch from a deep link: the URL is an argv entry.
   const initialDeepLink = process.argv.find(isAuthDeepLink);
@@ -1262,7 +1711,75 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+// ---------------------------------------------------------------------------
+// Quit guard. Agents (Claude/Codex/Grok/… turns) run as child processes owned
+// by the embedded server. Quitting mid-turn kills them, so if any are running
+// we confirm first. The renderer store is the source of truth for "how many
+// are running"; it pushes the count here on every change (see preload
+// `updates.reportRunningCount`). We mirror the latest value so the
+// synchronous `before-quit` handler can read it without a round-trip.
+// ---------------------------------------------------------------------------
+let runningAgentCount = 0;
+// Set once the user has confirmed a quit (or an update install begins) so a
+// re-entrant `before-quit` — Electron fires it again after `app.quit()` — does
+// not pop the dialog a second time.
+let quitConfirmed = false;
+// Armed by the dialog's "Quit when idle" choice: keep running, then quit
+// automatically the moment the last agent finishes.
+let quitWhenIdle = false;
+
+ipcMain.on(AGENTS_RUNNING_COUNT_CHANNEL, (_event, payload: unknown) => {
+  runningAgentCount = typeof payload === "number" && payload >= 0 ? payload : 0;
+  if (quitWhenIdle && runningAgentCount === 0) {
+    quitConfirmed = true;
+    app.quit();
+  }
+});
+
+function pluralAgents(count: number): string {
+  return count === 1 ? "1 agent is running" : `${count} agents are running`;
+}
+
+app.on("before-quit", (event) => {
+  // An update-driven quit (user picked "Restart now") or an already-confirmed
+  // quit passes straight through — the user has opted in, and re-prompting
+  // would strand the relaunch.
+  if (quitConfirmed || getIsInstallingUpdate()) return;
+  if (runningAgentCount <= 0) return;
+
+  event.preventDefault();
+
+  const choice = dialog.showMessageBoxSync({
+    type: "warning",
+    buttons: ["Cancel", "Quit anyway", "Quit when idle"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Quit Zuse Alpha?",
+    message: `${pluralAgents(runningAgentCount)} currently.`,
+    detail:
+      "Quitting now will stop them mid-turn. You can quit anyway, or have Zuse quit automatically once they finish.",
+  });
+
+  if (choice === 1) {
+    quitConfirmed = true;
+    app.quit();
+  } else if (choice === 2) {
+    quitWhenIdle = true;
+    // Stay open; the running-count handler quits once the count hits zero.
+    // Guard against the race where every agent already finished between the
+    // count push and this click.
+    if (runningAgentCount === 0) {
+      quitConfirmed = true;
+      app.quit();
+    }
+  }
+  // choice === 0 (Cancel): stay open — quit already prevented.
+});
+
+// Tear down the macOS notch tray once a quit actually proceeds. `will-quit`
+// fires after an un-prevented `before-quit`, so a cancelled quit leaves the
+// tray untouched.
+app.on("will-quit", () => {
   notchTray?.destroy();
   notchTray = null;
 });

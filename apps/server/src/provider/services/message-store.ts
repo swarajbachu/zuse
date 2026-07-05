@@ -17,14 +17,18 @@ import type {
   ComposerInput,
   FileRef,
   FolderId,
+  ForkDestination,
+  ForkMode,
   GoalUnsupportedError,
   Message,
+  MessageContent,
   MessageEnvelope,
   MessageId,
   PermissionMode,
   ProviderId,
   QueueState,
   QueuedMessage,
+  ResumeStrategy,
   RuntimeMode,
   Session,
   SessionAlreadyStartedError,
@@ -99,6 +103,17 @@ export interface CreateSessionInput {
    * timing is preserved.
    */
   readonly background?: boolean;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
+  /**
+   * Fork provenance — set when this session branches from another. Persisted
+   * to the `forked_from_*` columns. `forkFromResume` tells the driver to fork
+   * the resumed transcript (Claude `forkSession` / Codex `thread/fork`)
+   * instead of continuing it, so the source session stays untouched.
+   */
+  readonly forkedFromSessionId?: SessionId | null;
+  readonly forkedFromMessageId?: MessageId | null;
+  readonly forkFromResume?: boolean;
 }
 
 export interface CreateChatInput {
@@ -113,6 +128,30 @@ export interface CreateChatInput {
   readonly enableSubagents?: boolean;
   readonly permissionMode?: PermissionMode;
   readonly toolSearch?: boolean;
+  readonly resumeCursor?: string | null;
+  readonly resumeStrategy?: ResumeStrategy;
+  readonly forkedFromSessionId?: SessionId | null;
+  readonly forkedFromMessageId?: MessageId | null;
+  readonly forkFromResume?: boolean;
+}
+
+/**
+ * A forked branch of an existing conversation. See `SessionForkRpc`.
+ */
+export interface ForkSessionInput {
+  readonly sourceSessionId: SessionId;
+  readonly fromMessageId: MessageId;
+  readonly destination: ForkDestination;
+  readonly providerId?: ProviderId;
+  readonly model?: string;
+  readonly worktreeId?: WorktreeId | null;
+  readonly title?: string;
+}
+
+export interface ForkSessionResult {
+  readonly chat: Chat;
+  readonly session: Session;
+  readonly forkMode: ForkMode;
 }
 
 export interface MessageStoreShape {
@@ -231,6 +270,53 @@ export interface MessageStoreShape {
     },
     SessionStartError
   >;
+
+  readonly continueExternalThread: (
+    input: CreateChatInput & {
+      readonly resumeCursor: string;
+      readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+    },
+  ) => Effect.Effect<
+    {
+      readonly chat: Chat;
+      readonly initialSession: Session;
+    },
+    SessionStartError
+  >;
+
+  readonly importExternalMessages: (
+    sessionId: SessionId,
+    messages: ReadonlyArray<MessageContent>,
+  ) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
+
+  /**
+   * Branch a conversation from a specific message into a new tab (same chat)
+   * or a new sidebar chat. Picks `resume` (real provider memory via
+   * `forkSession` / `thread/fork`) when the fork point is the conversation
+   * tail and the provider supports it, otherwise `copy` (replay the visible
+   * transcript up to the fork message). Records `forked_from_*` on the new
+   * session.
+   */
+  readonly forkSession: (
+    input: ForkSessionInput,
+  ) => Effect.Effect<ForkSessionResult, SessionNotFoundError | SessionStartError>;
+
+  /**
+   * Serialise a session's transcript to Markdown, optionally truncated at
+   * `uptoMessageId` (inclusive). Backs the transcript handoff/attach flows.
+   */
+  readonly exportTranscript: (
+    sessionId: SessionId,
+    uptoMessageId?: MessageId,
+  ) => Effect.Effect<string, SessionNotFoundError>;
+
+  /**
+   * The latest `ExitPlanMode` plan text for a session, or `null` if none.
+   * Backs the "Add plans" chip on a new chat.
+   */
+  readonly latestPlan: (
+    sessionId: SessionId,
+  ) => Effect.Effect<string | null, SessionNotFoundError>;
 
   readonly renameChat: (
     chatId: ChatId,

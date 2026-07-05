@@ -2,11 +2,12 @@ import { Layer } from "effect";
 
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
-import { CodeIndexHandlersLayer } from "./code-index/handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
 import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
+import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
 import { GitHandlersLayer } from "./git/handlers.ts";
+import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
@@ -25,6 +26,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  */
 export const HandlersLayer = Layer.mergeAll(
   PingHandlersLayer,
+  LanAuthHandlersLayer,
   AuthHandlersLayer,
   WorkspaceHandlersLayer,
   PtyHandlersLayer,
@@ -36,8 +38,8 @@ export const HandlersLayer = Layer.mergeAll(
   FsHandlersLayer,
   AttachmentHandlersLayer,
   SkillHandlersLayer,
-  CodeIndexHandlersLayer,
   PokemonHandlersLayer,
   UsageHandlersLayer,
   DiagnosticsHandlersLayer,
+  ExternalThreadHandlersLayer,
 );
