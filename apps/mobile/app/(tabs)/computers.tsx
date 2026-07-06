@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Host, Icon, List, ListItem } from "@expo/ui";
 import { router, Stack } from "expo-router";
 import { Monitor } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
@@ -32,6 +32,13 @@ const AMBER_PULSE = [
 
 const isChecking = (presence: string) =>
   presence !== "online" && presence !== "offline";
+
+const displayError = (text: string): string => {
+  if (text.includes("RelayEnvironmentList")) {
+    return "Relay returned an older computer list. Refresh after the relay finishes updating.";
+  }
+  return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+};
 
 function useAmberPulse(active: boolean) {
   const [step, setStep] = useState(0);
@@ -169,6 +176,7 @@ export default function ComputersScreen() {
     if (connecting === environmentId || isChecking(presence)) return pulseColor;
     return presence === "online" ? LIME : MUTED;
   };
+  const remoteError = error ?? connectError;
 
   if (account === null) {
     return (
@@ -231,7 +239,22 @@ export default function ComputersScreen() {
             </ListItem>
           ))}
 
-          {filteredEnvironments.length === 0 && !loading ? (
+          {remoteError !== null ? (
+            <ListItem
+              leading={
+                <Icon
+                  name="exclamationmark.triangle"
+                  size={22}
+                  color={DANGER}
+                />
+              }
+              supportingText={displayError(remoteError)}
+            >
+              Could not refresh
+            </ListItem>
+          ) : null}
+
+          {filteredEnvironments.length === 0 && !loading && remoteError === null ? (
             <ListItem
               leading={<Icon name="laptopcomputer.slash" size={22} color={MUTED} />}
               supportingText={
@@ -266,17 +289,6 @@ export default function ComputersScreen() {
           </ListItem>
         </List>
       </Host>
-
-      {(error ?? connectError) !== null ? (
-        <View
-          className="absolute inset-x-0 bottom-0 border-t border-border bg-background p-4"
-          pointerEvents="none"
-        >
-          <Text selectable className="font-sans text-[13px] text-danger">
-            {connectError ?? error}
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }

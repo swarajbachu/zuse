@@ -24,8 +24,22 @@ type EnvironmentsState = {
   connect: (environmentId: string) => Promise<string>;
 };
 
-const message = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const message = (cause: unknown): string => {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  if (text.includes("RelayEnvironmentList")) {
+    return "Relay returned an older computer list. Refresh after the relay finishes updating.";
+  }
+  if (text.startsWith("relay_list_")) {
+    return "Could not load your computers from the relay.";
+  }
+  if (text.startsWith("relay_status_")) {
+    return "Could not check computer presence.";
+  }
+  if (text.startsWith("relay_connect_")) {
+    return "Could not connect to that computer.";
+  }
+  return text;
+};
 
 export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
   environments: [],
