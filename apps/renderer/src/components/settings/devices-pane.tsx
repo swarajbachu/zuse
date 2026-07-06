@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { AdvertisedEndpoint, RelayLinkStatus } from "@zuse/wire";
 
@@ -98,6 +98,7 @@ export function DevicesPane() {
     () => readEndpointOverride(),
   );
   const [endpointsOpen, setEndpointsOpen] = useState(false);
+  const actionInFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -118,6 +119,10 @@ export function DevicesPane() {
   }, [refresh]);
 
   const onConnect = useCallback(async () => {
+    if (actionInFlightRef.current) {
+      return;
+    }
+    actionInFlightRef.current = true;
     setBusy(true);
     try {
       const client = await getRpcClient();
@@ -131,11 +136,16 @@ export function DevicesPane() {
     } catch (cause) {
       showRelayErrorToast("Could not connect this Mac", cause);
     } finally {
+      actionInFlightRef.current = false;
       setBusy(false);
     }
   }, [label]);
 
   const onUnlink = useCallback(async () => {
+    if (actionInFlightRef.current) {
+      return;
+    }
+    actionInFlightRef.current = true;
     setBusy(true);
     try {
       const client = await getRpcClient();
@@ -144,6 +154,7 @@ export function DevicesPane() {
     } catch (cause) {
       showRelayErrorToast("Could not unlink this Mac", cause);
     } finally {
+      actionInFlightRef.current = false;
       setBusy(false);
     }
   }, [refresh]);
