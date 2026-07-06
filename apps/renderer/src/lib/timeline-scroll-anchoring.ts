@@ -11,6 +11,12 @@ export interface TimelineListMeasurementState {
   readonly sizeAtIndex: (index: number) => number | undefined;
 }
 
+export interface TimelineScrollableNodeState {
+  readonly scrollTop: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+}
+
 export interface AnchoredTurnMetrics {
   readonly anchorTop: number;
   readonly lastBottom: number;
@@ -59,6 +65,23 @@ export function shouldRestoreAnchorScrollOffset({
     expectedUserNavigationGeneration === currentUserNavigationGeneration &&
     Math.abs(currentOffset - expectedOffset) <= tolerance
   );
+}
+
+export function resolveScrollableNodeIsAtEnd(
+  node: TimelineScrollableNodeState | null | undefined,
+  threshold = 24,
+): boolean | undefined {
+  if (node === null || node === undefined) return undefined;
+  const { scrollTop, scrollHeight, clientHeight } = node;
+  if (
+    !Number.isFinite(scrollTop) ||
+    !Number.isFinite(scrollHeight) ||
+    !Number.isFinite(clientHeight)
+  ) {
+    return undefined;
+  }
+
+  return scrollHeight - scrollTop - clientHeight <= threshold;
 }
 
 export function getRowBottom(

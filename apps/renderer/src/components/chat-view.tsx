@@ -31,6 +31,7 @@ import {
 } from "../lib/chat-timeline-rows.ts";
 import {
   getAnchoredTurnMetrics,
+  resolveScrollableNodeIsAtEnd,
   shouldDeferAutomaticEndScroll,
   shouldRestoreAnchorScrollOffset,
   type TimelineScrollMode,
@@ -219,6 +220,18 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }, 150);
   }, []);
 
+  const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
+    const scrollNode = listRef.current?.getScrollableNode();
+    const isAtEnd = resolveScrollableNodeIsAtEnd(scrollNode);
+    if (isAtEnd === false) {
+      isAtEndRef.current = false;
+      showJumpPillSoon();
+    } else if (isAtEnd === true) {
+      isAtEndRef.current = true;
+      hideJumpPill();
+    }
+  }, [hideJumpPill, showJumpPillSoon]);
+
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
     userNavigationGenerationRef.current += 1;
     timelineScrollModeRef.current = "free-scrolling";
@@ -233,7 +246,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       anchorScrollRestoreFrameRef.current = null;
     }
     setTimelineAnchorMessageId(null);
-  }, []);
+    requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
+  }, [showJumpPillIfScrollNodeLeftEnd]);
 
   const scrollToEnd = useCallback(
     (animated = false) => {
@@ -420,7 +434,10 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   }, [timelineAnchorMessageId]);
 
   const handleScroll = useCallback(() => {
-    const isAtEnd = resolveTimelineIsAtEnd(listRef.current?.getState());
+    const list = listRef.current;
+    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
+    const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
+    const isAtEnd = nodeAtEnd ?? stateAtEnd;
     if (isAtEnd === undefined) return;
 
     if (

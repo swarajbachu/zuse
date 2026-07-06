@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   getAnchoredTurnMetrics,
   getRowBottom,
+  resolveScrollableNodeIsAtEnd,
   shouldDeferAutomaticEndScroll,
   shouldRestoreAnchorScrollOffset,
 } from "../src/lib/timeline-scroll-anchoring.ts";
@@ -188,5 +189,25 @@ describe("timeline scroll anchoring", () => {
         currentUserNavigationGeneration: 3,
       }),
     ).toBe(false);
+  });
+
+  it("detects whether the actual scroll node has left the live edge", () => {
+    expect(
+      resolveScrollableNodeIsAtEnd({
+        scrollTop: 960,
+        scrollHeight: 1400,
+        clientHeight: 420,
+      }),
+    ).toBe(true);
+
+    expect(
+      resolveScrollableNodeIsAtEnd({
+        scrollTop: 820,
+        scrollHeight: 1400,
+        clientHeight: 420,
+      }),
+    ).toBe(false);
+
+    expect(resolveScrollableNodeIsAtEnd(null)).toBeUndefined();
   });
 });
