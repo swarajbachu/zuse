@@ -673,22 +673,19 @@ function ProjectGroup({
 
   return (
     <Fragment>
-      {/* Project header — clicking it toggles expansion + selects the folder.
-          Intentionally not highlighted; the active row is the selected
-          session, not the project. */}
+      {/* Project header toggles expansion only. Explicit actions below select
+          the project when they need project context. */}
       <li>
         <div
           role="button"
           tabIndex={0}
           onContextMenu={onContextMenu}
           onClick={() => {
-            onSelect();
             onToggleExpanded();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              onSelect();
               onToggleExpanded();
             }
           }}
