@@ -1,40 +1,60 @@
 import type { SessionId } from "@zuse/wire";
 import { Effect } from "effect";
-import { Send, Square } from "lucide-react-native";
+import { CloudOff, Send, Square } from "lucide-react-native";
 import { useState } from "react";
-import { ActivityIndicator, TextInput, View } from "react-native";
+import { ActivityIndicator, Text, TextInput, View } from "react-native";
 
 import { interruptSession, makeTextInput, sendMessage } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { useMobileMessagesStore } from "~/store/messages";
+import { useOutboxStore } from "~/store/outbox";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
 
-export const ComposerStub = ({
+export const Composer = ({
+  connKey,
   connection,
   sessionId,
-  bottomInset = 0,
+  bottomInset = 0
 }: {
+  connKey: string;
   connection: WsProtocolOptions;
   sessionId: SessionId;
   bottomInset?: number;
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Offline = the message stream is retrying or has surfaced an error. Sends
+  // made in this state are queued instead of dropped.
+  const online = useMobileMessagesStore(
+    (state) =>
+      state.reconnectingBySession[sessionId] !== true &&
+      (state.errorBySession[sessionId] ?? null) === null
+  );
+  const queuedCount = useOutboxStore(
+    (state) => (state.queuedBySession[sessionId] ?? []).length
+  );
+  const enqueue = useOutboxStore((state) => state.enqueue);
+
   const canSend = text.trim().length > 0 && !busy;
 
   const submit = async () => {
     if (!canSend) return;
     const value = text.trim();
     setText("");
+    if (!online) {
+      await enqueue(connKey, sessionId, value);
+      return;
+    }
     setBusy(true);
     try {
       await Effect.runPromise(
-        sendMessage({
-          connection,
-          sessionId,
-          input: makeTextInput(value),
-        })
+        sendMessage({ connection, sessionId, input: makeTextInput(value) })
       );
+    } catch {
+      // Lost the connection mid-send — keep the text safe in the outbox.
+      await enqueue(connKey, sessionId, value);
     } finally {
       setBusy(false);
     }
@@ -54,6 +74,14 @@ export const ComposerStub = ({
       className="border-t border-border px-3 pt-3"
       style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
     >
+      {queuedCount > 0 ? (
+        <View className="mb-2 flex-row items-center gap-1.5 px-1">
+          <CloudOff size={13} color="hsl(42 93% 56%)" />
+          <Text className="font-sans-medium text-xs text-warning">
+            {queuedCount} queued · will send when reconnected
+          </Text>
+        </View>
+      ) : null}
       <GlassSurface
         style={{
           flexDirection: "row",
@@ -65,19 +93,21 @@ export const ComposerStub = ({
         <TextInput
           className="min-h-10 flex-1 px-2 py-2 font-sans text-[17px] text-foreground"
           multiline
-          placeholder="Message"
+          placeholder={online ? "Message" : "Offline · message will queue"}
           placeholderTextColor="hsl(72 4% 56%)"
           value={text}
           onChangeText={setText}
         />
-        <Button variant="secondary" disabled={busy} onPress={interrupt}>
+        <Button variant="secondary" disabled={busy || !online} onPress={interrupt}>
           <Square size={16} color="hsl(72 4% 92%)" />
         </Button>
-        <Button disabled={!canSend} onPress={submit}>
+        <Button variant={online ? "primary" : "secondary"} disabled={!canSend} onPress={submit}>
           {busy ? (
             <ActivityIndicator color="hsl(72 4% 8%)" />
-          ) : (
+          ) : online ? (
             <Send size={16} color="hsl(72 4% 8%)" />
+          ) : (
+            <CloudOff size={16} color="hsl(72 4% 92%)" />
           )}
         </Button>
       </GlassSurface>
