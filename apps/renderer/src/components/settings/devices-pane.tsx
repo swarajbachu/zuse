@@ -19,7 +19,6 @@ import {
 } from "../ui/collapsible.tsx";
 import {
   Frame,
-  FrameDescription,
   FrameFooter,
   FrameHeader,
   FramePanel,
@@ -162,37 +161,33 @@ export function DevicesPane() {
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
       {linked ? (
         <Frame>
-          <FrameHeader className="flex-row items-start justify-between gap-3 px-3 py-2.5">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span
-                  className={
-                    status?.heartbeatActive === true
-                      ? "size-2 rounded-full bg-emerald-500"
-                      : "size-2 rounded-full bg-muted-foreground/40"
-                  }
-                  aria-hidden
-                />
-                <FrameTitle className="truncate">
-                  {status?.label ?? "This Mac"}
-                </FrameTitle>
-              </div>
-              <FrameDescription className="mt-1 truncate text-xs">
-                {status?.heartbeatActive === true ? "Online" : "Idle"} · Linked
-                to your account
-              </FrameDescription>
-            </div>
+          <FrameHeader className="flex-row items-center gap-2 px-3 py-2.5">
+            <span
+              className={
+                status?.heartbeatActive === true
+                  ? "size-2 rounded-full bg-emerald-500"
+                  : "size-2 rounded-full bg-muted-foreground/40"
+              }
+              aria-hidden
+            />
+            <FrameTitle className="truncate">
+              {status?.label ?? "This Mac"}
+            </FrameTitle>
           </FrameHeader>
-          {selectedEndpoint !== null && (
-            <FramePanel className="p-3">
+          <FramePanel className="space-y-3 p-3">
+            <p className="text-xs text-muted-foreground">
+              {status?.heartbeatActive === true ? "Online" : "Idle"} · Linked to
+              your account
+            </p>
+            {selectedEndpoint !== null && (
               <EndpointSummary endpoint={selectedEndpoint} />
-            </FramePanel>
-          )}
-          <FrameFooter className="flex items-center justify-between gap-3 px-3 py-2.5">
-            <p className="min-w-0 text-xs text-muted-foreground">
+            )}
+            <p className="text-xs text-muted-foreground">
               This Mac is reachable from your phone after you sign in to the
               same account there.
             </p>
+          </FramePanel>
+          <FrameFooter className="flex justify-end px-3 py-2.5">
             <Button
               variant="destructive"
               className="min-w-20"
@@ -207,11 +202,11 @@ export function DevicesPane() {
         <Frame>
           <FrameHeader className="px-3 py-2.5">
             <FrameTitle>This Mac</FrameTitle>
-            <FrameDescription className="mt-1">
-              Link this Mac to your account so it shows up on your phone.
-            </FrameDescription>
           </FrameHeader>
-          <FramePanel className="p-3">
+          <FramePanel className="space-y-3 p-3">
+            <p className="text-sm text-muted-foreground">
+              Link this Mac to your account so it shows up on your phone.
+            </p>
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium text-foreground">
                 Name (optional)
@@ -236,13 +231,7 @@ export function DevicesPane() {
           <Frame>
             <FrameHeader className="px-3 py-2.5">
               <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
-                <div>
-                  <FrameTitle>All endpoints</FrameTitle>
-                  <FrameDescription className="mt-1 text-xs">
-                    {advertisedEndpoints.length} advertised route
-                    {advertisedEndpoints.length === 1 ? "" : "s"}
-                  </FrameDescription>
-                </div>
+                <FrameTitle>All endpoints</FrameTitle>
                 <ChevronDown
                   className={
                     endpointsOpen
@@ -255,6 +244,10 @@ export function DevicesPane() {
             </FrameHeader>
             <CollapsibleContent>
               <FramePanel className="p-3">
+                <div className="mb-2 text-xs text-muted-foreground">
+                  {advertisedEndpoints.length} advertised route
+                  {advertisedEndpoints.length === 1 ? "" : "s"}
+                </div>
                 <div className="flex flex-col gap-2">
                   {advertisedEndpoints.map((endpoint) => {
                     const selected = selectedEndpoint?.id === endpoint.id;
