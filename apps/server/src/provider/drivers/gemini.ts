@@ -28,6 +28,7 @@ import {
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
+import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live-only handle for one Gemini conversation. Mirrors the Grok/Codex/Claude
@@ -273,6 +274,7 @@ export const startGeminiSession = (
     let nextRpcId = 1;
     let closed = false;
     let inflight: Promise<void> = Promise.resolve();
+    let workspaceInstructionsPending = input.workspaceInstructions;
     const pending = new Map<number, PendingResolver>();
     let stderrTail = "";
     let stdoutNoiseTail = "";
@@ -673,7 +675,14 @@ export const startGeminiSession = (
       const promptText =
         compactSnapshot !== null
           ? text.trim()
-          : applyPlanModePrefix(currentMode, text);
+          : applyPlanModePrefix(
+              currentMode,
+              prefixFirstPromptWithWorkspaceInstructions(
+                workspaceInstructionsPending,
+                text,
+              ),
+            );
+      if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       inflight = inflight
         .then(async () => {
           if (closed) return;

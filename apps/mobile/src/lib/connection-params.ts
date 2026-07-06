@@ -13,6 +13,9 @@ export const optionsForConnection = (
   key: string,
   connections: ConnectionRecord[]
 ): WsProtocolOptions => {
-  const existing = connections.find((connection) => connection.key === key);
+  const existing = connections.find(
+    (connection) =>
+      connection.key === key || connection.environmentId === key
+  );
   return existing ?? parseConnectionKey(key);
 };

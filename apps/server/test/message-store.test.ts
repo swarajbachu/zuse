@@ -174,6 +174,11 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
         worktreeBaseDir: null,
         archiveCleanupScript: null,
         archiveRemoveWorktree: false,
+        setupScript: null,
+        runScript: null,
+        autoRunAfterSetup: false,
+        environmentVariables: {},
+        fileIncludeGlobs: "",
       }),
     ),
   update: (projectId, patch) =>
@@ -187,6 +192,11 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
         worktreeBaseDir: patch.worktreeBaseDir ?? null,
         archiveCleanupScript: patch.archiveCleanupScript ?? null,
         archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
+        setupScript: patch.setupScript ?? null,
+        runScript: patch.runScript ?? null,
+        autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
+        environmentVariables: patch.environmentVariables ?? {},
+        fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
       }),
     ),
 });
@@ -1272,7 +1282,9 @@ describe("MessageStore — fork & transcript export", () => {
         ),
       );
       const md = await run(
-        Effect.flatMap(store, (s) => s.exportTranscript(chat.initialSession.id)),
+        Effect.flatMap(store, (s) =>
+          s.exportTranscript(chat.initialSession.id),
+        ),
       );
       expect(md).toContain("## User");
       expect(md).toContain("fix the bug");
@@ -1391,7 +1403,9 @@ describe("MessageStore — fork & transcript export", () => {
       );
       const sourceId = chat.initialSession.id;
       // Add a user message so there is a tail to fork from.
-      await run(Effect.flatMap(store, (s) => s.sendMessage(sourceId, "keep going")));
+      await run(
+        Effect.flatMap(store, (s) => s.sendMessage(sourceId, "keep going")),
+      );
       const messages = await run(
         Effect.flatMap(store, (s) => s.listMessages(sourceId)),
       );

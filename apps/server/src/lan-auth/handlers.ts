@@ -72,9 +72,42 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
   ),
 );
 
+const ConnectLinkProof = MemoizeRpcs.toLayerHandler(
+  "connect.linkProof",
+  (input) =>
+    Effect.gen(function* () {
+      const auth = yield* LanAuthService;
+      return yield* auth.linkProof(input);
+    }).pipe(
+      Effect.mapError((error) =>
+        new ConnectAuthError({
+          reason: error instanceof Error ? error.message : "link_proof_failed",
+        }),
+      ),
+    ),
+);
+
+const ConnectRelayConfig = MemoizeRpcs.toLayerHandler(
+  "connect.relayConfig",
+  (input) =>
+    Effect.gen(function* () {
+      const auth = yield* LanAuthService;
+      yield* auth.saveRelayConfig(input);
+    }).pipe(
+      Effect.mapError((error) =>
+        new ConnectAuthError({
+          reason:
+            error instanceof Error ? error.message : "relay_config_failed",
+        }),
+      ),
+    ),
+);
+
 export const LanAuthHandlersLayer = Layer.mergeAll(
   PairingStart,
   PairingListTokens,
   PairingRevokeToken,
   ConnectDescribe,
+  ConnectLinkProof,
+  ConnectRelayConfig,
 );

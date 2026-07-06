@@ -3,6 +3,26 @@ import * as path from "node:path";
 
 const CONTEXT_IGNORE_ENTRY = ".context";
 const SQLITE_SUFFIXES = [".sqlite", ".sqlite-shm", ".sqlite-wal"] as const;
+const DEFAULT_SETTINGS_TOML = `# Zuse repository settings. Commit this file to share setup with your team.
+# Add files below that should be linked from the main checkout into every Zuse worktree.
+schemaVersion = 1
+autoCreateWorktree = false
+archiveRemoveWorktree = false
+
+file_include_globs = [
+  ".env",
+  ".env.local",
+  ".env.*.local",
+]
+
+[scripts]
+setup = ""
+run = ""
+archive = ""
+auto_run_after_setup = false
+
+[environment_variables]
+`;
 
 const hasContextIgnore = (content: string): boolean =>
   content
@@ -58,10 +78,24 @@ const removeSqliteArtifacts = async (dir: string): Promise<void> => {
   );
 };
 
+const ensureRepositorySettings = async (root: string): Promise<void> => {
+  const zuseDir = path.join(root, ".zuse");
+  const settingsPath = path.join(zuseDir, "settings.toml");
+  try {
+    await fs.access(settingsPath);
+    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  await fs.mkdir(zuseDir, { recursive: true });
+  await fs.writeFile(settingsPath, DEFAULT_SETTINGS_TOML, "utf8");
+};
+
 export const prepareProjectRegistration = async (
   root: string,
 ): Promise<void> => {
   await ensureContextGitignore(root);
+  await ensureRepositorySettings(root);
   await Promise.all([
     removeSqliteArtifacts(path.join(root, ".zuse")),
     removeSqliteArtifacts(path.join(root, ".memoize")),

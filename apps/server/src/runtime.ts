@@ -16,6 +16,7 @@ import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
   LanAuthConfig,
@@ -153,8 +154,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   const PtyLayer = PtyServiceLive;
 
-  // Global settings + user keybindings live in JSON files under userData
-  // (Electron's `app.getPath("userData")`). Watched for external hand-edits.
+  // Global settings + user keybindings live in user-editable JSON files under
+  // ~/.zuse (or ~/.zuse-dev for dev builds), with one-time migration from
+  // Electron userData. Watched for external hand-edits.
   const ConfigStoreLayer = ConfigStoreServiceLive.pipe(
     Layer.provide(AppPathsLayer),
     Layer.provide(NodeContext.layer),
@@ -224,6 +226,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
+    // OpenCode session-start reads `opencodeCustomProviders` from settings to
+    // inject user-defined providers into `opencode serve`.
+    Layer.provide(ConfigStoreLayer),
     Layer.provide(NodeContext.layer),
   );
 
@@ -260,8 +265,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(WorktreeLayer),
     Layer.provide(RepositorySettingsLayer),
     Layer.provide(PtyLayer),
-    // GitService + ConfigStore + TitleGenerator back the first-message
-    // auto-namer (rename chat + branch); see message-store `autoNameChat`.
+    // GitService + ConfigStore + TitleGenerator back the background auto-namer
+    // (rename chat + optional branch); see message-store `autoNameChat`.
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
@@ -312,6 +317,16 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthConfigLayer),
   );
 
+  // RelayLinkService orchestrates the desktop's self-registration with the
+  // account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
+  // reuses the environment identity (LanAuthService) and the WorkOS token
+  // (AuthService); the renderer's Devices pane drives it via relay.* RPCs.
+  const RelayLinkLayer = RelayLinkServiceLive.pipe(
+    Layer.provide(LanAuthLayer),
+    Layer.provide(LanAuthConfigLayer),
+    Layer.provide(AuthLayer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
@@ -344,6 +359,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     SkillBridgeLayer,
     DiagnosticsLayer,
     LanAuthLayer,
+    RelayLinkLayer,
     ExternalThreadLayer,
     FolderPickerLayer,
   );

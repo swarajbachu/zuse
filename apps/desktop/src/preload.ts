@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import {
+  AGENTS_RUNNING_COUNT_CHANNEL,
   IPC_CHANNEL,
   UPDATE_CHECK_CHANNEL,
   UPDATE_DOWNLOAD_CHANNEL,
@@ -99,6 +100,74 @@ const bridge = {
         defaultPrompt?: string;
       } | null>,
   },
+  notch: {
+    setItems: (items: unknown) => {
+      ipcRenderer.send("notch:setItems", items);
+    },
+    setEnabled: (enabled: boolean) => {
+      ipcRenderer.send("notch:setEnabled", enabled);
+    },
+    setPinned: (pinned: boolean) => {
+      ipcRenderer.send("notch:setPinned", pinned);
+    },
+    setExpanded: (expanded: boolean) => {
+      ipcRenderer.send("notch:setExpanded", expanded);
+    },
+    openChat: (chatId: string, sessionId: string) => {
+      ipcRenderer.send("notch:openChat", chatId, sessionId);
+    },
+    getDisplaySupport: () =>
+      ipcRenderer.invoke("notch:getDisplaySupport") as Promise<{
+        readonly supported: boolean;
+        readonly reason: "supported" | "not-macos" | "no-notched-display";
+      }>,
+    onDisplaySupportChanged: (
+      handler: (support: {
+        readonly supported: boolean;
+        readonly reason: "supported" | "not-macos" | "no-notched-display";
+      }) => void,
+    ) => {
+      const wrapped = (
+        _event: IpcRendererEvent,
+        support: {
+          readonly supported: boolean;
+          readonly reason: "supported" | "not-macos" | "no-notched-display";
+        },
+      ) => handler(support);
+      ipcRenderer.on("notch:display-support", wrapped);
+      return () => {
+        ipcRenderer.off("notch:display-support", wrapped);
+      };
+    },
+    onItems: (handler: (items: unknown) => void) => {
+      const wrapped = (_event: IpcRendererEvent, items: unknown) =>
+        handler(items);
+      ipcRenderer.on("notch:items", wrapped);
+      return () => {
+        ipcRenderer.off("notch:items", wrapped);
+      };
+    },
+    onPinned: (handler: (pinned: boolean) => void) => {
+      const wrapped = (_event: IpcRendererEvent, pinned: boolean) =>
+        handler(pinned);
+      ipcRenderer.on("notch:pinned", wrapped);
+      return () => {
+        ipcRenderer.off("notch:pinned", wrapped);
+      };
+    },
+    onOpenChat: (
+      handler: (target: { chatId: string; sessionId: string }) => void,
+    ) => {
+      const wrapped = (
+        _event: IpcRendererEvent,
+        target: { chatId: string; sessionId: string },
+      ) => handler(target);
+      ipcRenderer.on("notch:openChat", wrapped);
+      return () => {
+        ipcRenderer.off("notch:openChat", wrapped);
+      };
+    },
+  },
   app: {
     openExternal: (url: string) => {
       ipcRenderer.send("app:openExternal", url);
@@ -131,6 +200,12 @@ const bridge = {
         }>
       >,
   },
+  ssh: {
+    listHosts: () =>
+      ipcRenderer.invoke("ssh:listHosts") as Promise<ReadonlyArray<string>>,
+    ensureEnvironment: (host: string) =>
+      ipcRenderer.invoke("ssh:ensureEnvironment", host) as Promise<unknown>,
+  },
   updates: {
     onStatus: (handler: (status: UpdateStatus) => void) => {
       const wrapped = (_event: IpcRendererEvent, status: UpdateStatus) =>
@@ -145,6 +220,14 @@ const bridge = {
       ipcRenderer.invoke(UPDATE_DOWNLOAD_CHANNEL) as Promise<void>,
     installNow: () =>
       ipcRenderer.invoke(UPDATE_INSTALL_CHANNEL) as Promise<void>,
+    /**
+     * Push the current running-agent count to main so the `before-quit` guard
+     * and the "quit/restart when idle" deferrals have a fresh value. Fire on
+     * every change (and once on mount). Renderer store is the source of truth.
+     */
+    reportRunningCount: (count: number) => {
+      ipcRenderer.send(AGENTS_RUNNING_COUNT_CHANNEL, count);
+    },
     // Dev-only escape hatch: only handled in dev (see updater.ts
     // `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
     __demoSet: (status: UpdateStatus) =>

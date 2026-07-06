@@ -7,8 +7,13 @@ import {
 import { CommandExecutor } from "@effect/platform";
 import { Effect, Layer, Stream } from "effect";
 
+import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
-import { loadOpencodeInventory } from "./drivers/opencode.ts";
+import {
+  loadOpencodeInventory,
+  removeOpencodeProviderAuth,
+  setOpencodeProviderAuth,
+} from "./drivers/opencode.ts";
 import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
 import { startProviderLogin } from "./services/login-service.ts";
@@ -102,17 +107,97 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
   "agent.opencodeInventory",
   () =>
     Effect.gen(function* () {
-      const opencodePath = yield* resolveCliPath("opencode");
-      if (opencodePath === null) {
-        return yield* Effect.fail(
-          new AgentSessionStartError({
-            providerId: "opencode",
-            reason:
-              "OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
-          }),
-        );
-      }
-      return yield* loadOpencodeInventory(opencodePath, process.cwd());
+      const opencodePath = yield* requireOpencodePath();
+      const settings = yield* ConfigStoreService.pipe(
+        Effect.flatMap((cs) => cs.getSettings()),
+      );
+      return yield* loadOpencodeInventory(
+        opencodePath,
+        process.cwd(),
+        settings.opencodeCustomProviders,
+      );
+    }),
+);
+
+// ---------------------------------------------------------------------------
+// OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
+// credentials through to opencode's own `auth.json` (so terminal opencode sees
+// them too); custom-provider *shapes* are persisted to our settings.json
+// (`opencodeCustomProviders`) and injected into every `opencode serve` spawn.
+// ---------------------------------------------------------------------------
+
+const requireOpencodePath = (): Effect.Effect<
+  string,
+  AgentSessionStartError,
+  CommandExecutor.CommandExecutor
+> =>
+  Effect.gen(function* () {
+    const opencodePath = yield* resolveCliPath("opencode");
+    if (opencodePath === null) {
+      return yield* Effect.fail(
+        new AgentSessionStartError({
+          providerId: "opencode",
+          reason:
+            "OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
+        }),
+      );
+    }
+    return opencodePath;
+  });
+
+const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeSetProviderAuth",
+  ({ providerId, apiKey }) =>
+    Effect.gen(function* () {
+      const opencodePath = yield* requireOpencodePath();
+      yield* setOpencodeProviderAuth(
+        opencodePath,
+        process.cwd(),
+        providerId,
+        apiKey,
+      );
+    }),
+);
+
+const OpencodeRemoveProviderAuth = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeRemoveProviderAuth",
+  ({ providerId }) => removeOpencodeProviderAuth(providerId),
+);
+
+const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeAddCustomProvider",
+  ({ id, name, baseURL, npm, apiKey, models }) =>
+    Effect.gen(function* () {
+      const opencodePath = yield* requireOpencodePath();
+      const configStore = yield* ConfigStoreService;
+      // Write the key through to opencode's auth.json first — if that fails we
+      // don't want an orphaned provider def with no credential.
+      yield* setOpencodeProviderAuth(opencodePath, process.cwd(), id, apiKey);
+      const settings = yield* configStore.getSettings();
+      const others = settings.opencodeCustomProviders.filter(
+        (p) => p.id !== id,
+      );
+      yield* configStore.updateSettings({
+        opencodeCustomProviders: [
+          ...others,
+          { id, name, baseURL, npm, models: [...models] },
+        ],
+      });
+    }),
+);
+
+const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeRemoveCustomProvider",
+  ({ id }) =>
+    Effect.gen(function* () {
+      const configStore = yield* ConfigStoreService;
+      yield* removeOpencodeProviderAuth(id);
+      const settings = yield* configStore.getSettings();
+      yield* configStore.updateSettings({
+        opencodeCustomProviders: settings.opencodeCustomProviders.filter(
+          (p) => p.id !== id,
+        ),
+      });
     }),
 );
 
@@ -601,6 +686,10 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   StartLogin,
   UpdateProvider,
   OpencodeInventory,
+  OpencodeSetProviderAuth,
+  OpencodeRemoveProviderAuth,
+  OpencodeAddCustomProvider,
+  OpencodeRemoveCustomProvider,
   SessionList,
   SessionGet,
   SessionCreate,

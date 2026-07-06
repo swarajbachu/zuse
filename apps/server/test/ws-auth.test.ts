@@ -14,6 +14,7 @@ import {
 } from "../src/lan-auth/services/lan-auth-service.ts";
 import type { LanAuthPolicy } from "../src/lan-auth/policy.ts";
 import { Migration0021AuthTokens } from "../src/persistence/migrations/0021_auth_tokens.ts";
+import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0024_remote_connect_state.ts";
 import { wsServerProtocolLayer } from "../src/transports/ws.ts";
 
 const TestRpcs = RpcGroup.make(PingRpc);
@@ -43,7 +44,9 @@ const makeRuntime = (opts: {
   readonly pairingBootstrap?: boolean;
 }) => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
-  const Migrated = Layer.effectDiscard(Migration0021AuthTokens).pipe(
+  const Migrated = Layer.effectDiscard(
+    Migration0021AuthTokens.pipe(Effect.zipRight(Migration0024RemoteConnectState)),
+  ).pipe(
     Layer.provideMerge(SqlLive),
   );
   const ConfigLive = Layer.succeed(LanAuthConfig, {

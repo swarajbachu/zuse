@@ -11,9 +11,8 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { RefreshCw as RefreshIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type {
-  AgentItemId,
   AttachmentRef,
   CodeAnnotation,
   FileRef,
@@ -21,7 +20,6 @@ import type {
   ProviderId,
   SessionId,
   SkillRef,
-  UserQuestionAnswer,
 } from "@zuse/wire";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
@@ -38,6 +36,7 @@ import { useUiStore } from "~/store/ui";
 
 import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
@@ -49,10 +48,12 @@ import {
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
-export interface ToolResultRecord {
-  readonly output: unknown;
-  readonly isError: boolean;
-}
+export type { ToolResultRecord } from "./chat-lookups.tsx";
+
+type MessageContent<Tag extends Message["content"]["_tag"]> = Extract<
+  Message["content"],
+  { readonly _tag: Tag }
+>;
 
 const stringifyJson = (value: unknown): string => {
   try {
@@ -107,19 +108,14 @@ const formatCompactTokenDelta = (
  * than `role` because role collapses tool_use and assistant text into one
  * bucket, but their visual treatment differs.
  *
- * `resultsByItemId` lets `tool_use` rows render their paired `tool_result`
- * inline. Standalone `tool_result` rows are suppressed when they pair with
- * a tool_use; only orphan errors fall through to the standalone error row.
+ * Tool and user-question pairing data lives in ChatLookups context so settled
+ * text rows can be memoized without receiving fresh lookup-map props.
  */
-export function MessageRow({
+function MessageRowImpl({
   message,
-  resultsByItemId,
-  answersByItemId,
   sessionId,
 }: {
   message: Message;
-  resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
-  answersByItemId?: ReadonlyMap<AgentItemId, ReadonlyArray<UserQuestionAnswer>>;
   sessionId?: SessionId;
 }) {
   switch (message.content._tag) {
@@ -153,42 +149,11 @@ export function MessageRow({
         />
       );
     case "tool_use":
-      if (message.content.tool === "ExitPlanMode") {
-        return (
-          <ExitPlanModeRow
-            input={message.content.input}
-            result={resultsByItemId.get(message.content.itemId)}
-          />
-        );
-      }
-      return (
-        <ToolRow
-          tool={message.content.tool}
-          input={message.content.input}
-          result={resultsByItemId.get(message.content.itemId)}
-        />
-      );
-    case "tool_result": {
-      // Suppress paired results — the matching ToolRow renders them inline.
-      // Only orphan errors (no tool_use found, e.g. driver dropped the use
-      // event) surface as a standalone error row.
-      const paired = resultsByItemId.has(message.content.itemId);
-      if (paired) return null;
-      return message.content.isError ? (
-        <ToolErrorRow output={message.content.output} />
-      ) : null;
-    }
-    case "user_question": {
-      // Pending questions live in the composer slot — ChatComposer swaps the
-      // editor for a QuestionCard. Once answered, the question + the user's
-      // selections render here as a `UserInputRow` accordion so the Q&A
-      // stays visible in scrollback like every other tool call.
-      const answers = answersByItemId?.get(message.content.itemId);
-      if (answers === undefined) return null;
-      return (
-        <UserInputRow questions={message.content.questions} answers={answers} />
-      );
-    }
+      return <ToolUseMessageRow content={message.content} />;
+    case "tool_result":
+      return <ToolResultMessageRow content={message.content} />;
+    case "user_question":
+      return <UserQuestionMessageRow content={message.content} />;
     case "user_question_answer":
       // The paired `user_question` row above renders the answer inline, so
       // the standalone answer row is suppressed.
@@ -233,6 +198,51 @@ export function MessageRow({
         </div>
       );
   }
+}
+
+export const MessageRow = memo(MessageRowImpl);
+MessageRow.displayName = "MessageRow";
+
+function ToolUseMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_use">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  const result = resultsByItemId.get(content.itemId);
+  if (content.tool === "ExitPlanMode") {
+    return <ExitPlanModeRow input={content.input} result={result} />;
+  }
+  return <ToolRow tool={content.tool} input={content.input} result={result} />;
+}
+
+function ToolResultMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_result">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  // Suppress paired results — the matching ToolRow renders them inline.
+  // Only orphan errors (no tool_use found, e.g. driver dropped the use
+  // event) surface as a standalone error row.
+  const paired = resultsByItemId.has(content.itemId);
+  if (paired) return null;
+  return content.isError ? <ToolErrorRow output={content.output} /> : null;
+}
+
+function UserQuestionMessageRow({
+  content,
+}: {
+  content: MessageContent<"user_question">;
+}) {
+  const { answersByItemId } = useChatLookups();
+  // Pending questions live in the composer slot — ChatComposer swaps the
+  // editor for a QuestionCard. Once answered, the question + the user's
+  // selections render here as a `UserInputRow` accordion so the Q&A
+  // stays visible in scrollback like every other tool call.
+  const answers = answersByItemId.get(content.itemId);
+  if (answers === undefined) return null;
+  return <UserInputRow questions={content.questions} answers={answers} />;
 }
 
 function CompactRow({
@@ -475,7 +485,7 @@ function AssistantBubble({
 }) {
   return (
     <div className="px-4 py-2">
-      <div className="max-w-[88%]">
+      <div className="max-w-full">
         <MarkdownBody>{text}</MarkdownBody>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {createdAt !== undefined ? (

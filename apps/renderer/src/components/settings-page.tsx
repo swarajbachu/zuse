@@ -11,6 +11,7 @@ import {
   KeyboardIcon,
   PackageIcon,
   Settings01Icon,
+  SmartPhone01Icon,
   TaskDone01Icon,
   TestTubeIcon,
   Tick01Icon,
@@ -59,6 +60,7 @@ import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
+import { DevicesPane } from "./settings/devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
@@ -111,6 +113,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "workspace" },
   },
   {
+    id: "devices",
+    label: "Devices",
+    Icon: SmartPhone01Icon,
+    section: { kind: "devices" },
+  },
+  {
     id: "pokedex",
     label: "Pokedex",
     Icon: TaskDone01Icon,
@@ -121,6 +129,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     label: "Browser",
     Icon: GlobeIcon,
     section: { kind: "browser" },
+  },
+  {
+    id: "notch",
+    label: "Notch",
+    Icon: Alert01Icon,
+    section: { kind: "notch" },
   },
   {
     id: "diagnostics",
@@ -311,6 +325,13 @@ function SectionTitle({
           "Verify what's installed, signed in, and which subscription each provider runs on.",
       };
     }
+    if (section.kind === "devices") {
+      return {
+        title: "Devices",
+        subtitle:
+          "Link this Mac to your account so you can drive it from your phone.",
+      };
+    }
     if (section.kind === "workspace") {
       return {
         title: "Workspace",
@@ -327,6 +348,12 @@ function SectionTitle({
       return {
         title: "Browser",
         subtitle: "Dummy test logins the agent browser can autofill.",
+      };
+    }
+    if (section.kind === "notch") {
+      return {
+        title: "Notch",
+        subtitle: "Show agent notifications in the MacBook notch area.",
       };
     }
     if (section.kind === "diagnostics") {
@@ -378,8 +405,10 @@ function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "general") return <GeneralPane />;
   if (section.kind === "providers") return <ProvidersPane />;
   if (section.kind === "workspace") return <WorkspacePane />;
+  if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;
   if (section.kind === "browser") return <BrowserSettingsPane />;
+  if (section.kind === "notch") return <NotchSettingsPane />;
   if (section.kind === "diagnostics") return <DiagnosticsPane />;
   if (section.kind === "shortcuts") return <KeybindingsPane />;
   if (section.kind === "developer") return <DeveloperPane />;
@@ -708,6 +737,85 @@ function BrowserSettingsPane() {
             </div>
           </div>
         </div>
+      </SettingsFrame>
+    </div>
+  );
+}
+
+function NotchSettingsPane() {
+  const enabled = useSettingsStore((s) => s.notchTrayEnabled);
+  const pinned = useSettingsStore((s) => s.notchTrayPinned);
+  const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
+  const setPinned = useSettingsStore((s) => s.setNotchTrayPinned);
+  const [support, setSupport] = useState<{
+    supported: boolean;
+    reason: "supported" | "not-macos" | "no-notched-display";
+  } | null>(null);
+
+  useEffect(() => {
+    const notch = window.zuse?.notch ?? window.memoize?.notch;
+    let cancelled = false;
+    void notch?.getDisplaySupport?.().then((next) => {
+      if (!cancelled) setSupport(next);
+    });
+    const unsubscribe = notch?.onDisplaySupportChanged?.((next) => {
+      setSupport(next);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const supported = support?.supported === true;
+  const unsupportedText =
+    support?.reason === "not-macos"
+      ? "Requires macOS and a MacBook display with a notch."
+      : "Requires a MacBook display with a notch.";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!supported && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
+          <HugeiconsIcon
+            icon={Alert01Icon}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>{unsupportedText}</span>
+        </div>
+      )}
+
+      <SettingsGroup
+        title="Notch tray"
+        description="Show active agents near the MacBook notch. Hover the notch area to expand the tray, then click an agent to jump to its chat."
+      >
+        <SettingsRow
+          title="Enable Notch Tray"
+          description="Show running agents, pending approvals, questions, plans, completions, and failures near the notch."
+          action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+        />
+        <SettingsRow
+          title="Keep tray expanded"
+          description="Keep the agent list open instead of only expanding while the pointer is over the notch area."
+          action={
+            <Switch
+              checked={pinned}
+              disabled={!enabled}
+              onCheckedChange={setPinned}
+            />
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsFrame
+        title="What appears"
+        description="The tray is intentionally quiet: it shows actionable agent states first, then recently completed turns for about 30 seconds."
+      >
+        <ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
+          <li>Permission requests, questions, and plan approvals</li>
+          <li>Running agents as compact status circles</li>
+          <li>Completed turns and failures from background chats</li>
+        </ul>
       </SettingsFrame>
     </div>
   );
@@ -1091,7 +1199,7 @@ function GeneralPane() {
       >
         <SettingsRow
           title="Branch naming"
-          description="When a new chat with its own worktree gets its first message, Zuse Alpha summarizes it and renames the chat plus its git branch in this shape."
+          description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
           action={
             <Select
               value={branchNamingStyle}
@@ -1184,14 +1292,14 @@ function ProvidersPane() {
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
-  // Refresh once on mount + re-poll when the window regains focus so the
-  // "Checked X ago" line reflects reality without forcing the user to hit
-  // refresh themselves.
+  // Refresh once when the pane opens. We deliberately do NOT re-poll on every
+  // window focus: `refresh()` → `agent.availability` reads the OS keychain
+  // (`credentials.listConfigured`), and on unsigned/dev builds macOS re-prompts
+  // for the "zuse" keychain on each access — so a focus-triggered refresh meant
+  // a keychain prompt every time the window regained focus. The manual refresh
+  // button covers the occasional "re-check now" case.
   useEffect(() => {
     void refresh();
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
   const now = useRelativeTimeTick(15_000);

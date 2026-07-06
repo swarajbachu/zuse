@@ -888,6 +888,7 @@ export const startCodexSession = (
       approvalPolicy: "never" as const,
       sandbox: toSandboxMode(currentMode),
       serviceName: "zuse",
+      developerInstructions: input.workspaceInstructions ?? null,
     };
 
     const startOrResume = async (): Promise<void> => {

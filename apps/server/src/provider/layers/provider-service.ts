@@ -39,12 +39,14 @@ import {
   type OpencodeSessionHandle,
 } from "../drivers/opencode.ts";
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { buildBrowserTools } from "../drivers/browser-tools.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
+import { zuseWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live `ProviderService`. PR 5 wires the Claude SDK driver behind the session
@@ -88,6 +90,7 @@ export const ProviderServiceLive = Layer.effect(
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
+    const configStore = yield* ConfigStoreService;
     const runtime = yield* Effect.runtime<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
@@ -181,6 +184,13 @@ export const ProviderServiceLive = Layer.effect(
             );
           }
           const cwd = input.cwdOverride ?? folder.path;
+          const driverInput = {
+            ...input,
+            workspaceInstructions: zuseWorkspaceInstructions({
+              projectPath: folder.path,
+              cwd,
+            }),
+          };
           const apiKey = yield* credentials
             .get(input.providerId)
             .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
@@ -203,7 +213,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startGeminiSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               geminiPath,
@@ -242,7 +252,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startGrokSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               grokPath,
@@ -273,10 +283,15 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            // Custom OpenAI-compatible providers are injected into
+            // `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
+            // live in opencode's own auth.json (written via
+            // `agent.opencodeSetProviderAuth`), so no key is threaded here.
+            const opencodeSettings = yield* configStore.getSettings();
             handle = yield* startOpencodeSession(
-              input,
+              driverInput,
               cwd,
-              apiKey,
+              opencodeSettings.opencodeCustomProviders,
               opencodePath,
               sessionId,
               resumeCursor,
@@ -302,7 +317,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startCursorSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               cursorPath,
@@ -340,7 +355,7 @@ export const ProviderServiceLive = Layer.effect(
             );
 
             handle = yield* startClaudeSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               claudePath,
@@ -382,7 +397,7 @@ export const ProviderServiceLive = Layer.effect(
             // either the banner before sending or the friendly error after,
             // never the cryptic SDK trace.
             handle = yield* startCodexSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               codexPath,

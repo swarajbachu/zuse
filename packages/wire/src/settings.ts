@@ -1,8 +1,14 @@
 import { Rpc } from "@effect/rpc";
 import { Schema } from "effect";
 
-import { AgentDefinition, ProviderId, RuntimeMode } from "./agent.ts";
+import {
+  AgentDefinition,
+  OpencodeCustomProvider,
+  ProviderId,
+  RuntimeMode,
+} from "./agent.ts";
 import { AutonomyLevel } from "./autonomy.ts";
+import { GitMergeMethod } from "./git.ts";
 
 /**
  * Per-preset overlay matching the renderer's old localStorage shape. Storing
@@ -45,6 +51,12 @@ export const BranchNamingStyle = Schema.Literal(
   "custom",
 );
 export type BranchNamingStyle = typeof BranchNamingStyle.Type;
+
+export const MergePrefs = Schema.Struct({
+  method: GitMergeMethod,
+  deleteBranch: Schema.Boolean,
+});
+export type MergePrefs = typeof MergePrefs.Type;
 
 /**
  * Wire-shape of `settings.json`. Owned by the main process; rendered to and
@@ -92,6 +104,32 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
     key: ProviderId,
     value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
   }),
+  /**
+   * OpenCode is a meta-harness fronting ~150 model providers. These four
+   * fields drive the in-app OpenCode provider manager. They are keyed by
+   * opencode's own *sub-provider* id (e.g. `"openai"`, `"openrouter"`, or a
+   * custom slug) — a free-form string, unlike the six-member {@link ProviderId}
+   * the maps above use. Credentials are NOT stored here; API keys live in
+   * opencode's `auth.json` (written via `agent.opencodeSetProviderAuth`).
+   *
+   * Which connected sub-providers appear in the model picker. Missing entry ⇒
+   * visible (a newly connected provider shows by default).
+   */
+  opencodeProviderVisible: Schema.Record({
+    key: Schema.String,
+    value: Schema.Boolean,
+  }),
+  /** Per-sub-provider model visibility. Missing entry ⇒ visible. */
+  opencodeModelVisibleByProvider: Schema.Record({
+    key: Schema.String,
+    value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+  }),
+  /**
+   * User-defined OpenAI-compatible providers (no secrets — the API key lives
+   * in opencode's `auth.json`). Injected into every `opencode serve` we spawn
+   * via `OPENCODE_CONFIG_CONTENT` so both inventory and sessions see them.
+   */
+  opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
   subagents: Schema.Struct({
     enableForNewSessions: Schema.Boolean,
     presets: Schema.Record({
@@ -110,6 +148,15 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * Empty falls back to a bare slug.
    */
   branchNamingPrefix: Schema.String,
+  mergePrefs: MergePrefs,
+  /**
+   * macOS-only notch tray. The main process only shows it on likely notched
+   * MacBook built-in displays; unsupported hardware keeps the preference but
+   * renders nothing.
+   */
+  notchTrayEnabled: Schema.Boolean,
+  /** Keep the notch tray expanded instead of only expanding on hover. */
+  notchTrayPinned: Schema.Boolean,
 }) {}
 
 /**
@@ -139,6 +186,18 @@ export const SettingsPatch = Schema.Struct({
       value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
     }),
   ),
+  opencodeProviderVisible: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+  ),
+  opencodeModelVisibleByProvider: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+    }),
+  ),
+  opencodeCustomProviders: Schema.optional(
+    Schema.Array(OpencodeCustomProvider),
+  ),
   subagents: Schema.optional(
     Schema.Struct({
       enableForNewSessions: Schema.Boolean,
@@ -150,6 +209,9 @@ export const SettingsPatch = Schema.Struct({
   ),
   branchNamingStyle: Schema.optional(BranchNamingStyle),
   branchNamingPrefix: Schema.optional(Schema.String),
+  mergePrefs: Schema.optional(MergePrefs),
+  notchTrayEnabled: Schema.optional(Schema.Boolean),
+  notchTrayPinned: Schema.optional(Schema.Boolean),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 

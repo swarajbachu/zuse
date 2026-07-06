@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
 import {
   autoUpdater,
   type ProgressInfo,
@@ -33,6 +33,47 @@ const DOWNLOAD_STALL_MS = 60_000;
 
 let lastStatus: UpdateStatus = { kind: "idle" };
 let started = false;
+
+// Set for the brief window between "the app is quitting to install an update"
+// and process exit. The `before-quit` agent guard in main.ts reads this so an
+// update-driven quit doesn't pop the "N agents are running — quit anyway?"
+// confirmation (the user already opted into restarting from the toast).
+let installingUpdate = false;
+
+/**
+ * True once `installUpdate()` has kicked off the quit-and-install sequence.
+ * The main-process quit guard checks this to skip its agent confirmation.
+ */
+export function getIsInstallingUpdate(): boolean {
+  return installingUpdate;
+}
+
+/**
+ * Single entry point for "quit, install the downloaded update, relaunch".
+ * Both the renderer IPC (`UPDATE_INSTALL_CHANNEL`) and the native menu route
+ * through here so the `installingUpdate` guard is always set before the app
+ * begins tearing down — otherwise the `before-quit` handler would treat the
+ * install as a user quit and block it behind the agent confirmation.
+ */
+export function installUpdate(): void {
+  installingUpdate = true;
+  autoUpdater.quitAndInstall();
+
+  // Relaunch watchdog. On macOS, `quitAndInstall` hands off to Squirrel.Mac
+  // (ShipIt), which waits for THIS process to terminate, swaps the bundle, and
+  // relaunches. The relaunch is scheduled the instant `quitAndInstall` runs, so
+  // once we're here the only thing that can strand it is the old process
+  // failing to exit promptly (a hung fiber teardown, a wedged child, Electron
+  // waiting on a stuck `will-quit`). If we're still alive after a short grace
+  // period, force the exit so ShipIt can proceed — the symptom this fixes is
+  // "the app quit but never reopened".
+  setTimeout(() => {
+    console.warn(
+      "[zuse:updater] still alive after quitAndInstall — forcing exit so the updater can relaunch",
+    );
+    app.exit(0);
+  }, 4000).unref();
+}
 
 const statusListeners = new Set<(status: UpdateStatus) => void>();
 
@@ -132,10 +173,12 @@ export function startAutoUpdater(window: BrowserWindow): void {
     debug: () => {},
   } as unknown as typeof autoUpdater.logger;
 
-  // Wait for the user to opt in via the banner before consuming bandwidth,
-  // but if they ignore the "Restart" button we still install on next quit so
-  // the update isn't stranded forever.
-  autoUpdater.autoDownload = false;
+  // Download in the background the moment an update is detected — the user
+  // shouldn't have to click "Update now". The restart toast only appears once
+  // the download finishes (`update-downloaded` → `ready`). If they ignore the
+  // "Restart" button we still install on next quit so the update isn't
+  // stranded forever.
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on("checking-for-update", () => {
@@ -184,9 +227,9 @@ export function startAutoUpdater(window: BrowserWindow): void {
     });
   });
   ipcMain.handle(UPDATE_INSTALL_CHANNEL, () => {
-    // `quitAndInstall` synchronously kicks off shutdown; the await is just
-    // for symmetry with the other handlers.
-    autoUpdater.quitAndInstall();
+    // Routes through `installUpdate` so the `installingUpdate` guard is set
+    // before shutdown begins — otherwise the before-quit agent guard blocks it.
+    installUpdate();
   });
 
   const check = () => {
@@ -218,7 +261,7 @@ export function triggerUpdateDownload(): void {
 }
 
 export function triggerUpdateInstall(): void {
-  autoUpdater.quitAndInstall();
+  installUpdate();
 }
 
 /**

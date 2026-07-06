@@ -12,6 +12,7 @@ import {
   Message,
   MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
+  RepositorySettingsFile,
   resolveModelSlug,
   SettingsFile,
   Session,
@@ -424,9 +425,25 @@ describe("SettingsFile round-trip", () => {
           "gpt-5.3-codex": true,
         },
       },
+      opencodeProviderVisible: { openai: true, openrouter: false },
+      opencodeModelVisibleByProvider: {
+        openai: { "openai/gpt-5": true },
+      },
+      opencodeCustomProviders: [
+        {
+          id: "my-llm",
+          name: "My LLM",
+          baseURL: "https://api.example.com/v1",
+          npm: "@ai-sdk/openai-compatible",
+          models: [{ id: "my-model", name: "My Model" }],
+        },
+      ],
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
+      mergePrefs: { method: "squash", deleteBranch: true },
+      notchTrayEnabled: true,
+      notchTrayPinned: false,
     });
   });
 
@@ -461,6 +478,9 @@ describe("SettingsFile round-trip", () => {
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });
@@ -496,6 +516,9 @@ describe("SettingsFile round-trip", () => {
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
   });
@@ -546,6 +569,28 @@ describe("model visibility helpers", () => {
     expect(models.some((model) => model.id === "gpt-5.3-codex-spark")).toBe(
       false,
     );
+  });
+});
+
+describe("RepositorySettingsFile round-trip", () => {
+  it("round-trips the editable repository settings JSON shape", () => {
+    roundTrip(RepositorySettingsFile, {
+      schemaVersion: 1,
+      defaultProviderId: "codex",
+      defaultModel: "gpt-5-codex",
+      defaultRuntimeMode: "auto-accept-edits",
+      autoCreateWorktree: true,
+      worktreeBaseDir: "/tmp/worktrees",
+      archiveCleanupScript: "rm -rf node_modules",
+      archiveRemoveWorktree: true,
+      setupScript: "bun install",
+      runScript: "bun dev",
+      autoRunAfterSetup: true,
+      environmentVariables: {
+        NODE_ENV: "development",
+      },
+      fileIncludeGlobs: ".env\n.env.local\n",
+    });
   });
 });
 

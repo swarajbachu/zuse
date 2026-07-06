@@ -25,6 +25,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { makeMainLayer } from "@zuse/server";
+import { AGENTS_RUNNING_COUNT_CHANNEL } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -39,17 +40,27 @@ if (process.platform === "darwin" && app.isPackaged) {
 
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import {
+  ensureSshEnvironment,
+  listSshHosts,
+  type SshEnvironmentHandle,
+} from "./ssh/environment-service.ts";
+import {
   DEFAULT_MENU_ACCELERATORS,
   installAppMenu,
   type MenuAccelerators,
   type MenuCommand,
 } from "./menu.ts";
 import {
+  getIsInstallingUpdate,
   getLastStatus,
   onStatusChange,
   registerUpdaterDemo,
   startAutoUpdater,
 } from "./updater.ts";
+import {
+  NotchTrayController,
+  type NotchTrayItem,
+} from "./notch-tray-controller.ts";
 
 type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -166,13 +177,16 @@ app.setAsDefaultProtocolClient("zuse");
 // ---------------------------------------------------------------------------
 const AUTH_LOOPBACK_PORT = 8976;
 const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
-const AUTH_SCHEME_URI = "zuse://auth/callback";
-// Packaged builds use the custom scheme — a signed app with its own bundle id
-// (app.memoize.desktop) + Info.plist `CFBundleURLTypes` (electron-builder
-// `protocols`) resolves it unambiguously, and it's the same mechanism mobile
-// will use. Dev uses the loopback because the prebuilt Electron.app's shared
-// `com.github.Electron` bundle id makes custom schemes unroutable.
-const AUTH_REDIRECT_URI = app.isPackaged ? AUTH_SCHEME_URI : AUTH_LOOPBACK_URI;
+// Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
+// RFC 8252 native-app pattern and gives a strictly better sign-in finish:
+//   - the browser lands on a real HTML page ("Signed in, you can close this
+//     tab") instead of a dead `zuse://` URL that leaves the tab hanging, and
+//   - no OS "Open in Zuse Alpha?" prompt — the browser hits localhost and the
+//     already-running app answers directly, no deep-link handoff needed.
+// The `zuse://auth/callback` scheme handler stays registered below as a
+// fallback (and the future mobile path), but is no longer the primary flow.
+// Register `http://localhost:8976/callback` in the WorkOS dashboard.
+const AUTH_REDIRECT_URI = AUTH_LOOPBACK_URI;
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
@@ -281,6 +295,12 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 
 let mainWindow: BrowserWindow | null = null;
 let runtimeFiber: Fiber.RuntimeFiber<void, never> | null = null;
+let notchTray: NotchTrayController | null = null;
+
+const rendererDistDir = (): string =>
+  app.isPackaged
+    ? Path.join(process.resourcesPath, "app", "renderer", "dist")
+    : Path.resolve(__dirname, "..", "..", "renderer", "dist");
 
 // Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
@@ -649,6 +669,8 @@ function createMainWindow() {
     if (mainWindow === null) return;
     mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
   };
+
+  const sshEnvironmentHandles = new Map<string, SshEnvironmentHandle>();
   mainWindow.on("enter-full-screen", sendFullScreenState);
   mainWindow.on("leave-full-screen", sendFullScreenState);
   mainWindow.webContents.on("did-finish-load", sendFullScreenState);
@@ -737,6 +759,20 @@ function createMainWindow() {
   });
 
   ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+
+  ipcMain.handle("ssh:listHosts", async () => listSshHosts());
+
+  ipcMain.handle("ssh:ensureEnvironment", async (_event, rawHost: unknown) => {
+    if (typeof rawHost !== "string" || rawHost.trim().length === 0) {
+      return null;
+    }
+    const host = rawHost.trim();
+    const existing = sshEnvironmentHandles.get(host);
+    if (existing !== undefined) return existing.descriptor;
+    const handle = await ensureSshEnvironment(host);
+    sshEnvironmentHandles.set(host, handle);
+    return handle.descriptor;
+  });
 
   // ---------------------------------------------------------------------------
   // Agent browser CDP bridge
@@ -1302,15 +1338,7 @@ function createMainWindow() {
     // packaged bundle the renderer is shipped via `extraResources` to
     // <app>/Contents/Resources/app/renderer/dist (see
     // apps/desktop/electron-builder.yml).
-    const rendererIndex = app.isPackaged
-      ? Path.join(
-          process.resourcesPath,
-          "app",
-          "renderer",
-          "dist",
-          "index.html",
-        )
-      : Path.resolve(__dirname, "..", "..", "renderer", "dist", "index.html");
+    const rendererIndex = Path.join(rendererDistDir(), "index.html");
     void mainWindow.loadFile(rendererIndex);
   }
 
@@ -1556,20 +1584,107 @@ ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
   installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 });
 
+const isNotchItemState = (value: unknown): value is NotchTrayItem["state"] =>
+  value === "running" ||
+  value === "completed" ||
+  value === "failed" ||
+  value === "planReady" ||
+  value === "question" ||
+  value === "permission";
+
+const sanitizeNotchItems = (raw: unknown): ReadonlyArray<NotchTrayItem> => {
+  if (!Array.isArray(raw)) return [];
+  const out: NotchTrayItem[] = [];
+  for (const item of raw) {
+    if (item === null || typeof item !== "object") continue;
+    const obj = item as Record<string, unknown>;
+    if (
+      typeof obj.id !== "string" ||
+      typeof obj.chatId !== "string" ||
+      typeof obj.sessionId !== "string" ||
+      typeof obj.title !== "string" ||
+      typeof obj.subtitle !== "string" ||
+      typeof obj.label !== "string" ||
+      typeof obj.updatedAt !== "number" ||
+      !isNotchItemState(obj.state)
+    ) {
+      continue;
+    }
+    out.push({
+      id: obj.id,
+      chatId: obj.chatId,
+      sessionId: obj.sessionId,
+      title: obj.title.slice(0, 160),
+      subtitle: obj.subtitle.slice(0, 180),
+      state: obj.state,
+      label: obj.label.slice(0, 80),
+      updatedAt: obj.updatedAt,
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+};
+
+ipcMain.on("notch:setItems", (_event, payload: unknown) => {
+  notchTray?.setItems(sanitizeNotchItems(payload));
+});
+
+ipcMain.on("notch:setEnabled", (_event, value: unknown) => {
+  notchTray?.setEnabled(value === true);
+});
+
+ipcMain.on("notch:setPinned", (_event, value: unknown) => {
+  notchTray?.setPinned(value === true);
+});
+
+ipcMain.on("notch:setExpanded", (_event, value: unknown) => {
+  notchTray?.setHovered(value === true);
+});
+
+ipcMain.on(
+  "notch:openChat",
+  (_event, rawChatId: unknown, rawSessionId: unknown) => {
+    if (typeof rawChatId !== "string" || typeof rawSessionId !== "string")
+      return;
+    focusMainWindow();
+    mainWindow?.webContents.send("notch:openChat", {
+      chatId: rawChatId,
+      sessionId: rawSessionId,
+    });
+  },
+);
+
+ipcMain.handle(
+  "notch:getDisplaySupport",
+  () =>
+    notchTray?.getSupport() ?? {
+      supported: false,
+      reason:
+        process.platform === "darwin" ? "no-notched-display" : "not-macos",
+    },
+);
+
 void app.whenReady().then(() => {
   // Non-primary instance is on its way out (lost the single-instance lock) —
   // don't build a window or boot the runtime.
   if (!gotSingleInstanceLock) return;
 
-  // Dev only: localhost loopback that catches the WorkOS OAuth callback.
-  // Packaged builds receive it via the `zuse://` deep link instead.
-  if (!app.isPackaged) startAuthLoopback();
+  // Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
+  // It's the redirect_uri for both, so the browser finishes on a real HTML
+  // page and no `zuse://` deep-link handoff/prompt is needed. The scheme
+  // handler stays registered below as a fallback.
+  startAuthLoopback();
 
   // Win/Linux cold launch from a deep link: the URL is an argv entry.
   const initialDeepLink = process.argv.find(isAuthDeepLink);
   if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
   registerZuseProtocol();
+  notchTray = new NotchTrayController({
+    preloadPath: Path.join(__dirname, "preload.cjs"),
+    devServerUrl: DEV_SERVER_URL,
+    packagedRendererDir: rendererDistDir(),
+  });
 
   // Populate the native About panel so "About Zuse" shows the current
   // version + copyright. Without this, Electron's default panel only shows
@@ -1605,7 +1720,7 @@ void app.whenReady().then(() => {
   }
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow === null) {
       createMainWindow();
     }
   });
@@ -1615,4 +1730,77 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Quit guard. Agents (Claude/Codex/Grok/… turns) run as child processes owned
+// by the embedded server. Quitting mid-turn kills them, so if any are running
+// we confirm first. The renderer store is the source of truth for "how many
+// are running"; it pushes the count here on every change (see preload
+// `updates.reportRunningCount`). We mirror the latest value so the
+// synchronous `before-quit` handler can read it without a round-trip.
+// ---------------------------------------------------------------------------
+let runningAgentCount = 0;
+// Set once the user has confirmed a quit (or an update install begins) so a
+// re-entrant `before-quit` — Electron fires it again after `app.quit()` — does
+// not pop the dialog a second time.
+let quitConfirmed = false;
+// Armed by the dialog's "Quit when idle" choice: keep running, then quit
+// automatically the moment the last agent finishes.
+let quitWhenIdle = false;
+
+ipcMain.on(AGENTS_RUNNING_COUNT_CHANNEL, (_event, payload: unknown) => {
+  runningAgentCount = typeof payload === "number" && payload >= 0 ? payload : 0;
+  if (quitWhenIdle && runningAgentCount === 0) {
+    quitConfirmed = true;
+    app.quit();
+  }
+});
+
+function pluralAgents(count: number): string {
+  return count === 1 ? "1 agent is running" : `${count} agents are running`;
+}
+
+app.on("before-quit", (event) => {
+  // An update-driven quit (user picked "Restart now") or an already-confirmed
+  // quit passes straight through — the user has opted in, and re-prompting
+  // would strand the relaunch.
+  if (quitConfirmed || getIsInstallingUpdate()) return;
+  if (runningAgentCount <= 0) return;
+
+  event.preventDefault();
+
+  const choice = dialog.showMessageBoxSync({
+    type: "warning",
+    buttons: ["Cancel", "Quit anyway", "Quit when idle"],
+    defaultId: 0,
+    cancelId: 0,
+    title: "Quit Zuse Alpha?",
+    message: `${pluralAgents(runningAgentCount)} currently.`,
+    detail:
+      "Quitting now will stop them mid-turn. You can quit anyway, or have Zuse quit automatically once they finish.",
+  });
+
+  if (choice === 1) {
+    quitConfirmed = true;
+    app.quit();
+  } else if (choice === 2) {
+    quitWhenIdle = true;
+    // Stay open; the running-count handler quits once the count hits zero.
+    // Guard against the race where every agent already finished between the
+    // count push and this click.
+    if (runningAgentCount === 0) {
+      quitConfirmed = true;
+      app.quit();
+    }
+  }
+  // choice === 0 (Cancel): stay open — quit already prevented.
+});
+
+// Tear down the macOS notch tray once a quit actually proceeds. `will-quit`
+// fires after an un-prevented `before-quit`, so a cancelled quit leaves the
+// tray untouched.
+app.on("will-quit", () => {
+  notchTray?.destroy();
+  notchTray = null;
 });

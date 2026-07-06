@@ -18,10 +18,17 @@ import {
   LanAuthService,
 } from "../src/lan-auth/services/lan-auth-service.ts";
 import { Migration0021AuthTokens } from "../src/persistence/migrations/0021_auth_tokens.ts";
+import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0024_remote_connect_state.ts";
+import { Migration0025RelayEnvironmentKeys } from "../src/persistence/migrations/0025_relay_environment_keys.ts";
 
 const makeRuntime = () => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
-  const Migrated = Layer.effectDiscard(Migration0021AuthTokens).pipe(
+  const Migrated = Layer.effectDiscard(
+    Migration0021AuthTokens.pipe(
+      Effect.zipRight(Migration0024RemoteConnectState),
+      Effect.zipRight(Migration0025RelayEnvironmentKeys),
+    ),
+  ).pipe(
     Layer.provideMerge(SqlLive),
   );
   const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -179,6 +186,48 @@ describe("LanAuthService", () => {
       if (Either.isLeft(result)) {
         expect(result.left.reason).toBe("invalid_code");
       }
+    });
+  });
+
+  it("creates Ed25519 link proofs and persists relay config for the local environment", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const auth = yield* LanAuthService;
+          const environmentId = yield* auth.environmentId();
+          const keys = yield* auth.environmentKeys();
+          const proof = yield* auth.linkProof({
+            challenge: "challenge",
+            relayIssuer: "https://relay.test",
+            endpoint: {
+              httpBaseUrl: "http://192.168.1.10:8787",
+              wsBaseUrl: "ws://192.168.1.10:8787",
+            },
+          });
+          yield* auth.saveRelayConfig({
+            relayUrl: "https://relay.test",
+            relayIssuer: "https://relay.test",
+            environmentId,
+            environmentCredential: "zec_secret",
+            label: "Test Mac",
+          });
+          const sql = yield* SqlClient.SqlClient;
+          const rows = yield* sql<{
+            readonly relay_url: string;
+            readonly label: string | null;
+          }>`
+            SELECT relay_url, label FROM relay_config WHERE environment_id = ${environmentId}
+          `;
+          return { proof, rows, keys };
+        }),
+      );
+
+      // Proof is now an Ed25519 JWT (header.payload.signature), not an HMAC.
+      expect(result.proof.proof.split(".")).toHaveLength(3);
+      expect(JSON.parse(result.keys.publicJwk).crv).toBe("Ed25519");
+      expect(result.rows).toEqual([
+        { relay_url: "https://relay.test", label: "Test Mac" },
+      ]);
     });
   });
 });

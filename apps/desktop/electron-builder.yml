@@ -49,6 +49,9 @@ extraResources:
   - from: ../renderer/dist
     to: app/renderer/dist
     filter: ["**/*"]
+  - from: resources/skills
+    to: app/skills
+    filter: ["**/*"]
 
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/

@@ -32,6 +32,7 @@ import {
   startCompactSnapshot,
 } from "./compact.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
+import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live-only handle for one Cursor Agent conversation. Mirrors Grok's
@@ -734,6 +735,7 @@ export const startCursorSession = (
     let inflight: Promise<void> = Promise.resolve();
     const log = makePhaseLogger(String(sessionId));
     let promptCount = 0;
+    let workspaceInstructionsPending = input.workspaceInstructions;
     let firstChunkSeenForPrompt = false;
 
     events.unsafeOffer({
@@ -1024,7 +1026,14 @@ export const startCursorSession = (
           }),
         );
       }
-      const promptText = compactSnapshot !== null ? text.trim() : text;
+      const promptText =
+        compactSnapshot !== null
+          ? text.trim()
+          : prefixFirstPromptWithWorkspaceInstructions(
+              workspaceInstructionsPending,
+              text,
+            );
+      if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       const n = ++promptCount;
       inflight = inflight
         .then(async () => {

@@ -15,7 +15,7 @@ type RuntimeEntry = {
 const runtimes = new Map<string, RuntimeEntry>();
 
 const runtimeKey = (options: WsProtocolOptions) =>
-  `${options.host}:${options.port}:${options.token ?? ""}`;
+  `${options.wsBaseUrl ?? `${options.host}:${options.port}`}:${options.token ?? ""}`;
 
 const makeEntry = (options: WsProtocolOptions): RuntimeEntry => {
   const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);

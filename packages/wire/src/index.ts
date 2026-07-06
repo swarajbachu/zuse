@@ -19,6 +19,7 @@ export * from "./pairing.ts";
 export * from "./pokemon.ts";
 export * from "./ping.ts";
 export * from "./pty.ts";
+export * from "./relay.ts";
 export * from "./repository-settings.ts";
 export * from "./rpc.ts";
 export * from "./session.ts";

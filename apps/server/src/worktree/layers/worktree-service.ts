@@ -37,7 +37,7 @@ import {
   WorktreeService,
   type WorktreeRestoreSnapshot,
 } from "../services/worktree-service.ts";
-import { linkEnvFiles } from "./env-files.ts";
+import { linkIncludedFiles } from "./env-files.ts";
 
 interface WorktreeRow {
   readonly id: string;
@@ -178,6 +178,7 @@ const isEmptyDirectory = async (path: string): Promise<boolean> => {
 const prepareLocalFiles = async (
   repoPath: string,
   worktreePath: string,
+  includeGlobs: string,
 ): Promise<string> => {
   let output = "";
 
@@ -219,7 +220,7 @@ const prepareLocalFiles = async (
     }
   }
 
-  output += await linkEnvFiles(repoPath, worktreePath);
+  output += await linkIncludedFiles(repoPath, worktreePath, includeGlobs);
 
   return output;
 };
@@ -396,6 +397,36 @@ export const WorktreeServiceLive = Layer.effect(
         }),
       );
 
+    // Same shape as `runGit` but for the GitHub CLI — used when checking out a
+    // PR into a new worktree (`gh pr checkout`), which handles fork remotes +
+    // upstream tracking that a raw `git worktree add` can't.
+    const runGh = (cwd: string, args: ReadonlyArray<string>) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const cmd = Command.make("gh", ...args).pipe(
+            Command.workingDirectory(cwd),
+          );
+          const proc = yield* executor.start(cmd);
+          const stdout = yield* collectText(proc.stdout);
+          const stderr = yield* collectText(proc.stderr);
+          const exitCode = yield* proc.exitCode;
+          if (exitCode === 0) return stdout;
+          return yield* Effect.fail(
+            stderr.trim() || `gh exited with code ${exitCode}`,
+          );
+        }),
+      ).pipe(
+        Effect.catchTags({
+          SystemError: (err) =>
+            Effect.fail(
+              err.reason === "NotFound"
+                ? "the GitHub CLI (gh) is not installed"
+                : (err.message ?? String(err)),
+            ),
+          BadArgument: (err) => Effect.fail(err.message ?? String(err)),
+        }),
+      );
+
     const list: WorktreeService["Type"]["list"] = (projectId) =>
       Effect.gen(function* () {
         const rows = yield* sql<WorktreeRow>`
@@ -430,7 +461,7 @@ export const WorktreeServiceLive = Layer.effect(
         UPDATE worktrees SET branch = ${branch} WHERE id = ${worktreeId}
       `.pipe(Effect.asVoid, Effect.orDie);
 
-    const create: WorktreeService["Type"]["create"] = (projectId) =>
+    const create: WorktreeService["Type"]["create"] = (projectId, source) =>
       Effect.gen(function* () {
         const folder = yield* workspace.findById(projectId);
         if (folder === null) {
@@ -549,10 +580,7 @@ export const WorktreeServiceLive = Layer.effect(
             "fetch",
             "origin",
             defaultBranch,
-          ]).pipe(
-            Effect.timeout(FETCH_TIMEOUT),
-            Effect.either,
-          );
+          ]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.either);
           if (fetched._tag === "Left") {
             // runGit fails with a string; Effect.timeout adds a
             // TimeoutException — anything non-string is the timeout.
@@ -666,18 +694,84 @@ export const WorktreeServiceLive = Layer.effect(
             continue;
           }
 
-          // git worktree add -b <branch> <target> <baseRef>
-          // baseRef is the freshly-fetched `origin/<branch>` when available,
-          // otherwise local `HEAD` (see baseRef resolution above).
-          const addResult = yield* runGit(repoPath, [
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            target,
-            baseRef,
-          ]).pipe(Effect.either);
+          // The directory + mascot always get the Pokémon name; only the
+          // checked-out branch varies. Default (no source): create a fresh
+          // branch `<pokemon>` off baseRef. With a source: check out the
+          // EXISTING branch / PR the "Create from…" picker chose.
+          let checkedOutBranch = branch;
+          const addResult = yield* Effect.gen(function* () {
+            if (source === undefined) {
+              // git worktree add -b <branch> <target> <baseRef>
+              // baseRef is the freshly-fetched `origin/<branch>` when available,
+              // otherwise local `HEAD` (see baseRef resolution above).
+              return yield* runGit(repoPath, [
+                "worktree",
+                "add",
+                "-b",
+                branch,
+                target,
+                baseRef,
+              ]);
+            }
+            if (source._tag === "branch") {
+              checkedOutBranch = source.branch;
+              const localExists = yield* runGit(repoPath, [
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                `refs/heads/${source.branch}`,
+              ]).pipe(
+                Effect.map(() => true),
+                Effect.catchAll(() => Effect.succeed(false)),
+              );
+              if (localExists) {
+                // Check out the existing local branch directly.
+                return yield* runGit(repoPath, [
+                  "worktree",
+                  "add",
+                  target,
+                  source.branch,
+                ]);
+              }
+              // Remote-only branch: fetch it, then add a tracking local branch.
+              const remoteName = source.remote ?? "origin";
+              yield* runGit(repoPath, [
+                "fetch",
+                remoteName,
+                source.branch,
+              ]).pipe(Effect.either);
+              return yield* runGit(repoPath, [
+                "worktree",
+                "add",
+                "--track",
+                "-b",
+                source.branch,
+                target,
+                `${remoteName}/${source.branch}`,
+              ]);
+            }
+            // PR: add the worktree detached at the base, then let `gh pr
+            // checkout` switch it onto the PR head (handles fork remotes +
+            // tracking). `checkedOutBranch` becomes the PR's head branch.
+            checkedOutBranch = source.headRefName;
+            yield* runGit(repoPath, [
+              "worktree",
+              "add",
+              "--detach",
+              target,
+              baseRef,
+            ]);
+            yield* runGh(target, ["pr", "checkout", String(source.number)]);
+            return "";
+          }).pipe(Effect.either);
           if (addResult._tag === "Left") {
+            // Clean up a half-created worktree dir so the name can be retried.
+            yield* runGit(repoPath, [
+              "worktree",
+              "remove",
+              "--force",
+              target,
+            ]).pipe(Effect.either);
             return yield* Effect.fail(
               new WorktreeCreateError({
                 projectId,
@@ -694,7 +788,7 @@ export const WorktreeServiceLive = Layer.effect(
               (id, project_id, path, name, branch, base_branch, created_at,
                setup_status, setup_output, pokemon_number)
             VALUES
-              (${id}, ${projectId}, ${target}, ${name}, ${branch}, ${baseBranch}, ${nowIso},
+              (${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${baseBranch}, ${nowIso},
                'pending', '', ${pokemon.number})
           `.pipe(Effect.orDie);
           yield* pokemonService.recordUnlock(pokemon.number, id);
@@ -852,12 +946,18 @@ export const WorktreeServiceLive = Layer.effect(
       ZUSE_WORKTREE_PATH: worktree.path,
       ZUSE_WORKTREE_ID: worktree.id,
       ZUSE_PORT:
-        process.env.ZUSE_PORT ?? process.env.MEMOIZE_PORT ?? process.env.PORT ?? "",
+        process.env.ZUSE_PORT ??
+        process.env.MEMOIZE_PORT ??
+        process.env.PORT ??
+        "",
       MEMOIZE_ROOT_PATH: repoPath,
       MEMOIZE_WORKTREE_PATH: worktree.path,
       MEMOIZE_WORKTREE_ID: worktree.id,
       MEMOIZE_PORT:
-        process.env.MEMOIZE_PORT ?? process.env.ZUSE_PORT ?? process.env.PORT ?? "",
+        process.env.MEMOIZE_PORT ??
+        process.env.ZUSE_PORT ??
+        process.env.PORT ??
+        "",
     });
 
     function runSetupFor(
@@ -889,7 +989,12 @@ export const WorktreeServiceLive = Layer.effect(
         emitStatus(worktreeId, "running", startedAtDate, null);
 
         const prep = yield* Effect.tryPromise({
-          try: () => prepareLocalFiles(folder.path, worktree.path),
+          try: () =>
+            prepareLocalFiles(
+              folder.path,
+              worktree.path,
+              settings.fileIncludeGlobs,
+            ),
           catch: (err) =>
             new WorktreeSetupError({
               worktreeId,
@@ -966,9 +1071,7 @@ export const WorktreeServiceLive = Layer.effect(
      * Run setup and guarantee a terminal status is always persisted + emitted
      * — even when setup throws — so a `setupStream` never hangs in `running`.
      */
-    const runSetupSafely = (
-      worktreeId: WorktreeId,
-    ): Effect.Effect<void> =>
+    const runSetupSafely = (worktreeId: WorktreeId): Effect.Effect<void> =>
       runSetupFor(worktreeId).pipe(
         Effect.asVoid,
         Effect.catchAll((err) =>

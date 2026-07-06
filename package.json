@@ -13,6 +13,7 @@
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "test:live-agents": "cd apps/server && bun run test:live-agents",
+    "schemas:generate": "node scripts/generate-settings-schemas.mjs",
     "diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
     "rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
     "dist:mac": "bun run build:desktop && cd apps/desktop && bun run dist:mac",
@@ -30,6 +31,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
+      "infra/*",
       "packages/*",
       "tools/*"
     ],

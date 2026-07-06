@@ -197,7 +197,10 @@ const firstSentence = (text: string, hardCap = 160): string => {
 
 function InlineCodeChip({ value }: { value: string }) {
   return (
-    <span className="ml-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+    <span
+      className="ml-1 inline-block max-w-full truncate rounded bg-muted/60 px-1.5 py-0.5 align-bottom font-mono text-[10px] text-muted-foreground"
+      title={value}
+    >
       {value}
     </span>
   );
@@ -205,7 +208,12 @@ function InlineCodeChip({ value }: { value: string }) {
 
 function InlineTextHint({ value }: { value: string }) {
   return (
-    <span className="ml-1 truncate text-muted-foreground italic">{value}</span>
+    <span
+      className="ml-1 inline-block max-w-full truncate align-bottom text-muted-foreground italic"
+      title={value}
+    >
+      {value}
+    </span>
   );
 }
 
@@ -462,9 +470,14 @@ function ExpandableIconRow({
             />
           ) : null}
         </div>
-        <span className="font-medium text-foreground/90 shrink-0">{label}</span>
+        <span
+          className="max-w-[12rem] shrink-0 truncate font-medium text-foreground/90"
+          title={typeof label === "string" ? label : undefined}
+        >
+          {label}
+        </span>
         {trailing !== undefined ? (
-          <span className="min-w-0 flex-1 truncate flex items-center">
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap [&>*]:min-w-0 [&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis">
             {trailing}
           </span>
         ) : null}
@@ -511,15 +524,34 @@ const buildToolView = (
       : {};
 
   switch (normalizedTool) {
-    case "Bash": {
-      const cmd = asString(obj.command);
+    case "Bash":
+    case "Shell":
+    case "shell":
+    case "Execute":
+    case "execute":
+    case "Run":
+    case "run":
+    case "run_shell_command":
+    case "run_terminal_cmd": {
+      const cmd =
+        asString(obj.command) ??
+        asString(obj.cmd) ??
+        asString(obj.shell_command) ??
+        asString(input);
       const desc = asString(obj.description);
+      const label =
+        desc ??
+        (normalizedTool === "Bash"
+          ? "Bash"
+          : normalizedTool === "Shell"
+            ? "Shell"
+            : "Execute");
       return {
         icon: TerminalIcon,
-        label: desc ?? "Bash",
+        label,
         trailing:
           cmd !== null ? (
-            <InlineCodeChip value={truncate(cmd, 120)} />
+            <InlineCodeChip value={truncate(cmd, 56)} />
           ) : undefined,
         inputPanel: cmd !== null ? <TerminalBlock command={cmd} /> : undefined,
         resultPanel: (result) => (
