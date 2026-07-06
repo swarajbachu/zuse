@@ -27,13 +27,20 @@ interface Env {
   readonly MANAGED_TUNNEL_NAMESPACE?: string;
 }
 
-const managedTunnelConfig = (env: Env): Config.ManagedTunnelConfig | undefined => {
+const configured = (value: string | undefined): value is string =>
+  value !== undefined &&
+  value.trim().length > 0 &&
+  !value.trim().startsWith("REPLACE_WITH");
+
+const managedTunnelConfig = (
+  env: Env,
+): Config.ManagedTunnelConfig | undefined => {
   if (
-    env.CF_API_TOKEN === undefined ||
-    env.CF_ACCOUNT_ID === undefined ||
-    env.CF_ZONE_ID === undefined ||
-    env.MANAGED_TUNNEL_BASE_DOMAIN === undefined ||
-    env.MANAGED_TUNNEL_NAMESPACE === undefined
+    !configured(env.CF_API_TOKEN) ||
+    !configured(env.CF_ACCOUNT_ID) ||
+    !configured(env.CF_ZONE_ID) ||
+    !configured(env.MANAGED_TUNNEL_BASE_DOMAIN) ||
+    !configured(env.MANAGED_TUNNEL_NAMESPACE)
   ) {
     return undefined;
   }
