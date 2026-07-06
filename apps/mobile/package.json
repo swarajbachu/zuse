@@ -11,31 +11,41 @@
     "test": "bun test src",
     "android": "expo run:android"
   },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript",
+        "@types/react"
+      ]
+    }
+  },
   "dependencies": {
     "@effect/platform": "catalog:",
     "@effect/rpc": "catalog:",
     "@expo-google-fonts/geist-mono": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
+    "@expo/ui": "~57.0.3",
     "@zuse/wire": "*",
     "clsx": "^2.1.1",
     "effect": "catalog:",
-    "expo": "~54.0.0",
-    "expo-auth-session": "~7.0.0",
-    "expo-camera": "~17.0.0",
-    "expo-crypto": "~15.0.0",
-    "expo-file-system": "~19.0.0",
-    "expo-font": "~14.0.0",
-    "expo-router": "~6.0.0",
-    "expo-secure-store": "~15.0.0",
-    "expo-status-bar": "~3.0.0",
-    "expo-web-browser": "~15.0.0",
+    "expo": "^57.0.2",
+    "expo-auth-session": "~57.0.1",
+    "expo-camera": "~57.0.0",
+    "expo-crypto": "~57.0.0",
+    "expo-file-system": "~57.0.0",
+    "expo-font": "~57.0.0",
+    "expo-haptics": "~57.0.0",
+    "expo-router": "~57.0.3",
+    "expo-secure-store": "~57.0.0",
+    "expo-status-bar": "~57.0.0",
+    "expo-web-browser": "~57.0.0",
     "jose": "^6.2.3",
     "lucide-react-native": "^0.475.0",
+    "react": "19.2.3",
+    "react-native": "0.86.0",
     "react-native-quick-crypto": "^0.7.0",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
-    "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.0.0",
     "text-encoding": "^0.7.0",
@@ -44,10 +54,10 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
-    "@types/react": "~19.1.10",
-    "babel-preset-expo": "~54.0.0",
+    "@types/react": "catalog:",
+    "babel-preset-expo": "~57.0.0",
     "eslint": "catalog:",
-    "eslint-config-expo": "~10.0.0",
+    "eslint-config-expo": "~57.0.0",
     "typescript": "catalog:"
   }
 }

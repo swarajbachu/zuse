@@ -40,6 +40,9 @@ export default function SmokeScreen() {
   }, []);
 
   useEffect(() => {
+    // Diagnostic harness: runs the probe suite once on mount. The initial
+    // synchronous state reset is intentional and harmless here (single run).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void run();
   }, [run]);
 

@@ -17,12 +17,14 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "bundleIdentifier": "com.swarajbachu.zuse-mobile"
+      "bundleIdentifier": "com.swarajbachu.zuse-mobile",
+      "appleTeamId": "HMCST4VV42"
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      "expo-web-browser"
     ]
   }
 }
