@@ -30,9 +30,26 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const relayErrorMessage = (cause: unknown): string => {
   const formatted = formatError(cause);
-  return formatted.includes("not_signed_in")
-    ? "Sign in before linking this Mac to your account."
-    : formatted;
+  if (formatted.includes("not_signed_in")) {
+    return "Sign in before linking this Mac to your account.";
+  }
+  if (
+    formatted.includes("relay_auth_rejected") ||
+    formatted.includes("invalid_workos_token") ||
+    formatted.includes("relay_401")
+  ) {
+    return "We couldn't verify your sign-in. Sign out, sign in again, and try connecting this Mac once more.";
+  }
+  if (
+    formatted.includes("Failed to fetch") ||
+    formatted.includes("NetworkError") ||
+    formatted.includes("relay_502") ||
+    formatted.includes("relay_503") ||
+    formatted.includes("relay_504")
+  ) {
+    return "We couldn't reach the device relay. Check your internet connection and try again.";
+  }
+  return "Something went wrong while updating this Mac. Try again.";
 };
 
 const showRelayErrorToast = (title: string, cause: unknown): void => {
