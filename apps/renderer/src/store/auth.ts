@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import type { AuthState } from "@zuse/wire";
 
+import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
   readStorageWithLegacy,
@@ -56,6 +57,21 @@ const writeDisplayName = (value: string): void => {
 };
 
 const SIGNED_OUT: AuthState = { _tag: "SignedOut" };
+
+const signInFailureMessage = (err: unknown): string =>
+  typeof err === "object" &&
+  err !== null &&
+  "_tag" in err &&
+  err._tag === "AuthCancelledError"
+    ? "No sign-in callback was received. Check the WorkOS client ID and redirect URI, then try again."
+    : typeof err === "object" &&
+        err !== null &&
+        "reason" in err &&
+        typeof err.reason === "string"
+      ? err.reason
+      : err instanceof Error
+        ? err.message
+        : "Sign-in failed. Please try again.";
 
 type AuthStore = {
   /** null until the first getSession / stream emit resolves. */
@@ -125,6 +141,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   signIn: async () => {
     if (get().signingIn) return;
     set({ signingIn: true, error: null });
+    toastManager.add({
+      type: "info",
+      title: "Opening browser sign-in",
+      description: "Complete WorkOS sign-in in your browser.",
+    });
     try {
       const client = await getRpcClient();
       // Match the Effect to a result object so a user-cancel (silent) and a
@@ -141,18 +162,26 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         set({ state: result.next, signingIn: false, error: null });
         return;
       }
+      const message = signInFailureMessage(result.err);
       set({
         signingIn: false,
-        error:
-          result.err._tag === "AuthCancelledError"
-            ? "No sign-in callback was received. Check the WorkOS client ID and redirect URI, then try again."
-            : ("reason" in result.err && result.err.reason) ||
-              "Sign-in failed. Please try again.",
+        error: message,
+      });
+      toastManager.add({
+        type: "error",
+        title: "Sign-in failed",
+        description: message,
       });
     } catch (err) {
+      const message = signInFailureMessage(err);
       set({
         signingIn: false,
-        error: err instanceof Error ? err.message : "Sign-in failed.",
+        error: message,
+      });
+      toastManager.add({
+        type: "error",
+        title: "Sign-in failed",
+        description: message,
       });
     }
   },

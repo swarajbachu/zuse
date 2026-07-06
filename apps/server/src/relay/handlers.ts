@@ -2,7 +2,10 @@ import { Effect, Layer } from "effect";
 
 import { ConnectAuthError, MemoizeRpcs, RelayLinkStatus } from "@zuse/wire";
 
-import { RelayLinkService, type RelayLinkStatusValue } from "./relay-link-service.ts";
+import {
+  RelayLinkService,
+  type RelayLinkStatusValue,
+} from "./relay-link-service.ts";
 
 const toStatus = (value: RelayLinkStatusValue): RelayLinkStatus =>
   RelayLinkStatus.make({
@@ -11,6 +14,7 @@ const toStatus = (value: RelayLinkStatusValue): RelayLinkStatus =>
     environmentId: value.environmentId,
     label: value.label,
     heartbeatActive: value.heartbeatActive,
+    advertisedEndpoints: value.advertisedEndpoints,
   });
 
 const toConnectError = (reason: string): ConnectAuthError =>

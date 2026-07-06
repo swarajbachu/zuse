@@ -333,7 +333,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthConfigLayer),
     Layer.provide(AuthLayer),
     // The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
-    Layer.provide(ManagedTunnelRuntimeLive.pipe(Layer.provide(NodeContext.layer))),
+    Layer.provide(
+      ManagedTunnelRuntimeLive.pipe(
+        Layer.provide(NodeContext.layer),
+        Layer.provide(AppPathsLayer),
+      ),
+    ),
+    Layer.provide(AppPathsLayer),
   );
 
   const HandlerSupportLayer = Layer.mergeAll(

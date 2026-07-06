@@ -3,6 +3,7 @@ import { Schema } from "effect";
 
 import {
   AgentEvent,
+  AdvertisedEndpoint,
   Chat,
   ComposerInput,
   defaultModelEnabledByProvider,
@@ -13,6 +14,7 @@ import {
   MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
   RepositorySettingsFile,
+  RelayLinkStatus,
   resolveModelSlug,
   SettingsFile,
   Session,
@@ -143,6 +145,68 @@ describe("AgentEvent round-trips", () => {
         status: "spinning",
       }),
     ).toThrow();
+  });
+});
+
+describe("AdvertisedEndpoint round-trip", () => {
+  const encoded = {
+    id: "tunnel:managed-relay",
+    label: "Managed tunnel",
+    providerKind: "tunnel" as const,
+    httpBaseUrl: "https://env.example.test",
+    wsBaseUrl: "wss://env.example.test/rpc",
+    reachability: "tunnel" as const,
+    compatibility: { hostedHttpsApp: "compatible" as const },
+    status: "available" as const,
+    isDefault: true,
+  };
+
+  it("round-trips the advertised endpoint wire shape", () => {
+    roundTrip(AdvertisedEndpoint, encoded);
+  });
+
+  it("rejects invalid enum literals", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(AdvertisedEndpoint)({
+        ...encoded,
+        reachability: "vpn",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("RelayLinkStatus advertised endpoint compatibility", () => {
+  const base = {
+    linked: true,
+    relayUrl: "https://relay.example.test",
+    environmentId: "env_123",
+    label: "Mac",
+    heartbeatActive: true,
+  };
+
+  it("decodes legacy status without advertisedEndpoints", () => {
+    const decoded = Schema.decodeUnknownSync(RelayLinkStatus)(base);
+    expect(decoded.linked).toBe(true);
+    expect(decoded.advertisedEndpoints).toBeUndefined();
+  });
+
+  it("round-trips status with advertisedEndpoints", () => {
+    roundTrip(RelayLinkStatus, {
+      ...base,
+      advertisedEndpoints: [
+        {
+          id: "core:lan",
+          label: "LAN",
+          providerKind: "core" as const,
+          httpBaseUrl: "http://192.168.1.10:8787",
+          wsBaseUrl: "ws://192.168.1.10:8787",
+          reachability: "lan" as const,
+          compatibility: { hostedHttpsApp: "mixed-content-blocked" as const },
+          status: "available" as const,
+          isDefault: true,
+        },
+      ],
+    });
   });
 });
 

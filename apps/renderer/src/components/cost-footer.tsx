@@ -169,15 +169,17 @@ export function CostFooter({ sessionId }: { sessionId: SessionId }) {
   if (summary === null) return null;
 
   return (
-    <div className="px-4 pb-1 text-[10px] text-muted-foreground">
-      <span className="tabular-nums">
-        {summary.lines.join(" · ")}
-        {summary.saved > 0.005 ? (
-          <span className="ml-2 text-emerald-300/80">
-            saved ~{formatUsd(summary.saved)}
-          </span>
-        ) : null}
-      </span>
+    <div className="px-3 pb-1 text-[10px] text-muted-foreground">
+      <div className="mx-auto w-full max-w-4xl">
+        <span className="tabular-nums">
+          {summary.lines.join(" · ")}
+          {summary.saved > 0.005 ? (
+            <span className="ml-2 text-emerald-300/80">
+              saved ~{formatUsd(summary.saved)}
+            </span>
+          ) : null}
+        </span>
+      </div>
     </div>
   );
 }
