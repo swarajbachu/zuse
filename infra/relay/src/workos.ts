@@ -31,6 +31,57 @@ export const acceptedWorkosIssuers = (issuer: string): string[] => {
   return withoutSlash === withSlash ? [trimmed] : [withoutSlash, withSlash];
 };
 
+const decodeJwtPart = (part: string): Record<string, unknown> | null => {
+  try {
+    const padded = part.padEnd(
+      part.length + ((4 - (part.length % 4)) % 4),
+      "=",
+    );
+    const json = atob(padded.replace(/-/g, "+").replace(/_/g, "/"));
+    const value = JSON.parse(json) as unknown;
+    return typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const logWorkosVerifyFailure = (
+  token: string,
+  config: {
+    readonly workosIssuer: string;
+    readonly workosJwksUrl: string;
+    readonly acceptedIssuers: readonly string[];
+  },
+  cause: unknown,
+): void => {
+  const parts = token.split(".");
+  const header = parts[0] === undefined ? null : decodeJwtPart(parts[0]);
+  const payload = parts[1] === undefined ? null : decodeJwtPart(parts[1]);
+  console.warn("[zuse-relay] WorkOS token verification failed", {
+    configuredIssuer: config.workosIssuer,
+    acceptedIssuers: config.acceptedIssuers,
+    jwksUrl: config.workosJwksUrl,
+    tokenHeader: {
+      alg: header?.alg,
+      kid: header?.kid,
+      typ: header?.typ,
+    },
+    tokenClaims: {
+      iss: payload?.iss,
+      client_id: payload?.client_id,
+      aud: payload?.aud,
+      exp: payload?.exp,
+      iat: payload?.iat,
+    },
+    cause:
+      cause instanceof Error
+        ? { name: cause.name, message: cause.message }
+        : String(cause),
+  });
+};
+
 /** Production verifier: validates the JWT against WorkOS's JWKS. */
 export const WorkosVerifierLive: Layer.Layer<
   WorkosVerifier,
@@ -47,7 +98,18 @@ export const WorkosVerifierLive: Layer.Layer<
         Effect.gen(function* () {
           const verified = yield* Effect.tryPromise({
             try: () => jwtVerify(token, jwks, { issuer: issuers }),
-            catch: () => unauthorized("invalid_workos_token"),
+            catch: (cause) => {
+              logWorkosVerifyFailure(
+                token,
+                {
+                  workosIssuer: config.workosIssuer,
+                  workosJwksUrl: config.workosJwksUrl,
+                  acceptedIssuers: issuers,
+                },
+                cause,
+              );
+              return unauthorized("invalid_workos_token");
+            },
           });
           const payload = verified.payload as {
             readonly sub?: unknown;
