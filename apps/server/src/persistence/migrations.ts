@@ -26,6 +26,7 @@ import { Migration0022AttachmentAbsPath } from "./migrations/0022_attachment_abs
 import { Migration0023ChatLineage } from "./migrations/0023_chat_lineage.ts";
 import { Migration0024RemoteConnectState } from "./migrations/0024_remote_connect_state.ts";
 import { Migration0025RelayEnvironmentKeys } from "./migrations/0025_relay_environment_keys.ts";
+import { Migration0026RelayConnectorToken } from "./migrations/0026_relay_connector_token.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -70,6 +71,7 @@ export const MigrationsLive = Layer.effectDiscard(
       "0023_chat_lineage": Migration0023ChatLineage,
       "0024_remote_connect_state": Migration0024RemoteConnectState,
       "0025_relay_environment_keys": Migration0025RelayEnvironmentKeys,
+      "0026_relay_connector_token": Migration0026RelayConnectorToken,
     }),
   }),
 );

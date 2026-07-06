@@ -20,6 +20,7 @@ import {
 import { Migration0021AuthTokens } from "../src/persistence/migrations/0021_auth_tokens.ts";
 import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0024_remote_connect_state.ts";
 import { Migration0025RelayEnvironmentKeys } from "../src/persistence/migrations/0025_relay_environment_keys.ts";
+import { Migration0026RelayConnectorToken } from "../src/persistence/migrations/0026_relay_connector_token.ts";
 
 const makeRuntime = () => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
@@ -27,6 +28,7 @@ const makeRuntime = () => {
     Migration0021AuthTokens.pipe(
       Effect.zipRight(Migration0024RemoteConnectState),
       Effect.zipRight(Migration0025RelayEnvironmentKeys),
+      Effect.zipRight(Migration0026RelayConnectorToken),
     ),
   ).pipe(
     Layer.provideMerge(SqlLive),

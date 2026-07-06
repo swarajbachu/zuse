@@ -17,6 +17,7 @@ import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
 import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
+import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
   LanAuthConfig,
@@ -325,6 +326,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthLayer),
     Layer.provide(LanAuthConfigLayer),
     Layer.provide(AuthLayer),
+    // The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
+    Layer.provide(ManagedTunnelRuntimeLive.pipe(Layer.provide(NodeContext.layer))),
   );
 
   const HandlerSupportLayer = Layer.mergeAll(

@@ -35,6 +35,12 @@ export const relayEnvironments = pgTable(
     httpBaseUrl: text("http_base_url").notNull(),
     wsBaseUrl: text("ws_base_url").notNull(),
     tunnelHostname: text("tunnel_hostname"),
+    // Managed Cloudflare tunnel lifecycle. `tunnel_id`/`dns_record_id` are the
+    // Cloudflare resources to tear down on unlink; `tunnel_status` tracks the
+    // provisioning state machine (reserved → ready).
+    tunnelId: text("tunnel_id"),
+    dnsRecordId: text("dns_record_id"),
+    tunnelStatus: text("tunnel_status"),
     linkedAt: bigint("linked_at", { mode: "number" }).notNull(),
     lastSeenAt: bigint("last_seen_at", { mode: "number" }),
   },
@@ -43,6 +49,10 @@ export const relayEnvironments = pgTable(
     check(
       "relay_environments_provider_kind_check",
       sql`${table.providerKind} IN ('desktop', 'ssh', 'cloud')`,
+    ),
+    check(
+      "relay_environments_tunnel_status_check",
+      sql`${table.tunnelStatus} IS NULL OR ${table.tunnelStatus} IN ('reserved', 'ready')`,
     ),
   ],
 );

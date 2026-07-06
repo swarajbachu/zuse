@@ -87,6 +87,8 @@ export interface LanAuthServiceShape {
     readonly environmentId: EnvironmentId;
     readonly environmentCredential: string;
     readonly label?: string;
+    /** `cloudflared` connector token for the managed tunnel, if provisioned. */
+    readonly connectorToken?: string;
   }) => Effect.Effect<void, LanAuthError>;
   /** Current relay link, or null if this environment isn't linked. */
   readonly getRelayConfig: () => Effect.Effect<
@@ -96,6 +98,7 @@ export interface LanAuthServiceShape {
       readonly environmentId: EnvironmentId;
       readonly environmentCredential: string;
       readonly label: string | undefined;
+      readonly connectorToken: string | undefined;
     } | null,
     LanAuthError
   >;
