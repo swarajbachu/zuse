@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Host, Icon, List, ListItem } from "@expo/ui";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { Monitor } from "lucide-react-native";
 import { Text, View } from "react-native";
 
@@ -63,6 +63,20 @@ export default function ComputersScreen() {
   const watchConnection = useConnectionRuntimeStore((state) => state.watch);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const onChangeSearch = useCallback((event: { nativeEvent: { text: string } }) => {
+    setSearch(event.nativeEvent.text);
+  }, []);
+  const searchOptions = useMemo(
+    () => ({
+      placeholder: "Search computers",
+      placement: "stacked" as const,
+      hideWhenScrolling: false,
+      onChangeText: onChangeSearch,
+      onCancelButtonPress: () => setSearch(""),
+    }),
+    [onChangeSearch]
+  );
 
   const anyPulsing =
     connecting !== null || environments.some((e) => isChecking(e.presence));
@@ -118,9 +132,53 @@ export default function ComputersScreen() {
     }
   };
 
+  const presenceLabel = useCallback((environmentId: string, presence: string) => {
+    if (connecting === environmentId) return "Connecting…";
+    const snapshot = snapshots[environmentId];
+    if (snapshot !== undefined && snapshot.status !== "connected") {
+      return connectionStatusLabel(snapshot);
+    }
+    if (presence === "online") return "Online";
+    if (presence === "offline") return "Offline";
+    return "Checking…";
+  }, [connecting, snapshots]);
+
+  const filteredEnvironments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (query.length === 0) return environments;
+    return environments.filter((environment) => {
+      const connection = connections.find(
+        (item) => item.environmentId === environment.environmentId
+      );
+      const haystack = [
+        environment.label,
+        environment.environmentId,
+        environment.presence,
+        connection?.label,
+        connection?.key,
+        presenceLabel(environment.environmentId, environment.presence),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [connections, environments, presenceLabel, search]);
+
+  const presenceColor = (environmentId: string, presence: string) => {
+    if (connecting === environmentId || isChecking(presence)) return pulseColor;
+    return presence === "online" ? LIME : MUTED;
+  };
+
   if (account === null) {
     return (
       <View className="flex-1 bg-background">
+        <Stack.Screen
+          options={{
+            title: "Computers",
+            headerSearchBarOptions: searchOptions,
+          }}
+        />
         <EmptyState
           icon={Monitor}
           title="Sign in to see your computers"
@@ -135,31 +193,21 @@ export default function ComputersScreen() {
     );
   }
 
-  const presenceLabel = (environmentId: string, presence: string) => {
-    if (connecting === environmentId) return "Connecting…";
-    const snapshot = snapshots[environmentId];
-    if (snapshot !== undefined && snapshot.status !== "connected") {
-      return connectionStatusLabel(snapshot);
-    }
-    if (presence === "online") return "Online";
-    if (presence === "offline") return "Offline";
-    return "Checking…";
-  };
-
-  const presenceColor = (environmentId: string, presence: string) => {
-    if (connecting === environmentId || isChecking(presence)) return pulseColor;
-    return presence === "online" ? LIME : MUTED;
-  };
-
   return (
     <View className="flex-1 bg-background">
+      <Stack.Screen
+        options={{
+          title: "Computers",
+          headerSearchBarOptions: searchOptions,
+        }}
+      />
       <Host
         colorScheme="dark"
         seedColor={LIME}
         style={{ width: "100%", height: "100%" }}
       >
         <List onRefresh={() => refresh()}>
-          {environments.map((environment) => (
+          {filteredEnvironments.map((environment) => (
             <ListItem
               key={environment.environmentId}
               onPress={() => void onConnect(environment.environmentId)}
@@ -206,11 +254,12 @@ export default function ComputersScreen() {
         </List>
       </Host>
 
-      {environments.length === 0 && !loading ? (
+      {filteredEnvironments.length === 0 && !loading ? (
         <View className="absolute inset-x-0 top-40 px-8">
           <Text className="text-center font-sans text-sm text-muted-foreground">
-            No computers yet. Open Settings → Devices on your Mac and link it to
-            your account.
+            {search.trim().length > 0
+              ? "No computers match that search."
+              : "No computers yet. Open Settings → Devices on your Mac and link it to your account."}
           </Text>
         </View>
       ) : null}
