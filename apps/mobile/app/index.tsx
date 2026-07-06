@@ -51,9 +51,14 @@ export default function ConnectionsScreen() {
       )}
 
       <View className="gap-3 border-t border-border p-4">
+        <Button onPress={() => router.push("/computers")}>Your computers</Button>
         <View className="flex-row gap-3">
-          <Button className="flex-1" onPress={() => setSheetOpen(true)}>
-            Add connection
+          <Button
+            variant="secondary"
+            className="flex-1"
+            onPress={() => setSheetOpen(true)}
+          >
+            Add manually
           </Button>
           <Button variant="secondary" onPress={() => router.push("/connect/scan")}>
             <QrCode size={16} color="hsl(72 4% 92%)" /> Scan

@@ -11,6 +11,8 @@ export type ConnectionRecord = {
   host: string;
   port: number;
   token?: string | null;
+  /** Full ws(s):// base URL for relay/tunnel-reached environments. */
+  wsBaseUrl?: string | null;
   label: string;
   updatedAt: number;
 };
@@ -24,7 +26,26 @@ type ConnectionsState = {
     port: number;
     token?: string | null;
   }) => Promise<ConnectionRecord>;
+  /** Upsert a relay-discovered environment reached via a managed endpoint. */
+  addRelay: (input: {
+    environmentId: string;
+    label: string;
+    wsBaseUrl: string;
+    token: string;
+  }) => Promise<ConnectionRecord>;
   remove: (key: string) => Promise<void>;
+};
+
+const parseHostPort = (wsBaseUrl: string): { host: string; port: number } => {
+  try {
+    const url = new URL(wsBaseUrl);
+    return {
+      host: url.hostname,
+      port: Number(url.port) || (url.protocol === "wss:" ? 443 : 80),
+    };
+  } catch {
+    return { host: "127.0.0.1", port: 8787 };
+  }
 };
 
 const STORE_KEY = "zuse.mobile.connections.v1";
@@ -74,6 +95,26 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       updatedAt: Date.now()
     };
     const next = [record, ...get().connections.filter((c) => c.key !== key)];
+    set({ connections: next });
+    await Effect.runPromise(saveConnections(next));
+    return record;
+  },
+  addRelay: async ({ environmentId, label, wsBaseUrl, token }) => {
+    const { host, port } = parseHostPort(wsBaseUrl);
+    const record: ConnectionRecord = {
+      key: environmentId,
+      environmentId,
+      host,
+      port,
+      wsBaseUrl,
+      token,
+      label,
+      updatedAt: Date.now(),
+    };
+    const next = [
+      record,
+      ...get().connections.filter((c) => c.key !== environmentId),
+    ];
     set({ connections: next });
     await Effect.runPromise(saveConnections(next));
     return record;

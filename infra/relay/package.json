@@ -7,11 +7,29 @@
   "types": "./src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "mint-keys": "node scripts/mint-keys.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "secret": "wrangler secret put RELAY_MINT_PRIVATE_JWK",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/sql": "catalog:",
+    "@effect/sql-pg": "^0.52.1",
+    "effect": "catalog:",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.1",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.3",
+    "pg": "^8.22.0",
+    "typescript": "catalog:",
+    "wrangler": "^4.107.0"
   }
 }
