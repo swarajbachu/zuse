@@ -17,13 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible.tsx";
-import {
-  Frame,
-  FrameFooter,
-  FrameHeader,
-  FramePanel,
-  FrameTitle,
-} from "../ui/frame.tsx";
+import { Frame, FrameFooter, FramePanel, FrameTitle } from "../ui/frame.tsx";
 import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -161,20 +155,20 @@ export function DevicesPane() {
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
       {linked ? (
         <Frame>
-          <FrameHeader className="flex-row items-center gap-2 px-3 py-2.5">
-            <span
-              className={
-                status?.heartbeatActive === true
-                  ? "size-2 rounded-full bg-emerald-500"
-                  : "size-2 rounded-full bg-muted-foreground/40"
-              }
-              aria-hidden
-            />
-            <FrameTitle className="truncate">
-              {status?.label ?? "This Mac"}
-            </FrameTitle>
-          </FrameHeader>
           <FramePanel className="space-y-3 p-3">
+            <div className="flex items-center gap-2">
+              <span
+                className={
+                  status?.heartbeatActive === true
+                    ? "size-2 rounded-full bg-emerald-500"
+                    : "size-2 rounded-full bg-muted-foreground/40"
+                }
+                aria-hidden
+              />
+              <FrameTitle className="truncate">
+                {status?.label ?? "This Mac"}
+              </FrameTitle>
+            </div>
             <p className="text-xs text-muted-foreground">
               {status?.heartbeatActive === true ? "Online" : "Idle"} · Linked to
               your account
@@ -200,10 +194,8 @@ export function DevicesPane() {
         </Frame>
       ) : (
         <Frame>
-          <FrameHeader className="px-3 py-2.5">
-            <FrameTitle>This Mac</FrameTitle>
-          </FrameHeader>
           <FramePanel className="space-y-3 p-3">
+            <FrameTitle>This Mac</FrameTitle>
             <p className="text-sm text-muted-foreground">
               Link this Mac to your account so it shows up on your phone.
             </p>
@@ -229,7 +221,7 @@ export function DevicesPane() {
       {advertisedEndpoints.length > 0 && (
         <Collapsible open={endpointsOpen} onOpenChange={setEndpointsOpen}>
           <Frame>
-            <FrameHeader className="px-3 py-2.5">
+            <FramePanel className="p-3">
               <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
                 <FrameTitle>All endpoints</FrameTitle>
                 <ChevronDown
@@ -241,9 +233,7 @@ export function DevicesPane() {
                   aria-hidden
                 />
               </CollapsibleTrigger>
-            </FrameHeader>
-            <CollapsibleContent>
-              <FramePanel className="p-3">
+              <CollapsibleContent>
                 <div className="mb-2 text-xs text-muted-foreground">
                   {advertisedEndpoints.length} advertised route
                   {advertisedEndpoints.length === 1 ? "" : "s"}
@@ -273,8 +263,8 @@ export function DevicesPane() {
                     );
                   })}
                 </div>
-              </FramePanel>
-            </CollapsibleContent>
+              </CollapsibleContent>
+            </FramePanel>
           </Frame>
         </Collapsible>
       )}
