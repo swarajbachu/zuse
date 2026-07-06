@@ -520,9 +520,17 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
-    const frame = requestAnimationFrame(() => {
+    let frame: number | null = null;
+    const attachListeners = (remainingAttempts: number) => {
       const scrollNode = listRef.current?.getScrollableNode();
-      if (!scrollNode) return;
+      if (!scrollNode) {
+        if (remainingAttempts > 0) {
+          frame = requestAnimationFrame(() =>
+            attachListeners(remainingAttempts - 1),
+          );
+        }
+        return;
+      }
       if (scrollNode instanceof HTMLDivElement) {
         scrollNode.dataset.pane = "chat";
         scrollNode.tabIndex = -1;
@@ -547,13 +555,20 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       });
       removeListeners = () => {
         scrollNode.removeEventListener("wheel", handleManualScrollNavigation);
-        scrollNode.removeEventListener("touchmove", handleManualScrollNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualPointerNavigation);
+        scrollNode.removeEventListener(
+          "touchmove",
+          handleManualScrollNavigation,
+        );
+        scrollNode.removeEventListener(
+          "pointerdown",
+          handleManualPointerNavigation,
+        );
       };
-    });
+    };
+    frame = requestAnimationFrame(() => attachListeners(30));
 
     return () => {
-      cancelAnimationFrame(frame);
+      if (frame !== null) cancelAnimationFrame(frame);
       removeListeners?.();
     };
   }, [cancelTimelineLiveFollowForUserNavigation, sessionId]);
