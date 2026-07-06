@@ -8,6 +8,7 @@ import {
   PairingError,
 } from "@zuse/wire";
 
+import { buildAdvertisedEndpoints } from "./advertised-endpoints.ts";
 import { LanAuthConfig } from "./services/lan-auth-service.ts";
 import { LanAuthService } from "./services/lan-auth-service.ts";
 
@@ -62,6 +63,7 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
       environmentId: yield* auth.environmentId(),
       providerKind: "desktop",
       endpoint: EnvironmentEndpoint.make({ httpBaseUrl, wsBaseUrl }),
+      advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
     });
   }).pipe(
     Effect.mapError((error) =>
@@ -79,10 +81,12 @@ const ConnectLinkProof = MemoizeRpcs.toLayerHandler(
       const auth = yield* LanAuthService;
       return yield* auth.linkProof(input);
     }).pipe(
-      Effect.mapError((error) =>
-        new ConnectAuthError({
-          reason: error instanceof Error ? error.message : "link_proof_failed",
-        }),
+      Effect.mapError(
+        (error) =>
+          new ConnectAuthError({
+            reason:
+              error instanceof Error ? error.message : "link_proof_failed",
+          }),
       ),
     ),
 );
@@ -94,11 +98,12 @@ const ConnectRelayConfig = MemoizeRpcs.toLayerHandler(
       const auth = yield* LanAuthService;
       yield* auth.saveRelayConfig(input);
     }).pipe(
-      Effect.mapError((error) =>
-        new ConnectAuthError({
-          reason:
-            error instanceof Error ? error.message : "relay_config_failed",
-        }),
+      Effect.mapError(
+        (error) =>
+          new ConnectAuthError({
+            reason:
+              error instanceof Error ? error.message : "relay_config_failed",
+          }),
       ),
     ),
 );

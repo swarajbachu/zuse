@@ -311,17 +311,19 @@ export const LanAuthServiceLive = Layer.effect(
           const updatedAt = yield* nowIso;
           yield* sql`
             INSERT INTO relay_config
-              (environment_id, relay_url, relay_issuer, environment_credential, label, connector_token, updated_at)
+              (environment_id, relay_url, relay_issuer, environment_credential, label, connector_token, tunnel_hostname, updated_at)
             VALUES
               (${input.environmentId}, ${input.relayUrl}, ${input.relayIssuer},
                ${input.environmentCredential}, ${input.label ?? null},
-               ${input.connectorToken ?? null}, ${updatedAt})
+               ${input.connectorToken ?? null}, ${input.tunnelHostname ?? null},
+               ${updatedAt})
             ON CONFLICT(environment_id) DO UPDATE SET
               relay_url = excluded.relay_url,
               relay_issuer = excluded.relay_issuer,
               environment_credential = excluded.environment_credential,
               label = excluded.label,
               connector_token = excluded.connector_token,
+              tunnel_hostname = excluded.tunnel_hostname,
               updated_at = excluded.updated_at
           `;
         }).pipe(Effect.asVoid, Effect.mapError(toLanAuthError)),
@@ -334,8 +336,9 @@ export const LanAuthServiceLive = Layer.effect(
             readonly environment_credential: string;
             readonly label: string | null;
             readonly connector_token: string | null;
+            readonly tunnel_hostname: string | null;
           }>`
-            SELECT relay_url, relay_issuer, environment_id, environment_credential, label, connector_token
+            SELECT relay_url, relay_issuer, environment_id, environment_credential, label, connector_token, tunnel_hostname
             FROM relay_config
             LIMIT 1
           `;
@@ -348,6 +351,7 @@ export const LanAuthServiceLive = Layer.effect(
             environmentCredential: row.environment_credential,
             label: row.label ?? undefined,
             connectorToken: row.connector_token ?? undefined,
+            tunnelHostname: row.tunnel_hostname ?? undefined,
           };
         }).pipe(Effect.mapError(toLanAuthError)),
       clearRelayConfig: () =>

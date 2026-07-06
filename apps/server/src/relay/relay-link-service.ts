@@ -3,6 +3,7 @@ import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 import { RelayPaths, type EnvironmentId } from "@zuse/wire";
 
 import { AuthService } from "../auth/services/auth-service.ts";
+import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import {
   LanAuthConfig,
   LanAuthService,
@@ -23,6 +24,7 @@ export interface RelayLinkStatusValue {
   readonly environmentId?: EnvironmentId;
   readonly label?: string;
   readonly heartbeatActive: boolean;
+  readonly advertisedEndpoints?: ReturnType<typeof buildAdvertisedEndpoints>;
 }
 
 /**
@@ -56,7 +58,9 @@ const postJson = <A>(
         method: "POST",
         headers: {
           authorization: `Bearer ${opts.bearer}`,
-          ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
+          ...(opts.body === undefined
+            ? {}
+            : { "content-type": "application/json" }),
         },
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       });
@@ -129,7 +133,9 @@ export const RelayLinkServiceLive: Layer.Layer<
     });
 
     // Resume heartbeating (and the managed-tunnel connector) on boot if linked.
-    const existing = yield* auth.getRelayConfig().pipe(Effect.orElseSucceed(() => null));
+    const existing = yield* auth
+      .getRelayConfig()
+      .pipe(Effect.orElseSucceed(() => null));
     if (existing !== null) {
       yield* startHeartbeat({
         relayUrl: existing.relayUrl,
@@ -157,7 +163,9 @@ export const RelayLinkServiceLive: Layer.Layer<
             readonly challengeId: string;
             readonly challenge: string;
             readonly relayIssuer: string;
-          }>(`${input.relayUrl}${RelayPaths.linkChallenges}`, { bearer: token });
+          }>(`${input.relayUrl}${RelayPaths.linkChallenges}`, {
+            bearer: token,
+          });
 
           const nowMs = yield* Clock.currentTimeMillis;
           const proof = yield* signEnvironmentLinkProof({
@@ -207,6 +215,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               environmentCredential: linked.environmentCredential,
               label: input.label,
               connectorToken: linked.connectorToken,
+              tunnelHostname: linked.tunnelHostname,
             })
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
 
@@ -222,6 +231,14 @@ export const RelayLinkServiceLive: Layer.Layer<
             environmentId: keys.envId,
             label: input.label,
             heartbeatActive: true,
+            advertisedEndpoints: buildAdvertisedEndpoints({
+              lan: config,
+              relay: {
+                linked: true,
+                heartbeatActive: true,
+                tunnelHostname: linked.tunnelHostname,
+              },
+            }),
           } satisfies RelayLinkStatusValue;
         }),
       status: () =>
@@ -231,7 +248,11 @@ export const RelayLinkServiceLive: Layer.Layer<
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
           const active = (yield* Ref.get(heartbeatRef)) !== null;
           if (cfg === null) {
-            return { linked: false, heartbeatActive: false } satisfies RelayLinkStatusValue;
+            return {
+              linked: false,
+              heartbeatActive: false,
+              advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
+            } satisfies RelayLinkStatusValue;
           }
           return {
             linked: true,
@@ -239,6 +260,14 @@ export const RelayLinkServiceLive: Layer.Layer<
             environmentId: cfg.environmentId,
             label: cfg.label,
             heartbeatActive: active,
+            advertisedEndpoints: buildAdvertisedEndpoints({
+              lan: config,
+              relay: {
+                linked: true,
+                heartbeatActive: active,
+                tunnelHostname: cfg.tunnelHostname,
+              },
+            }),
           } satisfies RelayLinkStatusValue;
         }),
       unlink: () =>
@@ -252,17 +281,15 @@ export const RelayLinkServiceLive: Layer.Layer<
           // removes the environment from the account). Local unlink proceeds
           // even if the relay is unreachable or we're signed out.
           if (cfg !== null) {
-            yield* authService
-              .getAccessToken()
-              .pipe(
-                Effect.flatMap((token) =>
-                  postJson<unknown>(`${cfg.relayUrl}${RelayPaths.unlink}`, {
-                    bearer: token,
-                    body: { environmentId: cfg.environmentId },
-                  }),
-                ),
-                Effect.ignore,
-              );
+            yield* authService.getAccessToken().pipe(
+              Effect.flatMap((token) =>
+                postJson<unknown>(`${cfg.relayUrl}${RelayPaths.unlink}`, {
+                  bearer: token,
+                  body: { environmentId: cfg.environmentId },
+                }),
+              ),
+              Effect.ignore,
+            );
           }
           yield* auth
             .clearRelayConfig()
