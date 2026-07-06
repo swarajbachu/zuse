@@ -375,8 +375,10 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
           streaming={streaming}
           onClick={jumpToLatest}
         />
-        <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2">
-          <NextUnreadButton />
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20">
+          <div className="mx-auto flex w-full max-w-4xl justify-end px-3">
+            <NextUnreadButton />
+          </div>
         </div>
         {archiveProgress !== null ? (
           <ArchiveProgressOverlay phase={archiveProgress} />
