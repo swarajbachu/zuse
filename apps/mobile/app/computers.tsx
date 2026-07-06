@@ -8,6 +8,11 @@ import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { errorTap, selectionTap, successTap } from "~/lib/haptics";
 import { useAuthStore } from "~/store/auth";
+import {
+  connectionStatusLabel,
+  useConnectionRuntimeStore,
+} from "~/store/connection-runtime";
+import { useConnectionsStore } from "~/store/connections";
 import { useEnvironmentsStore } from "~/store/environments";
 
 const LIME = "hsl(72 98% 54%)";
@@ -53,6 +58,9 @@ export default function ComputersScreen() {
   const { account, hydrated, busy, hydrate, signIn, signOut } = useAuthStore();
   const { environments, loading, error, refresh, connect } =
     useEnvironmentsStore();
+  const connections = useConnectionsStore((state) => state.connections);
+  const snapshots = useConnectionRuntimeStore((state) => state.snapshotsByConnection);
+  const watchConnection = useConnectionRuntimeStore((state) => state.watch);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
 
@@ -67,6 +75,20 @@ export default function ComputersScreen() {
   useEffect(() => {
     if (account !== null) void refresh();
   }, [account, refresh]);
+
+  useEffect(() => {
+    const unwatch = environments
+      .map((environment) =>
+        connections.find(
+          (connection) => connection.environmentId === environment.environmentId
+        )
+      )
+      .filter((connection) => connection !== undefined)
+      .map((connection) => watchConnection(connection.key, connection));
+    return () => {
+      for (const stop of unwatch) stop();
+    };
+  }, [connections, environments, watchConnection]);
 
   // Subtle selection tick when a computer comes online.
   const prevPresence = useRef(new Map<string, string>());
@@ -115,6 +137,10 @@ export default function ComputersScreen() {
 
   const presenceLabel = (environmentId: string, presence: string) => {
     if (connecting === environmentId) return "Connecting…";
+    const snapshot = snapshots[environmentId];
+    if (snapshot !== undefined && snapshot.status !== "connected") {
+      return connectionStatusLabel(snapshot);
+    }
     if (presence === "online") return "Online";
     if (presence === "offline") return "Offline";
     return "Checking…";

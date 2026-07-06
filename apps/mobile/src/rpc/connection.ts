@@ -3,21 +3,23 @@ import { MemoizeRpcs } from "@zuse/wire";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
 import { ConnectionFailed } from "./errors";
+import {
+  createConnectionSupervisor,
+  type ConnectionSnapshot,
+} from "./connection-supervisor";
+import { connectEnvironment } from "./relay-client";
 import { wsClientProtocolLayer, type WsProtocolOptions } from "./ws-protocol";
 
 type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
 
-type RuntimeEntry = {
-  runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never>;
-  client: Promise<MemoizeClient>;
-};
-
-const runtimes = new Map<string, RuntimeEntry>();
+export type { ConnectionSnapshot } from "./connection-supervisor";
 
 const runtimeKey = (options: WsProtocolOptions) =>
-  `${options.wsBaseUrl ?? `${options.host}:${options.port}`}:${options.token ?? ""}`;
+  options.key ??
+  options.environmentId ??
+  `${options.wsBaseUrl ?? `${options.host}:${options.port}`}`;
 
-const makeEntry = (options: WsProtocolOptions): RuntimeEntry => {
+const makeRuntime = (options: WsProtocolOptions) => {
   const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
   const runtime = ManagedRuntime.make(protocolLayer);
   const client = runtime.runPromise(
@@ -29,28 +31,73 @@ const makeEntry = (options: WsProtocolOptions): RuntimeEntry => {
   return { runtime, client };
 };
 
+const prepareOptions = async (
+  options: WsProtocolOptions
+): Promise<WsProtocolOptions> => {
+  if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
+    return options;
+  }
+  const grant = await connectEnvironment(options.environmentId);
+  return {
+    ...options,
+    host: new URL(grant.endpoint.wsBaseUrl).hostname,
+    port:
+      Number(new URL(grant.endpoint.wsBaseUrl).port) ||
+      (grant.endpoint.wsBaseUrl.startsWith("wss:") ? 443 : 80),
+    wsBaseUrl: grant.endpoint.wsBaseUrl,
+    token: grant.connectToken,
+  };
+};
+
+const supervisor = createConnectionSupervisor({
+  keyOf: runtimeKey,
+  prepareOptions,
+  createClient: async (options) => {
+    const runtime = makeRuntime(options);
+    return {
+      client: await runtime.client,
+      dispose: () => runtime.runtime.dispose(),
+    };
+  },
+  isOnline: () => currentOnline,
+  schedule: (delayMs, fn) => {
+    const timer = setTimeout(fn, delayMs);
+    return () => clearTimeout(timer);
+  },
+});
+
+let currentOnline = true;
+
 export const getConnectionClient = (
   options: WsProtocolOptions
 ): Effect.Effect<MemoizeClient, ConnectionFailed> =>
-  Effect.tryPromise({
-    try: async () => {
-      const key = runtimeKey(options);
-      const entry = runtimes.get(key) ?? makeEntry(options);
-      runtimes.set(key, entry);
-      return await entry.client;
-    },
-    catch: (cause) =>
-      new ConnectionFailed({
-        message: cause instanceof Error ? cause.message : String(cause)
-      })
-  });
+  supervisor.get(options).getClient();
 
 export const disposeConnection = (options: WsProtocolOptions): Promise<void> => {
-  const key = runtimeKey(options);
-  const entry = runtimes.get(key);
-  runtimes.delete(key);
-  return entry?.runtime.dispose() ?? Promise.resolve();
+  return supervisor.get(options).remove();
 };
 
-// TODO(Track C): re-key runtime entries by connect.describe environmentId once
-// the connect.* RPCs are registered in MemoizeRpcs and pairing is available.
+export const reportConnectionFailure = (
+  options: WsProtocolOptions,
+  cause: unknown
+): void => {
+  supervisor.get(options).reportFailure(cause);
+};
+
+export const retryConnectionNow = (options: WsProtocolOptions): void => {
+  supervisor.get(options).retryNow();
+};
+
+export const subscribeConnection = (
+  options: WsProtocolOptions,
+  listener: (snapshot: ConnectionSnapshot) => void
+): (() => void) => supervisor.get(options).subscribe(listener);
+
+export const setConnectionOnline = (online: boolean): void => {
+  currentOnline = online;
+  supervisor.setOnline(online);
+};
+
+export const getConnectionSnapshot = (
+  options: WsProtocolOptions
+): ConnectionSnapshot => supervisor.get(options).snapshot();

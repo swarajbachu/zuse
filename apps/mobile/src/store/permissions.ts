@@ -3,7 +3,7 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import { decidePermission } from "~/rpc/actions";
-import { getConnectionClient } from "~/rpc/connection";
+import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 /**
@@ -72,10 +72,15 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
               };
             });
           })
+      ).pipe(
+        Effect.tapError((cause) =>
+          Effect.sync(() => reportConnectionFailure(options, cause))
+        )
       );
       const fiber = await Effect.runPromise(program.pipe(Effect.fork));
       liveFibers.set(liveKey, fiber);
-    } catch {
+    } catch (cause) {
+      reportConnectionFailure(options, cause);
       // A dropped permission stream is non-fatal: the messages store already
       // surfaces the connection error, and hydrate re-runs on the next mount.
     }

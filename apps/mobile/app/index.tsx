@@ -5,14 +5,30 @@ import { ScrollView } from "react-native";
 
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListRow, ListSection } from "~/components/ui/list";
+import { optionsForConnection } from "~/lib/connection-params";
+import {
+  connectionStatusLabel,
+  useConnectionRuntimeStore,
+} from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
 
 export default function ConnectionsScreen() {
   const { connections, hydrated, hydrate } = useConnectionsStore();
+  const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+  const snapshots = useConnectionRuntimeStore((state) => state.snapshotsByConnection);
 
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
+
+  useEffect(() => {
+    const unwatch = connections.map((connection) =>
+      watchConnection(connection.key, optionsForConnection(connection.key, connections))
+    );
+    return () => {
+      for (const stop of unwatch) stop();
+    };
+  }, [connections, watchConnection]);
 
   return (
     <ScrollView
@@ -37,9 +53,7 @@ export default function ConnectionsScreen() {
               icon={Server}
               iconTone="neutral"
               title={connection.label}
-              subtitle={
-                connection.token ? "Pairing token saved" : "Manual connection"
-              }
+              subtitle={connectionStatusLabel(snapshots[connection.key])}
               onPress={() =>
                 router.push(`/c/${encodeURIComponent(connection.key)}`)
               }

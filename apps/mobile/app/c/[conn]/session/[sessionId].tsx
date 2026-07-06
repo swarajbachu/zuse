@@ -14,10 +14,18 @@ import { PendingApprovalCard } from "~/components/messages/pending-approval-card
 import { normalizeConnParam, optionsForConnection } from "~/lib/connection-params";
 import { answerQuestion } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
+import {
+  connectionStatusLabel,
+  useConnectionRuntimeStore,
+} from "~/store/connection-runtime";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
+
+const EMPTY_BUNDLES: ReturnType<typeof useSessionsStore.getState>["bundlesByConnection"][string] = [];
+const EMPTY_PENDING: ReturnType<typeof usePermissionsStore.getState>["pendingBySession"][string] = [];
+const EMPTY_QUEUED: ReturnType<typeof useOutboxStore.getState>["queuedBySession"][string] = [];
 
 export default function ThreadScreen() {
   const insets = useSafeAreaInsets();
@@ -30,7 +38,13 @@ export default function ThreadScreen() {
     () => optionsForConnection(connKey, connections),
     [connKey, connections]
   );
-  const bundles = useSessionsStore((state) => state.bundlesByConnection[connKey] ?? []);
+  const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+  const connectionSnapshot = useConnectionRuntimeStore(
+    (state) => state.snapshotsByConnection[connKey]
+  );
+  const bundles = useSessionsStore(
+    (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES
+  );
   const { messagesBySession, reconnectingBySession, errorBySession, hydrate } =
     useMobileMessagesStore();
   const messages = useMemo(
@@ -43,12 +57,12 @@ export default function ThreadScreen() {
   const hydratePermissions = usePermissionsStore((state) => state.hydrate);
   const decidePermission = usePermissionsStore((state) => state.decide);
   const pending = usePermissionsStore(
-    (state) => state.pendingBySession[normalizedSessionId] ?? []
+    (state) => state.pendingBySession[normalizedSessionId] ?? EMPTY_PENDING
   );
   const hydrateOutbox = useOutboxStore((state) => state.hydrate);
   const flushOutbox = useOutboxStore((state) => state.flush);
   const queued = useOutboxStore(
-    (state) => state.queuedBySession[normalizedSessionId] ?? []
+    (state) => state.queuedBySession[normalizedSessionId] ?? EMPTY_QUEUED
   );
 
   useEffect(() => {
@@ -56,16 +70,32 @@ export default function ThreadScreen() {
   }, [hydrateConnections, hydrated]);
 
   useEffect(() => {
+    if (connKey.length === 0) return;
+    return watchConnection(connKey, options);
+  }, [connKey, options, watchConnection]);
+
+  useEffect(() => {
     if (normalizedSessionId.length > 0) {
       void hydrate(connKey, options, normalizedSessionId);
       void hydratePermissions(connKey, options, normalizedSessionId);
       void hydrateOutbox(connKey, normalizedSessionId);
     }
-  }, [connKey, hydrate, hydrateOutbox, hydratePermissions, normalizedSessionId, options]);
+  }, [
+    connKey,
+    connectionSnapshot?.generation,
+    hydrate,
+    hydrateOutbox,
+    hydratePermissions,
+    normalizedSessionId,
+    options,
+  ]);
 
   const reconnecting = reconnectingBySession[normalizedSessionId];
   const error = errorBySession[normalizedSessionId];
-  const online = reconnecting !== true && (error ?? null) === null;
+  const online =
+    connectionSnapshot?.status === "connected" &&
+    reconnecting !== true &&
+    (error ?? null) === null;
 
   // Drain the outbox in order the moment the session is back online.
   useEffect(() => {
@@ -119,8 +149,14 @@ export default function ThreadScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
         ListHeaderComponent={
-          reconnecting || error ? (
+          reconnecting || error || connectionSnapshot?.status !== "connected" ? (
             <View className="pb-2">
+              {connectionSnapshot?.status !== "connected" ? (
+                <Text className="font-sans text-[13px] text-warning">
+                  {connectionStatusLabel(connectionSnapshot)}
+                  {connectionSnapshot?.error ? `: ${connectionSnapshot.error}` : ""}
+                </Text>
+              ) : null}
               {reconnecting ? (
                 <Text className="font-sans text-[13px] text-warning">
                   Reconnecting…
