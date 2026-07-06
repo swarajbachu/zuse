@@ -56,7 +56,7 @@ const relayHttpErrorReason = async (response: Response): Promise<string> => {
     const body = JSON.parse(text) as { readonly error?: unknown };
     if (typeof body.error === "string") {
       if (response.status === 401 && body.error === "invalid_workos_token") {
-        return "Relay rejected the WorkOS token. Check that desktop, mobile, and relay use the same WorkOS client id.";
+        return "Relay rejected the sign-in token. Redeploy the relay if its WorkOS config changed, then sign in again.";
       }
       return `relay_${response.status}:${body.error}`;
     }
