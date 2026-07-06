@@ -95,12 +95,16 @@ export const AuthServiceLive = Layer.scoped(
         Effect.map(parseBundle),
       );
 
-    const persist = (bundle: SessionBundle): Effect.Effect<void> =>
+    const persist = (
+      bundle: SessionBundle,
+    ): Effect.Effect<void, AuthTokenError> =>
       credentials.setWorkosSession(JSON.stringify(bundle)).pipe(
-        Effect.catchAll((cause) =>
-          Effect.sync(() => {
-            console.error("[zuse] failed to persist auth session", cause);
-          }),
+        Effect.mapError(
+          (cause) =>
+            new AuthTokenError({
+              reason: `Failed to persist auth session: ${cause.reason}`,
+              cause,
+            }),
         ),
       );
 
@@ -191,7 +195,14 @@ export const AuthServiceLive = Layer.scoped(
         }
 
         const bundle = result.right;
-        yield* persist(bundle);
+        const persisted = yield* persist(bundle).pipe(Effect.either);
+        if (persisted._tag === "Left") {
+          yield* Deferred.fail(
+            inflight.deferred,
+            new AuthFlowError({ reason: persisted.left.reason }),
+          );
+          return;
+        }
         yield* PubSub.publish(pubsub, toState(bundle));
         yield* Deferred.succeed(inflight.deferred, bundle);
       });

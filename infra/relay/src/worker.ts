@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import * as Config from "./config.ts";
 import { makeRelay } from "./index.ts";
 import { ManagedTunnelProviderLive } from "./managed-tunnel.ts";
+import { PushDeliveryLive } from "./push.ts";
 import { RelayStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
@@ -84,6 +85,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
     WorkosVerifierLive.pipe(Layer.provide(configLayer)),
     RelayStorePg.pipe(Layer.provide(dbLayer)),
     ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
+    PushDeliveryLive,
   ).pipe(Layer.orDie);
   return makeRelay(appLayer);
 };

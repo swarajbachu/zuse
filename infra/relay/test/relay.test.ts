@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
-import { Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 
 import {
   makeRelay,
   ManagedTunnelProviderLive,
+  PushDelivery,
   RelayStoreMemory,
 } from "../src/index.ts";
 import * as Config from "../src/config.ts";
@@ -50,6 +51,13 @@ const dpopProof = async (
 
 let relay: ReturnType<typeof makeRelay>;
 let mintKey: KeyPair;
+let pushCalls: ReadonlyArray<{
+  readonly to: string;
+  readonly environmentId: string;
+  readonly kind: string;
+  readonly title?: string;
+  readonly target: string;
+}>[];
 
 const makeLayer = async (
   managedTunnel?: Config.ManagedTunnelConfig,
@@ -63,11 +71,21 @@ const makeLayer = async (
     mintPublicKey: JSON.stringify(await exportJWK(mintKey.publicKey)),
     managedTunnel,
   });
+  const pushLayer = Layer.succeed(
+    PushDelivery,
+    PushDelivery.of({
+      send: (notifications) => {
+        pushCalls = [...pushCalls, notifications];
+        return Effect.void;
+      },
+    }),
+  );
   return Layer.mergeAll(
     configLayer,
     WorkosVerifierTest,
     RelayStoreMemory,
     ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
+    pushLayer,
   );
 };
 
@@ -145,6 +163,7 @@ const mintAccess = async (
 };
 
 beforeEach(async () => {
+  pushCalls = [];
   relay = makeRelay(await makeLayer());
 });
 
@@ -299,6 +318,85 @@ describe("@zuse/relay", () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("chat_data_not_allowed");
+  });
+
+  test("fans sanitized activity out to registered push devices", async () => {
+    const { credential } = await linkEnvironment({ account: "user_a", environmentId: "env_1" });
+    const device = (await ec()) as KeyPair;
+    const jwk = await exportJWK(device.publicKey);
+    const accessToken = await mintAccess("user_a", device, jwk);
+    const devicesUrl = `${RELAY_ISSUER}/v1/mobile/devices`;
+    const register = await relay.fetch(
+      new Request(devicesUrl, {
+        method: "POST",
+        headers: {
+          authorization: `DPoP ${accessToken}`,
+          dpop: await dpopProof(device, jwk, { method: "POST", url: devicesUrl }),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          deviceId: "phone_1",
+          platform: "ios",
+          pushToken: "ExponentPushToken[test]",
+        }),
+      }),
+    );
+    expect(register.status).toBe(200);
+
+    const activity = await relay.fetch(
+      new Request(`${RELAY_ISSUER}/v1/environments/env_1/agent-activity`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "s1",
+          kind: "approval-needed",
+          title: "Test Mac",
+        }),
+      }),
+    );
+
+    expect(activity.status).toBe(200);
+    expect(await activity.json()).toEqual({ delivered: 1 });
+    expect(pushCalls).toHaveLength(1);
+    expect(pushCalls[0]).toEqual([
+      {
+        to: "ExponentPushToken[test]",
+        environmentId: "env_1",
+        kind: "approval-needed",
+        title: "Test Mac",
+        target: "zuse://computers?environmentId=env_1",
+      },
+    ]);
+  });
+
+  test("rejects message-shaped activity payload fields", async () => {
+    const { credential } = await linkEnvironment({ account: "user_a", environmentId: "env_1" });
+    const sensitivePayloads = [
+      { message: "hello" },
+      { content: "hello" },
+      { text: "hello" },
+      { toolArgs: { command: "pwd" } },
+      { toolInput: { path: "/tmp/x" } },
+      { output: "stdout" },
+      { filePath: "/tmp/x" },
+      { nested: { path: "/tmp/x" } },
+    ];
+
+    for (const payload of sensitivePayloads) {
+      const res = await relay.fetch(
+        new Request(`${RELAY_ISSUER}/v1/environments/env_1/agent-activity`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${credential}`, "content-type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "s1",
+            kind: "completed",
+            ...payload,
+          }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("chat_data_not_allowed");
+    }
   });
 });
 
