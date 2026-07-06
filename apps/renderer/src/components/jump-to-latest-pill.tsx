@@ -4,8 +4,8 @@ import { ArrowDown01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { cn } from "~/lib/utils";
 
 /**
- * Floating "Jump to latest" affordance, pinned to the center-right of the
- * chat pane. Appears once the reader has scrolled away from the live edge
+ * Floating "Jump to latest" affordance, pinned above the composer in the
+ * center of the chat pane. Appears once the reader has scrolled away from the live edge
  * (principle 9); while a response is still streaming out of view it shows a
  * pulsing activity dot (principle 8). Fades/slides in with a CSS transition
  * that respects `prefers-reduced-motion`.
@@ -24,7 +24,7 @@ export function JumpToLatestPill({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute top-1/2 right-4 z-50 flex -translate-y-1/2 opacity-100",
+        "pointer-events-none absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 opacity-100",
         "transition-all duration-150 ease-out motion-reduce:transition-none",
       )}
     >
