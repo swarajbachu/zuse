@@ -170,12 +170,13 @@ export function DevicesPane() {
                 </span>
               </div>
               <p className="mt-1 truncate text-xs text-muted-foreground">
-                {status?.heartbeatActive === true ? "Online · " : "Idle · "}
-                linked to {status?.relayUrl}
+                {status?.heartbeatActive === true ? "Online" : "Idle"} · Linked
+                to your account
               </p>
             </div>
             <Button
-              variant="destructive-outline"
+              variant="destructive"
+              className="min-w-20"
               onClick={() => void onUnlink()}
               disabled={busy}
             >
@@ -281,7 +282,7 @@ function EndpointSummary({ endpoint }: { endpoint: AdvertisedEndpoint }) {
         <EndpointBadge endpoint={endpoint} />
       </div>
       <p className="mt-1 truncate text-xs text-muted-foreground">
-        {endpoint.label} · {endpoint.wsBaseUrl}
+        {endpoint.label} · {endpoint.status}
       </p>
     </div>
   );
@@ -305,9 +306,6 @@ function EndpointDetails({ endpoint }: { endpoint: AdvertisedEndpoint }) {
         <span>·</span>
         <span>{endpoint.status}</span>
       </div>
-      <p className="mt-1 break-all text-xs text-muted-foreground">
-        {endpoint.wsBaseUrl}
-      </p>
     </div>
   );
 }
