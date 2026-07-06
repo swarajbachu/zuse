@@ -17,6 +17,7 @@ import { RepositorySettings, Worktree } from "@zuse/wire";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { GitService } from "../../src/git/services/git-service.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
+import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../../src/persistence/migrations/0003_resume_and_export.ts";
@@ -232,6 +233,10 @@ const makeRuntime = (
     keybindingsChanges: () => Stream.die("not used"),
   });
 
+  const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
+    publish: () => Effect.void,
+  });
+
   const SqlLive = SqliteClient.layer({ filename: dbPath });
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
@@ -245,6 +250,7 @@ const makeRuntime = (
     Layer.provide(StubGitLive),
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
+    Layer.provide(StubRelayActivityPublisherLive),
     Layer.provideMerge(Migrated),
   );
 

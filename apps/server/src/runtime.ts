@@ -16,6 +16,7 @@ import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
 import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
@@ -115,6 +116,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MigratedSqlite),
     Layer.provide(NodeContext.layer),
     Layer.provide(AppPathsLayer),
+  );
+
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
   );
 
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
@@ -261,6 +267,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     }),
   ).pipe(Layer.provide(MigratedSqlite));
 
+  const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
+    Layer.provide(LanAuthLayer),
+  );
+
   const MessageStoreLayer = MessageStoreLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
@@ -271,6 +281,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
+    Layer.provide(RelayActivityPublisherLayer),
     Layer.provide(ProjectorCatchup),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
@@ -311,11 +322,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const AuthLayer = AuthServiceLive.pipe(
     Layer.provide(CredentialsServiceLive),
     Layer.provide(AuthShellLayer),
-  );
-
-  const LanAuthLayer = LanAuthServiceLive.pipe(
-    Layer.provide(MigratedSqlite),
-    Layer.provide(LanAuthConfigLayer),
   );
 
   // RelayLinkService orchestrates the desktop's self-registration with the

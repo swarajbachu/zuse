@@ -26,6 +26,7 @@ import {
 } from "@zuse/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
+import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../src/persistence/migrations/0003_resume_and_export.ts";
@@ -157,6 +158,10 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
   keybindingsChanges: () => Stream.die("not used"),
 });
 
+const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
+  publish: () => Effect.void,
+});
+
 /** Chat archive cleanup is out of scope for MessageStore persistence tests. */
 const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
   get: (projectId) =>
@@ -257,6 +262,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubGitLive),
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
+    Layer.provide(StubRelayActivityPublisherLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),

@@ -10,7 +10,10 @@ import {
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { View } from "react-native";
+
+import { installNotificationResponseHandler } from "~/notifications/push";
 
 const BG = "hsl(72 5% 6%)";
 const FG = "hsl(72 4% 92%)";
@@ -23,6 +26,8 @@ export default function RootLayout() {
     Inter_700Bold,
     GeistMono_400Regular,
   });
+
+  useEffect(() => installNotificationResponseHandler(), []);
 
   if (!fontsLoaded) {
     return <View className="flex-1 bg-background" />;
