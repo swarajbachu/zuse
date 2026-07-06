@@ -1,21 +1,46 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import type {
   AgentItemId,
   Message,
+  MessageId,
   SessionId,
   UserQuestionAnswer,
 } from "@zuse/wire";
 
-import { groupMessages } from "../lib/group-messages.ts";
+import {
+  CHAT_LIST_ANCHOR_OFFSET,
+  resolveChatListAnchoredEndSpace,
+} from "../lib/chat-list-anchor.ts";
+import {
+  deriveChatTimelineRows,
+  resolveLatestUserMessageId,
+  rowAnchorMessageId,
+  type ChatTimelineRow,
+} from "../lib/chat-timeline-rows.ts";
+import {
+  getAnchoredTurnMetrics,
+  resolveScrollableNodeIsAtEnd,
+  shouldDeferAutomaticEndScroll,
+  shouldRestoreAnchorScrollOffset,
+  type TimelineScrollMode,
+} from "../lib/timeline-scroll-anchoring.ts";
 import {
   chatArchiveProgressLabel,
   type ChatArchiveProgressPhase,
   useChatsStore,
 } from "../store/chats.ts";
-import { useChatScroll } from "../lib/use-chat-scroll.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
@@ -42,12 +67,31 @@ import { Spinner } from "./ui/spinner";
 // `[]` from a Zustand selector each call breaks `useSyncExternalStore`'s
 // snapshot-equality check and triggers an infinite re-render loop.
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
+const TIMELINE_HEADER = (
+  <>
+    <WorktreeSetupCard />
+    <div className="h-2" />
+  </>
+);
+const TIMELINE_FOOTER = <div className="h-2" />;
+
+interface TimelineEndState {
+  readonly isAtEnd?: boolean;
+  readonly isNearEnd?: boolean;
+}
+
+function resolveTimelineIsAtEnd(
+  state: TimelineEndState | undefined,
+): boolean | undefined {
+  return state?.isNearEnd ?? state?.isAtEnd;
+}
 
 /**
  * Read-only timeline of one session. Subscribes to `messages.stream` via the
  * messages store on mount / session-change; the store owns the live fiber.
- * Scroll behavior is owned by `useChatScroll`: it sticks to the bottom while
- * the reader is there and releases the instant they scroll up.
+ * LegendList owns virtualization and measurement. This component owns the
+ * chat-specific follow mode: initial land at the live edge, then anchor new
+ * turns near the top until the user manually navigates away.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const forkMenu = useForkMenu();
@@ -109,9 +153,324 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       : (s.archiveProgressByChat[session.chatId] ?? null),
   );
 
-  const { scrollRef, contentRef, showPill, streaming, jumpToLatest } =
-    useChatScroll({ sessionId, messages, inFlight });
-  useRegisterPane("chat", scrollRef);
+  const rows = useMemo(
+    () =>
+      deriveChatTimelineRows({
+        messages,
+        inFlight,
+        awaitingPlanApproval,
+      }),
+    [awaitingPlanApproval, inFlight, messages],
+  );
+
+  const latestUserMessageId = useMemo(
+    () => resolveLatestUserMessageId(rows),
+    [rows],
+  );
+  const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
+    string | null
+  >(null);
+  const anchoredEndSpace = useMemo(
+    () =>
+      resolveChatListAnchoredEndSpace(rows, timelineAnchorMessageId, (row) =>
+        rowAnchorMessageId(row),
+      ),
+    [rows, timelineAnchorMessageId],
+  );
+
+  const listRef = useRef<LegendListRef | null>(null);
+  const scrollElementRef = useRef<HTMLDivElement | null>(null);
+  const timelineScrollModeRef =
+    useRef<TimelineScrollMode>("following-end");
+  const activeTimelineAnchorIndexRef = useRef<number | null>(null);
+  const lastAnchoredUserMessageIdRef = useRef<string | null>(null);
+  const pendingTimelineAnchorRef = useRef<string | null>(null);
+  const positionedTimelineAnchorRef = useRef<string | null>(null);
+  const settledTimelineAnchorRef = useRef<string | null>(null);
+  const pendingAnchorScrollRestoreRef = useRef<{
+    readonly messageId: string;
+    readonly offset: number;
+    readonly userNavigationGeneration: number;
+  } | null>(null);
+  const anchorScrollRestoreFrameRef = useRef<number | null>(null);
+  const userNavigationGenerationRef = useRef(0);
+  const liveFollowGenerationRef = useRef<number | null>(0);
+  const showPillTimerRef = useRef<number | null>(null);
+  const isAtEndRef = useRef(true);
+  const [showPill, setShowPill] = useState(false);
+  useRegisterPane("chat", scrollElementRef);
+
+  const clearShowPillTimer = useCallback(() => {
+    if (showPillTimerRef.current !== null) {
+      window.clearTimeout(showPillTimerRef.current);
+      showPillTimerRef.current = null;
+    }
+  }, []);
+
+  const hideJumpPill = useCallback(() => {
+    clearShowPillTimer();
+    setShowPill(false);
+  }, [clearShowPillTimer]);
+
+  const showJumpPillSoon = useCallback(() => {
+    if (showPillTimerRef.current !== null) return;
+    showPillTimerRef.current = window.setTimeout(() => {
+      showPillTimerRef.current = null;
+      setShowPill(true);
+    }, 150);
+  }, []);
+
+  const showJumpPillNow = useCallback(() => {
+    clearShowPillTimer();
+    setShowPill(true);
+  }, [clearShowPillTimer]);
+
+  const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
+    const scrollNode = listRef.current?.getScrollableNode();
+    const isAtEnd = resolveScrollableNodeIsAtEnd(scrollNode);
+    if (isAtEnd === false) {
+      isAtEndRef.current = false;
+      showJumpPillSoon();
+    } else if (isAtEnd === true) {
+      isAtEndRef.current = true;
+      hideJumpPill();
+    }
+  }, [hideJumpPill, showJumpPillSoon]);
+
+  const cancelTimelineLiveFollowForUserNavigation = useCallback((showPillForGesture = false) => {
+    userNavigationGenerationRef.current += 1;
+    timelineScrollModeRef.current = "free-scrolling";
+    liveFollowGenerationRef.current = null;
+    pendingTimelineAnchorRef.current = null;
+    activeTimelineAnchorIndexRef.current = null;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
+    if (anchorScrollRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+      anchorScrollRestoreFrameRef.current = null;
+    }
+    setTimelineAnchorMessageId(null);
+    if (showPillForGesture) {
+      isAtEndRef.current = false;
+      showJumpPillNow();
+      return;
+    }
+    requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
+  }, [showJumpPillIfScrollNodeLeftEnd, showJumpPillNow]);
+
+  const scrollToEnd = useCallback(
+    (animated = false) => {
+      isAtEndRef.current = true;
+      timelineScrollModeRef.current = "following-end";
+      liveFollowGenerationRef.current = userNavigationGenerationRef.current;
+      pendingTimelineAnchorRef.current = null;
+      activeTimelineAnchorIndexRef.current = null;
+      positionedTimelineAnchorRef.current = null;
+      settledTimelineAnchorRef.current = null;
+      pendingAnchorScrollRestoreRef.current = null;
+      if (anchorScrollRestoreFrameRef.current !== null) {
+        cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+        anchorScrollRestoreFrameRef.current = null;
+      }
+      setTimelineAnchorMessageId(null);
+      lastAnchoredUserMessageIdRef.current = latestUserMessageId;
+      hideJumpPill();
+      void listRef.current?.scrollToEnd({ animated });
+    },
+    [hideJumpPill, latestUserMessageId],
+  );
+
+  const getActiveTimelineTurnMetrics = useCallback(
+    (list?: LegendListRef | null) => {
+      const resolvedList = list ?? listRef.current;
+      const anchorIndex = activeTimelineAnchorIndexRef.current;
+      const state = resolvedList?.getState();
+      if (!resolvedList || !state || anchorIndex === null) {
+        return null;
+      }
+
+      return getAnchoredTurnMetrics({
+        state,
+        anchorIndex,
+        composerOverlayHeight: 0,
+        anchorOffset: CHAT_LIST_ANCHOR_OFFSET,
+      });
+    },
+    [],
+  );
+
+  const timelineRealContentOverflowsViewport = useCallback(
+    (list?: LegendListRef | null) => {
+      const resolvedList = list ?? listRef.current;
+      const state = resolvedList?.getState();
+      if (!resolvedList || !state || state.data.length === 0) {
+        return false;
+      }
+
+      const lastRowIndex = state.data.length - 1;
+      const lastRowTop = state.positionAtIndex(lastRowIndex);
+      const lastRowHeight = state.sizeAtIndex(lastRowIndex);
+      if (
+        typeof lastRowTop !== "number" ||
+        typeof lastRowHeight !== "number" ||
+        !Number.isFinite(lastRowTop) ||
+        !Number.isFinite(lastRowHeight)
+      ) {
+        return false;
+      }
+
+      const realContentBottom = lastRowTop + Math.max(1, lastRowHeight);
+      const visibleScrollLength = Math.max(
+        0,
+        (state.scrollLength ?? 0) - CHAT_LIST_ANCHOR_OFFSET,
+      );
+      return realContentBottom > visibleScrollLength;
+    },
+    [],
+  );
+
+  const handleAnchorReady = useCallback(
+    (info: { anchorIndex: number | undefined }) => {
+      if (info.anchorIndex === undefined) return;
+      if (timelineAnchorMessageId !== null) {
+        pendingTimelineAnchorRef.current =
+          pendingTimelineAnchorRef.current === timelineAnchorMessageId
+            ? null
+            : pendingTimelineAnchorRef.current;
+      }
+      activeTimelineAnchorIndexRef.current = info.anchorIndex;
+      if (
+        timelineAnchorMessageId === null ||
+        positionedTimelineAnchorRef.current === timelineAnchorMessageId
+      ) {
+        return;
+      }
+      positionedTimelineAnchorRef.current = timelineAnchorMessageId;
+      settledTimelineAnchorRef.current = null;
+      const messageId = timelineAnchorMessageId;
+      const positionAnchor = (remainingAttempts: number) => {
+        requestAnimationFrame(() => {
+          if (positionedTimelineAnchorRef.current !== messageId) return;
+
+          const list = listRef.current;
+          if (!list) {
+            if (remainingAttempts > 0) positionAnchor(remainingAttempts - 1);
+            return;
+          }
+
+          const scrollNode = list.getScrollableNode();
+          let finished = false;
+          let fallbackTimer = 0;
+          const finishAnimatedPositioning = () => {
+            if (finished) return;
+            finished = true;
+            window.clearTimeout(fallbackTimer);
+            scrollNode?.removeEventListener(
+              "scrollend",
+              finishAnimatedPositioning,
+            );
+            if (positionedTimelineAnchorRef.current !== messageId) return;
+
+            const scrollOffset = list.getState().scroll;
+            void list.scrollToOffset({ offset: scrollOffset, animated: false });
+            settledTimelineAnchorRef.current = messageId;
+          };
+
+          fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
+          scrollNode?.addEventListener("scrollend", finishAnimatedPositioning, {
+            once: true,
+          });
+          void list.scrollToIndex({
+            index: info.anchorIndex!,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          });
+        });
+      };
+      requestAnimationFrame(() => positionAnchor(12));
+    },
+    [timelineAnchorMessageId],
+  );
+
+  const handleAnchorSizeChanged = useCallback((size: number) => {
+    void size;
+    const messageId = timelineAnchorMessageId;
+    if (
+      messageId === null ||
+      settledTimelineAnchorRef.current !== messageId ||
+      liveFollowGenerationRef.current === userNavigationGenerationRef.current
+    ) {
+      return;
+    }
+
+    const scrollOffset = listRef.current?.getState().scroll;
+    if (scrollOffset === undefined) return;
+
+    if (pendingAnchorScrollRestoreRef.current === null) {
+      pendingAnchorScrollRestoreRef.current = {
+        messageId,
+        offset: scrollOffset,
+        userNavigationGeneration: userNavigationGenerationRef.current,
+      };
+    }
+    if (anchorScrollRestoreFrameRef.current !== null) return;
+
+    anchorScrollRestoreFrameRef.current = requestAnimationFrame(() => {
+      anchorScrollRestoreFrameRef.current = null;
+      const pending = pendingAnchorScrollRestoreRef.current;
+      pendingAnchorScrollRestoreRef.current = null;
+      const list = listRef.current;
+      const currentOffset = list?.getState().scroll;
+      if (
+        list === null ||
+        pending === null ||
+        typeof currentOffset !== "number" ||
+        !shouldRestoreAnchorScrollOffset({
+          anchorId: pending.messageId,
+          settledAnchorId: settledTimelineAnchorRef.current,
+          expectedOffset: pending.offset,
+          currentOffset,
+          expectedUserNavigationGeneration: pending.userNavigationGeneration,
+          currentUserNavigationGeneration: userNavigationGenerationRef.current,
+        })
+      ) {
+        return;
+      }
+
+      void list.scrollToOffset({ offset: pending.offset, animated: false });
+    });
+  }, [timelineAnchorMessageId]);
+
+  const handleScroll = useCallback(() => {
+    const list = listRef.current;
+    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
+    const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
+    const isAtEnd = nodeAtEnd ?? stateAtEnd;
+    if (isAtEnd === undefined) return;
+
+    if (
+      !isAtEnd &&
+      liveFollowGenerationRef.current === userNavigationGenerationRef.current
+    ) {
+      hideJumpPill();
+      return;
+    }
+
+    if (isAtEndRef.current === isAtEnd) return;
+    isAtEndRef.current = isAtEnd;
+
+    if (isAtEnd) {
+      timelineScrollModeRef.current = "following-end";
+      liveFollowGenerationRef.current = userNavigationGenerationRef.current;
+      hideJumpPill();
+    } else {
+      timelineScrollModeRef.current = "free-scrolling";
+      liveFollowGenerationRef.current = null;
+      showJumpPillSoon();
+    }
+  }, [hideJumpPill, showJumpPillSoon]);
 
   useEffect(() => {
     void hydrate(sessionId);
@@ -127,35 +486,175 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     };
   }, [sessionId, hydrate, hydrateSkills]);
 
+  useEffect(() => () => clearShowPillTimer(), [clearShowPillTimer]);
+
+  useLayoutEffect(() => {
+    const node = listRef.current?.getScrollableNode() ?? null;
+    if (node instanceof HTMLDivElement) {
+      node.dataset.pane = "chat";
+      node.tabIndex = -1;
+      scrollElementRef.current = node;
+    } else {
+      scrollElementRef.current = null;
+    }
+  }, [sessionId, rows.length]);
+
+  useEffect(() => {
+    timelineScrollModeRef.current = "following-end";
+    activeTimelineAnchorIndexRef.current = null;
+    pendingTimelineAnchorRef.current = null;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
+    if (anchorScrollRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+      anchorScrollRestoreFrameRef.current = null;
+    }
+    setTimelineAnchorMessageId(null);
+    lastAnchoredUserMessageIdRef.current = null;
+    userNavigationGenerationRef.current = 0;
+    liveFollowGenerationRef.current = 0;
+    isAtEndRef.current = true;
+    hideJumpPill();
+  }, [hideJumpPill, sessionId]);
+
+  useEffect(() => {
+    let removeListeners: (() => void) | null = null;
+    let frame: number | null = null;
+    const attachListeners = (remainingAttempts: number) => {
+      const scrollNode = listRef.current?.getScrollableNode();
+      if (!scrollNode) {
+        if (remainingAttempts > 0) {
+          frame = requestAnimationFrame(() =>
+            attachListeners(remainingAttempts - 1),
+          );
+        }
+        return;
+      }
+      if (scrollNode instanceof HTMLDivElement) {
+        scrollNode.dataset.pane = "chat";
+        scrollNode.tabIndex = -1;
+        scrollElementRef.current = scrollNode;
+      } else {
+        scrollElementRef.current = null;
+      }
+      const handleManualScrollNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(true);
+      };
+      const handleManualPointerNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(false);
+      };
+      scrollNode.addEventListener("wheel", handleManualScrollNavigation, {
+        passive: true,
+      });
+      scrollNode.addEventListener("touchmove", handleManualScrollNavigation, {
+        passive: true,
+      });
+      scrollNode.addEventListener("pointerdown", handleManualPointerNavigation, {
+        passive: true,
+      });
+      removeListeners = () => {
+        scrollNode.removeEventListener("wheel", handleManualScrollNavigation);
+        scrollNode.removeEventListener(
+          "touchmove",
+          handleManualScrollNavigation,
+        );
+        scrollNode.removeEventListener(
+          "pointerdown",
+          handleManualPointerNavigation,
+        );
+      };
+    };
+    frame = requestAnimationFrame(() => attachListeners(30));
+
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      removeListeners?.();
+    };
+  }, [cancelTimelineLiveFollowForUserNavigation, sessionId]);
+
+  useEffect(() => {
+    if (latestUserMessageId === null) return;
+    const previousLatestUserMessageId = lastAnchoredUserMessageIdRef.current;
+    if (previousLatestUserMessageId === latestUserMessageId) return;
+
+    lastAnchoredUserMessageIdRef.current = latestUserMessageId;
+    if (previousLatestUserMessageId === null && !inFlight) return;
+
+    timelineScrollModeRef.current = "anchoring-new-turn";
+    liveFollowGenerationRef.current = userNavigationGenerationRef.current;
+    pendingTimelineAnchorRef.current = latestUserMessageId;
+    activeTimelineAnchorIndexRef.current = null;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
+    setTimelineAnchorMessageId(latestUserMessageId);
+    hideJumpPill();
+  }, [hideJumpPill, inFlight, latestUserMessageId]);
+
+  useEffect(() => {
+    if (inFlight) return;
+    pendingTimelineAnchorRef.current = null;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    setTimelineAnchorMessageId(null);
+  }, [inFlight]);
+
+  useEffect(() => {
+    if (
+      liveFollowGenerationRef.current !== userNavigationGenerationRef.current
+    ) {
+      return;
+    }
+
+    let secondFrame: number | null = null;
+    const frame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (
+          liveFollowGenerationRef.current !== userNavigationGenerationRef.current
+        ) {
+          return;
+        }
+
+        const list = listRef.current;
+        if (!list) return;
+        if (
+          shouldDeferAutomaticEndScroll({
+            pendingAnchorId: pendingTimelineAnchorRef.current,
+            positionedAnchorId: positionedTimelineAnchorRef.current,
+            settledAnchorId: settledTimelineAnchorRef.current,
+          })
+        ) {
+          return;
+        }
+
+        if (timelineScrollModeRef.current === "anchoring-new-turn") {
+          const metrics = getActiveTimelineTurnMetrics(list);
+          if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) return;
+
+          const nextOffset = list.getState().scroll + metrics.scrollDeltaToRevealEnd;
+          void list.scrollToOffset({ offset: nextOffset, animated: false });
+          return;
+        }
+
+        if (timelineScrollModeRef.current !== "following-end") return;
+        if (!timelineRealContentOverflowsViewport(list)) return;
+        void list.scrollToEnd({ animated: false });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [getActiveTimelineTurnMetrics, rows, timelineRealContentOverflowsViewport]);
+
   // Pair tool_result rows back to their originating tool_use by AgentItemId.
   // The driver assigns the SDK's tool_use id to both events, so each
   // ToolRow can render its own result inline. We only record results that
   // have a preceding tool_use in this transcript so true orphans (e.g. a
   // dropped tool_use event) still fall through to a standalone error row
   // in MessageRow rather than disappearing silently.
-  // Split the flat message stream into turns: each turn is one user message
-  // (or null for an open response with no preceding user msg) plus every
-  // assistant / thinking / tool message that follows until the next user
-  // message. Used to wrap completed turns in a TurnSummary card.
-  const turns = useMemo(() => {
-    const out: Array<{
-      user: Message | null;
-      body: Message[];
-    }> = [];
-    let current: { user: Message | null; body: Message[] } | null = null;
-    for (const m of messages) {
-      if (m.content._tag === "user" || m.content._tag === "user_rich") {
-        if (current !== null) out.push(current);
-        current = { user: m, body: [] };
-      } else {
-        if (current === null) current = { user: null, body: [] };
-        current.body.push(m);
-      }
-    }
-    if (current !== null) out.push(current);
-    return out;
-  }, [messages]);
-
   const resultsByItemId = useMemo(() => {
     const seenUseIds = new Set<AgentItemId>();
     const map = new Map<AgentItemId, ToolResultRecord>();
@@ -201,182 +700,107 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     [resultsByItemId, answersByItemId],
   );
 
+  const renderTimelineRow = useCallback(
+    ({ item }: { item: ChatTimelineRow }) => (
+      <div className="mx-auto w-full max-w-4xl">
+        <TimelineRow
+          row={item}
+          sessionId={sessionId}
+          onFork={forkMenu.openAt}
+        />
+      </div>
+    ),
+    [forkMenu.openAt, sessionId],
+  );
+
   return (
     <FileChipProvider
       folderId={session?.projectId ?? null}
       worktreeId={session?.worktreeId ?? null}
     >
       <div className="relative flex min-h-0 flex-1">
-        <div
-          ref={scrollRef}
-          data-pane="chat"
-          tabIndex={-1}
-          className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto outline-none"
-        >
-          <WorktreeSetupCard />
+        <div className="flex h-full min-h-0 flex-1 flex-col">
           {messages.length === 0 ? (
-            setupActive ? null : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-                <HugeiconsIcon
-                  icon={Message01Icon}
-                  className="size-10 opacity-40"
-                />
-                <div>
-                  <p className="text-sm">{session?.title ?? "New chat"}</p>
-                  <p className="mt-1 text-xs">
-                    Type a message below to get started.
-                  </p>
-                </div>
-              </div>
-            )
-          ) : (
             <div
-              ref={contentRef}
-              className="mx-auto flex w-full max-w-4xl flex-col py-2"
+              data-pane="chat"
+              tabIndex={-1}
+              ref={scrollElementRef}
+              className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto outline-none"
             >
-              <ChatLookupsProvider value={chatLookups}>
-                {turns.map((turn, idx) => {
-                  const isLastTurn = idx === turns.length - 1;
-                  const isLive = inFlight && isLastTurn;
-                  const hasToolCalls = turn.body.some(
-                    (m) => m.content._tag === "tool_use",
-                  );
-                  // Only collapse into a summary when there's a final assistant
-                  // message worth showing as the body — otherwise a turn with
-                  // just tool calls would lose its content behind the accordion.
-                  const hasFinalText = turn.body.some(
-                    (m) =>
-                      m.content._tag === "assistant" &&
-                      m.content.text.trim().length > 0,
-                  );
-                  const showSummary = !isLive && hasToolCalls && hasFinalText;
-                  const turnKey = turn.user?.id ?? `turn-${idx}`;
-                  // Within an open (non-collapsed) turn, group sub-agent rows
-                  // under a SubagentRow wrapper. TurnSummary handles its own
-                  // rendering for collapsed turns; sub-agents inside a collapsed
-                  // turn render via TurnSummary's existing path.
-                  const bodyGroups = groupMessages(turn.body);
-                  // Hoist ExitPlanMode rows out of TurnSummary so the Plan card
-                  // (and its resolved accordion) stays a top-level row in
-                  // scrollback — it's a user-facing decision, not just another
-                  // tool call to bury in the "N tool calls" rollup.
-                  const planMessages = turn.body.filter(
-                    (m) =>
-                      m.content._tag === "tool_use" &&
-                      m.content.tool === "ExitPlanMode",
-                  );
-                  const planItemIds = new Set(
-                    planMessages.flatMap((m) =>
-                      m.content._tag === "tool_use" ? [m.content.itemId] : [],
-                    ),
-                  );
-                  const summaryBody =
-                    planMessages.length === 0
-                      ? turn.body
-                      : turn.body.filter((m) => {
-                          if (
-                            m.content._tag === "tool_use" &&
-                            m.content.tool === "ExitPlanMode"
-                          ) {
-                            return false;
-                          }
-                          if (
-                            m.content._tag === "tool_result" &&
-                            planItemIds.has(m.content.itemId)
-                          ) {
-                            return false;
-                          }
-                          return true;
-                        });
-                  return (
-                    <Fragment key={turnKey}>
-                      {turn.user !== null ? (
-                        <div
-                          className="chat-row-enter chat-row-enter-user"
-                          onContextMenu={(e) =>
-                            forkMenu.openAt(e, sessionId, turn.user!.id)
-                          }
-                        >
-                          <MessageRow
-                            message={turn.user}
-                            sessionId={sessionId}
-                          />
-                        </div>
-                      ) : null}
-                      {showSummary ? (
-                        <>
-                          {planMessages.map((m) => (
-                            <div key={m.id} className="chat-row-enter">
-                              <MessageRow message={m} sessionId={sessionId} />
-                            </div>
-                          ))}
-                          <div className="chat-row-enter">
-                            <TurnSummary body={summaryBody} />
-                          </div>
-                        </>
-                      ) : (
-                        bodyGroups.map((group) =>
-                          group.kind === "single" ? (
-                            <div
-                              key={group.message.id}
-                              className="chat-row-enter"
-                              onContextMenu={
-                                group.message.content._tag === "assistant"
-                                  ? (e) =>
-                                      forkMenu.openAt(
-                                        e,
-                                        sessionId,
-                                        group.message.id,
-                                      )
-                                  : undefined
-                              }
-                            >
-                              <MessageRow
-                                message={group.message}
-                                sessionId={sessionId}
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              key={group.parent.id}
-                              className="chat-row-enter"
-                            >
-                              <SubagentRow
-                                agentToolUseId={group.parentItemId}
-                                agentName={group.agentName}
-                                prompt={group.prompt}
-                                modelRequested={group.modelRequested}
-                                children={group.children}
-                                summary={group.summary}
-                              />
-                            </div>
-                          ),
-                        )
-                      )}
-                    </Fragment>
-                  );
-                })}
-                {inFlight && !awaitingPlanApproval && (
-                  <WorkingRow messages={messages} />
-                )}
-              </ChatLookupsProvider>
+              <WorktreeSetupCard />
+              {setupActive ? null : (
+                <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                  <HugeiconsIcon
+                    icon={Message01Icon}
+                    className="size-10 opacity-40"
+                  />
+                  <div>
+                    <p className="text-sm">{session?.title ?? "New chat"}</p>
+                    <p className="mt-1 text-xs">
+                      Type a message below to get started.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
+          ) : (
+            <ChatLookupsProvider value={chatLookups}>
+              <LegendList<ChatTimelineRow>
+                ref={listRef}
+                data={rows}
+                keyExtractor={(row) => row.id}
+                getItemType={(row) => row.kind}
+                renderItem={renderTimelineRow}
+                estimatedItemSize={96}
+                initialScrollAtEnd
+                {...(anchoredEndSpace
+                  ? {
+                      anchoredEndSpace: {
+                        ...anchoredEndSpace,
+                        onReady: handleAnchorReady,
+                        onSizeChanged: handleAnchorSizeChanged,
+                      },
+                    }
+                  : {})}
+                maintainScrollAtEnd={
+                  anchoredEndSpace
+                    ? false
+                    : {
+                        animated: false,
+                        on: {
+                          dataChange: true,
+                          itemLayout: true,
+                          layout: true,
+                        },
+                      }
+                }
+                maintainVisibleContentPosition={{ data: true, size: false }}
+                onScroll={handleScroll}
+                className="h-full min-h-0 flex-1 overflow-x-hidden px-3 outline-none [overflow-anchor:none]"
+                data-pane="chat"
+                tabIndex={-1}
+                ListHeaderComponent={TIMELINE_HEADER}
+                ListFooterComponent={TIMELINE_FOOTER}
+              />
+            </ChatLookupsProvider>
           )}
-          {error !== null && (
+          {error !== null ? (
             <ErrorBubble
               error={error}
               sessionId={sessionId}
               onDismiss={() => clearError(sessionId)}
             />
-          )}
+          ) : null}
         </div>
         <JumpToLatestPill
           visible={showPill}
-          streaming={streaming}
-          onClick={jumpToLatest}
+          streaming={inFlight && showPill}
+          onClick={() => scrollToEnd(true)}
         />
-        <div className="pointer-events-none absolute right-3 bottom-3 z-20 flex items-center gap-2">
-          <NextUnreadButton />
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20">
+          <div className="mx-auto flex w-full max-w-4xl justify-end px-3">
+            <NextUnreadButton />
+          </div>
         </div>
         {archiveProgress !== null ? (
           <ArchiveProgressOverlay phase={archiveProgress} />
@@ -385,6 +809,63 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       {forkMenu.menu}
     </FileChipProvider>
   );
+}
+
+function TimelineRow({
+  row,
+  sessionId,
+  onFork,
+}: {
+  row: ChatTimelineRow;
+  sessionId: SessionId;
+  onFork: (
+    event: MouseEvent,
+    sourceSessionId: SessionId,
+    fromMessageId: MessageId,
+  ) => void;
+}) {
+  switch (row.kind) {
+    case "message":
+      return (
+        <div
+          className={
+            row.enterUser
+              ? "chat-row-enter chat-row-enter-user"
+              : "chat-row-enter"
+          }
+          onContextMenu={
+            row.message.content._tag === "user" ||
+            row.message.content._tag === "user_rich" ||
+            row.message.content._tag === "assistant"
+              ? (event) => onFork(event, sessionId, row.message.id)
+              : undefined
+          }
+        >
+          <MessageRow message={row.message} sessionId={sessionId} />
+        </div>
+      );
+    case "subagent":
+      return (
+        <div className="chat-row-enter">
+          <SubagentRow
+            agentToolUseId={row.parentItemId}
+            agentName={row.agentName}
+            prompt={row.prompt}
+            modelRequested={row.modelRequested}
+            children={row.children}
+            summary={row.summary}
+          />
+        </div>
+      );
+    case "turn-summary":
+      return (
+        <div className="chat-row-enter">
+          <TurnSummary body={row.body} />
+        </div>
+      );
+    case "working":
+      return <WorkingRow messages={row.messages} />;
+  }
 }
 
 function ArchiveProgressOverlay({

@@ -21,6 +21,8 @@ import { Migration0021AuthTokens } from "../src/persistence/migrations/0021_auth
 import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0024_remote_connect_state.ts";
 import { Migration0025RelayEnvironmentKeys } from "../src/persistence/migrations/0025_relay_environment_keys.ts";
 import { Migration0026RelayConnectorToken } from "../src/persistence/migrations/0026_relay_connector_token.ts";
+import { Migration0027RelayTunnelHostname } from "../src/persistence/migrations/0027_relay_tunnel_hostname.ts";
+import { buildAdvertisedEndpoints } from "../src/lan-auth/advertised-endpoints.ts";
 
 const makeRuntime = () => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
@@ -29,10 +31,9 @@ const makeRuntime = () => {
       Effect.zipRight(Migration0024RemoteConnectState),
       Effect.zipRight(Migration0025RelayEnvironmentKeys),
       Effect.zipRight(Migration0026RelayConnectorToken),
+      Effect.zipRight(Migration0027RelayTunnelHostname),
     ),
-  ).pipe(
-    Layer.provideMerge(SqlLive),
-  );
+  ).pipe(Layer.provideMerge(SqlLive));
   const ConfigLive = Layer.succeed(LanAuthConfig, {
     policy: "protected" as const,
     advertisedHost: "192.168.1.10",
@@ -57,7 +58,8 @@ const withRuntime = async <A>(
   const runtime = makeRuntime();
   const run = <X>(
     effect: Effect.Effect<X, unknown, LanAuthService | SqlClient.SqlClient>,
-  ): Promise<X> => runtime.runPromise(effect as Effect.Effect<X, unknown, never>);
+  ): Promise<X> =>
+    runtime.runPromise(effect as Effect.Effect<X, unknown, never>);
   try {
     return await fn(run);
   } finally {
@@ -212,15 +214,19 @@ describe("LanAuthService", () => {
             environmentId,
             environmentCredential: "zec_secret",
             label: "Test Mac",
+            connectorToken: "connector-token",
+            tunnelHostname: "env.example.test",
           });
+          const relayConfig = yield* auth.getRelayConfig();
           const sql = yield* SqlClient.SqlClient;
           const rows = yield* sql<{
             readonly relay_url: string;
             readonly label: string | null;
+            readonly tunnel_hostname: string | null;
           }>`
-            SELECT relay_url, label FROM relay_config WHERE environment_id = ${environmentId}
+            SELECT relay_url, label, tunnel_hostname FROM relay_config WHERE environment_id = ${environmentId}
           `;
-          return { proof, rows, keys };
+          return { proof, rows, keys, relayConfig };
         }),
       );
 
@@ -228,9 +234,71 @@ describe("LanAuthService", () => {
       expect(result.proof.proof.split(".")).toHaveLength(3);
       expect(JSON.parse(result.keys.publicJwk).crv).toBe("Ed25519");
       expect(result.rows).toEqual([
-        { relay_url: "https://relay.test", label: "Test Mac" },
+        {
+          relay_url: "https://relay.test",
+          label: "Test Mac",
+          tunnel_hostname: "env.example.test",
+        },
       ]);
+      expect(result.relayConfig?.tunnelHostname).toBe("env.example.test");
     });
+  });
+
+  it("builds LAN, loopback, and managed tunnel advertised endpoints", () => {
+    const endpoints = buildAdvertisedEndpoints({
+      lan: {
+        policy: "protected",
+        advertisedHost: "192.168.1.10",
+        port: 8787,
+        pairingBootstrap: false,
+      },
+      relay: {
+        linked: true,
+        heartbeatActive: true,
+        tunnelHostname: "env.example.test",
+      },
+    });
+
+    expect(endpoints.map((endpoint) => endpoint.id)).toEqual([
+      "core:lan",
+      "core:loopback",
+      "tunnel:managed-relay",
+    ]);
+    expect(endpoints.find((endpoint) => endpoint.isDefault)?.id).toBe(
+      "tunnel:managed-relay",
+    );
+    expect(
+      endpoints.find((endpoint) => endpoint.id === "core:lan"),
+    ).toMatchObject({
+      httpBaseUrl: "http://192.168.1.10:8787",
+      wsBaseUrl: "ws://192.168.1.10:8787",
+      reachability: "lan",
+      compatibility: { hostedHttpsApp: "mixed-content-blocked" },
+    });
+    expect(
+      endpoints.find((endpoint) => endpoint.id === "tunnel:managed-relay"),
+    ).toMatchObject({
+      httpBaseUrl: "https://env.example.test",
+      wsBaseUrl: "wss://env.example.test/rpc",
+      reachability: "tunnel",
+      compatibility: { hostedHttpsApp: "compatible" },
+      status: "available",
+    });
+  });
+
+  it("falls back to LAN before loopback when no tunnel is advertised", () => {
+    const endpoints = buildAdvertisedEndpoints({
+      lan: {
+        policy: "protected",
+        advertisedHost: "192.168.1.10",
+        port: 8787,
+        pairingBootstrap: false,
+      },
+    });
+
+    expect(endpoints.find((endpoint) => endpoint.isDefault)?.id).toBe(
+      "core:lan",
+    );
   });
 });
 
