@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { makeMainLayer } from "@zuse/server";
-import { AGENTS_RUNNING_COUNT_CHANNEL } from "@zuse/wire";
+import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -611,8 +611,17 @@ const folderPicker = {
 const authShell = {
   redirectUri: AUTH_REDIRECT_URI,
   open: (url: string) =>
-    Effect.sync(() => {
-      void shell.openExternal(url);
+    Effect.tryPromise({
+      try: async () => {
+        await shell.openExternal(url);
+      },
+      catch: (cause) =>
+        new AuthFlowError({
+          reason:
+            cause instanceof Error
+              ? `Could not open browser: ${cause.message}`
+              : "Could not open browser.",
+        }),
     }),
   onCallbackUrl: (handler: (url: string) => void) =>
     Effect.sync(() => {
