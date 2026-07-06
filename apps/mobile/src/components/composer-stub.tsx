@@ -11,9 +11,11 @@ import { Button } from "./ui/button";
 export const ComposerStub = ({
   connection,
   sessionId,
+  bottomInset = 0,
 }: {
   connection: WsProtocolOptions;
   sessionId: SessionId;
+  bottomInset?: number;
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,10 +49,16 @@ export const ComposerStub = ({
   };
 
   return (
-    <View className="border-t border-border p-3">
-      <View className="flex-row items-end gap-2 rounded-lg border border-border bg-card p-2">
+    <View
+      className="border-t border-border px-3 pt-3"
+      style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
+    >
+      <View
+        style={{ borderCurve: "continuous" }}
+        className="flex-row items-end gap-2 rounded-2xl border border-border bg-card p-2"
+      >
         <TextInput
-          className="min-h-10 flex-1 px-2 py-2 font-sans text-base text-foreground"
+          className="min-h-10 flex-1 px-2 py-2 font-sans text-[17px] text-foreground"
           multiline
           placeholder="Message"
           placeholderTextColor="hsl(72 4% 56%)"

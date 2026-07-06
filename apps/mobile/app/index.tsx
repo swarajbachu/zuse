@@ -1,93 +1,80 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect } from "react";
 import { Link, router } from "expo-router";
-import { QrCode, Server } from "lucide-react-native";
-import { ScrollView, Text, View } from "react-native";
+import { Monitor, Plus, QrCode, Server } from "lucide-react-native";
+import { ScrollView } from "react-native";
 
-import { ConnectionCard } from "~/components/connection-card";
-import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
-import { Input } from "~/components/ui/input";
-import { Sheet } from "~/components/ui/sheet";
+import { ListRow, ListSection } from "~/components/ui/list";
 import { useConnectionsStore } from "~/store/connections";
 
 export default function ConnectionsScreen() {
-  const { connections, hydrated, hydrate, add } = useConnectionsStore();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [host, setHost] = useState("127.0.0.1");
-  const [port, setPort] = useState("8787");
-  const [token, setToken] = useState("");
+  const { connections, hydrated, hydrate } = useConnectionsStore();
 
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
 
-  const canAdd = useMemo(() => host.trim().length > 0 && Number(port) > 0, [host, port]);
-
-  const submit = async () => {
-    if (!canAdd) return;
-    const record = await add({ host, port: Number(port), token });
-    setSheetOpen(false);
-    router.push(`/c/${encodeURIComponent(record.key)}`);
-  };
-
   return (
-    <View className="flex-1 bg-background">
-      {connections.length === 0 ? (
-        <EmptyState
-          icon={Server}
-          title="No connections"
-          detail="Add a local server to inspect sessions and live messages."
+    <ScrollView
+      className="flex-1 bg-background"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-6 p-4 pb-16"
+    >
+      <ListSection footer="Sign in with the same account as your Mac to see every linked computer with live presence.">
+        <ListRow
+          icon={Monitor}
+          title="Your computers"
+          subtitle="Discover devices on your account"
+          onPress={() => router.push("/computers")}
         />
-      ) : (
-        <ScrollView contentContainerClassName="gap-3 p-4">
+      </ListSection>
+
+      {connections.length > 0 ? (
+        <ListSection header="Connections">
           {connections.map((connection) => (
-            <ConnectionCard
+            <ListRow
               key={connection.key}
-              connection={connection}
-              onPress={() => router.push(`/c/${encodeURIComponent(connection.key)}`)}
+              icon={Server}
+              iconTone="neutral"
+              title={connection.label}
+              subtitle={
+                connection.token ? "Pairing token saved" : "Manual connection"
+              }
+              onPress={() =>
+                router.push(`/c/${encodeURIComponent(connection.key)}`)
+              }
             />
           ))}
-        </ScrollView>
+        </ListSection>
+      ) : (
+        <EmptyState
+          icon={Server}
+          title="No connections yet"
+          detail="Add a local server to inspect sessions and live messages."
+        />
       )}
 
-      <View className="gap-3 border-t border-border p-4">
-        <Button onPress={() => router.push("/computers")}>Your computers</Button>
-        <View className="flex-row gap-3">
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onPress={() => setSheetOpen(true)}
-          >
-            Add manually
-          </Button>
-          <Button variant="secondary" onPress={() => router.push("/connect/scan")}>
-            <QrCode size={16} color="hsl(72 4% 92%)" /> Scan
-          </Button>
-        </View>
-        <Link href="/smoke" className="text-center font-sans text-xs text-muted-foreground">
-          Open Hermes/effect smoke screen
-        </Link>
-      </View>
+      <ListSection footer="Enter a host and port, or scan a pairing code shown on your Mac.">
+        <ListRow
+          icon={Plus}
+          iconTone="neutral"
+          title="Add manually"
+          onPress={() => router.push("/connect/manual")}
+        />
+        <ListRow
+          icon={QrCode}
+          iconTone="neutral"
+          title="Scan QR code"
+          onPress={() => router.push("/connect/scan")}
+        />
+      </ListSection>
 
-      <Sheet visible={sheetOpen} title="Add connection" onClose={() => setSheetOpen(false)}>
-        <View className="gap-3">
-          <Text className="font-sans-medium text-sm text-foreground">Host</Text>
-          <Input value={host} onChangeText={setHost} autoCapitalize="none" autoCorrect={false} />
-          <Text className="font-sans-medium text-sm text-foreground">Port</Text>
-          <Input value={port} onChangeText={setPort} keyboardType="number-pad" />
-          <Text className="font-sans-medium text-sm text-foreground">Token</Text>
-          <Input
-            value={token}
-            onChangeText={setToken}
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="Optional until Track C"
-          />
-          <Button disabled={!canAdd} onPress={submit}>
-            Save
-          </Button>
-        </View>
-      </Sheet>
-    </View>
+      <Link
+        href="/smoke"
+        className="text-center font-sans text-xs text-muted-foreground"
+      >
+        Open Hermes/effect smoke screen
+      </Link>
+    </ScrollView>
   );
 }

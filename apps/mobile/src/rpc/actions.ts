@@ -58,11 +58,11 @@ export const answerQuestion = (options: {
   connection: WsProtocolOptions;
   sessionId: SessionId;
   itemId: string;
-  answers: ReadonlyArray<{
+  answers: readonly {
     questionIndex: number;
-    selected: ReadonlyArray<number>;
+    selected: readonly number[];
     other?: string;
-  }>;
+  }[];
 }) =>
   Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);

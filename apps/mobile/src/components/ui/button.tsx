@@ -11,7 +11,7 @@ type ButtonProps = PressableProps & {
 
 function textClassName(variant: NonNullable<ButtonProps["variant"]>) {
   return cn(
-    "font-sans-medium text-sm",
+    "font-sans-medium text-[17px]",
     variant === "primary" || variant === "danger" ? "text-primary-foreground" : "text-foreground"
   );
 }
@@ -29,9 +29,10 @@ export const Button = forwardRef<React.ElementRef<typeof Pressable>, ButtonProps
     <Pressable
       ref={ref}
       disabled={disabled}
+      style={{ borderCurve: "continuous" }}
       className={cn(
-        "items-center justify-center rounded-lg border active:opacity-80",
-        size === "sm" ? "h-9 px-3" : "h-11 px-4",
+        "items-center justify-center rounded-xl border active:opacity-80",
+        size === "sm" ? "h-9 px-3" : "h-12 px-4",
         variant === "primary" && "border-primary bg-primary",
         variant === "secondary" && "border-border bg-card-elevated",
         variant === "ghost" && "border-transparent bg-transparent",

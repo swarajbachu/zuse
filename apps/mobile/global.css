@@ -15,5 +15,6 @@
   --color-warning: hsl(42 93% 56%);
   --font-sans: 'Inter_400Regular';
   --font-sans-medium: 'Inter_600SemiBold';
+  --font-sans-bold: 'Inter_700Bold';
   --font-mono: 'GeistMono_400Regular';
 }
