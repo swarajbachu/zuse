@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Host, Icon, List, ListItem } from "@expo/ui";
 import { router } from "expo-router";
 import { Monitor } from "lucide-react-native";
@@ -6,14 +6,41 @@ import { Text, View } from "react-native";
 
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
-import { errorTap, successTap } from "~/lib/haptics";
+import { errorTap, selectionTap, successTap } from "~/lib/haptics";
 import { useAuthStore } from "~/store/auth";
 import { useEnvironmentsStore } from "~/store/environments";
 
 const LIME = "hsl(72 98% 54%)";
 const MUTED = "hsl(72 2% 64%)";
-const AMBER = "hsl(42 93% 56%)";
 const DANGER = "hsl(2 86% 64%)";
+
+// A checking/connecting environment can't host an RN pulsing dot inside the
+// native @expo/ui list, so its laptop glyph "breathes" by cycling the amber
+// color. Four steps (full → mid → dim → mid) read as a smooth pulse while
+// staying dependency-free and cheap — it only runs while something is pending.
+const AMBER_PULSE = [
+  "hsl(42 93% 56%)",
+  "hsl(42 86% 46%)",
+  "hsl(42 72% 34%)",
+  "hsl(42 86% 46%)",
+] as const;
+
+const isChecking = (presence: string) =>
+  presence !== "online" && presence !== "offline";
+
+function useAmberPulse(active: boolean) {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(
+      () => setStep((n) => (n + 1) % AMBER_PULSE.length),
+      360
+    );
+    return () => clearInterval(id);
+  }, [active]);
+  // When inactive no row reads this value, so a stale step is harmless.
+  return active ? AMBER_PULSE[step] : AMBER_PULSE[0];
+}
 
 /**
  * "Your computers" — the account discovery surface, rendered with real native
@@ -29,6 +56,10 @@ export default function ComputersScreen() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
 
+  const anyPulsing =
+    connecting !== null || environments.some((e) => isChecking(e.presence));
+  const pulseColor = useAmberPulse(anyPulsing);
+
   useEffect(() => {
     if (!hydrated) void hydrate();
   }, [hydrate, hydrated]);
@@ -36,6 +67,19 @@ export default function ComputersScreen() {
   useEffect(() => {
     if (account !== null) void refresh();
   }, [account, refresh]);
+
+  // Subtle selection tick when a computer comes online.
+  const prevPresence = useRef(new Map<string, string>());
+  useEffect(() => {
+    const prev = prevPresence.current;
+    for (const env of environments) {
+      const before = prev.get(env.environmentId);
+      if (before !== undefined && before !== "online" && env.presence === "online") {
+        selectionTap();
+      }
+      prev.set(env.environmentId, env.presence);
+    }
+  }, [environments]);
 
   const onConnect = async (environmentId: string) => {
     setConnecting(environmentId);
@@ -76,8 +120,10 @@ export default function ComputersScreen() {
     return "Checking…";
   };
 
-  const presenceColor = (presence: string) =>
-    presence === "online" ? LIME : presence === "offline" ? MUTED : AMBER;
+  const presenceColor = (environmentId: string, presence: string) => {
+    if (connecting === environmentId || isChecking(presence)) return pulseColor;
+    return presence === "online" ? LIME : MUTED;
+  };
 
   return (
     <View className="flex-1 bg-background">
@@ -95,7 +141,10 @@ export default function ComputersScreen() {
                 <Icon
                   name="laptopcomputer"
                   size={22}
-                  color={presenceColor(environment.presence)}
+                  color={presenceColor(
+                    environment.environmentId,
+                    environment.presence
+                  )}
                 />
               }
               supportingText={presenceLabel(

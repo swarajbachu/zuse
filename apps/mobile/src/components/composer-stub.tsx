@@ -7,6 +7,7 @@ import { ActivityIndicator, TextInput, View } from "react-native";
 import { interruptSession, makeTextInput, sendMessage } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { Button } from "./ui/button";
+import { GlassSurface } from "./ui/glass-surface";
 
 export const ComposerStub = ({
   connection,
@@ -53,9 +54,13 @@ export const ComposerStub = ({
       className="border-t border-border px-3 pt-3"
       style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
     >
-      <View
-        style={{ borderCurve: "continuous" }}
-        className="flex-row items-end gap-2 rounded-2xl border border-border bg-card p-2"
+      <GlassSurface
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-end",
+          gap: 8,
+          padding: 8,
+        }}
       >
         <TextInput
           className="min-h-10 flex-1 px-2 py-2 font-sans text-[17px] text-foreground"
@@ -75,7 +80,7 @@ export const ComposerStub = ({
             <Send size={16} color="hsl(72 4% 8%)" />
           )}
         </Button>
-      </View>
+      </GlassSurface>
     </View>
   );
 };
