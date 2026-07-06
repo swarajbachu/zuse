@@ -92,8 +92,23 @@ Mobile reaches the desktop from anywhere via a **control-plane relay** that link
 devices↔environments, issues short-lived connect tokens, and provisions a **managed tunnel**
 (Cloudflare) — then steps aside. The relay is **never in the data path**; chat traffic goes
 directly client↔environment over WS. Identity is **WorkOS** (reuse the existing login;
-PKCE/keychain, `getAccessToken` seam), with a **device DPoP** proof-of-possession key and a
-local bearer token proving environment control during linking.
+PKCE/keychain, `getAccessToken` seam), with a **device DPoP** proof-of-possession key.
+
+**Concretised while building (2026-07-06):**
+- **Model chosen: account-based discovery**, not LAN-QR pairing. Sign in once with WorkOS on
+  laptop + phone; the laptop **self-registers** with the relay and every computer **auto-appears**
+  on the phone with live online/offline presence. QR/manual host entry is a fallback.
+- **Relay stack:** Effect on **Cloudflare Workers** + **PlanetScale Postgres via Hyperdrive**,
+  every record scoped by WorkOS `accountId`. Migrations via **Drizzle**; deploy via **wrangler**
+  (not alchemy). Live at a Cloudflare custom-domain route.
+- **Link proof is Ed25519 (asymmetric), NOT a local bearer/HMAC** — the relay never sees the
+  desktop's secret, so it can't verify a symmetric signature. The desktop holds a per-environment
+  Ed25519 private key and sends its public key at link; the relay verifies every proof against it.
+- **Desktop self-registers directly** (it is already WorkOS-signed-in), so the server runs the
+  whole link flow — no browser mediator. The renderer's **Devices** pane just drives `relay.*` RPCs.
+- **Presence** = the desktop heartbeats to the relay; the phone polls per-environment status.
+- Three-tier auth: WorkOS token → DPoP-bound short-lived access token (replay-guarded) →
+  persistent per-environment credential (`zenv_…`, stored hashed).
 
 ### D5 — SSH remote dev-boxes: native `ssh` wrapper
 The desktop launches the headless server on a remote machine and tunnels back, by wrapping
@@ -192,15 +207,24 @@ A, B-renderer, F, G, D are **five genuinely parallel tracks**. C/E/H serialize a
 | PR-B-server | WS transport + headless `bin.ts` | ✅ landed |
 | PR-A1 | `node:sqlite` migration + `events` table + projector (route `MessagePersisted`) | ✅ landed |
 | PR-A2 | cursor streaming (`streamMessages(sinceSequence)`, envelope publish, renderer cursor) | ✅ landed |
-| PR-B-renderer | browser/renderer WS client + transport selection | todo |
-| PR-G | SSH `packages/ssh` + desktop env + remote launch | todo |
-| PR-C | auth/pairing (local bearer + QR, device DPoP, WorkOS) | todo |
-| PR-F1 | mobile scaffold (Expo + WS wire client + LAN QR + read-only views) | todo |
-| PR-F2 | mobile interact (send/approve/answer/interrupt; reconcile via `sinceSequence`) | todo |
-| PR-D | relay deployable (`infra/relay` + link/connect endpoints) | todo |
-| PR-E | managed tunnel (Cloudflare connector + relay mapping + mobile cloud connect) | todo |
+| PR-B-renderer | browser/renderer WS client + transport selection | ✅ landed (#259) |
+| PR-G | SSH `packages/ssh` + desktop env + remote launch | ✅ landed (#259, core) |
+| PR-C | LAN auth/pairing (QR + bearer, `connect.*`) | ✅ landed (#259) |
+| PR-F1 | mobile scaffold (Expo + WS wire client + LAN QR + read-only views) | ✅ landed (#259) |
+| PR-F2 | mobile interact (send/approve/answer/interrupt; reconcile via `sinceSequence`) | ✅ send/interrupt landed; approve/answer UI todo |
+| Relay-PR1 | relay → account-scoped control plane (WorkOS + Ed25519 + DPoP, Postgres) | ✅ landed |
+| Relay-PR2 | desktop self-registration (Ed25519 link + heartbeat presence + Devices pane) | ✅ landed |
+| Relay-PR3 | mobile WorkOS sign-in + device DPoP | ✅ landed |
+| Relay-PR4 | mobile discovery UI ("Your computers" + presence + connect) | ✅ landed |
+| PR-E | managed tunnel (Cloudflare connector + relay mapping) — off-LAN reach | todo (needs Cloudflare acct) |
 | PR-H | push (`agent-activity` publish + APNs + Live Activities) | todo |
 | PR-I | cloud environments provisioner (deferred) | deferred |
+
+**Deploy status:** relay is **live** on Cloudflare Workers (custom-domain route, Hyperdrive →
+PlanetScale); the unauthenticated gate is verified (`GET /v1/environments` → `401 missing_bearer`).
+Remaining to fully close cloud reach: the **Cloudflare tunnel** (PR-E) for off-network access, and
+setting the mobile `EXPO_PUBLIC_*` env + a dev-client build (native crypto). Until the tunnel,
+discovery + connect work on the **same Wi-Fi** (the relay returns the environment's LAN endpoint).
 
 ---
 
@@ -281,6 +305,20 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
   renderer consumers (`store/messages.ts` and `store/sidebar-message-status.ts` — one more
   than this doc assumed) track per-session cursors and resume on resubscribe. Reconnect,
   live-tail exactly-once, and cross-session isolation tests green.
+- **2026-07-06 — #259 foundations**: a broad first-cut PR landed the renderer WS client (B),
+  LAN auth + `connect.*` (C), an in-memory relay stub (D), the mobile Expo app incl. iOS project
+  (F), and SSH `packages/ssh` + desktop env service (G). Read-only + send/interrupt work on LAN.
+- **2026-07-06 — account-relay discovery (Relay-PR1..4)**: chose the account-based discovery
+  model over LAN-QR (see D4). **PR1** rewrote `infra/relay` into an Effect account-scoped control
+  plane on Cloudflare Workers + PlanetScale/Hyperdrive (WorkOS JWKS verify, Ed25519 link-proof
+  verify, DPoP verify + replay guard, signed connect/access tokens, Drizzle migrations) — 6 tests
+  green. **PR2** desktop self-registration: migration `0025` (env Ed25519 keypair), `linkProof`
+  HMAC→Ed25519, `RelayLinkService` (challenge→sign→link→persist→heartbeat), `relay.*` RPCs, a
+  renderer **Devices** pane — 235 server tests green. **PR3+4** mobile: WorkOS PKCE, ES256 device
+  DPoP (react-native-quick-crypto), relay HTTP client, and a **"Your computers"** discovery screen
+  with presence. Relay **deployed** (custom-domain Worker); `401` gate verified.
+  **Correction to this doc:** the link proof is **Ed25519 (asymmetric)**, not the local-bearer/HMAC
+  originally sketched — the relay can't verify a secret it never holds.
 
 ---
 
