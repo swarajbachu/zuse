@@ -18,7 +18,8 @@ data path** — chat traffic goes directly phone ↔ laptop.
 - `src/auth.ts` — WorkOS gate, DPoP-bound access gate (+ replay consume), env-credential gate.
 - `src/handler.ts` — the account-scoped endpoint router.
 - `src/index.ts` — `makeRelay(layer)` → a `fetch` handler.
-- `migrations/postgres/0001_init.sql` — schema, applied at **deploy** time (not Worker boot).
+- `drizzle/schema.ts` — Postgres schema (source of truth for migrations).
+- `drizzle/migrations/` — generated SQL, applied at **deploy** time via `bun run db:migrate`.
 
 ## Endpoints
 | Method + path | Auth | Purpose |
@@ -49,8 +50,11 @@ connect, cross-account isolation, proof forgery, and replay rejection.
    ```
    Put the printed PUBLIC JWK in `wrangler.jsonc` `RELAY_MINT_PUBLIC_JWK`; set the
    PRIVATE one as a secret: `bunx wrangler secret put RELAY_MINT_PRIVATE_JWK`.
-2. **PlanetScale**: create a Postgres database, apply `migrations/postgres/0001_init.sql`
-   (`psql "$CONNECTION_STRING" -f migrations/postgres/0001_init.sql`).
+2. **PlanetScale**: create a Postgres database, copy `.env.example` → `.env`, set
+   `DATABASE_URL`, then apply migrations:
+   ```
+   bun run db:migrate
+   ```
 3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
    and paste the id into `wrangler.jsonc`.
 4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`.
@@ -60,4 +64,4 @@ connect, cross-account isolation, proof forgery, and replay rejection.
 - Link proofs are **Ed25519** (asymmetric): the desktop holds the private key and sends
   its public key at link; the relay verifies every proof against it. HMAC was rejected —
   the relay never sees the desktop's secret, so it can't verify a symmetric signature.
-- Migrations run at **deploy**, never on Worker cold-start.
+- Migrations run at **deploy** via Drizzle (`bun run db:migrate`), never on Worker cold-start.

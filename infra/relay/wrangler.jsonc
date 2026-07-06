@@ -11,11 +11,11 @@
 
   // Non-secret configuration. Secrets go via `wrangler secret put` (see README).
   "vars": {
-    "RELAY_ISSUER": "https://relay.zuse.example",
+    "RELAY_ISSUER": "https://relay.zuse.sh",
     "WORKOS_ISSUER": "https://api.workos.com",
-    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/REPLACE_WITH_CLIENT_ID",
+    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
     // Public key only — the matching private key is a secret (RELAY_MINT_PRIVATE_JWK).
-    "RELAY_MINT_PUBLIC_JWK": "{\"kty\":\"OKP\",\"crv\":\"Ed25519\",\"x\":\"REPLACE\"}"
+    "RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"A2Ig1XwHKDznhyTbPD9IVTlJpaN4YImgQadx-Gl81Bs\",\"kty\":\"OKP\"}"
   },
 
   // Hyperdrive fronting PlanetScale Postgres. Create with:
@@ -24,7 +24,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "REPLACE_WITH_HYPERDRIVE_ID"
+      "id": "c49c02e939494a958fb5fe6805e7b0f2"
     }
   ]
 }
