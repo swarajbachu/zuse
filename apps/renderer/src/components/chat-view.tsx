@@ -31,6 +31,9 @@ import {
 } from "../lib/chat-timeline-rows.ts";
 import {
   getAnchoredTurnMetrics,
+  resolveScrollableNodeIsAtEnd,
+  shouldDeferAutomaticEndScroll,
+  shouldRestoreAnchorScrollOffset,
   type TimelineScrollMode,
 } from "../lib/timeline-scroll-anchoring.ts";
 import {
@@ -181,7 +184,15 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     useRef<TimelineScrollMode>("following-end");
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const lastAnchoredUserMessageIdRef = useRef<string | null>(null);
+  const pendingTimelineAnchorRef = useRef<string | null>(null);
   const positionedTimelineAnchorRef = useRef<string | null>(null);
+  const settledTimelineAnchorRef = useRef<string | null>(null);
+  const pendingAnchorScrollRestoreRef = useRef<{
+    readonly messageId: string;
+    readonly offset: number;
+    readonly userNavigationGeneration: number;
+  } | null>(null);
+  const anchorScrollRestoreFrameRef = useRef<number | null>(null);
   const userNavigationGenerationRef = useRef(0);
   const liveFollowGenerationRef = useRef<number | null>(0);
   const showPillTimerRef = useRef<number | null>(null);
@@ -209,22 +220,59 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }, 150);
   }, []);
 
-  const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
+  const showJumpPillNow = useCallback(() => {
+    clearShowPillTimer();
+    setShowPill(true);
+  }, [clearShowPillTimer]);
+
+  const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
+    const scrollNode = listRef.current?.getScrollableNode();
+    const isAtEnd = resolveScrollableNodeIsAtEnd(scrollNode);
+    if (isAtEnd === false) {
+      isAtEndRef.current = false;
+      showJumpPillSoon();
+    } else if (isAtEnd === true) {
+      isAtEndRef.current = true;
+      hideJumpPill();
+    }
+  }, [hideJumpPill, showJumpPillSoon]);
+
+  const cancelTimelineLiveFollowForUserNavigation = useCallback((showPillForGesture = false) => {
     userNavigationGenerationRef.current += 1;
     timelineScrollModeRef.current = "free-scrolling";
     liveFollowGenerationRef.current = null;
+    pendingTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
+    if (anchorScrollRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+      anchorScrollRestoreFrameRef.current = null;
+    }
     setTimelineAnchorMessageId(null);
-  }, []);
+    if (showPillForGesture) {
+      isAtEndRef.current = false;
+      showJumpPillNow();
+      return;
+    }
+    requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
+  }, [showJumpPillIfScrollNodeLeftEnd, showJumpPillNow]);
 
   const scrollToEnd = useCallback(
     (animated = false) => {
       isAtEndRef.current = true;
       timelineScrollModeRef.current = "following-end";
       liveFollowGenerationRef.current = userNavigationGenerationRef.current;
+      pendingTimelineAnchorRef.current = null;
       activeTimelineAnchorIndexRef.current = null;
       positionedTimelineAnchorRef.current = null;
+      settledTimelineAnchorRef.current = null;
+      pendingAnchorScrollRestoreRef.current = null;
+      if (anchorScrollRestoreFrameRef.current !== null) {
+        cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+        anchorScrollRestoreFrameRef.current = null;
+      }
       setTimelineAnchorMessageId(null);
       lastAnchoredUserMessageIdRef.current = latestUserMessageId;
       hideJumpPill();
@@ -285,6 +333,12 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const handleAnchorReady = useCallback(
     (info: { anchorIndex: number | undefined }) => {
       if (info.anchorIndex === undefined) return;
+      if (timelineAnchorMessageId !== null) {
+        pendingTimelineAnchorRef.current =
+          pendingTimelineAnchorRef.current === timelineAnchorMessageId
+            ? null
+            : pendingTimelineAnchorRef.current;
+      }
       activeTimelineAnchorIndexRef.current = info.anchorIndex;
       if (
         timelineAnchorMessageId === null ||
@@ -293,32 +347,125 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
         return;
       }
       positionedTimelineAnchorRef.current = timelineAnchorMessageId;
-      void listRef.current?.scrollToIndex({
-        index: info.anchorIndex,
-        animated: true,
-        viewPosition: 0,
-        viewOffset: CHAT_LIST_ANCHOR_OFFSET,
-      });
+      settledTimelineAnchorRef.current = null;
+      const messageId = timelineAnchorMessageId;
+      const positionAnchor = (remainingAttempts: number) => {
+        requestAnimationFrame(() => {
+          if (positionedTimelineAnchorRef.current !== messageId) return;
+
+          const list = listRef.current;
+          if (!list) {
+            if (remainingAttempts > 0) positionAnchor(remainingAttempts - 1);
+            return;
+          }
+
+          const scrollNode = list.getScrollableNode();
+          let finished = false;
+          let fallbackTimer = 0;
+          const finishAnimatedPositioning = () => {
+            if (finished) return;
+            finished = true;
+            window.clearTimeout(fallbackTimer);
+            scrollNode?.removeEventListener(
+              "scrollend",
+              finishAnimatedPositioning,
+            );
+            if (positionedTimelineAnchorRef.current !== messageId) return;
+
+            const scrollOffset = list.getState().scroll;
+            void list.scrollToOffset({ offset: scrollOffset, animated: false });
+            settledTimelineAnchorRef.current = messageId;
+          };
+
+          fallbackTimer = window.setTimeout(finishAnimatedPositioning, 750);
+          scrollNode?.addEventListener("scrollend", finishAnimatedPositioning, {
+            once: true,
+          });
+          void list.scrollToIndex({
+            index: info.anchorIndex!,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          });
+        });
+      };
+      requestAnimationFrame(() => positionAnchor(12));
     },
     [timelineAnchorMessageId],
   );
 
-  const handleScroll = useCallback(() => {
-    const isAtEnd = resolveTimelineIsAtEnd(listRef.current?.getState());
-    if (isAtEnd === undefined || isAtEndRef.current === isAtEnd) return;
+  const handleAnchorSizeChanged = useCallback((size: number) => {
+    void size;
+    const messageId = timelineAnchorMessageId;
+    if (
+      messageId === null ||
+      settledTimelineAnchorRef.current !== messageId ||
+      liveFollowGenerationRef.current === userNavigationGenerationRef.current
+    ) {
+      return;
+    }
 
+    const scrollOffset = listRef.current?.getState().scroll;
+    if (scrollOffset === undefined) return;
+
+    if (pendingAnchorScrollRestoreRef.current === null) {
+      pendingAnchorScrollRestoreRef.current = {
+        messageId,
+        offset: scrollOffset,
+        userNavigationGeneration: userNavigationGenerationRef.current,
+      };
+    }
+    if (anchorScrollRestoreFrameRef.current !== null) return;
+
+    anchorScrollRestoreFrameRef.current = requestAnimationFrame(() => {
+      anchorScrollRestoreFrameRef.current = null;
+      const pending = pendingAnchorScrollRestoreRef.current;
+      pendingAnchorScrollRestoreRef.current = null;
+      const list = listRef.current;
+      const currentOffset = list?.getState().scroll;
+      if (
+        list === null ||
+        pending === null ||
+        typeof currentOffset !== "number" ||
+        !shouldRestoreAnchorScrollOffset({
+          anchorId: pending.messageId,
+          settledAnchorId: settledTimelineAnchorRef.current,
+          expectedOffset: pending.offset,
+          currentOffset,
+          expectedUserNavigationGeneration: pending.userNavigationGeneration,
+          currentUserNavigationGeneration: userNavigationGenerationRef.current,
+        })
+      ) {
+        return;
+      }
+
+      void list.scrollToOffset({ offset: pending.offset, animated: false });
+    });
+  }, [timelineAnchorMessageId]);
+
+  const handleScroll = useCallback(() => {
+    const list = listRef.current;
+    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
+    const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
+    const isAtEnd = nodeAtEnd ?? stateAtEnd;
+    if (isAtEnd === undefined) return;
+
+    if (
+      !isAtEnd &&
+      liveFollowGenerationRef.current === userNavigationGenerationRef.current
+    ) {
+      hideJumpPill();
+      return;
+    }
+
+    if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
+
     if (isAtEnd) {
       timelineScrollModeRef.current = "following-end";
       liveFollowGenerationRef.current = userNavigationGenerationRef.current;
       hideJumpPill();
     } else {
-      if (
-        liveFollowGenerationRef.current === userNavigationGenerationRef.current
-      ) {
-        hideJumpPill();
-        return;
-      }
       timelineScrollModeRef.current = "free-scrolling";
       liveFollowGenerationRef.current = null;
       showJumpPillSoon();
@@ -355,7 +502,14 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   useEffect(() => {
     timelineScrollModeRef.current = "following-end";
     activeTimelineAnchorIndexRef.current = null;
+    pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
+    if (anchorScrollRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
+      anchorScrollRestoreFrameRef.current = null;
+    }
     setTimelineAnchorMessageId(null);
     lastAnchoredUserMessageIdRef.current = null;
     userNavigationGenerationRef.current = 0;
@@ -366,9 +520,17 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   useEffect(() => {
     let removeListeners: (() => void) | null = null;
-    const frame = requestAnimationFrame(() => {
+    let frame: number | null = null;
+    const attachListeners = (remainingAttempts: number) => {
       const scrollNode = listRef.current?.getScrollableNode();
-      if (!scrollNode) return;
+      if (!scrollNode) {
+        if (remainingAttempts > 0) {
+          frame = requestAnimationFrame(() =>
+            attachListeners(remainingAttempts - 1),
+          );
+        }
+        return;
+      }
       if (scrollNode instanceof HTMLDivElement) {
         scrollNode.dataset.pane = "chat";
         scrollNode.tabIndex = -1;
@@ -376,47 +538,65 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       } else {
         scrollElementRef.current = null;
       }
-      const handleManualNavigation = () => {
-        cancelTimelineLiveFollowForUserNavigation();
+      const handleManualScrollNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(true);
       };
-      scrollNode.addEventListener("wheel", handleManualNavigation, {
+      const handleManualPointerNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(false);
+      };
+      scrollNode.addEventListener("wheel", handleManualScrollNavigation, {
         passive: true,
       });
-      scrollNode.addEventListener("touchmove", handleManualNavigation, {
+      scrollNode.addEventListener("touchmove", handleManualScrollNavigation, {
         passive: true,
       });
-      scrollNode.addEventListener("pointerdown", handleManualNavigation, {
+      scrollNode.addEventListener("pointerdown", handleManualPointerNavigation, {
         passive: true,
       });
       removeListeners = () => {
-        scrollNode.removeEventListener("wheel", handleManualNavigation);
-        scrollNode.removeEventListener("touchmove", handleManualNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualNavigation);
+        scrollNode.removeEventListener("wheel", handleManualScrollNavigation);
+        scrollNode.removeEventListener(
+          "touchmove",
+          handleManualScrollNavigation,
+        );
+        scrollNode.removeEventListener(
+          "pointerdown",
+          handleManualPointerNavigation,
+        );
       };
-    });
+    };
+    frame = requestAnimationFrame(() => attachListeners(30));
 
     return () => {
-      cancelAnimationFrame(frame);
+      if (frame !== null) cancelAnimationFrame(frame);
       removeListeners?.();
     };
   }, [cancelTimelineLiveFollowForUserNavigation, sessionId]);
 
   useEffect(() => {
-    if (!inFlight || latestUserMessageId === null) return;
-    if (lastAnchoredUserMessageIdRef.current === latestUserMessageId) return;
+    if (latestUserMessageId === null) return;
+    const previousLatestUserMessageId = lastAnchoredUserMessageIdRef.current;
+    if (previousLatestUserMessageId === latestUserMessageId) return;
 
     lastAnchoredUserMessageIdRef.current = latestUserMessageId;
+    if (previousLatestUserMessageId === null && !inFlight) return;
+
     timelineScrollModeRef.current = "anchoring-new-turn";
     liveFollowGenerationRef.current = userNavigationGenerationRef.current;
+    pendingTimelineAnchorRef.current = latestUserMessageId;
     activeTimelineAnchorIndexRef.current = null;
     positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    pendingAnchorScrollRestoreRef.current = null;
     setTimelineAnchorMessageId(latestUserMessageId);
     hideJumpPill();
   }, [hideJumpPill, inFlight, latestUserMessageId]);
 
   useEffect(() => {
     if (inFlight) return;
+    pendingTimelineAnchorRef.current = null;
     positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
     setTimelineAnchorMessageId(null);
   }, [inFlight]);
 
@@ -438,6 +618,15 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
         const list = listRef.current;
         if (!list) return;
+        if (
+          shouldDeferAutomaticEndScroll({
+            pendingAnchorId: pendingTimelineAnchorRef.current,
+            positionedAnchorId: positionedTimelineAnchorRef.current,
+            settledAnchorId: settledTimelineAnchorRef.current,
+          })
+        ) {
+          return;
+        }
 
         if (timelineScrollModeRef.current === "anchoring-new-turn") {
           const metrics = getActiveTimelineTurnMetrics(list);
@@ -569,6 +758,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                       anchoredEndSpace: {
                         ...anchoredEndSpace,
                         onReady: handleAnchorReady,
+                        onSizeChanged: handleAnchorSizeChanged,
                       },
                     }
                   : {})}

@@ -47,6 +47,43 @@ describe("chat timeline rows", () => {
     expect(rows.map((row) => rowAnchorMessageId(row))).toContain("u2");
   });
 
+  it("resolves the first optimistic user message as the new-chat anchor", () => {
+    const rows = deriveChatTimelineRows({
+      messages: [
+        message("u1", { _tag: "user", text: "first prompt", goal: null }),
+      ],
+      inFlight: true,
+      awaitingPlanApproval: false,
+    });
+
+    expect(resolveLatestUserMessageId(rows)).toBe("u1");
+    expect(rowAnchorMessageId(rows[0]!)).toBe("u1");
+  });
+
+  it("moves the anchor when a later user message appears before assistant output", () => {
+    const first = deriveChatTimelineRows({
+      messages: [
+        message("u1", { _tag: "user", text: "first prompt", goal: null }),
+        message("a1", { _tag: "assistant", text: "first reply" }),
+      ],
+      inFlight: false,
+      awaitingPlanApproval: false,
+    });
+    const second = deriveChatTimelineRows({
+      messages: [
+        message("u1", { _tag: "user", text: "first prompt", goal: null }),
+        message("a1", { _tag: "assistant", text: "first reply" }),
+        message("u2", { _tag: "user", text: "second prompt", goal: null }),
+      ],
+      inFlight: true,
+      awaitingPlanApproval: false,
+    });
+
+    expect(resolveLatestUserMessageId(first)).toBe("u1");
+    expect(resolveLatestUserMessageId(second)).toBe("u2");
+    expect(second.map((row) => rowAnchorMessageId(row))).toContain("u2");
+  });
+
   it("preserves stable row ids for unchanged messages", () => {
     const messages = [
       message("u1", { _tag: "user", text: "first", goal: null }),
