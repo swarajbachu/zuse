@@ -356,7 +356,7 @@ export function BrowserPane() {
           // attribute — and the loads abort each other (ERR_ABORTED -3, agent
           // navigations intermittently reporting about:blank).
           src="about:blank"
-          allowpopups={true}
+          {...({ allowpopups: "true" } as Record<string, string>)}
           style={{
             display: url === "" ? "none" : "flex",
             width: "100%",

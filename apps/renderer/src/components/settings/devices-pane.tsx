@@ -91,6 +91,11 @@ export function DevicesPane() {
     }
   }, [refresh]);
 
+  const onSelectEndpoint = useCallback((endpointId: string) => {
+    setEndpointOverrideId(endpointId);
+    writeEndpointOverride(endpointId);
+  }, []);
+
   if (loading) {
     return (
       <section className="flex flex-1 items-center justify-center p-6">
@@ -105,11 +110,6 @@ export function DevicesPane() {
     advertisedEndpoints,
     endpointOverrideId,
   );
-
-  const onSelectEndpoint = useCallback((endpointId: string) => {
-    setEndpointOverrideId(endpointId);
-    writeEndpointOverride(endpointId);
-  }, []);
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
