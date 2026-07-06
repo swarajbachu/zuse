@@ -84,6 +84,9 @@ const freshSettings = (): SettingsFile =>
     completionSoundPreset: "chime",
     providerEnabled: seedProviderEnabled(),
     modelEnabledByProvider: seedModelEnabledByProvider(),
+    opencodeProviderVisible: {},
+    opencodeModelVisibleByProvider: {},
+    opencodeCustomProviders: [],
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
@@ -267,6 +270,85 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     }
   }
 
+  // OpenCode provider-manager fields. Keyed by opencode sub-provider id
+  // (free-form strings), so unlike the maps above we don't restrict to a
+  // known key set — just validate value shapes and drop anything malformed.
+  const opencodeProviderVisible: Record<string, boolean> = {};
+  if (
+    typeof obj.opencodeProviderVisible === "object" &&
+    obj.opencodeProviderVisible !== null
+  ) {
+    for (const [k, v] of Object.entries(
+      obj.opencodeProviderVisible as Record<string, unknown>,
+    )) {
+      if (typeof v === "boolean") opencodeProviderVisible[k] = v;
+    }
+  }
+
+  const opencodeModelVisibleByProvider: Record<
+    string,
+    Record<string, boolean>
+  > = {};
+  if (
+    typeof obj.opencodeModelVisibleByProvider === "object" &&
+    obj.opencodeModelVisibleByProvider !== null
+  ) {
+    for (const [pid, models] of Object.entries(
+      obj.opencodeModelVisibleByProvider as Record<string, unknown>,
+    )) {
+      if (typeof models !== "object" || models === null) continue;
+      const flags: Record<string, boolean> = {};
+      for (const [mid, v] of Object.entries(
+        models as Record<string, unknown>,
+      )) {
+        if (typeof v === "boolean") flags[mid] = v;
+      }
+      opencodeModelVisibleByProvider[pid] = flags;
+    }
+  }
+
+  const opencodeCustomProviders: {
+    id: string;
+    name: string;
+    baseURL: string;
+    npm: string;
+    models: { id: string; name: string }[];
+  }[] = [];
+  if (Array.isArray(obj.opencodeCustomProviders)) {
+    for (const item of obj.opencodeCustomProviders) {
+      if (typeof item !== "object" || item === null) continue;
+      const p = item as Record<string, unknown>;
+      if (
+        typeof p.id !== "string" ||
+        typeof p.name !== "string" ||
+        typeof p.baseURL !== "string"
+      ) {
+        continue;
+      }
+      const models: { id: string; name: string }[] = [];
+      if (Array.isArray(p.models)) {
+        for (const m of p.models) {
+          if (typeof m !== "object" || m === null) continue;
+          const mm = m as Record<string, unknown>;
+          if (typeof mm.id === "string" && typeof mm.name === "string") {
+            models.push({ id: mm.id, name: mm.name });
+          }
+        }
+      }
+      opencodeCustomProviders.push({
+        id: p.id,
+        name: p.name,
+        baseURL: p.baseURL,
+        // Legacy entries (pre-type-picker) default to OpenAI-compatible.
+        npm:
+          typeof p.npm === "string" && p.npm.length > 0
+            ? p.npm
+            : "@ai-sdk/openai-compatible",
+        models,
+      });
+    }
+  }
+
   let subagents = base.subagents;
   if (typeof obj.subagents === "object" && obj.subagents !== null) {
     const sub = obj.subagents as Record<string, unknown>;
@@ -338,6 +420,9 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     completionSoundPreset,
     providerEnabled,
     modelEnabledByProvider,
+    opencodeProviderVisible,
+    opencodeModelVisibleByProvider,
+    opencodeCustomProviders,
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
@@ -608,6 +693,13 @@ export const ConfigStoreServiceLive = Layer.scoped(
           providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
           modelEnabledByProvider:
             patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
+          opencodeProviderVisible:
+            patch.opencodeProviderVisible ?? cur.opencodeProviderVisible,
+          opencodeModelVisibleByProvider:
+            patch.opencodeModelVisibleByProvider ??
+            cur.opencodeModelVisibleByProvider,
+          opencodeCustomProviders:
+            patch.opencodeCustomProviders ?? cur.opencodeCustomProviders,
           subagents: patch.subagents ?? cur.subagents,
           branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
@@ -734,6 +826,9 @@ export const ConfigStoreServiceLive = Layer.scoped(
             completionSoundPreset,
             providerEnabled,
             modelEnabledByProvider,
+            opencodeProviderVisible: cur.opencodeProviderVisible,
+            opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
+            opencodeCustomProviders: cur.opencodeCustomProviders,
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,

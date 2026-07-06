@@ -39,6 +39,7 @@ import {
   type OpencodeSessionHandle,
 } from "../drivers/opencode.ts";
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { buildBrowserTools } from "../drivers/browser-tools.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
@@ -89,6 +90,7 @@ export const ProviderServiceLive = Layer.effect(
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
+    const configStore = yield* ConfigStoreService;
     const runtime = yield* Effect.runtime<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
@@ -281,10 +283,15 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            // Custom OpenAI-compatible providers are injected into
+            // `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
+            // live in opencode's own auth.json (written via
+            // `agent.opencodeSetProviderAuth`), so no key is threaded here.
+            const opencodeSettings = yield* configStore.getSettings();
             handle = yield* startOpencodeSession(
               driverInput,
               cwd,
-              apiKey,
+              opencodeSettings.opencodeCustomProviders,
               opencodePath,
               sessionId,
               resumeCursor,

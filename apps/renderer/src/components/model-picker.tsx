@@ -99,6 +99,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const modelEnabledByProvider = useSettingsStore(
     (s) => s.modelEnabledByProvider,
   );
+  const opencodeProviderVisible = useSettingsStore(
+    (s) => s.opencodeProviderVisible,
+  );
+  const opencodeModelVisibleByProvider = useSettingsStore(
+    (s) => s.opencodeModelVisibleByProvider,
+  );
 
   const providerId = isDefault ? defaultProviderId : props.providerId;
   const currentModel = isDefault
@@ -170,11 +176,24 @@ export function ModelPicker(props: ModelPickerProps) {
       if (pid !== "opencode" || opencodeInventory === null) {
         return MODELS_BY_PROVIDER[pid] ?? [];
       }
-      return opencodeInventory.providers.flatMap((p) =>
-        p.models.map((m) => ({ id: m.id, label: m.label })),
-      );
+      // Only connected providers carry usable models, and the OpenCode
+      // provider manager lets the user hide connected providers / individual
+      // models from the picker. Respect both here (missing entry ⇒ visible).
+      return opencodeInventory.providers
+        .filter((p) => p.connected && opencodeProviderVisible[p.id] !== false)
+        .flatMap((p) =>
+          p.models
+            .filter(
+              (m) => opencodeModelVisibleByProvider[p.id]?.[m.id] !== false,
+            )
+            .map((m) => ({ id: m.id, label: m.label })),
+        );
     },
-    [opencodeInventory],
+    [
+      opencodeInventory,
+      opencodeProviderVisible,
+      opencodeModelVisibleByProvider,
+    ],
   );
 
   const availabilityById = useMemo(() => {

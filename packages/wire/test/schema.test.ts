@@ -423,6 +423,19 @@ describe("SettingsFile round-trip", () => {
           "gpt-5.3-codex": true,
         },
       },
+      opencodeProviderVisible: { openai: true, openrouter: false },
+      opencodeModelVisibleByProvider: {
+        openai: { "openai/gpt-5": true },
+      },
+      opencodeCustomProviders: [
+        {
+          id: "my-llm",
+          name: "My LLM",
+          baseURL: "https://api.example.com/v1",
+          npm: "@ai-sdk/openai-compatible",
+          models: [{ id: "my-model", name: "My Model" }],
+        },
+      ],
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
