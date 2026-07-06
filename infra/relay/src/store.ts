@@ -327,25 +327,20 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
               readonly relay_issuer: string;
               readonly expires_at: number;
             }>`
-              SELECT challenge_id, account_id, challenge, relay_issuer, expires_at
-              FROM relay_link_challenges
+              DELETE FROM relay_link_challenges
               WHERE challenge_id = ${challengeId} AND account_id = ${accountId}
+              RETURNING challenge_id, account_id, challenge, relay_issuer, expires_at
             `.pipe(
-              Effect.flatMap((rows) => {
+              Effect.map((rows) => {
                 const row = rows[0];
-                if (row === undefined) return Effect.succeed(null);
-                return sql`
-                  DELETE FROM relay_link_challenges
-                  WHERE challenge_id = ${challengeId} AND account_id = ${accountId}
-                `.pipe(
-                  Effect.as({
-                    challengeId: row.challenge_id,
-                    accountId: row.account_id,
-                    challenge: row.challenge,
-                    relayIssuer: row.relay_issuer,
-                    expiresAtMs: Number(row.expires_at),
-                  } satisfies LinkChallengeRecord),
-                );
+                if (row === undefined) return null;
+                return {
+                  challengeId: row.challenge_id,
+                  accountId: row.account_id,
+                  challenge: row.challenge,
+                  relayIssuer: row.relay_issuer,
+                  expiresAtMs: Number(row.expires_at),
+                } satisfies LinkChallengeRecord;
               }),
             ),
           ),
