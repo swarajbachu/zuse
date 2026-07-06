@@ -2,6 +2,7 @@ import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
 import { RelayPaths, type EnvironmentId } from "@zuse/wire";
 
+import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../lan-auth/services/lan-auth-service.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
+import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
 
 const HEARTBEAT_INTERVAL = "30 seconds";
 
@@ -108,7 +110,7 @@ const computeOrigin = (config: LanAuthConfigShape) => ({
 export const RelayLinkServiceLive: Layer.Layer<
   RelayLinkService,
   never,
-  LanAuthService | LanAuthConfig | AuthService | ManagedTunnelRuntime
+  LanAuthService | LanAuthConfig | AuthService | ManagedTunnelRuntime | AppPaths
 > = Layer.scoped(
   RelayLinkService,
   Effect.gen(function* () {
@@ -116,7 +118,16 @@ export const RelayLinkServiceLive: Layer.Layer<
     const config = yield* LanAuthConfig;
     const authService = yield* AuthService;
     const tunnel = yield* ManagedTunnelRuntime;
+    const paths = yield* AppPaths;
     const heartbeatRef = yield* Ref.make<Fiber.RuntimeFiber<void> | null>(null);
+    const log = (event: string, fields?: Record<string, unknown>) =>
+      appendRelayDiagnostic(paths, event, fields);
+
+    yield* log("service.boot", {
+      lanPolicy: config.policy,
+      lanPort: config.port ?? null,
+      advertisedHost: config.advertisedHost ?? null,
+    });
 
     const heartbeatLoop = (input: {
       readonly relayUrl: string;
@@ -155,6 +166,12 @@ export const RelayLinkServiceLive: Layer.Layer<
       .getRelayConfig()
       .pipe(Effect.orElseSucceed(() => null));
     if (existing !== null) {
+      yield* log("service.existing_config", {
+        environmentId: existing.environmentId,
+        relayUrl: existing.relayUrl,
+        hasConnectorToken: existing.connectorToken !== undefined,
+        tunnelHostname: existing.tunnelHostname ?? null,
+      });
       yield* startHeartbeat({
         relayUrl: existing.relayUrl,
         environmentId: existing.environmentId,
@@ -163,27 +180,65 @@ export const RelayLinkServiceLive: Layer.Layer<
       if (existing.connectorToken !== undefined) {
         // Non-fatal on boot: if cloudflared is missing the desktop still works
         // on LAN; the tunnel just won't come up until relinked.
-        yield* tunnel.start(existing.connectorToken).pipe(Effect.ignore);
+        yield* log("service.existing_tunnel_start");
+        yield* tunnel.start(existing.connectorToken).pipe(
+          Effect.tap(() => log("service.existing_tunnel_start.ok")),
+          Effect.tapError((error) =>
+            log("service.existing_tunnel_start.fail", { reason: error.reason }),
+          ),
+          Effect.ignore,
+        );
       }
     }
 
     return RelayLinkService.of({
       link: (input) =>
         Effect.gen(function* () {
+          yield* log("link.start", {
+            relayUrl: input.relayUrl,
+            hasLabel: input.label !== undefined && input.label.length > 0,
+          });
           const token = yield* authService
             .getAccessToken()
+            .pipe(
+              Effect.tap(() => log("link.access_token.ok")),
+              Effect.tapError((error) =>
+                log("link.access_token.fail", { error }),
+              ),
+            )
             .pipe(Effect.mapError(() => failRelay("not_signed_in")));
           const keys = yield* auth
             .environmentKeys()
+            .pipe(
+              Effect.tap((value) =>
+                log("link.environment_keys.ok", {
+                  environmentId: value.envId,
+                }),
+              ),
+              Effect.tapError((error) =>
+                log("link.environment_keys.fail", { reason: error.reason }),
+              ),
+            )
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
 
+          yield* log("link.challenge.post");
           const challenge = yield* postJson<{
             readonly challengeId: string;
             readonly challenge: string;
             readonly relayIssuer: string;
           }>(`${input.relayUrl}${RelayPaths.linkChallenges}`, {
             bearer: token,
-          });
+          }).pipe(
+            Effect.tap((value) =>
+              log("link.challenge.ok", {
+                challengeId: value.challengeId,
+                relayIssuer: value.relayIssuer,
+              }),
+            ),
+            Effect.tapError((error) =>
+              log("link.challenge.fail", { reason: error.reason }),
+            ),
+          );
 
           const nowMs = yield* Clock.currentTimeMillis;
           const proof = yield* signEnvironmentLinkProof({
@@ -193,7 +248,16 @@ export const RelayLinkServiceLive: Layer.Layer<
             relayIssuer: challenge.relayIssuer,
             nowMs,
           });
+          yield* log("link.proof.ok", {
+            environmentId: keys.envId,
+            relayIssuer: challenge.relayIssuer,
+          });
 
+          yield* log("link.environment.post", {
+            endpoint: computeEndpoint(config),
+            origin: computeOrigin(config),
+            managedTunnel: true,
+          });
           const linked = yield* postJson<{
             readonly environmentCredential: string;
             readonly relayIssuer: string;
@@ -215,16 +279,39 @@ export const RelayLinkServiceLive: Layer.Layer<
               managedTunnel: true,
               origin: computeOrigin(config),
             },
-          });
+          }).pipe(
+            Effect.tap((value) =>
+              log("link.environment.ok", {
+                relayIssuer: value.relayIssuer,
+                hasConnectorToken: value.connectorToken !== undefined,
+                tunnelHostname: value.tunnelHostname ?? null,
+              }),
+            ),
+            Effect.tapError((error) =>
+              log("link.environment.fail", { reason: error.reason }),
+            ),
+          );
 
           // Launch the connector before persisting so a missing `cloudflared`
           // surfaces as a link error rather than a silently-dead tunnel.
           if (linked.connectorToken !== undefined) {
+            yield* log("link.tunnel_start");
             yield* tunnel
               .start(linked.connectorToken)
+              .pipe(
+                Effect.tap(() =>
+                  log("link.tunnel_start.ok", {
+                    tunnelHostname: linked.tunnelHostname ?? null,
+                  }),
+                ),
+                Effect.tapError((error) =>
+                  log("link.tunnel_start.fail", { reason: error.reason }),
+                ),
+              )
               .pipe(Effect.mapError((error) => failRelay(error.reason)));
           }
 
+          yield* log("link.save_config");
           yield* auth
             .saveRelayConfig({
               relayUrl: input.relayUrl,
@@ -235,6 +322,18 @@ export const RelayLinkServiceLive: Layer.Layer<
               connectorToken: linked.connectorToken,
               tunnelHostname: linked.tunnelHostname,
             })
+            .pipe(
+              Effect.tap(() =>
+                log("link.save_config.ok", {
+                  environmentId: keys.envId,
+                  tunnelHostname: linked.tunnelHostname ?? null,
+                  hasConnectorToken: linked.connectorToken !== undefined,
+                }),
+              ),
+              Effect.tapError((error) =>
+                log("link.save_config.fail", { reason: error.reason }),
+              ),
+            )
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
 
           yield* startHeartbeat({
@@ -242,7 +341,12 @@ export const RelayLinkServiceLive: Layer.Layer<
             environmentId: keys.envId,
             credential: linked.environmentCredential,
           });
+          yield* log("link.heartbeat.started", { environmentId: keys.envId });
 
+          yield* log("link.success", {
+            environmentId: keys.envId,
+            tunnelHostname: linked.tunnelHostname ?? null,
+          });
           return {
             linked: true,
             relayUrl: input.relayUrl,
@@ -266,12 +370,20 @@ export const RelayLinkServiceLive: Layer.Layer<
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
           const active = (yield* Ref.get(heartbeatRef)) !== null;
           if (cfg === null) {
+            yield* log("status.unlinked", { heartbeatActive: active });
             return {
               linked: false,
               heartbeatActive: false,
               advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
             } satisfies RelayLinkStatusValue;
           }
+          yield* log("status.linked", {
+            environmentId: cfg.environmentId,
+            relayUrl: cfg.relayUrl,
+            heartbeatActive: active,
+            hasConnectorToken: cfg.connectorToken !== undefined,
+            tunnelHostname: cfg.tunnelHostname ?? null,
+          });
           return {
             linked: true,
             relayUrl: cfg.relayUrl,
@@ -290,6 +402,7 @@ export const RelayLinkServiceLive: Layer.Layer<
         }),
       unlink: () =>
         Effect.gen(function* () {
+          yield* log("unlink.start");
           const cfg = yield* auth
             .getRelayConfig()
             .pipe(Effect.orElseSucceed(() => null));
@@ -308,10 +421,14 @@ export const RelayLinkServiceLive: Layer.Layer<
               ),
               Effect.ignore,
             );
+            yield* log("unlink.relay_deprovision.done", {
+              environmentId: cfg.environmentId,
+            });
           }
           yield* auth
             .clearRelayConfig()
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
+          yield* log("unlink.success");
         }),
     });
   }),

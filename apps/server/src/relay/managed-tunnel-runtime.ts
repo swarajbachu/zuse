@@ -2,6 +2,9 @@ import { Command, CommandExecutor } from "@effect/platform";
 import { Context, Data, Effect, Fiber, Layer, Ref, Schedule } from "effect";
 import fs from "node:fs";
 
+import { AppPaths } from "../app-paths.ts";
+import { appendRelayDiagnostic } from "./relay-diagnostics.ts";
+
 /**
  * Runs the `cloudflared` connector that backs the environment's managed tunnel.
  * The relay provisions the tunnel + hostname and hands back a connector token;
@@ -38,13 +41,16 @@ const CLOUDFLARED_CANDIDATES = [
 export const ManagedTunnelRuntimeLive: Layer.Layer<
   ManagedTunnelRuntime,
   never,
-  CommandExecutor.CommandExecutor
+  CommandExecutor.CommandExecutor | AppPaths
 > = Layer.scoped(
   ManagedTunnelRuntime,
   Effect.gen(function* () {
     const executor = yield* CommandExecutor.CommandExecutor;
+    const paths = yield* AppPaths;
     const fiberRef = yield* Ref.make<Fiber.RuntimeFiber<void> | null>(null);
     const binaryRef = yield* Ref.make<string | null>(null);
+    const log = (event: string, fields?: Record<string, unknown>) =>
+      appendRelayDiagnostic(paths, event, fields);
 
     const isExecutable = (path: string): boolean => {
       try {
@@ -63,8 +69,12 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 
       for (const candidate of CLOUDFLARED_CANDIDATES) {
         if (candidate !== CLOUDFLARED && !isExecutable(candidate)) {
+          yield* log("cloudflared.resolve.skip_not_executable", {
+            candidate,
+          });
           continue;
         }
+        yield* log("cloudflared.resolve.try", { candidate });
         const ok = yield* Effect.scoped(
           Effect.gen(function* () {
             const proc = yield* executor.start(
@@ -76,10 +86,13 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
         ).pipe(Effect.catchAll(() => Effect.succeed(false)));
         if (ok) {
           yield* Ref.set(binaryRef, candidate);
+          yield* log("cloudflared.resolve.ok", { candidate });
           return candidate;
         }
+        yield* log("cloudflared.resolve.fail", { candidate });
       }
 
+      yield* log("cloudflared.resolve.not_found");
       return yield* Effect.fail(
         new ManagedTunnelError({
           reason:
@@ -108,7 +121,9 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
             connectorToken,
           ).pipe(Command.stdout("inherit"), Command.stderr("inherit"));
           const proc = yield* executor.start(command);
-          yield* proc.exitCode;
+          yield* log("cloudflared.process.started", { binary });
+          const exitCode = yield* proc.exitCode;
+          yield* log("cloudflared.process.exited", { binary, exitCode });
         }),
       );
 
@@ -120,6 +135,7 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 
     const start = (connectorToken: string) =>
       Effect.gen(function* () {
+        yield* log("cloudflared.start");
         yield* ensureBinary;
         yield* stop;
         // Restart on crash with a short backoff; a daemon fiber so link() returns.
@@ -130,6 +146,7 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
           Effect.forkDaemon,
         );
         yield* Ref.set(fiberRef, fiber);
+        yield* log("cloudflared.start.ok");
       });
 
     // Ensure the connector is torn down when the runtime scope closes.
