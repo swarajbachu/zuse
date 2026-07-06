@@ -52,6 +52,7 @@ import { GitService } from "../../git/services/git-service.ts";
 import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import {
   TitleGenerator,
@@ -682,6 +683,7 @@ export const MessageStoreLive = Layer.scoped(
     const git = yield* GitService;
     const titleGen = yield* TitleGenerator;
     const configStore = yield* ConfigStoreService;
+    const relayActivity = yield* RelayActivityPublisher;
 
     const chatColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(chats)
@@ -1110,6 +1112,23 @@ export const MessageStoreLive = Layer.scoped(
         }
       });
 
+    const publishRelayActivity = (
+      sessionId: SessionId,
+      kind:
+        | "approval-needed"
+        | "question-needed"
+        | "completed"
+        | "error"
+        | "running",
+    ): Effect.Effect<void> =>
+      relayActivity.publish({ sessionId, kind }).pipe(
+        Effect.catchAll((error) =>
+          Effect.logDebug(
+            `[MessageStore] relay activity publish failed: ${error.reason}`,
+          ),
+        ),
+      );
+
     const broadcastMessage = (
       sessionId: SessionId,
       persisted: PersistedMessage,
@@ -1234,6 +1253,9 @@ export const MessageStoreLive = Layer.scoped(
                   event.status === "idle"
                 ) {
                   yield* setStatus(sessionId, event.status);
+                  if (event.status === "running") {
+                    yield* publishRelayActivity(sessionId, "running");
+                  }
                   if (event.status === "idle") {
                     yield* maybeForkAutoName(session.chatId, sessionId);
                   }
@@ -1244,6 +1266,10 @@ export const MessageStoreLive = Layer.scoped(
                 yield* setStatus(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
+                );
+                yield* publishRelayActivity(
+                  sessionId,
+                  event.reason === "error" ? "error" : "completed",
                 );
                 if (event.reason !== "error") {
                   yield* maybeForkAutoName(session.chatId, sessionId);
@@ -1289,6 +1315,12 @@ export const MessageStoreLive = Layer.scoped(
               ) {
                 return;
               }
+              if (event._tag === "PermissionRequest") {
+                yield* publishRelayActivity(sessionId, "approval-needed");
+              }
+              if (event._tag === "UserQuestion") {
+                yield* publishRelayActivity(sessionId, "question-needed");
+              }
               const content = eventToContent(event);
               if (content === null) return;
               const persisted = yield* persistMessage(sessionId, content);
@@ -1302,6 +1334,7 @@ export const MessageStoreLive = Layer.scoped(
               // mid-stream Error with no trailing result message). Flip to
               // `error` so the renderer shows the error bubble + login CTA.
               if (event._tag === "Error") {
+                yield* publishRelayActivity(sessionId, "error");
                 yield* setStatus(sessionId, "error");
               }
             }),

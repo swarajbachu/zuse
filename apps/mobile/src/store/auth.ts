@@ -6,6 +6,7 @@ import {
   signOut as workosSignOut,
   type WorkosAccount,
 } from "../auth/workos.ts";
+import { registerCurrentDeviceForPush } from "../notifications/push.ts";
 import { resetRelayAccessToken } from "../rpc/relay-client.ts";
 
 type AuthState = {
@@ -29,12 +30,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   hydrate: async () => {
     const account = await currentAccount();
     set({ account, hydrated: true });
+    if (account !== null) void registerCurrentDeviceForPush(account);
   },
   signIn: async () => {
     set({ busy: true, error: null });
     try {
       const account = await workosSignIn();
       set({ account, busy: false });
+      void registerCurrentDeviceForPush(account);
     } catch (cause) {
       set({ busy: false, error: message(cause) });
     }
