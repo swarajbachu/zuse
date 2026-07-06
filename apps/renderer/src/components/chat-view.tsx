@@ -220,6 +220,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }, 150);
   }, []);
 
+  const showJumpPillNow = useCallback(() => {
+    clearShowPillTimer();
+    setShowPill(true);
+  }, [clearShowPillTimer]);
+
   const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
     const scrollNode = listRef.current?.getScrollableNode();
     const isAtEnd = resolveScrollableNodeIsAtEnd(scrollNode);
@@ -232,7 +237,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
   }, [hideJumpPill, showJumpPillSoon]);
 
-  const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
+  const cancelTimelineLiveFollowForUserNavigation = useCallback((showPillForGesture = false) => {
     userNavigationGenerationRef.current += 1;
     timelineScrollModeRef.current = "free-scrolling";
     liveFollowGenerationRef.current = null;
@@ -246,8 +251,13 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       anchorScrollRestoreFrameRef.current = null;
     }
     setTimelineAnchorMessageId(null);
+    if (showPillForGesture) {
+      isAtEndRef.current = false;
+      showJumpPillNow();
+      return;
+    }
     requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
-  }, [showJumpPillIfScrollNodeLeftEnd]);
+  }, [showJumpPillIfScrollNodeLeftEnd, showJumpPillNow]);
 
   const scrollToEnd = useCallback(
     (animated = false) => {
@@ -520,22 +530,25 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       } else {
         scrollElementRef.current = null;
       }
-      const handleManualNavigation = () => {
-        cancelTimelineLiveFollowForUserNavigation();
+      const handleManualScrollNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(true);
       };
-      scrollNode.addEventListener("wheel", handleManualNavigation, {
+      const handleManualPointerNavigation = () => {
+        cancelTimelineLiveFollowForUserNavigation(false);
+      };
+      scrollNode.addEventListener("wheel", handleManualScrollNavigation, {
         passive: true,
       });
-      scrollNode.addEventListener("touchmove", handleManualNavigation, {
+      scrollNode.addEventListener("touchmove", handleManualScrollNavigation, {
         passive: true,
       });
-      scrollNode.addEventListener("pointerdown", handleManualNavigation, {
+      scrollNode.addEventListener("pointerdown", handleManualPointerNavigation, {
         passive: true,
       });
       removeListeners = () => {
-        scrollNode.removeEventListener("wheel", handleManualNavigation);
-        scrollNode.removeEventListener("touchmove", handleManualNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualNavigation);
+        scrollNode.removeEventListener("wheel", handleManualScrollNavigation);
+        scrollNode.removeEventListener("touchmove", handleManualScrollNavigation);
+        scrollNode.removeEventListener("pointerdown", handleManualPointerNavigation);
       };
     });
 

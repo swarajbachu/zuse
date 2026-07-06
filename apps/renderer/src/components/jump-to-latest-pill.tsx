@@ -19,20 +19,17 @@ export function JumpToLatestPill({
   streaming: boolean;
   onClick: () => void;
 }) {
+  if (!visible) return null;
+
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center",
+        "pointer-events-none absolute inset-x-0 bottom-3 z-40 flex translate-y-0 justify-center opacity-100",
         "transition-all duration-150 ease-out motion-reduce:transition-none",
-        visible
-          ? "translate-y-0 opacity-100"
-          : "pointer-events-none translate-y-1 opacity-0",
       )}
-      aria-hidden={!visible}
     >
       <button
         type="button"
-        tabIndex={visible ? 0 : -1}
         onClick={onClick}
         aria-label="Jump to latest"
         className={cn(
@@ -41,7 +38,6 @@ export function JumpToLatestPill({
           "backdrop-blur dark:shadow-[0_2px_8px_color-mix(in_oklch,black_28%,transparent)]",
           "hover:text-foreground hover:bg-popover",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          !visible && "pointer-events-none",
         )}
       >
         {streaming ? (
@@ -52,7 +48,7 @@ export function JumpToLatestPill({
         ) : (
           <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" />
         )}
-        <span>{streaming ? "Streaming…" : "Jump to latest"}</span>
+        <span>Jump to latest</span>
       </button>
     </div>
   );
