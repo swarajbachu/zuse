@@ -31,6 +31,28 @@ export const acceptedWorkosIssuers = (issuer: string): string[] => {
   return withoutSlash === withSlash ? [trimmed] : [withoutSlash, withSlash];
 };
 
+export const isAcceptedWorkosIssuer = (
+  tokenIssuer: string,
+  configuredIssuer: string,
+): boolean => {
+  const base = configuredIssuer.trim().replace(/\/+$/, "");
+  return (
+    tokenIssuer === base ||
+    tokenIssuer === `${base}/` ||
+    tokenIssuer.startsWith(`${base}/user_management/`)
+  );
+};
+
+export const expectedWorkosClientId = (jwksUrl: string): string | undefined => {
+  try {
+    const url = new URL(jwksUrl);
+    const match = /\/jwks\/([^/]+)$/.exec(url.pathname);
+    return match?.[1];
+  } catch {
+    return undefined;
+  }
+};
+
 const decodeJwtPart = (part: string): Record<string, unknown> | null => {
   try {
     const padded = part.padEnd(
@@ -93,11 +115,12 @@ export const WorkosVerifierLive: Layer.Layer<
     const config = yield* RelayConfiguration;
     const jwks = createRemoteJWKSet(new URL(config.workosJwksUrl));
     const issuers = acceptedWorkosIssuers(config.workosIssuer);
+    const expectedClientId = expectedWorkosClientId(config.workosJwksUrl);
     return {
       verify: (token) =>
         Effect.gen(function* () {
           const verified = yield* Effect.tryPromise({
-            try: () => jwtVerify(token, jwks, { issuer: issuers }),
+            try: () => jwtVerify(token, jwks),
             catch: (cause) => {
               logWorkosVerifyFailure(
                 token,
@@ -112,10 +135,42 @@ export const WorkosVerifierLive: Layer.Layer<
             },
           });
           const payload = verified.payload as {
+            readonly iss?: unknown;
             readonly sub?: unknown;
+            readonly client_id?: unknown;
             readonly org_id?: unknown;
             readonly organization_id?: unknown;
           };
+          if (
+            typeof payload.iss !== "string" ||
+            !isAcceptedWorkosIssuer(payload.iss, config.workosIssuer)
+          ) {
+            logWorkosVerifyFailure(
+              token,
+              {
+                workosIssuer: config.workosIssuer,
+                workosJwksUrl: config.workosJwksUrl,
+                acceptedIssuers: issuers,
+              },
+              new Error("unexpected WorkOS issuer claim"),
+            );
+            return yield* Effect.fail(unauthorized("invalid_workos_token"));
+          }
+          if (
+            expectedClientId !== undefined &&
+            payload.client_id !== expectedClientId
+          ) {
+            logWorkosVerifyFailure(
+              token,
+              {
+                workosIssuer: config.workosIssuer,
+                workosJwksUrl: config.workosJwksUrl,
+                acceptedIssuers: issuers,
+              },
+              new Error("unexpected WorkOS client_id claim"),
+            );
+            return yield* Effect.fail(unauthorized("invalid_workos_token"));
+          }
           if (typeof payload.sub !== "string") {
             return yield* Effect.fail(unauthorized("workos_token_no_subject"));
           }
