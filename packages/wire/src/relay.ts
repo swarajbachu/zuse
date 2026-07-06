@@ -95,7 +95,7 @@ export class RelayEnvironmentRecord extends Schema.Class<RelayEnvironmentRecord>
   environmentId: EnvironmentId,
   label: Schema.optional(Schema.String),
   providerKind: ProviderKind,
-  endpoint: EnvironmentEndpoint,
+  endpoint: Schema.optional(EnvironmentEndpoint),
   linkedAt: Schema.Number,
 }) {}
 

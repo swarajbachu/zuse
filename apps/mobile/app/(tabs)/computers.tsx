@@ -231,6 +231,19 @@ export default function ComputersScreen() {
             </ListItem>
           ))}
 
+          {filteredEnvironments.length === 0 && !loading ? (
+            <ListItem
+              leading={<Icon name="laptopcomputer.slash" size={22} color={MUTED} />}
+              supportingText={
+                search.trim().length > 0
+                  ? "Try another name or status."
+                  : "Open Settings -> Devices on your Mac and link it to your account."
+              }
+            >
+              {search.trim().length > 0 ? "No matches" : "No computers yet"}
+            </ListItem>
+          ) : null}
+
           {account.email ? (
             <ListItem
               leading={<Icon name="person.crop.circle" size={22} color={MUTED} />}
@@ -253,16 +266,6 @@ export default function ComputersScreen() {
           </ListItem>
         </List>
       </Host>
-
-      {filteredEnvironments.length === 0 && !loading ? (
-        <View className="absolute inset-x-0 top-40 px-8">
-          <Text className="text-center font-sans text-sm text-muted-foreground">
-            {search.trim().length > 0
-              ? "No computers match that search."
-              : "No computers yet. Open Settings → Devices on your Mac and link it to your account."}
-          </Text>
-        </View>
-      ) : null}
 
       {(error ?? connectError) !== null ? (
         <View
