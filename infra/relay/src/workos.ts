@@ -18,9 +18,18 @@ export interface WorkosPrincipal {
 export class WorkosVerifier extends Context.Tag("@zuse/relay/WorkosVerifier")<
   WorkosVerifier,
   {
-    readonly verify: (token: string) => Effect.Effect<WorkosPrincipal, RelayError>;
+    readonly verify: (
+      token: string,
+    ) => Effect.Effect<WorkosPrincipal, RelayError>;
   }
 >() {}
+
+export const acceptedWorkosIssuers = (issuer: string): string[] => {
+  const trimmed = issuer.trim();
+  const withoutSlash = trimmed.replace(/\/+$/, "");
+  const withSlash = `${withoutSlash}/`;
+  return withoutSlash === withSlash ? [trimmed] : [withoutSlash, withSlash];
+};
 
 /** Production verifier: validates the JWT against WorkOS's JWKS. */
 export const WorkosVerifierLive: Layer.Layer<
@@ -32,11 +41,12 @@ export const WorkosVerifierLive: Layer.Layer<
   Effect.gen(function* () {
     const config = yield* RelayConfiguration;
     const jwks = createRemoteJWKSet(new URL(config.workosJwksUrl));
+    const issuers = acceptedWorkosIssuers(config.workosIssuer);
     return {
       verify: (token) =>
         Effect.gen(function* () {
           const verified = yield* Effect.tryPromise({
-            try: () => jwtVerify(token, jwks, { issuer: config.workosIssuer }),
+            try: () => jwtVerify(token, jwks, { issuer: issuers }),
             catch: () => unauthorized("invalid_workos_token"),
           });
           const payload = verified.payload as {
