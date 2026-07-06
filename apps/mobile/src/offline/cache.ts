@@ -19,6 +19,17 @@ export type MessagesSnapshot = {
   messages: readonly Message[];
 };
 
+/** One message the user sent while offline, awaiting flush to the server. */
+export type QueuedMessage = {
+  clientId: string;
+  text: string;
+  createdAt: number;
+};
+
+export type OutboxSnapshot = {
+  items: readonly QueuedMessage[];
+};
+
 const ensureDir = (path: string) =>
   Effect.tryPromise({
     try: async () => {
@@ -56,6 +67,9 @@ export const sessionsPath = (connKey: string) =>
 
 export const messagesPath = (connKey: string, sessionId: string) =>
   `${ROOT}/${slugConnectionKey(connKey)}/messages/${slugConnectionKey(sessionId)}.json`;
+
+export const outboxPath = (connKey: string, sessionId: string) =>
+  `${ROOT}/${slugConnectionKey(connKey)}/outbox/${slugConnectionKey(sessionId)}.json`;
 
 export const readSessionsSnapshot = (connKey: string) =>
   readJson(sessionsPath(connKey), (u) => u as SessionsSnapshot).pipe(
@@ -98,6 +112,23 @@ export const writeMessagesSnapshot = (
       writeJson(path, Schema.encodeSync(EncodedMessagesSnapshot)(snapshot))
     )
   );
+};
+
+export const readOutboxSnapshot = (connKey: string, sessionId: string) =>
+  readJson(outboxPath(connKey, sessionId), (u) => u as OutboxSnapshot).pipe(
+    Effect.catchTag("CacheCorrupt", (error) =>
+      Effect.zipRight(deletePath(error.path), Effect.succeed(null))
+    )
+  );
+
+export const writeOutboxSnapshot = (
+  connKey: string,
+  sessionId: string,
+  snapshot: OutboxSnapshot
+) => {
+  const path = outboxPath(connKey, sessionId);
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  return ensureDir(dir).pipe(Effect.zipRight(writeJson(path, snapshot)));
 };
 
 export const decodeEnvelopeFixture = (value: unknown): MessageEnvelope =>

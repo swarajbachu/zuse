@@ -1,0 +1,97 @@
+import type { PermissionDecision, PermissionRequest, SessionId } from "@zuse/wire";
+import { Effect, Fiber, Stream } from "effect";
+import { create } from "zustand";
+
+import { decidePermission } from "~/rpc/actions";
+import { getConnectionClient } from "~/rpc/connection";
+import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+
+/**
+ * Pending tool-permission prompts, surfaced as inline approval cards. These
+ * arrive on the global `permission.requests` stream (not the message log), so
+ * this store cold-loads via `permission.listPending` on mount and then filters
+ * the live stream down to the active session — mirroring the fiber lifecycle of
+ * the messages store.
+ */
+type PermissionsState = {
+  pendingBySession: Record<string, readonly PermissionRequest[]>;
+  hydrate: (
+    connKey: string,
+    options: WsProtocolOptions,
+    sessionId: SessionId
+  ) => Promise<void>;
+  decide: (
+    options: WsProtocolOptions,
+    sessionId: SessionId,
+    requestId: string,
+    decision: PermissionDecision
+  ) => Promise<void>;
+};
+
+const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+
+const makeLiveKey = (connKey: string, sessionId: SessionId) =>
+  JSON.stringify([connKey, sessionId]);
+
+const stop = async (key: string) => {
+  const fiber = liveFibers.get(key);
+  if (fiber !== undefined) {
+    liveFibers.delete(key);
+    await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+  }
+};
+
+export const usePermissionsStore = create<PermissionsState>((set, get) => ({
+  pendingBySession: {},
+  hydrate: async (connKey, options, sessionId) => {
+    const liveKey = makeLiveKey(connKey, sessionId);
+    await stop(liveKey);
+    try {
+      const client = await Effect.runPromise(getConnectionClient(options));
+
+      const listed = await Effect.runPromise(
+        client.permission.listPending({ sessionId })
+      );
+      set((state) => ({
+        pendingBySession: { ...state.pendingBySession, [sessionId]: listed }
+      }));
+
+      const program = Stream.runForEach(
+        client.permission.requests({}),
+        (request) =>
+          Effect.sync(() => {
+            if (request.sessionId !== sessionId) return;
+            set((state) => {
+              const current = state.pendingBySession[sessionId] ?? [];
+              if (current.some((entry) => entry.id === request.id)) return state;
+              return {
+                pendingBySession: {
+                  ...state.pendingBySession,
+                  [sessionId]: [...current, request]
+                }
+              };
+            });
+          })
+      );
+      const fiber = await Effect.runPromise(program.pipe(Effect.fork));
+      liveFibers.set(liveKey, fiber);
+    } catch {
+      // A dropped permission stream is non-fatal: the messages store already
+      // surfaces the connection error, and hydrate re-runs on the next mount.
+    }
+  },
+  decide: async (options, sessionId, requestId, decision) => {
+    // Optimistically drop the card; the server won't re-emit a decided request.
+    set((state) => ({
+      pendingBySession: {
+        ...state.pendingBySession,
+        [sessionId]: (state.pendingBySession[sessionId] ?? []).filter(
+          (entry) => entry.id !== requestId
+        )
+      }
+    }));
+    await Effect.runPromise(
+      decidePermission({ connection: options, requestId, decision })
+    ).catch(() => {});
+  }
+}));
