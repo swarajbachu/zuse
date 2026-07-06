@@ -25,7 +25,8 @@ data path** — chat traffic goes directly phone ↔ laptop.
 | Method + path | Auth | Purpose |
 |---|---|---|
 | `POST /v1/client/environment-link-challenges` | WorkOS bearer | issue a link nonce |
-| `POST /v1/client/environment-links` | WorkOS bearer | verify Ed25519 proof, mint env credential |
+| `POST /v1/client/environment-links` | WorkOS bearer | verify Ed25519 proof, mint env credential, provision managed tunnel |
+| `POST /v1/client/environment-unlink` | WorkOS bearer | deprovision the managed tunnel + remove the environment |
 | `GET  /v1/environments` | WorkOS bearer | list the account's environments |
 | `POST /v1/client/dpop-token` | WorkOS bearer + DPoP | mint a DPoP-bound access token |
 | `POST /v1/environments/{id}/status` | DPoP | presence (online/offline) |
@@ -58,10 +59,22 @@ connect, cross-account isolation, proof forgery, and replay rejection.
 3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
    and paste the id into `wrangler.jsonc`.
 4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`.
-5. `bunx wrangler deploy`.
+5. **Managed Cloudflare tunnel** (optional — enables reach-from-anywhere; leave off for LAN-only):
+   - In `wrangler.jsonc` set `MANAGED_TUNNEL_BASE_DOMAIN` (a zone on this CF account),
+     `MANAGED_TUNNEL_NAMESPACE`, `CF_ACCOUNT_ID`, and `CF_ZONE_ID` (the base domain's zone id).
+   - Set the API token secret: `bun run secret:cf` (`wrangler secret put CF_API_TOKEN`). The token
+     needs **Account: Cloudflare Tunnel: Edit** + **Zone: DNS: Edit** on that zone.
+   - The desktop must have **`cloudflared`** on PATH (`brew install cloudflared`); it runs the
+     connector automatically on link and relaunches it on boot.
+6. `bunx wrangler deploy`. Point the desktop at the deployed URL (`VITE_ZUSE_RELAY_URL`).
 
 ## Notes
 - Link proofs are **Ed25519** (asymmetric): the desktop holds the private key and sends
   its public key at link; the relay verifies every proof against it. HMAC was rejected —
   the relay never sees the desktop's secret, so it can't verify a symmetric signature.
 - Migrations run at **deploy** via Drizzle (`bun run db:migrate`), never on Worker cold-start.
+- **Managed tunnels**: on link the relay creates a per-`(account, environment)` named tunnel,
+  pushes its ingress (hostname → the desktop's loopback WS origin), sets a proxied CNAME, and
+  returns a connector token the desktop runs `cloudflared` with. Presence/connect then route to
+  `wss://<hostname>/rpc`. Unlink tears the tunnel + DNS down. Chat bytes never touch the relay —
+  the data path is phone ↔ Cloudflare edge ↔ desktop connector.

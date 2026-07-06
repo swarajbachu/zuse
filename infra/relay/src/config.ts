@@ -14,7 +14,20 @@ import { Context, Layer, Redacted } from "effect";
  * - `connectTokenTtlMs` / `accessTokenTtlMs` — lifetimes for minted tokens.
  * - `presenceStaleMs` — an environment with no heartbeat within this window is
  *   reported offline.
+ * - `managedTunnel` — Cloudflare credentials for provisioning a per-environment
+ *   named tunnel. Absent (all creds unset) → managed tunnels are disabled and
+ *   the relay falls back to the LAN endpoint the desktop advertises.
  */
+export interface ManagedTunnelConfig {
+  readonly cfApiToken: Redacted.Redacted<string>;
+  readonly cfAccountId: string;
+  readonly cfZoneId: string;
+  /** Apex/base domain the tunnel hostnames live under, e.g. `t.stuff.md`. */
+  readonly baseDomain: string;
+  /** Prefix that namespaces tunnel/hostnames per deployment, e.g. `zenv`. */
+  readonly namespace: string;
+}
+
 export interface RelayConfig {
   readonly relayIssuer: string;
   readonly workosJwksUrl: string;
@@ -25,6 +38,7 @@ export interface RelayConfig {
   readonly connectTokenTtlMs: number;
   readonly accessTokenTtlMs: number;
   readonly presenceStaleMs: number;
+  readonly managedTunnel?: ManagedTunnelConfig;
 }
 
 export class RelayConfiguration extends Context.Tag(

@@ -28,8 +28,18 @@ export interface EnvironmentRecord {
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
   readonly tunnelHostname?: string;
+  readonly tunnelId?: string;
+  readonly dnsRecordId?: string;
+  readonly tunnelStatus?: "reserved" | "ready";
   readonly linkedAtMs: number;
   readonly lastSeenAtMs?: number;
+}
+
+export interface TunnelAllocation {
+  readonly tunnelHostname: string;
+  readonly tunnelId: string;
+  readonly dnsRecordId?: string;
+  readonly tunnelStatus: "reserved" | "ready";
 }
 
 export interface CredentialRecord {
@@ -76,6 +86,20 @@ export interface RelayStoreApi {
   readonly touchEnvironment: (
     environmentId: string,
     lastSeenAtMs: number,
+  ) => Effect.Effect<void>;
+  /** Persist the managed-tunnel allocation for an environment. */
+  readonly setTunnelAllocation: (
+    environmentId: string,
+    allocation: TunnelAllocation,
+  ) => Effect.Effect<void>;
+  /** Clear the managed-tunnel allocation (on unlink / deprovision). */
+  readonly clearTunnelAllocation: (
+    environmentId: string,
+  ) => Effect.Effect<void>;
+  /** Delete an environment (and cascade its credentials) — on unlink. */
+  readonly deleteEnvironment: (
+    environmentId: string,
+    accountId: string,
   ) => Effect.Effect<void>;
   readonly insertCredential: (credential: CredentialRecord) => Effect.Effect<void>;
   readonly findActiveCredentialByHash: (
@@ -147,6 +171,47 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
           if (found === undefined) return map;
           return new Map(map).set(environmentId, { ...found, lastSeenAtMs });
         }),
+      setTunnelAllocation: (environmentId, allocation) =>
+        Ref.update(environments, (map) => {
+          const found = map.get(environmentId);
+          if (found === undefined) return map;
+          return new Map(map).set(environmentId, {
+            ...found,
+            tunnelHostname: allocation.tunnelHostname,
+            tunnelId: allocation.tunnelId,
+            dnsRecordId: allocation.dnsRecordId,
+            tunnelStatus: allocation.tunnelStatus,
+          });
+        }),
+      clearTunnelAllocation: (environmentId) =>
+        Ref.update(environments, (map) => {
+          const found = map.get(environmentId);
+          if (found === undefined) return map;
+          return new Map(map).set(environmentId, {
+            ...found,
+            tunnelHostname: undefined,
+            tunnelId: undefined,
+            dnsRecordId: undefined,
+            tunnelStatus: undefined,
+          });
+        }),
+      deleteEnvironment: (environmentId, accountId) =>
+        Effect.zipRight(
+          Ref.update(environments, (map) => {
+            const found = map.get(environmentId);
+            if (found === undefined || found.accountId !== accountId) return map;
+            const next = new Map(map);
+            next.delete(environmentId);
+            return next;
+          }),
+          Ref.update(credentials, (map) => {
+            const next = new Map(map);
+            for (const [id, cred] of map) {
+              if (cred.environmentId === environmentId) next.delete(id);
+            }
+            return next;
+          }),
+        ),
       insertCredential: (credential) =>
         Ref.update(credentials, (map) =>
           new Map(map).set(credential.credentialId, credential),
@@ -198,6 +263,9 @@ interface EnvironmentRow {
   readonly http_base_url: string;
   readonly ws_base_url: string;
   readonly tunnel_hostname: string | null;
+  readonly tunnel_id: string | null;
+  readonly dns_record_id: string | null;
+  readonly tunnel_status: "reserved" | "ready" | null;
   readonly linked_at: number;
   readonly last_seen_at: number | null;
 }
@@ -212,6 +280,9 @@ const toEnvironment = (row: EnvironmentRow): EnvironmentRecord => ({
   httpBaseUrl: row.http_base_url,
   wsBaseUrl: row.ws_base_url,
   tunnelHostname: row.tunnel_hostname ?? undefined,
+  tunnelId: row.tunnel_id ?? undefined,
+  dnsRecordId: row.dns_record_id ?? undefined,
+  tunnelStatus: row.tunnel_status ?? undefined,
   linkedAtMs: Number(row.linked_at),
   lastSeenAtMs: row.last_seen_at === null ? undefined : Number(row.last_seen_at),
 });
@@ -280,7 +351,6 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
               environment_public_key = EXCLUDED.environment_public_key,
               http_base_url = EXCLUDED.http_base_url,
               ws_base_url = EXCLUDED.ws_base_url,
-              tunnel_hostname = EXCLUDED.tunnel_hostname,
               linked_at = EXCLUDED.linked_at
           `.pipe(Effect.asVoid)),
         listEnvironments: (accountId) =>
@@ -303,6 +373,29 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
           orDie(sql`
             UPDATE relay_environments SET last_seen_at = ${lastSeenAtMs}
             WHERE environment_id = ${environmentId}
+          `.pipe(Effect.asVoid)),
+        setTunnelAllocation: (environmentId, allocation) =>
+          orDie(sql`
+            UPDATE relay_environments SET
+              tunnel_hostname = ${allocation.tunnelHostname},
+              tunnel_id = ${allocation.tunnelId},
+              dns_record_id = ${allocation.dnsRecordId ?? null},
+              tunnel_status = ${allocation.tunnelStatus}
+            WHERE environment_id = ${environmentId}
+          `.pipe(Effect.asVoid)),
+        clearTunnelAllocation: (environmentId) =>
+          orDie(sql`
+            UPDATE relay_environments SET
+              tunnel_hostname = NULL,
+              tunnel_id = NULL,
+              dns_record_id = NULL,
+              tunnel_status = NULL
+            WHERE environment_id = ${environmentId}
+          `.pipe(Effect.asVoid)),
+        deleteEnvironment: (environmentId, accountId) =>
+          orDie(sql`
+            DELETE FROM relay_environments
+            WHERE environment_id = ${environmentId} AND account_id = ${accountId}
           `.pipe(Effect.asVoid)),
         insertCredential: (cred) =>
           orDie(sql`

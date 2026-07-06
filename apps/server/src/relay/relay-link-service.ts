@@ -9,6 +9,7 @@ import {
   type LanAuthConfigShape,
 } from "../lan-auth/services/lan-auth-service.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
+import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
 const HEARTBEAT_INTERVAL = "30 seconds";
 
@@ -77,16 +78,22 @@ const computeEndpoint = (config: LanAuthConfigShape) => {
   };
 };
 
+const computeOrigin = (config: LanAuthConfigShape) => ({
+  localHttpHost: "127.0.0.1",
+  localHttpPort: config.port ?? 8787,
+});
+
 export const RelayLinkServiceLive: Layer.Layer<
   RelayLinkService,
   never,
-  LanAuthService | LanAuthConfig | AuthService
+  LanAuthService | LanAuthConfig | AuthService | ManagedTunnelRuntime
 > = Layer.scoped(
   RelayLinkService,
   Effect.gen(function* () {
     const auth = yield* LanAuthService;
     const config = yield* LanAuthConfig;
     const authService = yield* AuthService;
+    const tunnel = yield* ManagedTunnelRuntime;
     const heartbeatRef = yield* Ref.make<Fiber.RuntimeFiber<void> | null>(null);
 
     const heartbeatLoop = (input: {
@@ -121,7 +128,7 @@ export const RelayLinkServiceLive: Layer.Layer<
       yield* Ref.set(heartbeatRef, null);
     });
 
-    // Resume heartbeating on boot if already linked.
+    // Resume heartbeating (and the managed-tunnel connector) on boot if linked.
     const existing = yield* auth.getRelayConfig().pipe(Effect.orElseSucceed(() => null));
     if (existing !== null) {
       yield* startHeartbeat({
@@ -129,6 +136,11 @@ export const RelayLinkServiceLive: Layer.Layer<
         environmentId: existing.environmentId,
         credential: existing.environmentCredential,
       });
+      if (existing.connectorToken !== undefined) {
+        // Non-fatal on boot: if cloudflared is missing the desktop still works
+        // on LAN; the tunnel just won't come up until relinked.
+        yield* tunnel.start(existing.connectorToken).pipe(Effect.ignore);
+      }
     }
 
     return RelayLinkService.of({
@@ -159,6 +171,8 @@ export const RelayLinkServiceLive: Layer.Layer<
           const linked = yield* postJson<{
             readonly environmentCredential: string;
             readonly relayIssuer: string;
+            readonly tunnelHostname?: string;
+            readonly connectorToken?: string;
           }>(`${input.relayUrl}${RelayPaths.links}`, {
             bearer: token,
             body: {
@@ -169,8 +183,21 @@ export const RelayLinkServiceLive: Layer.Layer<
               providerKind: "desktop",
               endpoint: computeEndpoint(config),
               label: input.label,
+              // Ask the relay to provision a managed Cloudflare tunnel so the
+              // phone can reach this Mac from anywhere. If the relay has tunnels
+              // disabled it simply returns no connector token and we stay on LAN.
+              managedTunnel: true,
+              origin: computeOrigin(config),
             },
           });
+
+          // Launch the connector before persisting so a missing `cloudflared`
+          // surfaces as a link error rather than a silently-dead tunnel.
+          if (linked.connectorToken !== undefined) {
+            yield* tunnel
+              .start(linked.connectorToken)
+              .pipe(Effect.mapError((error) => failRelay(error.reason)));
+          }
 
           yield* auth
             .saveRelayConfig({
@@ -179,6 +206,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               environmentId: keys.envId,
               environmentCredential: linked.environmentCredential,
               label: input.label,
+              connectorToken: linked.connectorToken,
             })
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
 
@@ -215,7 +243,27 @@ export const RelayLinkServiceLive: Layer.Layer<
         }),
       unlink: () =>
         Effect.gen(function* () {
+          const cfg = yield* auth
+            .getRelayConfig()
+            .pipe(Effect.orElseSucceed(() => null));
           yield* stopHeartbeat;
+          yield* tunnel.stop();
+          // Best-effort relay deprovision (tears down the Cloudflare tunnel +
+          // removes the environment from the account). Local unlink proceeds
+          // even if the relay is unreachable or we're signed out.
+          if (cfg !== null) {
+            yield* authService
+              .getAccessToken()
+              .pipe(
+                Effect.flatMap((token) =>
+                  postJson<unknown>(`${cfg.relayUrl}${RelayPaths.unlink}`, {
+                    bearer: token,
+                    body: { environmentId: cfg.environmentId },
+                  }),
+                ),
+                Effect.ignore,
+              );
+          }
           yield* auth
             .clearRelayConfig()
             .pipe(Effect.mapError((error) => failRelay(error.reason)));
