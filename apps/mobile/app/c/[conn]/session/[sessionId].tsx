@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useLocalSearchParams } from "expo-router";
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Text,
-  View,
-} from "react-native";
+import { Stack, useLocalSearchParams } from "expo-router";
+import { FlatList, KeyboardAvoidingView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SessionId } from "@zuse/wire";
 
 import { ComposerStub } from "~/components/composer-stub";
@@ -17,6 +12,7 @@ import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { useMobileMessagesStore } from "~/store/messages";
 
 export default function ThreadScreen() {
+  const insets = useSafeAreaInsets();
   const { conn, sessionId } = useLocalSearchParams<{ conn: string; sessionId: string }>();
   const connKey = normalizeConnParam(conn);
   const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
@@ -31,6 +27,7 @@ export default function ThreadScreen() {
     useMobileMessagesStore();
   const messages = messagesBySession[normalizedSessionId] ?? [];
   const detail = selectSessionChat(bundles, normalizedSessionId);
+  const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
 
   useEffect(() => {
     if (!hydrated) void hydrateConnections();
@@ -42,36 +39,42 @@ export default function ThreadScreen() {
     }
   }, [connKey, hydrate, normalizedSessionId, options]);
 
+  const reconnecting = reconnectingBySession[normalizedSessionId];
+  const error = errorBySession[normalizedSessionId];
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1 bg-background"
-    >
-      <View className="border-b border-border px-4 pb-3">
-        <Text className="font-sans-medium text-base text-foreground" numberOfLines={1}>
-          {detail?.chat?.title ?? detail?.session.title ?? "Thread"}
-        </Text>
-        <Text className="mt-1 font-sans text-xs text-muted-foreground" numberOfLines={1}>
-          {normalizedSessionId}
-        </Text>
-        {reconnectingBySession[normalizedSessionId] ? (
-          <Text className="mt-1 font-sans text-xs text-warning">Reconnecting</Text>
-        ) : null}
-        {errorBySession[normalizedSessionId] ? (
-          <Text className="mt-1 font-sans text-xs text-danger">
-            {errorBySession[normalizedSessionId]}
-          </Text>
-        ) : null}
-      </View>
+    <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
+      <Stack.Screen options={{ title }} />
       <FlatList
         ref={listRef}
         data={messages}
         keyExtractor={(message) => message.id}
         renderItem={({ item }) => <MessageRow message={item} />}
-        contentContainerClassName="py-3"
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerClassName="gap-1 px-4 py-3"
+        ListHeaderComponent={
+          reconnecting || error ? (
+            <View className="pb-2">
+              {reconnecting ? (
+                <Text className="font-sans text-[13px] text-warning">
+                  Reconnecting…
+                </Text>
+              ) : null}
+              {error ? (
+                <Text selectable className="font-sans text-[13px] text-danger">
+                  {error}
+                </Text>
+              ) : null}
+            </View>
+          ) : null
+        }
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
       />
-      <ComposerStub connection={options} sessionId={normalizedSessionId} />
+      <ComposerStub
+        connection={options}
+        sessionId={normalizedSessionId}
+        bottomInset={insets.bottom}
+      />
     </KeyboardAvoidingView>
   );
 }

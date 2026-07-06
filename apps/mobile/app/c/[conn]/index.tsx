@@ -1,20 +1,28 @@
 import { useEffect, useMemo } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { MessageSquare } from "lucide-react-native";
-import { ScrollView, Text, View } from "react-native";
+import { RefreshControl, ScrollView, Text, View } from "react-native";
 
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
+import { ListSection } from "~/components/ui/list";
 import { normalizeConnParam, optionsForConnection } from "~/lib/connection-params";
 import { useConnectionsStore } from "~/store/connections";
 import { isUnread, useSessionsStore } from "~/store/sessions";
+
+const ACCENT = "hsl(72 98% 54%)";
 
 export default function SessionsScreen() {
   const { conn } = useLocalSearchParams<{ conn: string }>();
   const connKey = normalizeConnParam(conn);
   const { connections, hydrated, hydrate: hydrateConnections } = useConnectionsStore();
-  const { bundlesByConnection, statusBySession, errorByConnection, loadingByConnection, hydrate } =
-    useSessionsStore();
+  const {
+    bundlesByConnection,
+    statusBySession,
+    errorByConnection,
+    loadingByConnection,
+    hydrate
+  } = useSessionsStore();
   const options = useMemo(
     () => optionsForConnection(connKey, connections),
     [connKey, connections]
@@ -37,24 +45,34 @@ export default function SessionsScreen() {
   );
 
   return (
-    <View className="flex-1 bg-background">
-      <View className="border-b border-border px-4 pb-3">
-        <Text className="font-sans text-xs text-muted-foreground">{connKey}</Text>
-        {loadingByConnection[connKey] === true ? (
-          <Text className="mt-1 font-sans text-xs text-primary">Refreshing</Text>
-        ) : null}
-        {errorByConnection[connKey] ? (
-          <Text className="mt-1 font-sans text-xs text-danger">{errorByConnection[connKey]}</Text>
-        ) : null}
-      </View>
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={MessageSquare}
-          title="No sessions"
-          detail="Cached sessions appear here first, then refresh over WebSocket."
+    <ScrollView
+      className="flex-1 bg-background"
+      contentInsetAdjustmentBehavior="automatic"
+      contentContainerClassName="gap-6 p-4 pb-16"
+      refreshControl={
+        <RefreshControl
+          refreshing={loadingByConnection[connKey] === true}
+          onRefresh={() => void hydrate(connKey, options)}
+          tintColor={ACCENT}
         />
+      }
+    >
+      {errorByConnection[connKey] ? (
+        <Text selectable className="px-4 font-sans text-[13px] text-danger">
+          {errorByConnection[connKey]}
+        </Text>
+      ) : null}
+
+      {rows.length === 0 ? (
+        <View className="pt-24">
+          <EmptyState
+            icon={MessageSquare}
+            title="No sessions"
+            detail="Cached sessions appear here first, then refresh over WebSocket."
+          />
+        </View>
       ) : (
-        <ScrollView contentContainerClassName="gap-3 p-4">
+        <ListSection header={connKey}>
           {rows.map(({ session, chat }) => (
             <SessionRow
               key={session.id}
@@ -69,8 +87,8 @@ export default function SessionsScreen() {
               }
             />
           ))}
-        </ScrollView>
+        </ListSection>
       )}
-    </View>
+    </ScrollView>
   );
 }
