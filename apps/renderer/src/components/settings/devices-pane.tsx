@@ -9,7 +9,8 @@ import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 
 const DEFAULT_RELAY_URL =
-  (import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ?? "";
+  (import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
+  "https://relay.stuff.md";
 
 /**
  * "Devices" settings pane. Links this Mac to the account relay so it appears on
@@ -135,7 +136,7 @@ export function DevicesPane() {
             <Input
               value={relayUrl}
               onChange={(event) => setRelayUrl(event.target.value)}
-              placeholder="https://relay.zuse.example"
+              placeholder="https://relay.stuff.md"
             />
             <label className="mt-1 text-sm font-medium text-foreground">
               Name (optional)

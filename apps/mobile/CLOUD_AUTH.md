@@ -10,7 +10,7 @@ Set these (e.g. in `.env` for local dev, or EAS secrets):
 
 ```
 EXPO_PUBLIC_WORKOS_CLIENT_ID=<the same WorkOS client the desktop uses>
-EXPO_PUBLIC_ZUSE_RELAY_URL=https://relay.zuse.example
+EXPO_PUBLIC_ZUSE_RELAY_URL=https://relay.stuff.md
 ```
 
 The redirect URI is `zuse://auth` (from `app.json` `scheme`); register it in the
