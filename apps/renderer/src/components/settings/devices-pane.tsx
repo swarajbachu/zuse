@@ -36,10 +36,27 @@ const relayErrorMessage = (cause: unknown): string => {
   }
   if (
     formatted.includes("relay_auth_rejected") ||
-    formatted.includes("invalid_workos_token") ||
-    formatted.includes("relay_401")
+    formatted.includes("invalid_workos_token")
   ) {
-    return "We couldn't verify your sign-in. Sign out, sign in again, and try connecting this Mac once more.";
+    return "We couldn't verify your account session. Sign out, sign in again, and try connecting this Mac once more.";
+  }
+  if (formatted.includes("cloudflared_not_found")) {
+    return "The secure tunnel is ready, but cloudflared is not installed on this Mac. Install cloudflared, then try again.";
+  }
+  if (formatted.includes("tunnel_provision_failed")) {
+    return "We couldn't set up the secure tunnel. Check the Cloudflare token permissions and try again.";
+  }
+  if (
+    formatted.includes("invalid_challenge") ||
+    formatted.includes("expired_challenge")
+  ) {
+    return "That connection attempt expired. Try connecting this Mac again.";
+  }
+  if (formatted.includes("relay_401")) {
+    return "The device relay rejected this request. Try signing in again if it keeps happening.";
+  }
+  if (formatted.includes("relay_403")) {
+    return "The device relay rejected the tunnel setup. Check the Cloudflare permissions and try again.";
   }
   if (
     formatted.includes("Failed to fetch") ||
