@@ -13,6 +13,12 @@
   --color-primary-foreground: hsl(72 5% 6%);
   --color-danger: hsl(2 86% 64%);
   --color-warning: hsl(42 93% 56%);
+  /* Live-presence tones, shared by the pulsing dot (bg-presence-*). The halo
+     reuses the same tone at a lower, animated opacity. */
+  --color-presence-online: hsl(72 98% 54%);
+  --color-presence-offline: hsl(72 2% 64%);
+  --color-presence-checking: hsl(42 93% 56%);
+  --color-presence-error: hsl(2 86% 64%);
   --font-sans: 'Inter_400Regular';
   --font-sans-medium: 'Inter_600SemiBold';
   --font-sans-bold: 'Inter_700Bold';
