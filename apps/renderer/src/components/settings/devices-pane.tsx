@@ -17,6 +17,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "../ui/collapsible.tsx";
+import {
+  Frame,
+  FrameDescription,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from "../ui/frame.tsx";
 import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -153,8 +161,8 @@ export function DevicesPane() {
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
       {linked ? (
-        <div className="rounded-xl border border-border/50 bg-background p-4">
-          <div className="flex items-center justify-between gap-4">
+        <Frame>
+          <FrameHeader className="flex-row items-start justify-between gap-3 px-3 py-2.5">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span
@@ -165,15 +173,26 @@ export function DevicesPane() {
                   }
                   aria-hidden
                 />
-                <span className="truncate text-sm font-medium text-foreground">
+                <FrameTitle className="truncate">
                   {status?.label ?? "This Mac"}
-                </span>
+                </FrameTitle>
               </div>
-              <p className="mt-1 truncate text-xs text-muted-foreground">
+              <FrameDescription className="mt-1 truncate text-xs">
                 {status?.heartbeatActive === true ? "Online" : "Idle"} · Linked
                 to your account
-              </p>
+              </FrameDescription>
             </div>
+          </FrameHeader>
+          {selectedEndpoint !== null && (
+            <FramePanel className="p-3">
+              <EndpointSummary endpoint={selectedEndpoint} />
+            </FramePanel>
+          )}
+          <FrameFooter className="flex items-center justify-between gap-3 px-3 py-2.5">
+            <p className="min-w-0 text-xs text-muted-foreground">
+              This Mac is reachable from your phone after you sign in to the
+              same account there.
+            </p>
             <Button
               variant="destructive"
               className="min-w-20"
@@ -182,90 +201,88 @@ export function DevicesPane() {
             >
               Unlink
             </Button>
-          </div>
-          {selectedEndpoint !== null && (
-            <EndpointSummary endpoint={selectedEndpoint} />
-          )}
-          <p className="mt-3 text-xs text-muted-foreground">
-            This Mac is reachable from your phone after you sign in to the same
-            account there.
-          </p>
-        </div>
+          </FrameFooter>
+        </Frame>
       ) : (
-        <div className="rounded-xl border border-border/50 bg-background p-4">
-          <p className="text-sm text-muted-foreground">
-            Link this Mac to your account so it shows up on your phone.
-          </p>
-          <div className="mt-3 flex flex-col gap-2">
-            <label className="text-sm font-medium text-foreground">
-              Name (optional)
-            </label>
-            <Input
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              placeholder="This Mac"
-            />
-            <Button
-              className="mt-2 self-start"
-              onClick={() => void onConnect()}
-              disabled={busy}
-            >
+        <Frame>
+          <FrameHeader className="px-3 py-2.5">
+            <FrameTitle>This Mac</FrameTitle>
+            <FrameDescription className="mt-1">
+              Link this Mac to your account so it shows up on your phone.
+            </FrameDescription>
+          </FrameHeader>
+          <FramePanel className="p-3">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-foreground">
+                Name (optional)
+              </label>
+              <Input
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+                placeholder="This Mac"
+              />
+            </div>
+          </FramePanel>
+          <FrameFooter className="flex justify-end px-3 py-2.5">
+            <Button onClick={() => void onConnect()} disabled={busy}>
               {busy ? "Connecting…" : "Connect this Mac"}
             </Button>
-          </div>
-        </div>
+          </FrameFooter>
+        </Frame>
       )}
 
       {advertisedEndpoints.length > 0 && (
         <Collapsible open={endpointsOpen} onOpenChange={setEndpointsOpen}>
-          <div className="rounded-xl border border-border/50 bg-background p-4">
-            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
-              <div>
-                <div className="text-sm font-medium text-foreground">
-                  All endpoints
+          <Frame>
+            <FrameHeader className="px-3 py-2.5">
+              <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 text-left">
+                <div>
+                  <FrameTitle>All endpoints</FrameTitle>
+                  <FrameDescription className="mt-1 text-xs">
+                    {advertisedEndpoints.length} advertised route
+                    {advertisedEndpoints.length === 1 ? "" : "s"}
+                  </FrameDescription>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {advertisedEndpoints.length} advertised route
-                  {advertisedEndpoints.length === 1 ? "" : "s"}
-                </div>
-              </div>
-              <ChevronDown
-                className={
-                  endpointsOpen
-                    ? "size-4 rotate-180 text-muted-foreground transition-transform"
-                    : "size-4 text-muted-foreground transition-transform"
-                }
-                aria-hidden
-              />
-            </CollapsibleTrigger>
+                <ChevronDown
+                  className={
+                    endpointsOpen
+                      ? "size-4 rotate-180 text-muted-foreground transition-transform"
+                      : "size-4 text-muted-foreground transition-transform"
+                  }
+                  aria-hidden
+                />
+              </CollapsibleTrigger>
+            </FrameHeader>
             <CollapsibleContent>
-              <div className="mt-3 flex flex-col gap-2">
-                {advertisedEndpoints.map((endpoint) => {
-                  const selected = selectedEndpoint?.id === endpoint.id;
-                  return (
-                    <button
-                      key={endpoint.id}
-                      type="button"
-                      className="flex min-w-0 items-start gap-3 rounded-lg border border-border/50 bg-muted/20 p-3 text-left hover:bg-muted/40"
-                      onClick={() => onSelectEndpoint(endpoint.id)}
-                    >
-                      <span
-                        className={
-                          selected
-                            ? "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-                            : "mt-0.5 size-5 shrink-0 rounded-full border border-border"
-                        }
-                        aria-hidden
+              <FramePanel className="p-3">
+                <div className="flex flex-col gap-2">
+                  {advertisedEndpoints.map((endpoint) => {
+                    const selected = selectedEndpoint?.id === endpoint.id;
+                    return (
+                      <button
+                        key={endpoint.id}
+                        type="button"
+                        className="flex min-w-0 items-start gap-3 rounded-lg border border-border/50 bg-muted/20 p-3 text-left hover:bg-muted/40"
+                        onClick={() => onSelectEndpoint(endpoint.id)}
                       >
-                        {selected ? <Check className="size-3" /> : null}
-                      </span>
-                      <EndpointDetails endpoint={endpoint} />
-                    </button>
-                  );
-                })}
-              </div>
+                        <span
+                          className={
+                            selected
+                              ? "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                              : "mt-0.5 size-5 shrink-0 rounded-full border border-border"
+                          }
+                          aria-hidden
+                        >
+                          {selected ? <Check className="size-3" /> : null}
+                        </span>
+                        <EndpointDetails endpoint={endpoint} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </FramePanel>
             </CollapsibleContent>
-          </div>
+          </Frame>
         </Collapsible>
       )}
     </section>
@@ -274,7 +291,7 @@ export function DevicesPane() {
 
 function EndpointSummary({ endpoint }: { endpoint: AdvertisedEndpoint }) {
   return (
-    <div className="mt-3 rounded-lg border border-border/50 bg-muted/20 p-3">
+    <div>
       <div className="flex items-center justify-between gap-3">
         <span className="truncate text-xs font-medium text-foreground">
           Default endpoint
