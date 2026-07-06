@@ -1,5 +1,6 @@
 import { PgClient } from "@effect/sql-pg";
-import { Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted } from "effect";
+import { Pool } from "pg";
 
 import * as Config from "./config.ts";
 import { makeRelay } from "./index.ts";
@@ -65,8 +66,18 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
     mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
     managedTunnel: managedTunnelConfig(env),
   });
-  const dbLayer = PgClient.layer({
-    url: Redacted.make(env.HYPERDRIVE.connectionString),
+  const dbLayer = PgClient.layerFromPool({
+    acquire: Effect.acquireRelease(
+      Effect.sync(
+        () =>
+          new Pool({
+            connectionString: env.HYPERDRIVE.connectionString,
+            max: 1,
+            maxUses: 1,
+          }),
+      ),
+      (pool) => Effect.promise(() => pool.end()),
+    ),
   });
   const appLayer = Layer.mergeAll(
     configLayer,

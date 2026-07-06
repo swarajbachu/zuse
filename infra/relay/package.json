@@ -27,6 +27,7 @@
     "@cloudflare/workers-types": "^4.20260601.1",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
+    "@types/pg": "^8.20.0",
     "drizzle-kit": "^0.31.4",
     "drizzle-orm": "^0.44.3",
     "pg": "^8.22.0",
