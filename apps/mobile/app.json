@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Zuse Mobile",
-    "slug": "zuse-mobile",
+    "name": "Zuse",
+    "slug": "zuse",
     "scheme": "zuse",
     "version": "0.0.0",
     "orientation": "portrait",
@@ -17,7 +17,7 @@
           "NSAllowsLocalNetworking": true
         }
       },
-      "bundleIdentifier": "com.swarajbachu.zuse-mobile",
+      "bundleIdentifier": "com.zuse.sh",
       "appleTeamId": "HMCST4VV42"
     },
     "plugins": [
