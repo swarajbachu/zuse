@@ -9,6 +9,7 @@ import {
   selectAdvertisedEndpoint,
   writeEndpointOverride,
 } from "../../lib/advertised-endpoints.ts";
+import { formatError } from "../../lib/format-error.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import { Button } from "../ui/button.tsx";
 import {
@@ -18,10 +19,35 @@ import {
 } from "../ui/collapsible.tsx";
 import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
+import { toastManager } from "../ui/toast.tsx";
 
 const DEFAULT_RELAY_URL =
   (import.meta.env.VITE_ZUSE_RELAY_URL as string | undefined) ??
   "https://relay.stuff.md";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const relayErrorMessage = (cause: unknown): string => {
+  const formatted = formatError(cause);
+  return formatted.includes("not_signed_in")
+    ? "Sign in before linking this Mac to your account."
+    : formatted;
+};
+
+const showRelayErrorToast = (title: string, cause: unknown): void => {
+  toastManager.add({
+    type: "error",
+    title,
+    description: relayErrorMessage(cause),
+  });
+};
+
+const isStatusLoadError = (cause: unknown): boolean =>
+  isRecord(cause) &&
+  (cause.reason === "not_signed_in" ||
+    (typeof cause.message === "string" &&
+      cause.message.includes("not_signed_in")));
 
 /**
  * "Devices" settings pane. Links this Mac to the account relay so it appears on
@@ -32,7 +58,6 @@ export function DevicesPane() {
   const [status, setStatus] = useState<RelayLinkStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY_URL);
   const [label, setLabel] = useState("");
   const [endpointOverrideId, setEndpointOverrideId] = useState<string | null>(
@@ -45,9 +70,10 @@ export function DevicesPane() {
       const client = await getRpcClient();
       const next = await Effect.runPromise(client.relay.status());
       setStatus(next);
-      setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (!isStatusLoadError(cause)) {
+        showRelayErrorToast("Could not load device status", cause);
+      }
     } finally {
       setLoading(false);
     }
@@ -60,7 +86,6 @@ export function DevicesPane() {
   const onConnect = useCallback(async () => {
     if (relayUrl.trim().length === 0) return;
     setBusy(true);
-    setError(null);
     try {
       const client = await getRpcClient();
       const next = await Effect.runPromise(
@@ -71,7 +96,7 @@ export function DevicesPane() {
       );
       setStatus(next);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      showRelayErrorToast("Could not connect this Mac", cause);
     } finally {
       setBusy(false);
     }
@@ -79,13 +104,12 @@ export function DevicesPane() {
 
   const onUnlink = useCallback(async () => {
     setBusy(true);
-    setError(null);
     try {
       const client = await getRpcClient();
       await Effect.runPromise(client.relay.unlink());
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      showRelayErrorToast("Could not unlink this Mac", cause);
     } finally {
       setBusy(false);
     }
@@ -237,8 +261,6 @@ export function DevicesPane() {
           </div>
         </Collapsible>
       )}
-
-      {error !== null && <p className="text-xs text-destructive">{error}</p>}
     </section>
   );
 }
