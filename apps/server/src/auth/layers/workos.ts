@@ -70,6 +70,43 @@ interface WorkosAuthenticateResponse {
   };
 }
 
+const parseAuthenticateResponse = (
+  value: unknown,
+): WorkosAuthenticateResponse => {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("WorkOS authenticate response was not an object.");
+  }
+  const obj = value as Partial<WorkosAuthenticateResponse>;
+  const user = obj.user;
+  if (typeof obj.access_token !== "string" || obj.access_token === "") {
+    throw new Error("WorkOS authenticate response was missing access_token.");
+  }
+  if (typeof obj.refresh_token !== "string" || obj.refresh_token === "") {
+    throw new Error("WorkOS authenticate response was missing refresh_token.");
+  }
+  if (typeof user !== "object" || user === null) {
+    throw new Error("WorkOS authenticate response was missing user.");
+  }
+  if (typeof user.id !== "string" || user.id === "") {
+    throw new Error("WorkOS authenticate response was missing user.id.");
+  }
+  if (typeof user.email !== "string" || user.email === "") {
+    throw new Error("WorkOS authenticate response was missing user.email.");
+  }
+  return {
+    access_token: obj.access_token,
+    refresh_token: obj.refresh_token,
+    organization_id: obj.organization_id ?? null,
+    user: {
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name ?? null,
+      last_name: user.last_name ?? null,
+      profile_picture_url: user.profile_picture_url ?? null,
+    },
+  };
+};
+
 /** The normalized bundle we persist (keychain) and reason about internally. */
 export interface SessionBundle {
   readonly accessToken: string;
@@ -133,7 +170,7 @@ const authenticate = (
         const text = await res.text().catch(() => "");
         throw new Error(`WorkOS ${res.status}: ${text.slice(0, 500)}`);
       }
-      return (await res.json()) as WorkosAuthenticateResponse;
+      return parseAuthenticateResponse(await res.json());
     },
     catch: (cause) =>
       new AuthTokenError({
