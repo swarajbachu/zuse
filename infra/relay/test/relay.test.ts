@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { Layer, Redacted } from "effect";
 
-import { makeRelay, RelayStoreMemory } from "../src/index.ts";
+import {
+  makeRelay,
+  ManagedTunnelProviderLive,
+  RelayStoreMemory,
+} from "../src/index.ts";
 import * as Config from "../src/config.ts";
 import type { RelayContext } from "../src/handler.ts";
 import { WorkosVerifierTest } from "../src/workos.ts";
@@ -47,7 +51,9 @@ const dpopProof = async (
 let relay: ReturnType<typeof makeRelay>;
 let mintKey: KeyPair;
 
-const makeLayer = async (): Promise<Layer.Layer<RelayContext>> => {
+const makeLayer = async (
+  managedTunnel?: Config.ManagedTunnelConfig,
+): Promise<Layer.Layer<RelayContext>> => {
   mintKey = (await eddsa()) as KeyPair;
   const configLayer = Config.layer({
     relayIssuer: RELAY_ISSUER,
@@ -55,8 +61,14 @@ const makeLayer = async (): Promise<Layer.Layer<RelayContext>> => {
     workosIssuer: "https://unused.test",
     mintPrivateKey: Redacted.make(JSON.stringify(await exportJWK(mintKey.privateKey))),
     mintPublicKey: JSON.stringify(await exportJWK(mintKey.publicKey)),
+    managedTunnel,
   });
-  return Layer.mergeAll(configLayer, WorkosVerifierTest, RelayStoreMemory);
+  return Layer.mergeAll(
+    configLayer,
+    WorkosVerifierTest,
+    RelayStoreMemory,
+    ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
+  );
 };
 
 const linkEnvironment = async (input: {
@@ -287,5 +299,154 @@ describe("@zuse/relay", () => {
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("chat_data_not_allowed");
+  });
+});
+
+// --- managed Cloudflare tunnel ------------------------------------------------
+
+const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
+  cfApiToken: Redacted.make("cf-token"),
+  cfAccountId: "acct_1",
+  cfZoneId: "zone_1",
+  baseDomain: "t.test",
+  namespace: "zenv",
+};
+
+/**
+ * Stub the Cloudflare v4 API. Returns the CF envelope shape the provider
+ * expects and records every call so deprovision can be asserted.
+ */
+const stubCloudflare = () => {
+  const calls: Array<{ method: string; path: string }> = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = (init?.method ?? "GET").toUpperCase();
+    const path = new URL(url).pathname + new URL(url).search;
+    calls.push({ method, path });
+    const ok = (result: unknown) =>
+      new Response(JSON.stringify({ success: true, result }), { status: 200 });
+    if (path.includes("/cfd_tunnel/") && path.includes("/token")) {
+      return ok("connector-token-xyz");
+    }
+    if (path.includes("/cfd_tunnel/") && path.includes("/configurations")) {
+      return ok({});
+    }
+    if (path.includes("/cfd_tunnel") && method === "GET") return ok([]); // no existing
+    if (path.includes("/cfd_tunnel") && method === "POST") {
+      return ok({ id: "tunnel_abc", name: "zenv-xyz" });
+    }
+    if (path.includes("/cfd_tunnel/") && method === "DELETE") return ok({});
+    if (path.includes("/dns_records") && method === "GET") return ok([]);
+    if (path.includes("/dns_records") && method === "POST") {
+      return ok({ id: "dns_1", name: "host" });
+    }
+    if (path.includes("/dns_records/") && method === "DELETE") return ok({});
+    return ok({});
+  }) as typeof fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
+};
+
+const linkWithTunnel = async (account: string, environmentId: string) => {
+  const bearer = `test-token:${account}`;
+  const challengeRes = await relay.fetch(
+    new Request(`${RELAY_ISSUER}/v1/client/environment-link-challenges`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${bearer}` },
+    }),
+  );
+  const challenge = (await challengeRes.json()) as { challengeId: string; challenge: string };
+  const envKey = (await eddsa()) as KeyPair;
+  const proof = await signLinkProof(envKey, { challenge: challenge.challenge, environmentId });
+  const linkRes = await relay.fetch(
+    new Request(`${RELAY_ISSUER}/v1/client/environment-links`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        challengeId: challenge.challengeId,
+        proof,
+        environmentId,
+        environmentPublicKey: JSON.stringify(await exportJWK(envKey.publicKey)),
+        providerKind: "desktop",
+        endpoint: { httpBaseUrl: "http://127.0.0.1:8787", wsBaseUrl: "ws://127.0.0.1:8787/rpc" },
+        managedTunnel: true,
+        origin: { localHttpHost: "127.0.0.1", localHttpPort: 8787 },
+      }),
+    }),
+  );
+  return linkRes;
+};
+
+describe("@zuse/relay managed tunnel", () => {
+  test("provisions a tunnel on link and returns a connector token", async () => {
+    const cf = stubCloudflare();
+    try {
+      relay = makeRelay(await makeLayer(FAKE_TUNNEL));
+      const res = await linkWithTunnel("user_a", "env_t");
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        tunnelHostname?: string;
+        connectorToken?: string;
+        endpoint: { wsBaseUrl: string };
+      };
+      expect(body.connectorToken).toBe("connector-token-xyz");
+      expect(body.tunnelHostname).toBe("zenv-" + body.tunnelHostname!.split("-")[1]);
+      expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}/rpc`);
+
+      // The discovery list now advertises the managed endpoint.
+      const list = await relay.fetch(
+        new Request(`${RELAY_ISSUER}/v1/environments`, {
+          method: "GET",
+          headers: { authorization: "Bearer test-token:user_a" },
+        }),
+      );
+      const listed = (await list.json()).environments[0];
+      expect(listed.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}/rpc`);
+    } finally {
+      cf.restore();
+    }
+  });
+
+  test("unlink deprovisions the tunnel and removes the environment", async () => {
+    const cf = stubCloudflare();
+    try {
+      relay = makeRelay(await makeLayer(FAKE_TUNNEL));
+      await linkWithTunnel("user_a", "env_t");
+      const res = await relay.fetch(
+        new Request(`${RELAY_ISSUER}/v1/client/environment-unlink`, {
+          method: "POST",
+          headers: { authorization: "Bearer test-token:user_a", "content-type": "application/json" },
+          body: JSON.stringify({ environmentId: "env_t" }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      // Tunnel + DNS deletes were issued.
+      expect(cf.calls.some((c) => c.method === "DELETE" && c.path.includes("/cfd_tunnel/"))).toBe(true);
+      expect(cf.calls.some((c) => c.method === "DELETE" && c.path.includes("/dns_records/"))).toBe(true);
+      // Environment is gone.
+      const list = await relay.fetch(
+        new Request(`${RELAY_ISSUER}/v1/environments`, {
+          method: "GET",
+          headers: { authorization: "Bearer test-token:user_a" },
+        }),
+      );
+      expect((await list.json()).environments).toHaveLength(0);
+    } finally {
+      cf.restore();
+    }
+  });
+
+  test("link succeeds without a tunnel when provisioning is disabled", async () => {
+    relay = makeRelay(await makeLayer()); // no managedTunnel config
+    const res = await linkWithTunnel("user_a", "env_t");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { connectorToken?: string; endpoint: { wsBaseUrl: string } };
+    expect(body.connectorToken).toBeUndefined();
+    expect(body.endpoint.wsBaseUrl).toBe("ws://127.0.0.1:8787/rpc"); // LAN fallback
   });
 });

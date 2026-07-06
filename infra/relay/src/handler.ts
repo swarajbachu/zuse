@@ -16,6 +16,7 @@ import {
   verifyEnvironmentLinkProof,
 } from "./crypto.ts";
 import { badRequest, forbidden, notFound, RelayError, gone } from "./errors.ts";
+import { ManagedTunnelProvider } from "./managed-tunnel.ts";
 import {
   RelayStore,
   type ActivityKind,
@@ -25,7 +26,11 @@ import {
 } from "./store.ts";
 import { WorkosVerifier } from "./workos.ts";
 
-export type RelayContext = WorkosVerifier | RelayStore | RelayConfiguration;
+export type RelayContext =
+  | WorkosVerifier
+  | RelayStore
+  | RelayConfiguration
+  | ManagedTunnelProvider;
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -104,6 +109,11 @@ const route = (
         readonly providerKind?: string;
         readonly endpoint?: { readonly httpBaseUrl?: string; readonly wsBaseUrl?: string };
         readonly label?: string;
+        readonly managedTunnel?: boolean;
+        readonly origin?: {
+          readonly localHttpHost?: string;
+          readonly localHttpPort?: number;
+        };
       }>(request);
 
       if (
@@ -161,13 +171,80 @@ const route = (
         createdAtMs: nowMs,
       });
 
+      // Provision a managed Cloudflare tunnel when requested and enabled, so the
+      // environment is reachable from anywhere. On failure we don't fail the
+      // link — the desktop keeps its LAN endpoint and can retry.
+      const tunnel = yield* ManagedTunnelProvider;
+      let tunnelHostname: string | undefined;
+      let connectorToken: string | undefined;
+      if (
+        body.managedTunnel === true &&
+        tunnel.enabled &&
+        typeof body.origin?.localHttpHost === "string" &&
+        typeof body.origin.localHttpPort === "number"
+      ) {
+        const provisioned = yield* tunnel
+          .provision({
+            accountId: principal.accountId,
+            environmentId: body.environmentId,
+            origin: {
+              localHttpHost: body.origin.localHttpHost,
+              localHttpPort: body.origin.localHttpPort,
+            },
+          })
+          .pipe(Effect.option);
+        if (provisioned._tag === "Some") {
+          yield* store.setTunnelAllocation(body.environmentId, {
+            tunnelHostname: provisioned.value.tunnelHostname,
+            tunnelId: provisioned.value.tunnelId,
+            dnsRecordId: provisioned.value.dnsRecordId,
+            tunnelStatus: "ready",
+          });
+          tunnelHostname = provisioned.value.tunnelHostname;
+          connectorToken = provisioned.value.connectorToken;
+        }
+      }
+
       return json({
         environmentId: body.environmentId,
-        endpoint: { httpBaseUrl: body.endpoint.httpBaseUrl, wsBaseUrl: body.endpoint.wsBaseUrl },
+        endpoint:
+          tunnelHostname !== undefined
+            ? {
+                httpBaseUrl: `https://${tunnelHostname}`,
+                wsBaseUrl: `wss://${tunnelHostname}/rpc`,
+              }
+            : { httpBaseUrl: body.endpoint.httpBaseUrl, wsBaseUrl: body.endpoint.wsBaseUrl },
         relayIssuer: config.relayIssuer,
         environmentCredential: credentialSecret,
         mintPublicKey: config.mintPublicKey,
+        tunnelHostname,
+        connectorToken,
       });
+    }
+
+    // 2b. Unlink an environment (WorkOS-authenticated): deprovision its managed
+    // tunnel and delete the record so it disappears from the account.
+    if (method === "POST" && path === "/v1/client/environment-unlink") {
+      const principal = yield* requireWorkos(request);
+      const body = yield* readJson<{ readonly environmentId?: string }>(request);
+      if (typeof body.environmentId !== "string") {
+        return yield* Effect.fail(badRequest("invalid_environment"));
+      }
+      const environment = yield* store.getEnvironment(body.environmentId);
+      if (environment === null || environment.accountId !== principal.accountId) {
+        return yield* Effect.fail(notFound());
+      }
+      if (environment.tunnelId !== undefined) {
+        const tunnel = yield* ManagedTunnelProvider;
+        yield* tunnel
+          .deprovision({
+            tunnelId: environment.tunnelId,
+            dnsRecordId: environment.dnsRecordId,
+          })
+          .pipe(Effect.ignore);
+      }
+      yield* store.deleteEnvironment(body.environmentId, principal.accountId);
+      return json({ ok: true });
     }
 
     // 3. List the caller's environments (WorkOS-authenticated).

@@ -3,6 +3,7 @@ import { Layer, Redacted } from "effect";
 
 import * as Config from "./config.ts";
 import { makeRelay } from "./index.ts";
+import { ManagedTunnelProviderLive } from "./managed-tunnel.ts";
 import { RelayStorePg } from "./store.ts";
 import { WorkosVerifierLive } from "./workos.ts";
 
@@ -18,7 +19,32 @@ interface Env {
   readonly WORKOS_ISSUER: string;
   readonly RELAY_MINT_PRIVATE_JWK: string;
   readonly RELAY_MINT_PUBLIC_JWK: string;
+  // Managed Cloudflare tunnel (optional — absent disables provisioning).
+  readonly CF_API_TOKEN?: string;
+  readonly CF_ACCOUNT_ID?: string;
+  readonly CF_ZONE_ID?: string;
+  readonly MANAGED_TUNNEL_BASE_DOMAIN?: string;
+  readonly MANAGED_TUNNEL_NAMESPACE?: string;
 }
+
+const managedTunnelConfig = (env: Env): Config.ManagedTunnelConfig | undefined => {
+  if (
+    env.CF_API_TOKEN === undefined ||
+    env.CF_ACCOUNT_ID === undefined ||
+    env.CF_ZONE_ID === undefined ||
+    env.MANAGED_TUNNEL_BASE_DOMAIN === undefined ||
+    env.MANAGED_TUNNEL_NAMESPACE === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    cfApiToken: Redacted.make(env.CF_API_TOKEN),
+    cfAccountId: env.CF_ACCOUNT_ID,
+    cfZoneId: env.CF_ZONE_ID,
+    baseDomain: env.MANAGED_TUNNEL_BASE_DOMAIN,
+    namespace: env.MANAGED_TUNNEL_NAMESPACE,
+  };
+};
 
 // Build the runtime once per isolate, not per request.
 let relay: ReturnType<typeof makeRelay> | undefined;
@@ -30,6 +56,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
     workosIssuer: env.WORKOS_ISSUER,
     mintPrivateKey: Redacted.make(env.RELAY_MINT_PRIVATE_JWK),
     mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
+    managedTunnel: managedTunnelConfig(env),
   });
   const dbLayer = PgClient.layer({
     url: Redacted.make(env.HYPERDRIVE.connectionString),
@@ -38,6 +65,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
     configLayer,
     WorkosVerifierLive.pipe(Layer.provide(configLayer)),
     RelayStorePg.pipe(Layer.provide(dbLayer)),
+    ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
   ).pipe(Layer.orDie);
   return makeRelay(appLayer);
 };

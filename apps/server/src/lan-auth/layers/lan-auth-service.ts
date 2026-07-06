@@ -311,15 +311,17 @@ export const LanAuthServiceLive = Layer.effect(
           const updatedAt = yield* nowIso;
           yield* sql`
             INSERT INTO relay_config
-              (environment_id, relay_url, relay_issuer, environment_credential, label, updated_at)
+              (environment_id, relay_url, relay_issuer, environment_credential, label, connector_token, updated_at)
             VALUES
               (${input.environmentId}, ${input.relayUrl}, ${input.relayIssuer},
-               ${input.environmentCredential}, ${input.label ?? null}, ${updatedAt})
+               ${input.environmentCredential}, ${input.label ?? null},
+               ${input.connectorToken ?? null}, ${updatedAt})
             ON CONFLICT(environment_id) DO UPDATE SET
               relay_url = excluded.relay_url,
               relay_issuer = excluded.relay_issuer,
               environment_credential = excluded.environment_credential,
               label = excluded.label,
+              connector_token = excluded.connector_token,
               updated_at = excluded.updated_at
           `;
         }).pipe(Effect.asVoid, Effect.mapError(toLanAuthError)),
@@ -331,8 +333,9 @@ export const LanAuthServiceLive = Layer.effect(
             readonly environment_id: string;
             readonly environment_credential: string;
             readonly label: string | null;
+            readonly connector_token: string | null;
           }>`
-            SELECT relay_url, relay_issuer, environment_id, environment_credential, label
+            SELECT relay_url, relay_issuer, environment_id, environment_credential, label, connector_token
             FROM relay_config
             LIMIT 1
           `;
@@ -344,6 +347,7 @@ export const LanAuthServiceLive = Layer.effect(
             environmentId: row.environment_id as EnvironmentId,
             environmentCredential: row.environment_credential,
             label: row.label ?? undefined,
+            connectorToken: row.connector_token ?? undefined,
           };
         }).pipe(Effect.mapError(toLanAuthError)),
       clearRelayConfig: () =>

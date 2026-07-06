@@ -22,6 +22,8 @@ import { EnvironmentId } from "./ids.ts";
 export const RelayPaths = {
   linkChallenges: "/v1/client/environment-link-challenges",
   links: "/v1/client/environment-links",
+  /** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
+  unlink: "/v1/client/environment-unlink",
   environments: "/v1/environments",
   dpopToken: "/v1/client/dpop-token",
   devices: "/v1/mobile/devices",
