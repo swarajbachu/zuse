@@ -53,18 +53,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: BG },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "Connections" }} />
-        <Stack.Screen
-          name="computers"
-          options={{
-            title: "Your computers",
-            // Native @expo/ui List content sizes itself; a solid, non-large
-            // header avoids the transparent large-title inset overlapping it.
-            headerLargeTitle: false,
-            headerTransparent: false,
-            headerStyle: { backgroundColor: BG },
-          }}
-        />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="connect/manual"
           options={{

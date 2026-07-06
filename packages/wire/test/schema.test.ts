@@ -14,6 +14,7 @@ import {
   MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
   RepositorySettingsFile,
+  RelayEnvironmentList,
   RelayLinkStatus,
   resolveModelSlug,
   SettingsFile,
@@ -207,6 +208,23 @@ describe("RelayLinkStatus advertised endpoint compatibility", () => {
         },
       ],
     });
+  });
+});
+
+describe("RelayEnvironmentList compatibility", () => {
+  it("decodes legacy environment records without endpoint", () => {
+    const decoded = Schema.decodeUnknownSync(RelayEnvironmentList)({
+      environments: [
+        {
+          environmentId: "env_123",
+          label: "Mac",
+          providerKind: "desktop",
+          linkedAt: Date.now(),
+        },
+      ],
+    });
+
+    expect(decoded.environments[0]?.endpoint).toBeUndefined();
   });
 });
 

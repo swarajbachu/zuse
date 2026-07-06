@@ -3,6 +3,10 @@ import { RpcClient, RpcSerialization } from "@effect/rpc";
 import { Layer } from "effect";
 
 export type WsProtocolOptions = {
+  /** Stable saved-connection key. Manual records use host:port; relay records use environmentId. */
+  key?: string;
+  /** Relay-linked environments refresh their connect token before reconnecting. */
+  environmentId?: string;
   host: string;
   port: number;
   token?: string | null;

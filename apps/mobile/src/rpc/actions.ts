@@ -5,7 +5,7 @@ import type {
 } from "@zuse/wire";
 import { Effect } from "effect";
 
-import { getConnectionClient } from "./connection";
+import { getConnectionClient, reportConnectionFailure } from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
 
 export const makeTextInput = (text: string): ComposerInput => ({
@@ -21,8 +21,8 @@ export const sendMessage = (options: {
   sessionId: SessionId;
   input: ComposerInput;
   asGoal?: boolean;
-}) =>
-  Effect.gen(function* () {
+}) => {
+  const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     const payload = {
       sessionId: options.sessionId,
@@ -31,28 +31,46 @@ export const sendMessage = (options: {
     };
     yield* client.messages.send(payload);
   });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause))
+    )
+  );
+};
 
 export const interruptSession = (options: {
   connection: WsProtocolOptions;
   sessionId: SessionId;
-}) =>
-  Effect.gen(function* () {
+}) => {
+  const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     yield* client.messages.interrupt({ sessionId: options.sessionId });
   });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause))
+    )
+  );
+};
 
 export const decidePermission = (options: {
   connection: WsProtocolOptions;
   requestId: string;
   decision: PermissionDecision;
-}) =>
-  Effect.gen(function* () {
+}) => {
+  const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     yield* client.permission.decide({
       requestId: options.requestId,
       decision: options.decision,
     });
   });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause))
+    )
+  );
+};
 
 export const answerQuestion = (options: {
   connection: WsProtocolOptions;
@@ -63,8 +81,8 @@ export const answerQuestion = (options: {
     selected: readonly number[];
     other?: string;
   }[];
-}) =>
-  Effect.gen(function* () {
+}) => {
+  const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     yield* client.session.answerQuestion({
       sessionId: options.sessionId,
@@ -76,3 +94,9 @@ export const answerQuestion = (options: {
       })),
     });
   });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause))
+    )
+  );
+};

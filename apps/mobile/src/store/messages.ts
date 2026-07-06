@@ -7,7 +7,7 @@ import {
   readMessagesSnapshot,
   writeMessagesSnapshot
 } from "~/offline/cache";
-import { getConnectionClient } from "~/rpc/connection";
+import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 type MessagesState = {
@@ -100,10 +100,15 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
               });
               void get().flush(connKey, sessionId);
             })
+        ).pipe(
+          Effect.tapError((cause) =>
+            Effect.sync(() => reportConnectionFailure(options, cause))
+          )
         );
         const fiber = await Effect.runPromise(program.pipe(Effect.fork));
         liveFibers.set(liveKey, fiber);
       } catch (cause) {
+        reportConnectionFailure(options, cause);
         set((state) => ({
           reconnectingBySession: {
             ...state.reconnectingBySession,
@@ -114,9 +119,6 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
             [sessionId]: cause instanceof Error ? cause.message : String(cause)
           }
         }));
-        setTimeout(() => {
-          void get().hydrate(connKey, options, sessionId);
-        }, 2_000);
       }
     };
 

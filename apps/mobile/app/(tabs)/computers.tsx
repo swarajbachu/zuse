@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Host, Icon, List, ListItem } from "@expo/ui";
-import { router } from "expo-router";
+import { router, Stack } from "expo-router";
 import { Monitor } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { errorTap, selectionTap, successTap } from "~/lib/haptics";
 import { useAuthStore } from "~/store/auth";
+import {
+  connectionStatusLabel,
+  useConnectionRuntimeStore,
+} from "~/store/connection-runtime";
+import { useConnectionsStore } from "~/store/connections";
 import { useEnvironmentsStore } from "~/store/environments";
 
 const LIME = "hsl(72 98% 54%)";
@@ -27,6 +32,13 @@ const AMBER_PULSE = [
 
 const isChecking = (presence: string) =>
   presence !== "online" && presence !== "offline";
+
+const displayError = (text: string): string => {
+  if (text.includes("RelayEnvironmentList")) {
+    return "Relay returned an older computer list. Refresh after the relay finishes updating.";
+  }
+  return text.length > 140 ? `${text.slice(0, 137)}...` : text;
+};
 
 function useAmberPulse(active: boolean) {
   const [step, setStep] = useState(0);
@@ -53,8 +65,25 @@ export default function ComputersScreen() {
   const { account, hydrated, busy, hydrate, signIn, signOut } = useAuthStore();
   const { environments, loading, error, refresh, connect } =
     useEnvironmentsStore();
+  const connections = useConnectionsStore((state) => state.connections);
+  const snapshots = useConnectionRuntimeStore((state) => state.snapshotsByConnection);
+  const watchConnection = useConnectionRuntimeStore((state) => state.watch);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const onChangeSearch = useCallback((event: { nativeEvent: { text: string } }) => {
+    setSearch(event.nativeEvent.text);
+  }, []);
+  const searchOptions = useMemo(
+    () => ({
+      placeholder: "Search computers",
+      placement: "stacked" as const,
+      hideWhenScrolling: false,
+      onChangeText: onChangeSearch,
+      onCancelButtonPress: () => setSearch(""),
+    }),
+    [onChangeSearch]
+  );
 
   const anyPulsing =
     connecting !== null || environments.some((e) => isChecking(e.presence));
@@ -67,6 +96,20 @@ export default function ComputersScreen() {
   useEffect(() => {
     if (account !== null) void refresh();
   }, [account, refresh]);
+
+  useEffect(() => {
+    const unwatch = environments
+      .map((environment) =>
+        connections.find(
+          (connection) => connection.environmentId === environment.environmentId
+        )
+      )
+      .filter((connection) => connection !== undefined)
+      .map((connection) => watchConnection(connection.key, connection));
+    return () => {
+      for (const stop of unwatch) stop();
+    };
+  }, [connections, environments, watchConnection]);
 
   // Subtle selection tick when a computer comes online.
   const prevPresence = useRef(new Map<string, string>());
@@ -96,9 +139,54 @@ export default function ComputersScreen() {
     }
   };
 
+  const presenceLabel = useCallback((environmentId: string, presence: string) => {
+    if (connecting === environmentId) return "Connecting…";
+    const snapshot = snapshots[environmentId];
+    if (snapshot !== undefined && snapshot.status !== "connected") {
+      return connectionStatusLabel(snapshot);
+    }
+    if (presence === "online") return "Online";
+    if (presence === "offline") return "Offline";
+    return "Checking…";
+  }, [connecting, snapshots]);
+
+  const filteredEnvironments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (query.length === 0) return environments;
+    return environments.filter((environment) => {
+      const connection = connections.find(
+        (item) => item.environmentId === environment.environmentId
+      );
+      const haystack = [
+        environment.label,
+        environment.environmentId,
+        environment.presence,
+        connection?.label,
+        connection?.key,
+        presenceLabel(environment.environmentId, environment.presence),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [connections, environments, presenceLabel, search]);
+
+  const presenceColor = (environmentId: string, presence: string) => {
+    if (connecting === environmentId || isChecking(presence)) return pulseColor;
+    return presence === "online" ? LIME : MUTED;
+  };
+  const remoteError = error ?? connectError;
+
   if (account === null) {
     return (
       <View className="flex-1 bg-background">
+        <Stack.Screen
+          options={{
+            title: "Computers",
+            headerSearchBarOptions: searchOptions,
+          }}
+        />
         <EmptyState
           icon={Monitor}
           title="Sign in to see your computers"
@@ -113,27 +201,21 @@ export default function ComputersScreen() {
     );
   }
 
-  const presenceLabel = (environmentId: string, presence: string) => {
-    if (connecting === environmentId) return "Connecting…";
-    if (presence === "online") return "Online";
-    if (presence === "offline") return "Offline";
-    return "Checking…";
-  };
-
-  const presenceColor = (environmentId: string, presence: string) => {
-    if (connecting === environmentId || isChecking(presence)) return pulseColor;
-    return presence === "online" ? LIME : MUTED;
-  };
-
   return (
     <View className="flex-1 bg-background">
+      <Stack.Screen
+        options={{
+          title: "Computers",
+          headerSearchBarOptions: searchOptions,
+        }}
+      />
       <Host
         colorScheme="dark"
         seedColor={LIME}
         style={{ width: "100%", height: "100%" }}
       >
         <List onRefresh={() => refresh()}>
-          {environments.map((environment) => (
+          {filteredEnvironments.map((environment) => (
             <ListItem
               key={environment.environmentId}
               onPress={() => void onConnect(environment.environmentId)}
@@ -157,6 +239,34 @@ export default function ComputersScreen() {
             </ListItem>
           ))}
 
+          {remoteError !== null ? (
+            <ListItem
+              leading={
+                <Icon
+                  name="exclamationmark.triangle"
+                  size={22}
+                  color={DANGER}
+                />
+              }
+              supportingText={displayError(remoteError)}
+            >
+              Could not refresh
+            </ListItem>
+          ) : null}
+
+          {filteredEnvironments.length === 0 && !loading && remoteError === null ? (
+            <ListItem
+              leading={<Icon name="laptopcomputer.slash" size={22} color={MUTED} />}
+              supportingText={
+                search.trim().length > 0
+                  ? "Try another name or status."
+                  : "Open Settings -> Devices on your Mac and link it to your account."
+              }
+            >
+              {search.trim().length > 0 ? "No matches" : "No computers yet"}
+            </ListItem>
+          ) : null}
+
           {account.email ? (
             <ListItem
               leading={<Icon name="person.crop.circle" size={22} color={MUTED} />}
@@ -179,26 +289,6 @@ export default function ComputersScreen() {
           </ListItem>
         </List>
       </Host>
-
-      {environments.length === 0 && !loading ? (
-        <View className="absolute inset-x-0 top-40 px-8">
-          <Text className="text-center font-sans text-sm text-muted-foreground">
-            No computers yet. Open Settings → Devices on your Mac and link it to
-            your account.
-          </Text>
-        </View>
-      ) : null}
-
-      {(error ?? connectError) !== null ? (
-        <View
-          className="absolute inset-x-0 bottom-0 border-t border-border bg-background p-4"
-          pointerEvents="none"
-        >
-          <Text selectable className="font-sans text-[13px] text-danger">
-            {connectError ?? error}
-          </Text>
-        </View>
-      ) : null}
     </View>
   );
 }
