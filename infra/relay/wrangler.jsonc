@@ -18,7 +18,7 @@
   "vars": {
     "RELAY_ISSUER": "https://relay.stuff.md",
     "WORKOS_ISSUER": "https://api.workos.com",
-    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
+    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KW6ZEZKVMZ0G429A89XZD83Q",
     // Public key only — the matching private key is a secret (RELAY_MINT_PRIVATE_JWK).
     "RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"A2Ig1XwHKDznhyTbPD9IVTlJpaN4YImgQadx-Gl81Bs\",\"kty\":\"OKP\"}",
 
@@ -33,7 +33,7 @@
     "MANAGED_TUNNEL_BASE_DOMAIN": "t.stuff.md",
     "MANAGED_TUNNEL_NAMESPACE": "zenv",
     "CF_ACCOUNT_ID": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
-    "CF_ZONE_ID": "REPLACE_WITH_ZONE_ID_FOR_BASE_DOMAIN"
+    "CF_ZONE_ID": "REPLACE_WITH_ZONE_ID_FOR_BASE_DOMAIN",
   },
 
   // Hyperdrive fronting PlanetScale Postgres. Create with:
@@ -42,7 +42,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "c49c02e939494a958fb5fe6805e7b0f2"
-    }
-  ]
+      "id": "c49c02e939494a958fb5fe6805e7b0f2",
+    },
+  ],
 }

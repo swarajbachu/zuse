@@ -48,6 +48,24 @@ export class RelayLinkService extends Context.Tag("zuse/RelayLinkService")<
 
 const failRelay = (reason: string) => new RelayLinkError({ reason });
 
+const relayHttpErrorReason = async (response: Response): Promise<string> => {
+  const fallback = `relay_${response.status}`;
+  const text = await response.text().catch(() => "");
+  if (text.trim().length === 0) return fallback;
+  try {
+    const body = JSON.parse(text) as { readonly error?: unknown };
+    if (typeof body.error === "string") {
+      if (response.status === 401 && body.error === "invalid_workos_token") {
+        return "Relay rejected the WorkOS token. Check that desktop, mobile, and relay use the same WorkOS client id.";
+      }
+      return `relay_${response.status}:${body.error}`;
+    }
+  } catch {
+    // Fall through to the status-only reason; relay bodies should be JSON.
+  }
+  return fallback;
+};
+
 const postJson = <A>(
   url: string,
   opts: { readonly bearer: string; readonly body?: unknown },
@@ -65,7 +83,7 @@ const postJson = <A>(
         body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
       });
       if (!response.ok) {
-        throw new Error(`relay_${response.status}`);
+        throw new Error(await relayHttpErrorReason(response));
       }
       return (await response.json()) as A;
     },
