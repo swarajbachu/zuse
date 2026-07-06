@@ -22,6 +22,45 @@ export interface AnchoredTurnMetrics {
   readonly scrollDeltaToRevealEnd: number;
 }
 
+export function shouldDeferAutomaticEndScroll({
+  pendingAnchorId,
+  positionedAnchorId,
+  settledAnchorId,
+}: {
+  readonly pendingAnchorId: string | null;
+  readonly positionedAnchorId: string | null;
+  readonly settledAnchorId: string | null;
+}): boolean {
+  return (
+    pendingAnchorId !== null ||
+    (positionedAnchorId !== null && settledAnchorId !== positionedAnchorId)
+  );
+}
+
+export function shouldRestoreAnchorScrollOffset({
+  anchorId,
+  settledAnchorId,
+  expectedOffset,
+  currentOffset,
+  expectedUserNavigationGeneration,
+  currentUserNavigationGeneration,
+  tolerance = 2,
+}: {
+  readonly anchorId: string;
+  readonly settledAnchorId: string | null;
+  readonly expectedOffset: number;
+  readonly currentOffset: number;
+  readonly expectedUserNavigationGeneration: number;
+  readonly currentUserNavigationGeneration: number;
+  readonly tolerance?: number;
+}): boolean {
+  return (
+    settledAnchorId === anchorId &&
+    expectedUserNavigationGeneration === currentUserNavigationGeneration &&
+    Math.abs(currentOffset - expectedOffset) <= tolerance
+  );
+}
+
 export function getRowBottom(
   state: TimelineListMeasurementState,
   index: number,
