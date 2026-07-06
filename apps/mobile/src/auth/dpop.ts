@@ -1,11 +1,5 @@
 import * as SecureStore from "expo-secure-store";
-import {
-  calculateJwkThumbprint,
-  exportJWK,
-  generateKeyPair,
-  type JWK,
-} from "jose";
-import QuickCrypto from "react-native-quick-crypto";
+import { calculateJwkThumbprint, type JWK } from "jose";
 
 /**
  * Device DPoP key (RFC 9449). A per-install ES256 keypair proves possession of
@@ -36,11 +30,17 @@ const loadOrCreate = async (): Promise<DeviceKey> => {
     };
     return cached;
   }
-  const { privateKey, publicKey } = await generateKeyPair("ES256", {
-    extractable: true,
-  });
-  const privateJwk = await exportJWK(privateKey);
-  const publicJwk = await exportJWK(publicKey);
+  const { privateKey, publicKey } = await subtle().generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const privateJwk = normalizePrivateJwk(
+    await subtle().exportKey("jwk", privateKey),
+  );
+  const publicJwk = normalizePublicJwk(
+    await subtle().exportKey("jwk", publicKey),
+  );
   await Promise.all([
     SecureStore.setItemAsync(PRIVATE_KEY, JSON.stringify(privateJwk)),
     SecureStore.setItemAsync(PUBLIC_KEY, JSON.stringify(publicJwk)),
@@ -76,14 +76,55 @@ export const signDpopProof = async (input: {
     iat: Math.floor(Date.now() / 1000),
   };
   const signingInput = `${base64UrlJson(protectedHeader)}.${base64UrlJson(payload)}`;
-  const signature = QuickCrypto.createSign("SHA256")
-    .update(signingInput)
-    .sign({
-      key: privateJwk,
-      format: "jwk",
-      dsaEncoding: "ieee-p1363",
-    });
-  return `${signingInput}.${base64UrlBytes(toUint8Array(signature))}`;
+  const key = await subtle().importKey(
+    "jwk",
+    privateJwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await subtle().sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    key,
+    new TextEncoder().encode(signingInput),
+  );
+  return `${signingInput}.${base64UrlBytes(new Uint8Array(signature))}`;
+};
+
+const subtle = (): SubtleCrypto => {
+  const crypto = globalThis.crypto;
+  if (crypto?.subtle === undefined) {
+    throw new Error("mobile_crypto_unavailable");
+  }
+  return crypto.subtle;
+};
+
+const normalizePrivateJwk = (jwk: JsonWebKey): JWK => ({
+  kty: "EC",
+  crv: "P-256",
+  alg: "ES256",
+  key_ops: ["sign"],
+  ext: true,
+  x: requiredJwkPart(jwk.x, "x"),
+  y: requiredJwkPart(jwk.y, "y"),
+  d: requiredJwkPart(jwk.d, "d"),
+});
+
+const normalizePublicJwk = (jwk: JsonWebKey): JWK => ({
+  kty: "EC",
+  crv: "P-256",
+  alg: "ES256",
+  key_ops: ["verify"],
+  ext: true,
+  x: requiredJwkPart(jwk.x, "x"),
+  y: requiredJwkPart(jwk.y, "y"),
+});
+
+const requiredJwkPart = (value: string | undefined, name: string): string => {
+  if (value === undefined || value.length === 0) {
+    throw new Error(`mobile_dpop_jwk_missing_${name}`);
+  }
+  return value;
 };
 
 const base64UrlJson = (value: unknown): string =>
@@ -105,11 +146,6 @@ const base64UrlBytes = (bytes: Uint8Array): string => {
     output += alphabet[c & 63]!;
   }
   return output;
-};
-
-const toUint8Array = (value: string | Uint8Array): Uint8Array => {
-  if (typeof value !== "string") return value;
-  return new TextEncoder().encode(value);
 };
 
 const normalizeUrl = (value: string): string => {
