@@ -58,7 +58,6 @@ export function DevicesPane() {
   const [status, setStatus] = useState<RelayLinkStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [relayUrl, setRelayUrl] = useState(DEFAULT_RELAY_URL);
   const [label, setLabel] = useState("");
   const [endpointOverrideId, setEndpointOverrideId] = useState<string | null>(
     () => readEndpointOverride(),
@@ -84,13 +83,12 @@ export function DevicesPane() {
   }, [refresh]);
 
   const onConnect = useCallback(async () => {
-    if (relayUrl.trim().length === 0) return;
     setBusy(true);
     try {
       const client = await getRpcClient();
       const next = await Effect.runPromise(
         client.relay.link({
-          relayUrl: relayUrl.trim().replace(/\/$/, ""),
+          relayUrl: DEFAULT_RELAY_URL.trim().replace(/\/$/, ""),
           label: label.trim().length > 0 ? label.trim() : undefined,
         }),
       );
@@ -100,7 +98,7 @@ export function DevicesPane() {
     } finally {
       setBusy(false);
     }
-  }, [relayUrl, label]);
+  }, [label]);
 
   const onUnlink = useCallback(async () => {
     setBusy(true);
@@ -178,19 +176,10 @@ export function DevicesPane() {
       ) : (
         <div className="rounded-xl border border-border/50 bg-background p-4">
           <p className="text-sm text-muted-foreground">
-            Link this Mac to your account so it shows up on your phone. You must
-            be signed in.
+            Link this Mac to your account so it shows up on your phone.
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <label className="text-sm font-medium text-foreground">
-              Relay URL
-            </label>
-            <Input
-              value={relayUrl}
-              onChange={(event) => setRelayUrl(event.target.value)}
-              placeholder="https://relay.stuff.md"
-            />
-            <label className="mt-1 text-sm font-medium text-foreground">
               Name (optional)
             </label>
             <Input
@@ -201,7 +190,7 @@ export function DevicesPane() {
             <Button
               className="mt-2 self-start"
               onClick={() => void onConnect()}
-              disabled={busy || relayUrl.trim().length === 0}
+              disabled={busy}
             >
               {busy ? "Connecting…" : "Connect this Mac"}
             </Button>
