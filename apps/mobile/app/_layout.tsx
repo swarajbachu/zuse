@@ -68,7 +68,7 @@ export default function RootLayout() {
             headerLargeTitle: false,
             headerTransparent: false,
             sheetGrabberVisible: true,
-            sheetAllowedDetents: [0.6, 0.95],
+            sheetAllowedDetents: [0.55, 0.92],
             sheetCornerRadius: 20,
           }}
         />

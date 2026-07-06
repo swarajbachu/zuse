@@ -16,6 +16,11 @@ export const lightTap = () => {
   void Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 };
 
+/** Selection tick — a subtle state change, e.g. a computer coming online. */
+export const selectionTap = () => {
+  void Haptics?.selectionAsync().catch(() => {});
+};
+
 /** Success notification — a connection landed, an action completed. */
 export const successTap = () => {
   void Haptics?.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(

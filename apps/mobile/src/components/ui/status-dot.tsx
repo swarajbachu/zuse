@@ -1,18 +1,23 @@
 import type { SessionStatus } from "@zuse/wire";
-import { View } from "react-native";
 
-import { cn } from "~/lib/cn";
+import { PresenceDot, type PresenceTone } from "./presence-dot";
 
-export const StatusDot = ({ status, className }: { status?: SessionStatus; className?: string }) => (
-  <View
-    className={cn(
-      "h-2.5 w-2.5 rounded-full",
-      status === "booting" && "bg-warning",
-      status === "running" && "bg-primary",
-      status === "error" && "bg-danger",
-      (status === undefined || status === "idle" || status === "closed") &&
-        "bg-muted-foreground",
-      className
-    )}
-  />
-);
+// Session status → presence tone. `booting` is the transient "connecting"
+// state, so it pulses; a `running` session is steadily live.
+const toneFor = (status?: SessionStatus): { tone: PresenceTone; pulse: boolean } => {
+  switch (status) {
+    case "booting":
+      return { tone: "checking", pulse: true };
+    case "running":
+      return { tone: "online", pulse: false };
+    case "error":
+      return { tone: "error", pulse: false };
+    default:
+      return { tone: "offline", pulse: false };
+  }
+};
+
+export const StatusDot = ({ status }: { status?: SessionStatus }) => {
+  const { tone, pulse } = toneFor(status);
+  return <PresenceDot tone={tone} pulse={pulse} />;
+};
