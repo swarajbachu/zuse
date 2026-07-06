@@ -303,52 +303,26 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
     RelayStore,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
+      const challenges = yield* Ref.make(
+        new Map<string, LinkChallengeRecord>(),
+      );
       const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
         effect.pipe(Effect.orDie);
 
       return RelayStore.of({
         createChallenge: (challenge) =>
-          orDie(
-            sql`
-            INSERT INTO relay_link_challenges
-              (challenge_id, account_id, challenge, relay_issuer, expires_at)
-            VALUES (
-              ${challenge.challengeId}, ${challenge.accountId}, ${challenge.challenge},
-              ${challenge.relayIssuer}, ${challenge.expiresAtMs}
-            )
-          `.pipe(Effect.asVoid),
+          Ref.update(challenges, (map) =>
+            new Map(map).set(challenge.challengeId, challenge),
           ),
         consumeChallenge: (challengeId, accountId) =>
-          orDie(
-            sql<{
-              readonly challenge_id: string;
-              readonly account_id: string;
-              readonly challenge: string;
-              readonly relay_issuer: string;
-              readonly expires_at: number;
-            }>`
-              SELECT challenge_id, account_id, challenge, relay_issuer, expires_at
-              FROM relay_link_challenges
-              WHERE challenge_id = ${challengeId} AND account_id = ${accountId}
-            `.pipe(
-              Effect.flatMap((rows) => {
-                const row = rows[0];
-                if (row === undefined) return Effect.succeed(null);
-                return sql`
-                  DELETE FROM relay_link_challenges
-                  WHERE challenge_id = ${challengeId} AND account_id = ${accountId}
-                `.pipe(
-                  Effect.as({
-                    challengeId: row.challenge_id,
-                    accountId: row.account_id,
-                    challenge: row.challenge,
-                    relayIssuer: row.relay_issuer,
-                    expiresAtMs: Number(row.expires_at),
-                  } satisfies LinkChallengeRecord),
-                );
-              }),
-            ),
-          ),
+          Ref.modify(challenges, (map) => {
+            const found = map.get(challengeId) ?? null;
+            if (found === null || found.accountId !== accountId)
+              return [null, map];
+            const next = new Map(map);
+            next.delete(challengeId);
+            return [found, next];
+          }),
         upsertEnvironment: (env) =>
           orDie(
             sql`
