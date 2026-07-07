@@ -41,6 +41,14 @@ import {
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import {
+  actionsJobsApiPath,
+  collectActionsRunIds,
+  metadataForRollupEntry,
+  parseActionsJobsResponse,
+  type ActionsJob,
+  type PrCheckRollupEntry,
+} from "../check-runs.ts";
 import { GitService } from "../services/git-service.ts";
 
 type GitFailure =
@@ -926,14 +934,7 @@ export const GitServiceLive = Layer.effect(
               additions?: number;
               deletions?: number;
             }>;
-            statusCheckRollup?: ReadonlyArray<{
-              name?: string;
-              status?: string;
-              state?: string;
-              conclusion?: string;
-              detailsUrl?: string;
-              targetUrl?: string;
-            }>;
+            statusCheckRollup?: ReadonlyArray<PrCheckRollupEntry>;
           };
           try {
             parsed = JSON.parse(stdout) as typeof parsed;
@@ -953,9 +954,33 @@ export const GitServiceLive = Layer.effect(
 
           const rollup = parsed.statusCheckRollup ?? [];
           const checks = aggregateChecks(rollup);
+          const originInfo = yield* run(folderId, cwd, [
+            "remote",
+            "get-url",
+            "origin",
+          ]).pipe(
+            Effect.map((s) => parseRemoteUrl(s.trim())),
+            Effect.catchTag("GitCommandError", () => Effect.succeed(null)),
+          );
+          const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>();
+          if (originInfo?.host.toLowerCase() === "github.com") {
+            for (const runId of collectActionsRunIds(rollup)) {
+              const jobsStdout = yield* ghRun(folderId, cwd, [
+                "api",
+                actionsJobsApiPath(originInfo.owner, originInfo.repo, runId),
+              ]).pipe(
+                Effect.catchTags({
+                  GitNotInstalledError: () => Effect.succeed(""),
+                  GitCommandError: () => Effect.succeed(""),
+                }),
+              );
+              jobsByRunId.set(runId, parseActionsJobsResponse(jobsStdout));
+            }
+          }
 
-          const checkRuns = rollup.map((c) =>
-            GitPrCheckRun.make({
+          const checkRuns = rollup.map((c) => {
+            const metadata = metadataForRollupEntry(c, jobsByRunId);
+            return GitPrCheckRun.make({
               name: c.name ?? "(unnamed check)",
               // External "state" checks don't have a separate `status` field;
               // treat them as completed with the state mapped via conclusion.
@@ -968,8 +993,16 @@ export const GitServiceLive = Layer.effect(
                   : (c.state ?? ""),
               ),
               url: c.detailsUrl ?? c.targetUrl ?? null,
-            }),
-          );
+              workflowName: metadata.workflowName,
+              runId: metadata.runId,
+              jobId: metadata.jobId,
+              runnerName: metadata.runnerName,
+              runnerGroupName: metadata.runnerGroupName,
+              startedAt: metadata.startedAt,
+              completedAt: metadata.completedAt,
+              runUrl: metadata.runUrl,
+            });
+          });
 
           const comments = (parsed.comments ?? [])
             .filter((c) => typeof c.createdAt === "string")

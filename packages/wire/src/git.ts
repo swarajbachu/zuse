@@ -270,6 +270,14 @@ export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
     status: GitPrCheckRunStatus,
     conclusion: Schema.NullOr(GitPrCheckRunConclusion),
     url: Schema.NullOr(Schema.String),
+    workflowName: Schema.optional(Schema.NullOr(Schema.String)),
+    runId: Schema.optional(Schema.NullOr(Schema.String)),
+    jobId: Schema.optional(Schema.NullOr(Schema.String)),
+    runnerName: Schema.optional(Schema.NullOr(Schema.String)),
+    runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
+    startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+    completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+    runUrl: Schema.optional(Schema.NullOr(Schema.String)),
   },
 ) {}
 
