@@ -4,9 +4,14 @@ import type {
   GitPrSummary,
   Worktree,
 } from "@zuse/wire";
+import {
+  CloudOffIcon,
+  Folder01Icon,
+  GitBranchIcon,
+  SentIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
-import { CloudOff, Folder as FolderIcon, GitBranch, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -37,6 +42,7 @@ import { useConnectionsStore } from "~/store/connections";
 import { useSessionsStore } from "~/store/sessions";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { HugeIcon } from "~/components/ui/huge-icon";
 import {
   ComposerApprovalMenu,
   ComposerModeMenu,
@@ -251,7 +257,7 @@ export default function NewChatScreen() {
         >
           <View className="flex-row items-center gap-2 px-1">
             <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
-              <FolderIcon size={13} color="hsl(72 4% 76%)" />
+              <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
               <ProjectPill
                 label={
                   selectedProject === undefined
@@ -269,7 +275,7 @@ export default function NewChatScreen() {
               />
             </View>
             <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
-              <GitBranch size={13} color="hsl(72 4% 76%)" />
+              <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
               <SourcePill label={sourceLabel}>
                 <NativeButton
                   label="Main"
@@ -378,9 +384,9 @@ export default function NewChatScreen() {
               {submitting ? (
                 <ActivityIndicator color="hsl(72 5% 6%)" />
               ) : selectedOptions === null ? (
-                <CloudOff size={15} color="hsl(72 5% 6%)" />
+                <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 5% 6%)" />
               ) : (
-                <Send size={15} color="hsl(72 5% 6%)" />
+                <HugeIcon icon={SentIcon} size={15} color="hsl(72 5% 6%)" />
               )}
             </Button>
           </View>

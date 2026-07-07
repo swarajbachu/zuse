@@ -1,6 +1,12 @@
 import type { Session, SessionId, SessionStatus } from "@zuse/wire";
+import {
+  CloudOffIcon,
+  Folder01Icon,
+  GitBranchIcon,
+  SentIcon,
+  Square01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
-import { CloudOff, Folder, GitBranch, Send, Square } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, Text, TextInput, View } from "react-native";
 
@@ -26,6 +32,7 @@ import {
 } from "./model-mode-menu";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
+import { HugeIcon } from "./ui/huge-icon";
 
 export const Composer = ({
   connKey,
@@ -154,7 +161,7 @@ export const Composer = ({
     >
       {queuedCount > 0 ? (
         <View className="mb-2 flex-row items-center gap-1.5 px-1">
-          <CloudOff size={13} color="hsl(42 93% 56%)" />
+          <HugeIcon icon={CloudOffIcon} size={13} color="hsl(42 93% 56%)" />
           <Text className="font-sans-medium text-xs text-warning">
             {queuedCount} queued · will send when reconnected
           </Text>
@@ -214,7 +221,7 @@ export const Composer = ({
               disabled={busy || !online}
               onPress={interrupt}
             >
-              <Square size={15} color="hsl(72 4% 92%)" />
+              <HugeIcon icon={Square01Icon} size={15} color="hsl(72 4% 92%)" />
             </Button>
           ) : null}
           <Button
@@ -227,9 +234,9 @@ export const Composer = ({
             {busy ? (
               <ActivityIndicator color="hsl(72 5% 6%)" />
             ) : online ? (
-              <Send size={15} color="hsl(72 5% 6%)" />
+              <HugeIcon icon={SentIcon} size={15} color="hsl(72 5% 6%)" />
             ) : (
-              <CloudOff size={15} color="hsl(72 4% 92%)" />
+              <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 4% 92%)" />
             )}
           </Button>
         </View>
@@ -247,9 +254,9 @@ const ChromeLabel = ({
 }) => (
   <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
     {icon === "project" ? (
-      <Folder size={13} color="hsl(72 4% 76%)" />
+      <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
     ) : (
-      <GitBranch size={13} color="hsl(72 4% 76%)" />
+      <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
     )}
     <Text
       className="min-w-0 flex-1 font-sans-medium text-[12px] text-muted-foreground"
