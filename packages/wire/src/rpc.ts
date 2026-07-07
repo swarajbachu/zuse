@@ -38,6 +38,17 @@ import {
   IndexSymbolLookupRpc,
 } from "./code-index.ts";
 import {
+  DeployCancelRpc,
+  DeployConnectConvexRpc,
+  DeployConvexStatusRpc,
+  DeployDetectRpc,
+  DeployDisconnectConvexRpc,
+  DeployEventsRpc,
+  DeployHistoryRpc,
+  DeployLastFailureRpc,
+  DeployStartRpc,
+} from "./deploy.ts";
+import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
   FsReadExternalFileRpc,
@@ -328,6 +339,15 @@ export const MemoizeRpcs = RpcGroup.make(
   IndexFindReferencesRpc,
   IndexReadChunkRpc,
   IndexListModuleRpc,
+  DeployDetectRpc,
+  DeployStartRpc,
+  DeployEventsRpc,
+  DeployCancelRpc,
+  DeployHistoryRpc,
+  DeployLastFailureRpc,
+  DeployConvexStatusRpc,
+  DeployConnectConvexRpc,
+  DeployDisconnectConvexRpc,
 );
 export type MemoizeRpcs = typeof MemoizeRpcs;
 

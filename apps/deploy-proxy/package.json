@@ -1,0 +1,22 @@
+{
+  "name": "@zuse/deploy-proxy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "dev": "bun run --hot src/dev.ts",
+    "deploy": "wrangler deploy",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "hono": "^4.6.0",
+    "jose": "^5.9.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "^4.0.0"
+  }
+}

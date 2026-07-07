@@ -21,6 +21,18 @@ export interface AuthShellShape {
   readonly onCallbackUrl: (
     handler: (url: string) => void,
   ) => Effect.Effect<void>;
+
+  /**
+   * Second callback sink for the Convex platform-OAuth flow (ADR 0022) —
+   * same buffering contract as `onCallbackUrl`, distinct URI so the host can
+   * route `/convex/callback` without ambiguity against the WorkOS flow.
+   * Convex rejects custom-scheme redirect URIs, so this should remain an
+   * `http://localhost` loopback URI.
+   */
+  readonly convexRedirectUri: string;
+  readonly onConvexCallbackUrl: (
+    handler: (url: string) => void,
+  ) => Effect.Effect<void>;
 }
 
 export class AuthShell extends Context.Tag("memoize/AuthShell")<

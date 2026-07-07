@@ -5,6 +5,7 @@ export * from "./browser.ts";
 export * from "./code-index.ts";
 export * from "./composer.ts";
 export * from "./connect.ts";
+export * from "./deploy.ts";
 export * from "./diagnostics.ts";
 export * from "./fs.ts";
 export * from "./git.ts";

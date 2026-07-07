@@ -1,0 +1,17 @@
+name = "zuse-deploy-proxy"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+# Secrets (set with `wrangler secret put <NAME>`):
+#   VERCEL_TEAM_TOKEN          — Zuse's Vercel team token (full team scope)
+#   VERCEL_TEAM_ID             — Zuse's Vercel team id (team_…)
+#   CONVEX_OAUTH_CLIENT_ID     — Zuse's Convex OAuth application client id
+#   CONVEX_OAUTH_CLIENT_SECRET — …and its secret (never ships in the desktop app)
+
+[vars]
+WORKOS_JWKS_URL = "https://api.workos.com/sso/jwks/client_01_ZUSE"
+ZUSE_APP_DOMAIN = "zuse.app"
+
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"

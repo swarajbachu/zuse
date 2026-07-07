@@ -11,6 +11,8 @@ import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { IndexRegistryLive } from "./code-index/layers/index-registry.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
+import { ConvexAuthServiceLive } from "./deploy/layers/convex-auth-service.ts";
+import { DeployServiceLive } from "./deploy/layers/deploy-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
@@ -286,6 +288,28 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AuthShellLayer),
   );
 
+  // Convex platform OAuth (ADR 0022): keychain bundle + browser consent via
+  // the same host shell as WorkOS, token exchange via the deploy-proxy
+  // (bearer = WorkOS access token from AuthService).
+  const ConvexAuthLayer = ConvexAuthServiceLive.pipe(
+    Layer.provide(CredentialsServiceLive),
+    Layer.provide(AuthShellLayer),
+    Layer.provide(AuthLayer),
+  );
+
+  // DeployService orchestrates detect → Convex → collect/upload → Vercel
+  // poll. WorkspaceService/WorktreeService resolve cwd; CommandExecutor runs
+  // `git ls-files` + `npx convex deploy`; SqlClient persists history.
+  const DeployLayer = DeployServiceLive.pipe(
+    Layer.provide(WorkspaceLayer),
+    Layer.provide(WorktreeLayer),
+    Layer.provide(ConvexAuthLayer),
+    Layer.provide(AuthLayer),
+    Layer.provide(CredentialsServiceLive),
+    Layer.provide(MigratedSqlite),
+    Layer.provide(NodeContext.layer),
+  );
+
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
@@ -318,6 +342,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     IndexLayer,
     DiagnosticsLayer,
     FolderPickerLayer,
+    ConvexAuthLayer,
+    DeployLayer,
   );
 
   const Handlers = HandlersLayer.pipe(

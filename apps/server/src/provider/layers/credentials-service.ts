@@ -181,5 +181,13 @@ export const CredentialsServiceLive = Layer.succeed(
       tryKeychain("*", () =>
         keytar.deletePassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
       ).pipe(Effect.asVoid),
+    getSecret: (account) =>
+      tryKeychain("*", () => keytar.getPassword(SERVICE_NAME, account)),
+    setSecret: (account, value) =>
+      tryKeychain("*", () => keytar.setPassword(SERVICE_NAME, account, value)),
+    removeSecret: (account) =>
+      tryKeychain("*", () =>
+        keytar.deletePassword(SERVICE_NAME, account),
+      ).pipe(Effect.asVoid),
   }),
 );

@@ -62,6 +62,22 @@ export interface CredentialsServiceShape {
     bundleJson: string,
   ) => Effect.Effect<void, CredentialsError>;
   readonly removeWorkosSession: () => Effect.Effect<void, CredentialsError>;
+
+  /**
+   * Generic namespaced keychain slots (`<kind>:<qualifier>` accounts, e.g.
+   * `convex:oauth`, `convex:deployKey:<projectId>`). Prefer these for new
+   * credential kinds over growing the interface per feature.
+   */
+  readonly getSecret: (
+    account: string,
+  ) => Effect.Effect<string | null, CredentialsError>;
+  readonly setSecret: (
+    account: string,
+    value: string,
+  ) => Effect.Effect<void, CredentialsError>;
+  readonly removeSecret: (
+    account: string,
+  ) => Effect.Effect<void, CredentialsError>;
 }
 
 export class CredentialsService extends Context.Tag(

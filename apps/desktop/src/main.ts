@@ -106,21 +106,40 @@ app.setAsDefaultProtocolClient("zuse");
 const AUTH_LOOPBACK_PORT = 8976;
 const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
 const AUTH_SCHEME_URI = "zuse://auth/callback";
+// Convex platform-OAuth callback (ADR 0022) — second sink on the same
+// loopback server, distinct path so WorkOS and Convex flows never cross
+// wires. Convex OAuth apps reject custom-scheme redirect URIs, so this stays
+// loopback in both dev and packaged builds.
+const CONVEX_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/convex/callback`;
 // Packaged builds use the custom scheme — a signed app with its own bundle id
 // (app.memoize.desktop) + Info.plist `CFBundleURLTypes` (electron-builder
 // `protocols`) resolves it unambiguously, and it's the same mechanism mobile
 // will use. Dev uses the loopback because the prebuilt Electron.app's shared
 // `com.github.Electron` bundle id makes custom schemes unroutable.
 const AUTH_REDIRECT_URI = app.isPackaged ? AUTH_SCHEME_URI : AUTH_LOOPBACK_URI;
+const CONVEX_REDIRECT_URI = CONVEX_LOOPBACK_URI;
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
   AUTH_DEEP_LINK_SCHEMES.some((scheme) => arg.startsWith(scheme));
 
+const isConvexCallbackUrl = (url: string): boolean =>
+  url.includes("/convex/callback");
+
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];
+let deliverConvexUrl: ((url: string) => void) | null = null;
+let pendingConvexUrls: string[] = [];
 
 const handleAuthCallback = (url: string): void => {
+  if (isConvexCallbackUrl(url)) {
+    if (deliverConvexUrl !== null) {
+      deliverConvexUrl(url);
+    } else {
+      pendingConvexUrls.push(url);
+    }
+    return;
+  }
   if (deliverAuthUrl !== null) {
     deliverAuthUrl(url);
   } else {
@@ -148,17 +167,19 @@ const startAuthLoopback = (): void => {
       res.end();
       return;
     }
-    if (parsed.pathname !== "/callback") {
+    if (parsed.pathname !== "/callback" && parsed.pathname !== "/convex/callback") {
       res.writeHead(404);
       res.end("Not found");
       return;
     }
     handleAuthCallback(parsed.toString());
+    const heading =
+      parsed.pathname === "/convex/callback" ? "Convex connected" : "Signed in";
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     res.end(
       `<!doctype html><meta charset="utf-8"><title>Zuse Alpha</title>` +
         `<body style="font-family:-apple-system,system-ui,sans-serif;background:#0b0b0c;color:#e5e5e5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">` +
-        `<div style="text-align:center"><h2 style="font-weight:600">Signed in</h2>` +
+        `<div style="text-align:center"><h2 style="font-weight:600">${heading}</h2>` +
         `<p style="color:#a3a3a3">You can close this tab and return to Zuse Alpha.</p></div>`,
     );
     focusMainWindow();
@@ -538,6 +559,14 @@ const authShell = {
       deliverAuthUrl = handler;
       const queued = pendingAuthUrls;
       pendingAuthUrls = [];
+      for (const url of queued) handler(url);
+    }),
+  convexRedirectUri: CONVEX_REDIRECT_URI,
+  onConvexCallbackUrl: (handler: (url: string) => void) =>
+    Effect.sync(() => {
+      deliverConvexUrl = handler;
+      const queued = pendingConvexUrls;
+      pendingConvexUrls = [];
       for (const url of queued) handler(url);
     }),
 };

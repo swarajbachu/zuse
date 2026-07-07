@@ -14,6 +14,7 @@ import {
   PanelRightOpenIcon,
   PencilEdit01Icon,
   PlayIcon,
+  RocketIcon,
   Tick01Icon,
   Upload01Icon,
   Wrench01Icon,
@@ -44,6 +45,7 @@ import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
+import { deployStatusLabel, isDeployRunning } from "./deploy-pane.tsx";
 import {
   GlassActionButton,
   GlassChip,
@@ -56,6 +58,8 @@ import {
   chatArchiveProgressLabel,
   useChatsStore,
 } from "../store/chats.ts";
+import { useBrowserNavStore } from "../store/browser-nav.ts";
+import { deployKey, useDeployStore } from "../store/deploy.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { useMergePrefs } from "../store/merge-prefs.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -934,9 +938,15 @@ export function TopBarRight() {
             <CiStatus workflow={workflow} />
           </>
         ) : null}
+        {folderId !== null ? (
+          <DeployStatusChip folderId={folderId} worktreeId={worktreeId} />
+        ) : null}
       </div>
       <div className={`flex shrink-0 items-center gap-1 ${ACTION_CLASS}`}>
         <RunButton />
+        {folderId !== null ? (
+          <DeployButton folderId={folderId} worktreeId={worktreeId} />
+        ) : null}
         {workflow.kind === "dirty" ? (
           <GlassActionButton
             tone="amber"
@@ -1125,6 +1135,144 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
     );
   }
   return null;
+}
+
+/**
+ * Deploy state chip next to CI status: spinner while a deploy runs, green
+ * "Live" that opens the URL in the browser pane, red on failure (click
+ * reveals the Deploy panel). Fed by the deploy store — live while the Deploy
+ * panel's stream is mounted, seeded here from history so the chip is correct
+ * before the panel ever opened.
+ */
+function DeployStatusChip({
+  folderId,
+  worktreeId,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+}) {
+  const latest = useDeployStore(
+    (s) => s.byKey[deployKey(folderId, worktreeId)]?.latest ?? null,
+  );
+  useEffect(() => {
+    void useDeployStore.getState().refreshLatest(folderId, worktreeId);
+  }, [folderId, worktreeId]);
+
+  if (latest === null) return null;
+  const revealDeploy = () => useUiStore.getState().revealPanel("deploy");
+
+  if (isDeployRunning(latest.status)) {
+    return (
+      <button type="button" onClick={revealDeploy} className="shrink-0">
+        <GlassChip tone="zinc">
+          <span className="flex items-center gap-1.5">
+            <HugeiconsIcon icon={Loading02Icon} className="size-3 animate-spin" />
+            {deployStatusLabel(latest.status)}
+          </span>
+        </GlassChip>
+      </button>
+    );
+  }
+  if (latest.status === "ready" && latest.url !== null) {
+    const url = latest.url;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          useBrowserNavStore.getState().navigateTo(url);
+          useUiStore.getState().revealPanel("browser");
+        }}
+        className="shrink-0"
+        title={url}
+      >
+        <GlassChip tone="green">
+          <span className="flex items-center gap-1.5">
+            <HugeiconsIcon icon={RocketIcon} className="size-3" />
+            Live
+          </span>
+        </GlassChip>
+      </button>
+    );
+  }
+  if (latest.status === "failed") {
+    return (
+      <button type="button" onClick={revealDeploy} className="shrink-0">
+        <GlassChip tone="red">Deploy failed</GlassChip>
+      </button>
+    );
+  }
+  return null;
+}
+
+/**
+ * Top-bar Deploy action. Starts a deploy directly (no agent round-trip) and
+ * reveals the Deploy panel so the log is visible; while one runs it becomes
+ * a "view progress" affordance. `ConvexAuthRequiredError` routes to the
+ * panel, where the Connect Convex CTA lives.
+ */
+function DeployButton({
+  folderId,
+  worktreeId,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+}) {
+  const latest = useDeployStore(
+    (s) => s.byKey[deployKey(folderId, worktreeId)]?.latest ?? null,
+  );
+  const [starting, setStarting] = useState(false);
+  const running = latest !== null && isDeployRunning(latest.status);
+
+  const onClick = async () => {
+    const reveal = () => useUiStore.getState().revealPanel("deploy");
+    if (running || starting) {
+      reveal();
+      return;
+    }
+    setStarting(true);
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(client.deploy.start({ folderId, worktreeId }));
+      reveal();
+    } catch (err) {
+      const tag =
+        typeof err === "object" && err !== null
+          ? (err as { _tag?: string })._tag
+          : undefined;
+      if (tag === "ConvexAuthRequiredError") {
+        reveal();
+        toastManager.add({
+          type: "info",
+          title: "Connect Convex",
+          description:
+            "This project uses Convex — connect your account in the Deploy panel.",
+        });
+      } else {
+        toastManager.add({
+          type: "error",
+          title: "Deploy failed to start",
+          description: errorMessage(err),
+        });
+      }
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return (
+    <GlassActionButton
+      tone="zinc"
+      icon={
+        running || starting ? (
+          <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />
+        ) : (
+          <HugeiconsIcon icon={RocketIcon} />
+        )
+      }
+      label={running ? "Deploying…" : starting ? "Starting…" : "Deploy"}
+      onClick={() => void onClick()}
+    />
+  );
 }
 
 /**

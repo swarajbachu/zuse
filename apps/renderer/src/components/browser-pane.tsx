@@ -11,6 +11,7 @@ import {
 
 import type { BrowserInputAction } from "../lib/bridge.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { useBrowserNavStore } from "../store/browser-nav.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
@@ -254,6 +255,16 @@ export function BrowserPane() {
     if (inputValue.trim() === "") return;
     navigate(inputValue.trim());
   };
+
+  // Programmatic navigation (deploy URL chip etc.): consume the pending
+  // request whenever its token bumps — same URL twice still reloads.
+  const pendingNavigation = useBrowserNavStore((s) => s.pendingNavigation);
+  useEffect(() => {
+    if (pendingNavigation === null) return;
+    navigate(pendingNavigation.url);
+    useBrowserNavStore.getState().consume();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- token identifies the request; navigate is re-created per render
+  }, [pendingNavigation?.token]);
 
   const go = (dir: "back" | "forward") => {
     const wv = webviewRef.current as WebviewElement | null;

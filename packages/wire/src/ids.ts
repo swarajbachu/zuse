@@ -31,3 +31,6 @@ export type ChatId = typeof ChatId.Type;
 
 export const EnvironmentId = makeEntityId("EnvironmentId");
 export type EnvironmentId = typeof EnvironmentId.Type;
+
+export const DeploymentId = makeEntityId("DeploymentId");
+export type DeploymentId = typeof DeploymentId.Type;

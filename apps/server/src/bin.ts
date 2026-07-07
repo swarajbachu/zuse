@@ -54,6 +54,10 @@ export const runHeadlessServer = (): void => {
         process.env.ZUSE_AUTH_REDIRECT_URI ?? "http://127.0.0.1/auth/callback",
       open: () => Effect.void,
       onCallbackUrl: () => Effect.void,
+      convexRedirectUri:
+        process.env.ZUSE_CONVEX_REDIRECT_URI ??
+        "http://127.0.0.1/convex/callback",
+      onConvexCallbackUrl: () => Effect.void,
     },
   });
 

@@ -4,6 +4,7 @@ import {
   GitBranchIcon,
   GitCompareIcon,
   GlobeIcon,
+  RocketIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -36,6 +37,7 @@ import {
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { BrowserPane } from "./browser-pane.tsx";
+import { DeployPane } from "./deploy-pane.tsx";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { PrPane } from "./pr-pane.tsx";
@@ -70,6 +72,7 @@ const PANEL_META: Record<
   changes: { label: "Changes", icon: GitCompareIcon },
   pr: { label: "PR", icon: GitPullRequestIcon },
   browser: { label: "Browser", icon: GlobeIcon },
+  deploy: { label: "Deploy", icon: RocketIcon },
 };
 
 /** Display order shared by the launcher and the "+" menu. */
@@ -79,6 +82,7 @@ const PANEL_ORDER: ReadonlyArray<PanelKind> = [
   "changes",
   "pr",
   "browser",
+  "deploy",
 ];
 
 /**
@@ -289,6 +293,8 @@ function PanelBody({
       return <DiffPane folderId={folderId} worktreeId={worktreeId} />;
     case "pr":
       return <PrPane folderId={folderId} worktreeId={worktreeId} />;
+    case "deploy":
+      return <DeployPane folderId={folderId} worktreeId={worktreeId} />;
     case "browser":
       // Browser is rendered once, always-mounted, by RightPane (so the agent
       // command stream survives close/collapse) — never via this map.
