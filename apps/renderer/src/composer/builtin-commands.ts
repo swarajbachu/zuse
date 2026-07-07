@@ -1,4 +1,4 @@
-import type { ProviderId } from "@memoize/wire";
+import type { ProviderId } from "@zuse/wire";
 
 /**
  * One slash-prefixed command surfaced in the composer popover.
@@ -70,9 +70,15 @@ const COMMANDS: readonly BuiltinCommand[] = [
   },
   {
     name: "goal",
-    description: "Send the next message as a Codex goal.",
+    description: "Send the next message as a goal.",
     kind: "client",
     appliesTo: "codex",
+  },
+  {
+    name: "goal",
+    description: "Send the next message as a goal.",
+    kind: "client",
+    appliesTo: "grok",
   },
   {
     name: "help",

@@ -475,6 +475,16 @@ const ContextUsageEvent = Schema.TaggedStruct("ContextUsage", {
   source: Schema.optional(Schema.String),
 });
 
+const ContextCompactionEvent = Schema.TaggedStruct("ContextCompaction", {
+  itemId: AgentItemId,
+  providerId: ProviderId,
+  startedAt: Schema.Number,
+  durationMs: Schema.Number,
+  beforeTokens: Schema.NullOr(Schema.Number),
+  afterTokens: Schema.NullOr(Schema.Number),
+  status: Schema.Literal("in_progress", "completed"),
+});
+
 const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
   providerId: ProviderId,
   label: Schema.String,
@@ -489,6 +499,16 @@ const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
 const CompletedEvent = Schema.TaggedStruct("Completed", {
   reason: Schema.Literal("ended", "interrupted", "error"),
 });
+
+/**
+ * Emitted when the user interrupts a running turn. Unlike `Error`, this is a
+ * normal user action — the renderer shows a muted "Interrupted by user" badge
+ * (no red error bubble) and the session stays out of the error state. Drivers
+ * emit this in place of `Error` when they know the turn ended because of an
+ * explicit interrupt (see the Claude driver, which otherwise surfaces the
+ * SDK's `error_during_execution` result as a bogus error).
+ */
+const InterruptedEvent = Schema.TaggedStruct("Interrupted", {});
 
 const ErrorEvent = Schema.TaggedStruct("Error", {
   message: Schema.String,
@@ -525,10 +545,9 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 
 /**
  * Structured question shape used by both `UserQuestionEvent` and the
- * persisted `userQuestion` message row. Mirrors Conductor's
- * AskUserQuestion: a question with N preset options and optional
- * multi-select. The renderer always offers an additional "Other" free-text
- * field — there is no need to include it in `options`.
+ * persisted `userQuestion` message row: a question with N preset options and
+ * optional multi-select. The renderer always offers an additional "Other"
+ * free-text field — there is no need to include it in `options`.
  */
 export const UserQuestion = Schema.Struct({
   question: Schema.String,
@@ -598,6 +617,7 @@ export const AgentEvent = Schema.Union(
   SubagentSummaryEvent,
   UsageDeltaEvent,
   ContextUsageEvent,
+  ContextCompactionEvent,
   UsageLimitEvent,
   SessionCursorEvent,
   UserQuestionEvent,
@@ -605,6 +625,7 @@ export const AgentEvent = Schema.Union(
   GoalUpdatedEvent,
   GoalClearedEvent,
   CompletedEvent,
+  InterruptedEvent,
   ErrorEvent,
 );
 export type AgentEvent = typeof AgentEvent.Type;
@@ -639,6 +660,13 @@ export const StartSessionInput = Schema.Struct({
   providerId: ProviderId,
   mode: SessionMode,
   initialPrompt: Schema.optional(Schema.String),
+  /**
+   * Internal Zuse-provided workspace context. The renderer does not set this;
+   * ProviderService fills it after resolving the project/worktree cwd so
+   * drivers can pass it through native system/developer instruction channels
+   * where available.
+   */
+  workspaceInstructions: Schema.optional(Schema.String),
   // Optional caller-supplied id. When omitted, ProviderService mints a fresh
   // one. MessageStore uses this to lazy-restart a closed session without
   // moving its persisted history to a new row.
@@ -679,6 +707,15 @@ export const StartSessionInput = Schema.Struct({
    */
   toolSearch: Schema.optional(Schema.Boolean),
   /**
+   * When true AND a resume cursor is supplied, the driver FORKS the resumed
+   * transcript into a fresh provider session instead of continuing it
+   * (Claude `Options.forkSession`, Codex `thread/fork`), leaving the source
+   * transcript untouched. Ignored without a resume cursor, and by providers
+   * that lack native fork support (they fall back to a transcript copy at a
+   * higher layer). Backs the "Fork chat" feature.
+   */
+  forkFromResume: Schema.optional(Schema.Boolean),
+  /**
    * Opaque per-model knob values. Keys map to
    * `ModelDescriptor.optionDescriptors[].id` (e.g. `"reasoning"`); values
    * are the selected option id (`"low" | "medium" | "high"`) for selects
@@ -712,6 +749,20 @@ export type StartSessionInput = typeof StartSessionInput.Type;
 export interface ModelOption {
   readonly id: string;
   readonly label: string;
+  /**
+   * Optional small picker badge for launch/newness callouts.
+   */
+  readonly badgeLabel?: string;
+  /**
+   * Preferred default for this provider. When omitted, the first visible model
+   * remains the fallback default.
+   */
+  readonly defaultModel?: boolean;
+  /**
+   * Whether this model appears in normal picker/default selectors before the
+   * user opts it back in from provider settings. Omitted means visible.
+   */
+  readonly defaultVisible?: boolean;
   readonly optionDescriptors?: ReadonlyArray<OptionDescriptor>;
   readonly supportsPlanMode?: boolean;
   readonly supportsWebSearch?: "native" | "queryOnly";
@@ -739,9 +790,8 @@ const reasoningSelectDescriptor = (
 /**
  * Per-model effort descriptor for the Claude provider. Each model declares
  * its own supported tiers (see `MODELS_BY_PROVIDER.claude` below); `ultracode`
- * is special — see `ReasoningLevel` docs. The knob id is
- * `effort` (matching the Claude SDK + t3code reference) rather than
- * `reasoning` to make driver-side mapping explicit.
+ * is special — see `ReasoningLevel` docs. The knob id is `effort` rather
+ * than `reasoning` to make driver-side mapping explicit.
  */
 const claudeEffortDescriptor = (args: {
   options: ReadonlyArray<{ id: string; label: string }>;
@@ -806,12 +856,53 @@ export const MODELS_BY_PROVIDER: Record<
   ProviderId,
   ReadonlyArray<ModelOption>
 > = {
-  // Claude 4.x catalog (May 2026). Effort tiers and per-model knobs match
-  // the published Claude Agent SDK contract — see also the t3code reference
-  // (`/Users/whizzy/Developer/temp/t3code/.../ClaudeProvider.ts`) which
-  // ships the same lineup. Ordering = newest first so the picker accordion
-  // expands Opus 4.8 by default.
+  // Claude catalog. Effort tiers and per-model knobs match
+  // the published Claude Agent SDK contract. Ordering = newest first so the
+  // picker accordion opens on the latest recommended model by default.
   claude: [
+    {
+      id: "claude-fable-5",
+      label: "Fable 5",
+      badgeLabel: "Available now",
+      optionDescriptors: [
+        claudeEffortDescriptor({
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "xhigh", label: "Extra High" },
+            { id: "max", label: "Max" },
+            { id: "ultracode", label: "Ultracode" },
+          ],
+          defaultId: "high",
+        }),
+        booleanDescriptor("fastMode", "Fast Mode"),
+        claudeContextWindowDescriptor(),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
+    {
+      id: "claude-sonnet-5",
+      label: "Sonnet 5",
+      badgeLabel: "New",
+      defaultModel: true,
+      optionDescriptors: [
+        claudeEffortDescriptor({
+          options: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+            { id: "max", label: "Max" },
+            { id: "ultracode", label: "Ultracode" },
+          ],
+          defaultId: "high",
+        }),
+        claudeContextWindowDescriptor(),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
     {
       id: "claude-opus-4-8",
       label: "Opus 4.8",
@@ -877,6 +968,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "claude-sonnet-4-6",
       label: "Sonnet 4.6",
+      defaultVisible: false,
       optionDescriptors: [
         claudeEffortDescriptor({
           options: [
@@ -903,6 +995,17 @@ export const MODELS_BY_PROVIDER: Record<
   ],
   codex: [
     {
+      id: "gpt-5.5",
+      label: "GPT-5.5",
+      // Fast tier supported — see gpt-5.4 note above.
+      optionDescriptors: [
+        reasoningSelectDescriptor("medium"),
+        booleanDescriptor("fastMode", "Fast"),
+      ],
+      supportsPlanMode: true,
+      supportsWebSearch: "native",
+    },
+    {
       id: "gpt-5.4",
       label: "GPT-5.4",
       // `fastMode` → `serviceTier: "fast"`. OpenAI only offers the fast tier on
@@ -924,19 +1027,9 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "native",
     },
     {
-      id: "gpt-5.5",
-      label: "GPT-5.5",
-      // Fast tier supported — see gpt-5.4 note above.
-      optionDescriptors: [
-        reasoningSelectDescriptor("medium"),
-        booleanDescriptor("fastMode", "Fast"),
-      ],
-      supportsPlanMode: true,
-      supportsWebSearch: "native",
-    },
-    {
       id: "gpt-5.3-codex",
       label: "GPT-5.3 Codex",
+      defaultVisible: false,
       optionDescriptors: [reasoningSelectDescriptor("medium")],
       supportsPlanMode: true,
       supportsWebSearch: "native",
@@ -944,6 +1037,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gpt-5.3-codex-spark",
       label: "GPT-5.3 Codex Spark",
+      defaultVisible: false,
       optionDescriptors: [reasoningSelectDescriptor("medium")],
       supportsPlanMode: true,
       supportsWebSearch: "native",
@@ -971,6 +1065,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "grok-4",
       label: "Grok 4",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -983,6 +1078,7 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "grok-code-fast-1",
       label: "Grok Code Fast",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1008,12 +1104,14 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "gemini-2.5-pro",
       label: "Gemini 2.5 Pro",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
     {
       id: "gemini-2.5-flash",
       label: "Gemini 2.5 Flash",
+      defaultVisible: false,
       supportsPlanMode: true,
       supportsWebSearch: "queryOnly",
     },
@@ -1035,7 +1133,12 @@ export const MODELS_BY_PROVIDER: Record<
     { id: "composer-2", label: "Composer 2", supportsPlanMode: true },
     { id: "composer-2.5", label: "Composer 2.5", supportsPlanMode: true },
     { id: "gpt-5.5", label: "GPT-5.5", supportsPlanMode: true },
-    { id: "gpt-5.3-codex", label: "Codex 5.3", supportsPlanMode: true },
+    {
+      id: "gpt-5.3-codex",
+      label: "Codex 5.3",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
     {
       id: "claude-sonnet-4-6",
       label: "Sonnet 4.6",
@@ -1045,10 +1148,16 @@ export const MODELS_BY_PROVIDER: Record<
     {
       id: "claude-opus-4-7",
       label: "Opus 4.7",
+      defaultVisible: false,
       optionDescriptors: [staticContextWindowDescriptor("1m", "1M")],
       supportsPlanMode: true,
     },
-    { id: "gemini-3.1-pro", label: "Gemini 3.1 Pro", supportsPlanMode: true },
+    {
+      id: "gemini-3.1-pro",
+      label: "Gemini 3.1 Pro",
+      defaultVisible: false,
+      supportsPlanMode: true,
+    },
   ],
   // OpenCode is a meta-provider: it spawns a local `opencode serve` and
   // forwards prompts to whichever underlying provider (anthropic, openai,
@@ -1083,7 +1192,56 @@ export const MODELS_BY_PROVIDER: Record<
 };
 
 export const defaultModelFor = (providerId: ProviderId): string =>
-  MODELS_BY_PROVIDER[providerId][0]!.id;
+  (MODELS_BY_PROVIDER[providerId].find(
+    (m) => m.defaultModel === true && m.defaultVisible !== false,
+  ) ??
+    MODELS_BY_PROVIDER[providerId].find((m) => m.defaultVisible !== false) ??
+    MODELS_BY_PROVIDER[providerId][0]!)!.id;
+
+export type ModelEnabledByProvider = Record<
+  ProviderId,
+  Record<string, boolean>
+>;
+
+export const defaultModelEnabledByProvider = (): ModelEnabledByProvider => {
+  const out = {} as ModelEnabledByProvider;
+  for (const providerId of Object.keys(MODELS_BY_PROVIDER) as ProviderId[]) {
+    out[providerId] = {};
+    for (const model of MODELS_BY_PROVIDER[providerId]) {
+      out[providerId][model.id] = model.defaultVisible !== false;
+    }
+  }
+  return out;
+};
+
+export const isModelVisible = (
+  providerId: ProviderId,
+  modelId: string,
+  modelEnabledByProvider?: Partial<
+    Record<ProviderId, Partial<Record<string, boolean>>>
+  >,
+): boolean => {
+  const override = modelEnabledByProvider?.[providerId]?.[modelId];
+  if (typeof override === "boolean") return override;
+  const descriptor = findModelDescriptor(providerId, modelId);
+  if (descriptor === undefined) return true;
+  return descriptor.defaultVisible !== false;
+};
+
+export const visibleModelsForProvider = (
+  providerId: ProviderId,
+  modelEnabledByProvider?: Partial<
+    Record<ProviderId, Partial<Record<string, boolean>>>
+  >,
+  options?: { readonly includeModelId?: string | null },
+): ReadonlyArray<ModelOption> => {
+  const includeModelId = options?.includeModelId ?? null;
+  return MODELS_BY_PROVIDER[providerId].filter(
+    (model) =>
+      isModelVisible(providerId, model.id, modelEnabledByProvider) ||
+      model.id === includeModelId,
+  );
+};
 
 /**
  * Look up a model's descriptor by `(providerId, modelId)`. Returns
@@ -1108,9 +1266,8 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
   Record<string, string>
 > = {
   // Short / vendor-formatted slugs and pre-pricing-reset names route to the
-  // canonical 4.x slugs above. Mirror of t3code's
-  // `MODEL_SLUG_ALIASES_BY_PROVIDER[CLAUDE_DRIVER_KIND]` so a user typing
-  // `opus` or `sonnet-4.6` resolves the same in both apps.
+  // canonical 4.x slugs above, so a user typing `opus` or `sonnet-4.6`
+  // resolves to the current model id.
   claude: {
     opus: "claude-opus-4-8",
     "opus-4.8": "claude-opus-4-8",
@@ -1119,7 +1276,12 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "claude-opus-4.7": "claude-opus-4-7",
     "opus-4.6": "claude-opus-4-6",
     "claude-opus-4.6": "claude-opus-4-6",
-    sonnet: "claude-sonnet-4-6",
+    fable: "claude-fable-5",
+    "fable-5": "claude-fable-5",
+    "claude-fable-5": "claude-fable-5",
+    sonnet: "claude-sonnet-5",
+    "sonnet-5": "claude-sonnet-5",
+    "claude-sonnet-5": "claude-sonnet-5",
     "sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4.6": "claude-sonnet-4-6",
     haiku: "claude-haiku-4-5",
@@ -1127,8 +1289,8 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "claude-haiku-4.5": "claude-haiku-4-5",
   },
   codex: {
-    "gpt-5-codex": "gpt-5.4",
-    "gpt-5": "gpt-5.4",
+    "gpt-5-codex": "gpt-5.5",
+    "gpt-5": "gpt-5.5",
   },
   grok: {},
   gemini: {
@@ -1210,6 +1372,18 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     output: 25,
     cacheRead: 0.5,
     cacheCreate: 6.25,
+  },
+  "claude-fable-5": {
+    input: 10,
+    output: 50,
+    cacheRead: 1,
+    cacheCreate: 12.5,
+  },
+  "claude-sonnet-5": {
+    input: 3,
+    output: 15,
+    cacheRead: 0.3,
+    cacheCreate: 3.75,
   },
   "claude-sonnet-4-6": {
     input: 3,
@@ -1359,6 +1533,31 @@ export const OpencodeInventoryProvider = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   models: Schema.Array(OpencodeInventoryModel),
+  /**
+   * `true` when opencode reports this provider in `provider.list().connected`
+   * — i.e. it has a stored credential (via `auth.set`) or an injected custom
+   * definition — so its models are actually usable. The catalog now returns
+   * every provider opencode knows about (~150), most of them unconnected; the
+   * settings UI uses this flag to split "connected" from "available to add".
+   */
+  connected: Schema.Boolean,
+  /**
+   * `true` for user-defined OpenAI-compatible providers we inject via
+   * `OPENCODE_CONFIG_CONTENT` (see `settings.opencodeCustomProviders`), as
+   * opposed to entries from opencode's built-in models.dev catalog.
+   */
+  custom: Schema.Boolean,
+  /**
+   * Name of the environment variable this provider's key is read from
+   * (`provider.list().env[0]`, e.g. `"OPENAI_API_KEY"`, `"GITHUB_TOKEN"`).
+   * Used as the API-key input placeholder. Empty for oauth-only / custom.
+   */
+  apiKeyEnv: Schema.String,
+  /**
+   * models.dev doc URL for this provider (the "Get an API key" link).
+   * Empty when unknown (custom providers, or if the catalog fetch failed).
+   */
+  apiKeyUrl: Schema.String,
 });
 export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 
@@ -1383,6 +1582,90 @@ export const AgentOpencodeInventoryRpc = Rpc.make("agent.opencodeInventory", {
   // the same shape the renderer already knows how to surface.
   error: AgentSessionStartError,
 });
+
+// ---------------------------------------------------------------------------
+// OpenCode provider management. The settings UI lets the user connect any of
+// opencode's ~150 catalog providers by pasting an API key, and define custom
+// OpenAI-compatible providers from a base URL. Keys are written through to
+// opencode's own persistent `auth.json` (via the SDK `auth.set`) so they also
+// work when the user runs `opencode` in a terminal; custom provider *shapes*
+// live in our settings.json and are injected at spawn. Each handler
+// short-lives an `opencode serve` to make the SDK call, mirroring
+// `agent.opencodeInventory`.
+// ---------------------------------------------------------------------------
+
+/** A single model exposed by a user-defined OpenAI-compatible provider. */
+export const OpencodeCustomModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+});
+export type OpencodeCustomModel = typeof OpencodeCustomModel.Type;
+
+/**
+ * User-defined OpenAI-compatible provider. `id` is the slug opencode keys the
+ * provider by (also the `auth.set` id); `apiKey` is only present on the
+ * add/update RPC payload — it is never persisted to settings.json, only to
+ * opencode's `auth.json`.
+ */
+export const OpencodeCustomProvider = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  baseURL: Schema.String,
+  /**
+   * The AI-SDK provider package opencode loads for this endpoint (e.g.
+   * `"@ai-sdk/openai-compatible"`, `"@openrouter/ai-sdk-provider"`). Picked
+   * from a small preset list in the UI; defaults to OpenAI-compatible.
+   */
+  npm: Schema.String,
+  models: Schema.Array(OpencodeCustomModel),
+});
+export type OpencodeCustomProvider = typeof OpencodeCustomProvider.Type;
+
+export const AgentOpencodeSetProviderAuthRpc = Rpc.make(
+  "agent.opencodeSetProviderAuth",
+  {
+    payload: Schema.Struct({
+      providerId: Schema.String,
+      apiKey: Schema.String,
+    }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeRemoveProviderAuthRpc = Rpc.make(
+  "agent.opencodeRemoveProviderAuth",
+  {
+    payload: Schema.Struct({ providerId: Schema.String }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeAddCustomProviderRpc = Rpc.make(
+  "agent.opencodeAddCustomProvider",
+  {
+    payload: Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      baseURL: Schema.String,
+      npm: Schema.String,
+      apiKey: Schema.String,
+      models: Schema.Array(OpencodeCustomModel),
+    }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
+
+export const AgentOpencodeRemoveCustomProviderRpc = Rpc.make(
+  "agent.opencodeRemoveCustomProvider",
+  {
+    payload: Schema.Struct({ id: Schema.String }),
+    success: Schema.Void,
+    error: AgentSessionStartError,
+  },
+);
 
 // ---------------------------------------------------------------------------
 // One-click sign-in flow. The renderer subscribes to `agent.startLogin`,

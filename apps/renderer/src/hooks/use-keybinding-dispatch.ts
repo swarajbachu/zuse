@@ -5,7 +5,7 @@ import {
   evaluateWhen,
   matchesShortcut,
   normalizeEventKey,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { APPLICATION_COMMANDS, dispatchCommand } from "../lib/commands";
 import { useKeybindingsStore } from "../store/keybindings";

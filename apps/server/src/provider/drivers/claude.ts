@@ -24,13 +24,20 @@ import {
   type StartSessionInput,
   type UserQuestion,
   type UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import {
   applyClaudeWorktreeEnv,
   claudeWorktreePrompt,
 } from "./claude-worktree-prompt.ts";
+import {
+  finishCompactEvent,
+  isCompactCommand,
+  startCompactEvent,
+  startCompactSnapshot,
+  type CompactSnapshot,
+} from "./compact.ts";
 
 /**
  * Live-only handle for one Claude SDK conversation. The orchestrator
@@ -76,13 +83,13 @@ const toSdkPermissionMode = (mode: PermissionMode): SdkPermissionMode =>
 /**
  * Name we register the in-process AskUserQuestion tool under. The SDK
  * exposes MCP tools to the model as `mcp__<server>__<tool>`, so the
- * model sees `mcp__memoize__ask_user_question` and the translator
+ * model sees `mcp__zuse__ask_user_question` and the translator
  * matches on that exact prefix to emit `UserQuestion` instead of a
  * generic `ToolUse`.
  */
-const MEMOIZE_MCP_NAME = "memoize";
+const ZUSE_MCP_NAME = "zuse";
 const ASK_USER_QUESTION_TOOL = "ask_user_question";
-const ASK_USER_QUESTION_FQN = `mcp__${MEMOIZE_MCP_NAME}__${ASK_USER_QUESTION_TOOL}`;
+const ASK_USER_QUESTION_FQN = `mcp__${ZUSE_MCP_NAME}__${ASK_USER_QUESTION_TOOL}`;
 
 /**
  * Anthropic accepts these media types as image content blocks. Anything else
@@ -277,6 +284,21 @@ interface TranslateState {
    * when the turn's `result` lands (which carries the real `contextWindow`).
    */
   lastContextUsedTokens: number | null;
+  pendingCompact: CompactSnapshot | null;
+  /**
+   * Set once we've re-emitted an auth failure as an Error from a top-level
+   * assistant text block, so the turn's terminal `result` doesn't surface the
+   * same failure a second time.
+   */
+  emittedAuthError: boolean;
+  /**
+   * Set when the user interrupts the running turn (`handle.interrupt`). The SDK
+   * ends an interrupted turn with an `error_during_execution` result, which
+   * would otherwise surface as a bogus error bubble; while this flag is set the
+   * translator emits an `Interrupted` event + `Completed reason:"interrupted"`
+   * instead. Reset per turn once consumed.
+   */
+  interrupted: boolean;
 }
 
 const newTranslateState = (): TranslateState => ({
@@ -287,6 +309,9 @@ const newTranslateState = (): TranslateState => ({
   askUserQuestionIds: new Set(),
   exitPlanModeIds: new Set(),
   lastContextUsedTokens: null,
+  pendingCompact: null,
+  emittedAuthError: false,
+  interrupted: false,
 });
 
 const isAgentToolUse = (block: { type?: string; name?: string }): boolean =>
@@ -423,6 +448,60 @@ const claudeRateLimitEvents = (
   ];
 };
 
+// When the `claude` CLI/SDK runs without valid credentials it does NOT throw —
+// it reports the failure as ordinary output ("Not logged in · Please run
+// /login", "Invalid API key", a 401 result). Left untranslated that renders as
+// a confusing assistant message the user can't act on. We sniff the signature
+// so it can be re-emitted as a structured `Error` event, which the renderer
+// turns into the "Authentication required → Sign in to Claude" card.
+const CLAUDE_AUTH_FAILURE_PATTERN =
+  /not logged in|please run \/login|\/login\b|invalid api key|invalid authentication credentials|\bunauthorized\b|oauth token (?:has )?expired|authentication_error|\b401\b/i;
+
+export const looksLikeClaudeAuthFailure = (text: string): boolean =>
+  CLAUDE_AUTH_FAILURE_PATTERN.test(text);
+
+/**
+ * Pull the human-readable error text out of a `result` message. Treat only
+ * explicit failure signals as provider errors. Claude can return assistant
+ * prose in `result` even when `subtype` is not exactly `"success"`; rendering
+ * that prose as an Error creates a bogus "Provider error" bubble.
+ */
+export const claudeResultErrorText = (msg: SDKMessage): string | null => {
+  const m = msg as {
+    subtype?: string;
+    is_error?: boolean;
+    result?: unknown;
+    errors?: unknown;
+    api_error_status?: unknown;
+  };
+  const status =
+    typeof m.api_error_status === "number" ? m.api_error_status : null;
+  const errors = Array.isArray(m.errors)
+    ? m.errors.filter((e): e is string => typeof e === "string")
+    : [];
+  const isError =
+    m.is_error === true ||
+    errors.length > 0 ||
+    (status !== null && status >= 400);
+  if (!isError) {
+    const subtype = typeof m.subtype === "string" ? m.subtype : "";
+    const hasResult =
+      typeof m.result === "string" && m.result.trim().length > 0;
+    if (subtype.startsWith("error") && !hasResult) {
+      return "The agent run ended with an error.";
+    }
+    return null;
+  }
+  const parts: string[] = [];
+  if (typeof m.result === "string" && m.result.trim().length > 0) {
+    parts.push(m.result.trim());
+  }
+  parts.push(...errors);
+  if (status !== null) parts.push(`API Error: ${status}`);
+  const text = parts.join("\n").trim();
+  return text.length > 0 ? text : "The agent run ended with an error.";
+};
+
 /**
  * Translate one SDKMessage into zero-or-more wire AgentEvents. Mostly
  * stateless, but the `state` carries thinking-delta accumulators across
@@ -484,6 +563,19 @@ const translate = (
       for (const block of content) {
         blockTypes.push(String((block as { type?: unknown }).type));
         if (block.type === "text" && typeof block.text === "string") {
+          // An unauthenticated `claude` surfaces "Not logged in · Please run
+          // /login" as a top-level assistant text block. Re-emit it as an
+          // Error so the renderer shows the sign-in card instead of a dead-end
+          // message. Only at the top level — a sub-agent quoting "/login" in
+          // its reasoning shouldn't trip this.
+          if (
+            parentItemId === undefined &&
+            looksLikeClaudeAuthFailure(block.text)
+          ) {
+            out.push({ _tag: "Error", message: block.text.trim() });
+            state.emittedAuthError = true;
+            continue;
+          }
           out.push({
             _tag: "AssistantMessage",
             itemId: nextItemId(),
@@ -803,6 +895,8 @@ const translate = (
         const v = usage[key];
         return typeof v === "number" ? v : 0;
       };
+      const compactAfterTokens =
+        state.pendingCompact !== null ? num("output_tokens") : 0;
       out.push({
         _tag: "UsageDelta",
         parentItemId,
@@ -812,6 +906,9 @@ const translate = (
         cacheCreationTokens: num("cache_creation_input_tokens"),
         model: modelOnResult,
       });
+      if (state.pendingCompact !== null && compactAfterTokens > 0) {
+        state.lastContextUsedTokens = compactAfterTokens;
+      }
     }
     // The session-level `result` (no parent_tool_use_id) closes the turn.
     // A sub-agent's `result` does NOT close the parent's turn — the SDK
@@ -830,11 +927,44 @@ const translate = (
           source: "Claude usage",
         });
       }
+      if (state.pendingCompact !== null) {
+        out.push(
+          finishCompactEvent({
+            itemId: state.pendingCompact.itemId,
+            providerId: "claude",
+            snapshot: state.pendingCompact,
+            afterTokens: state.lastContextUsedTokens,
+          }),
+        );
+        state.pendingCompact = null;
+      }
+      // The user interrupted this turn. The SDK ends it with an
+      // `error_during_execution` result, but that's a normal user action — emit
+      // a muted `Interrupted` badge + non-error completion instead of an Error
+      // bubble, and skip the failed-result handling below.
+      if (state.interrupted) {
+        out.push({ _tag: "Interrupted" });
+        out.push({ _tag: "Completed", reason: "interrupted" });
+        state.interrupted = false;
+        state.emittedAuthError = false;
+        return out;
+      }
+      // Surface a failed result's text as an Error so it persists + renders
+      // (auth failures the SDK reports via the result rather than an assistant
+      // block land here). `state.emittedAuthError` dedupes against the
+      // assistant-block path above so we don't show the card twice.
+      const resultError = claudeResultErrorText(msg);
+      if (resultError !== null && !state.emittedAuthError) {
+        out.push({ _tag: "Error", message: resultError });
+      }
       out.push(
-        msg.subtype === "success"
+        resultError === null
           ? { _tag: "Completed", reason: "ended" }
           : { _tag: "Completed", reason: "error" },
       );
+      // The result closes the top-level turn — reset the per-turn auth dedupe
+      // so a later turn that fails auth still surfaces its own card.
+      state.emittedAuthError = false;
     }
     return out;
   }
@@ -844,6 +974,13 @@ const translate = (
     return info === undefined ? [] : claudeRateLimitEvents(info);
   }
   return [];
+};
+
+export const translateClaudeSdkMessages = (
+  messages: ReadonlyArray<SDKMessage>,
+): ReadonlyArray<AgentEvent> => {
+  const state = newTranslateState();
+  return messages.flatMap((message) => translate(message, state));
 };
 
 /**
@@ -866,32 +1003,26 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "BashOutput",
   "TodoWrite",
   ASK_USER_QUESTION_FQN,
-  // Memoize code-index tools. All five are strict reads against the
-  // worktree-local SQLite — they can't mutate anything, so prompting on
-  // every call (and failing to dedupe because the per-input JSON ends up
-  // in the kindKey) is pure noise. Auto-allow them like Grep/Glob.
-  `mcp__${MEMOIZE_MCP_NAME}__code_search`,
-  `mcp__${MEMOIZE_MCP_NAME}__symbol_lookup`,
-  `mcp__${MEMOIZE_MCP_NAME}__find_references`,
-  `mcp__${MEMOIZE_MCP_NAME}__read_chunk`,
-  `mcp__${MEMOIZE_MCP_NAME}__list_module`,
   // Agent browser — navigate / screenshot / snapshot / wait are read-only and
   // fully visible to the user (the page loads in the on-screen webview,
-  // screenshots flash a shutter). Auto-allow like the index reads.
+  // screenshots flash a shutter). Auto-allow like Grep/Glob.
   // `browser_click` and `browser_type` are deliberately absent: they mutate
   // page state, so they fall through to the regular permission prompt.
-  `mcp__${MEMOIZE_MCP_NAME}__browser_navigate`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_screenshot`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_snapshot`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_wait`,
+  `mcp__${ZUSE_MCP_NAME}__browser_navigate`,
+  `mcp__${ZUSE_MCP_NAME}__browser_screenshot`,
+  `mcp__${ZUSE_MCP_NAME}__browser_snapshot`,
+  `mcp__${ZUSE_MCP_NAME}__browser_wait`,
   // Read-only / non-mutating browsing: scroll, hover, read text, console,
-  // and history (back/forward/reload — like navigate, which also auto-allows).
-  // `browser_select` and `browser_press` change page state, so they prompt.
-  `mcp__${MEMOIZE_MCP_NAME}__browser_scroll`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_hover`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_read`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_console`,
-  `mcp__${MEMOIZE_MCP_NAME}__browser_history`,
+  // network (pure read of captured request metadata), and history
+  // (back/forward/reload — like navigate, which also auto-allows).
+  // `browser_select`, `browser_press`, `browser_fill_form`, and
+  // `browser_dialog` change page state, so they prompt.
+  `mcp__${ZUSE_MCP_NAME}__browser_scroll`,
+  `mcp__${ZUSE_MCP_NAME}__browser_hover`,
+  `mcp__${ZUSE_MCP_NAME}__browser_read`,
+  `mcp__${ZUSE_MCP_NAME}__browser_console`,
+  `mcp__${ZUSE_MCP_NAME}__browser_network`,
+  `mcp__${ZUSE_MCP_NAME}__browser_history`,
 ]);
 
 /**
@@ -946,7 +1077,7 @@ const editPathOf = (toolInput: Record<string, unknown>): string =>
 /**
  * Match every "ask the user a question" surface we know about. The
  * Claude SDK has a built-in `AskUserQuestion` tool (PascalCase) that
- * the model can call; we register our own `mcp__memoize__ask_user_question`
+ * the model can call; we register our own `mcp__zuse__ask_user_question`
  * to drive a renderer card. Either form should bypass the permission
  * toast — asking permission to ask a question is double-prompting.
  *
@@ -1091,7 +1222,7 @@ export type RequestPermission = (
 
 /**
  * Resolve the SDK `effort` field and the per-session `settings` slice from
- * the FE picker's `modelOptions`. Mirrors the t3code reference:
+ * the FE picker's `modelOptions`:
  *   - `ultracode`  → `effort: "xhigh"` + `settings.ultracode: true`
  *   - `ultrathink` → prompt-injected (driver-side prefix added at send()
  *                    time); SDK `effort` stays unset so the model still
@@ -1149,9 +1280,8 @@ const effortAndSettings = (
 
 /**
  * If the user's effort selection is `ultrathink`, prepend the literal word
- * to the prompt and unset the SDK effort knob. Mirrors t3code's
- * `promptInjectedValues` contract. Driver hooks call this before forwarding
- * the user's text to the SDK.
+ * to the prompt and unset the SDK effort knob. Driver hooks call this before
+ * forwarding the user's text to the SDK.
  */
 export const applyUltrathinkPrefix = (
   modelOptions: Readonly<Record<string, string>> | undefined,
@@ -1196,10 +1326,8 @@ export const startClaudeSession = (
   getRuntimeMode: GetRuntimeMode,
   resumeCursor: string | null = null,
   // Extra MCP tools to register inside the in-process memoize MCP server.
-  // Phase B uses this to expose `code_search`, `symbol_lookup`,
-  // `find_references`, `read_chunk`, `list_module` from `@memoize/index`.
-  // Tools arrive already bound to the session's worktree handle, so the
-  // driver itself stays path-agnostic. Typed loosely because the SDK's
+  // Tools arrive already bound to their session-specific backing service, so
+  // the driver itself stays path-agnostic. Typed loosely because the SDK's
   // `SdkMcpToolDefinition` is parameterized by each tool's zod schema and
   // doesn't compose across distinct shapes in an array.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1402,7 +1530,7 @@ export const startClaudeSession = (
     );
 
     const memoizeMcpServer = createSdkMcpServer({
-      name: MEMOIZE_MCP_NAME,
+      name: ZUSE_MCP_NAME,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tools: [askUserQuestionToolDefinition, ...extraTools] as any,
       alwaysLoad: !(input.toolSearch ?? false),
@@ -1446,7 +1574,9 @@ export const startClaudeSession = (
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: claudeWorktreePrompt(cwd),
+        append: [input.workspaceInstructions, claudeWorktreePrompt(cwd)]
+          .filter((part): part is string => part !== undefined)
+          .join("\n\n"),
       },
       abortController: abort,
       ...(claudeExecutablePath !== null
@@ -1461,7 +1591,7 @@ export const startClaudeSession = (
               (t) => !subagentOptions.allowedTools!.includes(t),
             )),
       ],
-      mcpServers: { [MEMOIZE_MCP_NAME]: memoizeMcpServer },
+      mcpServers: { [ZUSE_MCP_NAME]: memoizeMcpServer },
       permissionMode: toSdkPermissionMode(initialPermissionMode),
       // Trim the SDK's stock plan-mode body to nudge the agent toward
       // memoize's two structured-interaction tools. The SDK still wraps
@@ -1552,9 +1682,15 @@ export const startClaudeSession = (
     });
 
     // If the caller has a resume cursor, hand it to the SDK before opening
-    // the conversation. Mutually exclusive with `forkSession` per SDK docs.
+    // the conversation. When `forkFromResume` is set (the "Fork chat"
+    // feature), also pass `forkSession: true` so the SDK branches the resumed
+    // transcript into a NEW session_id — the source session's transcript is
+    // left untouched and both can run independently.
     if (resumeCursor !== null) {
       options.resume = resumeCursor;
+      if (input.forkFromResume === true) {
+        options.forkSession = true;
+      }
     }
 
     let q: Query;
@@ -1600,6 +1736,16 @@ export const startClaudeSession = (
     }).pipe(
       Effect.catchAll((cause) =>
         Effect.sync(() => {
+          // If the SDK threw out of the `for await` because the user
+          // interrupted (rather than yielding an `error_during_execution`
+          // result), surface the muted interrupted badge, not an error. Emit a
+          // non-error completion too so the turn isn't left pinned at running.
+          if (translateState.interrupted) {
+            translateState.interrupted = false;
+            events.unsafeOffer({ _tag: "Interrupted" });
+            events.unsafeOffer({ _tag: "Completed", reason: "interrupted" });
+            return;
+          }
           events.unsafeOffer({
             _tag: "Error",
             message: cause instanceof Error ? cause.message : String(cause),
@@ -1615,11 +1761,25 @@ export const startClaudeSession = (
       events: Mailbox.toStream(events),
       send: (text, attachmentRefs) =>
         Effect.promise(async () => {
+          const compactCommand = isCompactCommand(text);
+          if (compactCommand) {
+            translateState.pendingCompact = startCompactSnapshot(
+              translateState.lastContextUsedTokens,
+            );
+            events.unsafeOffer(
+              startCompactEvent({
+                providerId: "claude",
+                snapshot: translateState.pendingCompact,
+              }),
+            );
+          }
           // Ultrathink is the only `effort` tier that's not forwarded to
           // the SDK as a knob — instead the literal word `"ultrathink"` is
           // prepended to the user's prompt. The session-level modelOptions
           // were captured at start() so we can apply the prefix here.
-          const promptText = applyUltrathinkPrefix(input.modelOptions, text);
+          const promptText = compactCommand
+            ? text.trim()
+            : applyUltrathinkPrefix(input.modelOptions, text);
           console.log(
             `[claude.send] sessionId=${sessionId} textLen=${promptText.length} attachments=${attachmentRefs?.length ?? 0}`,
           );
@@ -1648,10 +1808,20 @@ export const startClaudeSession = (
           );
         }),
       interrupt: () =>
-        Effect.tryPromise({
-          try: () => q.interrupt(),
-          catch: (cause) => cause,
-        }).pipe(Effect.catchAll(() => Effect.void)),
+        Effect.sync(() => {
+          // Mark the turn as interrupted so the terminal `result`
+          // (`error_during_execution`) is translated into an `Interrupted`
+          // badge instead of an error bubble.
+          translateState.interrupted = true;
+        }).pipe(
+          Effect.zipRight(
+            Effect.tryPromise({
+              try: () => q.interrupt(),
+              catch: (cause) => cause,
+            }),
+          ),
+          Effect.catchAll(() => Effect.void),
+        ),
       close: () =>
         Effect.sync(() => {
           // Unblock any in-flight AskUserQuestion calls so the SDK turn

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   buildUpdateCommand,
+  claudeAuthTestHelpers,
   compareCliVersion,
   deriveLatestAdvisory,
   grokAuthTestHelpers,
@@ -13,6 +14,7 @@ import {
 
 const { parseGrokAuthJson, extractTier, decodeJwtPayload } =
   grokAuthTestHelpers;
+const { parseClaudeCredentials } = claudeAuthTestHelpers;
 
 describe("parseCliVersion", () => {
   it("pulls the first dotted triple out of labelled output", () => {
@@ -183,6 +185,66 @@ describe("grok auth probe — tier extraction & parseGrokAuthJson", () => {
   });
 });
 
+describe("parseClaudeCredentials — subscription gating", () => {
+  const blob = (subscriptionType?: string, email = "user@anthropic.com") =>
+    JSON.stringify({
+      claudeAiOauth: {
+        ...(subscriptionType !== undefined ? { subscriptionType } : {}),
+        emailAddress: email,
+      },
+    });
+
+  it("labels a Pro plan without gating it", () => {
+    const info = parseClaudeCredentials(blob("pro"));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel).toBe("Claude Pro Subscription");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+    expect(info.authEmail).toBe("user@anthropic.com");
+  });
+
+  it("labels a Max plan without gating it", () => {
+    const info = parseClaudeCredentials(blob("max"));
+    expect(info.authLabel).toBe("Claude Max Subscription");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("normalises tier casing before matching", () => {
+    expect(parseClaudeCredentials(blob("Pro")).authLabel).toBe(
+      "Claude Pro Subscription",
+    );
+  });
+
+  it("does NOT gate an unknown/unmapped tier (a paid login is still valid)", () => {
+    // Regression: a base Pro user whose tier string we don't map (or whose blob
+    // omits it) must not be told to subscribe — the OAuth login proves a paid
+    // account and the runtime does the real entitlement check.
+    const info = parseClaudeCredentials(blob("max_5x_20250101"));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("does NOT gate when subscriptionType is missing", () => {
+    const info = parseClaudeCredentials(blob(undefined));
+    expect(info.authStatus).toBe("authenticated");
+    expect(info.authLabel?.toLowerCase()).not.toContain("require");
+  });
+
+  it("gates only an explicitly free tier", () => {
+    const info = parseClaudeCredentials(blob("free"));
+    expect(info.authLabel).toBe("Requires Claude Pro");
+    expect(info.authLabel?.toLowerCase()).toContain("require");
+  });
+
+  it("falls back to authenticated for non-JSON / OAuth-less blobs", () => {
+    expect(parseClaudeCredentials("{not json").authStatus).toBe(
+      "authenticated",
+    );
+    expect(parseClaudeCredentials(JSON.stringify({})).authStatus).toBe(
+      "authenticated",
+    );
+  });
+});
+
 describe("deriveLatestAdvisory — update-available verdict", () => {
   it("reports behind when installed < latest", () => {
     expect(deriveLatestAdvisory("1.0.5", "1.0.9")).toBe("behind");
@@ -213,23 +275,21 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 });
 
 describe("selectCliPathCandidate", () => {
-  it("prefers a user Codex install over Conductor's managed Codex shim", () => {
+  it("prefers a user Codex install over a managed Codex shim", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
         "/Users/me/.nvm/versions/node/v23.10.0/bin/codex",
       ]),
     ).toBe("/Users/me/.nvm/versions/node/v23.10.0/bin/codex");
   });
 
-  it("falls back to Conductor's managed Codex when it is the only candidate", () => {
+  it("does not select a managed Codex shim when it is the only candidate", () => {
     expect(
       selectCliPathCandidate("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
       ]),
-    ).toBe(
-      "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
-    );
+    ).toBeNull();
   });
 
   it("keeps first PATH match for non-Codex providers", () => {
@@ -243,15 +303,13 @@ describe("selectCliPathCandidate", () => {
 });
 
 describe("buildUpdateCommand — install-method detection", () => {
-  it("uses the exact Conductor-managed standalone Codex binary updater", () => {
+  it("does not offer an updater for a managed standalone Codex shim", () => {
     expect(
       buildUpdateCommand("codex", [
-        "/Users/me/Library/Application Support/com.conductor.app/./bin/codex",
-        "/Users/me/Library/Application Support/com.conductor.app/agent-binaries/codex/0.138.0/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/./bin/codex",
+        "/Users/me/Library/Application Support/app.memoize.desktop/agent-binaries/codex/0.138.0/codex",
       ]),
-    ).toBe(
-      "'/Users/me/Library/Application Support/com.conductor.app/./bin/codex' update",
-    );
+    ).toBeNull();
   });
 
   it("uses the native self-updater for a native Claude install", () => {

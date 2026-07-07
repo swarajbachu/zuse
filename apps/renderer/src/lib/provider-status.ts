@@ -1,9 +1,9 @@
-import type { AgentAvailability, ProviderId } from "@memoize/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/wire";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the
  * onboarding card, settings card, and any future provider chip share one
- * language. Mirrors `t3code/apps/web/src/components/settings/providerStatus.ts`.
+ * language.
  */
 export const PROVIDER_STATUS_STYLES = {
   ready: { dot: "bg-emerald-400" },
@@ -31,6 +31,13 @@ export interface ProviderSummary {
   readonly authEmail: string | null;
   /** When true, the headline is a CTA — render with stronger emphasis. */
   readonly actionable: boolean;
+}
+
+export function isInitialProviderAvailabilityLoading(
+  loading: boolean,
+  availabilityLoaded: boolean,
+): boolean {
+  return loading && !availabilityLoaded;
 }
 
 const PROVIDER_DISPLAY: Record<ProviderId, string> = {

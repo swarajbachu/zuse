@@ -325,9 +325,75 @@ export const GitPrDetailsRpc = Rpc.make("git.prDetails", {
 });
 
 /**
+ * Lightweight PR row for the "Create from…" picker. One entry per open PR from
+ * `gh pr list`. `headRefName` is the PR's branch — the picker checks it out
+ * into a worktree and pins the new chat to it. `updatedAt` drives the "most
+ * recently touched first" ordering the picker shows.
+ */
+export class GitPrSummary extends Schema.Class<GitPrSummary>("GitPrSummary")({
+  number: Schema.Number,
+  title: Schema.String,
+  author: Schema.String,
+  headRefName: Schema.String,
+  isDraft: Schema.Boolean,
+  state: Schema.String,
+  updatedAt: Schema.DateFromString,
+}) {}
+
+/**
+ * Lightweight issue row for the "Create from…" picker. Selecting one fetches
+ * its Markdown (`git.issueMarkdown`) to attach + pre-fill the composer; issues
+ * have no branch so they never check out a worktree.
+ */
+export class GitIssueSummary extends Schema.Class<GitIssueSummary>(
+  "GitIssueSummary",
+)({
+  number: Schema.Number,
+  title: Schema.String,
+  author: Schema.String,
+  state: Schema.String,
+  labels: Schema.Array(Schema.String),
+  updatedAt: Schema.DateFromString,
+}) {}
+
+/**
+ * List open PRs via `gh pr list`. Collapses to an empty array when `gh` is
+ * missing / unauthenticated / the repo has no GitHub remote — the picker just
+ * shows an empty PRs tab rather than surfacing an error.
+ */
+export const GitListPrsRpc = Rpc.make("git.listPrs", {
+  payload: Schema.Struct({ folderId: FolderId }),
+  success: Schema.Array(GitPrSummary),
+  error: GitErrors,
+});
+
+/** List open issues via `gh issue list`. Same graceful degradation as listPrs. */
+export const GitListIssuesRpc = Rpc.make("git.listIssues", {
+  payload: Schema.Struct({ folderId: FolderId }),
+  success: Schema.Array(GitIssueSummary),
+  error: GitErrors,
+});
+
+/**
+ * Render a single issue (`gh issue view`) as Markdown so it can be written to
+ * `.context/files/` and attached to a new chat as an `@`-file. The server does
+ * the JSON→Markdown formatting so both drivers get identical text.
+ */
+export const GitIssueMarkdownRpc = Rpc.make("git.issueMarkdown", {
+  payload: Schema.Struct({ folderId: FolderId, number: Schema.Number }),
+  success: Schema.Struct({
+    number: Schema.Number,
+    title: Schema.String,
+    url: Schema.String,
+    markdown: Schema.String,
+  }),
+  error: GitErrors,
+});
+
+/**
  * Captured CI failure artifact. The server pulled logs for every failing
  * check via `gh run view --log-failed`, concatenated them with run-name
- * dividers, and wrote them to `.memoize/failing-checks-<ts>.txt` inside the
+ * dividers, and wrote them to `.zuse/failing-checks-<ts>.txt` inside the
  * worktree. The renderer attaches `relPath` to the composer so the agent can
  * read it as `@<relPath>`.
  */

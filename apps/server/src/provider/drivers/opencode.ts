@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,13 +12,14 @@ import {
   type AgentItemId,
   type AgentSessionId,
   type AttachmentRef,
+  type OpencodeCustomProvider,
   type OpencodeInventory,
   type OpencodeInventoryAgent,
   type OpencodeInventoryProvider,
   type PermissionMode,
   type StartSessionInput,
   type UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import {
   createOpencodeClient,
@@ -28,6 +30,13 @@ import {
 } from "@opencode-ai/sdk";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import {
+  finishCompactEvent,
+  isCompactCommand,
+  startCompactEvent,
+  startCompactSnapshot,
+} from "./compact.ts";
+import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live handle for one OpenCode conversation. Mirrors the other driver
@@ -74,11 +83,11 @@ const OPENCODE_DEBUG = process.env.MEMOIZE_DEBUG_OPENCODE === "1";
 const LOG_PATH = ((): string => {
   try {
     const base = process.env.HOME ? homedir() : tmpdir();
-    const dir = join(base, ".cache", "memoize");
+    const dir = join(base, ".cache", "zuse");
     mkdirSync(dir, { recursive: true });
     return join(dir, "opencode.log");
   } catch {
-    return join(tmpdir(), "memoize-opencode.log");
+    return join(tmpdir(), "zuse-opencode.log");
   }
 })();
 
@@ -101,10 +110,8 @@ const ddump = (label: string, value: unknown, maxLen = 2000): void => {
   if (!OPENCODE_DEBUG) return;
   let json: string;
   try {
-    json = JSON.stringify(
-      value,
-      (_, v) =>
-        typeof v === "string" && v.length > 600 ? `${v.slice(0, 600)}…` : v,
+    json = JSON.stringify(value, (_, v) =>
+      typeof v === "string" && v.length > 600 ? `${v.slice(0, 600)}…` : v,
     );
   } catch {
     json = String(value);
@@ -119,8 +126,47 @@ if (OPENCODE_DEBUG) {
 
 const OPENCODE_EMPTY_CONFIG = "{}";
 
-// stdout marker the opencode server prints once it's bound to the port —
-// mirrors t3code's `parseServerUrlFromOutput`. We grep for either the
+/**
+ * Resolve opencode's global `auth.json` — the same file `opencode auth login`
+ * writes, so credentials we manage in-app are shared with the user's terminal
+ * opencode. Honours `XDG_DATA_HOME`, else the platform default.
+ */
+const opencodeAuthPath = (): string => {
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share");
+  return join(base, "opencode", "auth.json");
+};
+
+/**
+ * Build the `OPENCODE_CONFIG_CONTENT` JSON handed to `opencode serve`. It
+ * injects the user's custom OpenAI-compatible providers so both inventory
+ * scans and live sessions see them. API keys are deliberately NOT included
+ * here — opencode reads them from its own `auth.json` (written via
+ * `auth.set`), keyed by provider id. Returns `"{}"` when there are no custom
+ * providers, preserving the original behaviour.
+ */
+const buildOpencodeConfigContent = (
+  customProviders: ReadonlyArray<OpencodeCustomProvider>,
+): string => {
+  if (customProviders.length === 0) return OPENCODE_EMPTY_CONFIG;
+  const provider: Record<string, unknown> = {};
+  for (const p of customProviders) {
+    const models: Record<string, { name: string }> = {};
+    for (const m of p.models) models[m.id] = { name: m.name };
+    provider[p.id] = {
+      name: p.name,
+      npm: p.npm.length > 0 ? p.npm : "@ai-sdk/openai-compatible",
+      options: { baseURL: p.baseURL },
+      models,
+    };
+  }
+  return JSON.stringify({ provider });
+};
+
+type OpencodeClient = ReturnType<typeof createOpencodeClient>;
+
+// stdout marker the opencode server prints once it's bound to the port. We
+// grep for either the
 // human-readable line or any naked URL on a line by itself so future
 // server message tweaks don't break the handshake.
 const SERVER_READY_REGEX = /(https?:\/\/[^\s]+)/;
@@ -129,8 +175,8 @@ const SERVER_READY_REGEX = /(https?:\/\/[^\s]+)/;
  * Grab a free TCP port. We bind to port 0, read the kernel-assigned port,
  * close the socket, and hand the number to `opencode serve`. A tiny race
  * window remains (another process could grab the port between our close
- * and opencode's bind) but it's the same approach t3code uses and the
- * worst case is a clean spawn error we surface as `AgentSessionStartError`.
+ * and opencode's bind); the worst case is a clean spawn error we surface as
+ * `AgentSessionStartError`.
  */
 const findFreePort = (): Promise<number> =>
   new Promise((resolve, reject) => {
@@ -163,6 +209,7 @@ interface OpencodeServerProcess {
 const spawnOpencodeServer = (
   opencodePath: string,
   cwd: string,
+  configContent: string = OPENCODE_EMPTY_CONFIG,
   timeoutMs = 10_000,
 ): Promise<OpencodeServerProcess> =>
   // eslint-disable-next-line no-async-promise-executor
@@ -182,7 +229,7 @@ const spawnOpencodeServer = (
         cwd,
         env: {
           ...process.env,
-          OPENCODE_CONFIG_CONTENT: OPENCODE_EMPTY_CONFIG,
+          OPENCODE_CONFIG_CONTENT: configContent,
         },
         // Detach so SIGTERM can take down the whole process group on Unix.
         // On Windows we leave the default — `child.kill` walks the tree.
@@ -322,7 +369,8 @@ const canonicalizeOpencodeInput = (
 
   switch (canonicalTool) {
     case "Read": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       if (typeof obj["offset"] === "number") out["offset"] = obj["offset"];
@@ -330,7 +378,8 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "Edit": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       const oldS = asStr(obj["oldString"]) ?? asStr(obj["old_string"]);
@@ -342,17 +391,16 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "MultiEdit": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const rawEdits = Array.isArray(obj["edits"]) ? obj["edits"] : [];
       // Renderer's `extractEdits` reads `{old_string,new_string}` per entry.
       const edits = rawEdits.map((e) => {
         if (e === null || typeof e !== "object") return {};
         const r = e as Record<string, unknown>;
         return {
-          old_string:
-            asStr(r["oldString"]) ?? asStr(r["old_string"]) ?? "",
-          new_string:
-            asStr(r["newString"]) ?? asStr(r["new_string"]) ?? "",
+          old_string: asStr(r["oldString"]) ?? asStr(r["old_string"]) ?? "",
+          new_string: asStr(r["newString"]) ?? asStr(r["new_string"]) ?? "",
         };
       });
       const out: Record<string, unknown> = { edits };
@@ -360,7 +408,8 @@ const canonicalizeOpencodeInput = (
       return out;
     }
     case "Write": {
-      const file_path = asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
+      const file_path =
+        asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       if (typeof obj["content"] === "string") out["content"] = obj["content"];
@@ -494,14 +543,13 @@ const translatePart = (
       // call but bump `part.id` between snapshots in some opencode builds)
       // collapse onto a single tool row in the renderer. Falls back to
       // `id` when callID isn't present.
-      const id = ((part.callID ?? part.id) as string) as AgentItemId;
+      const id = (part.callID ?? part.id) as string as AgentItemId;
       const status = part.state.status;
       const rawTool = part.tool;
       const canonicalTool =
         OPENCODE_TOOL_NAME[rawTool.toLowerCase()] ??
         rawTool.charAt(0).toUpperCase() + rawTool.slice(1);
-      const title =
-        asStr((part.state as { title?: unknown }).title) ?? null;
+      const title = asStr((part.state as { title?: unknown }).title) ?? null;
       const canonicalInput = canonicalizeOpencodeInput(
         canonicalTool,
         part.state.input,
@@ -523,10 +571,7 @@ const translatePart = (
           : {};
       const hasUsefulInput = Object.keys(inputObj).length > 0;
       const isTerminal = status === "completed" || status === "error";
-      if (
-        !state.emittedToolUseIds.has(id) &&
-        (hasUsefulInput || isTerminal)
-      ) {
+      if (!state.emittedToolUseIds.has(id) && (hasUsefulInput || isTerminal)) {
         events.push({
           _tag: "ToolUse",
           itemId: id,
@@ -537,8 +582,7 @@ const translatePart = (
       }
       if (status === "completed") {
         const raw = toOutputString(part.state.output);
-        const output =
-          canonicalTool === "Read" ? unwrapReadOutput(raw) : raw;
+        const output = canonicalTool === "Read" ? unwrapReadOutput(raw) : raw;
         events.push({
           _tag: "ToolResult",
           itemId: id,
@@ -663,16 +707,18 @@ const translateEvent = (
     // opencode server emits it as the canonical streaming-text frame
     // (one event per token). We accumulate by `partID` and flush on
     // turn end, so the renderer sees one assistant bubble per part.
-    case ("message.part.delta" as SdkEvent["type"]): {
-      const props = (ev as unknown as {
-        properties: {
-          sessionID: string;
-          messageID?: string;
-          partID: string;
-          field: string;
-          delta: string;
-        };
-      }).properties;
+    case "message.part.delta" as SdkEvent["type"]: {
+      const props = (
+        ev as unknown as {
+          properties: {
+            sessionID: string;
+            messageID?: string;
+            partID: string;
+            field: string;
+            delta: string;
+          };
+        }
+      ).properties;
       if (props.sessionID !== sessionID) return [];
       // Same user-text guard as above — the user message's text part can
       // arrive as deltas in some opencode builds.
@@ -737,7 +783,8 @@ const translateEvent = (
       const message =
         errorData === undefined
           ? "OpenCode session error"
-          : (errorData.data as { message?: string }).message ?? errorData.name;
+          : ((errorData.data as { message?: string }).message ??
+            errorData.name);
       return [
         {
           _tag: "Error",
@@ -776,11 +823,15 @@ const translateEvent = (
 export const startOpencodeSession = (
   input: StartSessionInput,
   cwd: string,
-  _apiKey: string | null,
+  customProviders: ReadonlyArray<OpencodeCustomProvider>,
   opencodePath: string,
   sessionId: AgentSessionId,
   resumeCursor: string | null = null,
-): Effect.Effect<OpencodeSessionHandle, AgentSessionStartError, AttachmentService> =>
+): Effect.Effect<
+  OpencodeSessionHandle,
+  AgentSessionStartError,
+  AttachmentService
+> =>
   Effect.gen(function* () {
     yield* AttachmentService;
     const events = yield* Mailbox.make<AgentEvent>();
@@ -807,7 +858,11 @@ export const startOpencodeSession = (
     // it connects, which manifests as "I sent a message and saw nothing".
     const boot = Effect.tryPromise({
       try: async () => {
-        const proc = await spawnOpencodeServer(opencodePath, cwd);
+        const proc = await spawnOpencodeServer(
+          opencodePath,
+          cwd,
+          buildOpencodeConfigContent(customProviders),
+        );
         dlog(`server ready at ${proc.url}`);
         const c = createOpencodeClient({ baseUrl: proc.url });
         const ac = new AbortController();
@@ -815,7 +870,7 @@ export const startOpencodeSession = (
         dlog("SSE subscribed");
         const session = await c.session.create({
           throwOnError: true,
-          body: { title: "memoize session" },
+          body: { title: "Zuse session" },
         });
         const sessionData = session.data;
         if (sessionData === undefined || typeof sessionData.id !== "string") {
@@ -865,9 +920,7 @@ export const startOpencodeSession = (
     };
 
     // === Event pump — translate SSE frames into AgentEvents. ===
-    dlog(
-      `==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`,
-    );
+    dlog(`==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`);
     let eventCount = 0;
     void (async () => {
       try {
@@ -942,7 +995,27 @@ export const startOpencodeSession = (
 
     // === Prompt queue — serializes turns inside a single session. ===
     let inflight: Promise<void> = Promise.resolve();
+    let workspaceInstructionsPending = input.workspaceInstructions;
     const enqueuePrompt = (text: string): void => {
+      const compactSnapshot = isCompactCommand(text)
+        ? startCompactSnapshot(null)
+        : null;
+      if (compactSnapshot !== null) {
+        events.unsafeOffer(
+          startCompactEvent({
+            providerId: "opencode",
+            snapshot: compactSnapshot,
+          }),
+        );
+      }
+      const promptText =
+        compactSnapshot !== null
+          ? text.trim()
+          : prefixFirstPromptWithWorkspaceInstructions(
+              workspaceInstructionsPending,
+              text,
+            );
+      if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       inflight = inflight
         .then(async () => {
           if (closed) return;
@@ -973,10 +1046,10 @@ export const startOpencodeSession = (
           const body = {
             agent,
             ...(modelField !== null ? { model: modelField } : {}),
-            parts: [{ type: "text" as const, text }],
+            parts: [{ type: "text" as const, text: promptText }],
           };
           dlog(
-            `prompt: agent=${agent} providerID=${providerID ?? "(default)"} modelID=${modelID ?? "(default)"} variant=${variantOpt ?? "(default)"} textLen=${text.length}`,
+            `prompt: agent=${agent} providerID=${providerID ?? "(default)"} modelID=${modelID ?? "(default)"} variant=${variantOpt ?? "(default)"} textLen=${promptText.length}`,
           );
           ddump(`  prompt.body`, body);
           try {
@@ -992,7 +1065,9 @@ export const startOpencodeSession = (
             // *something* instead of a silent turn.
             const data = res.data as
               | {
-                  info?: { error?: { data?: { message?: string }; name?: string } };
+                  info?: {
+                    error?: { data?: { message?: string }; name?: string };
+                  };
                   parts?: ReadonlyArray<unknown>;
                 }
               | undefined;
@@ -1020,7 +1095,10 @@ export const startOpencodeSession = (
               // Skip text/reasoning parts already streamed via SSE deltas —
               // those were flushed on session.idle and double-emitting would
               // produce duplicate bubbles.
-              if (partId !== undefined && deltaState.flushedPartIds.has(partId)) {
+              if (
+                partId !== undefined &&
+                deltaState.flushedPartIds.has(partId)
+              ) {
                 continue;
               }
               ddump(`  prompt.part`, part);
@@ -1037,6 +1115,16 @@ export const startOpencodeSession = (
             // prompt resolved before the SSE got there).
             for (const evt of flushDeltaState(deltaState)) {
               events.unsafeOffer(evt);
+            }
+            if (compactSnapshot !== null && !closed) {
+              events.unsafeOffer(
+                finishCompactEvent({
+                  itemId: compactSnapshot.itemId,
+                  providerId: "opencode",
+                  snapshot: compactSnapshot,
+                  afterTokens: null,
+                }),
+              );
             }
             events.unsafeOffer({ _tag: "Completed", reason: "ended" });
           } catch (cause) {
@@ -1152,8 +1240,39 @@ interface InventoryProviderModel {
 interface InventoryProvider {
   readonly id: string;
   readonly name: string;
+  // Env var(s) the provider's key is read from (e.g. `["OPENAI_API_KEY"]`).
+  readonly env?: ReadonlyArray<string>;
   readonly models: { readonly [key: string]: InventoryProviderModel };
 }
+
+/**
+ * Best-effort fetch of models.dev's catalog to pull each provider's
+ * "get an API key" doc URL (opencode's `provider.list()` doesn't expose it).
+ * Returns an id→doc-url map; on any failure returns an empty map so inventory
+ * still loads (the UI just omits the doc link). opencode already fetches
+ * models.dev for its own catalog, so the data is authoritative.
+ */
+const fetchModelsDevDocs = async (): Promise<Map<string, string>> => {
+  const out = new Map<string, string>();
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const resp = await fetch("https://models.dev/api.json", {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return out;
+    const json = (await resp.json()) as Record<string, { doc?: string }>;
+    for (const [id, meta] of Object.entries(json)) {
+      if (typeof meta?.doc === "string" && meta.doc.length > 0) {
+        out.set(id, meta.doc);
+      }
+    }
+  } catch {
+    // offline / models.dev down — inventory loads without doc links
+  }
+  return out;
+};
 
 // OpenCode reports every model its provider definitions know about — alpha,
 // beta, deprecated, audio-only, etc. For agentic chat we need active models
@@ -1169,39 +1288,68 @@ const isUsableInventoryModel = (m: InventoryProviderModel): boolean => {
 const collectInventoryProviders = (
   all: ReadonlyArray<InventoryProvider>,
   connected: ReadonlyArray<string>,
+  customIds: ReadonlySet<string>,
+  docById: ReadonlyMap<string, string>,
 ): ReadonlyArray<OpencodeInventoryProvider> => {
   const connectedSet = new Set(connected);
-  return all
-    .filter((p) => connectedSet.has(p.id))
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      models: Object.values(p.models)
-        .filter(isUsableInventoryModel)
-        .map((m) => ({
-          id: `${p.id}/${m.id}`,
-          label: m.name,
-          variants: Object.keys(m.variants ?? {}),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-    }))
-    .filter((p) => p.models.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    all
+      .map((p) => {
+        const isConnected = connectedSet.has(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          connected: isConnected,
+          custom: customIds.has(p.id),
+          apiKeyEnv: p.env?.[0] ?? "",
+          apiKeyUrl: docById.get(p.id) ?? "",
+          // Only enumerate models for connected providers. The catalog carries
+          // ~150 providers with thousands of models between them; shipping every
+          // unconnected provider's full model list would bloat the RPC payload
+          // and the renderer's localStorage cache. The picker only ever renders
+          // connected providers' models, and connecting one triggers a refresh
+          // that fills them in.
+          models: isConnected
+            ? Object.values(p.models)
+                .filter(isUsableInventoryModel)
+                .map((m) => ({
+                  id: `${p.id}/${m.id}`,
+                  label: m.name,
+                  variants: Object.keys(m.variants ?? {}),
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label))
+            : [],
+        };
+      })
+      // Connected providers first (each with usable models), then the rest of
+      // the catalog alphabetically for the "add provider" browser.
+      .sort((a, b) => {
+        if (a.connected !== b.connected) return a.connected ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      })
+  );
 };
 
 export const loadOpencodeInventory = (
   opencodePath: string,
   cwd: string,
+  customProviders: ReadonlyArray<OpencodeCustomProvider> = [],
 ): Effect.Effect<OpencodeInventory, AgentSessionStartError> =>
   Effect.tryPromise({
     try: async () => {
       dlog(`inventory: spawning opencode server`);
-      const proc = await spawnOpencodeServer(opencodePath, cwd);
+      const proc = await spawnOpencodeServer(
+        opencodePath,
+        cwd,
+        buildOpencodeConfigContent(customProviders),
+      );
       const client = createOpencodeClient({ baseUrl: proc.url });
+      const customIds = new Set(customProviders.map((p) => p.id));
       try {
-        const [providersResp, agentsResp] = await Promise.all([
+        const [providersResp, agentsResp, docById] = await Promise.all([
           client.provider.list({ throwOnError: true }),
           client.app.agents({ throwOnError: true }),
+          fetchModelsDevDocs(),
         ]);
         const providersData = providersResp.data;
         const agentsData = agentsResp.data;
@@ -1226,6 +1374,8 @@ export const loadOpencodeInventory = (
             : collectInventoryProviders(
                 providersData.all as ReadonlyArray<InventoryProvider>,
                 providersData.connected,
+                customIds,
+                docById,
               );
         const agents =
           agentsData === undefined
@@ -1243,6 +1393,98 @@ export const loadOpencodeInventory = (
           // ignore — child may already be gone
         }
       }
+    },
+    catch: (cause) =>
+      new AgentSessionStartError({
+        providerId: "opencode",
+        reason: cause instanceof Error ? cause.message : String(cause),
+      }),
+  });
+
+/**
+ * Short-live an `opencode serve`, run `fn` against its SDK client, and tear
+ * the server down — the shared shape behind the provider-management effects
+ * below (mirrors `loadOpencodeInventory`'s spawn/try/finally). Failures wrap
+ * into `AgentSessionStartError` so the renderer surfaces them the same way as
+ * inventory / session-start errors.
+ */
+const withOpencodeServer = <A>(
+  opencodePath: string,
+  cwd: string,
+  configContent: string,
+  fn: (client: OpencodeClient) => Promise<A>,
+): Effect.Effect<A, AgentSessionStartError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const proc = await spawnOpencodeServer(opencodePath, cwd, configContent);
+      const client = createOpencodeClient({ baseUrl: proc.url });
+      try {
+        return await fn(client);
+      } finally {
+        try {
+          proc.child.kill("SIGTERM");
+        } catch {
+          // ignore — child may already be gone
+        }
+      }
+    },
+    catch: (cause) =>
+      new AgentSessionStartError({
+        providerId: "opencode",
+        reason: cause instanceof Error ? cause.message : String(cause),
+      }),
+  });
+
+/**
+ * Store an API key for an opencode provider (catalog or custom) by writing it
+ * through to opencode's persistent `auth.json` via the SDK `auth.set` (PUT
+ * /auth/{id}). Once set, `provider.list()` reports the provider as
+ * `connected` and its models become usable — in this app AND in the user's
+ * terminal `opencode`.
+ */
+export const setOpencodeProviderAuth = (
+  opencodePath: string,
+  cwd: string,
+  providerId: string,
+  apiKey: string,
+): Effect.Effect<void, AgentSessionStartError> =>
+  withOpencodeServer(
+    opencodePath,
+    cwd,
+    OPENCODE_EMPTY_CONFIG,
+    async (client) => {
+      await client.auth.set({
+        throwOnError: true,
+        path: { id: providerId },
+        body: { type: "api", key: apiKey },
+      });
+    },
+  );
+
+/**
+ * Remove an opencode provider's stored credential. The SDK exposes no
+ * generic "delete credential" endpoint (its `auth.remove` is MCP-only), so we
+ * edit `auth.json` directly — the same file `auth.set` writes — which keeps
+ * the change consistent with terminal opencode. A missing file or missing key
+ * is a no-op.
+ */
+export const removeOpencodeProviderAuth = (
+  providerId: string,
+): Effect.Effect<void, AgentSessionStartError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const authPath = opencodeAuthPath();
+      const raw = await readFile(authPath, "utf8").catch(() => null);
+      if (raw === null) return;
+      let json: Record<string, unknown>;
+      try {
+        json = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (!(providerId in json)) return;
+      delete json[providerId];
+      await writeFile(authPath, `${JSON.stringify(json, null, 2)}\n`);
     },
     catch: (cause) =>
       new AgentSessionStartError({

@@ -35,12 +35,12 @@ const SHUTTER_CSS = `
   20%  { opacity: 0.4; }
   100% { opacity: 0; }
 }
-.memoize-browser-shutter {
+.zuse-browser-shutter {
   background: white;
   animation: memoize-shutter-flash 420ms ease-out forwards;
 }
 @media (prefers-reduced-motion: reduce) {
-  .memoize-browser-shutter {
+  .zuse-browser-shutter {
     background: black;
     animation: memoize-shutter-dim 320ms ease-out forwards;
   }

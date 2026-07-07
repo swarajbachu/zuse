@@ -3,13 +3,23 @@ import { Schema } from "effect";
 
 import {
   AgentEvent,
+  AdvertisedEndpoint,
   Chat,
   ComposerInput,
+  defaultModelEnabledByProvider,
+  defaultModelFor,
   GitBranchInfo,
+  isModelVisible,
   Message,
+  MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
+  RepositorySettingsFile,
+  RelayEnvironmentList,
+  RelayLinkStatus,
+  resolveModelSlug,
   SettingsFile,
   Session,
+  visibleModelsForProvider,
   Worktree,
 } from "../src/index.ts";
 
@@ -83,6 +93,19 @@ describe("AgentEvent round-trips", () => {
       },
     },
     {
+      name: "ContextCompaction",
+      encoded: {
+        _tag: "ContextCompaction",
+        itemId: "compact1",
+        providerId: "codex",
+        startedAt: 1_800_000_000,
+        durationMs: 37_000,
+        beforeTokens: 231_450,
+        afterTokens: 9_535,
+        status: "completed",
+      },
+    },
+    {
       name: "Completed",
       encoded: { _tag: "Completed", reason: "ended" },
     },
@@ -123,6 +146,85 @@ describe("AgentEvent round-trips", () => {
         status: "spinning",
       }),
     ).toThrow();
+  });
+});
+
+describe("AdvertisedEndpoint round-trip", () => {
+  const encoded = {
+    id: "tunnel:managed-relay",
+    label: "Managed tunnel",
+    providerKind: "tunnel" as const,
+    httpBaseUrl: "https://env.example.test",
+    wsBaseUrl: "wss://env.example.test/rpc",
+    reachability: "tunnel" as const,
+    compatibility: { hostedHttpsApp: "compatible" as const },
+    status: "available" as const,
+    isDefault: true,
+  };
+
+  it("round-trips the advertised endpoint wire shape", () => {
+    roundTrip(AdvertisedEndpoint, encoded);
+  });
+
+  it("rejects invalid enum literals", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(AdvertisedEndpoint)({
+        ...encoded,
+        reachability: "vpn",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("RelayLinkStatus advertised endpoint compatibility", () => {
+  const base = {
+    linked: true,
+    relayUrl: "https://relay.example.test",
+    environmentId: "env_123",
+    label: "Mac",
+    heartbeatActive: true,
+  };
+
+  it("decodes legacy status without advertisedEndpoints", () => {
+    const decoded = Schema.decodeUnknownSync(RelayLinkStatus)(base);
+    expect(decoded.linked).toBe(true);
+    expect(decoded.advertisedEndpoints).toBeUndefined();
+  });
+
+  it("round-trips status with advertisedEndpoints", () => {
+    roundTrip(RelayLinkStatus, {
+      ...base,
+      advertisedEndpoints: [
+        {
+          id: "core:lan",
+          label: "LAN",
+          providerKind: "core" as const,
+          httpBaseUrl: "http://192.168.1.10:8787",
+          wsBaseUrl: "ws://192.168.1.10:8787",
+          reachability: "lan" as const,
+          compatibility: { hostedHttpsApp: "mixed-content-blocked" as const },
+          status: "available" as const,
+          isDefault: true,
+        },
+      ],
+    });
+  });
+});
+
+describe("RelayEnvironmentList compatibility", () => {
+  it("decodes legacy environment records without endpoint", () => {
+    const decoded = Schema.decodeUnknownSync(RelayEnvironmentList)({
+      environments: [
+        {
+          environmentId: "env_123",
+          label: "Mac",
+          providerKind: "desktop",
+          linkedAt: Date.now(),
+        },
+      ],
+    });
+
+    expect(decoded.environments[0]?.endpoint).toBeUndefined();
   });
 });
 
@@ -240,6 +342,23 @@ describe("Message round-trip", () => {
     });
   });
 
+  it("round-trips a context compaction message", () => {
+    roundTrip(Message, {
+      ...base,
+      role: "system" as const,
+      content: {
+        _tag: "context_compaction",
+        itemId: "compact1",
+        providerId: "codex",
+        startedAt: 1_800_000_000,
+        durationMs: 37_000,
+        beforeTokens: 231_450,
+        afterTokens: 9_535,
+        status: "completed",
+      },
+    });
+  });
+
   it("rejects an unknown content _tag", () => {
     expect(() =>
       Schema.decodeUnknownSync(Message)({
@@ -263,14 +382,14 @@ describe("Pokemon and Worktree round-trips", () => {
       unlocked: true,
       unlockedAt: "2026-06-18T00:00:00.000Z",
       worktreeId: "wt1",
-      spriteUrl: "memoize://pokemon/25",
+      spriteUrl: "zuse://pokemon/25",
       silhouetteUrl:
         "https://img.pokemondb.net/sprites/scarlet-violet/icon/pikachu.png",
       variants: [
         {
           id: "home",
           label: "Home",
-          spriteUrl: "memoize://pokemon/25-home",
+          spriteUrl: "zuse://pokemon/25-home",
         },
       ],
       evolutionLine: [
@@ -280,7 +399,7 @@ describe("Pokemon and Worktree round-trips", () => {
           name: "Pikachu",
           rarity: "rare" as const,
           unlocked: true,
-          spriteUrl: "memoize://pokemon/25",
+          spriteUrl: "zuse://pokemon/25",
           silhouetteUrl:
             "https://img.pokemondb.net/sprites/scarlet-violet/icon/pikachu.png",
         },
@@ -308,7 +427,7 @@ describe("Pokemon and Worktree round-trips", () => {
         generation: 1,
         rarity: "rare" as const,
         points: 75,
-        spriteUrl: "memoize://pokemon/25",
+        spriteUrl: "zuse://pokemon/25",
       },
     });
   });
@@ -350,6 +469,80 @@ describe("ComposerInput round-trip", () => {
       ],
     });
   });
+
+  it("round-trips browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "",
+      attachments: [
+        {
+          id: "screenshot-1",
+          mimeType: "image/png",
+          originalName: "browser-annotation.png",
+        },
+      ],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "tighten the hero copy",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "https://example.com/",
+          pageTitle: "Example Domain",
+          elements: [
+            {
+              tagName: "h1",
+              selector: "h1",
+              label: "h1",
+              rect: { x: 10, y: 20, width: 300, height: 60 },
+              textPreview: "Example Domain",
+            },
+          ],
+          regions: [],
+          strokes: [],
+          screenshotAttachment: {
+            id: "screenshot-1",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        },
+      ],
+    });
+  });
+
+  it("round-trips mixed code and browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "review these",
+      attachments: [],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          id: "ann-code-1",
+          relPath: "src/app.ts",
+          absPath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          comment: "extract this branch",
+        },
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "make this button clearer",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "http://localhost:3000/",
+          pageTitle: null,
+          elements: [],
+          regions: [
+            { id: "region-1", rect: { x: 1, y: 2, width: 3, height: 4 } },
+          ],
+          strokes: [],
+          screenshotAttachment: null,
+        },
+      ],
+    });
+  });
 });
 
 describe("SettingsFile round-trip", () => {
@@ -368,6 +561,7 @@ describe("SettingsFile round-trip", () => {
       defaultRuntimeMode: "approval-required",
       defaultAutoCreateWorktree: false,
       onboardingCompleted: true,
+      appearanceMode: "system",
       completionSoundEnabled: true,
       completionSoundPreset: "bloom",
       providerEnabled: {
@@ -378,9 +572,32 @@ describe("SettingsFile round-trip", () => {
         gemini: true,
         opencode: true,
       },
+      modelEnabledByProvider: {
+        ...defaultModelEnabledByProvider(),
+        codex: {
+          ...defaultModelEnabledByProvider().codex,
+          "gpt-5.3-codex": true,
+        },
+      },
+      opencodeProviderVisible: { openai: true, openrouter: false },
+      opencodeModelVisibleByProvider: {
+        openai: { "openai/gpt-5": true },
+      },
+      opencodeCustomProviders: [
+        {
+          id: "my-llm",
+          name: "My LLM",
+          baseURL: "https://api.example.com/v1",
+          npm: "@ai-sdk/openai-compatible",
+          models: [{ id: "my-model", name: "My Model" }],
+        },
+      ],
       subagents: { enableForNewSessions: true, presets: {} },
       branchNamingStyle: "username-slug",
       branchNamingPrefix: "",
+      mergePrefs: { method: "squash", deleteBranch: true },
+      notchTrayEnabled: true,
+      notchTrayPinned: false,
     });
   });
 
@@ -400,6 +617,7 @@ describe("SettingsFile round-trip", () => {
         defaultRuntimeMode: "approval-required",
         defaultAutoCreateWorktree: false,
         onboardingCompleted: true,
+        appearanceMode: "dark",
         completionSoundEnabled: true,
         completionSoundPreset: "airhorn",
         providerEnabled: {
@@ -410,11 +628,123 @@ describe("SettingsFile round-trip", () => {
           gemini: true,
           opencode: true,
         },
+        modelEnabledByProvider: defaultModelEnabledByProvider(),
         subagents: { enableForNewSessions: true, presets: {} },
         branchNamingStyle: "username-slug",
         branchNamingPrefix: "",
+        mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
       }),
     ).toThrow();
+  });
+
+  it("rejects an unknown appearance mode", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(SettingsFile)({
+        schemaVersion: 1,
+        defaultProviderId: "claude",
+        defaultModelByProvider: {
+          claude: "claude-opus-4-8",
+          codex: "gpt-5-codex",
+          grok: "grok-code-fast-1",
+          cursor: "cursor-agent",
+          gemini: "gemini-3-pro",
+          opencode: "sonnet",
+        },
+        defaultRuntimeMode: "approval-required",
+        defaultAutoCreateWorktree: false,
+        onboardingCompleted: true,
+        appearanceMode: "sepia",
+        completionSoundEnabled: true,
+        completionSoundPreset: "chime",
+        providerEnabled: {
+          claude: true,
+          codex: true,
+          grok: true,
+          cursor: true,
+          gemini: true,
+          opencode: true,
+        },
+        modelEnabledByProvider: defaultModelEnabledByProvider(),
+        subagents: { enableForNewSessions: true, presets: {} },
+        branchNamingStyle: "username-slug",
+        branchNamingPrefix: "",
+        mergePrefs: { method: "merge", deleteBranch: false },
+        notchTrayEnabled: false,
+        notchTrayPinned: false,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("model visibility helpers", () => {
+  it("uses Sonnet 5 as the default visible Claude model", () => {
+    expect(defaultModelFor("claude")).toBe("claude-sonnet-5");
+    expect(visibleModelsForProvider("claude")[0]?.id).toBe("claude-fable-5");
+    expect(isModelVisible("claude", "claude-sonnet-5")).toBe(true);
+    expect(isModelVisible("claude", "claude-fable-5")).toBe(true);
+    expect(resolveModelSlug("claude", "fable")).toBe("claude-fable-5");
+    expect(
+      MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-sonnet-5")
+        ?.badgeLabel,
+    ).toBe("New");
+    expect(
+      MODELS_BY_PROVIDER.claude.find((m) => m.id === "claude-fable-5")
+        ?.badgeLabel,
+    ).toBe("Available now");
+    expect(isModelVisible("claude", "claude-sonnet-4-6")).toBe(false);
+  });
+
+  it("filters hidden models unless they are explicitly enabled", () => {
+    expect(isModelVisible("codex", "gpt-5.3-codex")).toBe(false);
+    expect(
+      visibleModelsForProvider("codex").some(
+        (model) => model.id === "gpt-5.3-codex",
+      ),
+    ).toBe(false);
+
+    const overrides = defaultModelEnabledByProvider();
+    overrides.codex["gpt-5.3-codex"] = true;
+
+    expect(isModelVisible("codex", "gpt-5.3-codex", overrides)).toBe(true);
+    expect(
+      visibleModelsForProvider("codex", overrides).some(
+        (model) => model.id === "gpt-5.3-codex",
+      ),
+    ).toBe(true);
+  });
+
+  it("can include a hidden selected model without making all hidden models visible", () => {
+    const models = visibleModelsForProvider("codex", undefined, {
+      includeModelId: "gpt-5.3-codex",
+    });
+    expect(models.some((model) => model.id === "gpt-5.3-codex")).toBe(true);
+    expect(models.some((model) => model.id === "gpt-5.3-codex-spark")).toBe(
+      false,
+    );
+  });
+});
+
+describe("RepositorySettingsFile round-trip", () => {
+  it("round-trips the editable repository settings JSON shape", () => {
+    roundTrip(RepositorySettingsFile, {
+      schemaVersion: 1,
+      defaultProviderId: "codex",
+      defaultModel: "gpt-5-codex",
+      defaultRuntimeMode: "auto-accept-edits",
+      autoCreateWorktree: true,
+      worktreeBaseDir: "/tmp/worktrees",
+      archiveCleanupScript: "rm -rf node_modules",
+      archiveRemoveWorktree: true,
+      setupScript: "bun install",
+      runScript: "bun dev",
+      autoRunAfterSetup: true,
+      environmentVariables: {
+        NODE_ENV: "development",
+      },
+      fileIncludeGlobs: ".env\n.env.local\n",
+    });
   });
 });
 

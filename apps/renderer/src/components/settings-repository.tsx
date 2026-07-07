@@ -7,7 +7,8 @@ import {
   MODELS_BY_PROVIDER,
   type FolderId,
   type ProviderId,
-} from "@memoize/wire";
+  visibleModelsForProvider,
+} from "@zuse/wire";
 
 import { useRepositorySettingsStore } from "../store/repository-settings.ts";
 import { useSettingsStore } from "../store/settings.ts";
@@ -110,6 +111,7 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
         archiveScript={settings.archiveCleanupScript}
         autoRunAfterSetup={settings.autoRunAfterSetup}
         environmentVariables={settings.environmentVariables}
+        fileIncludeGlobs={settings.fileIncludeGlobs}
         onSetupScriptChange={(value) =>
           void update(projectId, { setupScript: value })
         }
@@ -124,6 +126,9 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
         }
         onEnvironmentVariablesChange={(value) =>
           void update(projectId, { environmentVariables: value })
+        }
+        onFileIncludeGlobsChange={(value) =>
+          void update(projectId, { fileIncludeGlobs: value })
         }
       />
 
@@ -165,6 +170,9 @@ function ProviderOverrideSection({
     (s) => s.defaultModelByProvider,
   );
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
   const effectiveProvider: ProviderId = defaultProviderId ?? globalProviderId;
   const globalModel = globalModelByProvider[globalProviderId];
   const globalModelLabel =
@@ -186,7 +194,9 @@ function ProviderOverrideSection({
   });
 
   const firstModelFor = (pid: ProviderId): string | null =>
-    MODELS_BY_PROVIDER[pid]?.[0]?.id ?? null;
+    visibleModelsForProvider(pid, modelEnabledByProvider)[0]?.id ??
+    MODELS_BY_PROVIDER[pid]?.[0]?.id ??
+    null;
 
   const onToggle = (next: boolean) => {
     if (next) {
@@ -231,7 +241,14 @@ function ProviderOverrideSection({
         >
           {availableProviders.map((pid) => {
             const selected = effectiveProvider === pid;
-            const models = MODELS_BY_PROVIDER[pid] ?? [];
+            const models = visibleModelsForProvider(
+              pid,
+              modelEnabledByProvider,
+              {
+                includeModelId:
+                  selected && selectedModel !== null ? selectedModel : null,
+              },
+            );
             return (
               <div
                 key={pid}
@@ -335,7 +352,10 @@ function RuntimeModeOverrideSection({
                 onClick={() => onChange(mode)}
                 className="group flex w-full items-start gap-3 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-muted/40"
               >
-                <HugeiconsIcon icon={m.Icon} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <HugeiconsIcon
+                  icon={m.Icon}
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="text-sm font-medium text-foreground">
                     {m.label}
@@ -377,7 +397,12 @@ function WorktreeSection({
   );
   const refresh = useWorktreesStore((s) => s.refresh);
   const remove = useWorktreesStore((s) => s.remove);
-  const [pendingDirty, setPendingDirty] = useState<string | null>(null);
+  const [pendingDirtyId, setPendingDirtyId] = useState<
+    (typeof worktrees)[number]["id"] | null
+  >(null);
+  const [removingId, setRemovingId] = useState<
+    (typeof worktrees)[number]["id"] | null
+  >(null);
   const [pendingError, setPendingError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -394,24 +419,25 @@ function WorktreeSection({
 
   const onRemove = async (
     worktreeId: (typeof worktrees)[number]["id"],
-    name: string,
     force: boolean,
   ) => {
+    if (removingId !== null) return;
+    setRemovingId(worktreeId);
     setPendingError(null);
-    const result = await remove(projectId, worktreeId, force);
-    if (result.ok) {
-      setPendingDirty(null);
-      return;
+    try {
+      const result = await remove(projectId, worktreeId, force);
+      if (result.ok) {
+        setPendingDirtyId(null);
+        return;
+      }
+      if (result.dirty) {
+        setPendingDirtyId(worktreeId);
+        return;
+      }
+      setPendingError(result.reason);
+    } finally {
+      setRemovingId(null);
     }
-    if (
-      !force &&
-      (result.reason.includes("WorktreeDirtyError") ||
-        result.reason.toLowerCase().includes("dirty"))
-    ) {
-      setPendingDirty(name);
-      return;
-    }
-    setPendingError(result.reason);
   };
 
   return (
@@ -446,8 +472,8 @@ function WorktreeSection({
       <div className="flex flex-col">
         {sorted.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-            No worktrees yet. Memoize creates one for you when you start a new
-            chat.
+            No worktrees yet. Zuse Alpha creates one for you when you start a
+            new chat.
           </p>
         ) : (
           <ul className="flex flex-col divide-y divide-border/40">
@@ -456,11 +482,11 @@ function WorktreeSection({
                 key={wt.id}
                 className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/20"
               >
-                <HugeiconsIcon icon={GitBranchIcon} className="size-4 shrink-0 text-muted-foreground" />
-                <div
-                  className="flex min-w-0 flex-col gap-0.5"
-                  title={wt.path}
-                >
+                <HugeiconsIcon
+                  icon={GitBranchIcon}
+                  className="size-4 shrink-0 text-muted-foreground"
+                />
+                <div className="flex min-w-0 flex-col gap-0.5" title={wt.path}>
                   <span className="truncate text-sm font-medium text-foreground">
                     {wt.name}
                   </span>
@@ -472,19 +498,21 @@ function WorktreeSection({
                     </span>
                   </span>
                 </div>
-                {pendingDirty === wt.name ? (
+                {pendingDirtyId === wt.id ? (
                   <div className="flex items-center gap-1.5">
                     <Button
                       variant="destructive-outline"
                       size="sm"
-                      onClick={() => void onRemove(wt.id, wt.name, true)}
+                      loading={removingId === wt.id}
+                      onClick={() => void onRemove(wt.id, true)}
                     >
                       Force remove
                     </Button>
                     <Button
                       variant="settings"
                       size="sm"
-                      onClick={() => setPendingDirty(null)}
+                      disabled={removingId === wt.id}
+                      onClick={() => setPendingDirtyId(null)}
                     >
                       Cancel
                     </Button>
@@ -493,7 +521,8 @@ function WorktreeSection({
                   <Button
                     variant="settings"
                     size="sm"
-                    onClick={() => void onRemove(wt.id, wt.name, false)}
+                    loading={removingId === wt.id}
+                    onClick={() => void onRemove(wt.id, false)}
                     title="Remove this worktree from disk (branch stays)"
                   >
                     <HugeiconsIcon icon={Delete02Icon} className="size-3" />
@@ -507,17 +536,17 @@ function WorktreeSection({
       </div>
 
       <div className="px-4 py-3">
-        {pendingDirty !== null ? (
+        {pendingDirtyId !== null ? (
           <p className="text-xs leading-relaxed text-amber-400">
-            {pendingDirty} has uncommitted changes. Force-remove to discard
-            them.
+            {sorted.find((wt) => wt.id === pendingDirtyId)?.name ?? "Worktree"}{" "}
+            has uncommitted changes. Force-remove to discard them.
           </p>
         ) : pendingError !== null ? (
           <p className="text-xs leading-relaxed text-red-400">{pendingError}</p>
         ) : (
           <p className="text-xs leading-relaxed text-muted-foreground">
             Git worktrees for this repo. Each lives under
-            ~/.memoize/&lt;repo&gt;/&lt;name&gt;/ on disk.
+            ~/.zuse/&lt;repo&gt;/&lt;name&gt;/ on disk.
           </p>
         )}
       </div>
@@ -531,22 +560,26 @@ function ScriptsSection({
   archiveScript,
   autoRunAfterSetup,
   environmentVariables,
+  fileIncludeGlobs,
   onSetupScriptChange,
   onRunScriptChange,
   onArchiveScriptChange,
   onAutoRunAfterSetupChange,
   onEnvironmentVariablesChange,
+  onFileIncludeGlobsChange,
 }: {
   setupScript: string | null;
   runScript: string | null;
   archiveScript: string | null;
   autoRunAfterSetup: boolean;
   environmentVariables: Readonly<Record<string, string>>;
+  fileIncludeGlobs: string;
   onSetupScriptChange: (v: string | null) => void;
   onRunScriptChange: (v: string | null) => void;
   onArchiveScriptChange: (v: string | null) => void;
   onAutoRunAfterSetupChange: (v: boolean) => void;
   onEnvironmentVariablesChange: (v: Record<string, string>) => void;
+  onFileIncludeGlobsChange: (v: string) => void;
 }) {
   const envText = Object.entries(environmentVariables)
     .map(([key, value]) => `${key}=${value}`)
@@ -614,17 +647,55 @@ function ScriptsSection({
           value={envDraft}
           onChange={(event) => setEnvDraft(event.currentTarget.value)}
           onBlur={persistEnv}
-          placeholder="MEMOIZE_PORT=5733"
+          placeholder="ZUSE_PORT=5733"
           minHeightClassName="min-h-24"
         />
       </div>
+      <FileIncludesEditor
+        value={fileIncludeGlobs}
+        onChange={onFileIncludeGlobsChange}
+      />
       <div className="px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Want to share scripts with your team? Create a{" "}
-          <span className="font-mono">.memoize/settings.toml</span> file.
+          Want to hand-edit or share repository settings? Use{" "}
+          <span className="font-mono">.zuse/settings.toml</span>.
         </p>
       </div>
     </SettingsGroup>
+  );
+}
+
+function FileIncludesEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const persist = () => {
+    if (draft !== value) onChange(draft);
+  };
+  return (
+    <div className="px-4 py-3.5">
+      <div className="mb-2">
+        <p className="text-sm font-medium text-foreground">
+          Worktree file includes
+        </p>
+        <p className="text-xs text-muted-foreground">
+          One pattern per line, linked from the main checkout into each new
+          worktree.
+        </p>
+      </div>
+      <CodeTextarea
+        value={draft}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={persist}
+        placeholder={".env\n.env.local\n.env.*.local"}
+        minHeightClassName="min-h-20"
+      />
+    </div>
   );
 }
 

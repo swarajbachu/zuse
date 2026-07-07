@@ -13,7 +13,7 @@ import type {
   SessionId,
   UserQuestion,
   UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 

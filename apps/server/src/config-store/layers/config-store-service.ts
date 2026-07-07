@@ -1,22 +1,29 @@
 import * as fsSync from "node:fs";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
+import * as NodePath from "node:path";
 
 import { FileSystem, Path } from "@effect/platform";
 import { Effect, Layer, PubSub, Ref, Stream } from "effect";
 
 import {
+  type AppearanceMode,
   type BranchNamingStyle,
+  type Command,
+  type CompletionSoundPreset,
+  defaultModelEnabledByProvider,
   defaultModelFor,
   type KeybindingRule,
   KeybindingsFile,
+  MODELS_BY_PROVIDER,
   MAX_KEYBINDING_RULES,
   type ProviderId,
   resolveModelSlug,
   SettingsFile,
-  type CompletionSoundPreset,
+  type MergePrefs,
   type SettingsPatch,
   type SubagentPresetState,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -33,6 +40,8 @@ const WATCH_DEBOUNCE_MS = 100;
 
 const SETTINGS_FILENAME = "settings.json";
 const KEYBINDINGS_FILENAME = "keybindings.json";
+const USER_CONFIG_DIRNAME = ".zuse";
+const DEV_USER_CONFIG_DIRNAME = ".zuse-dev";
 
 const PROVIDER_IDS: ProviderId[] = [
   "claude",
@@ -58,6 +67,8 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
   return out;
 };
 
+const seedModelEnabledByProvider = defaultModelEnabledByProvider;
+
 const freshSettings = (): SettingsFile =>
   SettingsFile.make({
     schemaVersion: 1,
@@ -68,12 +79,20 @@ const freshSettings = (): SettingsFile =>
     // agents stay isolated. Per-repo settings can still opt a repo out.
     defaultAutoCreateWorktree: true,
     onboardingCompleted: false,
+    appearanceMode: "dark",
     completionSoundEnabled: false,
     completionSoundPreset: "chime",
     providerEnabled: seedProviderEnabled(),
+    modelEnabledByProvider: seedModelEnabledByProvider(),
+    opencodeProviderVisible: {},
+    opencodeModelVisibleByProvider: {},
+    opencodeCustomProviders: [],
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
+    mergePrefs: { method: "merge", deleteBranch: false },
+    notchTrayEnabled: false,
+    notchTrayPinned: false,
   });
 
 const freshKeybindings = (): KeybindingsFile =>
@@ -89,7 +108,8 @@ const isProviderId = (v: unknown): v is ProviderId =>
   v === "codex" ||
   v === "grok" ||
   v === "cursor" ||
-  v === "gemini";
+  v === "gemini" ||
+  v === "opencode";
 
 const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
   v === "approval-required" ||
@@ -105,11 +125,61 @@ const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "rise" ||
   v === "bloom";
 
+const isAppearanceMode = (v: unknown): v is AppearanceMode =>
+  v === "system" || v === "light" || v === "dark";
+
 const isBranchNamingStyle = (v: unknown): v is BranchNamingStyle =>
-  v === "username-slug" ||
-  v === "slug" ||
-  v === "feat-slug" ||
-  v === "custom";
+  v === "username-slug" || v === "slug" || v === "feat-slug" || v === "custom";
+
+const isMergeMethod = (v: unknown): v is MergePrefs["method"] =>
+  v === "merge" || v === "squash" || v === "rebase";
+
+const isCommand = (v: unknown): v is Command =>
+  v === "new-chat" ||
+  v === "open-project" ||
+  v === "settings" ||
+  v === "close-tab" ||
+  v === "toggle-left-sidebar" ||
+  v === "toggle-right-sidebar" ||
+  v === "toggle-terminal" ||
+  v === "focus-composer" ||
+  v === "next-tab" ||
+  v === "prev-tab" ||
+  v === "select-tab-1" ||
+  v === "select-tab-2" ||
+  v === "select-tab-3" ||
+  v === "select-tab-4" ||
+  v === "select-tab-5" ||
+  v === "select-tab-6" ||
+  v === "select-tab-7" ||
+  v === "select-tab-8" ||
+  v === "select-last-tab" ||
+  v === "new-tab" ||
+  v === "next-chat" ||
+  v === "prev-chat" ||
+  v === "next-panel" ||
+  v === "prev-panel" ||
+  v === "focus-next-pane" ||
+  v === "focus-prev-pane" ||
+  v === "open-chat-switcher" ||
+  v === "composer.submit" ||
+  v === "composer.newline" ||
+  v === "composer.forceSubmit" ||
+  v === "composer.togglePlanMode" ||
+  v === "editor.save" ||
+  v === "editor.annotate";
+
+const isDevConfigProfile = (): boolean =>
+  process.env.ZUSE_CONFIG_PROFILE?.trim() === "dev" ||
+  process.env.ZUSE_DEV_CONFIG?.trim() === "1" ||
+  Boolean(process.env.VITE_DEV_SERVER_URL?.trim());
+
+const defaultUserConfigDirname = (): string =>
+  isDevConfigProfile() ? DEV_USER_CONFIG_DIRNAME : USER_CONFIG_DIRNAME;
+
+const resolveUserConfigDir = (join: (a: string, b: string) => string): string =>
+  process.env.ZUSE_CONFIG_DIR?.trim() ||
+  join(homedir(), defaultUserConfigDirname());
 
 /**
  * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
@@ -152,6 +222,10 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.onboardingCompleted
       : base.onboardingCompleted;
 
+  const appearanceMode = isAppearanceMode(obj.appearanceMode)
+    ? obj.appearanceMode
+    : base.appearanceMode;
+
   const completionSoundEnabled =
     typeof obj.completionSoundEnabled === "boolean"
       ? obj.completionSoundEnabled
@@ -166,14 +240,112 @@ const coerceSettings = (raw: unknown): SettingsFile => {
   const providerEnabled: Record<ProviderId, boolean> = {
     ...base.providerEnabled,
   };
-  if (
-    typeof obj.providerEnabled === "object" &&
-    obj.providerEnabled !== null
-  ) {
+  if (typeof obj.providerEnabled === "object" && obj.providerEnabled !== null) {
     const flags = obj.providerEnabled as Record<string, unknown>;
     for (const id of PROVIDER_IDS) {
       const v = flags[id];
       if (typeof v === "boolean") providerEnabled[id] = v;
+    }
+  }
+
+  const modelEnabledByProvider = seedModelEnabledByProvider();
+  if (
+    typeof obj.modelEnabledByProvider === "object" &&
+    obj.modelEnabledByProvider !== null
+  ) {
+    const byProvider = obj.modelEnabledByProvider as Record<string, unknown>;
+    for (const id of PROVIDER_IDS) {
+      const providerModels = byProvider[id];
+      if (typeof providerModels !== "object" || providerModels === null) {
+        continue;
+      }
+      const flags = providerModels as Record<string, unknown>;
+      const knownModelIds = new Set(MODELS_BY_PROVIDER[id].map((m) => m.id));
+      for (const [modelId, value] of Object.entries(flags)) {
+        if (!knownModelIds.has(modelId)) continue;
+        if (typeof value === "boolean") {
+          modelEnabledByProvider[id][modelId] = value;
+        }
+      }
+    }
+  }
+
+  // OpenCode provider-manager fields. Keyed by opencode sub-provider id
+  // (free-form strings), so unlike the maps above we don't restrict to a
+  // known key set — just validate value shapes and drop anything malformed.
+  const opencodeProviderVisible: Record<string, boolean> = {};
+  if (
+    typeof obj.opencodeProviderVisible === "object" &&
+    obj.opencodeProviderVisible !== null
+  ) {
+    for (const [k, v] of Object.entries(
+      obj.opencodeProviderVisible as Record<string, unknown>,
+    )) {
+      if (typeof v === "boolean") opencodeProviderVisible[k] = v;
+    }
+  }
+
+  const opencodeModelVisibleByProvider: Record<
+    string,
+    Record<string, boolean>
+  > = {};
+  if (
+    typeof obj.opencodeModelVisibleByProvider === "object" &&
+    obj.opencodeModelVisibleByProvider !== null
+  ) {
+    for (const [pid, models] of Object.entries(
+      obj.opencodeModelVisibleByProvider as Record<string, unknown>,
+    )) {
+      if (typeof models !== "object" || models === null) continue;
+      const flags: Record<string, boolean> = {};
+      for (const [mid, v] of Object.entries(
+        models as Record<string, unknown>,
+      )) {
+        if (typeof v === "boolean") flags[mid] = v;
+      }
+      opencodeModelVisibleByProvider[pid] = flags;
+    }
+  }
+
+  const opencodeCustomProviders: {
+    id: string;
+    name: string;
+    baseURL: string;
+    npm: string;
+    models: { id: string; name: string }[];
+  }[] = [];
+  if (Array.isArray(obj.opencodeCustomProviders)) {
+    for (const item of obj.opencodeCustomProviders) {
+      if (typeof item !== "object" || item === null) continue;
+      const p = item as Record<string, unknown>;
+      if (
+        typeof p.id !== "string" ||
+        typeof p.name !== "string" ||
+        typeof p.baseURL !== "string"
+      ) {
+        continue;
+      }
+      const models: { id: string; name: string }[] = [];
+      if (Array.isArray(p.models)) {
+        for (const m of p.models) {
+          if (typeof m !== "object" || m === null) continue;
+          const mm = m as Record<string, unknown>;
+          if (typeof mm.id === "string" && typeof mm.name === "string") {
+            models.push({ id: mm.id, name: mm.name });
+          }
+        }
+      }
+      opencodeCustomProviders.push({
+        id: p.id,
+        name: p.name,
+        baseURL: p.baseURL,
+        // Legacy entries (pre-type-picker) default to OpenAI-compatible.
+        npm:
+          typeof p.npm === "string" && p.npm.length > 0
+            ? p.npm
+            : "@ai-sdk/openai-compatible",
+        models,
+      });
     }
   }
 
@@ -212,6 +384,30 @@ const coerceSettings = (raw: unknown): SettingsFile => {
       ? obj.branchNamingPrefix
       : base.branchNamingPrefix;
 
+  let mergePrefs = base.mergePrefs;
+  if (typeof obj.mergePrefs === "object" && obj.mergePrefs !== null) {
+    const prefs = obj.mergePrefs as Record<string, unknown>;
+    mergePrefs = {
+      method: isMergeMethod(prefs.method)
+        ? prefs.method
+        : base.mergePrefs.method,
+      deleteBranch:
+        typeof prefs.deleteBranch === "boolean"
+          ? prefs.deleteBranch
+          : base.mergePrefs.deleteBranch,
+    };
+  }
+
+  const notchTrayEnabled =
+    typeof obj.notchTrayEnabled === "boolean"
+      ? obj.notchTrayEnabled
+      : base.notchTrayEnabled;
+
+  const notchTrayPinned =
+    typeof obj.notchTrayPinned === "boolean"
+      ? obj.notchTrayPinned
+      : base.notchTrayPinned;
+
   return SettingsFile.make({
     schemaVersion: 1,
     defaultProviderId: provider,
@@ -219,12 +415,20 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     defaultRuntimeMode: runtime,
     defaultAutoCreateWorktree: autoWorktree,
     onboardingCompleted: onboarding,
+    appearanceMode,
     completionSoundEnabled,
     completionSoundPreset,
     providerEnabled,
+    modelEnabledByProvider,
+    opencodeProviderVisible,
+    opencodeModelVisibleByProvider,
+    opencodeCustomProviders,
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
+    mergePrefs,
+    notchTrayEnabled,
+    notchTrayPinned,
   });
 };
 
@@ -236,17 +440,22 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
   for (const item of inRules) {
     if (typeof item !== "object" || item === null) continue;
     const r = item as Record<string, unknown>;
-    if (typeof r.key !== "string" || typeof r.command !== "string") continue;
+    if (typeof r.key !== "string" || !isCommand(r.command)) continue;
     // Keep the original strings; the renderer / matcher revalidates on parse.
     const rule: KeybindingRule = {
       key: r.key,
-      command: r.command as KeybindingRule["command"],
+      command: r.command,
       when: typeof r.when === "string" ? r.when : undefined,
     };
     rules.push(rule);
     if (rules.length >= MAX_KEYBINDING_RULES) break;
   }
   return KeybindingsFile.make({ schemaVersion: 1, rules });
+};
+
+export const configStoreTestHelpers = {
+  coerceSettings,
+  userConfigDir: () => resolveUserConfigDir(NodePath.join),
 };
 
 /* ────────────────────────── Service implementation ──────────────────────────── */
@@ -257,19 +466,23 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const fs = yield* FileSystem.FileSystem;
     const pathSvc = yield* Path.Path;
     const { userData } = yield* AppPaths;
+    const userConfigDir = resolveUserConfigDir(pathSvc.join);
 
     yield* fs.makeDirectory(userData, { recursive: true }).pipe(Effect.orDie);
+    yield* fs
+      .makeDirectory(userConfigDir, { recursive: true })
+      .pipe(Effect.orDie);
 
-    const settingsPath = pathSvc.join(userData, SETTINGS_FILENAME);
-    const keybindingsPath = pathSvc.join(userData, KEYBINDINGS_FILENAME);
+    const settingsPath = pathSvc.join(userConfigDir, SETTINGS_FILENAME);
+    const keybindingsPath = pathSvc.join(userConfigDir, KEYBINDINGS_FILENAME);
+    const legacySettingsPath = pathSvc.join(userData, SETTINGS_FILENAME);
+    const legacyKeybindingsPath = pathSvc.join(userData, KEYBINDINGS_FILENAME);
 
     /**
      * Read a JSON file from disk, returning the parsed object or `null` if
      * the file doesn't exist / is malformed. Other I/O failures bubble out.
      */
-    const readJsonOrNull = (
-      absPath: string,
-    ): Effect.Effect<unknown | null> =>
+    const readJsonOrNull = (absPath: string): Effect.Effect<unknown | null> =>
       Effect.gen(function* () {
         const exists = yield* fs.exists(absPath).pipe(Effect.orDie);
         if (!exists) return null;
@@ -287,9 +500,7 @@ export const ConfigStoreServiceLive = Layer.scoped(
     // would otherwise both pick the same `<path>.tmp` and the second
     // rename ENOENTs because the first already renamed the tmp away.
     const writeLocks = new Map<string, Effect.Semaphore>();
-    const lockFor = (
-      absPath: string,
-    ): Effect.Effect<Effect.Semaphore> =>
+    const lockFor = (absPath: string): Effect.Effect<Effect.Semaphore> =>
       Effect.gen(function* () {
         const existing = writeLocks.get(absPath);
         if (existing) return existing;
@@ -319,8 +530,17 @@ export const ConfigStoreServiceLive = Layer.scoped(
         );
       });
 
-    const initialSettingsRaw = yield* readJsonOrNull(settingsPath);
-    const initialKeybindingsRaw = yield* readJsonOrNull(keybindingsPath);
+    const settingsExists = yield* fs.exists(settingsPath).pipe(Effect.orDie);
+    const keybindingsExists = yield* fs
+      .exists(keybindingsPath)
+      .pipe(Effect.orDie);
+
+    const initialSettingsRaw = settingsExists
+      ? yield* readJsonOrNull(settingsPath)
+      : yield* readJsonOrNull(legacySettingsPath);
+    const initialKeybindingsRaw = keybindingsExists
+      ? yield* readJsonOrNull(keybindingsPath)
+      : yield* readJsonOrNull(legacyKeybindingsPath);
 
     const initialSettings = coerceSettings(initialSettingsRaw);
     const initialKeybindings = coerceKeybindings(initialKeybindingsRaw);
@@ -332,12 +552,13 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const initialSettingsSerialized = serialize(initialSettings);
     const initialKeybindingsSerialized = serialize(initialKeybindings);
     if (
+      !settingsExists ||
       initialSettingsRaw === null ||
       serialize(initialSettingsRaw) !== initialSettingsSerialized
     ) {
       yield* writeAtomically(settingsPath, initialSettingsSerialized);
     }
-    if (initialKeybindingsRaw === null) {
+    if (!keybindingsExists || initialKeybindingsRaw === null) {
       yield* writeAtomically(keybindingsPath, initialKeybindingsSerialized);
     }
 
@@ -403,11 +624,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
     };
 
     const watchers: fsSync.FSWatcher[] = [];
-    // Watch the userData directory, not the files themselves — atomic
+    // Watch the user config directory, not the files themselves — atomic
     // rename swaps the inode out from under a per-file watcher and the
     // events stop arriving. Directory-level watch survives that.
     try {
-      const w = fsSync.watch(userData, (_eventType, filename) => {
+      const w = fsSync.watch(userConfigDir, (_eventType, filename) => {
         if (filename === SETTINGS_FILENAME) {
           if (settingsDebounce !== null) clearTimeout(settingsDebounce);
           settingsDebounce = setTimeout(() => {
@@ -450,15 +671,12 @@ export const ConfigStoreServiceLive = Layer.scoped(
     const getSettings: ConfigStoreServiceShape["getSettings"] = () =>
       Ref.get(settingsRef);
 
-    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (
-      patch,
-    ) =>
+    const updateSettings: ConfigStoreServiceShape["updateSettings"] = (patch) =>
       Effect.gen(function* () {
         const cur = yield* Ref.get(settingsRef);
         const next: SettingsFile = SettingsFile.make({
           schemaVersion: 1,
-          defaultProviderId:
-            patch.defaultProviderId ?? cur.defaultProviderId,
+          defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
           defaultModelByProvider:
             patch.defaultModelByProvider ?? cur.defaultModelByProvider,
           defaultRuntimeMode:
@@ -467,16 +685,28 @@ export const ConfigStoreServiceLive = Layer.scoped(
             patch.defaultAutoCreateWorktree ?? cur.defaultAutoCreateWorktree,
           onboardingCompleted:
             patch.onboardingCompleted ?? cur.onboardingCompleted,
+          appearanceMode: patch.appearanceMode ?? cur.appearanceMode,
           completionSoundEnabled:
             patch.completionSoundEnabled ?? cur.completionSoundEnabled,
           completionSoundPreset:
             patch.completionSoundPreset ?? cur.completionSoundPreset,
           providerEnabled: patch.providerEnabled ?? cur.providerEnabled,
+          modelEnabledByProvider:
+            patch.modelEnabledByProvider ?? cur.modelEnabledByProvider,
+          opencodeProviderVisible:
+            patch.opencodeProviderVisible ?? cur.opencodeProviderVisible,
+          opencodeModelVisibleByProvider:
+            patch.opencodeModelVisibleByProvider ??
+            cur.opencodeModelVisibleByProvider,
+          opencodeCustomProviders:
+            patch.opencodeCustomProviders ?? cur.opencodeCustomProviders,
           subagents: patch.subagents ?? cur.subagents,
-          branchNamingStyle:
-            patch.branchNamingStyle ?? cur.branchNamingStyle,
+          branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
             patch.branchNamingPrefix ?? cur.branchNamingPrefix,
+          mergePrefs: patch.mergePrefs ?? cur.mergePrefs,
+          notchTrayEnabled: patch.notchTrayEnabled ?? cur.notchTrayEnabled,
+          notchTrayPinned: patch.notchTrayPinned ?? cur.notchTrayPinned,
         });
         const serialized = serialize(next);
         yield* writeAtomically(settingsPath, serialized);
@@ -515,8 +745,13 @@ export const ConfigStoreServiceLive = Layer.scoped(
               baseline.defaultAutoCreateWorktree &&
             cur.completionSoundEnabled === baseline.completionSoundEnabled &&
             cur.completionSoundPreset === baseline.completionSoundPreset &&
+            cur.appearanceMode === baseline.appearanceMode &&
             cur.onboardingCompleted === false &&
-            Object.keys(cur.subagents.presets).length === 0;
+            Object.keys(cur.subagents.presets).length === 0 &&
+            cur.mergePrefs.method === baseline.mergePrefs.method &&
+            cur.mergePrefs.deleteBranch === baseline.mergePrefs.deleteBranch &&
+            cur.notchTrayEnabled === baseline.notchTrayEnabled &&
+            cur.notchTrayPinned === baseline.notchTrayPinned;
           if (!currentLooksFresh) return cur;
 
           let provider: SettingsFile["defaultProviderId"] =
@@ -527,8 +762,12 @@ export const ConfigStoreServiceLive = Layer.scoped(
             cur.defaultRuntimeMode;
           let autoWorktree: boolean = cur.defaultAutoCreateWorktree;
           let onboarding: boolean = cur.onboardingCompleted;
+          let appearanceMode: SettingsFile["appearanceMode"] =
+            cur.appearanceMode;
           let providerEnabled: SettingsFile["providerEnabled"] =
             cur.providerEnabled;
+          let modelEnabledByProvider: SettingsFile["modelEnabledByProvider"] =
+            cur.modelEnabledByProvider;
           let subagents: SettingsFile["subagents"] = cur.subagents;
           let completionSoundEnabled = cur.completionSoundEnabled;
           let completionSoundPreset = cur.completionSoundPreset;
@@ -548,9 +787,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
               runtime = fromLs.defaultRuntimeMode;
               autoWorktree = fromLs.defaultAutoCreateWorktree;
               onboarding = fromLs.onboardingCompleted;
+              appearanceMode = fromLs.appearanceMode;
               completionSoundEnabled = fromLs.completionSoundEnabled;
               completionSoundPreset = fromLs.completionSoundPreset;
               providerEnabled = fromLs.providerEnabled;
+              modelEnabledByProvider = fromLs.modelEnabledByProvider;
             } catch {
               /* swallow — keep current values */
             }
@@ -580,12 +821,20 @@ export const ConfigStoreServiceLive = Layer.scoped(
             defaultRuntimeMode: runtime,
             defaultAutoCreateWorktree: autoWorktree,
             onboardingCompleted: onboarding,
+            appearanceMode,
             completionSoundEnabled,
             completionSoundPreset,
             providerEnabled,
+            modelEnabledByProvider,
+            opencodeProviderVisible: cur.opencodeProviderVisible,
+            opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
+            opencodeCustomProviders: cur.opencodeCustomProviders,
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,
+            mergePrefs: cur.mergePrefs,
+            notchTrayEnabled: cur.notchTrayEnabled,
+            notchTrayPinned: cur.notchTrayPinned,
           });
 
           const serialized = serialize(merged);

@@ -4,19 +4,20 @@ import {
   Alert01Icon,
   ArrowLeft01Icon,
   Delete02Icon,
+  DocumentAttachmentIcon,
   Folder01Icon,
   GitBranchIcon,
   GlobeIcon,
   KeyboardIcon,
   PackageIcon,
-  RotateRight01Icon,
   Settings01Icon,
+  SmartPhone01Icon,
   TaskDone01Icon,
   TestTubeIcon,
   Tick01Icon,
   VolumeHighIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Effect } from "effect";
@@ -24,6 +25,7 @@ import { Effect } from "effect";
 import { getRpcClient } from "../lib/rpc-client.ts";
 
 import {
+  type AppearanceMode,
   type BranchNamingStyle,
   MODELS_BY_PROVIDER,
   type CompletionSoundPreset,
@@ -31,19 +33,26 @@ import {
   type FolderId,
   type ProviderId,
   type RuntimeMode,
-} from "@memoize/wire";
+  visibleModelsForProvider,
+} from "@zuse/wire";
 
 import {
   formatRelativeTime,
   useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
+import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
+import {
+  collectDiagnosticsClientContext,
+} from "../lib/diagnostics-client-context.ts";
+import { recordUiAction } from "../lib/diagnostics-recorder.ts";
 import {
   COMPLETION_SOUND_PRESETS,
   playCompletionSound,
   prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
 import { DEFAULT_SUBAGENT_PRESETS } from "../lib/subagent-presets.ts";
+import { useAuth } from "../hooks/use-auth.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { useSubagentsStore } from "../store/subagents.ts";
@@ -53,9 +62,11 @@ import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
+import { DevicesPane } from "./settings/devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
 import {
   Select,
@@ -104,6 +115,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "workspace" },
   },
   {
+    id: "devices",
+    label: "Devices",
+    Icon: SmartPhone01Icon,
+    section: { kind: "devices" },
+  },
+  {
     id: "pokedex",
     label: "Pokedex",
     Icon: TaskDone01Icon,
@@ -114,6 +131,18 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     label: "Browser",
     Icon: GlobeIcon,
     section: { kind: "browser" },
+  },
+  {
+    id: "notch",
+    label: "Notch",
+    Icon: Alert01Icon,
+    section: { kind: "notch" },
+  },
+  {
+    id: "diagnostics",
+    label: "Diagnostics",
+    Icon: DocumentAttachmentIcon,
+    section: { kind: "diagnostics" },
   },
   {
     id: "shortcuts",
@@ -298,6 +327,13 @@ function SectionTitle({
           "Verify what's installed, signed in, and which subscription each provider runs on.",
       };
     }
+    if (section.kind === "devices") {
+      return {
+        title: "Devices",
+        subtitle:
+          "Link this Mac to your account so you can drive it from your phone.",
+      };
+    }
     if (section.kind === "workspace") {
       return {
         title: "Workspace",
@@ -314,6 +350,18 @@ function SectionTitle({
       return {
         title: "Browser",
         subtitle: "Dummy test logins the agent browser can autofill.",
+      };
+    }
+    if (section.kind === "notch") {
+      return {
+        title: "Notch",
+        subtitle: "Show agent notifications in the MacBook notch area.",
+      };
+    }
+    if (section.kind === "diagnostics") {
+      return {
+        title: "Diagnostics",
+        subtitle: "Export a redacted support bundle for debugging user issues.",
       };
     }
     if (section.kind === "shortcuts") {
@@ -359,11 +407,201 @@ function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "general") return <GeneralPane />;
   if (section.kind === "providers") return <ProvidersPane />;
   if (section.kind === "workspace") return <WorkspacePane />;
+  if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;
   if (section.kind === "browser") return <BrowserSettingsPane />;
+  if (section.kind === "notch") return <NotchSettingsPane />;
+  if (section.kind === "diagnostics") return <DiagnosticsPane />;
   if (section.kind === "shortcuts") return <KeybindingsPane />;
   if (section.kind === "developer") return <DeveloperPane />;
   return <RepositorySettings projectId={section.projectId} />;
+}
+
+const DIAGNOSTICS_ISSUE_URL =
+  "https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
+
+function openExternal(url: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  if (bridge?.app?.openExternal) {
+    bridge.app.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function revealPath(path: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  void bridge?.app?.revealPath?.(path);
+}
+
+async function copyDiagnosticsJson(path: string): Promise<boolean> {
+  const bridge = window.zuse ?? window.memoize;
+  return (await bridge?.app?.copyFileContents?.(path)) ?? false;
+}
+
+function DiagnosticsPane() {
+  const [isExporting, setIsExporting] = useState(false);
+  const [lastExport, setLastExport] = useState<{
+    diagnosticId: string;
+    bundlePath: string;
+    summary: string;
+    jsonCopied: boolean;
+    included: ReadonlyArray<string>;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"summary" | "json" | null>(null);
+
+  const markCopied = (kind: "summary" | "json") => {
+    setCopied(kind);
+    window.setTimeout(() => {
+      setCopied((current) => (current === kind ? null : current));
+    }, 1400);
+  };
+
+  const copyText = async (text: string) => {
+    await navigator.clipboard?.writeText(text);
+    markCopied("summary");
+  };
+
+  const copyJson = async (path: string) => {
+    const ok = await copyDiagnosticsJson(path);
+    if (ok) markCopied("json");
+    setLastExport((current) =>
+      current && current.bundlePath === path
+        ? { ...current, jsonCopied: ok }
+        : current,
+    );
+  };
+
+  const exportDiagnostics = async () => {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const client = await getRpcClient();
+      recordUiAction("diagnostics.export.started");
+      const clientContext = await collectDiagnosticsClientContext();
+      const result = await Effect.runPromise(
+        client.diagnostics.export({ clientContext }),
+      );
+      const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
+      if (jsonCopied) markCopied("json");
+      recordUiAction("diagnostics.export.completed", result.diagnosticId);
+      setLastExport({
+        diagnosticId: result.diagnosticId,
+        bundlePath: result.bundlePath,
+        summary: result.summary,
+        jsonCopied,
+        included: result.included,
+      });
+      revealPath(result.bundlePath);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not export diagnostics bundle.",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <SettingsGroup
+        title="Bug report diagnostics"
+        description="Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
+      >
+        <SettingsRow
+          title="Export diagnostics JSON"
+          description="Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
+          action={
+            <Button
+              size="sm"
+              onClick={() => void exportDiagnostics()}
+              disabled={isExporting}
+            >
+              <HugeiconsIcon
+                icon={DocumentAttachmentIcon}
+                className="size-3.5"
+              />
+              {isExporting ? "Exporting..." : "Export diagnostics"}
+            </Button>
+          }
+        />
+        {lastExport && (
+          <SettingsRow
+            title={`Last export: ${lastExport.diagnosticId}`}
+            description={
+              lastExport.jsonCopied
+                ? "Diagnostics JSON copied. Attach the revealed JSON file to the GitHub issue."
+                : "Diagnostics exported. Attach the revealed JSON file to the GitHub issue."
+            }
+          >
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => openExternal(DIAGNOSTICS_ISSUE_URL)}
+              >
+                Open GitHub issue
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => void copyJson(lastExport.bundlePath)}
+              >
+                {copied === "json" ? "Copied" : "Copy diagnostics JSON"}
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => revealPath(lastExport.bundlePath)}
+              >
+                Reveal diagnostics file
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => void copyText(lastExport.summary)}
+              >
+                {copied === "summary" ? "Copied" : "Copy summary"}
+              </Button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              File: {lastExport.bundlePath}
+            </p>
+            <div className="mt-3 rounded-lg border border-border/40 bg-background/60 p-3">
+              <div className="mb-2 text-xs font-medium text-muted-foreground">
+                Bundle contents
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {lastExport.included.map((item) => (
+                  <span
+                    key={item}
+                    className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </SettingsRow>
+        )}
+        {error && (
+          <SettingsRow
+            icon={Alert01Icon}
+            title="Export failed"
+            description={error}
+          />
+        )}
+      </SettingsGroup>
+
+      <SettingsFrame
+        title="Reporting from GitHub?"
+        description="Open a bug report, follow the template, export diagnostics from Help -> Export Diagnostics for Bug Report, then attach the JSON file before submitting."
+      />
+    </div>
+  );
 }
 
 interface BrowserCredRow {
@@ -425,7 +663,7 @@ function BrowserSettingsPane() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5 text-[12px] leading-relaxed text-amber-200">
+      <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
         <HugeiconsIcon icon={Alert01Icon} className="mt-0.5 size-4 shrink-0" />
         <span>
           <strong className="font-semibold">Dummy / test logins only.</strong>{" "}
@@ -506,6 +744,85 @@ function BrowserSettingsPane() {
   );
 }
 
+function NotchSettingsPane() {
+  const enabled = useSettingsStore((s) => s.notchTrayEnabled);
+  const pinned = useSettingsStore((s) => s.notchTrayPinned);
+  const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
+  const setPinned = useSettingsStore((s) => s.setNotchTrayPinned);
+  const [support, setSupport] = useState<{
+    supported: boolean;
+    reason: "supported" | "not-macos" | "no-notched-display";
+  } | null>(null);
+
+  useEffect(() => {
+    const notch = window.zuse?.notch ?? window.memoize?.notch;
+    let cancelled = false;
+    void notch?.getDisplaySupport?.().then((next) => {
+      if (!cancelled) setSupport(next);
+    });
+    const unsubscribe = notch?.onDisplaySupportChanged?.((next) => {
+      setSupport(next);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const supported = support?.supported === true;
+  const unsupportedText =
+    support?.reason === "not-macos"
+      ? "Requires macOS and a MacBook display with a notch."
+      : "Requires a MacBook display with a notch.";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!supported && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
+          <HugeiconsIcon
+            icon={Alert01Icon}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>{unsupportedText}</span>
+        </div>
+      )}
+
+      <SettingsGroup
+        title="Notch tray"
+        description="Show active agents near the MacBook notch. Hover the notch area to expand the tray, then click an agent to jump to its chat."
+      >
+        <SettingsRow
+          title="Enable Notch Tray"
+          description="Show running agents, pending approvals, questions, plans, completions, and failures near the notch."
+          action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+        />
+        <SettingsRow
+          title="Keep tray expanded"
+          description="Keep the agent list open instead of only expanding while the pointer is over the notch area."
+          action={
+            <Switch
+              checked={pinned}
+              disabled={!enabled}
+              onCheckedChange={setPinned}
+            />
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsFrame
+        title="What appears"
+        description="The tray is intentionally quiet: it shows actionable agent states first, then recently completed turns for about 30 seconds."
+      >
+        <ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
+          <li>Permission requests, questions, and plan approvals</li>
+          <li>Running agents as compact status circles</li>
+          <li>Completed turns and failures from background chats</li>
+        </ul>
+      </SettingsFrame>
+    </div>
+  );
+}
+
 function CredInput({
   placeholder,
   value,
@@ -550,7 +867,18 @@ const BRANCH_STYLE_META: Record<
   custom: { label: "custom prefix", example: "prefix/dark-mode" },
 };
 
+const APPEARANCE_OPTIONS: ReadonlyArray<{
+  readonly value: AppearanceMode;
+  readonly label: string;
+}> = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
+
 function GeneralPane() {
+  const appearanceMode = useSettingsStore((s) => s.appearanceMode);
+  const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
   const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
   const setDefaultRuntimeMode = useSettingsStore(
     (s) => s.setDefaultRuntimeMode,
@@ -578,6 +906,17 @@ function GeneralPane() {
   );
   const setView = useUiStore((s) => s.setView);
 
+  const {
+    user,
+    isSignedIn,
+    signIn,
+    signOut,
+    signingIn,
+    name,
+    displayName,
+    setDisplayName,
+  } = useAuth();
+
   // Local mirror so typing is smooth; persist on blur to avoid an atomic
   // settings-file write per keystroke.
   const [prefixDraft, setPrefixDraft] = useState(branchNamingPrefix);
@@ -585,8 +924,115 @@ function GeneralPane() {
     setPrefixDraft(branchNamingPrefix);
   }, [branchNamingPrefix]);
 
+  // Display-name override draft (local cosmetic alias; persisted to localStorage
+  // via the auth store). Mirror on external change.
+  const [nameDraft, setNameDraft] = useState(displayName);
+  useEffect(() => {
+    setNameDraft(displayName);
+  }, [displayName]);
+
   return (
     <div className="flex flex-col gap-4">
+      <SettingsGroup
+        title="Account"
+        description="Sign in to sync your account across devices and (soon) drive remote agents from your phone."
+      >
+        {isSignedIn ? (
+          <>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <Avatar className="size-10">
+                {user?.profilePictureUrl ? (
+                  <AvatarImage src={user.profilePictureUrl} alt={name} />
+                ) : null}
+                <AvatarFallback>
+                  {(name || user?.email || "?").charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-medium text-foreground">
+                  {name}
+                </span>
+                <span className="truncate text-xs text-muted-foreground">
+                  {user?.email}
+                </span>
+              </div>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => void signOut()}
+              >
+                Sign out
+              </Button>
+            </div>
+            <SettingsRow
+              title="Display name"
+              description="How your name shows in Zuse Alpha. Local to this device — it doesn't change your WorkOS profile."
+            >
+              <input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => setDisplayName(nameDraft)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder={user?.email ?? "Your name"}
+                className="h-8 w-full max-w-[260px] rounded-lg border border-border/50 bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
+              />
+            </SettingsRow>
+          </>
+        ) : (
+          <SettingsRow
+            title="Not signed in"
+            description="You're using Zuse Alpha locally without an account. Sign in to sync and unlock remote agents."
+            action={
+              <Button
+                variant="settings"
+                size="sm"
+                loading={signingIn}
+                onClick={() => void signIn()}
+              >
+                Sign in
+              </Button>
+            }
+          />
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Appearance"
+        description="Choose the app theme, or follow your system setting."
+      >
+        <SettingsRow
+          title="Theme"
+          description="Choose the app theme, or follow your system setting."
+          action={
+            <div className="inline-flex rounded-lg border border-border/60 bg-muted p-0.5">
+              {APPEARANCE_OPTIONS.map((option) => {
+                const active = option.value === appearanceMode;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setAppearanceMode(option.value)}
+                    className={cn(
+                      "h-7 rounded-md px-2.5 text-xs font-medium transition-colors",
+                      active
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          }
+        />
+      </SettingsGroup>
+
       <SettingsGroup
         title="Agent defaults"
         description="Defaults used when a new chat or background agent starts."
@@ -687,11 +1133,11 @@ function GeneralPane() {
 
       <SettingsGroup
         title="Workspace naming"
-        description="Controls how memoize names new worktree-backed branches."
+        description="Controls how Zuse Alpha names new worktree-backed branches."
       >
         <SettingsRow
           title="Branch naming"
-          description="When a new chat with its own worktree gets its first message, memoize summarizes it and renames the chat plus its git branch in this shape."
+          description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
           action={
             <Select
               value={branchNamingStyle}
@@ -778,20 +1224,21 @@ function GeneralPane() {
 function ProvidersPane() {
   const availability = useProvidersStore((s) => s.availability);
   const loading = useProvidersStore((s) => s.loading);
+  const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
   const error = useProvidersStore((s) => s.error);
   const refresh = useProvidersStore((s) => s.refresh);
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
-  // Refresh once on mount + re-poll when the window regains focus so the
-  // "Checked X ago" line reflects reality without forcing the user to hit
-  // refresh themselves.
+  // Refresh once when the pane opens. We deliberately do NOT re-poll on every
+  // window focus: `refresh()` → `agent.availability` reads the OS keychain
+  // (`credentials.listConfigured`), and on unsigned/dev builds macOS re-prompts
+  // for the "zuse" keychain on each access — so a focus-triggered refresh meant
+  // a keychain prompt every time the window regained focus. The manual refresh
+  // button covers the occasional "re-check now" case.
   useEffect(() => {
     void refresh();
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
   const now = useRelativeTimeTick(15_000);
@@ -813,6 +1260,8 @@ function ProvidersPane() {
     "cursor",
     "opencode",
   ];
+  const [selectedProvider, setSelectedProvider] =
+    useState<ProviderId>("claude");
   const availabilityById = useMemo(() => {
     const map = new Map<ProviderId, (typeof availability)[number]>();
     for (const a of availability) map.set(a.providerId, a);
@@ -847,29 +1296,60 @@ function ProvidersPane() {
               disabled={loading}
               aria-label="Refresh provider status"
             >
-              <HugeiconsIcon
-                icon={RotateRight01Icon}
+              <RefreshIcon
                 className={cn("size-3.5", loading && "animate-spin")}
                 aria-hidden
               />
             </Button>
           </div>
         </FrameHeader>
-        <Card>
-          <div className="flex flex-col divide-y divide-border/40">
-            {providers.map((pid) => (
-              <ProviderCard
-                key={pid}
-                providerId={pid}
-                availability={availabilityById.get(pid)}
-                loading={loading}
-              />
-            ))}
+        <div className="flex flex-col gap-2 px-2 pb-2">
+          <div
+            role="tablist"
+            aria-label="Provider settings"
+            className="flex min-w-0 gap-1 overflow-x-auto border-b border-border/50"
+          >
+            {providers.map((pid) => {
+              const selected = selectedProvider === pid;
+              return (
+                <button
+                  key={pid}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setSelectedProvider(pid)}
+                  className={cn(
+                    "flex min-h-9 shrink-0 items-center gap-2 border-b px-2.5 text-sm transition-colors",
+                    selected
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <ProviderIcon providerId={pid} className="size-3.5" />
+                  <span>{PROVIDER_LABEL[pid]}</span>
+                  {pid === "opencode" && (
+                    <span className="rounded border border-border/60 bg-muted/70 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      New
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-        </Card>
+          <Card>
+            <ProviderCard
+              providerId={selectedProvider}
+              availability={availabilityById.get(selectedProvider)}
+              loading={isInitialProviderAvailabilityLoading(
+                loading,
+                availabilityLoaded,
+              )}
+            />
+          </Card>
+        </div>
         <FrameFooter className="px-2 py-1 w-full">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Memoize uses your existing CLI credentials — Claude Code, Codex,
+            Zuse Alpha uses your existing CLI credentials — Claude Code, Codex,
             Grok, Gemini, Cursor, and OpenCode all sign in through their own
             login flows.
           </p>
@@ -937,7 +1417,7 @@ function WorkspacePane() {
           onCheckedChange={setDefaultAutoCreateWorktree}
         />
       }
-      description="When on, each new chat runs in its own git worktree under ~/.memoize/<repo>/<name>/, branched off the project's HEAD. Per-repo settings can override this default."
+      description="When on, each new chat runs in its own git worktree under ~/.zuse/<repo>/<name>/, branched off the project's HEAD. Per-repo settings can override this default."
     />
   );
 }
@@ -955,8 +1435,14 @@ function SubagentsSection() {
   const presets = useSubagentsStore((s) => s.presets);
   const setPresetEnabled = useSubagentsStore((s) => s.setPresetEnabled);
   const setPresetOverride = useSubagentsStore((s) => s.setPresetOverride);
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
 
-  const claudeModels = MODELS_BY_PROVIDER.claude;
+  const claudeModels = visibleModelsForProvider(
+    "claude",
+    modelEnabledByProvider,
+  );
 
   return (
     <Frame>
@@ -1528,7 +2014,7 @@ export function OverrideField({
             className={cn(
               "rounded px-2.5 py-1 transition-colors",
               !isOverridden
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
@@ -1540,7 +2026,7 @@ export function OverrideField({
             className={cn(
               "rounded px-2.5 py-1 transition-colors",
               isOverridden
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground"
                 : "text-muted-foreground",
             )}
           >
@@ -1574,7 +2060,12 @@ export function ModelSelect({
   value: string | null;
   onChange: (model: string) => void;
 }) {
-  const models = MODELS_BY_PROVIDER[providerId] ?? [];
+  const modelEnabledByProvider = useSettingsStore(
+    (s) => s.modelEnabledByProvider,
+  );
+  const models = visibleModelsForProvider(providerId, modelEnabledByProvider, {
+    includeModelId: value,
+  });
   const normalizedValue =
     value !== null &&
     (models.some((m) => m.id === value) || models.length === 0)
@@ -1622,6 +2113,8 @@ export function ensureValidDefaultsForRuntime(
     : ready[0]!;
   const model =
     settings.defaultModelByProvider[provider] ??
+    visibleModelsForProvider(provider, settings.modelEnabledByProvider)[0]
+      ?.id ??
     MODELS_BY_PROVIDER[provider][0]!.id;
   return {
     providerId: provider,

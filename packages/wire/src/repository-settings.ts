@@ -7,8 +7,8 @@ import { FolderId } from "./ids.ts";
 /**
  * Per-repository overrides on top of the global Settings. A `null` field
  * means "fall through to global default"; the renderer is responsible for
- * collapsing this layer at read-time. Persisted in the `repository_settings`
- * table keyed by `projectId`.
+ * collapsing this layer at read-time. Persisted in `.zuse/settings.json`
+ * under the repository root.
  */
 export class RepositorySettings extends Schema.Class<RepositorySettings>(
   "RepositorySettings",
@@ -25,7 +25,7 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
   autoCreateWorktree: Schema.Boolean,
   /**
    * Optional override for the worktree base dir. `null` means the global
-   * default: `~/.memoize/<repo-name>-<projectId-short>/`.
+   * default: `~/.zuse/<repo-name>-<projectId-short>/`.
    */
   worktreeBaseDir: Schema.NullOr(Schema.String),
   /**
@@ -46,6 +46,12 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
     key: Schema.String,
     value: Schema.String,
   }),
+  /**
+   * Newline-separated gitignore-style patterns for local files that should be
+   * linked into every Zuse worktree from the main checkout. Empty means "use
+   * Zuse's built-in env-file discovery fallback".
+   */
+  fileIncludeGlobs: Schema.String,
 }) {}
 
 /**
@@ -67,8 +73,33 @@ export const RepositorySettingsPatch = Schema.Struct({
   environmentVariables: Schema.optional(
     Schema.Record({ key: Schema.String, value: Schema.String }),
   ),
+  fileIncludeGlobs: Schema.optional(Schema.String),
 });
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
+
+/**
+ * On-disk `.zuse/settings.json` shape. It intentionally omits `projectId`
+ * because the file lives inside a single repository.
+ */
+export const RepositorySettingsFile = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  defaultProviderId: Schema.NullOr(ProviderId),
+  defaultModel: Schema.NullOr(Schema.String),
+  defaultRuntimeMode: Schema.NullOr(RuntimeMode),
+  autoCreateWorktree: Schema.Boolean,
+  worktreeBaseDir: Schema.NullOr(Schema.String),
+  archiveCleanupScript: Schema.NullOr(Schema.String),
+  archiveRemoveWorktree: Schema.Boolean,
+  setupScript: Schema.NullOr(Schema.String),
+  runScript: Schema.NullOr(Schema.String),
+  autoRunAfterSetup: Schema.Boolean,
+  environmentVariables: Schema.Record({
+    key: Schema.String,
+    value: Schema.String,
+  }),
+  fileIncludeGlobs: Schema.String,
+});
+export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;
 
 export const RepositorySettingsGetRpc = Rpc.make("repositorySettings.get", {
   payload: Schema.Struct({ projectId: FolderId }),

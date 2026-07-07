@@ -1,4 +1,4 @@
-import type { FolderId, WorktreeId } from "@memoize/wire";
+import type { FolderId, WorktreeId } from "@zuse/wire";
 
 import { useRepositorySettingsStore } from "../store/repository-settings.ts";
 import { useSettingsStore } from "../store/settings.ts";

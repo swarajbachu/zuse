@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
-import type { SessionId, Skill } from "@memoize/wire";
+import type { SessionId, Skill } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

@@ -11,7 +11,7 @@ import {
 } from "./agent.ts";
 import {
   AttachmentRef,
-  CodeAnnotation,
+  ComposerAnnotation,
   ComposerInput,
   FileRef,
   SkillRef,
@@ -80,6 +80,10 @@ export type SessionStatus = typeof SessionStatus.Type;
 export const ResumeStrategy = Schema.Literal(
   "claude-session-id",
   "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
   "none",
 );
 export type ResumeStrategy = typeof ResumeStrategy.Type;
@@ -87,7 +91,7 @@ export type ResumeStrategy = typeof ResumeStrategy.Type;
 // `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
 // new `AgentDefinition.permissionMode` can reuse the same literal set
 // without an import cycle. Re-exported above for back-compat with the
-// existing `import { RuntimeMode } from "@memoize/wire"` callers.
+// existing `import { RuntimeMode } from "@zuse/wire"` callers.
 
 export class Session extends Schema.Class<Session>("Session")({
   id: SessionId,
@@ -173,7 +177,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   skillRefs: Schema.Array(SkillRef),
   // Additive + back-compat: rows persisted before code annotations existed
   // decode with an empty list rather than failing.
-  annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+  annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
     default: () => [],
   }),
   goal: Schema.optional(Schema.Boolean),
@@ -216,6 +220,14 @@ const ErrorContent = Schema.TaggedStruct("error", {
 });
 
 /**
+ * Persisted marker for a turn the user explicitly interrupted. Rendered as a
+ * small muted "Interrupted by user" badge — distinct from `error`, which is a
+ * real failure. Carries no fields; its presence in the message list is the
+ * whole signal.
+ */
+const InterruptedContent = Schema.TaggedStruct("interrupted", {});
+
+/**
  * Closing summary persisted for a sub-agent run. Mirrors the streaming
  * `SubagentSummaryEvent` so resume parity holds: the wrapper-row footer
  * reads `summary` / `turns` / `durationMs` from this row when collapsed.
@@ -250,6 +262,18 @@ const ContextUsageContent = Schema.TaggedStruct("context_usage", {
   windowTokens: Schema.NullOr(Schema.Number),
   precision: ContextUsagePrecision,
   source: Schema.optional(Schema.String),
+});
+
+const ContextCompactionContent = Schema.TaggedStruct("context_compaction", {
+  itemId: AgentItemId,
+  providerId: ProviderId,
+  startedAt: Schema.Number,
+  durationMs: Schema.Number,
+  beforeTokens: Schema.NullOr(Schema.Number),
+  afterTokens: Schema.NullOr(Schema.Number),
+  status: Schema.optionalWith(Schema.Literal("in_progress", "completed"), {
+    default: () => "completed" as const,
+  }),
 });
 
 const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
@@ -305,9 +329,11 @@ export const MessageContent = Schema.Union(
   ToolUseContent,
   ToolResultContent,
   ErrorContent,
+  InterruptedContent,
   SubagentSummaryContent,
   UsageContent,
   ContextUsageContent,
+  ContextCompactionContent,
   UsageLimitContent,
   UserQuestionContent,
   UserQuestionAnswerContent,
@@ -322,6 +348,19 @@ export class Message extends Schema.Class<Message>("Message")({
   role: MessageRole,
   content: MessageContent,
   createdAt: Schema.DateFromString,
+}) {}
+
+/**
+ * A `Message` tagged with its global monotonic `sequence` from the event log.
+ * Clients record the highest `sequence` they have seen per session and pass it
+ * back as `sinceSequence` on reconnect to resume gap-free (no full replay, no
+ * in-memory dedup Set). This is what `messages.stream` emits.
+ */
+export class MessageEnvelope extends Schema.Class<MessageEnvelope>(
+  "MessageEnvelope",
+)({
+  sequence: Schema.Number,
+  message: Message,
 }) {}
 
 export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
@@ -517,6 +556,49 @@ export const SessionDeleteRpc = Rpc.make("session.delete", {
   error: SessionNotFoundError,
 });
 
+/**
+ * Where a forked conversation lands. `tab` creates a new session inside the
+ * source chat (sharing its worktree); `chat` creates a fresh sidebar chat
+ * (with its own worktree) for isolated parallel exploration.
+ */
+export const ForkDestination = Schema.Literal("tab", "chat");
+export type ForkDestination = typeof ForkDestination.Type;
+
+/**
+ * How the fork inherited its context. `resume` means the provider forked the
+ * live transcript so the new session has real agent memory (Claude
+ * `forkSession` / Codex `thread/fork`); `copy` means the visible transcript
+ * was replayed into the new session (no KV memory) because the fork point was
+ * not the conversation tail, or the provider lacks native fork support.
+ */
+export const ForkMode = Schema.Literal("resume", "copy");
+export type ForkMode = typeof ForkMode.Type;
+
+/**
+ * Serialise a session's transcript to Markdown, optionally truncated at
+ * `uptoMessageId` (inclusive). Backs the "Attach transcript" handoff button
+ * and the copy-mode fork context file.
+ */
+export const SessionExportTranscriptRpc = Rpc.make("session.exportTranscript", {
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    uptoMessageId: Schema.optional(MessageId),
+  }),
+  success: Schema.Struct({ markdown: Schema.String }),
+  error: SessionNotFoundError,
+});
+
+/**
+ * The most recent `ExitPlanMode` plan text for a session, or `null` if it has
+ * never proposed a plan. Backs the "Add plans" chip on a new chat — cheap
+ * enough to probe candidate sources without hydrating their full message log.
+ */
+export const SessionLatestPlanRpc = Rpc.make("session.latestPlan", {
+  payload: Schema.Struct({ sessionId: SessionId }),
+  success: Schema.Struct({ plan: Schema.NullOr(Schema.String) }),
+  error: SessionNotFoundError,
+});
+
 // ---------------------------------------------------------------------------
 // Chats (sidebar containers; each chat hosts ≥1 session as tabs)
 // ---------------------------------------------------------------------------
@@ -665,6 +747,32 @@ export const ChatRenameRpc = Rpc.make("chat.rename", {
 });
 
 /**
+ * Branch a conversation from a specific message into a new tab or chat. The
+ * server picks `resume` vs `copy` based on the fork point and provider; the
+ * new session records `forkedFromSessionId` / `forkedFromMessageId`.
+ * `providerId` / `model` default to the source session's; `worktreeId` only
+ * applies to `destination: "chat"`. (Declared here — below `Chat` — because
+ * its success payload references the `Chat` class.)
+ */
+export const SessionForkRpc = Rpc.make("session.fork", {
+  payload: Schema.Struct({
+    sourceSessionId: SessionId,
+    fromMessageId: MessageId,
+    destination: ForkDestination,
+    providerId: Schema.optional(ProviderId),
+    model: Schema.optional(Schema.String),
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    title: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({
+    chat: Chat,
+    session: Session,
+    forkMode: ForkMode,
+  }),
+  error: Schema.Union(SessionNotFoundError, SessionStartError),
+});
+
+/**
  * Live feed of chat-row changes (title / worktree binding) for one project.
  * Carries only live patches — no backfill — so the renderer keeps its
  * `chat.list` snapshot and patches it as updates arrive (e.g. the background
@@ -715,7 +823,15 @@ export const ChatSetActiveSessionRpc = Rpc.make("chat.setActiveSession", {
 });
 
 export const ChatArchiveRpc = Rpc.make("chat.archive", {
-  payload: Schema.Struct({ chatId: ChatId }),
+  payload: Schema.Struct({
+    chatId: ChatId,
+    /**
+     * Force-remove the chat's worktree even when it has uncommitted or
+     * untracked changes. Callers pass `true` after confirming the discard
+     * with the user (mirrors `worktree.remove`'s `force`).
+     */
+    force: Schema.optional(Schema.Boolean),
+  }),
   success: ChatArchiveResult,
   error: ChatArchiveErrors,
 });
@@ -743,14 +859,22 @@ export const MessagesListRpc = Rpc.make("messages.list", {
 });
 
 /**
- * Subscribe to a session's message log. The stream emits each persisted row in
- * `created_at` order (backfill) and continues with live rows as the provider
+ * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
+ * rows in global `sequence` order — a replay of everything past `sinceSequence`
+ * (0 when omitted, i.e. the full history), then live rows as the provider
  * produces events. The renderer treats it as the single source of truth — no
  * separate hydrate / live split.
+ *
+ * Clients record the highest `sequence` seen per session and pass it back as
+ * `sinceSequence` on resubscribe: the server replays only the delta, so a
+ * flaky-network reconnect is O(missed messages) and gap-free by construction.
  */
 export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Message,
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    sinceSequence: Schema.optional(Schema.Number),
+  }),
+  success: MessageEnvelope,
   error: SessionNotFoundError,
   stream: true,
 });
@@ -767,6 +891,12 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
     text: Schema.optional(Schema.String),
     input: Schema.optional(ComposerInput),
     asGoal: Schema.optional(Schema.Boolean),
+    // Optional renderer-minted id for the user message. When present the
+    // server persists the row under this id instead of generating one, so the
+    // renderer can insert the message optimistically and have the live-stream
+    // echo dedupe against it. Omitted by non-interactive callers (queue
+    // flush), which keep server-generated ids.
+    clientMessageId: Schema.optional(MessageId),
   }),
   success: Schema.Void,
   error: SessionNotFoundError,

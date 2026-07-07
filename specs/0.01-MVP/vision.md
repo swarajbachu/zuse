@@ -4,7 +4,7 @@
 
 A desktop app for working with coding agents (Claude Code, Codex) chat-first. You add a project to the sidebar, open a session, and chat with an agent that has full access to that project's files. The agent does the work; you review the diff. A file tree and a real terminal sit on the right so you can run `pnpm dev`, `tsc --noEmit`, or `ls` without leaving the app.
 
-The mental model is closer to Cursor's "Composer" or T3 Chat, not VS Code. The chat is the canvas; the file tree and terminal are tools you reach for when needed.
+The mental model is closer to chat-first agent apps than VS Code. The chat is the canvas; the file tree and terminal are tools you reach for when needed.
 
 ## What memoize is not
 

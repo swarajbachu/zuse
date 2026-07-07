@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import type { CodeAnnotation, SessionId } from "@memoize/wire";
+import type {
+  BrowserAnnotation,
+  CodeAnnotation,
+  ComposerAnnotation,
+  SessionId,
+} from "@zuse/wire";
+
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 
 /**
  * Draft code annotations, keyed by chat session. The user selects code in the
@@ -12,13 +19,18 @@ import type { CodeAnnotation, SessionId } from "@memoize/wire";
  * un-sent annotations survive a window reload / app restart — they're drafty by
  * nature, so a DB-backed queue would be overkill.
  */
-const STORAGE_KEY = "memoize.annotations.v1";
+const STORAGE_KEY = "zuse.annotations.v1";
+const LEGACY_STORAGE_KEYS = ["memoize.annotations.v1"] as const;
 
-type Persisted = Record<string, ReadonlyArray<CodeAnnotation>>;
+type Persisted = Record<string, ReadonlyArray<ComposerAnnotation>>;
 
 const load = (): Persisted => {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStorageWithLegacy(
+      window.localStorage,
+      STORAGE_KEY,
+      LEGACY_STORAGE_KEYS,
+    );
     if (raw === null) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== "object" || parsed === null) return {};
@@ -52,6 +64,10 @@ type AnnotationsState = {
     sessionId: SessionId,
     annotation: Omit<CodeAnnotation, "id">,
   ) => string;
+  readonly addBrowser: (
+    sessionId: SessionId,
+    annotation: Omit<BrowserAnnotation, "id" | "_tag" | "createdAt">,
+  ) => BrowserAnnotation;
   readonly remove: (sessionId: SessionId, id: string) => void;
   readonly updateComment: (
     sessionId: SessionId,
@@ -71,6 +87,19 @@ export const useAnnotationsStore = create<AnnotationsState>((set, get) => ({
     set({ bySession });
     persist(bySession);
     return id;
+  },
+  addBrowser: (sessionId, annotation) => {
+    const entry: BrowserAnnotation = {
+      ...annotation,
+      _tag: "browser",
+      id: newId(),
+      createdAt: new Date().toISOString(),
+    };
+    const current = get().bySession[sessionId] ?? [];
+    const bySession = { ...get().bySession, [sessionId]: [...current, entry] };
+    set({ bySession });
+    persist(bySession);
+    return entry;
   },
   remove: (sessionId, id) => {
     const current = get().bySession[sessionId];
@@ -106,5 +135,5 @@ export const useAnnotationsStore = create<AnnotationsState>((set, get) => ({
 /** Snapshot read for non-reactive callers (e.g. the submit handler). */
 export const annotationsForSession = (
   sessionId: SessionId,
-): ReadonlyArray<CodeAnnotation> =>
+): ReadonlyArray<ComposerAnnotation> =>
   useAnnotationsStore.getState().bySession[sessionId] ?? [];

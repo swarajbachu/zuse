@@ -1,10 +1,10 @@
 import { RpcClient, RpcGroup, RpcSerialization } from "@effect/rpc";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
-import { MemoizeRpcs } from "@memoize/wire";
+import { MemoizeRpcs } from "@zuse/wire";
 
-import { getBridge } from "./bridge.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
+import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
 /**
  * Lazy-initialized renderer-side RPC. The bridge call is deferred so this
@@ -19,11 +19,34 @@ type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
 let runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null = null;
 let cachedClient: Promise<MemoizeClient> | null = null;
 
+function resolveWebSocketUrl() {
+  const env = (import.meta as { readonly env?: Record<string, string | undefined> })
+    .env;
+  return (
+    env?.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`
+  );
+}
+
+export function resolveRendererRpcTransportForTest(): {
+  readonly kind: "electron" | "websocket";
+  readonly wsUrl?: string;
+} {
+  const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+  return bridge
+    ? { kind: "electron" }
+    : { kind: "websocket", wsUrl: resolveWebSocketUrl() };
+}
+
 function getRuntime() {
   if (runtime === null) {
-    const protocolLayer = electronClientProtocolLayer(getBridge().rpc).pipe(
-      Layer.provide(RpcSerialization.layerJson),
-    );
+    const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+    const protocolLayer = bridge
+      ? electronClientProtocolLayer(bridge.rpc).pipe(
+          Layer.provide(RpcSerialization.layerJson),
+        )
+      : wsClientProtocolLayer(resolveWebSocketUrl());
+    // Future reconnect policy belongs at this socket/protocol boundary. For
+    // now failures surface to stream consumers and stores resume by cursor.
     runtime = ManagedRuntime.make(protocolLayer);
   }
   return runtime;

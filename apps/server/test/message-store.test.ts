@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { SqlClient } from "@effect/sql";
-// The server ships on `@effect/sql-sqlite-node` (better-sqlite3), which Bun
-// cannot dlopen. `@effect/sql-sqlite-bun` produces the same generic
-// `SqlClient` tag on top of the built-in `bun:sqlite`, so MessageStoreLive
-// runs unchanged under `bun test`. Test-only — the app keeps the node client.
+// The server ships on the built-in `node:sqlite`, which Bun does not provide.
+// `@effect/sql-sqlite-bun` produces the same generic `SqlClient` tag on top
+// of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
+// `bun test`. Test-only — the app keeps the node client.
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import { Chunk, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,10 +17,16 @@ import type {
   SessionId,
   StartSessionInput,
   WorktreeId,
-} from "@memoize/wire";
-import { ComposerInput, RepositorySettings, Worktree } from "@memoize/wire";
+} from "@zuse/wire";
+import {
+  ComposerInput,
+  MessageId,
+  RepositorySettings,
+  Worktree,
+} from "@zuse/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
+import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../src/persistence/migrations/0003_resume_and_export.ts";
@@ -40,6 +46,7 @@ import { Migration0016QueuedMessagesQueueOrderRepair } from "../src/persistence/
 import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
+import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -62,18 +69,24 @@ const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
  */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
+let providerStartCursors: Array<string | null> = [];
+let providerSentTexts: string[] = [];
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
-  start: (input) =>
+  start: (input, resumeCursor) =>
     Effect.sync(() => {
       providerStartInputs.push(input);
+      providerStartCursors.push(resumeCursor);
       return {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
     }),
-  send: () => Effect.void,
+  send: (_sessionId, text) =>
+    Effect.sync(() => {
+      providerSentTexts.push(text);
+    }),
   interrupt: () => Effect.void,
   close: () => Effect.void,
   events: () => Stream.fromIterable(scriptedEvents),
@@ -149,6 +162,10 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
   keybindingsChanges: () => Stream.die("not used"),
 });
 
+const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
+  publish: () => Effect.void,
+});
+
 /** Chat archive cleanup is out of scope for MessageStore persistence tests. */
 const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
   get: (projectId) =>
@@ -162,6 +179,11 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
         worktreeBaseDir: null,
         archiveCleanupScript: null,
         archiveRemoveWorktree: false,
+        setupScript: null,
+        runScript: null,
+        autoRunAfterSetup: false,
+        environmentVariables: {},
+        fileIncludeGlobs: "",
       }),
     ),
   update: (projectId, patch) =>
@@ -175,6 +197,11 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
         worktreeBaseDir: patch.worktreeBaseDir ?? null,
         archiveCleanupScript: patch.archiveCleanupScript ?? null,
         archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
+        setupScript: patch.setupScript ?? null,
+        runScript: patch.runScript ?? null,
+        autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
+        environmentVariables: patch.environmentVariables ?? {},
+        fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
       }),
     ),
 });
@@ -219,6 +246,7 @@ const runAllMigrations = Effect.all(
     Migration0017ChatReadState,
     Migration0018PokemonWorktrees,
     Migration0019QueuePaused,
+    Migration0020Events,
   ],
   { discard: true },
 );
@@ -238,6 +266,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubGitLive),
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
+    Layer.provide(StubRelayActivityPublisherLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),
@@ -281,6 +310,8 @@ const store = MessageStore;
 
 beforeEach(() => {
   providerStartInputs = [];
+  providerStartCursors = [];
+  providerSentTexts = [];
 });
 
 describe("MessageStore migrations", () => {
@@ -397,9 +428,34 @@ describe("MessageStore — chat & session lifecycle", () => {
 
       expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
-      expect(providerStartInputs.at(-1)?.cwdOverride).toBe(
-        TEST_WORKTREE_PATH,
+      expect(providerStartInputs.at(-1)?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+    });
+  });
+
+  it("creates an external continued thread with a persisted resume cursor and no initial message", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.continueExternalThread({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            title: "Existing Claude thread",
+            resumeCursor: "claude-session-123",
+            resumeStrategy: "claude-session-id",
+          }),
+        ),
       );
+
+      expect(result.chat.title).toBe("Existing Claude thread");
+      expect(result.initialSession.cursor).toBe("claude-session-123");
+      expect(result.initialSession.resumeStrategy).toBe("claude-session-id");
+      expect(providerStartCursors.at(-1)).toBe("claude-session-123");
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(result.initialSession.id)),
+      );
+      expect(messages).toEqual([]);
     });
   });
 
@@ -607,6 +663,214 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
+  it("sendMessage persists the user row under a supplied clientMessageId", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const clientId = MessageId.make(`m_client_${Date.now()}`);
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            id,
+            "with a client id",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            clientId,
+          ),
+        ),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(id)),
+      );
+      const user = messages.filter((m) => m.role === "user");
+      // The row the renderer inserted optimistically and the persisted/echoed
+      // row share the id, so the live stream dedupes against it.
+      expect(user.some((m) => m.id === clientId)).toBe(true);
+    });
+  });
+
+  it("sendMessage stores human annotations and sends them as provider context", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const annotations = [
+        {
+          id: "ann-human-1",
+          relPath: "src/app.ts",
+          absPath: "/tmp/project/src/app.ts",
+          startLine: 12,
+          endLine: 16,
+          comment: "make this branch easier to follow",
+        },
+      ];
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            id,
+            "please handle this",
+            undefined,
+            undefined,
+            undefined,
+            annotations,
+          ),
+        ),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(id)),
+      );
+      const user = messages.filter((m) => m.role === "user").at(-1);
+      expect(user?.content).toMatchObject({
+        _tag: "user_rich",
+        text: "please handle this",
+        annotations,
+      });
+      expect(providerSentTexts.at(-1)).toBe(
+        "Code annotations:\n1. src/app.ts:12-16 — make this branch easier to follow\n\nplease handle this",
+      );
+    });
+  });
+
+  it("sendMessage serializes browser annotations without leaking page text", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const annotations = [
+        {
+          _tag: "browser" as const,
+          id: "ann-browser-1",
+          comment: "this hero copy can be improved",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "https://example.com/",
+          pageTitle: "Example Domain",
+          elements: [
+            {
+              tagName: "p",
+              selector: "main > p",
+              label: "p",
+              rect: { x: 10, y: 20, width: 400, height: 80 },
+              textPreview:
+                "RAW PAGE TEXT THAT SHOULD NOT BE SERIALIZED INTO PROMPT",
+            },
+          ],
+          regions: [],
+          strokes: [],
+          screenshotAttachment: {
+            id: "shot-browser-1",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        },
+      ];
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            id,
+            "",
+            [
+              {
+                id: "shot-browser-1",
+                mimeType: "image/png",
+                originalName: "browser-annotation.png",
+              },
+            ],
+            undefined,
+            undefined,
+            annotations,
+          ),
+        ),
+      );
+
+      const sent = providerSentTexts.at(-1) ?? "";
+      expect(sent).toContain("Browser annotations:");
+      expect(sent).toContain(
+        "1. https://example.com/ (Example Domain) — <p> p; this hero copy can be improved. Screenshot attached.",
+      );
+      expect(sent).not.toContain("RAW PAGE TEXT");
+      expect(sent).not.toContain("image/png;base64");
+    });
+  });
+
+  it("reads legacy context compaction rows without status", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "codex",
+            model: "gpt-5",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const createdAt = "2026-06-30T07:22:00.000Z";
+      const legacyContent = JSON.stringify({
+        _tag: "context_compaction",
+        itemId: "compact_legacy",
+        providerId: "codex",
+        startedAt: 1_782_803_407_285,
+        durationMs: 31_110,
+        beforeTokens: null,
+        afterTokens: null,
+      });
+
+      await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`
+            INSERT INTO messages
+              (id, session_id, role, kind, content_json, created_at)
+            VALUES
+              (${"msg_legacy_compact"}, ${id}, ${"system"}, ${"context_compaction"}, ${legacyContent}, ${createdAt})
+          `;
+        }),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(id)),
+      );
+      const compact = messages.find(
+        (message) => message.content._tag === "context_compaction",
+      );
+
+      expect(compact?.content).toMatchObject({
+        _tag: "context_compaction",
+        status: "completed",
+      });
+    });
+  });
+
   it("queued messages persist, update, delete, and reorder", async () => {
     await withRuntime(async (run) => {
       const { initialSession } = await run(
@@ -679,6 +943,120 @@ describe("MessageStore — chat & session lifecycle", () => {
         "first edited",
       ]);
       expect(remaining.items[0]?.position).toBe(0);
+    });
+  });
+
+  it("queued messages preserve human annotations until they are sent", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const input = new ComposerInput({
+        text: "",
+        attachments: [],
+        fileRefs: [],
+        skillRefs: [],
+        annotations: [
+          {
+            id: "ann-queued-1",
+            relPath: "src/queued.ts",
+            absPath: "/tmp/project/src/queued.ts",
+            startLine: 4,
+            endLine: 4,
+            comment: "queued annotation only",
+          },
+        ],
+      });
+
+      const queued = await run(
+        Effect.flatMap(store, (s) =>
+          s.addQueuedMessage(initialSession.id, input),
+        ),
+      );
+      expect(queued.input.annotations).toEqual(input.annotations);
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendQueuedMessageNow(initialSession.id, queued.id),
+        ),
+      );
+
+      expect(providerSentTexts.at(-1)).toBe(
+        "Code annotations:\n1. src/queued.ts:4 — queued annotation only",
+      );
+    });
+  });
+
+  it("queued messages preserve browser annotations and screenshot attachments", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const input = new ComposerInput({
+        text: "apply this visual note",
+        attachments: [
+          {
+            id: "shot-queued-browser",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        ],
+        fileRefs: [],
+        skillRefs: [],
+        annotations: [
+          {
+            _tag: "browser",
+            id: "ann-browser-queued",
+            comment: "align this card with the list",
+            createdAt: "2026-07-07T00:00:00.000Z",
+            pageUrl: "http://localhost:3000/",
+            pageTitle: null,
+            elements: [],
+            regions: [
+              {
+                id: "region-queued",
+                rect: { x: 1, y: 2, width: 3, height: 4 },
+              },
+            ],
+            strokes: [],
+            screenshotAttachment: {
+              id: "shot-queued-browser",
+              mimeType: "image/png",
+              originalName: "browser-annotation.png",
+            },
+          },
+        ],
+      });
+
+      const queued = await run(
+        Effect.flatMap(store, (s) =>
+          s.addQueuedMessage(initialSession.id, input),
+        ),
+      );
+      expect(queued.input.annotations).toEqual(input.annotations);
+      expect(queued.input.attachments).toEqual(input.attachments);
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendQueuedMessageNow(initialSession.id, queued.id),
+        ),
+      );
+
+      expect(providerSentTexts.at(-1)).toContain(
+        "Browser annotations:\n1. http://localhost:3000/ — 1 visual target; align this card with the list. Screenshot attached.\n\napply this visual note",
+      );
     });
   });
 
@@ -812,9 +1190,7 @@ describe("MessageStore — chat & session lifecycle", () => {
         Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
       );
       expect(queue.paused).toBe(true);
-      expect(queue.items.map((item) => item.input.text)).toEqual([
-        "resume me",
-      ]);
+      expect(queue.items.map((item) => item.input.text)).toEqual(["resume me"]);
     });
   });
 
@@ -1012,5 +1388,285 @@ describe("MessageStore — provider event persistence", () => {
     } finally {
       scriptedEvents = [];
     }
+  });
+});
+
+describe("MessageStore cursor streaming", () => {
+  const userText = (envelope: { readonly message: { content: unknown } }) =>
+    (envelope.message.content as { text?: string }).text;
+
+  it("resumes from sinceSequence with zero gaps or duplicates", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      for (const text of ["m1", "m2", "m3"]) {
+        await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+      }
+
+      // First subscription: full replay of the three persisted rows.
+      const first = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
+      const sequences = first.map((e) => e.sequence);
+      expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
+      const cursor = sequences.at(-1)!;
+
+      // "Network drop": the first stream is gone; more rows land meanwhile.
+      for (const text of ["m4", "m5"]) {
+        await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+      }
+
+      // Resubscribe with the recorded cursor — exactly the delta, in order.
+      const resumed = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(id, cursor).pipe(Stream.take(2))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      expect(resumed.map(userText)).toEqual(["m4", "m5"]);
+      expect(resumed.every((e) => e.sequence > cursor)).toBe(true);
+    });
+  });
+
+  it("delivers a row persisted after subscribe exactly once (live tail)", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      await run(Effect.flatMap(store, (s) => s.sendMessage(id, "m1")));
+
+      // Subscribe past m1, then persist m2/m3 while the stream is live —
+      // they must arrive via the tail, once each, in sequence order.
+      const collected = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const fiber = yield* Effect.fork(
+            Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+          );
+          yield* s.sendMessage(id, "m2");
+          yield* s.sendMessage(id, "m3");
+          return Chunk.toReadonlyArray(
+            yield* fiber.await.pipe(Effect.flatMap((exit) => exit)),
+          );
+        }),
+      );
+      expect(collected.map(userText)).toEqual(["m1", "m2", "m3"]);
+      expect(new Set(collected.map((e) => e.message.id)).size).toBe(3);
+    });
+  });
+
+  it("keeps two sessions' streams isolated while sharing the global sequence", async () => {
+    await withRuntime(async (run) => {
+      const makeSession = Effect.flatMap(store, (s) =>
+        s.createChat({
+          projectId: PROJECT_ID,
+          providerId: "claude",
+          model: "claude-opus-4-8",
+        }),
+      );
+      const a = (await run(makeSession)).initialSession.id;
+      const b = (await run(makeSession)).initialSession.id;
+
+      await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a1")));
+      await run(Effect.flatMap(store, (s) => s.sendMessage(b, "b1")));
+      await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a2")));
+
+      const forA = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(a).pipe(Stream.take(2))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+      const forB = await run(
+        Effect.flatMap(store, (s) =>
+          Stream.runCollect(s.streamMessages(b).pipe(Stream.take(1))),
+        ),
+      ).then(Chunk.toReadonlyArray);
+
+      expect(forA.map(userText)).toEqual(["a1", "a2"]);
+      expect(forB.map(userText)).toEqual(["b1"]);
+      // Global cursor: b1 landed between a1 and a2.
+      expect(forA[0]!.sequence).toBeLessThan(forB[0]!.sequence);
+      expect(forB[0]!.sequence).toBeLessThan(forA[1]!.sequence);
+    });
+  });
+});
+
+describe("MessageStore — fork & transcript export", () => {
+  it("exportTranscript renders the user prompt as Markdown", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "fix the bug",
+          }),
+        ),
+      );
+      const md = await run(
+        Effect.flatMap(store, (s) =>
+          s.exportTranscript(chat.initialSession.id),
+        ),
+      );
+      expect(md).toContain("## User");
+      expect(md).toContain("fix the bug");
+    });
+  });
+
+  it("forks to a new tab in copy mode when the source has no resume cursor", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const sourceId = chat.initialSession.id;
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(sourceId)),
+      );
+      const userMsgId = messages[0]!.id;
+
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: sourceId,
+            fromMessageId: userMsgId,
+            destination: "tab",
+          }),
+        ),
+      );
+
+      expect(result.forkMode).toBe("copy");
+      // Same chat (tab), new session, provenance recorded.
+      expect(result.session.chatId).toBe(chat.chat.id);
+      expect(result.session.id).not.toBe(sourceId);
+      expect(result.session.forkedFromSessionId).toBe(sourceId);
+      expect(result.session.forkedFromMessageId).toBe(userMsgId);
+      expect(result.session.cursor).toBeNull();
+      // No fork-of-transcript request to the provider in copy mode.
+      expect(providerStartInputs.at(-1)?.forkFromResume ?? false).toBe(false);
+
+      // The visible transcript up to the fork message was replayed.
+      const forked = await run(
+        Effect.flatMap(store, (s) => s.listMessages(result.session.id)),
+      );
+      expect(forked.map((m) => m.content)).toMatchObject([
+        { _tag: "user", text: "hello" },
+      ]);
+    });
+  });
+
+  it("latestPlan returns null for a session with no proposed plan", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const plan = await run(
+        Effect.flatMap(store, (s) => s.latestPlan(chat.initialSession.id)),
+      );
+      expect(plan).toBeNull();
+    });
+  });
+
+  it("forks to a brand-new sidebar chat", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "hello",
+          }),
+        ),
+      );
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(chat.initialSession.id)),
+      );
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: chat.initialSession.id,
+            fromMessageId: messages[0]!.id,
+            destination: "chat",
+          }),
+        ),
+      );
+      expect(result.chat.id).not.toBe(chat.chat.id);
+      expect(result.session.chatId).toBe(result.chat.id);
+    });
+  });
+
+  it("forks with real provider memory at the conversation tail", async () => {
+    await withRuntime(async (run) => {
+      const chat = await run(
+        Effect.flatMap(store, (s) =>
+          s.continueExternalThread({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            title: "Existing thread",
+            resumeCursor: "claude-session-xyz",
+            resumeStrategy: "claude-session-id",
+          }),
+        ),
+      );
+      const sourceId = chat.initialSession.id;
+      // Add a user message so there is a tail to fork from.
+      await run(
+        Effect.flatMap(store, (s) => s.sendMessage(sourceId, "keep going")),
+      );
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(sourceId)),
+      );
+      const tailId = messages.at(-1)!.id;
+
+      const result = await run(
+        Effect.flatMap(store, (s) =>
+          s.forkSession({
+            sourceSessionId: sourceId,
+            fromMessageId: tailId,
+            destination: "tab",
+          }),
+        ),
+      );
+
+      expect(result.forkMode).toBe("resume");
+      expect(result.session.cursor).toBe("claude-session-xyz");
+      expect(result.session.resumeStrategy).toBe("claude-session-id");
+      // The driver was told to fork the resumed transcript.
+      expect(providerStartInputs.at(-1)?.forkFromResume).toBe(true);
+      expect(providerStartCursors.at(-1)).toBe("claude-session-xyz");
+    });
   });
 });

@@ -94,3 +94,8 @@ export function useMediaQuery(
 export function useIsMobile(): boolean {
   return useMediaQuery("max-md");
 }
+
+/** True when the user has requested reduced motion (OS-level setting). */
+export function usePrefersReducedMotion(): boolean {
+  return useMediaQuery("(prefers-reduced-motion: reduce)");
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { FolderId, WorktreeId } from "@memoize/wire";
+import type { FolderId, WorktreeId } from "@zuse/wire";
 
 import {
   Tooltip,

@@ -1,10 +1,10 @@
-import type { SessionId } from "@memoize/wire";
-import { Play } from "lucide-react";
+import type { SessionId } from "@zuse/wire";
 import { useState } from "react";
 
-import { Button } from "~/components/ui/button";
+import { useAutoAnimate } from "../../lib/use-auto-animate.ts";
 import { useMessagesStore } from "../../store/messages.ts";
 import { QueueChip } from "./queue-chip.tsx";
+import { TrayPill } from "./tray-pill.tsx";
 
 const EMPTY_QUEUE: ReadonlyArray<never> = [];
 
@@ -21,6 +21,9 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
   const reorder = useMessagesStore((s) => s.reorderQueue);
   const resume = useMessagesStore((s) => s.resumeQueue);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // Animate add / remove / reorder of queued rows. Clean default ease, no
+  // spring — keeps the tray feeling crisp rather than bouncy.
+  const listRef = useAutoAnimate<HTMLDivElement>();
   if (items.length === 0) return null;
 
   const move = (from: number, to: number) => {
@@ -35,26 +38,26 @@ export function QueueTray({ sessionId }: { sessionId: SessionId }) {
     );
   };
 
+  const showPausedPill = paused && !running;
+
   return (
-    <div className="border-b border-border/40 bg-muted/15">
-      <div className="flex items-center justify-between px-3 py-1.5 text-[11px] text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <span>Queue</span>
-          <span>{items.length}</span>
-        </div>
-        {paused && !running ? (
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={() => void resume(sessionId)}
-            aria-label="Resume queued messages"
-            className="h-6 gap-1 px-2 text-[11px]"
-          >
-            <Play className="size-3" strokeWidth={1.9} />
-            Resume
-          </Button>
-        ) : null}
-      </div>
+    <div ref={listRef}>
+      {showPausedPill ? (
+        <TrayPill
+          flush
+          title="Queue paused because you interrupted"
+          actions={
+            <button
+              type="button"
+              onClick={() => void resume(sessionId)}
+              className="rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:text-foreground"
+              aria-label="Resume queued messages"
+            >
+              Resume
+            </button>
+          }
+        />
+      ) : null}
       {items.map((item, index) => (
         <QueueChip
           key={item.id}

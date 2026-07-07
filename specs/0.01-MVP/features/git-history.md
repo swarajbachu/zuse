@@ -1,6 +1,6 @@
 # Feature: Git history
 
-> **Deprecated.** This feature shipped in Phase 1 and is removed from the v1 UI in Phase 3 (chat-first MVP). The `git.*` RPCs in `@memoize/wire` and `GitService` in `apps/server` remain, but they are no longer wired into any UI. We may bring this back as a right-pane tab post-1.0 if there's demand. See [phases/03-chat-mvp.md](../phases/03-chat-mvp.md) for the new layout.
+> **Deprecated.** This feature shipped in Phase 1 and is removed from the v1 UI in Phase 3 (chat-first MVP). The `git.*` RPCs in `@zuse/wire` and `GitService` in `apps/server` remain, but they are no longer wired into any UI. We may bring this back as a right-pane tab post-1.0 if there's demand. See [phases/03-chat-mvp.md](../phases/03-chat-mvp.md) for the new layout.
 
 Always-visible feed of recent commits for the active folder, plus a status summary.
 

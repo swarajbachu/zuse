@@ -1,0 +1,45 @@
+name: live-agent-smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  live-agent-smoke:
+    name: Optional live agent smoke tests
+    runs-on: macos-14
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Run live agent smoke tests
+        env:
+          ZUSE_LIVE_AGENT_TESTS: "1"
+          ZUSE_LIVE_CLAUDE: "1"
+          ZUSE_LIVE_CODEX: "1"
+          ZUSE_LIVE_GROK: "1"
+          ZUSE_LIVE_GEMINI: "1"
+          ZUSE_LIVE_CURSOR: "1"
+          ZUSE_LIVE_OPENCODE: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROK_CODE_XAI_API_KEY: ${{ secrets.GROK_CODE_XAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: bun run test:live-agents

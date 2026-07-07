@@ -6,7 +6,7 @@ import type {
   FolderId,
   GithubRepoSummary,
   ProjectTemplate,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

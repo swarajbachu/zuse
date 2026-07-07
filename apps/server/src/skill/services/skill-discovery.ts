@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId, Skill } from "@memoize/wire";
+import type { ProviderId, Skill } from "@zuse/wire";
 
 /**
  * Per-provider skill discovery on disk.

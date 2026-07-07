@@ -1,10 +1,40 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { defineConfig } from "tsdown";
+
+// tsdown evaluates this config with its own loader (not the bun runtime), so
+// bun's automatic `.env` loading doesn't reach it. Read apps/desktop/.env
+// ourselves so both dev (`tsdown --watch`) and packaged builds inline the
+// public WorkOS client id. A real shell/CI env var always wins.
+const resolveWorkosClientId = (): string => {
+  if (process.env.WORKOS_CLIENT_ID) return process.env.WORKOS_CLIENT_ID;
+  const envPath = resolve(process.cwd(), ".env");
+  if (!existsSync(envPath)) return "";
+  for (const line of readFileSync(envPath, "utf8").split("\n")) {
+    const match = line.match(/^\s*WORKOS_CLIENT_ID\s*=\s*(.*?)\s*$/);
+    if (match?.[1] !== undefined) {
+      return match[1].replace(/^["']|["']$/g, "");
+    }
+  }
+  return "";
+};
+
+const WORKOS_CLIENT_ID = resolveWorkosClientId();
 
 const shared = {
   format: "cjs" as const,
   outDir: "dist-electron",
   sourcemap: true,
   outExtensions: () => ({ js: ".cjs" }),
+  // Inline the public WorkOS client id at build time so the bundled server
+  // (apps/server is alwaysBundle'd below) reads a concrete value — the
+  // packaged Electron process has no shell env. Empty when unset; AuthService
+  // then surfaces a clear "not configured" error and auth stays optional.
+  // Dev: `export WORKOS_CLIENT_ID=client_… ` before `bun run dev`.
+  define: {
+    "process.env.WORKOS_CLIENT_ID": JSON.stringify(WORKOS_CLIENT_ID),
+  },
   // Workspace packages ship as raw .ts source — bundle them in instead of
   // letting Node try to require() the .ts file at runtime.
   // `fix-path` is ESM-only ("type": "module"). Electron 33 ships Node 20.x
@@ -12,9 +42,10 @@ const shared = {
   // inline transpiles it to CJS so the main bundle can call it directly.
   deps: {
     alwaysBundle: [
-      "@memoize/wire",
-      "@memoize/server",
-      "@memoize/index",
+      "@zuse/wire",
+      "@zuse/server",
+      "@zuse/index",
+      "@zuse/ssh",
       "fix-path",
     ],
   },
@@ -58,5 +89,22 @@ export default defineConfig([
   {
     ...shared,
     entry: ["src/preload.ts"],
+  },
+  {
+    ...shared,
+    // The zuse-browser MCP child that ACP providers (Grok) spawn via bun to
+    // reach the in-app browser. It runs OUTSIDE Electron — and, packaged,
+    // outside the asar — so it can't resolve node_modules at runtime: bundle
+    // every dependency in (the runtime graph is just @modelcontextprotocol/sdk
+    // plus node builtins; the @zuse imports are type-only). The bridge resolves
+    // this artifact next to the main bundle (browser-mcp-bridge.ts).
+    entry: {
+      "browser-mcp-child":
+        "../server/src/provider/drivers/acp/browser-mcp-child.ts",
+    },
+    deps: {
+      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+    },
+    external: [],
   },
 ]);

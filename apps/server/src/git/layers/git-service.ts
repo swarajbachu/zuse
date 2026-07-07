@@ -25,12 +25,14 @@ import {
   GitNotARepoError,
   GitNotInstalledError,
   GitOriginInfo,
+  GitIssueSummary,
   GitPrCheckRun,
   GitPrComment,
   GitPrDetails,
   GitPrFile,
   GitPrInfo,
   GitPrReview,
+  GitPrSummary,
   GitStatusSummary,
   type FolderId,
   type GitChangeKind,
@@ -39,7 +41,7 @@ import {
   type GitPrCheckRunStatus,
   type GitPrReviewState,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
@@ -514,9 +516,12 @@ export const GitServiceLive = Layer.effect(
 
     const status: GitService["Type"]["status"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-        run(folderId, cwd, ["status", "--porcelain=v2", "--branch"]).pipe(
-          Effect.map(parseStatusOutput),
-        ),
+        run(folderId, cwd, [
+          "status",
+          "--porcelain=v2",
+          "--branch",
+          "--untracked-files=all",
+        ]).pipe(Effect.map(parseStatusOutput)),
       );
 
     const branches: GitService["Type"]["branches"] = (folderId, worktreeId) =>
@@ -1026,6 +1031,174 @@ export const GitServiceLive = Layer.effect(
         }),
       );
 
+    // Shared helper: run a `gh` JSON-list command in the folder's checkout and
+    // collapse every failure mode (no gh, no auth, no GitHub remote, bad JSON)
+    // to an empty array. The "Create from…" picker shows an empty tab rather
+    // than an error toast on machines/repos without GitHub.
+    const ghJsonList = <T>(folderId: FolderId, args: ReadonlyArray<string>) =>
+      Effect.flatMap(resolvePathForWorktree(folderId, null), (cwd) =>
+        ghRun(folderId, cwd, args).pipe(
+          Effect.catchTags({
+            GitNotInstalledError: () => Effect.succeed(""),
+            GitCommandError: () => Effect.succeed(""),
+          }),
+          Effect.map((stdout): ReadonlyArray<T> => {
+            if (stdout.trim().length === 0) return [];
+            try {
+              const parsed = JSON.parse(stdout) as unknown;
+              return Array.isArray(parsed) ? (parsed as ReadonlyArray<T>) : [];
+            } catch {
+              return [];
+            }
+          }),
+        ),
+      );
+
+    const listPrs: GitService["Type"]["listPrs"] = (folderId) =>
+      ghJsonList<{
+        number?: number;
+        title?: string;
+        author?: { login?: string };
+        headRefName?: string;
+        isDraft?: boolean;
+        state?: string;
+        updatedAt?: string;
+      }>(folderId, [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "50",
+        "--json",
+        "number,title,author,headRefName,isDraft,state,updatedAt",
+      ]).pipe(
+        Effect.map((rows) =>
+          rows
+            .filter((r) => typeof r.number === "number")
+            .map((r) =>
+              GitPrSummary.make({
+                number: r.number as number,
+                title: r.title ?? "",
+                author: r.author?.login ?? "",
+                headRefName: r.headRefName ?? "",
+                isDraft: r.isDraft === true,
+                state: (r.state ?? "OPEN").toLowerCase(),
+                updatedAt: new Date(r.updatedAt ?? 0),
+              }),
+            ),
+        ),
+      );
+
+    const listIssues: GitService["Type"]["listIssues"] = (folderId) =>
+      ghJsonList<{
+        number?: number;
+        title?: string;
+        author?: { login?: string };
+        state?: string;
+        labels?: ReadonlyArray<{ name?: string }>;
+        updatedAt?: string;
+      }>(folderId, [
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "50",
+        "--json",
+        "number,title,author,state,labels,updatedAt",
+      ]).pipe(
+        Effect.map((rows) =>
+          rows
+            .filter((r) => typeof r.number === "number")
+            .map((r) =>
+              GitIssueSummary.make({
+                number: r.number as number,
+                title: r.title ?? "",
+                author: r.author?.login ?? "",
+                state: (r.state ?? "OPEN").toLowerCase(),
+                labels: (r.labels ?? [])
+                  .map((l) => l.name ?? "")
+                  .filter((n) => n.length > 0),
+                updatedAt: new Date(r.updatedAt ?? 0),
+              }),
+            ),
+        ),
+      );
+
+    const issueMarkdown: GitService["Type"]["issueMarkdown"] = (
+      folderId,
+      number,
+    ) =>
+      Effect.flatMap(resolvePathForWorktree(folderId, null), (cwd) =>
+        Effect.gen(function* () {
+          const stdout = yield* ghRun(folderId, cwd, [
+            "issue",
+            "view",
+            String(number),
+            "--json",
+            "number,title,body,author,url,labels,comments",
+          ]).pipe(
+            Effect.catchTags({
+              GitNotInstalledError: () => Effect.succeed(""),
+              GitCommandError: () => Effect.succeed(""),
+            }),
+          );
+
+          const empty = { number, title: "", url: "", markdown: "" };
+          if (stdout.trim().length === 0) return empty;
+
+          let parsed: {
+            number?: number;
+            title?: string;
+            body?: string;
+            url?: string;
+            author?: { login?: string };
+            labels?: ReadonlyArray<{ name?: string }>;
+            comments?: ReadonlyArray<{
+              author?: { login?: string };
+              body?: string;
+              createdAt?: string;
+            }>;
+          };
+          try {
+            parsed = JSON.parse(stdout) as typeof parsed;
+          } catch {
+            return empty;
+          }
+
+          const title = parsed.title ?? "";
+          const url = parsed.url ?? "";
+          const labels = (parsed.labels ?? [])
+            .map((l) => l.name ?? "")
+            .filter((n) => n.length > 0);
+          const lines: string[] = [`# ${title} (#${number})`, ""];
+          const meta: string[] = [];
+          if (parsed.author?.login)
+            meta.push(`**Author:** @${parsed.author.login}`);
+          if (url.length > 0) meta.push(`**URL:** ${url}`);
+          if (labels.length > 0) meta.push(`**Labels:** ${labels.join(", ")}`);
+          if (meta.length > 0) lines.push(meta.join(" · "), "");
+          const body = (parsed.body ?? "").trim();
+          lines.push(body.length > 0 ? body : "_(no description)_", "");
+          for (const c of parsed.comments ?? []) {
+            const author = c.author?.login ?? "someone";
+            lines.push(
+              `## Comment by @${author}`,
+              "",
+              (c.body ?? "").trim(),
+              "",
+            );
+          }
+          const markdown =
+            lines
+              .join("\n")
+              .replace(/\n{3,}/g, "\n\n")
+              .trimEnd() + "\n";
+          return { number, title, url, markdown };
+        }),
+      );
+
     const changes: GitService["Type"]["changes"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         run(folderId, cwd, [
@@ -1420,8 +1593,8 @@ export const GitServiceLive = Layer.effect(
 
     /**
      * Capture logs from every failing GitHub Actions run on the current PR
-     * and drop them in `<worktree>/.memoize/failing-checks-<ts>.txt` so the
-     * renderer can attach the file to the composer (`@.memoize/...txt`) and
+     * and drop them in `<worktree>/.zuse/failing-checks-<ts>.txt` so the
+     * renderer can attach the file to the composer (`@.zuse/...txt`) and
      * ask the agent to fix it.
      *
      * Failing runs are detected via `gh pr view --json statusCheckRollup`;
@@ -1510,13 +1683,13 @@ export const GitServiceLive = Layer.effect(
               ? sections.join("\n")
               : "(no actions run logs available — checks may be external or pending)\n";
 
-          const dir = path.join(cwd, ".memoize");
+          const dir = path.join(cwd, ".zuse");
           yield* fs.makeDirectory(dir, { recursive: true }).pipe(
             Effect.catchAll((err) =>
               Effect.fail(
                 new GitCommandError({
                   folderId,
-                  reason: `failed to create .memoize/: ${String(err)}`,
+                  reason: `failed to create .zuse/: ${String(err)}`,
                 }),
               ),
             ),
@@ -1530,7 +1703,7 @@ export const GitServiceLive = Layer.effect(
             .replace(/-\d{3}Z$/, "Z");
           const fileName = `failing-checks-${ts}.txt`;
           const absPath = path.join(dir, fileName);
-          const relPath = `.memoize/${fileName}`;
+          const relPath = `.zuse/${fileName}`;
 
           yield* fs.writeFileString(absPath, `${header}\n${body}`).pipe(
             Effect.catchAll((err) =>
@@ -1650,6 +1823,9 @@ export const GitServiceLive = Layer.effect(
       origin,
       prState,
       prDetails,
+      listPrs,
+      listIssues,
+      issueMarkdown,
       changes,
       diff,
       commit,

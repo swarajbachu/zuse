@@ -2,16 +2,22 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import {
+  type AppearanceMode,
   type BranchNamingStyle,
+  defaultModelEnabledByProvider,
   defaultModelFor,
   type CompletionSoundPreset,
+  type GitMergeMethod,
+  type ModelEnabledByProvider,
+  type OpencodeCustomProvider,
   type ProviderId,
   resolveModelSlug,
   type RuntimeMode,
   type SettingsFile,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client";
+import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 
 /**
  * Renderer view of `settings.json`. Lives in the main process — this store
@@ -52,8 +58,26 @@ const seedProviderEnabled = (): Record<ProviderId, boolean> => {
   return out;
 };
 
+const seedModelEnabledByProvider = defaultModelEnabledByProvider;
+
+const mergeModelEnabled = (
+  input: Partial<Record<ProviderId, Partial<Record<string, boolean>>>>,
+): ModelEnabledByProvider => {
+  const base = seedModelEnabledByProvider();
+  for (const id of PROVIDER_IDS) {
+    const providerFlags = input[id];
+    if (providerFlags === undefined) continue;
+    for (const [modelId, value] of Object.entries(providerFlags)) {
+      if (typeof value === "boolean") base[id][modelId] = value;
+    }
+  }
+  return base;
+};
+
 const OLD_SETTINGS_KEY = "memoize.settings.v1";
 const OLD_SUBAGENTS_KEY = "memoize.subagents";
+const MERGE_PREFS_KEY = "zuse.mergePrefs.v1";
+const OLD_MERGE_PREFS_KEYS = ["memoize.mergePrefs.v1"] as const;
 
 const fallbackSnapshot = (): SettingsSlice => ({
   defaultProviderId: DEFAULT_PROVIDER,
@@ -62,10 +86,18 @@ const fallbackSnapshot = (): SettingsSlice => ({
   defaultAutoCreateWorktree: true,
   completionSoundEnabled: false,
   completionSoundPreset: "chime",
+  appearanceMode: "dark",
   onboardingCompleted: false,
   providerEnabled: seedProviderEnabled(),
+  modelEnabledByProvider: seedModelEnabledByProvider(),
+  opencodeProviderVisible: {},
+  opencodeModelVisibleByProvider: {},
+  opencodeCustomProviders: [],
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
+  mergePrefs: { method: "merge", deleteBranch: false },
+  notchTrayEnabled: false,
+  notchTrayPinned: false,
 });
 
 const sliceFromFile = (file: SettingsFile): SettingsSlice => {
@@ -85,13 +117,29 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
     completionSoundEnabled: file.completionSoundEnabled,
     completionSoundPreset: file.completionSoundPreset,
+    appearanceMode: file.appearanceMode,
     onboardingCompleted: file.onboardingCompleted,
     providerEnabled: {
       ...seedProviderEnabled(),
       ...file.providerEnabled,
     },
+    modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
+    opencodeProviderVisible: { ...file.opencodeProviderVisible },
+    opencodeModelVisibleByProvider: Object.fromEntries(
+      Object.entries(file.opencodeModelVisibleByProvider).map(([k, v]) => [
+        k,
+        { ...v },
+      ]),
+    ),
+    opencodeCustomProviders: file.opencodeCustomProviders.map((p) => ({
+      ...p,
+      models: p.models.map((m) => ({ ...m })),
+    })),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
+    mergePrefs: file.mergePrefs,
+    notchTrayEnabled: file.notchTrayEnabled,
+    notchTrayPinned: file.notchTrayPinned,
   };
 };
 
@@ -102,10 +150,23 @@ interface SettingsSlice {
   readonly defaultAutoCreateWorktree: boolean;
   readonly completionSoundEnabled: boolean;
   readonly completionSoundPreset: CompletionSoundPreset;
+  readonly appearanceMode: AppearanceMode;
   readonly onboardingCompleted: boolean;
   readonly providerEnabled: Record<ProviderId, boolean>;
+  readonly modelEnabledByProvider: ModelEnabledByProvider;
+  /** OpenCode sub-provider visibility in the model picker (id → shown). */
+  readonly opencodeProviderVisible: Record<string, boolean>;
+  /** OpenCode per-sub-provider model visibility (providerId → modelId → shown). */
+  readonly opencodeModelVisibleByProvider: Record<
+    string,
+    Record<string, boolean>
+  >;
+  readonly opencodeCustomProviders: ReadonlyArray<OpencodeCustomProvider>;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
+  readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
+  readonly notchTrayEnabled: boolean;
+  readonly notchTrayPinned: boolean;
 }
 
 type SettingsState = SettingsSlice & {
@@ -128,10 +189,31 @@ type SettingsState = SettingsSlice & {
   readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
   readonly setCompletionSoundEnabled: (value: boolean) => void;
   readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
+  readonly setAppearanceMode: (mode: AppearanceMode) => void;
   readonly setOnboardingCompleted: (value: boolean) => void;
   readonly setProviderEnabled: (providerId: ProviderId, value: boolean) => void;
+  readonly setModelEnabled: (
+    providerId: ProviderId,
+    modelId: string,
+    value: boolean,
+  ) => void;
+  readonly setOpencodeProviderVisible: (
+    providerId: string,
+    value: boolean,
+  ) => void;
+  readonly setOpencodeModelVisible: (
+    providerId: string,
+    modelId: string,
+    value: boolean,
+  ) => void;
   readonly setBranchNamingStyle: (style: BranchNamingStyle) => void;
   readonly setBranchNamingPrefix: (prefix: string) => void;
+  readonly setMergePrefs: (prefs: {
+    method: GitMergeMethod;
+    deleteBranch: boolean;
+  }) => void;
+  readonly setNotchTrayEnabled: (value: boolean) => void;
+  readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
 let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
@@ -174,6 +256,46 @@ const migrateLocalStorageOnce = async (): Promise<SettingsFile | null> => {
   }
 };
 
+const migrateMergePrefsOnce = async (
+  file: SettingsFile,
+): Promise<SettingsFile> => {
+  if (typeof window === "undefined") return file;
+  const raw = readStorageWithLegacy(
+    window.localStorage,
+    MERGE_PREFS_KEY,
+    OLD_MERGE_PREFS_KEYS,
+  );
+  if (raw === null) return file;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const method =
+      parsed.method === "merge" ||
+      parsed.method === "squash" ||
+      parsed.method === "rebase"
+        ? parsed.method
+        : file.mergePrefs.method;
+    const mergePrefs = {
+      method,
+      deleteBranch:
+        typeof parsed.deleteBranch === "boolean"
+          ? parsed.deleteBranch
+          : file.mergePrefs.deleteBranch,
+    };
+    const client = await getRpcClient();
+    const next = await Effect.runPromise(
+      client.settings.update({ patch: { mergePrefs } }),
+    );
+    removeStorageKeys(
+      window.localStorage,
+      MERGE_PREFS_KEY,
+      OLD_MERGE_PREFS_KEYS,
+    );
+    return next;
+  } catch {
+    return file;
+  }
+};
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...fallbackSnapshot(),
   loaded: false,
@@ -185,7 +307,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     try {
       const client = await getRpcClient();
-      const file = await Effect.runPromise(client.settings.get());
+      const file = await migrateMergePrefsOnce(
+        await Effect.runPromise(client.settings.get()),
+      );
       set({ ...sliceFromFile(file), loaded: true });
 
       await stopStream();
@@ -271,6 +395,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       );
     })();
   },
+  setAppearanceMode: (mode) => {
+    set({ appearanceMode: mode });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { appearanceMode: mode } }),
+      );
+    })();
+  },
   setOnboardingCompleted: (value) => {
     set({ onboardingCompleted: value });
     void (async () => {
@@ -290,6 +423,49 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       );
     })();
   },
+  setModelEnabled: (providerId, modelId, value) => {
+    const current = get().modelEnabledByProvider;
+    const next: ModelEnabledByProvider = {
+      ...current,
+      [providerId]: {
+        ...current[providerId],
+        [modelId]: value,
+      },
+    };
+    set({ modelEnabledByProvider: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { modelEnabledByProvider: next } }),
+      );
+    })();
+  },
+  setOpencodeProviderVisible: (providerId, value) => {
+    const next = { ...get().opencodeProviderVisible, [providerId]: value };
+    set({ opencodeProviderVisible: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { opencodeProviderVisible: next } }),
+      );
+    })();
+  },
+  setOpencodeModelVisible: (providerId, modelId, value) => {
+    const current = get().opencodeModelVisibleByProvider;
+    const next: Record<string, Record<string, boolean>> = {
+      ...current,
+      [providerId]: { ...current[providerId], [modelId]: value },
+    };
+    set({ opencodeModelVisibleByProvider: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({
+          patch: { opencodeModelVisibleByProvider: next },
+        }),
+      );
+    })();
+  },
   setBranchNamingStyle: (style) => {
     set({ branchNamingStyle: style });
     void (async () => {
@@ -305,6 +481,33 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const client = await getRpcClient();
       await Effect.runPromise(
         client.settings.update({ patch: { branchNamingPrefix: prefix } }),
+      );
+    })();
+  },
+  setMergePrefs: (mergePrefs) => {
+    set({ mergePrefs });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { mergePrefs } }),
+      );
+    })();
+  },
+  setNotchTrayEnabled: (value) => {
+    set({ notchTrayEnabled: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayEnabled: value } }),
+      );
+    })();
+  },
+  setNotchTrayPinned: (value) => {
+    set({ notchTrayPinned: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client.settings.update({ patch: { notchTrayPinned: value } }),
       );
     })();
   },

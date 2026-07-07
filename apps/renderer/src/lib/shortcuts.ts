@@ -1,4 +1,4 @@
-import { formatKeyForDisplay } from "@memoize/wire";
+import { formatKeyForDisplay } from "@zuse/wire";
 
 import type { MenuAction } from "./bridge";
 import { useKeybindingsStore } from "../store/keybindings";

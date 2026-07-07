@@ -14,6 +14,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
   Message,
+  MessageEnvelope,
   MessageId,
   type PermissionMode,
   SessionAlreadyStartedError,
@@ -21,7 +22,9 @@ import {
   type AgentEvent,
   AgentSessionNotFoundError,
   type AttachmentRef,
+  type BrowserAnnotation,
   type CodeAnnotation,
+  type ComposerAnnotation,
   type FileRef,
   type FolderId,
   GoalUnsupportedError,
@@ -31,6 +34,7 @@ import {
   type ProviderId,
   QueueState,
   QueuedMessage,
+  type ResumeStrategy,
   type RuntimeMode,
   Session,
   SessionId,
@@ -41,16 +45,24 @@ import {
   type ThreadGoalSetInput,
   type Worktree,
   WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { GitService } from "../../git/services/git-service.ts";
+import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
-import { TitleGenerator, formatBranchName } from "../title-generator.ts";
+import {
+  TitleGenerator,
+  buildConversationText,
+  formatBranchName,
+  isTrivialUserMessage,
+  shouldDeferAutoName,
+} from "../title-generator.ts";
 import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
 import {
   MessageStore,
@@ -192,6 +204,21 @@ const permissionModeFromRow = (raw: string): PermissionMode =>
     ? (raw as PermissionMode)
     : DEFAULT_PERMISSION_MODE;
 
+const RESUME_STRATEGIES: ReadonlySet<Session["resumeStrategy"]> = new Set([
+  "none",
+  "claude-session-id",
+  "codex-thread-id",
+  "grok-session-id",
+  "cursor-session-id",
+  "gemini-session-id",
+  "opencode-session-id",
+]);
+
+const resumeStrategyFromRow = (raw: string): Session["resumeStrategy"] =>
+  RESUME_STRATEGIES.has(raw as Session["resumeStrategy"])
+    ? (raw as Session["resumeStrategy"])
+    : "none";
+
 interface MessageRow {
   readonly id: string;
   readonly session_id: string;
@@ -221,12 +248,7 @@ const sessionFromRow = (row: SessionRow): Session =>
     status: row.status as Session["status"],
     archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
     cursor: row.cursor,
-    resumeStrategy:
-      row.resume_strategy === "claude-session-id"
-        ? "claude-session-id"
-        : row.resume_strategy === "codex-thread-id"
-          ? "codex-thread-id"
-          : "none",
+    resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
     runtimeMode: runtimeModeFromRow(row.runtime_mode),
     worktreeId:
       row.worktree_id === null
@@ -268,8 +290,17 @@ const chatFromRow = (row: ChatRow): Chat =>
     updatedAt: new Date(row.updated_at),
   });
 
+const normalizeMessageContent = (content: MessageContent): MessageContent => {
+  if (content._tag === "context_compaction" && content.status === undefined) {
+    return { ...content, status: "completed" };
+  }
+  return content;
+};
+
 const messageFromRow = (row: MessageRow): Message => {
-  const content = JSON.parse(row.content_json) as MessageContent;
+  const content = normalizeMessageContent(
+    JSON.parse(row.content_json) as MessageContent,
+  );
   return Message.make({
     id: MessageId.make(row.id),
     sessionId: SessionId.make(row.session_id),
@@ -277,6 +308,103 @@ const messageFromRow = (row: MessageRow): Message => {
     content,
     createdAt: new Date(row.created_at),
   });
+};
+
+/**
+ * Message kinds that are pure telemetry / lifecycle noise — excluded from a
+ * forked transcript copy and from the exported Markdown so the handed-off
+ * context reads like a conversation, not a metrics dump.
+ */
+const TRANSCRIPT_SKIP_KINDS: ReadonlySet<string> = new Set([
+  "usage",
+  "context_usage",
+  "context_compaction",
+  "usage_limit",
+]);
+
+/** Trim a serialised tool payload so a transcript export stays readable. */
+const clampBlock = (value: string, max = 2000): string =>
+  value.length > max
+    ? `${value.slice(0, max)}\n… (${value.length - max} more chars truncated)`
+    : value;
+
+const stringifyUnknown = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+/**
+ * Render a session transcript to Markdown. Used for the "Attach transcript"
+ * handoff and the copy-mode fork context file. Skips telemetry rows and
+ * truncates large tool payloads.
+ */
+const transcriptToMarkdown = (
+  title: string,
+  messages: ReadonlyArray<Message>,
+): string => {
+  const lines: string[] = [`# Transcript — ${title}`, ""];
+  for (const m of messages) {
+    const c = m.content;
+    if (TRANSCRIPT_SKIP_KINDS.has(c._tag)) continue;
+    switch (c._tag) {
+      case "user":
+      case "user_rich":
+        lines.push("## User", "", c.text.trim(), "");
+        break;
+      case "assistant":
+        lines.push("## Assistant", "", c.text.trim(), "");
+        break;
+      case "thinking":
+        if (!c.redacted && c.text.trim().length > 0) {
+          lines.push(
+            "> _(thinking)_ " + c.text.trim().replace(/\n/g, "\n> "),
+            "",
+          );
+        }
+        break;
+      case "tool_use":
+        lines.push(
+          `### 🛠 ${c.tool}`,
+          "",
+          "```json",
+          clampBlock(stringifyUnknown(c.input)),
+          "```",
+          "",
+        );
+        break;
+      case "tool_result":
+        lines.push(
+          c.isError ? "### ⚠ Tool result (error)" : "### Tool result",
+          "",
+          "```",
+          clampBlock(stringifyUnknown(c.output)),
+          "```",
+          "",
+        );
+        break;
+      case "error":
+        lines.push(`> **Error:** ${c.message}`, "");
+        break;
+      case "interrupted":
+        lines.push("> _(interrupted by user)_", "");
+        break;
+      case "subagent_summary":
+        lines.push(`### Sub-agent ${c.agentName}`, "", c.summary.trim(), "");
+        break;
+      default:
+        break;
+    }
+  }
+  return (
+    lines
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trimEnd() + "\n"
+  );
 };
 
 const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
@@ -305,6 +433,7 @@ const parentItemIdOfContent = (content: MessageContent): string | null => {
     case "user_question_answer":
       return content.parentItemId ?? null;
     case "context_usage":
+    case "context_compaction":
     case "usage_limit":
       return null;
     case "subagent_summary":
@@ -331,8 +460,10 @@ const roleForContent = (content: MessageContent): MessageRole => {
     case "tool_result":
       return "tool";
     case "error":
+    case "interrupted":
     case "usage":
     case "context_usage":
+    case "context_compaction":
     case "usage_limit":
       return "system";
   }
@@ -406,6 +537,17 @@ const eventToContent = (event: AgentEvent): MessageContent | null => {
         precision: event.precision,
         source: event.source,
       };
+    case "ContextCompaction":
+      return {
+        _tag: "context_compaction",
+        itemId: event.itemId,
+        providerId: event.providerId,
+        startedAt: event.startedAt,
+        durationMs: event.durationMs,
+        beforeTokens: event.beforeTokens,
+        afterTokens: event.afterTokens,
+        status: event.status,
+      };
     case "UsageLimit":
       return {
         _tag: "usage_limit",
@@ -417,6 +559,8 @@ const eventToContent = (event: AgentEvent): MessageContent | null => {
       };
     case "Error":
       return { _tag: "error", message: event.message };
+    case "Interrupted":
+      return { _tag: "interrupted" };
     case "UserQuestion":
       return {
         _tag: "user_question",
@@ -441,13 +585,35 @@ const titleFromInitial = (prompt: string | undefined): string => {
   return truncated.length > 0 ? truncated : "New chat";
 };
 
+/** Provisional sidebar title before the LLM auto-namer runs. */
+const deriveProvisionalTitle = (prompt: string | undefined): string => {
+  if (prompt === undefined) return "New chat";
+  if (isTrivialUserMessage(prompt)) return "New chat";
+  return titleFromInitial(prompt);
+};
+
+const textFromMessageContent = (content: MessageContent): string | null => {
+  if (content._tag === "user" || content._tag === "user_rich") {
+    return content.text;
+  }
+  if (content._tag === "assistant") {
+    return content.text;
+  }
+  return null;
+};
+
 /**
  * Render stacked code annotations into the numbered list the model receives.
  * Each entry is `path:lineRange — comment`; the agent's cwd is the workspace
  * root, so the relative path resolves when it reads the file. Pure string fn —
  * no I/O.
  */
-const serializeAnnotations = (
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const serializeCodeAnnotations = (
   annotations: ReadonlyArray<CodeAnnotation>,
 ): string => {
   const lines = annotations.map((a, i) => {
@@ -458,6 +624,43 @@ const serializeAnnotations = (
     return `${i + 1}. ${a.relPath}:${range} — ${a.comment}`;
   });
   return ["Code annotations:", ...lines].join("\n");
+};
+
+const serializeBrowserAnnotations = (
+  annotations: ReadonlyArray<BrowserAnnotation>,
+): string => {
+  const lines = annotations.map((a, i) => {
+    const targetCount = a.elements.length + a.regions.length + a.strokes.length;
+    const firstElement = a.elements[0];
+    const target =
+      firstElement !== undefined
+        ? `<${firstElement.tagName}> ${firstElement.label}`.trim()
+        : `${targetCount} visual ${targetCount === 1 ? "target" : "targets"}`;
+    const title =
+      a.pageTitle !== null && a.pageTitle.trim().length > 0
+        ? ` (${a.pageTitle.trim()})`
+        : "";
+    const screenshot =
+      a.screenshotAttachment !== null ? " Screenshot attached." : "";
+    return `${i + 1}. ${a.pageUrl}${title} — ${target}; ${a.comment}.${screenshot}`;
+  });
+  return ["Browser annotations:", ...lines].join("\n");
+};
+
+const serializeAnnotations = (
+  annotations: ReadonlyArray<ComposerAnnotation>,
+): string => {
+  const code = annotations.filter(
+    (annotation): annotation is CodeAnnotation =>
+      !isBrowserAnnotation(annotation),
+  );
+  const browser = annotations.filter(isBrowserAnnotation);
+  return [
+    code.length > 0 ? serializeCodeAnnotations(code) : "",
+    browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
+  ]
+    .filter((section) => section.length > 0)
+    .join("\n\n");
 };
 
 const formatProviderFailure = (cause: unknown): string => {
@@ -491,10 +694,31 @@ const formatProviderFailure = (cause: unknown): string => {
   return String(cause);
 };
 
+// Auth failures (expired/missing OAuth, `401 Invalid authentication
+// credentials`, `Please run /login`) are not recoverable by re-spawning the
+// provider — restarting just hits the same 401, which is what left sessions
+// retrying forever and eventually surfacing an unrelated transient (e.g. a
+// Cloudflare 522). When the failure looks like auth we skip the restart and
+// surface the error so the renderer can show the inline "Sign in" button.
+const looksLikeAuthFailure = (reason: string): boolean =>
+  /\b401\b|\bunauthorized\b|invalid authentication credentials|please run \/login|please log ?in|invalid api key|authentication failed|authorizationrequired/i.test(
+    reason,
+  );
+
+/**
+ * A persisted message together with the global event-log `sequence` its
+ * `MessagePersisted` event was assigned — the cursor clients resume from.
+ */
+interface PersistedMessage {
+  readonly message: Message;
+  readonly sequence: number;
+}
+
 export const MessageStoreLive = Layer.scoped(
   MessageStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const eventStore = makeEventStore(sql);
     const provider = yield* ProviderService;
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -503,6 +727,7 @@ export const MessageStoreLive = Layer.scoped(
     const git = yield* GitService;
     const titleGen = yield* TitleGenerator;
     const configStore = yield* ConfigStoreService;
+    const relayActivity = yield* RelayActivityPublisher;
 
     const chatColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(chats)
@@ -664,9 +889,10 @@ export const MessageStoreLive = Layer.scoped(
 
     const ndjsonAppend = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const message = persisted.message;
         let projectId = projectIdBySession.get(sessionId);
         if (projectId === undefined) {
           const rows = yield* sql<{ readonly project_id: string }>`
@@ -689,7 +915,7 @@ export const MessageStoreLive = Layer.scoped(
     // `streamMessages` subscribers so a single provider event fans out to
     // every connected renderer view of that session.
     const pubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<Message>>
+      ReadonlyMap<SessionId, PubSub.PubSub<MessageEnvelope>>
     >(new Map());
     const fibers = yield* Ref.make<
       ReadonlyMap<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
@@ -726,18 +952,17 @@ export const MessageStoreLive = Layer.scoped(
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
 
-    // Chats whose first-message auto-name is in flight, so a second message
-    // arriving mid-rename can't kick off a duplicate pass. One-shot per chat
-    // per process — entries are never removed because the triggering hooks
-    // only fire on the first user message anyway.
-    const autoNamingChats = new Set<string>();
+    // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
+    const autoNamingInFlight = new Set<string>();
+    // Chats that already received a successful LLM title this process lifetime.
+    const autoNamedChats = new Set<string>();
 
     const getOrMakePubsub = (sessionId: SessionId) =>
       Effect.gen(function* () {
         const map = yield* Ref.get(pubsubs);
         const existing = map.get(sessionId);
         if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<Message>();
+        const pubsub = yield* PubSub.unbounded<MessageEnvelope>();
         yield* Ref.update(pubsubs, (m) => {
           const next = new Map(m);
           next.set(sessionId, pubsub);
@@ -865,37 +1090,49 @@ export const MessageStoreLive = Layer.scoped(
     const persistMessage = (
       sessionId: SessionId,
       content: MessageContent,
-    ): Effect.Effect<Message> =>
+      idOverride?: MessageId,
+    ): Effect.Effect<PersistedMessage> =>
       Effect.gen(function* () {
-        const id = MessageId.make(crypto.randomUUID());
+        // `idOverride` is the renderer-minted `clientMessageId` for an
+        // optimistic user message — reuse it so the live-stream echo carries
+        // the same id the renderer already inserted. All other persists
+        // (assistant/tool/error/goal) omit it and get a fresh server id.
+        const id = idOverride ?? MessageId.make(crypto.randomUUID());
         const role = roleForContent(content);
         const now = new Date();
         const nowIso = now.toISOString();
         const parentItemId = parentItemIdOfContent(content);
-        yield* sql`
-          INSERT INTO messages
-            (id, session_id, role, kind, content_json, parent_item_id, created_at)
-          VALUES
-            (${id}, ${sessionId}, ${role}, ${content._tag},
-             ${JSON.stringify(content)}, ${parentItemId}, ${nowIso})
-        `.pipe(Effect.orDie);
-        yield* sql`
-          UPDATE sessions SET updated_at = ${nowIso} WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
-        // Advance the owning chat's activity clock so the sidebar can mark it
-        // unread. `updated_at` (and sidebar ordering) is intentionally left
-        // untouched — `last_message_at` is a separate read/unread signal.
-        yield* sql`
-          UPDATE chats SET last_message_at = ${nowIso}
-          WHERE id = (SELECT chat_id FROM sessions WHERE id = ${sessionId})
-        `.pipe(Effect.orDie);
-        return Message.make({
-          id,
-          sessionId,
-          role,
-          content,
-          createdAt: now,
-        });
+        // All chat writes flow through the event log; the projection inside
+        // `appendEvent` performs the historical INSERT INTO messages +
+        // sessions.updated_at + chats.last_message_at writes atomically and
+        // assigns the global `sequence` clients resume from.
+        const sequence = yield* eventStore
+          .appendEvent({
+            streamKind: "session",
+            streamId: sessionId,
+            type: "MessagePersisted",
+            actor: null,
+            payload: {
+              messageId: id,
+              sessionId,
+              role,
+              kind: content._tag,
+              contentJson: JSON.stringify(content),
+              parentItemId,
+              createdAt: nowIso,
+            },
+          })
+          .pipe(Effect.orDie);
+        return {
+          message: Message.make({
+            id,
+            sessionId,
+            role,
+            content,
+            createdAt: now,
+          }),
+          sequence,
+        };
       });
 
     const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
@@ -919,58 +1156,49 @@ export const MessageStoreLive = Layer.scoped(
         }
       });
 
+    const publishRelayActivity = (
+      sessionId: SessionId,
+      kind:
+        | "approval-needed"
+        | "question-needed"
+        | "completed"
+        | "error"
+        | "running",
+    ): Effect.Effect<void> =>
+      relayActivity.publish({ sessionId, kind }).pipe(
+        Effect.catchAll((error) =>
+          Effect.logDebug(
+            `[MessageStore] relay activity publish failed: ${error.reason}`,
+          ),
+        ),
+      );
+
     const broadcastMessage = (
       sessionId: SessionId,
-      message: Message,
+      persisted: PersistedMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        // Publish AFTER the append transaction committed (persistMessage
+        // returned) — a subscriber must never observe an event that later
+        // rolls back. The sinceSequence cursor closes any
+        // crash-between-commit-and-publish gap.
         const pubsub = yield* getOrMakePubsub(sessionId);
-        yield* PubSub.publish(pubsub, message);
+        yield* PubSub.publish(
+          pubsub,
+          MessageEnvelope.make({
+            sequence: persisted.sequence,
+            message: persisted.message,
+          }),
+        );
       });
 
-    const ensureQueuedMessagesSchema: Effect.Effect<void> = Effect.gen(
-      function* () {
-        yield* sql`
-          CREATE TABLE IF NOT EXISTS queued_messages (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-            queue_order INTEGER NOT NULL,
-            input_json TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-          )
-        `.pipe(Effect.orDie);
-
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(queued_messages)
-        `.pipe(Effect.orDie);
-        const hasColumn = (name: string): boolean =>
-          columns.some((column) => column.name === name);
-
-        if (!hasColumn("queue_order")) {
-          yield* sql`
-            ALTER TABLE queued_messages
-              ADD COLUMN queue_order INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-          if (hasColumn("position")) {
-            yield* sql`
-              UPDATE queued_messages SET queue_order = "position"
-            `.pipe(Effect.orDie);
-          }
-        }
-
-        yield* sql`
-          CREATE INDEX IF NOT EXISTS idx_queued_messages_session_queue_order
-          ON queued_messages(session_id, queue_order)
-        `.pipe(Effect.orDie);
-      },
-    );
-
+    // The queued_messages schema (and sessions.queue_paused) are owned by
+    // migrations 0015/0016/0019 — the migrator runs upstream of this layer,
+    // so the lazy re-creation this file used to do is gone.
     const listQueuedRows = (
       sessionId: SessionId,
     ): Effect.Effect<ReadonlyArray<QueuedMessage>> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -980,23 +1208,8 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(queuedMessageFromRow);
       });
 
-    const ensureQueuePausedColumn: Effect.Effect<void> = Effect.gen(
-      function* () {
-        const columns = yield* sql<{ readonly name: string }>`
-          PRAGMA table_info(sessions)
-        `.pipe(Effect.orDie);
-        if (!columns.some((column) => column.name === "queue_paused")) {
-          yield* sql`
-            ALTER TABLE sessions
-              ADD COLUMN queue_paused INTEGER NOT NULL DEFAULT 0
-          `.pipe(Effect.orDie);
-        }
-      },
-    );
-
     const isQueuePaused = (sessionId: SessionId): Effect.Effect<boolean> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         const rows = yield* sql<{ readonly queue_paused: number }>`
           SELECT queue_paused
           FROM sessions
@@ -1027,7 +1240,6 @@ export const MessageStoreLive = Layer.scoped(
       paused: boolean,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuePausedColumn;
         yield* sql`
           UPDATE sessions
           SET queue_paused = ${paused ? 1 : 0},
@@ -1037,7 +1249,9 @@ export const MessageStoreLive = Layer.scoped(
         yield* broadcastQueue(sessionId);
       });
 
-    const clearQueuePauseIfEmpty = (sessionId: SessionId): Effect.Effect<void> =>
+    const clearQueuePauseIfEmpty = (
+      sessionId: SessionId,
+    ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const queue = yield* listQueuedRows(sessionId);
         if (queue.length > 0 || !(yield* isQueuePaused(sessionId))) return;
@@ -1048,7 +1262,6 @@ export const MessageStoreLive = Layer.scoped(
       sessionId: SessionId,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<{ readonly id: string }>`
           SELECT id FROM queued_messages
           WHERE session_id = ${sessionId}
@@ -1084,6 +1297,12 @@ export const MessageStoreLive = Layer.scoped(
                   event.status === "idle"
                 ) {
                   yield* setStatus(sessionId, event.status);
+                  if (event.status === "running") {
+                    yield* publishRelayActivity(sessionId, "running");
+                  }
+                  if (event.status === "idle") {
+                    yield* maybeForkAutoName(session.chatId, sessionId);
+                  }
                 }
                 return;
               }
@@ -1092,6 +1311,13 @@ export const MessageStoreLive = Layer.scoped(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
                 );
+                yield* publishRelayActivity(
+                  sessionId,
+                  event.reason === "error" ? "error" : "completed",
+                );
+                if (event.reason !== "error") {
+                  yield* maybeForkAutoName(session.chatId, sessionId);
+                }
                 return;
               }
               if (event._tag === "SessionCursor") {
@@ -1133,11 +1359,28 @@ export const MessageStoreLive = Layer.scoped(
               ) {
                 return;
               }
+              if (event._tag === "PermissionRequest") {
+                yield* publishRelayActivity(sessionId, "approval-needed");
+              }
+              if (event._tag === "UserQuestion") {
+                yield* publishRelayActivity(sessionId, "question-needed");
+              }
               const content = eventToContent(event);
               if (content === null) return;
               const persisted = yield* persistMessage(sessionId, content);
               yield* broadcastMessage(sessionId, persisted);
               yield* ndjsonAppend(sessionId, persisted);
+              // A provider `Error` event terminates the turn but, unlike a
+              // `Completed`, carries no lifecycle reason of its own — so
+              // without this the session is left pinned at `running` and the
+              // composer / setup card spin forever (this is the "stuck on the
+              // loading screen" symptom for auth failures, which surface as a
+              // mid-stream Error with no trailing result message). Flip to
+              // `error` so the renderer shows the error bubble + login CTA.
+              if (event._tag === "Error") {
+                yield* publishRelayActivity(sessionId, "error");
+                yield* setStatus(sessionId, "error");
+              }
             }),
           ).pipe(
             Effect.catchAllCause((cause) =>
@@ -1355,7 +1598,7 @@ export const MessageStoreLive = Layer.scoped(
         const now = new Date();
         const nowIso = now.toISOString();
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const agentsJson =
           input.agents !== undefined && Object.keys(input.agents).length > 0
             ? JSON.stringify({
@@ -1367,6 +1610,14 @@ export const MessageStoreLive = Layer.scoped(
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
         const background = input.background === true;
+        const resumeCursor = input.resumeCursor ?? null;
+        const resumeStrategy: ResumeStrategy =
+          resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
+        const forkedFromSessionId = input.forkedFromSessionId ?? null;
+        const forkedFromMessageId = input.forkedFromMessageId ?? null;
+        // Only fork the transcript when we actually have a cursor to fork.
+        const forkFromResume =
+          input.forkFromResume === true && resumeCursor !== null;
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
@@ -1382,13 +1633,15 @@ export const MessageStoreLive = Layer.scoped(
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, runtime_mode,
                agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, created_at, updated_at)
+               tool_search, cursor, resume_strategy, forked_from_session_id,
+               forked_from_message_id, created_at, updated_at)
             VALUES
               (${sessionId}, ${projectId}, ${title}, ${input.providerId},
                ${input.model}, ${rowStatus}, ${initialRuntimeMode},
                ${agentsJson}, ${worktreeId}, ${input.chatId},
                ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${nowIso}, ${nowIso})
+               ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+               ${forkedFromMessageId}, ${nowIso}, ${nowIso})
           `.pipe(Effect.orDie);
           yield* sql`
             UPDATE chats
@@ -1421,8 +1674,9 @@ export const MessageStoreLive = Layer.scoped(
                   cwdOverride,
                   permissionMode: initialPermissionMode,
                   toolSearch: initialToolSearch,
+                  forkFromResume,
                 },
-                null,
+                resumeCursor,
                 newSessionRuntimeMode,
               )
               .pipe(
@@ -1437,6 +1691,16 @@ export const MessageStoreLive = Layer.scoped(
                     yield* Effect.logWarning(
                       `[MessageStore] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
                     );
+                    // Persist the failure as an error message so the renderer
+                    // can render it (and classify auth failures into the inline
+                    // "Sign in" CTA) instead of leaving the session stuck on the
+                    // booting spinner with no explanation.
+                    const persistedError = yield* persistMessage(sessionId, {
+                      _tag: "error",
+                      message: err.reason,
+                    });
+                    yield* broadcastMessage(sessionId, persistedError);
+                    yield* ndjsonAppend(sessionId, persistedError);
                     yield* setStatus(sessionId, "error");
                   }),
                 ),
@@ -1450,13 +1714,13 @@ export const MessageStoreLive = Layer.scoped(
             model: input.model,
             status: "booting",
             archivedAt: null,
-            cursor: null,
-            resumeStrategy: "none",
+            cursor: resumeCursor,
+            resumeStrategy,
             runtimeMode: initialRuntimeMode,
             worktreeId,
             chatId: input.chatId,
-            forkedFromSessionId: null,
-            forkedFromMessageId: null,
+            forkedFromSessionId,
+            forkedFromMessageId,
             permissionMode: initialPermissionMode,
             toolSearch: initialToolSearch,
             createdAt: now,
@@ -1482,8 +1746,9 @@ export const MessageStoreLive = Layer.scoped(
               cwdOverride,
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
+              forkFromResume,
             },
-            null,
+            resumeCursor,
             newSessionRuntimeMode,
           )
           .pipe(
@@ -1503,13 +1768,15 @@ export const MessageStoreLive = Layer.scoped(
           INSERT INTO sessions
             (id, project_id, title, provider_id, model, status, runtime_mode,
              agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, created_at, updated_at)
+             tool_search, cursor, resume_strategy, forked_from_session_id,
+             forked_from_message_id, created_at, updated_at)
           VALUES
             (${sessionId}, ${projectId}, ${title}, ${input.providerId},
              ${input.model}, ${rowStatus}, ${initialRuntimeMode},
              ${agentsJson}, ${worktreeId}, ${input.chatId},
              ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${nowIso}, ${nowIso})
+             ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
+             ${forkedFromMessageId}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
         yield* sql`
           UPDATE chats
@@ -1532,13 +1799,13 @@ export const MessageStoreLive = Layer.scoped(
           model: input.model,
           status: postBootStatus,
           archivedAt: null,
-          cursor: null,
-          resumeStrategy: "none",
+          cursor: resumeCursor,
+          resumeStrategy,
           runtimeMode: initialRuntimeMode,
           worktreeId,
           chatId: input.chatId,
-          forkedFromSessionId: null,
-          forkedFromMessageId: null,
+          forkedFromSessionId,
+          forkedFromMessageId,
           permissionMode: initialPermissionMode,
           toolSearch: initialToolSearch,
           createdAt: now,
@@ -1836,7 +2103,7 @@ export const MessageStoreLive = Layer.scoped(
         const nowIso = now.toISOString();
         const chatId = crypto.randomUUID() as unknown as ChatId;
         const title =
-          input.title?.trim() || titleFromInitial(input.initialPrompt);
+          input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
         yield* sql`
           INSERT INTO chats
@@ -1857,6 +2124,11 @@ export const MessageStoreLive = Layer.scoped(
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
           toolSearch: input.toolSearch,
+          resumeCursor: input.resumeCursor,
+          resumeStrategy: input.resumeStrategy,
+          forkedFromSessionId: input.forkedFromSessionId,
+          forkedFromMessageId: input.forkedFromMessageId,
+          forkFromResume: input.forkFromResume,
         }).pipe(
           Effect.tapError(() =>
             // Roll back the chat row if the provider failed to boot —
@@ -1892,16 +2164,189 @@ export const MessageStoreLive = Layer.scoped(
             )
           : null;
         // Path 1: the chat was created WITH its first message (the common
-        // composer flow). Kick off the background auto-name now — it no-ops
-        // unless the chat has its own worktree.
-        if (
-          hasInitial &&
-          chat.worktreeId !== null &&
-          input.initialPrompt !== undefined
-        ) {
-          yield* forkAutoName(chat.id, initialSession.id, input.initialPrompt);
+        // composer flow). Kick off the background auto-name when there is
+        // enough context (trivial-only greetings wait for a follow-up).
+        if (hasInitial && input.initialPrompt !== undefined) {
+          yield* maybeForkAutoName(chat.id, initialSession.id);
         }
         return { chat, initialSession, initialMessage };
+      });
+
+    const continueExternalThread: MessageStoreShape["continueExternalThread"] =
+      (input) =>
+        Effect.gen(function* () {
+          const result = yield* createChat({
+            ...input,
+            resumeCursor: input.resumeCursor,
+            resumeStrategy: input.resumeStrategy,
+          });
+          return {
+            chat: result.chat,
+            initialSession: result.initialSession,
+          };
+        });
+
+    const importExternalMessages: MessageStoreShape["importExternalMessages"] =
+      (sessionId, messages) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          const imported: Message[] = [];
+          for (const content of messages) {
+            const persisted = yield* persistMessage(sessionId, content);
+            imported.push(persisted.message);
+          }
+          return imported;
+        });
+
+    const exportTranscript: MessageStoreShape["exportTranscript"] = (
+      sessionId,
+      uptoMessageId,
+    ) =>
+      Effect.gen(function* () {
+        const session = yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${sessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        let slice = rows;
+        if (uptoMessageId !== undefined) {
+          const idx = rows.findIndex((r) => r.id === uptoMessageId);
+          if (idx !== -1) slice = rows.slice(0, idx + 1);
+        }
+        return transcriptToMarkdown(session.title, slice.map(messageFromRow));
+      });
+
+    const latestPlan: MessageStoreShape["latestPlan"] = (sessionId) =>
+      Effect.gen(function* () {
+        yield* lookupSession(sessionId);
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages
+          WHERE session_id = ${sessionId} AND kind = 'tool_use'
+          ORDER BY created_at DESC, sequence DESC
+        `.pipe(Effect.orDie);
+        for (const row of rows) {
+          const c = messageFromRow(row).content;
+          if (c._tag === "tool_use" && c.tool === "ExitPlanMode") {
+            const input = c.input;
+            if (
+              typeof input === "object" &&
+              input !== null &&
+              "plan" in input &&
+              typeof (input as { plan?: unknown }).plan === "string"
+            ) {
+              return (input as { plan: string }).plan;
+            }
+          }
+        }
+        return null;
+      });
+
+    const forkSession: MessageStoreShape["forkSession"] = (input) =>
+      Effect.gen(function* () {
+        // Source must exist; `lookupSession` fails `SessionNotFoundError`.
+        const source = yield* lookupSession(input.sourceSessionId);
+
+        const rows = yield* sql<MessageRow>`
+          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+          FROM messages WHERE session_id = ${input.sourceSessionId}
+          ORDER BY created_at ASC, sequence ASC
+        `.pipe(Effect.orDie);
+        const forkIdx = rows.findIndex((r) => r.id === input.fromMessageId);
+        if (forkIdx === -1) {
+          return yield* Effect.fail(
+            new SessionStartError({
+              providerId: source.providerId,
+              reason: `fork message ${input.fromMessageId} not found in session ${input.sourceSessionId}`,
+            }),
+          );
+        }
+
+        const providerId = input.providerId ?? source.providerId;
+        const model = input.model ?? source.model;
+        // Real provider memory is only possible when the fork point is the
+        // conversation tail, the provider is the SAME as the source (a fork
+        // resumes the source's own transcript), the provider supports native
+        // fork, and we have a cursor to fork from. Otherwise we replay the
+        // visible transcript into a fresh session (`copy`).
+        const isTail = forkIdx === rows.length - 1;
+        const providerCanFork =
+          providerId === "claude" || providerId === "codex";
+        const forkMode: "resume" | "copy" =
+          isTail &&
+          providerId === source.providerId &&
+          providerCanFork &&
+          source.cursor !== null &&
+          source.resumeStrategy !== "none"
+            ? "resume"
+            : "copy";
+
+        const title =
+          input.title?.trim() || `Fork of ${source.title}`.slice(0, 120);
+
+        // Visible transcript up to (and including) the fork message — shown in
+        // the new session's chat view for BOTH modes. In `resume` mode the
+        // provider also carries real KV memory; the copied rows are display
+        // only and are never re-sent to the model.
+        const transcript = rows
+          .slice(0, forkIdx + 1)
+          .map(messageFromRow)
+          .filter((m) => !TRANSCRIPT_SKIP_KINDS.has(m.content._tag))
+          .map((m) => m.content);
+
+        const resumeCursor = forkMode === "resume" ? source.cursor : null;
+        const resumeStrategy: ResumeStrategy =
+          forkMode === "resume" ? source.resumeStrategy : "none";
+
+        let chat: Chat;
+        let session: Session;
+        if (input.destination === "tab") {
+          session = yield* createSession({
+            chatId: source.chatId,
+            providerId,
+            model,
+            title,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            background: true,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = yield* lookupChat(source.chatId).pipe(Effect.orDie);
+        } else {
+          const created = yield* createChat({
+            projectId: source.projectId,
+            providerId,
+            model,
+            title,
+            worktreeId: input.worktreeId ?? null,
+            runtimeMode: source.runtimeMode,
+            permissionMode: source.permissionMode,
+            toolSearch: source.toolSearch,
+            resumeCursor,
+            resumeStrategy,
+            forkedFromSessionId: input.sourceSessionId,
+            forkedFromMessageId: input.fromMessageId,
+            forkFromResume: forkMode === "resume",
+          });
+          chat = created.chat;
+          session = created.initialSession;
+        }
+
+        // Seed the new session's visible history. Failures here are
+        // non-fatal — the branch still exists and is usable.
+        if (transcript.length > 0) {
+          yield* importExternalMessages(session.id, transcript).pipe(
+            Effect.catchAll(() => Effect.succeed([])),
+          );
+        }
+
+        return { chat, session, forkMode };
       });
 
     const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
@@ -1942,34 +2387,73 @@ export const MessageStoreLive = Layer.scoped(
       );
 
     /**
-     * Conductor-style auto-name: on a chat's first user message, summarize it
-     * into a short title (LLM, with truncation fallback) and use that to
-     * rename both the chat and — when the chat has its own worktree — the
-     * worktree's git branch per the user's `branchNamingStyle`. Runs on a
-     * background fiber so the agent's first reply is never delayed; swallows
-     * every failure so a flaky title call can't wedge the session.
-     *
-     * Only chats WITH a worktree are renamed (a bare main-checkout chat keeps
-     * the cheap first-line title set elsewhere).
+     * LLM auto-name: summarize recent user/assistant turns into a short title
+     * and rename the chat (always) plus the worktree git branch (when the chat
+     * has its own worktree). Runs on a background fiber so the agent turn is
+     * never delayed; swallows every failure so a flaky title call can't wedge
+     * the session.
      */
+    const collectAutoNameContext = (
+      chatId: ChatId,
+    ): Effect.Effect<{
+      readonly userTexts: string[];
+      readonly assistantTexts: string[];
+      readonly conversationText: string;
+    }> =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{
+          readonly role: string;
+          readonly content_json: string;
+        }>`
+          SELECT m.role, m.content_json
+          FROM messages m
+          INNER JOIN sessions s ON s.id = m.session_id
+          WHERE s.chat_id = ${chatId}
+            AND m.role IN ('user', 'assistant')
+          ORDER BY m.created_at ASC
+          LIMIT 24
+        `.pipe(Effect.orDie);
+        const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+        const userTexts: string[] = [];
+        const assistantTexts: string[] = [];
+        for (const row of rows) {
+          try {
+            const content = JSON.parse(row.content_json) as MessageContent;
+            const text = textFromMessageContent(content);
+            if (text === null || text.trim().length === 0) continue;
+            if (row.role === "user") {
+              userTexts.push(text);
+              turns.push({ role: "user", text });
+            } else if (row.role === "assistant") {
+              assistantTexts.push(text);
+              turns.push({ role: "assistant", text });
+            }
+          } catch {
+            // Skip malformed rows — title gen can still fall back.
+          }
+        }
+        return {
+          userTexts,
+          assistantTexts,
+          conversationText: buildConversationText(turns),
+        };
+      });
+
     const autoNameChat = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        if (autoNamingChats.has(chatId)) return;
-        autoNamingChats.add(chatId);
         const chat = yield* lookupChat(chatId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
-        if (chat === null || chat.worktreeId === null) return;
-        const worktreeId = chat.worktreeId;
-        const wt = yield* worktrees.get(worktreeId);
-        if (wt === null) return;
+        if (chat === null) return;
 
-        // Name the chat with the SAME provider/model the session uses, so a
-        // user without Claude auth (e.g. Grok-only) still gets an LLM title.
+        const context = yield* collectAutoNameContext(chatId);
+        if (shouldDeferAutoName(context.userTexts, context.assistantTexts)) {
+          return;
+        }
+
         const session = yield* lookupSession(sessionId).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
         );
@@ -1978,7 +2462,7 @@ export const MessageStoreLive = Layer.scoped(
           folderId: chat.projectId,
           providerId: session.providerId,
           model: session.model,
-          firstMessage: firstText,
+          conversationText: context.conversationText,
         });
         if (title.length === 0 || title === "New chat") return;
 
@@ -1986,8 +2470,14 @@ export const MessageStoreLive = Layer.scoped(
         // the branch rename below is skipped or fails.
         yield* renameChat(chatId, title);
         yield* sql`
-          UPDATE sessions SET title = ${title} WHERE id = ${sessionId}
+          UPDATE sessions SET title = ${title} WHERE chat_id = ${chatId}
         `.pipe(Effect.ignoreLogged);
+        autoNamedChats.add(chatId);
+
+        if (chat.worktreeId === null) return;
+        const worktreeId = chat.worktreeId;
+        const wt = yield* worktrees.get(worktreeId);
+        if (wt === null) return;
 
         const settings = yield* configStore.getSettings();
         const username = yield* git
@@ -2007,14 +2497,25 @@ export const MessageStoreLive = Layer.scoped(
         );
       }).pipe(Effect.catchAllCause(() => Effect.void));
 
-    const forkAutoName = (
+    const maybeForkAutoName = (
       chatId: ChatId,
       sessionId: SessionId,
-      firstText: string,
     ): Effect.Effect<void> =>
-      Effect.forkDaemon(autoNameChat(chatId, sessionId, firstText)).pipe(
-        Effect.asVoid,
-      );
+      Effect.gen(function* () {
+        if (autoNamedChats.has(chatId) || autoNamingInFlight.has(chatId)) {
+          return;
+        }
+        autoNamingInFlight.add(chatId);
+        yield* Effect.forkDaemon(
+          autoNameChat(chatId, sessionId).pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                autoNamingInFlight.delete(chatId);
+              }),
+            ),
+          ),
+        );
+      });
 
     /**
      * Worktrees are immutable past the first user message in any of the
@@ -2091,7 +2592,7 @@ export const MessageStoreLive = Layer.scoped(
         `.pipe(Effect.asVoid, Effect.orDie);
       });
 
-    const archiveChat: MessageStoreShape["archiveChat"] = (chatId) =>
+    const archiveChat: MessageStoreShape["archiveChat"] = (chatId, force) =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId);
         if (chat.archivedAt !== null) {
@@ -2145,10 +2646,10 @@ export const MessageStoreLive = Layer.scoped(
             script: settings.archiveCleanupScript ?? "",
             cwd: worktree.path,
             env: {
-              MEMOIZE_ROOT_PATH: rootPath ?? "",
-              MEMOIZE_WORKSPACE_PATH: worktree.path,
-              MEMOIZE_CHAT_ID: chatId,
-              MEMOIZE_WORKTREE_ID: worktree.id,
+              ZUSE_ROOT_PATH: rootPath ?? "",
+              ZUSE_WORKSPACE_PATH: worktree.path,
+              ZUSE_CHAT_ID: chatId,
+              ZUSE_WORKTREE_ID: worktree.id,
             },
           });
           cleanup = { ran: true, output: result.output };
@@ -2157,7 +2658,7 @@ export const MessageStoreLive = Layer.scoped(
         }
 
         if (worktree !== null && settings.archiveRemoveWorktree) {
-          yield* worktrees.remove(worktree.id, false).pipe(
+          yield* worktrees.remove(worktree.id, force).pipe(
             Effect.mapError(
               (err) =>
                 new ChatArchiveWorktreeError({
@@ -2310,27 +2811,40 @@ export const MessageStoreLive = Layer.scoped(
         return rows.map(messageFromRow);
       });
 
-    const streamMessages: MessageStoreShape["streamMessages"] = (sessionId) =>
+    const streamMessages: MessageStoreShape["streamMessages"] = (
+      sessionId,
+      sinceSequence,
+    ) =>
       Stream.unwrapScoped(
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
-          // Subscribe to the live pubsub *before* reading backfill so a
+          const since = sinceSequence ?? 0;
+          // Subscribe to the live pubsub *before* reading the replay so a
           // message persisted between SELECT and Stream.fromQueue is still
-          // delivered. Filter live emissions against backfill ids to avoid
-          // double-emitting any rows that landed during the SELECT window.
+          // delivered. The cursor makes dedup structural: replay covers
+          // everything ≤ lastReplayed, the live tail admits only envelopes
+          // past it — no seen-Set, O(1) memory, gap-free resume.
           const pubsub = yield* getOrMakePubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
-          const rows = yield* sql<MessageRow>`
-            SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-            FROM messages WHERE session_id = ${sessionId}
-            ORDER BY created_at ASC
+          const rows = yield* sql<MessageRow & { readonly sequence: number }>`
+            SELECT id, session_id, role, kind, content_json, parent_item_id,
+                   created_at, sequence
+            FROM messages
+            WHERE session_id = ${sessionId} AND sequence > ${since}
+            ORDER BY sequence ASC
           `.pipe(Effect.orDie);
-          const backfill = rows.map(messageFromRow);
-          const seen = new Set<string>(backfill.map((m) => m.id));
-          const live = Stream.fromQueue(dequeue).pipe(
-            Stream.filter((m) => !seen.has(m.id)),
+          const replay = rows.map((row) =>
+            MessageEnvelope.make({
+              sequence: row.sequence,
+              message: messageFromRow(row),
+            }),
           );
-          return Stream.concat(Stream.fromIterable(backfill), live);
+          const lastReplayed =
+            replay.length > 0 ? replay[replay.length - 1]!.sequence : since;
+          const live = Stream.fromQueue(dequeue).pipe(
+            Stream.filter((envelope) => envelope.sequence > lastReplayed),
+          );
+          return Stream.concat(Stream.fromIterable(replay), live);
         }),
       );
 
@@ -2356,12 +2870,17 @@ export const MessageStoreLive = Layer.scoped(
         }),
       );
 
-    const ensureCodexGoalSession = (
+    // Providers that support goal mode. Codex backs it with `thread/goal/*`
+    // RPCs; Grok forwards to its native `/goal` slash command with
+    // driver-local state. Both go through `setGoalWithLiveProvider` →
+    // `provider.setGoal`, which routes to the right handle.
+    const goalCapableProviders = new Set<ProviderId>(["codex", "grok"]);
+    const ensureGoalSession = (
       sessionId: SessionId,
     ): Effect.Effect<Session, SessionNotFoundError | GoalUnsupportedError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
-        if (session.providerId !== "codex") {
+        if (!goalCapableProviders.has(session.providerId)) {
           return yield* Effect.fail(
             new GoalUnsupportedError({ providerId: session.providerId }),
           );
@@ -2464,7 +2983,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const getGoal: MessageStoreShape["getGoal"] = (sessionId) =>
       Effect.gen(function* () {
-        yield* ensureCodexGoalSession(sessionId);
+        yield* ensureGoalSession(sessionId);
         const goal = yield* provider
           .getGoal(sessionId)
           .pipe(
@@ -2479,7 +2998,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const setGoal: MessageStoreShape["setGoal"] = (sessionId, goalInput) =>
       Effect.gen(function* () {
-        const session = yield* ensureCodexGoalSession(sessionId);
+        const session = yield* ensureGoalSession(sessionId);
         const goal = yield* setGoalWithLiveProvider(session, goalInput);
         yield* publishGoal(sessionId, goal);
         return goal;
@@ -2487,7 +3006,7 @@ export const MessageStoreLive = Layer.scoped(
 
     const clearGoal: MessageStoreShape["clearGoal"] = (sessionId) =>
       Effect.gen(function* () {
-        yield* ensureCodexGoalSession(sessionId);
+        yield* ensureGoalSession(sessionId);
         yield* provider
           .clearGoal(sessionId)
           .pipe(
@@ -2502,7 +3021,7 @@ export const MessageStoreLive = Layer.scoped(
     const streamGoal: MessageStoreShape["streamGoal"] = (sessionId) =>
       Stream.unwrapScoped(
         Effect.gen(function* () {
-          yield* ensureCodexGoalSession(sessionId);
+          yield* ensureGoalSession(sessionId);
           const pubsub = yield* getOrMakeGoalPubsub(sessionId);
           const dequeue = yield* pubsub.subscribe;
           const cached = goalsBySession.get(sessionId);
@@ -2651,12 +3170,13 @@ export const MessageStoreLive = Layer.scoped(
       attachments?: ReadonlyArray<AttachmentRef>,
       fileRefs?: ReadonlyArray<FileRef>,
       skillRefs?: ReadonlyArray<SkillRef>,
-      annotations?: ReadonlyArray<CodeAnnotation>,
+      annotations?: ReadonlyArray<ComposerAnnotation>,
       asGoal?: boolean,
+      clientMessageId?: MessageId,
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
-        if (asGoal !== true && session.providerId === "codex") {
+        if (asGoal !== true && goalCapableProviders.has(session.providerId)) {
           const goal = goalsBySession.get(sessionId);
           const trimmed = text.trim();
           if (
@@ -2703,52 +3223,53 @@ export const MessageStoreLive = Layer.scoped(
           annotationList.length > 0
             ? `${serializeAnnotations(annotationList)}\n\n${text}`.trim()
             : text;
-        const persisted = yield* persistMessage(sessionId, content);
+        const persisted = yield* persistMessage(
+          sessionId,
+          content,
+          clientMessageId,
+        );
         // Pin the attachments so the GC sweep treats them as referenced —
         // a separate row per (message, attachment) keeps the existing
         // GC join intact.
         for (const a of cleanAttachments) {
           yield* sql`
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
-            VALUES (${persisted.id}, ${a.id})
+            VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignoreLogged);
         }
         yield* broadcastMessage(sessionId, persisted);
-        // Auto-title: if the session is still on its placeholder title, derive
-        // a cheap first-line title immediately so the tab never reads
-        // "New chat" while the richer LLM pass (below) runs.
-        if (session.title === "New chat") {
-          const derived = titleFromInitial(text);
-          if (derived !== "New chat") {
+        const chat = yield* lookupChat(session.chatId).pipe(
+          Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+        );
+        // Provisional title: update chat + session immediately for real tasks
+        // so the sidebar/tab never sit on "New chat" while the LLM pass runs.
+        const provisional = deriveProvisionalTitle(text);
+        if (provisional !== "New chat") {
+          if (session.title === "New chat") {
             yield* sql`
-              UPDATE sessions SET title = ${derived}
+              UPDATE sessions SET title = ${provisional}
               WHERE id = ${sessionId} AND title = 'New chat'
             `.pipe(Effect.orDie);
           }
+          if (chat.title === "New chat") {
+            yield* renameChat(session.chatId, provisional).pipe(
+              Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+            );
+          }
         }
-        // Path 2: an empty chat (no initialPrompt) receiving its first user
-        // message via messages.send. When this is the chat's first user
-        // message, kick off the Conductor-style auto-name in the background
-        // (no-ops unless the chat has its own worktree).
-        const firstUserCount = yield* sql<{ readonly c: number }>`
-          SELECT COUNT(*) AS c FROM messages m
-          INNER JOIN sessions s ON s.id = m.session_id
-          WHERE s.chat_id = ${session.chatId} AND m.role = 'user'
-        `.pipe(
-          Effect.map((rows) => rows[0]?.c ?? 0),
-          Effect.catchAll(() => Effect.succeed(0)),
-        );
-        if (firstUserCount === 1 && text.trim().length > 0) {
-          yield* forkAutoName(session.chatId, sessionId, text);
+        // Try LLM auto-name when there is enough context (trivial-only
+        // greetings wait until the assistant replies or the user sends more).
+        if (text.trim().length > 0) {
+          yield* maybeForkAutoName(session.chatId, sessionId);
         }
         if (asGoal === true) {
           const objective = text.trim();
           if (objective.length === 0) return false;
-          if (session.providerId !== "codex") {
+          if (!goalCapableProviders.has(session.providerId)) {
             const persistedError = yield* persistMessage(sessionId, {
               _tag: "error",
               message:
-                "Goal mode is currently only supported for Codex sessions.",
+                "Goal mode is currently only supported for Codex and Grok sessions.",
             });
             yield* broadcastMessage(sessionId, persistedError);
             yield* ndjsonAppend(sessionId, persistedError);
@@ -2762,8 +3283,8 @@ export const MessageStoreLive = Layer.scoped(
               Effect.gen(function* () {
                 const message =
                   err._tag === "SessionStartError"
-                    ? `Goal mode could not start Codex: ${err.reason}`
-                    : "Goal mode could not start Codex for this session.";
+                    ? `Goal mode could not start ${session.providerId}: ${err.reason}`
+                    : `Goal mode could not start ${session.providerId} for this session.`;
                 const persistedError = yield* persistMessage(sessionId, {
                   _tag: "error",
                   message,
@@ -2777,6 +3298,13 @@ export const MessageStoreLive = Layer.scoped(
           );
           if (goal === null) return false;
           yield* publishGoal(sessionId, goal);
+          // Grok runs goal mode by forwarding `/goal` as a real prompt turn,
+          // so reflect the running turn the way a normal send does — the
+          // driver emits `Status: idle` when the goal run finishes. Codex
+          // drives its own status via native goal notifications, so leave it.
+          if (session.providerId === "grok") {
+            yield* setStatus(sessionId, "running");
+          }
           return true;
         }
         // First attempt: push into the existing provider session. If that
@@ -2787,6 +3315,21 @@ export const MessageStoreLive = Layer.scoped(
             (attachments ?? []).length
           })`,
         );
+        // If the session previously errored — typically an auth failure the
+        // user has since fixed by signing in — the in-memory provider process
+        // is stale: for Claude it was spawned without valid credentials and
+        // won't re-read the keychain on its own. Drop it (mirrors setModel's
+        // teardown) so the send below lazy-restarts a fresh process that picks
+        // up the new login, instead of silently re-pushing into the dead one.
+        const latestForSend = yield* lookupSession(sessionId).pipe(
+          Effect.orDie,
+        );
+        if (latestForSend.status === "error") {
+          yield* provider
+            .close(sessionId)
+            .pipe(Effect.catchAll(() => Effect.void));
+          yield* interruptProviderFiber(sessionId);
+        }
         const sendResult = yield* provider
           .send(sessionId, sendText, cleanAttachments, fileRefs, skillRefs)
           .pipe(
@@ -2810,6 +3353,23 @@ export const MessageStoreLive = Layer.scoped(
           if (looksLikeGrokAuthWorkerDeath) {
             yield* setStatus(sessionId, "running");
             return true;
+          }
+
+          // Auth failures aren't recoverable by restarting — re-spawning hits
+          // the same 401, which is the infinite-retry / stuck-loading bug.
+          // Persist the error so the renderer shows the "Sign in" CTA and stop.
+          if (looksLikeAuthFailure(sendResult.reason)) {
+            console.log(
+              `[message-store.sendMessage] provider.send failed with auth error for ${sessionId}; skipping restart`,
+            );
+            const persistedError = yield* persistMessage(sessionId, {
+              _tag: "error",
+              message: sendResult.reason,
+            });
+            yield* broadcastMessage(sessionId, persistedError);
+            yield* ndjsonAppend(sessionId, persistedError);
+            yield* setStatus(sessionId, "error");
+            return false;
           }
 
           console.log(
@@ -2856,6 +3416,7 @@ export const MessageStoreLive = Layer.scoped(
       skillRefs,
       annotations,
       asGoal,
+      clientMessageId,
     ) =>
       Effect.gen(function* () {
         yield* submitUserMessage(
@@ -2866,6 +3427,7 @@ export const MessageStoreLive = Layer.scoped(
           skillRefs,
           annotations,
           asGoal,
+          clientMessageId,
         );
       });
 
@@ -2899,7 +3461,6 @@ export const MessageStoreLive = Layer.scoped(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        yield* ensureQueuedMessagesSchema;
         const maxRows = yield* sql<{ readonly max_position: number | null }>`
           SELECT MAX(queue_order) AS max_position
           FROM queued_messages
@@ -3005,7 +3566,6 @@ export const MessageStoreLive = Layer.scoped(
       queueId: string,
     ): Effect.Effect<QueuedMessage | null> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const rows = yield* sql<QueuedMessageRow>`
           SELECT id, session_id, queue_order, input_json, created_at, updated_at
           FROM queued_messages
@@ -3026,7 +3586,6 @@ export const MessageStoreLive = Layer.scoped(
 
     const restoreQueuedMessage = (item: QueuedMessage): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* ensureQueuedMessagesSchema;
         const existing = yield* sql<{ readonly count: number }>`
           SELECT COUNT(*) AS count
           FROM queued_messages
@@ -3156,6 +3715,11 @@ export const MessageStoreLive = Layer.scoped(
       listChats,
       getChat,
       createChat,
+      continueExternalThread,
+      importExternalMessages,
+      forkSession,
+      exportTranscript,
+      latestPlan,
       renameChat,
       markChatRead,
       streamChatChanges,

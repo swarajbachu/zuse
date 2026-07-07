@@ -1,6 +1,18 @@
+# Keep the original bundle id so existing memoize Alpha installs can
+# auto-update in place through Squirrel.Mac. The visible app name and release
+# feed are Zuse, but macOS updater identity must remain stable.
 appId: app.memoize.desktop
-productName: memoize Alpha
+productName: Zuse Alpha
 copyright: © ${author}
+
+# Register the `zuse://` custom scheme so packaged builds receive the WorkOS
+# OAuth callback (`zuse://auth/callback`) as a deep link. On macOS this
+# writes CFBundleURLTypes into Info.plist; combined with the unique appId above
+# the OS routes the scheme unambiguously (unlike dev's shared Electron.app).
+protocols:
+  - name: zuse
+    schemes:
+      - zuse
 
 # Output the .dmg + latest-mac.yml + blockmap to repo-root/dist so all
 # distributables for all apps land in one place. Build resources (icon,
@@ -19,12 +31,12 @@ files:
   - "package.json"
   - "!**/*.{ts,tsx,map,md}"
   - "!**/tsconfig*.json"
-  # @memoize/* workspace packages are inlined into dist-electron/main.cjs by
+  # @zuse/* workspace packages are inlined into dist-electron/main.cjs by
   # tsdown (`deps.alwaysBundle`), so we don't need their source in
   # node_modules. Their bun symlinks resolve to apps/server and apps/wire,
   # which trip electron-builder's "must be under apps/desktop/" check during
   # the asarUnpack walk. Exclude them outright.
-  - "!node_modules/@memoize/**"
+  - "!node_modules/@zuse/**"
   # Build-time tooling and type packages — never required at runtime.
   - "!node_modules/@repo/**"
   - "!node_modules/@types/**"
@@ -37,13 +49,21 @@ extraResources:
   - from: ../renderer/dist
     to: app/renderer/dist
     filter: ["**/*"]
+  - from: resources/skills
+    to: app/skills
+    filter: ["**/*"]
 
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/
 # and the loader transparently rewrites the path.
+# browser-mcp-child.cjs is spawned by bun (Grok's zuse-browser MCP server) —
+# an external process that can't read inside the asar, so it must be unpacked
+# too; browser-mcp-bridge.ts rewrites app.asar → app.asar.unpacked when
+# resolving it.
 asar: true
 asarUnpack:
   - "**/*.node"
+  - "dist-electron/browser-mcp-child.cjs"
   - "node_modules/better-sqlite3/**"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"
@@ -73,8 +93,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   icon: build/icon.png
   extendInfo:
-    NSCameraUsageDescription: memoize does not use the camera.
-    NSMicrophoneUsageDescription: memoize does not use the microphone.
+    NSCameraUsageDescription: Zuse Alpha does not use the camera.
+    NSMicrophoneUsageDescription: Zuse Alpha does not use the microphone.
 
 dmg:
   writeUpdateInfo: true
@@ -97,5 +117,5 @@ dmg:
 publish:
   provider: github
   owner: swarajbachu
-  repo: memoize
+  repo: zuse
   releaseType: release

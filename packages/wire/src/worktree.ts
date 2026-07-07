@@ -15,9 +15,9 @@ export type WorktreeSetupStatus = typeof WorktreeSetupStatus.Type;
 
 /**
  * A git worktree owned by memoize. Lives at
- * `~/.memoize/<repo-name>-<projectId-short>/<name>/` so it stays out of the
+ * `~/.zuse/<repo-name>-<projectId-short>/<name>/` so it stays out of the
  * source repo (no `.git/info/exclude` rewriting, no stray entries in `git
- * status`, no `.memoize/` paths leaking into file pickers). Branch matches
+ * status`, no `.zuse/` paths leaking into file pickers). Branch matches
  * `<name>` (e.g. `pikachu`).
  */
 export class Worktree extends Schema.Class<Worktree>("Worktree")({
@@ -93,8 +93,36 @@ const WorktreeErrors = Schema.Union(
   WorktreeSetupError,
 );
 
+/**
+ * Optional source for a worktree checkout. When omitted, `worktree.create`
+ * behaves as before: allocate a fresh Pokémon branch off `origin/<default>`.
+ * When present, the worktree checks out an EXISTING ref instead:
+ *   - `branch` → check out that branch (tracking `origin/<branch>` when it's a
+ *     remote branch), used by the "Create from → Branches" picker.
+ *   - `pr` → `gh pr checkout <number>` inside the new worktree, used by
+ *     "Create from → PRs" (handles fork PRs + tracking).
+ * The directory still gets a Pokémon name/mascot; only the checked-out branch
+ * differs.
+ */
+export const WorktreeCreateSource = Schema.Union(
+  Schema.Struct({
+    _tag: Schema.Literal("branch"),
+    branch: Schema.String,
+    remote: Schema.NullOr(Schema.String),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("pr"),
+    number: Schema.Number,
+    headRefName: Schema.String,
+  }),
+);
+export type WorktreeCreateSource = typeof WorktreeCreateSource.Type;
+
 export const WorktreeCreateRpc = Rpc.make("worktree.create", {
-  payload: Schema.Struct({ projectId: FolderId }),
+  payload: Schema.Struct({
+    projectId: FolderId,
+    source: Schema.optional(WorktreeCreateSource),
+  }),
   success: Worktree,
   error: WorktreeCreateError,
 });

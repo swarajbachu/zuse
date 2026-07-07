@@ -20,15 +20,10 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import type {
-  SessionId,
-  UserQuestion,
-  UserQuestionAnswer,
-} from "@memoize/wire";
+import type { UserQuestion, UserQuestionAnswer } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 
-import { usePermissionsStore } from "../store/permissions.ts";
 import { CodeBlock } from "./code-block.tsx";
 import { FileBadge } from "./file-badge.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
@@ -44,13 +39,17 @@ import {
 
 type IconHandle = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
+const normalizeToolName = (tool: string): string =>
+  tool.replace(/^mcp__memoize__/, "mcp__zuse__");
+
 /**
  * Map a tool name to the same Hugeicon used in its expanded ToolRow. Other
  * surfaces (e.g. the turn-summary icon preview) reuse this so the icons
  * stay in lockstep across the timeline.
  */
 export const iconForTool = (tool: string): IconHandle => {
-  switch (tool) {
+  const normalizedTool = normalizeToolName(tool);
+  switch (normalizedTool) {
     case "Bash":
       return TerminalIcon;
     case "Read":
@@ -82,19 +81,19 @@ export const iconForTool = (tool: string): IconHandle => {
       return GlobeIcon;
     case "TodoWrite":
       return CheckListIcon;
-    case "mcp__memoize__browser_navigate":
+    case "mcp__zuse__browser_navigate":
       return BrowserIcon;
-    case "mcp__memoize__browser_screenshot":
+    case "mcp__zuse__browser_screenshot":
       return Camera01Icon;
     default: {
       // Agent browser tools arrive as their MCP FQN; match by suffix so the
       // exact-case list above stays the source of truth.
-      if (tool.endsWith("__browser_screenshot")) return Camera01Icon;
-      if (tool.includes("__browser_")) return BrowserIcon;
+      if (normalizedTool.endsWith("__browser_screenshot")) return Camera01Icon;
+      if (normalizedTool.includes("__browser_")) return BrowserIcon;
       // Heuristic fallback for any Grok-native or future tool we haven't
       // wired an exact case for yet. "list dir", "read file", "run shell"
       // etc. will now get a reasonable icon instead of the generic wrench.
-      const t = tool.toLowerCase();
+      const t = normalizedTool.toLowerCase();
       if (t.includes("dir") || t.includes("folder") || t.includes("list"))
         return Folder01Icon;
       if (t.includes("file") || t.includes("read") || t.includes("write"))
@@ -198,7 +197,10 @@ const firstSentence = (text: string, hardCap = 160): string => {
 
 function InlineCodeChip({ value }: { value: string }) {
   return (
-    <span className="ml-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+    <span
+      className="ml-1 inline-block max-w-full truncate rounded bg-muted/60 px-1.5 py-0.5 align-bottom font-mono text-[10px] text-muted-foreground"
+      title={value}
+    >
       {value}
     </span>
   );
@@ -206,7 +208,12 @@ function InlineCodeChip({ value }: { value: string }) {
 
 function InlineTextHint({ value }: { value: string }) {
   return (
-    <span className="ml-1 truncate text-muted-foreground italic">{value}</span>
+    <span
+      className="ml-1 inline-block max-w-full truncate align-bottom text-muted-foreground italic"
+      title={value}
+    >
+      {value}
+    </span>
   );
 }
 
@@ -437,7 +444,7 @@ function ExpandableIconRow({
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
         className={cn(
-          "group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
+          "group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
           hasContent ? "hover:bg-muted/40 cursor-pointer" : "cursor-default",
         )}
       >
@@ -463,15 +470,20 @@ function ExpandableIconRow({
             />
           ) : null}
         </div>
-        <span className="font-medium text-foreground/90 shrink-0">{label}</span>
+        <span
+          className="max-w-[12rem] shrink-0 truncate font-medium text-foreground/90"
+          title={typeof label === "string" ? label : undefined}
+        >
+          {label}
+        </span>
         {trailing !== undefined ? (
-          <span className="min-w-0 flex-1 truncate flex items-center">
+          <span className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap [&>*]:min-w-0 [&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis">
             {trailing}
           </span>
         ) : null}
       </button>
       {expanded && hasContent ? (
-        <div className="ml-6 mt-1 max-w-2xl space-y-2 overflow-hidden border-l border-border/60 pl-2 pr-1">
+        <div className="ml-6 mt-1 max-h-96 max-w-2xl space-y-2 overflow-y-auto border-l border-border/60 pl-2 pr-1">
           {body}
         </div>
       ) : null}
@@ -505,21 +517,41 @@ const buildToolView = (
   input: unknown,
   result: ToolResult | undefined,
 ): ToolView => {
+  const normalizedTool = normalizeToolName(tool);
   const obj =
     input !== null && typeof input === "object"
       ? (input as Record<string, unknown>)
       : {};
 
-  switch (tool) {
-    case "Bash": {
-      const cmd = asString(obj.command);
+  switch (normalizedTool) {
+    case "Bash":
+    case "Shell":
+    case "shell":
+    case "Execute":
+    case "execute":
+    case "Run":
+    case "run":
+    case "run_shell_command":
+    case "run_terminal_cmd": {
+      const cmd =
+        asString(obj.command) ??
+        asString(obj.cmd) ??
+        asString(obj.shell_command) ??
+        asString(input);
       const desc = asString(obj.description);
+      const label =
+        desc ??
+        (normalizedTool === "Bash"
+          ? "Bash"
+          : normalizedTool === "Shell"
+            ? "Shell"
+            : "Execute");
       return {
         icon: TerminalIcon,
-        label: desc ?? "Bash",
+        label,
         trailing:
           cmd !== null ? (
-            <InlineCodeChip value={truncate(cmd, 120)} />
+            <InlineCodeChip value={truncate(cmd, 56)} />
           ) : undefined,
         inputPanel: cmd !== null ? <TerminalBlock command={cmd} /> : undefined,
         resultPanel: (result) => (
@@ -588,11 +620,13 @@ const buildToolView = (
       const path = asString(obj.file_path);
       const patches = extractPatchEntries(input);
       const edits = patches.length > 0 ? [] : extractEdits(tool, input);
+      const fileCount =
+        patches.length || new Set(edits.map((e) => e.path)).size;
       const label =
         tool === "Write"
           ? "Write"
           : tool === "MultiEdit"
-            ? `MultiEdit (${edits.length || patches.length})`
+            ? `MultiEdit (${fileCount})`
             : "Edit";
       const stats =
         patches.length > 0
@@ -615,6 +649,18 @@ const buildToolView = (
                     : undefined
                 }
               />
+            </span>
+          ) : stats !== null && tool === "MultiEdit" ? (
+            <span className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
+              <span>
+                {fileCount} file{fileCount === 1 ? "" : "s"}
+              </span>
+              {stats.added > 0 ? (
+                <span className="text-emerald-400">+{stats.added}</span>
+              ) : null}
+              {stats.removed > 0 ? (
+                <span className="text-red-400">-{stats.removed}</span>
+              ) : null}
             </span>
           ) : undefined,
         fallbackBody:
@@ -944,7 +990,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_navigate": {
+    case "mcp__zuse__browser_navigate": {
       const targetUrl = asString(obj.url);
       return {
         icon: BrowserIcon,
@@ -962,7 +1008,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_screenshot": {
+    case "mcp__zuse__browser_screenshot": {
       return {
         icon: Camera01Icon,
         label: "Screenshot",
@@ -978,7 +1024,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_snapshot": {
+    case "mcp__zuse__browser_snapshot": {
       return {
         icon: BrowserIcon,
         label: "Read page",
@@ -992,7 +1038,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_click": {
+    case "mcp__zuse__browser_click": {
       const ref = asString(obj.ref);
       return {
         icon: BrowserIcon,
@@ -1007,7 +1053,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_type": {
+    case "mcp__zuse__browser_type": {
       const typed = asString(obj.text);
       return {
         icon: BrowserIcon,
@@ -1025,7 +1071,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_wait": {
+    case "mcp__zuse__browser_wait": {
       const sel = asString(obj.selector);
       const ms = typeof obj.ms === "number" ? `${obj.ms}ms` : null;
       return {
@@ -1035,7 +1081,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_scroll": {
+    case "mcp__zuse__browser_scroll": {
       const dir = asString(obj.direction);
       const ref = asString(obj.ref);
       return {
@@ -1045,7 +1091,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_hover": {
+    case "mcp__zuse__browser_hover": {
       const ref = asString(obj.ref);
       return {
         icon: BrowserIcon,
@@ -1054,7 +1100,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_select": {
+    case "mcp__zuse__browser_select": {
       const value = asString(obj.value);
       return {
         icon: BrowserIcon,
@@ -1072,7 +1118,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_press": {
+    case "mcp__zuse__browser_press": {
       const key = asString(obj.key);
       return {
         icon: BrowserIcon,
@@ -1081,7 +1127,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_read": {
+    case "mcp__zuse__browser_read": {
       return {
         icon: File01Icon,
         label: "Read page",
@@ -1094,7 +1140,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_history": {
+    case "mcp__zuse__browser_history": {
       const action = asString(obj.action);
       return {
         icon: BrowserIcon,
@@ -1107,7 +1153,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_console": {
+    case "mcp__zuse__browser_console": {
       return {
         icon: TerminalIcon,
         label: "Console",
@@ -1120,7 +1166,7 @@ const buildToolView = (
       };
     }
 
-    case "mcp__memoize__browser_login": {
+    case "mcp__zuse__browser_login": {
       const origin = asString(obj.origin);
       return {
         icon: BrowserIcon,
@@ -1180,11 +1226,9 @@ const buildToolView = (
 export function ExitPlanModeRow({
   input,
   result,
-  sessionId,
 }: {
   input: unknown;
   result?: ToolResult;
-  sessionId?: SessionId;
 }) {
   const plan =
     typeof input === "object" && input !== null && "plan" in input
@@ -1200,25 +1244,12 @@ export function ExitPlanModeRow({
         ? "cancelled"
         : "approved";
 
-  // Find the open permission request for this session's ExitPlanMode.
-  // There should be at most one in-flight at a time.
-  const pendingRequest = usePermissionsStore((s) => {
-    if (sessionId === undefined) return null;
-    for (const req of Object.values(s.requestsById)) {
-      if (req.sessionId !== sessionId) continue;
-      if (req.kind._tag !== "Other") continue;
-      if (req.kind.tool !== "ExitPlanMode") continue;
-      return req;
-    }
-    return null;
-  });
-  const decide = usePermissionsStore((s) => s.decide);
-
-  // Pending plans need the Approve / Reject buttons visible inline so the
-  // user can act without an extra click — keep the full card layout.
-  // Resolved plans (approved / rejected) collapse into the same icon-row
-  // accordion the rest of the timeline uses, with the plan body behind the
-  // chevron and the status pill pinned to the body footer.
+  // Pending plans render the full body inline; the Approve / Cancel decision
+  // lives in the pinned `PlanApprovalTray` above the composer, where the user's
+  // cursor already sits — see composer/plan-approval-tray.tsx. Resolved plans
+  // (approved / rejected) collapse into the same icon-row accordion the rest of
+  // the timeline uses, with the plan body behind the chevron and the status pill
+  // pinned to the body footer.
   if (status === "pending") {
     return (
       <div className="px-4 py-2">
@@ -1233,26 +1264,6 @@ export function ExitPlanModeRow({
         ) : (
           <MarkdownBody>{plan}</MarkdownBody>
         )}
-        {pendingRequest !== null ? (
-          <div className="mt-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => void decide(pendingRequest.id, { _tag: "Deny" })}
-              className="rounded-md px-3 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                void decide(pendingRequest.id, { _tag: "AllowOnce" })
-              }
-              className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background hover:opacity-90"
-            >
-              Approve
-            </button>
-          </div>
-        ) : null}
       </div>
     );
   }

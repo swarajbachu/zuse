@@ -1,15 +1,19 @@
 import { create } from "zustand";
 
-import type { FolderId, WorktreeId } from "@memoize/wire";
+import type { ChatId } from "@zuse/wire";
+
+import * as terminalRegistry from "../lib/terminal-registry.ts";
 
 /**
- * Renderer-side terminal instances. The PTY itself lives on the server and
- * is opened lazily by the `PtyTerminal` component when its container mounts
- * — this store only tracks the list of slots the user wants to see and which
- * one is focused. PTYs die with the renderer (no rehydration across reloads).
+ * Renderer-side terminal instances. The xterm + PTY themselves live in
+ * `terminal-registry.ts` (kept alive across chat switches); this store only
+ * tracks the list of slots each chat wants to see and which one is focused.
+ * PTYs die with the renderer (no rehydration across reloads).
  *
- * Keyed by `(folderId, worktreeId)` so each workspace gets its own list and
- * switching projects/worktrees doesn't shuffle terminals between them.
+ * Keyed by `chatId` so each sidebar chat gets its own terminal list — opening
+ * a shell in one chat doesn't show up in (or get torn down by switching to)
+ * another. Closing a terminal, or its owning chat, disposes the backing PTY
+ * via the registry (`remove` / `disposeChat`).
  */
 export type TerminalInstance = {
   readonly id: string;
@@ -52,12 +56,15 @@ type TerminalsState = {
   ) => number;
   readonly remove: (key: string, id: string) => void;
   readonly setActive: (key: string, id: string) => void;
+  /**
+   * Dispose every terminal owned by a chat (closing each backing PTY) and drop
+   * the chat's list. Called when a chat is archived or deleted so its shells
+   * don't leak.
+   */
+  readonly disposeChat: (chatId: ChatId) => void;
 };
 
-export const terminalsKey = (
-  folderId: FolderId,
-  worktreeId: WorktreeId | null,
-): string => `${folderId}:${worktreeId ?? "main"}`;
+export const terminalsKey = (chatId: ChatId): string => chatId;
 
 const newId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
@@ -143,6 +150,9 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
       const list = state.byKey[key] ?? [];
       const idx = list.findIndex((t) => t.id === id);
       if (idx === -1) return state;
+      // Component unmount no longer kills the PTY (it only detaches), so an
+      // explicit close has to tear the backing shell down here.
+      terminalRegistry.dispose(id);
       const next = list.filter((t) => t.id !== id);
       const wasActive = state.activeByKey[key] === id;
       // Pick the previous instance when closing the active one; if that
@@ -159,6 +169,16 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
     set((state) => ({
       activeByKey: { ...state.activeByKey, [key]: id },
     })),
+  disposeChat: (chatId) =>
+    set((state) => {
+      const key = terminalsKey(chatId);
+      const list = state.byKey[key];
+      if (list === undefined) return state;
+      for (const inst of list) terminalRegistry.dispose(inst.id);
+      const { [key]: _droppedList, ...byKey } = state.byKey;
+      const { [key]: _droppedActive, ...activeByKey } = state.activeByKey;
+      return { byKey, activeByKey };
+    }),
 }));
 
 export const EMPTY_TERMINALS: ReadonlyArray<TerminalInstance> = [];

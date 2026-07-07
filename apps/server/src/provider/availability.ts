@@ -11,7 +11,7 @@ import {
   type ProviderAuthStatus,
   type ProviderHealthStatus,
   type ProviderId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import type { Account } from "./codex-app-protocol/v2/Account.ts";
 import type { GetAccountResponse } from "./codex-app-protocol/v2/GetAccountResponse.ts";
@@ -81,10 +81,6 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     upgradeCommand: "npm i -g @openai/codex@latest",
     npmPackage: "@openai/codex",
     homebrewFormula: "codex",
-    // Conductor can place a standalone Codex binary on PATH under
-    // `Application Support/.../agent-binaries/codex/<version>/codex`; npm
-    // cannot update that install. `buildUpdateCommand` special-cases this
-    // path so the updater runs the exact binary the app probed.
     nativeUpdate: null,
   },
   {
@@ -184,15 +180,13 @@ export const selectCliPathCandidate = (
   if (candidates.length === 0) return null;
   if (cliBinary !== "codex") return candidates[0]!;
 
-  // Conductor can prepend its own standalone Codex binary to PATH for app
-  // internals. Provider settings should report the user's real Codex install
-  // when one exists later on PATH, matching what t3code does by resolving the
-  // provider binary before deriving version/update capabilities.
+  // Some environments can prepend a managed Codex shim to PATH for internals.
+  // Provider settings should report the user's real Codex install, not that
+  // managed binary.
   return (
     candidates.find(
-      (candidate) =>
-        !isConductorManagedCodexPath(normalizeCommandPath(candidate)),
-    ) ?? candidates[0]!
+      (candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
+    ) ?? null
   );
 };
 
@@ -414,7 +408,7 @@ export const deriveLatestAdvisory = (
 // on-PATH binary was installed — a native install (`~/.local/bin/claude`)
 // can't be updated by npm, a brew install needs `brew upgrade`, etc. We
 // inspect the resolved binary path (and its realpath, since global bins are
-// symlinks into `…/lib/node_modules/…`) the same way the t3 reference does.
+// symlinks into `…/lib/node_modules/…`).
 // ---------------------------------------------------------------------------
 
 const normalizeCommandPath = (p: string): string =>
@@ -441,9 +435,11 @@ const isHomebrewPath = (p: string): boolean =>
   p.startsWith("/opt/homebrew/bin/") ||
   p.startsWith("/usr/local/bin/");
 
-const isConductorManagedCodexPath = (p: string): boolean =>
-  p.endsWith("/application support/com.conductor.app/bin/codex") ||
-  (p.includes("/application support/com.conductor.app/agent-binaries/codex/") &&
+const isManagedCodexShimPath = (p: string): boolean =>
+  p.endsWith("/application support/app.memoize.desktop/bin/codex") ||
+  (p.includes(
+    "/application support/app.memoize.desktop/agent-binaries/codex/",
+  ) &&
     p.endsWith("/codex"));
 
 // A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's
@@ -456,10 +452,10 @@ const npmGlobalUpdate = (pkg: string): string =>
 
 /**
  * Pure resolver: pick the update command for a provider given the candidate
- * binary paths (the `which` result plus its realpath). Detection order mirrors
- * the t3 reference: native self-update → bun → pnpm → npm → homebrew. Falls
- * back to the provider's install one-liner (curl installers reinstall latest),
- * else `null`.
+ * binary paths (the `which` result plus its realpath). Detection order:
+ * native self-update → bun → pnpm → npm → homebrew. Falls back to the
+ * provider's install one-liner (curl installers reinstall latest), else
+ * `null`.
  */
 export const buildUpdateCommand = (
   providerId: ProviderId,
@@ -471,13 +467,6 @@ export const buildUpdateCommand = (
   const norms = candidatePaths
     .filter((p) => p.length > 0)
     .map(normalizeCommandPath);
-
-  const conductorManagedCodexPath = candidatePaths.find((p) =>
-    isConductorManagedCodexPath(normalizeCommandPath(p)),
-  );
-  if (providerId === "codex" && conductorManagedCodexPath !== undefined) {
-    return `${shellQuote(conductorManagedCodexPath)} update`;
-  }
 
   if (
     probe.nativeUpdate !== null &&
@@ -656,10 +645,10 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
 const CLAUDE_SUB_LABEL: Record<string, string> = {
   max: "Claude Max Subscription",
   pro: "Claude Pro Subscription",
-  // Claude Code agent usage requires a paid plan. Free / unknown tiers
-  // surface as "Requires …" so the renderer's existing subscription-gate
-  // rail (matches authLabel.includes("require")) disables the toggle and
-  // shows the Subscribe CTA, same as Grok/Cursor.
+  // Only an *explicitly* free tier surfaces as "Requires …" so the renderer's
+  // subscription-gate rail (matches authLabel.includes("require")) disables the
+  // toggle and shows the Subscribe CTA, same as Grok/Cursor. Unknown/missing
+  // tiers are NOT gated — see parseClaudeCredentials.
   free: "Requires Claude Pro",
 };
 
@@ -682,12 +671,18 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
   if (!oauth) return { authStatus: "authenticated" };
   const sub = oauth.subscriptionType?.toLowerCase();
   const email = oauth.emailAddress ?? oauth.email;
-  // Missing or unrecognised subscription tier → treat as needing Claude Pro,
-  // matching the explicit `free` branch in CLAUDE_SUB_LABEL.
+  // A present OAuth login already proves a paid Claude account — Claude Code
+  // agent usage is not available on the free tier. So only an *explicitly*
+  // recognised free tier surfaces the subscription gate; an unknown or missing
+  // subscriptionType is treated as a valid (non-blocking) login, with the
+  // runtime performing the real entitlement check. (Mirrors the Grok probe,
+  // which only blocks on a *confirmed* below-entitlement tier.) Defaulting
+  // unknown tiers to "Requires …" wrongly nagged Pro users — and anyone whose
+  // tier string we don't map — to subscribe despite an active subscription.
   const authLabel =
     sub && CLAUDE_SUB_LABEL[sub]
       ? CLAUDE_SUB_LABEL[sub]
-      : "Requires Claude Pro";
+      : "Claude subscription";
   return {
     authStatus: "authenticated",
     authType: "oauth",
@@ -702,18 +697,16 @@ const probeClaudeAccount: Effect.Effect<
   FileSystem.FileSystem | CommandExecutor.CommandExecutor
 > = Effect.gen(function* () {
   if (platform() === "darwin") {
-    // macOS: `security find-generic-password -w` prints the password (the
-    // OAuth credential blob) to stdout when present, exits non-zero
-    // otherwise. The presence-check (without `-w`) used to live in
-    // `probeClaudeLogin`; we now read the value so we can extract the
-    // subscription tier and email.
+    // macOS can prompt for Keychain permission when reading the Claude Code
+    // OAuth secret. Provider availability runs on app boot, so keep this probe
+    // to a metadata presence check and let the Claude CLI perform entitlement
+    // validation when a session starts.
     const result = yield* runCapture(
       Command.make(
         "security",
         "find-generic-password",
         "-s",
         "Claude Code-credentials",
-        "-w",
       ),
     ).pipe(
       Effect.timeoutOption(ACCOUNT_PROBE_TIMEOUT),
@@ -722,7 +715,11 @@ const probeClaudeAccount: Effect.Effect<
     if (result._tag !== "Some" || result.value.exitCode !== 0) {
       return { authStatus: "unauthenticated" } satisfies AccountInfo;
     }
-    return parseClaudeCredentials(result.value.stdout);
+    return {
+      authStatus: "authenticated",
+      authType: "oauth",
+      authLabel: "Claude subscription",
+    } satisfies AccountInfo;
   }
   const fs = yield* FileSystem.FileSystem;
   const path = join(homedir(), ".claude", ".credentials.json");
@@ -900,6 +897,11 @@ export const grokAuthTestHelpers = {
   parseGrokAuthJson,
   extractTier,
   decodeJwtPayload,
+};
+
+// Exported for tests only. Not part of the public module surface.
+export const claudeAuthTestHelpers = {
+  parseClaudeCredentials,
 };
 
 // Grok stores OIDC credentials (JWT + email + tier claim) in `~/.grok/auth.json`
@@ -1123,9 +1125,8 @@ const probeAccount = (
 
 /**
  * Roll the per-field signals (`cliInstalled`, `cliVersionStatus`, `authStatus`)
- * up into the single dot color the renderer paints. Mirrors t3code's
- * `getProviderSummary` precedence so server-derived status agrees with the
- * client-side fallback when both run.
+ * up into the single dot color the renderer paints. The precedence keeps the
+ * server-derived status aligned with the client-side fallback when both run.
  */
 const computeHealthStatus = (input: {
   cliInstalled: boolean;
@@ -1197,11 +1198,16 @@ const probeOne = (
     }
 
     // Version-gated features the installed CLI supports (pre-session UI gate).
-    // Only Codex declares gated features today; others resolve to `[]`.
+    // Codex resolves its set from the CLI version; Grok ships a single
+    // curl-installed channel with no version floor, so we advertise its
+    // `goalMode` (native `/goal`, forwarded as a slash command by the driver)
+    // unconditionally. Other providers resolve to `[]`.
     const capabilities =
       probe.providerId === "codex"
         ? resolveCodexCapabilities(parsedVersion)
-        : [];
+        : probe.providerId === "grok"
+          ? ["goalMode"]
+          : [];
 
     // Informational "update available" layer — independent of the SDK floor.
     // Only providers with a registry package are checked; the rest report

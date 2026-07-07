@@ -89,11 +89,11 @@ missing default and variant sprites through `pokemon.ensureSpriteCached`.
 
 ## Internal Asset URLs
 
-The Electron `memoize://` protocol serves cached Pokemon sprites through:
+The Electron `zuse://` protocol serves cached Pokemon sprites through:
 
 ```text
-memoize://pokemon/<dex-number>
-memoize://pokemon/<dex-number>-<variant>
+zuse://pokemon/<dex-number>
+zuse://pokemon/<dex-number>-<variant>
 ```
 
 The protocol only serves files from the known `pokemon-sprites` directory and
@@ -129,7 +129,7 @@ The Pokedex is reachable from the sidebar/settings area and supports:
 - sprite variants for unlocked Pokemon
 
 Locked entries show dex number, name, rarity, and a neutral silhouette. Unlocked
-entries use cached `memoize://pokemon/...` sprite URLs when available.
+entries use cached `zuse://pokemon/...` sprite URLs when available.
 
 ## Development Behavior
 

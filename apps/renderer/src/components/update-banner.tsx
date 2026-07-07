@@ -1,97 +1,110 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, CheckmarkCircle02Icon, CircleArrowUp01Icon } from "@hugeicons-pro/core-bulk-rounded";
-import { useEffect, useRef, useState } from "react";
+import {
+  Alert01Icon,
+  CircleArrowUp01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import type { UpdateStatus } from "@memoize/wire";
+import type { UpdateStatus } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
-import {
-  Progress,
-  ProgressIndicator,
-  ProgressTrack,
-} from "~/components/ui/progress";
+import { useMessagesStore } from "~/store/messages.ts";
 
 /**
  * Bottom-right toast for the electron-updater lifecycle. Subscribes to the
  * preload bridge's `updates.onStatus` channel.
  *
- * Lifecycle:
- *  - `available` → shows "Update now / Install on quit / Later" — nothing
- *     downloads until the user picks.
- *  - `downloading` → progress bar; "Update now" auto-installs when ready,
- *     "Install on quit" silently completes and stays out of the way.
- *  - `ready` → if user picked "Update now", we call installNow immediately;
- *     otherwise the toast hides (electron-updater installs on next quit
- *     because `autoInstallOnAppQuit = true` in the main process).
+ * Downloads happen automatically in the background (`autoDownload = true` in
+ * the main process), so the toast stays silent through `checking` /
+ * `available` / `downloading` and only appears once the update is fully
+ * downloaded (`ready`) — or on `error`.
  *
- * Idle / checking / not-available / error are no-ops.
+ * On `ready` the user picks one of:
+ *  - **Restart now** — installs + relaunches immediately. If agents are still
+ *    running we confirm first ("N agents are running — restart anyway?").
+ *  - **Restart later** — dismiss; electron-updater installs on next quit
+ *    (`autoInstallOnAppQuit = true`).
+ *  - **Restart when idle** — installs automatically once no agents are running.
  */
 export function UpdateBanner() {
   const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
   const [dismissed, setDismissed] = useState(false);
-  // Tracks which option the user picked so we know what to do when the
-  // download completes. Ref because we don't want to trigger a re-render
-  // when it changes — only the IPC-driven `status` does.
-  const installModeRef = useRef<"now" | "quit" | null>(null);
+  // Whether the in-toast "restart anyway?" confirmation is showing (set when
+  // the user clicks "Restart now" while agents are running).
+  const [confirming, setConfirming] = useState(false);
+  // When true, we install automatically the moment the running-agent count
+  // reaches zero. Survives a dismiss so "restart when idle" still fires after
+  // the user tucks the toast away.
+  const [installWhenIdle, setInstallWhenIdle] = useState(false);
+
+  // Global count of sessions with an in-flight turn. Primitive selector, so
+  // this only re-renders when the number actually changes.
+  const runningCount = useMessagesStore((s) => {
+    let count = 0;
+    for (const running of Object.values(s.runningBySession)) {
+      if (running) count += 1;
+    }
+    return count;
+  });
 
   useEffect(() => {
-    const updates = window.memoize?.updates;
+    const updates = window.zuse?.updates;
     if (!updates) return;
     return updates.onStatus(setStatus);
   }, []);
 
-  // Re-surface a fresh "available" even if the user dismissed the previous one.
-  // Also re-show on `error` so a silent stall or failed download isn't
-  // invisible — the user needs to see it to retry.
+  // Re-surface a fresh `ready`/`error` even if a previous toast was dismissed,
+  // and reset the transient confirm state. `installWhenIdle` is intentionally
+  // NOT reset here so it persists across a dismiss.
   useEffect(() => {
-    if (status.kind === "available" || status.kind === "error") {
-      installModeRef.current = null;
+    if (status.kind === "ready" || status.kind === "error") {
+      setConfirming(false);
       setDismissed(false);
     }
   }, [status.kind]);
 
-  // Auto-install on ready when the user explicitly chose "Update now".
+  // Install automatically once agents finish, if the user chose "when idle".
   useEffect(() => {
-    if (status.kind === "ready" && installModeRef.current === "now") {
-      void window.memoize?.updates?.installNow();
+    if (installWhenIdle && status.kind === "ready" && runningCount === 0) {
+      void window.zuse?.updates?.installNow();
     }
-  }, [status.kind]);
+  }, [installWhenIdle, status.kind, runningCount]);
 
-  if (
-    dismissed ||
-    status.kind === "idle" ||
-    status.kind === "checking" ||
-    status.kind === "not-available"
-  ) {
+  if (dismissed || (status.kind !== "ready" && status.kind !== "error")) {
     return null;
   }
 
-  // "Install on quit" mode disappears entirely once download finishes —
-  // electron-updater's autoInstallOnAppQuit handles the rest silently.
-  if (status.kind === "ready" && installModeRef.current === "quit") {
-    return null;
-  }
-
-  const onUpdateNow = () => {
-    installModeRef.current = "now";
-    void window.memoize?.updates?.download();
+  const onRestartNow = () => {
+    if (runningCount > 0) {
+      setConfirming(true);
+      return;
+    }
+    void window.zuse?.updates?.installNow();
   };
-  const onUpdateOnQuit = () => {
-    installModeRef.current = "quit";
-    void window.memoize?.updates?.download();
+  const onConfirmRestart = () => {
+    void window.zuse?.updates?.installNow();
+  };
+  const onCancelConfirm = () => {
+    setConfirming(false);
+  };
+  const onRestartWhenIdle = () => {
+    if (runningCount === 0) {
+      void window.zuse?.updates?.installNow();
+      return;
+    }
+    setInstallWhenIdle(true);
+    setDismissed(true);
   };
   const onLater = () => {
     setDismissed(true);
   };
-  const onRestartNow = () => {
-    void window.memoize?.updates?.installNow();
-  };
   const onRetry = () => {
-    installModeRef.current = null;
-    void window.memoize?.updates?.check();
+    void window.zuse?.updates?.check();
   };
+
+  const isError = status.kind === "error";
 
   // Portal to document.body so the toast escapes any ancestor that creates a
   // containing block — `<main>` uses `backdrop-blur-3xl`, and any
@@ -105,33 +118,29 @@ export function UpdateBanner() {
     >
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-          {status.kind === "ready" ? (
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-4" />
-          ) : status.kind === "error" ? (
-            <HugeiconsIcon icon={Alert01Icon} className="size-4" />
-          ) : (
-            <HugeiconsIcon icon={CircleArrowUp01Icon} className="size-4" />
-          )}
+          <HugeiconsIcon
+            icon={isError ? Alert01Icon : CircleArrowUp01Icon}
+            className="size-4"
+          />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-[13px] font-medium text-foreground">
-            {status.kind === "available" && "Update available"}
-            {status.kind === "downloading" && "Downloading update…"}
-            {status.kind === "ready" && "Update ready"}
-            {status.kind === "error" && "Update failed"}
+            {isError
+              ? "Update failed"
+              : confirming
+                ? "Agents are running"
+                : "Update available"}
           </span>
           <span className="text-[12px] leading-snug text-muted-foreground">
-            {status.kind === "available" &&
-              `memoize ${status.version} is ready to install.`}
-            {status.kind === "downloading" &&
-              `${Math.round(status.percent)}%${
-                status.bytesPerSecond > 0
-                  ? ` · ${formatRate(status.bytesPerSecond)}`
-                  : ""
-              }`}
+            {isError && status.message}
             {status.kind === "ready" &&
-              `Restart to finish installing memoize ${status.version}.`}
-            {status.kind === "error" && status.message}
+              !confirming &&
+              `Zuse Alpha ${status.version} is ready. Restart to finish installing.`}
+            {status.kind === "ready" &&
+              confirming &&
+              `${
+                runningCount === 1 ? "1 agent is" : `${runningCount} agents are`
+              } running and will stop mid-turn. Restart anyway?`}
           </span>
         </div>
         <button
@@ -144,15 +153,7 @@ export function UpdateBanner() {
         </button>
       </div>
 
-      {status.kind === "downloading" && (
-        <Progress value={status.percent}>
-          <ProgressTrack>
-            <ProgressIndicator />
-          </ProgressTrack>
-        </Progress>
-      )}
-
-      {status.kind === "available" && (
+      {status.kind === "ready" && !confirming && (
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <Button
             size="xs"
@@ -160,35 +161,15 @@ export function UpdateBanner() {
             onClick={onLater}
             className="rounded-full text-[11px]"
           >
-            Later
+            Restart later
           </Button>
           <Button
             size="xs"
             variant="ghost"
-            onClick={onUpdateOnQuit}
+            onClick={onRestartWhenIdle}
             className="rounded-full text-[11px]"
           >
-            Install on quit
-          </Button>
-          <Button
-            size="xs"
-            onClick={onUpdateNow}
-            className="rounded-full text-[11px]"
-          >
-            Update now
-          </Button>
-        </div>
-      )}
-
-      {status.kind === "ready" && (
-        <div className="flex items-center justify-end gap-1.5">
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={onLater}
-            className="rounded-full text-[11px]"
-          >
-            Later
+            Restart when idle
           </Button>
           <Button
             size="xs"
@@ -200,12 +181,32 @@ export function UpdateBanner() {
         </div>
       )}
 
-      {status.kind === "error" && (
+      {status.kind === "ready" && confirming && (
         <div className="flex items-center justify-end gap-1.5">
           <Button
             size="xs"
             variant="ghost"
-            onClick={onLater}
+            onClick={onCancelConfirm}
+            className="rounded-full text-[11px]"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="xs"
+            onClick={onConfirmRestart}
+            className="rounded-full text-[11px]"
+          >
+            Restart anyway
+          </Button>
+        </div>
+      )}
+
+      {isError && (
+        <div className="flex items-center justify-end gap-1.5">
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => setDismissed(true)}
             className="rounded-full text-[11px]"
           >
             Dismiss
@@ -224,14 +225,4 @@ export function UpdateBanner() {
     </div>,
     document.body,
   );
-}
-
-function formatRate(bytesPerSecond: number): string {
-  if (bytesPerSecond >= 1_000_000) {
-    return `${(bytesPerSecond / 1_000_000).toFixed(1)} MB/s`;
-  }
-  if (bytesPerSecond >= 1_000) {
-    return `${(bytesPerSecond / 1_000).toFixed(0)} KB/s`;
-  }
-  return `${Math.round(bytesPerSecond)} B/s`;
 }

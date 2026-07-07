@@ -9,7 +9,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useMemo, useState } from "react";
 
-import type { FolderId, PermissionKind, SavedDecision } from "@memoize/wire";
+import type { FolderId, PermissionKind, SavedDecision } from "@zuse/wire";
 
 import {
   Dialog,
@@ -18,6 +18,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { ShimmerText } from "~/components/ui/shimmer-text";
 import { usePermissionsStore } from "../store/permissions.ts";
 
 const kindIcon = (kind: PermissionKind) => {
@@ -149,7 +150,9 @@ export function PermissionsInspector({
         </DialogHeader>
         <DialogPanel className="text-sm">
           {loading && decisions.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <ShimmerText as="p" className="text-xs text-muted-foreground">
+              Loading…
+            </ShimmerText>
           ) : decisions.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               No saved permission decisions for this project yet. They appear

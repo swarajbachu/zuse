@@ -1,0 +1,116 @@
+{
+  "fixtureVersion": 1,
+  "provider": "grok",
+  "translator": "acp",
+  "scenario": "collab subagent message nesting and summary",
+  "source": "sanitized captured ACP collab item frames",
+  "frames": [
+    {
+      "item": {
+        "type": "collabAgentToolCall",
+        "id": "grok-spawn-1",
+        "tool": "spawnAgent",
+        "status": "completed",
+        "senderThreadId": "main-thread",
+        "receiverThreadIds": ["child-thread-1"],
+        "prompt": "Inspect the fixture repo.",
+        "model": "grok-code-fast-1",
+        "reasoningEffort": null,
+        "agentsStates": {}
+      },
+      "threadId": "main-thread",
+      "turnId": "turn-1"
+    },
+    {
+      "item": {
+        "type": "agentMessage",
+        "id": "grok-child-msg-1",
+        "text": "Found the fixture files.",
+        "phase": null,
+        "memoryCitation": null
+      },
+      "threadId": "child-thread-1",
+      "turnId": "turn-2"
+    },
+    {
+      "item": {
+        "type": "collabAgentToolCall",
+        "id": "grok-wait-1",
+        "tool": "wait",
+        "status": "completed",
+        "senderThreadId": "main-thread",
+        "receiverThreadIds": ["child-thread-1"],
+        "prompt": null,
+        "model": null,
+        "reasoningEffort": null,
+        "agentsStates": {
+          "child-thread-1": {
+            "status": "completed",
+            "message": "Fixture inspection complete."
+          }
+        }
+      },
+      "threadId": "main-thread",
+      "turnId": "turn-3"
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "ToolUse",
+      "itemId": "grok-spawn-1",
+      "tool": "Agent",
+      "input": {
+        "subagent_type": "agent",
+        "prompt": "Inspect the fixture repo.",
+        "receiverThreadIds": ["child-thread-1"],
+        "model": "grok-code-fast-1"
+      }
+    },
+    {
+      "_tag": "AssistantMessage",
+      "itemId": "grok-child-msg-1",
+      "text": "Found the fixture files.",
+      "parentItemId": "grok-spawn-1"
+    },
+    {
+      "_tag": "ToolUse",
+      "itemId": "grok-wait-1",
+      "tool": "CollabWait",
+      "input": {
+        "tool": "wait",
+        "status": "completed",
+        "receiverThreadIds": ["child-thread-1"],
+        "agentsStates": {
+          "child-thread-1": {
+            "status": "completed",
+            "message": "Fixture inspection complete."
+          }
+        }
+      }
+    },
+    {
+      "_tag": "ToolResult",
+      "itemId": "grok-wait-1",
+      "output": {
+        "status": "completed",
+        "agentsStates": {
+          "child-thread-1": {
+            "status": "completed",
+            "message": "Fixture inspection complete."
+          }
+        }
+      },
+      "isError": false
+    },
+    {
+      "_tag": "SubagentSummary",
+      "itemId": "grok-spawn-1",
+      "agentName": "agent",
+      "model": "grok-code-fast-1",
+      "turns": 1,
+      "durationMs": 0,
+      "summary": "Fixture inspection complete.",
+      "isError": false
+    }
+  ]
+}

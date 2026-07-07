@@ -17,8 +17,8 @@ describe("tokenmaxer aggregation", () => {
     const records = priceRecords(
       [
         makeUsageRecord({
-          sourceId: "memoize",
-          sourceLabel: "Memoize",
+          sourceId: "zuse",
+          sourceLabel: "Zuse Alpha",
           providerId: "claude",
           model: "claude-sonnet-4-6",
           sessionId: "s1",
@@ -70,9 +70,9 @@ describe("tokenmaxer aggregation", () => {
         provenance: "fixture",
       });
     const records = [
-      make("/Users/me/.memoize/forkzero-25da31cf/golem-64", "in-worktree"),
+      make("/Users/me/.zuse/forkzero-25da31cf/golem-64", "in-worktree"),
       make("/Users/me/Developer/forkzero", "in-repo"),
-      make("/Users/me/.memoize/other-aaaa/wt", "other-project"),
+      make("/Users/me/.zuse/other-aaaa/wt", "other-project"),
     ];
 
     const report = buildUsageReport({
@@ -80,7 +80,7 @@ describe("tokenmaxer aggregation", () => {
       sources: [],
       bucket: "session",
       filters: {
-        projectPaths: ["/Users/me/Developer/forkzero", "/Users/me/.memoize/forkzero-25da31cf"],
+        projectPaths: ["/Users/me/Developer/forkzero", "/Users/me/.zuse/forkzero-25da31cf"],
         includePossibleDuplicates: true,
       },
     });
@@ -91,15 +91,15 @@ describe("tokenmaxer aggregation", () => {
 
   it("marks duplicate-looking rows and excludes them by default", () => {
     const base = makeUsageRecord({
-      sourceId: "memoize",
-      sourceLabel: "Memoize",
+      sourceId: "zuse",
+      sourceLabel: "Zuse Alpha",
       providerId: "claude",
       model: "claude-sonnet-4-6",
       sessionId: "same",
       projectPath: "/repo",
       startedAt: "2026-06-21T00:00:00.000Z",
       counts: { inputTokens: 10, outputTokens: 5 },
-      provenance: "memoize",
+      provenance: "zuse",
     });
     const dup = { ...base, id: "claude-dup", sourceId: "claude" as const, sourceLabel: "Claude" };
     const records = withDuplicateFlags([base, dup]);

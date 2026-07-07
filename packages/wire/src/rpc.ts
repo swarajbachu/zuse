@@ -5,14 +5,25 @@ import {
   AgentCloseRpc,
   AgentEventsRpc,
   AgentInterruptRpc,
+  AgentOpencodeAddCustomProviderRpc,
   AgentOpencodeInventoryRpc,
+  AgentOpencodeRemoveCustomProviderRpc,
+  AgentOpencodeRemoveProviderAuthRpc,
+  AgentOpencodeSetProviderAuthRpc,
   AgentSendRpc,
   AgentSetCredentialRpc,
   AgentStartLoginRpc,
   AgentStartRpc,
   AgentUpdateProviderRpc,
 } from "./agent.ts";
-import { AttachmentTouchRpc, AttachmentUploadRpc } from "./attachment.ts";
+import { AttachmentUploadRpc } from "./attachment.ts";
+import { ContextSaveTextRpc } from "./context.ts";
+import {
+  AuthGetSessionRpc,
+  AuthSessionChangesRpc,
+  AuthSignInRpc,
+  AuthSignOutRpc,
+} from "./auth.ts";
 import {
   BrowserCommandsRpc,
   BrowserFillForOriginRpc,
@@ -22,22 +33,29 @@ import {
   BrowserSetCredentialRpc,
 } from "./browser.ts";
 import {
-  IndexFindReferencesRpc,
-  IndexListModuleRpc,
-  IndexReadChunkRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexSymbolLookupRpc,
-} from "./code-index.ts";
+  ConnectDescribeRpc,
+  ConnectLinkProofRpc,
+  ConnectRelayConfigRpc,
+  RelayLinkRpc,
+  RelayStatusRpc,
+  RelayUnlinkRpc,
+} from "./connect.ts";
 import {
+  FsCreateDirectoryRpc,
+  FsCreateFileRpc,
   FsReadExternalFileRpc,
   FsReadFileRpc,
+  FsRemoveRpc,
   FsTreeRpc,
+  FsWatchTreeRpc,
   FsWriteExternalFileRpc,
   FsWriteFileRpc,
 } from "./fs.ts";
+import {
+  ExternalThreadsContinueRpc,
+  ExternalThreadsListRpc,
+} from "./external-thread.ts";
+import { DiagnosticsExportRpc } from "./diagnostics.ts";
 import {
   GitBranchesRpc,
   GitChangesRpc,
@@ -46,6 +64,9 @@ import {
   GitFixFailingChecksRpc,
   GitHeadChangedRpc,
   GitInitRpc,
+  GitIssueMarkdownRpc,
+  GitListIssuesRpc,
+  GitListPrsRpc,
   GitLogRpc,
   GitDiffStatRpc,
   GitMarkReadyRpc,
@@ -69,6 +90,11 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
+import {
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  PairingStartRpc,
+} from "./pairing.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
 import {
@@ -123,6 +149,9 @@ import {
   SessionArchiveRpc,
   SessionCreateRpc,
   SessionDeleteRpc,
+  SessionExportTranscriptRpc,
+  SessionForkRpc,
+  SessionLatestPlanRpc,
   SessionGoalClearRpc,
   SessionGoalGetRpc,
   SessionGoalSetRpc,
@@ -171,6 +200,19 @@ import {
  */
 export const MemoizeRpcs = RpcGroup.make(
   PingRpc,
+  AuthGetSessionRpc,
+  AuthSignInRpc,
+  AuthSignOutRpc,
+  AuthSessionChangesRpc,
+  PairingStartRpc,
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  ConnectDescribeRpc,
+  ConnectLinkProofRpc,
+  ConnectRelayConfigRpc,
+  RelayLinkRpc,
+  RelayStatusRpc,
+  RelayUnlinkRpc,
   WorkspaceAddRpc,
   WorkspaceListRpc,
   WorkspaceRemoveRpc,
@@ -182,6 +224,8 @@ export const MemoizeRpcs = RpcGroup.make(
   WorkspaceCreateProjectRpc,
   WorkspaceListGithubReposRpc,
   WorkspaceGhAuthStatusRpc,
+  ExternalThreadsListRpc,
+  ExternalThreadsContinueRpc,
   PtyOpenRpc,
   PtyWriteRpc,
   PtyResizeRpc,
@@ -198,6 +242,9 @@ export const MemoizeRpcs = RpcGroup.make(
   GitOriginRpc,
   GitPrStateRpc,
   GitPrDetailsRpc,
+  GitListPrsRpc,
+  GitListIssuesRpc,
+  GitIssueMarkdownRpc,
   GitChangesRpc,
   GitDiffRpc,
   GitCommitRpc,
@@ -210,8 +257,12 @@ export const MemoizeRpcs = RpcGroup.make(
   GitRevertAllRpc,
   GitDiffStatRpc,
   FsTreeRpc,
+  FsWatchTreeRpc,
   FsReadFileRpc,
   FsWriteFileRpc,
+  FsCreateFileRpc,
+  FsCreateDirectoryRpc,
+  FsRemoveRpc,
   FsReadExternalFileRpc,
   FsWriteExternalFileRpc,
   AgentAvailabilityRpc,
@@ -222,6 +273,10 @@ export const MemoizeRpcs = RpcGroup.make(
   AgentCloseRpc,
   AgentEventsRpc,
   AgentOpencodeInventoryRpc,
+  AgentOpencodeSetProviderAuthRpc,
+  AgentOpencodeRemoveProviderAuthRpc,
+  AgentOpencodeAddCustomProviderRpc,
+  AgentOpencodeRemoveCustomProviderRpc,
   AgentStartLoginRpc,
   AgentUpdateProviderRpc,
   ChatListRpc,
@@ -248,6 +303,9 @@ export const MemoizeRpcs = RpcGroup.make(
   SessionArchiveRpc,
   SessionUnarchiveRpc,
   SessionDeleteRpc,
+  SessionForkRpc,
+  SessionExportTranscriptRpc,
+  SessionLatestPlanRpc,
   SessionResumeRpc,
   SessionSetRuntimeModeRpc,
   SessionSetPermissionModeRpc,
@@ -268,7 +326,7 @@ export const MemoizeRpcs = RpcGroup.make(
   MessagesQueueFlushRpc,
   MessagesQueueResumeRpc,
   AttachmentUploadRpc,
-  AttachmentTouchRpc,
+  ContextSaveTextRpc,
   SkillListRpc,
   SkillStreamRpc,
   PermissionRequestsRpc,
@@ -298,18 +356,11 @@ export const MemoizeRpcs = RpcGroup.make(
   SettingsStreamRpc,
   SettingsMigrateLocalStorageRpc,
   UsageReportRpc,
+  DiagnosticsExportRpc,
   KeybindingsGetRpc,
   KeybindingsReplaceRpc,
   KeybindingsStreamRpc,
   SessionSetWorktreeRpc,
-  IndexStatusRpc,
-  IndexStatusStreamRpc,
-  IndexReindexRpc,
-  IndexSearchRpc,
-  IndexSymbolLookupRpc,
-  IndexFindReferencesRpc,
-  IndexReadChunkRpc,
-  IndexListModuleRpc,
 );
 export type MemoizeRpcs = typeof MemoizeRpcs;
 
@@ -321,4 +372,4 @@ export type MemoizeRpcs = typeof MemoizeRpcs;
  * Renderer → main: `ipcRenderer.send(IPC_CHANNEL, frame)`
  * Main → renderer: `webContents.send(IPC_CHANNEL, frame)`
  */
-export const IPC_CHANNEL = "memoize:rpc" as const;
+export const IPC_CHANNEL = "zuse:rpc" as const;

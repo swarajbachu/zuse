@@ -398,8 +398,11 @@ const decodeGrokCwd = (dir: string): string | null => {
 };
 
 const READERS: Record<UsageSourceId, () => Promise<UsageSourceReadResult>> = {
+  zuse: () => {
+    throw new Error("zuse is read separately");
+  },
   memoize: () => {
-    throw new Error("memoize is read separately");
+    throw new Error("memoize is a legacy alias for zuse");
   },
   claude: readClaude,
   codex: readCodex,
@@ -410,6 +413,6 @@ const READERS: Record<UsageSourceId, () => Promise<UsageSourceReadResult>> = {
 };
 
 export const readExternalSource = (
-  sourceId: Exclude<UsageSourceId, "memoize">,
+  sourceId: Exclude<UsageSourceId, "zuse" | "memoize">,
   _options?: UsageReadOptions,
 ): Promise<UsageSourceReadResult> => READERS[sourceId]();

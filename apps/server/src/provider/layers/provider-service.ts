@@ -13,7 +13,7 @@ import {
   type PermissionKind,
   type ProviderId,
   type ThreadGoalSetInput,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import {
@@ -39,14 +39,14 @@ import {
   type OpencodeSessionHandle,
 } from "../drivers/opencode.ts";
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
-import { buildIndexTools } from "../../code-index/claude-tools.ts";
+import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { buildBrowserTools } from "../drivers/browser-tools.ts";
-import { IndexRegistry } from "../../code-index/services/index-registry.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
+import { zuseWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live `ProviderService`. PR 5 wires the Claude SDK driver behind the session
@@ -64,6 +64,13 @@ type SessionHandle =
   | GeminiSessionHandle
   | CursorSessionHandle
   | OpencodeSessionHandle;
+
+/**
+ * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
+ * Grok forwards to its native `/goal` slash command with driver-local state.
+ * Both share the same method shape so the goal routes treat them uniformly.
+ */
+type GoalCapableHandle = CodexSessionHandle | GrokSessionHandle;
 type SessionEntry = {
   readonly providerId: ProviderId;
   readonly handle: SessionHandle;
@@ -83,7 +90,7 @@ export const ProviderServiceLive = Layer.effect(
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
-    const indexRegistry = yield* IndexRegistry;
+    const configStore = yield* ConfigStoreService;
     const runtime = yield* Effect.runtime<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
@@ -177,6 +184,13 @@ export const ProviderServiceLive = Layer.effect(
             );
           }
           const cwd = input.cwdOverride ?? folder.path;
+          const driverInput = {
+            ...input,
+            workspaceInstructions: zuseWorkspaceInstructions({
+              projectPath: folder.path,
+              cwd,
+            }),
+          };
           const apiKey = yield* credentials
             .get(input.providerId)
             .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
@@ -199,7 +213,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startGeminiSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               geminiPath,
@@ -225,14 +239,31 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            const bunPath = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            );
+            if (bunPath === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "grok",
+                  reason:
+                    "Bun was not found on PATH. It is required to expose Zuse browser tools to Grok via ACP MCP.",
+                }),
+              );
+            }
             handle = yield* startGrokSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               grokPath,
+              bunPath,
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Runtime.runPromise(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {
@@ -252,10 +283,15 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            // Custom OpenAI-compatible providers are injected into
+            // `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
+            // live in opencode's own auth.json (written via
+            // `agent.opencodeSetProviderAuth`), so no key is threaded here.
+            const opencodeSettings = yield* configStore.getSettings();
             handle = yield* startOpencodeSession(
-              input,
+              driverInput,
               cwd,
-              apiKey,
+              opencodeSettings.opencodeCustomProviders,
               opencodePath,
               sessionId,
               resumeCursor,
@@ -281,7 +317,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startCursorSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               cursorPath,
@@ -309,17 +345,9 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            // Phase B: resolve the per-worktree IndexService and bind the
-            // five Tier-1 tools (code_search, symbol_lookup, find_references,
-            // read_chunk, list_module) so the Claude SDK sees them alongside
-            // ask_user_question. Branch defaults to "HEAD" — the manifest
-            // resolves it; Phase E adds a real git-checkout subscription.
-            const indexHandle = yield* indexRegistry.getHandle(cwd, "HEAD");
-            const indexTools = buildIndexTools(indexHandle);
             // Browser tools drive the renderer's shared `<webview>` through
             // the bridge. Bind `send` to this session id + the live runtime so
-            // the SDK's async tool handlers stay free of Effect wiring (same
-            // shape as `buildIndexTools` binding the worktree handle).
+            // the SDK's async tool handlers stay free of Effect wiring.
             const browserTools = buildBrowserTools((command) =>
               Runtime.runPromise(runtime)(
                 browserBridge.send(sessionId, command),
@@ -327,7 +355,7 @@ export const ProviderServiceLive = Layer.effect(
             );
 
             handle = yield* startClaudeSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               claudePath,
@@ -335,7 +363,7 @@ export const ProviderServiceLive = Layer.effect(
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
               resumeCursor,
-              [...indexTools, ...browserTools],
+              browserTools,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native
@@ -366,7 +394,7 @@ export const ProviderServiceLive = Layer.effect(
             // either the banner before sending or the friendly error after,
             // never the cryptic SDK trace.
             handle = yield* startCodexSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               codexPath,
@@ -416,20 +444,20 @@ export const ProviderServiceLive = Layer.effect(
         ),
       getGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).getGoal()
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).getGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       setGoal: (sessionId, goal: ThreadGoalSetInput) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).setGoal(goal)
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).setGoal(goal)
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       clearGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-          providerId === "codex"
-            ? (handle as CodexSessionHandle).clearGoal()
+          providerId === "codex" || providerId === "grok"
+            ? (handle as GoalCapableHandle).clearGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
     };

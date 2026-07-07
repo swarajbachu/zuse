@@ -1,0 +1,163 @@
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { NodeHttpServer } from "@effect/platform-node";
+import { RpcSerialization, RpcServer } from "@effect/rpc";
+import { Effect, Layer, Schema } from "effect";
+import * as http from "node:http";
+
+import {
+  LanAuthService,
+  type LanAuthServiceShape,
+  PairingRedeemError,
+} from "../lan-auth/services/lan-auth-service.ts";
+
+const PairRequest = Schema.Struct({ code: Schema.String });
+
+type WsDiagnostic = (
+  event: string,
+  fields?: Record<string, unknown>,
+) => void;
+
+const json = (body: unknown, status: number) =>
+  HttpServerResponse.json(body, { status }).pipe(Effect.orDie);
+
+const bearerFromRequest = (
+  request: HttpServerRequest.HttpServerRequest,
+): string | null => {
+  const auth = request.headers.authorization;
+  if (auth?.toLowerCase().startsWith("bearer ")) {
+    return auth.slice("bearer ".length).trim();
+  }
+
+  const url = new URL(request.url, "http://localhost");
+  return url.searchParams.get("token");
+};
+
+const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
+  Effect.gen(function* () {
+    const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
+      Effect.catchAll(() => Effect.fail("bad_request" as const)),
+    );
+    yield* Effect.sync(() => log("ws.pair.redeem.start"));
+    const redeemed = yield* auth.redeemPairingCode(body.code).pipe(
+      Effect.mapError((error) =>
+        error instanceof PairingRedeemError ? error.reason : "internal",
+      ),
+    );
+    yield* Effect.sync(() =>
+      log("ws.pair.redeem.ok", { environmentId: redeemed.environmentId }),
+    );
+    return yield* json(redeemed, 200);
+  }).pipe(
+    Effect.catchAll((error) => {
+      log("ws.pair.redeem.fail", { reason: error });
+      if (error === "expired_code") {
+        return json({ error }, 410);
+      }
+      if (error === "bad_request") {
+        return json({ error }, 400);
+      }
+      if (error === "invalid_code") {
+        return json({ error }, 401);
+      }
+      return json({ error: "internal_error" }, 500);
+    }),
+  );
+
+/**
+ * WebSocket RPC transport for the headless server.
+ *
+ * Protected mode owns the HTTP upgrade path so an unauthenticated client gets
+ * a plain 401 response and never receives a live socket. Local mode preserves
+ * the existing loopback developer behavior.
+ */
+export const wsServerProtocolLayer = (opts: {
+  readonly port: number;
+  readonly host?: string;
+  readonly onDiagnostic?: WsDiagnostic;
+}): Layer.Layer<RpcServer.Protocol, never, LanAuthService> =>
+  Layer.scoped(
+    RpcServer.Protocol,
+    Effect.gen(function* () {
+      const auth = yield* LanAuthService;
+      const log = opts.onDiagnostic ?? (() => {});
+      yield* Effect.sync(() =>
+        log("ws.bind.start", {
+          host: opts.host ?? "127.0.0.1",
+          port: opts.port,
+          policy: auth.policy,
+          pairingBootstrap: auth.pairingBootstrap,
+        }),
+      );
+
+      const { protocol, httpApp } =
+        yield* RpcServer.makeProtocolWithHttpAppWebsocket;
+
+      const guarded = Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const token = bearerFromRequest(request);
+        yield* Effect.sync(() =>
+          log("ws.request", {
+            url: request.url,
+            protected: auth.policy === "protected",
+            hasToken: token !== null,
+          }),
+        );
+        if (auth.policy === "protected") {
+          const ok = token !== null && (yield* auth.verifyToken(token));
+          yield* Effect.sync(() =>
+            log(ok ? "ws.auth.ok" : "ws.auth.fail", {
+              url: request.url,
+              hasToken: token !== null,
+            }),
+          );
+          if (!ok) return yield* json({ error: "unauthorized" }, 401);
+        }
+        return yield* httpApp;
+      });
+
+      const router = HttpRouter.empty.pipe(
+        HttpRouter.get("/", guarded),
+        // Existing relay deployments and previously linked environments may
+        // still advertise `/rpc`. Keep accepting it while newer links use `/`.
+        HttpRouter.get("/rpc", guarded),
+        HttpRouter.post("/pair", pairApp(auth, log)),
+      );
+
+      yield* HttpServer.serveEffect(router).pipe(Effect.forkScoped);
+      yield* Effect.sync(() =>
+        log("ws.bind.ok", {
+          host: opts.host ?? "127.0.0.1",
+          port: opts.port,
+          policy: auth.policy,
+        }),
+      );
+
+      if (auth.policy === "protected" && auth.pairingBootstrap) {
+        const pairing = yield* auth.createPairingCode();
+        const redeemUrl = pairing.pairingUrl.replace(/^ws:/, "http:");
+        yield* Effect.sync(() => {
+          console.log("Zuse LAN pairing enabled");
+          console.log(`QR: ${pairing.qrText}`);
+          console.log(
+            `Redeem with: POST ${redeemUrl}/pair {"code":"${pairing.code}"}`,
+          );
+        });
+      }
+
+      return protocol;
+    }),
+  ).pipe(
+    Layer.provide(
+      NodeHttpServer.layer(() => http.createServer(), {
+        port: opts.port,
+        host: opts.host ?? "127.0.0.1",
+      }),
+    ),
+    Layer.provide(RpcSerialization.layerJson),
+    Layer.orDie,
+  );

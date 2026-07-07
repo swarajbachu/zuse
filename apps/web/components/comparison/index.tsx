@@ -27,7 +27,7 @@ const cardsData: InfoCardsProps[] = [
   {
     title: "No token resale",
     description:
-      "Use your own API keys or subscriptions. memoize adds $0 markup to the model usage you run.",
+      "Use your own API keys or subscriptions. Zuse Alpha adds $0 markup to the model usage you run.",
     icon: <DocsIcon />,
   },
   {
@@ -41,43 +41,43 @@ const cardsData: InfoCardsProps[] = [
 const comparisonData: ComparisonData[] = [
   {
     title: "Token maxing",
-    memoize: "Multiple useful agent runs, visible in one workspace",
+    zuse: "Multiple useful agent runs, visible in one workspace",
     traditional: "One terminal session at a time, or chaos",
     icon: <MessageIcon />,
   },
   {
     title: "Subscriptions",
-    memoize: "Use the provider plans and keys you already pay for",
+    zuse: "Use the provider plans and keys you already pay for",
     traditional: "Pay another product to resell model credits",
     icon: <ChipIcon />,
   },
   {
     title: "Isolation",
-    memoize: "A git worktree per serious chat, no clobbering",
+    zuse: "A git worktree per serious chat, no clobbering",
     traditional: "Agents fighting over one working tree",
     icon: <CubeIcon />,
   },
   {
     title: "Reviewing changes",
-    memoize: "Built-in diff pane and commit composer",
+    zuse: "Built-in diff pane and commit composer",
     traditional: "Terminal output plus memory",
     icon: <NodeLines />,
   },
   {
     title: "Permissions",
-    memoize: "Smart policy with per-session overrides",
+    zuse: "Smart policy with per-session overrides",
     traditional: "Blind --yolo or babysitting every prompt",
     icon: <HandShakeIocn />,
   },
   {
     title: "Context",
-    memoize: "Readable tool calls, thinking, files, and diffs",
+    zuse: "Readable tool calls, thinking, files, and diffs",
     traditional: "Raw text scrolling past in a buffer",
     icon: <MessageSend />,
   },
   {
     title: "Parallel work",
-    memoize: "More attempts without losing reviewability",
+    zuse: "More attempts without losing reviewability",
     traditional: "More attempts means more cleanup",
     icon: <DimondIcon />,
   },

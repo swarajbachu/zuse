@@ -1,11 +1,127 @@
 # Changelog
 
-All notable changes to memoize will be documented in this file.
+All notable changes to Zuse Alpha will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.10.3]
+
+### Changed
+- Finish WorkOS sign-in on a proper "Signed in — you can close this tab" page instead of leaving the browser hanging on a dead `zuse://` URL, and drop the OS "Open in Zuse Alpha?" prompt. Packaged builds now use the localhost loopback redirect (like dev); the `zuse://` scheme handler stays registered as a fallback.
+
+## [0.10.2]
+
+### Fixed
+- Actually inline the public WorkOS client id into release builds: Turborepo's strict env mode was stripping `WORKOS_CLIENT_ID` before `tsdown` ran, so packaged builds shipped an empty id and sign-in reported "WorkOS is not configured". Declared the var in `turbo.json` so it reaches the build. Supersedes 0.10.1, which still shipped empty.
+
+## [0.10.1]
+
+### Fixed
+- Supply the public WorkOS client id at release build time so sign-in works in packaged builds instead of surfacing "WorkOS is not configured".
+
+### Changed
+- Fork chat + plan/context handoff (#252)
+- Route pasted text & dropped files into .context/files (#246)
+
+## [0.10.0]
+
+### Changed
+- Fix flickering plan-approval banner (#244)
+- Fix mermaid error bomb bar + jittery send animation (#243)
+- [codex] add provider contract test fixtures (#242)
+- [codex] Improve bug report diagnostics flow (#241)
+- [codex] Disable runtime code indexing (#240)
+- Add LAN auth pairing for WS server (#238)
+- [codex] add renderer websocket rpc client (#239)
+- [codex] continue external agent threads (#237)
+- [codex] add agent browser v2 (#236)
+- [codex] Add Expo mobile read-only client (#235)
+- [codex] Add renderer toast notifications (#234)
+- [codex] Add markdown and HTML preview tab (#233)
+- [codex] add event-sourced persistence and cursor streaming (#232)
+- Remote/multi-client foundation: wire contract + WS transport + spec (#218)
+- [codex] add light and system appearance support (#229)
+
+## [0.9.0]
+
+### Changed
+- [codex] Fix dirty worktree removal feedback (#222)
+- [codex] Remove competitor mentions (#227)
+- [codex] Show approve bar for emulated plan mode (#226)
+- Clean up stale memoize branding (#225)
+- [codex] fix codex context status accounting (#224)
+- [codex] Fix stale wire package imports (#223)
+- [codex] Polish streaming chat motion (#221)
+- feat(auth): WorkOS AuthKit login (PKCE, keychain, optional) (#219)
+- [codex] Add Claude Fable 5 support (#220)
+- Add diagnostics bundle export (#206)
+- [codex] Refine renderer color palette (#216)
+- [codex] Float chat scroll controls (#217)
+- [codex] clean model picker (#215)
+- Fix messages not appearing until chat re-open (hydrate race) (#210)
+
+## [0.8.3]
+
+### Fixed
+- Zuse data migration now checks the actual project count before deciding whether the new `Zuse Alpha` database is empty. This recovers users who already launched Zuse once and have a migrated schema with no projects.
+
+## [0.8.2]
+
+### Fixed
+- Zuse now migrates data from legacy sibling Application Support folders such as `memoize Alpha` and `memoize` when the new `Zuse Alpha` database is still empty. The empty Zuse database is backed up before the legacy database is copied forward.
+
+## [0.8.1]
+
+### Fixed
+- Restored the macOS bundle identifier to `app.memoize.desktop` so existing memoize Alpha installs can accept Zuse Alpha updates in place through Squirrel.Mac. The app name and GitHub release feed stay Zuse, but the updater identity remains stable for compatibility.
+- Legacy memoize keychain credentials are now promoted into the Zuse keychain namespace after first successful fallback read.
+
+## [0.8.0]
+
+### Added
+- Live file tree updates now track disk changes and support create/delete flows with confirmation dialogs. (#204)
+- New worktrees can auto-symlink nested environment files for monorepos and Cloudflare projects. (#201)
+
+### Changed
+- memoize Alpha is now Zuse Alpha. The app now uses the Zuse bundle identifier (`app.zuse.desktop`), GitHub release feed, package names, worktree paths, protocol links, keychain service, and SQLite paths. Existing data and legacy `memoize://` links remain readable where possible, but this is a full technical identity move to Zuse rather than an updater-compatible in-place rename. (#207)
+- Removed remaining legacy source references from user-facing copy and project metadata. (#198)
+- Loading states now use animated gradient shimmer polish. (#200)
+
+### Fixed
+- Force-archiving can remove a chat even when its worktree is dirty. (#197)
+- Plan feedback routing now reaches the correct agent turn. (#205)
+- Claude interruptions now render as an interrupted badge instead of a hard error. (#202)
+
+## [0.7.1]
+
+### Changed
+- [codex] Fix Claude result error classification (#195)
+- [codex] Fix website changelog publishing (#194)
+- [codex] Optimize Pokédex page (#193)
+- Terminal: fix pane overflow, GPU rendering, thin cursor (#192)
+- Add app-wide motion system to the renderer (#188)
+- Keyboard navigation: tabs, chats, panels, panes + Cmd+K chat switcher (#191)
+- Isolate terminals & dock tabs per chat, keep shells running across switches (#190)
+- Cap turn-summary file chips with collapsible +N more toggle (#189)
+- Render sub-agent summary as markdown (#187)
+- Move plan Approve/Cancel into a pinned bar above the composer (#186)
+
+## [0.7.0]
+
+### Changed
+- Surface supervised-mode permission prompts in sidebar and tabs (#184)
+- Render inline chat Edit diffs with @pierre/diffs library (#183)
+- Auto-scroll on send and cap tool box height (#182)
+- Fix false "Requires Claude Pro" gate for paid Claude logins (#179)
+- Add goal mode support for the Grok provider (#181)
+- Surface Claude auth failures as an in-app "Sign in to Claude" card (#180)
+- Compact composer trays into a unified pill stack (#178)
+- Cap collapsed tool row width (#176)
+- Unify composer + bubble pill styling (#175)
+- Auto-publish releases instead of drafts (#174)
 
 ## [0.6.1]
 
@@ -186,7 +302,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Native macOS menu bar with keyboard shortcuts: new chat (⌘N), open project (⌘O), settings (⌘,), toggle sidebars (⌘B / ⌘⌥B), toggle terminal (⌘J), focus composer (⌘L). Bindings are listed in Settings → Keyboard shortcuts (single source of truth in `lib/shortcuts.ts`) and surfaced inline on the relevant button tooltips. (#59)
-- In-app update toast. Drives `electron-updater` manually instead of `checkForUpdatesAndNotify`; the bottom-right toast offers Later / Install on quit / Update now, downloads only after the user picks, and auto-installs once the download lands. Lifecycle events flow through a new `window.memoize.updates` bridge and shared `UpdateStatus` in `@memoize/wire`. (#61)
+- In-app update toast. Drives `electron-updater` manually instead of `checkForUpdatesAndNotify`; the bottom-right toast offers Later / Install on quit / Update now, downloads only after the user picks, and auto-installs once the download lands. Lifecycle events flow through a new `window.zuse.updates` bridge and shared `UpdateStatus` in `@zuse/wire`. (#61)
 - Cross-provider switching on fresh chats. `ModelPicker` lets you pick a model from the other provider as long as the chat has no user message yet; a new `session.setProvider` RPC mirrors `setWorktree`'s fresh-session gate. The teardown path was split so `setModel` / `setProvider` / `resumeSession` only interrupt the provider event-pump fiber, keeping the renderer's `messages.stream` and `session.streamStatus` subscriptions alive across the swap. (#60)
 - Codex app-server slash commands. (#62)
 - Nested-tab chat UX. Sidebar rows become "chats" (a new container table); the tab strip in the main pane shows that chat's sessions as peer tabs, "+" adds a session to the active chat, and ⌘W closes the active tab via Electron menu → IPC and archives the session (auto-spawning a fresh one if it was the last). Migration 0011 backfills one chat per existing top-level session and rehomes v3 children. Adds `forked_from_session_id` / `forked_from_message_id` columns for a future fork-from-message feature. (#63)

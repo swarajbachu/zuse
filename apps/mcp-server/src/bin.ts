@@ -9,7 +9,7 @@ interface ParsedArgs {
   readonly reindexOnBoot: boolean;
 }
 
-const usage = `Usage: memoize-mcp --workspace <path> [--branch <branch>] [--reindex]
+const usage = `Usage: zuse-mcp --workspace <path> [--branch <branch>] [--reindex]
 
 Options:
   --workspace <path>   Absolute or relative path to the repo to index.
@@ -52,15 +52,15 @@ const parseArgs = (argv: ReadonlyArray<string>): ParsedArgs => {
 const main = async () => {
   const { workspace, branch, reindexOnBoot } = parseArgs(process.argv.slice(2));
   process.stderr.write(
-    `[memoize-mcp] starting workspace=${workspace} branch=${branch ?? "HEAD"}\n`,
+    `[zuse-mcp] starting workspace=${workspace} branch=${branch ?? "HEAD"}\n`,
   );
   if (reindexOnBoot) {
     const { startServerHandle } = await import("./handle.ts");
     const handle = await startServerHandle({ workspace, branch });
-    process.stderr.write("[memoize-mcp] reindexing …\n");
+    process.stderr.write("[zuse-mcp] reindexing …\n");
     const out = await handle.reindex();
     process.stderr.write(
-      `[memoize-mcp] reindex done — processed=${out.processed}\n`,
+      `[zuse-mcp] reindex done — processed=${out.processed}\n`,
     );
     await handle.close();
   }
@@ -69,7 +69,7 @@ const main = async () => {
 
 main().catch((err) => {
   process.stderr.write(
-    `[memoize-mcp] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+    `[zuse-mcp] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
   );
   process.exit(1);
 });

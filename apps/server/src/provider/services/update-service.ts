@@ -8,7 +8,7 @@ import {
   AgentSessionStartError,
   type ProviderId,
   type ProviderUpdateEvent,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 

@@ -2,9 +2,10 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CodeAnnotation, GitDiffResult } from "@memoize/wire";
+import type { CodeAnnotation, GitDiffResult } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
+import { ShimmerText } from "~/components/ui/shimmer-text";
 import { classifyGit } from "../lib/git-rpc.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
@@ -21,7 +22,12 @@ import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useKeybindingsStore } from "../store/keybindings.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import { useUiStore, type FileView, type OpenFile } from "../store/ui.ts";
+import {
+  isPreviewableFileName,
+  useUiStore,
+  type FileView,
+  type OpenFile,
+} from "../store/ui.ts";
 import {
   ANNOTATION_WIDGET_DELETE,
   ANNOTATION_WIDGET_SAVE,
@@ -34,6 +40,7 @@ import {
 } from "../lib/codemirror/annotation-selection.ts";
 import { AnnotateOverlay } from "./annotation/annotate-overlay.tsx";
 import { useAddAnnotation } from "./annotation/use-add-annotation.ts";
+import { MarkdownBody } from "./markdown-body.tsx";
 
 import type { EditorView } from "@codemirror/view";
 
@@ -42,6 +49,21 @@ type EditorState =
   | { status: "text"; size: number }
   | { status: "binary"; size: number }
   | { status: "error"; reason: string };
+
+type PreviewKind = "markdown" | "html";
+
+type PreviewState =
+  | { status: "loading" }
+  | { status: "ready"; kind: PreviewKind; content: string; baseHref: string }
+  | { status: "binary"; size: number }
+  | { status: "error"; reason: string };
+
+const isCodeAnnotation = (annotation: unknown): annotation is CodeAnnotation =>
+  typeof annotation === "object" &&
+  annotation !== null &&
+  "relPath" in annotation &&
+  "startLine" in annotation &&
+  !("_tag" in annotation);
 
 const formatError = (err: unknown): string => {
   if (typeof err === "object" && err !== null && "_tag" in err) {
@@ -67,6 +89,53 @@ const tagOf = (err: unknown): string | null =>
     ? String((err as { _tag: unknown })._tag)
     : null;
 
+const previewKindForFile = (name: string): PreviewKind | null => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".html") || lower.endsWith(".htm")) return "html";
+  if (
+    lower.endsWith(".md") ||
+    lower.endsWith(".markdown") ||
+    lower.endsWith(".mdown") ||
+    lower.endsWith(".mkd")
+  ) {
+    return "markdown";
+  }
+  return null;
+};
+
+const dirname = (path: string): string => {
+  const idx = path.lastIndexOf("/");
+  if (idx === -1) return "";
+  if (idx === 0) return "/";
+  return path.slice(0, idx);
+};
+
+const joinPath = (base: string, rel: string): string =>
+  base.endsWith("/") ? `${base}${rel}` : `${base}/${rel}`;
+
+const fileUrlForDirectory = (dir: string): string => {
+  const normalized = dir.endsWith("/") ? dir : `${dir}/`;
+  const segments = normalized
+    .split("/")
+    .map((segment) => (segment === "" ? "" : encodeURIComponent(segment)));
+  return `file://${segments.join("/")}`;
+};
+
+const escapeHtmlAttribute = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const htmlWithBaseHref = (html: string, baseHref: string): string => {
+  const base = `<base href="${escapeHtmlAttribute(baseHref)}">`;
+  if (/<head(?:\s[^>]*)?>/i.test(html)) {
+    return html.replace(/<head(?:\s[^>]*)?>/i, (match) => `${match}${base}`);
+  }
+  return `${base}${html}`;
+};
+
 /**
  * Top-level shell for the file tab in the main pane. Renders a Toolbar with
  * the Diff | Edit segmented control and delegates the body to either a
@@ -86,14 +155,24 @@ export function FileEditor() {
     return <ImageBody src={openFile.src} name={openFile.name} />;
   }
 
-  const view = openFile.view;
-  // External files have no git/folder context, so they're edit-only — no diff.
+  const canPreview = isPreviewableFileName(openFile.name);
+  // External files have no git/folder context, so they're edit/preview only.
   const isExternal = openFile.kind === "external";
+  const view =
+    (openFile.view === "preview" && !canPreview) ||
+    (openFile.view === "diff" && isExternal)
+      ? "edit"
+      : openFile.view;
   const path = isExternal ? openFile.absPath : openFile.path;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Toolbar path={path} view={view} showViewToggle={!isExternal} />
+      <Toolbar
+        path={path}
+        view={view}
+        showDiff={!isExternal}
+        showPreview={canPreview}
+      />
       <CodeMirrorBody
         openFile={openFile}
         hidden={view !== "edit"}
@@ -102,6 +181,7 @@ export function FileEditor() {
       {openFile.kind === "text" && view === "diff" ? (
         <DiffViewBody openFile={openFile} />
       ) : null}
+      {view === "preview" ? <PreviewViewBody openFile={openFile} /> : null}
     </div>
   );
 }
@@ -109,7 +189,7 @@ export function FileEditor() {
 /**
  * Inline image preview — used for attachment screenshots so clicking the
  * thumbnail keeps the user inside the app rather than punting to the OS
- * handler. No toolbar, no read RPC; the privileged `memoize://` scheme
+ * handler. No toolbar, no read RPC; the privileged `zuse://` scheme
  * (see `apps/desktop/src/main.ts`) lets the renderer fetch the bytes
  * directly.
  */
@@ -188,6 +268,7 @@ function CodeMirrorBody({
   const visibleAnnotations = useMemo(
     () =>
       draftAnnotations
+        .filter(isCodeAnnotation)
         .filter(
           (a) =>
             a.relPath === annotationPath || a.absPath === annotationAbsPath,
@@ -475,7 +556,11 @@ function CodeMirrorBody({
           }}
         />
       ) : null}
-      {state.status === "loading" && <Placeholder>Loading…</Placeholder>}
+      {state.status === "loading" && (
+        <Placeholder>
+          <ShimmerText>Loading…</ShimmerText>
+        </Placeholder>
+      )}
       {state.status === "binary" && (
         <Placeholder>
           Binary file ({state.size.toLocaleString()} bytes) — preview not
@@ -658,7 +743,11 @@ function DiffViewBody({
   }, [openFile.folderId, openFile.worktreeId, openFile.path, reload]);
 
   if (state.status === "loading") {
-    return <Placeholder>Loading diff…</Placeholder>;
+    return (
+      <Placeholder>
+        <ShimmerText>Loading diff…</ShimmerText>
+      </Placeholder>
+    );
   }
   if (state.status === "error") {
     if (state.noRepo) {
@@ -722,6 +811,116 @@ function DiffViewBody({
 }
 
 // ---------------------------------------------------------------------------
+// Preview body — reads the saved file from disk and renders markdown / HTML.
+// This deliberately ignores unsaved CodeMirror edits until the user saves.
+// ---------------------------------------------------------------------------
+
+function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
+  const [state, setState] = useState<PreviewState>({ status: "loading" });
+  const workspaceRoot = useActiveWorkspaceRoot(
+    openFile.kind === "text" ? openFile.folderId : null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+
+    void (async () => {
+      try {
+        const kind = previewKindForFile(openFile.name);
+        if (kind === null) {
+          setState({
+            status: "error",
+            reason: "Preview is only available for markdown and HTML files.",
+          });
+          return;
+        }
+
+        const client = await getRpcClient();
+        const result =
+          openFile.kind === "external"
+            ? await Effect.runPromise(
+                client.fs.readExternalFile({ path: openFile.absPath }),
+              )
+            : await Effect.runPromise(
+                client.fs.readFile({
+                  folderId: openFile.folderId,
+                  path: openFile.path,
+                  worktreeId: openFile.worktreeId,
+                }),
+              );
+        if (cancelled) return;
+        if (result.kind === "binary") {
+          setState({ status: "binary", size: result.size });
+          return;
+        }
+
+        const fileDir =
+          openFile.kind === "external"
+            ? dirname(openFile.absPath)
+            : workspaceRoot !== null
+              ? joinPath(workspaceRoot, dirname(openFile.path))
+              : dirname(openFile.path);
+        setState({
+          status: "ready",
+          kind,
+          content: result.content,
+          baseHref: fileUrlForDirectory(fileDir),
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setState({ status: "error", reason: formatError(err) });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [openFile, workspaceRoot]);
+
+  if (state.status === "loading") {
+    return (
+      <Placeholder>
+        <ShimmerText>Loading preview…</ShimmerText>
+      </Placeholder>
+    );
+  }
+  if (state.status === "binary") {
+    return (
+      <Placeholder>
+        Binary file ({state.size.toLocaleString()} bytes) — preview not
+        supported.
+      </Placeholder>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <Placeholder>
+        <span className="text-destructive">{state.reason}</span>
+      </Placeholder>
+    );
+  }
+
+  if (state.kind === "markdown") {
+    return (
+      <div className="min-h-0 flex-1 overflow-auto px-8 py-6">
+        <MarkdownBody className="mx-auto max-w-3xl" children={state.content} />
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      title={`${openFile.name} preview`}
+      sandbox=""
+      srcDoc={htmlWithBaseHref(state.content, state.baseHref)}
+      className="min-h-0 flex-1 border-0 bg-white"
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Toolbar — path + dirty/saving on the left, Diff/Edit segmented toggle on
 // the right. The saving indicator lives inside CodeMirrorBody so it tracks
 // the actual save call; the toolbar just shows path + dirty + the toggle.
@@ -730,11 +929,13 @@ function DiffViewBody({
 function Toolbar({
   path,
   view,
-  showViewToggle = true,
+  showDiff,
+  showPreview,
 }: {
   path: string;
   view: FileView;
-  showViewToggle?: boolean;
+  showDiff: boolean;
+  showPreview: boolean;
 }) {
   const dirty = useUiStore((s) => s.fileDirty);
   const setOpenFileView = useUiStore((s) => s.setOpenFileView);
@@ -752,8 +953,13 @@ function Toolbar({
         {view === "edit" ? (
           <span className="opacity-60">⌘S to save</span>
         ) : null}
-        {showViewToggle ? (
-          <ViewToggle value={view} onChange={setOpenFileView} />
+        {showDiff || showPreview ? (
+          <ViewToggle
+            value={view}
+            onChange={setOpenFileView}
+            showDiff={showDiff}
+            showPreview={showPreview}
+          />
         ) : null}
       </span>
     </div>
@@ -763,25 +969,38 @@ function Toolbar({
 function ViewToggle({
   value,
   onChange,
+  showDiff,
+  showPreview,
 }: {
   value: FileView;
   onChange: (v: FileView) => void;
+  showDiff: boolean;
+  showPreview: boolean;
 }) {
   return (
     <div
       role="tablist"
       className="flex items-center gap-px rounded-sm border border-border bg-background/60 p-px"
     >
-      <ToggleButton
-        active={value === "diff"}
-        onClick={() => onChange("diff")}
-        label="Diff"
-      />
+      {showDiff ? (
+        <ToggleButton
+          active={value === "diff"}
+          onClick={() => onChange("diff")}
+          label="Diff"
+        />
+      ) : null}
       <ToggleButton
         active={value === "edit"}
         onClick={() => onChange("edit")}
         label="Edit"
       />
+      {showPreview ? (
+        <ToggleButton
+          active={value === "preview"}
+          onClick={() => onChange("preview")}
+          label="Preview"
+        />
+      ) : null}
     </div>
   );
 }

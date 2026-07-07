@@ -1,9 +1,11 @@
+import { watch } from "node:fs";
 import * as path from "node:path";
 
 import { FileSystem, Path } from "@effect/platform";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Queue, Stream } from "effect";
 
 import {
+  FsAlreadyExistsError,
   FsConflictError,
   FsEntry,
   FsExternalConflictError,
@@ -15,7 +17,7 @@ import {
   FsTooLargeError,
   type FolderId,
   type WorktreeId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
@@ -24,7 +26,21 @@ import { FsService } from "../services/fs-service.ts";
 // Skip directories that are large, irrelevant, or just noise in a code-tree
 // view. Match by basename. Hidden dotfiles other than `.git` still show up —
 // users often want to see `.env`, `.github/`, `.vscode/`, etc.
-const SKIP_DIRS = new Set([".git", "node_modules", ".memoize", ".DS_Store"]);
+const SKIP_DIRS = new Set([".git", "node_modules", ".zuse", ".DS_Store"]);
+const WATCH_SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".zuse",
+  ".DS_Store",
+  "dist",
+  "build",
+  ".turbo",
+  ".next",
+  ".cache",
+  "coverage",
+  "out",
+]);
+const WATCH_DEBOUNCE_MS = 120;
 
 // Cap how much we'll ship across the RPC for a single file. Anything larger
 // surfaces as `FsTooLargeError` so the editor can render a placeholder
@@ -33,6 +49,17 @@ const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 const toForwardSlash = (p: string): string =>
   path.sep === "/" ? p : p.split(path.sep).join("/");
+
+const parentPathOf = (p: string): string => {
+  const normalized = p.replace(/\/+$/g, "");
+  const idx = normalized.lastIndexOf("/");
+  return idx === -1 ? "" : normalized.slice(0, idx);
+};
+
+const isSkippedWatchPath = (relPath: string): boolean => {
+  const first = toForwardSlash(relPath).split("/")[0] ?? "";
+  return WATCH_SKIP_DIRS.has(first);
+};
 
 const mtimeToString = (mtime: Option.Option<Date>): string =>
   Option.match(mtime, {
@@ -132,6 +159,72 @@ export const FsServiceLive = Layer.effect(
         });
         return entries;
       });
+
+    const watchTree: FsService["Type"]["watchTree"] = (folderId, worktreeId) =>
+      Stream.unwrapScoped(
+        Effect.gen(function* () {
+          const { rootAbs } = yield* resolveInsideFolder(
+            folderId,
+            "",
+            worktreeId,
+          );
+          const queue = yield* Queue.unbounded<{ paths: ReadonlyArray<string> }>();
+
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          const pending = new Set<string>();
+          let handle: ReturnType<typeof watch> | null = null;
+
+          const flush = () => {
+            timer = null;
+            if (pending.size === 0) return;
+            const paths = Array.from(pending);
+            pending.clear();
+            void Effect.runPromise(Queue.offer(queue, { paths }));
+          };
+
+          const schedule = () => {
+            if (timer !== null) clearTimeout(timer);
+            timer = setTimeout(flush, WATCH_DEBOUNCE_MS);
+          };
+
+          try {
+            handle = watch(rootAbs, { recursive: true }, (_event, filename) => {
+              if (filename === null) return;
+              const rel = toForwardSlash(filename.toString());
+              if (rel === "" || isSkippedWatchPath(rel)) return;
+              pending.add(rel);
+              pending.add(parentPathOf(rel));
+              schedule();
+            });
+            handle.on("error", (err) => {
+              // eslint-disable-next-line no-console
+              console.warn("[fs.watchTree] fs.watch error:", err.message);
+            });
+          } catch (err) {
+            // Some paths cannot be watched. Keep the stream open but empty so
+            // the UI still works with manual/local refreshes.
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[fs.watchTree] could not watch ${rootAbs}: ${(err as Error).message}`,
+            );
+          }
+
+          yield* Effect.addFinalizer(() =>
+            Effect.zipRight(
+              Effect.sync(() => {
+                if (timer !== null) {
+                  clearTimeout(timer);
+                  timer = null;
+                }
+                handle?.close();
+              }),
+              Queue.shutdown(queue),
+            ),
+          );
+
+          return Stream.fromQueue(queue);
+        }),
+      );
 
     const readFile: FsService["Type"]["readFile"] = (
       folderId,
@@ -270,6 +363,90 @@ export const FsServiceLive = Layer.effect(
         return { mtime: mtimeToString(afterStat.mtime) };
       });
 
+    const createFile: FsService["Type"]["createFile"] = (
+      folderId,
+      relPath,
+      worktreeId,
+    ) =>
+      Effect.gen(function* () {
+        const { requestedAbs } = yield* resolveInsideFolder(
+          folderId,
+          relPath,
+          worktreeId,
+        );
+        const existing = yield* fs.stat(requestedAbs).pipe(Effect.option);
+        if (existing._tag === "Some") {
+          return yield* Effect.fail(
+            new FsAlreadyExistsError({ folderId, path: relPath }),
+          );
+        }
+        yield* fs.writeFileString(requestedAbs, "").pipe(
+          Effect.mapError(
+            (cause) =>
+              new FsReadError({
+                folderId,
+                path: relPath,
+                reason: cause.message ?? String(cause),
+              }),
+          ),
+        );
+        return {};
+      });
+
+    const createDirectory: FsService["Type"]["createDirectory"] = (
+      folderId,
+      relPath,
+      worktreeId,
+    ) =>
+      Effect.gen(function* () {
+        const { requestedAbs } = yield* resolveInsideFolder(
+          folderId,
+          relPath,
+          worktreeId,
+        );
+        const existing = yield* fs.stat(requestedAbs).pipe(Effect.option);
+        if (existing._tag === "Some") {
+          return yield* Effect.fail(
+            new FsAlreadyExistsError({ folderId, path: relPath }),
+          );
+        }
+        yield* fs.makeDirectory(requestedAbs).pipe(
+          Effect.mapError(
+            (cause) =>
+              new FsReadError({
+                folderId,
+                path: relPath,
+                reason: cause.message ?? String(cause),
+              }),
+          ),
+        );
+        return {};
+      });
+
+    const remove: FsService["Type"]["remove"] = (
+      folderId,
+      relPath,
+      worktreeId,
+    ) =>
+      Effect.gen(function* () {
+        const { requestedAbs } = yield* resolveInsideFolder(
+          folderId,
+          relPath,
+          worktreeId,
+        );
+        yield* fs.remove(requestedAbs, { recursive: true }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new FsReadError({
+                folderId,
+                path: relPath,
+                reason: cause.message ?? String(cause),
+              }),
+          ),
+        );
+        return {};
+      });
+
     // External (outside-folder) read/write. Same decode / size-cap / mtime
     // concurrency as readFile/writeFile, but the path is absolute and there's
     // no folder containment check — deliberately so, to open files the agent
@@ -376,6 +553,16 @@ export const FsServiceLive = Layer.effect(
         return { mtime: mtimeToString(afterStat.mtime) };
       });
 
-    return { tree, readFile, writeFile, readExternal, writeExternal } as const;
+    return {
+      tree,
+      watchTree,
+      readFile,
+      writeFile,
+      createFile,
+      createDirectory,
+      remove,
+      readExternal,
+      writeExternal,
+    } as const;
   }),
 );

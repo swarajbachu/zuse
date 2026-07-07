@@ -85,7 +85,7 @@ to the existing `electron-rebuild -w` list alongside `keytar`,
 ```
 
 Per ADR 0006, native modules used by 2+ workspaces (here, `apps/server`
-and `apps/mcp-server` via `@memoize/index`) are catalogued.
+and `apps/mcp-server` via `@zuse/index`) are catalogued.
 
 ### Embedding lifecycle
 

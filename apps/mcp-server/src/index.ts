@@ -1,5 +1,5 @@
 /**
- * Public surface of @memoize/mcp-server. The CLI lives in `bin.ts`;
+ * Public surface of @zuse/mcp-server. The CLI lives in `bin.ts`;
  * this module is what external consumers import if they want to embed
  * the MCP server inside their own runtime (rare — most use the binary).
  */

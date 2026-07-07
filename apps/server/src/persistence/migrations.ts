@@ -1,4 +1,5 @@
-import { SqliteMigrator } from "@effect/sql-sqlite-node";
+import * as Migrator from "@effect/sql/Migrator";
+import { Layer } from "effect";
 
 import { Migration0001Initial } from "./migrations/0001_initial.ts";
 import { Migration0002Permissions } from "./migrations/0002_permissions.ts";
@@ -19,37 +20,60 @@ import { Migration0016QueuedMessagesQueueOrderRepair } from "./migrations/0016_q
 import { Migration0017ChatReadState } from "./migrations/0017_chat_read_state.ts";
 import { Migration0018PokemonWorktrees } from "./migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "./migrations/0019_queue_paused.ts";
+import { Migration0020Events } from "./migrations/0020_events.ts";
+import { Migration0021AuthTokens } from "./migrations/0021_auth_tokens.ts";
+import { Migration0022AttachmentAbsPath } from "./migrations/0022_attachment_abs_path.ts";
+import { Migration0024RemoteConnectState } from "./migrations/0024_remote_connect_state.ts";
+import { Migration0025RelayEnvironmentKeys } from "./migrations/0025_relay_environment_keys.ts";
+import { Migration0026RelayConnectorToken } from "./migrations/0026_relay_connector_token.ts";
+import { Migration0027RelayTunnelHostname } from "./migrations/0027_relay_tunnel_hostname.ts";
+import { Migration0028RelayMintPublicKey } from "./migrations/0028_relay_mint_public_key.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
  * `^\d+_<name>$` — the leading number is the migration id, used by the
  * `effect_sql_migrations` table to track what's applied.
  *
+ * Uses the generic `@effect/sql` Migrator (not the driver-specific
+ * `SqliteMigrator`): identical `fromRecord` semantics and tracking table,
+ * but it only requires the generic `SqlClient` tag, so it runs on any
+ * driver — the node:sqlite client in prod, the bun client in tests.
+ *
  * Add new migrations by appending entries. Never edit a shipped migration —
  * supersede it with a new id.
  */
-export const MigrationsLive = SqliteMigrator.layer({
-  loader: SqliteMigrator.fromRecord({
-    "0001_initial": Migration0001Initial,
-    "0002_permissions": Migration0002Permissions,
-    "0003_resume_and_export": Migration0003ResumeAndExport,
-    "0004_permission_scope": Migration0004PermissionScope,
-    "0005_runtime_mode": Migration0005RuntimeMode,
-    "0006_attachments": Migration0006Attachments,
-    "0007_subagents": Migration0007Subagents,
-    "0008_worktrees_and_repo_settings": Migration0008WorktreesAndRepoSettings,
-    "0009_permission_mode_and_tool_search":
-      Migration0009PermissionModeAndToolSearch,
-    "0010_nested_sessions": Migration0010NestedSessions,
-    "0011_chats_table": Migration0011ChatsTable,
-    "0012_chat_id_not_null": Migration0012ChatIdNotNull,
-    "0013_archive_cleanup": Migration0013ArchiveCleanup,
-    "0014_scripts_and_setup": Migration0014ScriptsAndSetup,
-    "0015_queued_messages": Migration0015QueuedMessages,
-    "0016_queued_messages_queue_order_repair":
-      Migration0016QueuedMessagesQueueOrderRepair,
-    "0017_chat_read_state": Migration0017ChatReadState,
-    "0018_pokemon_worktrees": Migration0018PokemonWorktrees,
-    "0019_queue_paused": Migration0019QueuePaused,
+export const MigrationsLive = Layer.effectDiscard(
+  Migrator.make({})({
+    loader: Migrator.fromRecord({
+      "0001_initial": Migration0001Initial,
+      "0002_permissions": Migration0002Permissions,
+      "0003_resume_and_export": Migration0003ResumeAndExport,
+      "0004_permission_scope": Migration0004PermissionScope,
+      "0005_runtime_mode": Migration0005RuntimeMode,
+      "0006_attachments": Migration0006Attachments,
+      "0007_subagents": Migration0007Subagents,
+      "0008_worktrees_and_repo_settings": Migration0008WorktreesAndRepoSettings,
+      "0009_permission_mode_and_tool_search":
+        Migration0009PermissionModeAndToolSearch,
+      "0010_nested_sessions": Migration0010NestedSessions,
+      "0011_chats_table": Migration0011ChatsTable,
+      "0012_chat_id_not_null": Migration0012ChatIdNotNull,
+      "0013_archive_cleanup": Migration0013ArchiveCleanup,
+      "0014_scripts_and_setup": Migration0014ScriptsAndSetup,
+      "0015_queued_messages": Migration0015QueuedMessages,
+      "0016_queued_messages_queue_order_repair":
+        Migration0016QueuedMessagesQueueOrderRepair,
+      "0017_chat_read_state": Migration0017ChatReadState,
+      "0018_pokemon_worktrees": Migration0018PokemonWorktrees,
+      "0019_queue_paused": Migration0019QueuePaused,
+      "0020_events": Migration0020Events,
+      "0021_auth_tokens": Migration0021AuthTokens,
+      "0022_attachment_abs_path": Migration0022AttachmentAbsPath,
+      "0024_remote_connect_state": Migration0024RemoteConnectState,
+      "0025_relay_environment_keys": Migration0025RelayEnvironmentKeys,
+      "0026_relay_connector_token": Migration0026RelayConnectorToken,
+      "0027_relay_tunnel_hostname": Migration0027RelayTunnelHostname,
+      "0028_relay_mint_public_key": Migration0028RelayMintPublicKey,
+    }),
   }),
-});
+);

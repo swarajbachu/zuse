@@ -1,12 +1,20 @@
-import type { Message } from "@memoize/wire";
+import type { Message, PermissionRequest, SessionId } from "@zuse/wire";
 
-export type ChatAttentionState = "idle" | "running" | "planReady" | "question";
+export type ChatAttentionState =
+  | "idle"
+  | "running"
+  | "planReady"
+  | "question"
+  | "permission";
 
 const priority: Record<ChatAttentionState, number> = {
   idle: 0,
   running: 1,
   planReady: 2,
   question: 3,
+  // A blocking permission prompt is the most urgent attention state — the
+  // agent is stalled until the user decides.
+  permission: 4,
 };
 
 const itemIdOf = (value: unknown): string | null =>
@@ -55,4 +63,27 @@ export const deriveChatAttentionState = (
   }
 
   return running ? "running" : "idle";
+};
+
+/**
+ * Attention contributed by *pending permission prompts*. Unlike plan mode —
+ * whose `ExitPlanMode` approval rides in as a `tool_use` message and surfaces
+ * via `deriveChatAttentionState` ("planReady") — ordinary supervised-mode
+ * permission requests never become messages; they live only in the permissions
+ * store. Without this the sidebar/tab indicators stay dark while the agent is
+ * blocked waiting for a Bash/FileWrite/Network decision.
+ *
+ * `ExitPlanMode` is deliberately skipped here so plan mode keeps its dedicated
+ * "planReady" icon instead of being double-counted as a generic permission.
+ */
+export const derivePermissionAttention = (
+  requests: ReadonlyArray<PermissionRequest>,
+  sessionIds: ReadonlySet<SessionId>,
+): ChatAttentionState => {
+  for (const req of requests) {
+    if (!sessionIds.has(req.sessionId)) continue;
+    if (req.kind._tag === "Other" && req.kind.tool === "ExitPlanMode") continue;
+    return "permission";
+  }
+  return "idle";
 };

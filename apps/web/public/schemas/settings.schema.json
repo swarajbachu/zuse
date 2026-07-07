@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zuse.dev/schemas/settings.schema.json",
+  "title": "Zuse User Settings",
+  "description": "User-level settings stored in ~/.zuse/settings.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "defaultProviderId",
+    "defaultModelByProvider",
+    "defaultRuntimeMode",
+    "defaultAutoCreateWorktree",
+    "onboardingCompleted",
+    "appearanceMode",
+    "completionSoundEnabled",
+    "completionSoundPreset",
+    "providerEnabled",
+    "modelEnabledByProvider",
+    "subagents",
+    "branchNamingStyle",
+    "branchNamingPrefix",
+    "mergePrefs",
+    "notchTrayEnabled",
+    "notchTrayPinned"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "defaultProviderId": {
+      "enum": [
+        "claude",
+        "codex",
+        "grok",
+        "gemini",
+        "cursor",
+        "opencode"
+      ]
+    },
+    "defaultModelByProvider": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "defaultRuntimeMode": {
+      "enum": [
+        "approval-required",
+        "auto-accept-edits",
+        "auto-accept-edits-and-bash",
+        "full-access"
+      ]
+    },
+    "defaultAutoCreateWorktree": {
+      "type": "boolean"
+    },
+    "onboardingCompleted": {
+      "type": "boolean"
+    },
+    "appearanceMode": {
+      "enum": [
+        "system",
+        "light",
+        "dark"
+      ]
+    },
+    "completionSoundEnabled": {
+      "type": "boolean"
+    },
+    "completionSoundPreset": {
+      "enum": [
+        "chime",
+        "soft",
+        "pop",
+        "bell",
+        "rise",
+        "bloom"
+      ]
+    },
+    "providerEnabled": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "modelEnabledByProvider": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      }
+    },
+    "subagents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enableForNewSessions",
+        "presets"
+      ],
+      "properties": {
+        "enableForNewSessions": {
+          "type": "boolean"
+        },
+        "presets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+              "enabled",
+              "overrides"
+            ],
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "overrides": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "branchNamingStyle": {
+      "enum": [
+        "username-slug",
+        "slug",
+        "feat-slug",
+        "custom"
+      ]
+    },
+    "branchNamingPrefix": {
+      "type": "string"
+    },
+    "mergePrefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "deleteBranch"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ]
+        },
+        "deleteBranch": {
+          "type": "boolean"
+        }
+      }
+    },
+    "notchTrayEnabled": {
+      "type": "boolean"
+    },
+    "notchTrayPinned": {
+      "type": "boolean"
+    }
+  }
+}

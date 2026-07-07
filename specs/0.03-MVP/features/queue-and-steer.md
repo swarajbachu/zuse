@@ -234,7 +234,7 @@ Q6. The queue is per-session: switching to another session hides the
 Q7. A queue chip carrying attachments keeps its attachments alive
     across the running turn — when it auto-flushes (or is steered),
     the resulting message still references the same
-    `memoize://attachments/<id>` URLs.
+    `zuse://attachments/<id>` URLs.
 
 Q8. `bun run check-types` passes for `apps/renderer`, `apps/server`,
     and `packages/wire`.

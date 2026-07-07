@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { GitBranchIcon, Loading02Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { useState } from "react";
 
-import type { FolderId, WorktreeId } from "@memoize/wire";
+import type { FolderId, WorktreeId } from "@zuse/wire";
 
 import { formatError } from "../lib/format-error.ts";
 import { useGitChangesStore } from "../store/git-changes.ts";

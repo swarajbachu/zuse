@@ -1,5 +1,5 @@
-import { MemoizeRpcs } from "@memoize/wire";
-import { Effect, Layer } from "effect";
+import { MemoizeRpcs } from "@zuse/wire";
+import { Effect, Layer, Stream } from "effect";
 
 import { FsService } from "./services/fs-service.ts";
 
@@ -8,6 +8,16 @@ const Tree = MemoizeRpcs.toLayerHandler(
   ({ folderId, path, worktreeId }) =>
     Effect.flatMap(FsService, (svc) =>
       svc.tree(folderId, path ?? "", worktreeId ?? null),
+    ),
+);
+
+const WatchTree = MemoizeRpcs.toLayerHandler(
+  "fs.watchTree",
+  ({ folderId, worktreeId }) =>
+    Stream.unwrap(
+      Effect.map(FsService, (svc) =>
+        svc.watchTree(folderId, worktreeId ?? null),
+      ),
     ),
 );
 
@@ -27,6 +37,30 @@ const WriteFile = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const CreateFile = MemoizeRpcs.toLayerHandler(
+  "fs.createFile",
+  ({ folderId, path, worktreeId }) =>
+    Effect.flatMap(FsService, (svc) =>
+      svc.createFile(folderId, path, worktreeId ?? null),
+    ),
+);
+
+const CreateDirectory = MemoizeRpcs.toLayerHandler(
+  "fs.createDirectory",
+  ({ folderId, path, worktreeId }) =>
+    Effect.flatMap(FsService, (svc) =>
+      svc.createDirectory(folderId, path, worktreeId ?? null),
+    ),
+);
+
+const Remove = MemoizeRpcs.toLayerHandler(
+  "fs.remove",
+  ({ folderId, path, worktreeId }) =>
+    Effect.flatMap(FsService, (svc) =>
+      svc.remove(folderId, path, worktreeId ?? null),
+    ),
+);
+
 const ReadExternalFile = MemoizeRpcs.toLayerHandler(
   "fs.readExternalFile",
   ({ path }) => Effect.flatMap(FsService, (svc) => svc.readExternal(path)),
@@ -42,8 +76,12 @@ const WriteExternalFile = MemoizeRpcs.toLayerHandler(
 
 export const FsHandlersLayer = Layer.mergeAll(
   Tree,
+  WatchTree,
   ReadFile,
   WriteFile,
+  CreateFile,
+  CreateDirectory,
+  Remove,
   ReadExternalFile,
   WriteExternalFile,
 );

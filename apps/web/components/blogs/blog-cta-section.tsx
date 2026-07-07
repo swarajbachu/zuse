@@ -10,7 +10,7 @@ export const BlogCtaSection = () => {
             Token max every coding agent from one Mac app.
           </span>
           <span className="-tracking-xs text-muted-foreground text-base leading-6 font-medium">
-            memoize is for power users running Claude Code, Codex, Cursor,
+            Zuse Alpha is for power users running Claude Code, Codex, Cursor,
             Gemini, Grok, and OpenCode across real projects. Keep the agents
             busy, isolate the work, and review the diffs before anything lands.
           </span>

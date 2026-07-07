@@ -1,15 +1,20 @@
 {
-  "name": "memoize",
+  "name": "zuse",
   "private": true,
   "scripts": {
     "build": "turbo run build",
     "build:desktop": "turbo run build --filter=renderer --filter=desktop",
-    "dev": "turbo run dev --filter=renderer --filter=desktop",
+    "dev": "node scripts/dev.mjs",
+    "dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
     "dev:desktop": "node scripts/dev.mjs",
+    "kill-port": "node scripts/kill-port.mjs",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
+    "test:live-agents": "cd apps/server && bun run test:live-agents",
+    "schemas:generate": "node scripts/generate-settings-schemas.mjs",
+    "diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
     "rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
     "dist:mac": "bun run build:desktop && cd apps/desktop && bun run dist:mac",
     "dist:mac:unsigned": "bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned"
@@ -26,10 +31,12 @@
   "workspaces": {
     "packages": [
       "apps/*",
+      "infra/*",
       "packages/*",
       "tools/*"
     ],
     "catalog": {
+      "@effect/experimental": "^0.60.0",
       "@effect/platform": "^0.96.0",
       "@effect/platform-node": "^0.106.0",
       "@effect/rpc": "^0.75.0",

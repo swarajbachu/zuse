@@ -1,17 +1,17 @@
 {
   "name": "desktop",
-  "productName": "memoize Alpha",
-  "version": "0.6.1",
-  "description": "memoize desktop app",
+  "productName": "Zuse Alpha",
+  "version": "0.10.3",
+  "description": "Zuse Alpha desktop app",
   "private": true,
   "author": {
     "name": "Swaraj Bachu",
     "email": "swarajkumar4444@gmail.com"
   },
-  "homepage": "https://github.com/swarajbachu/memoize",
+  "homepage": "https://github.com/swarajbachu/zuse",
   "repository": {
     "type": "git",
-    "url": "https://github.com/swarajbachu/memoize.git"
+    "url": "https://github.com/swarajbachu/zuse.git"
   },
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -20,6 +20,7 @@
     "dev:electron": "node scripts/dev-electron.mjs",
     "build": "tsdown",
     "check-types": "tsc --noEmit",
+    "test": "bun test",
     "postinstall": "electron-rebuild -f -o node-pty,keytar,better-sqlite3",
     "icon": "node scripts/make-icon.mjs",
     "dist:mac": "electron-builder --mac --universal",
@@ -30,6 +31,7 @@
     "electron-updater": "^6.3.9",
     "keytar": "^7.9.0",
     "node-pty": "^1.1.0",
+    "@zuse/ssh": "*",
     "tree-sitter": "^0.21.1",
     "tree-sitter-javascript": "^0.23.1",
     "tree-sitter-json": "^0.24.8",
@@ -38,8 +40,8 @@
   "devDependencies": {
     "@effect/rpc": "catalog:",
     "@electron/rebuild": "^4.0.4",
-    "@memoize/server": "*",
-    "@memoize/wire": "*",
+    "@zuse/server": "*",
+    "@zuse/wire": "*",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
     "effect": "catalog:",

@@ -7,7 +7,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useState } from "react";
 
-import type { ProjectTemplate } from "@memoize/wire";
+import type { ProjectTemplate } from "@zuse/wire";
 
 import { Button } from "~/components/ui/button";
 import { CheckboxInput } from "~/components/ui/checkbox-input";
@@ -67,9 +67,8 @@ const NAME_REGEX = /^[a-z0-9][a-z0-9-_]*$/;
 const isValidName = (s: string): boolean => NAME_REGEX.test(s);
 
 /**
- * "Create project" dialog from the screenshot. Mirrors the Conductor
- * flow: name + parent + template grid, with an optional "also push a
- * private GitHub repo" toggle when `gh` is signed in.
+ * "Create project" dialog: name + parent + template grid, with an optional
+ * "also push a private GitHub repo" toggle when `gh` is signed in.
  */
 export function CreateProjectDialog({
   open,

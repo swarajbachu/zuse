@@ -427,7 +427,7 @@ Opus: 4.2k in / 1.1k out · Haiku (research): 18.4k in / 412 out · saved ~$0.34
 all sub-agent turns ran on the main model, minus actual cost. Pure
 visualization — no functional impact.
 
-Renderer reads `MODEL_PRICING` from `@memoize/wire`. When a sub-agent
+Renderer reads `MODEL_PRICING` from `@zuse/wire`. When a sub-agent
 finishes, the cumulative numbers update in place.
 
 ## Open questions left for implementation

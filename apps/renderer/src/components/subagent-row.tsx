@@ -1,16 +1,24 @@
-import { ArrowDown01Icon, ArrowRight01Icon, ClipboardIcon, Robot01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  ClipboardIcon,
+  Robot01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
-import type { AgentItemId, Message, UserQuestionAnswer } from "@memoize/wire";
+import type { AgentItemId, Message } from "@zuse/wire";
 
 import { cn } from "~/lib/utils";
 
 import { CopyButton } from "./copy-button.tsx";
-import { MessageRow, type ToolResultRecord } from "./message-row.tsx";
+import { MarkdownBody } from "./markdown-body.tsx";
+import { MessageRow } from "./message-row.tsx";
 import { Spinner } from "./ui/spinner";
 
 const MODEL_LABEL: Record<string, string> = {
+  "claude-sonnet-5": "Sonnet 5",
+  "claude-fable-5": "Fable 5",
   "claude-opus-4-7": "Opus 4.7",
   "claude-sonnet-4-6": "Sonnet 4.6",
   "claude-haiku-4-5": "Haiku 4.5",
@@ -39,18 +47,16 @@ const formatDuration = (ms: number): string => {
  * message tagged with this `parentItemId`. Closes with the sub-agent's
  * final assistant text once the `SubagentSummary` lands.
  *
- * Default expansion: open while running (no summary yet), collapsed once
- * the sub-agent finishes.
+ * Sub-agent rows stay collapsed by default, including while running, so long
+ * nested agent work does not dominate the main transcript.
  */
-export function SubagentRow({
+function SubagentRowImpl({
   agentToolUseId,
   agentName,
   prompt,
   modelRequested,
   children,
   summary,
-  resultsByItemId,
-  answersByItemId,
 }: {
   readonly agentToolUseId: AgentItemId;
   readonly agentName: string;
@@ -64,15 +70,8 @@ export function SubagentRow({
     readonly model: string;
     readonly isError: boolean;
   } | null;
-  readonly resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
-  readonly answersByItemId?: ReadonlyMap<
-    AgentItemId,
-    ReadonlyArray<UserQuestionAnswer>
-  >;
 }) {
-  // Auto-expand while running (no summary yet) so the user can watch the
-  // sub-agent work. Once finished, collapse to a one-line meta summary.
-  const [expanded, setExpanded] = useState<boolean>(summary === null);
+  const [expanded, setExpanded] = useState(false);
 
   const trailingMeta = useMemo(() => {
     if (summary !== null) {
@@ -114,7 +113,10 @@ export function SubagentRow({
       >
         <div className="relative grid size-4 shrink-0 place-items-center">
           {showActivityLoader ? (
-            <Spinner className="size-3.5 text-muted-foreground" aria-label="Agent running" />
+            <Spinner
+              className="size-3.5 text-muted-foreground"
+              aria-label="Agent running"
+            />
           ) : (
             <HugeiconsIcon
               icon={Robot01Icon}
@@ -141,17 +143,12 @@ export function SubagentRow({
           <PromptRow text={prompt} />
           <div className="flex flex-col">
             {children.map((m) => (
-              <MessageRow
-                key={m.id}
-                message={m}
-                resultsByItemId={resultsByItemId}
-                answersByItemId={answersByItemId}
-              />
+              <MessageRow key={m.id} message={m} />
             ))}
           </div>
           {summary !== null && summary.text.length > 0 ? (
-            <div className="px-4 py-1 text-xs text-foreground/80">
-              {summary.text}
+            <div className="px-4 py-1">
+              <MarkdownBody className="text-xs">{summary.text}</MarkdownBody>
             </div>
           ) : null}
         </div>
@@ -159,6 +156,9 @@ export function SubagentRow({
     </div>
   );
 }
+
+export const SubagentRow = memo(SubagentRowImpl);
+SubagentRow.displayName = "SubagentRow";
 
 function PromptRow({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);

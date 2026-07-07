@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Effect } from "effect";
 import {
   Group,
@@ -10,16 +10,17 @@ import {
 
 import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
+import { ChatSwitcher } from "./components/chat-switcher.tsx";
+import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { NextUnreadButton } from "./components/next-unread-button.tsx";
-import { IndexProgressBanner } from "./components/index-progress-banner.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { ChatView } from "./components/chat-view";
 import { CostFooter } from "./components/cost-footer";
 import { FileEditor } from "./components/file-editor.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard.tsx";
+import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import { RightPane } from "./components/right-pane";
@@ -33,20 +34,110 @@ import { UpdateBanner } from "./components/update-banner.tsx";
 import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
+import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
+import { AppearanceController } from "./lib/appearance.tsx";
+import { useAuthStore } from "./store/auth.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
 import { useProvidersStore } from "./store/providers.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { hydrateSubagentsStore } from "./store/subagents.ts";
-import { useIndexStore } from "./store/code-index.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
 
-const PANEL_GROUP_ID = "memoize.shell.v3";
+const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
+
+const SIDEBAR_ANIM_MS = 200;
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+/**
+ * Animate a collapsible side panel open/closed by driving the library's own
+ * imperative `resize()` in a rAF tween, instead of a CSS transition.
+ *
+ * react-resizable-panels controls panel widths via inline flex styles and a
+ * ResizeObserver; a CSS transition on those fights that observer (the panel
+ * snaps back / won't collapse). Calling `resize()` each frame keeps the
+ * library's model authoritative the whole way, so it stays smooth and always
+ * lands in the exact end state (`collapse()` when closed, the remembered width
+ * when open). The first run after mount snaps without animating so a restored
+ * layout doesn't slide in.
+ */
+function useAnimatedPanelCollapse(
+  panelRef: ReturnType<typeof usePanelRef>,
+  open: boolean,
+  defaultPct: number,
+  animatingRef: { current: boolean },
+) {
+  const rafRef = useRef<number | null>(null);
+  const lastOpenPct = useRef(defaultPct);
+  const didInit = useRef(false);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (panel === null) return;
+
+    const cancel = () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      animatingRef.current = false;
+    };
+
+    // First run: snap to the correct state (no animation) so a persisted
+    // layout doesn't animate in on launch.
+    if (!didInit.current) {
+      didInit.current = true;
+      const collapsed = panel.isCollapsed();
+      if (!collapsed) {
+        lastOpenPct.current = panel.getSize().asPercentage || defaultPct;
+      }
+      if (open && collapsed) panel.expand();
+      if (!open && !collapsed) panel.collapse();
+      return;
+    }
+
+    cancel();
+
+    const startPct = panel.getSize().asPercentage;
+    // Remember the width we're collapsing from so reopening restores it.
+    if (!open && startPct > 0) lastOpenPct.current = startPct;
+    const targetPct = open ? lastOpenPct.current || defaultPct : 0;
+
+    if (Math.abs(startPct - targetPct) < 0.05) {
+      if (!open && !panel.isCollapsed()) panel.collapse();
+      return;
+    }
+
+    // Suppress the panel's onResize→store sync while we drive resize()
+    // ourselves, otherwise an intermediate (size > 0) frame would flip the
+    // store back open mid-collapse and fight this tween.
+    animatingRef.current = true;
+    const t0 = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - t0) / SIDEBAR_ANIM_MS);
+      const v = startPct + (targetPct - startPct) * easeOutCubic(t);
+      panel.resize(`${v}%`);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      rafRef.current = null;
+      // Settle into the exact end state so the collapsed flag / peek logic
+      // stay correct.
+      if (open) panel.resize(`${targetPct}%`);
+      else panel.collapse();
+      animatingRef.current = false;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return cancel;
+  }, [panelRef, open, defaultPct, animatingRef]);
+}
 
 /**
  * Root component. Owns only the cross-cutting concerns that need to run in
@@ -62,6 +153,16 @@ export function App() {
     startPermissionsStream();
   }, [startPermissionsStream]);
 
+  // WorkOS auth: subscribe to session changes + cold-load the current session.
+  // Optional (no gate) — the sidebar account control, onboarding step, and
+  // settings panel all render off this state.
+  const startAuthStream = useAuthStore((s) => s.start);
+  const hydrateAuth = useAuthStore((s) => s.hydrate);
+  useEffect(() => {
+    startAuthStream();
+    void hydrateAuth();
+  }, [startAuthStream, hydrateAuth]);
+
   // Native Application Menu → renderer action dispatcher. Lives on the
   // root so the bindings work in every view (chat, settings, onboarding).
   useMenuShortcuts();
@@ -71,6 +172,10 @@ export function App() {
   // and editor commands are handled by CodeMirror keymaps, so this hook
   // ignores them.
   useKeybindingDispatch();
+
+  // Mirror the running-agent count to main so the before-quit guard and the
+  // "quit/restart when idle" deferrals have a live value.
+  useReportRunningAgents();
 
   // Hydrate settings + keybindings + subagents from the on-disk config
   // store. Each call is idempotent; subsequent emits flow through the
@@ -85,7 +190,9 @@ export function App() {
 
   // Probe provider availability once on boot so the "update available" launch
   // toast can fire without the user first opening settings. ProvidersPane
-  // keeps its own mount/focus refresh for live updates while settings is open.
+  // re-probes on mount while settings is open (it no longer re-polls on window
+  // focus — that read the keychain and made macOS re-prompt on every refocus
+  // for unsigned/dev builds).
   const refreshProviders = useProvidersStore((s) => s.refresh);
   useEffect(() => {
     void refreshProviders();
@@ -95,7 +202,7 @@ export function App() {
   // can drop the macOS traffic-light gutter.
   const setFullScreen = useUiStore((s) => s.setFullScreen);
   useEffect(() => {
-    const win = window.memoize?.window;
+    const win = window.zuse?.window;
     if (win === undefined) return;
     return win.onFullScreenChange((value) => setFullScreen(value));
   }, [setFullScreen]);
@@ -111,7 +218,7 @@ export function App() {
       } catch (error) {
         if (cancelled) return;
         // eslint-disable-next-line no-console
-        console.error("[memoize] RPC smoke test failed:", error);
+        console.error("[zuse] RPC smoke test failed:", error);
       }
     })();
     return () => {
@@ -125,7 +232,9 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
-        <div className="dark relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+        <NotchTrayBridge />
+        <AppearanceController />
+        <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
         </div>
       </TooltipProvider>
@@ -135,7 +244,9 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
-        <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+        <NotchTrayBridge />
+        <AppearanceController />
+        <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
         </div>
       </TooltipProvider>
@@ -144,6 +255,8 @@ export function App() {
 
   return (
     <TooltipProvider>
+      <NotchTrayBridge />
+      <AppearanceController />
       <MainShell />
     </TooltipProvider>
   );
@@ -191,16 +304,6 @@ function MainShell() {
     closeFileTab();
   }, [selectedFolderId, openFile, closeFileTab]);
 
-  // Open a status subscription for the selected workspace's index. Server
-  // already triggered `ensureIndexed` on `workspace.setSelected`; this just
-  // gives the renderer something to render. `hydrate` no-ops on duplicate
-  // calls, so re-selecting the same folder doesn't re-open the stream.
-  const hydrateIndex = useIndexStore((s) => s.hydrate);
-  useEffect(() => {
-    if (selectedFolderId === null) return;
-    void hydrateIndex(selectedFolderId);
-  }, [selectedFolderId, hydrateIndex]);
-
   // Eagerly hydrate worktrees on project select so the active context can
   // resolve worktree paths without waiting for the chat composer to mount.
   // Without this, terminal/file-tree/branch label stay in "preparing
@@ -216,7 +319,7 @@ function MainShell() {
   // the file tab is foregrounded we close that; otherwise we fall through
   // to the chat-tab archive path.
   useEffect(() => {
-    const menu = window.memoize?.menu;
+    const menu = window.zuse?.menu;
     if (menu === undefined) return;
     return menu.onCloseTab(() => {
       const { activeMainTab, closeFileTab, openFile } = useUiStore.getState();
@@ -246,28 +349,18 @@ function MainShell() {
     storage: typeof window === "undefined" ? undefined : window.localStorage,
   });
 
-  // Drive the side panels' collapsed state from `useUiStore`. v4 has no
-  // `onCollapse` prop — we peek the imperative handle through `panelRef` and
-  // sync against the store on every render.
+  // Drive the side panels' collapsed state from `useUiStore`, animating the
+  // open/close via the library's imperative resize() (see the hook). v4 has no
+  // `onCollapse` prop — we peek the imperative handle through `panelRef`.
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
-  useEffect(() => {
-    const panel = leftPanelRef.current;
-    if (panel === null) return;
-    const collapsed = panel.isCollapsed();
-    if (leftSidebarOpen && collapsed) panel.expand();
-    if (!leftSidebarOpen && !collapsed) panel.collapse();
-  }, [leftPanelRef, leftSidebarOpen]);
-  useEffect(() => {
-    const panel = rightPanelRef.current;
-    if (panel === null) return;
-    const collapsed = panel.isCollapsed();
-    if (rightSidebarOpen && collapsed) panel.expand();
-    if (!rightSidebarOpen && !collapsed) panel.collapse();
-  }, [rightPanelRef, rightSidebarOpen]);
+  const leftAnimating = useRef(false);
+  const rightAnimating = useRef(false);
+  useAnimatedPanelCollapse(leftPanelRef, leftSidebarOpen, 18, leftAnimating);
+  useAnimatedPanelCollapse(rightPanelRef, rightSidebarOpen, 22, rightAnimating);
 
   return (
-    <div className="dark flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
+    <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
       <Group
         id={PANEL_GROUP_ID}
         orientation="horizontal"
@@ -278,12 +371,16 @@ function MainShell() {
         <Panel
           id="projects"
           defaultSize="18%"
-          minSize="180px"
+          // minSize 0 so the open/close tween can rest at any width down to 0
+          // — the library otherwise snaps sub-minSize widths to minSize/0,
+          // which turns the last stretch of the animation into a hard jump.
+          minSize="0px"
           maxSize="40%"
           collapsible
           collapsedSize="0%"
           panelRef={leftPanelRef}
           onResize={(size) => {
+            if (leftAnimating.current) return;
             const open = size.asPercentage > 0;
             if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
           }}
@@ -301,9 +398,11 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            <IndexProgressBanner />
             {showMainChrome ? (
-              <MainTabs projectId={selectedFolderId} emptyLabel={emptyTabLabel} />
+              <MainTabs
+                projectId={selectedFolderId}
+                emptyLabel={emptyTabLabel}
+              />
             ) : null}
             <div
               hidden={activeMainTab !== "chat"}
@@ -319,7 +418,6 @@ function MainShell() {
                   <ChatView sessionId={selectedSessionId} />
                   <CostFooter sessionId={selectedSessionId} />
                   <CliUpgradeBanner providerId={selectedSession.providerId} />
-                  <NextUnreadButton />
                   <ChatComposer
                     key={selectedSession.id}
                     session={selectedSession}
@@ -369,12 +467,15 @@ function MainShell() {
         <Panel
           id="files"
           defaultSize="22%"
-          minSize="220px"
+          // minSize 0 so the open/close tween stays smooth all the way to 0
+          // (see the left panel note).
+          minSize="0px"
           maxSize="45%"
           collapsible
           collapsedSize="0%"
           panelRef={rightPanelRef}
           onResize={(size, _id, prev) => {
+            if (rightAnimating.current) return;
             // Ignore the initial mount call (prev === undefined). The right
             // dock defaults to closed (`rightSidebarOpen: false`); the
             // persisted/default panel width would otherwise fire here and
@@ -394,6 +495,8 @@ function MainShell() {
       </Group>
       <SidebarPeekTrigger />
       <SidebarPeekOverlay />
+      <ChatSwitcher />
+      <ArchiveDirtyWorktreeDialogHost />
     </div>
   );
 }

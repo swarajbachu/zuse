@@ -114,7 +114,7 @@ function CursorArrow() {
 const GLIDE_MS = 350;
 
 const CURSOR_CSS = `
-.memoize-agent-cursor {
+.zuse-agent-cursor {
   position: absolute;
   top: 0;
   left: 0;
@@ -124,15 +124,15 @@ const CURSOR_CSS = `
   transition: transform ${GLIDE_MS}ms cubic-bezier(0.22, 1, 0.36, 1);
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
 }
-.memoize-agent-cursor[data-pressed="true"] {
+.zuse-agent-cursor[data-pressed="true"] {
   transform-origin: 0 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .memoize-agent-cursor {
+  .zuse-agent-cursor {
     transition: none;
   }
 }
-.memoize-agent-cursor-pulse {
+.zuse-agent-cursor-pulse {
   position: absolute;
   top: 0;
   left: 0;

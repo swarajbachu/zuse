@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentItemId } from "@memoize/wire";
+import type { AgentEvent, AgentItemId } from "@zuse/wire";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -110,7 +110,31 @@ const toNiceToolLabel = (raw: string): string => {
  */
 const normalizeAcpKind = (rawKind: string): string => {
   const k = rawKind.toLowerCase();
+  if (k.startsWith("zuse-browser__browser_")) {
+    return `mcp__zuse__${k.slice("zuse-browser__".length)}`;
+  }
+  if (k.startsWith("mcp__zuse-browser__browser_")) {
+    return `mcp__zuse__${k.slice("mcp__zuse-browser__".length)}`;
+  }
   switch (k) {
+    case "browser_navigate":
+    case "browser_screenshot":
+    case "browser_snapshot":
+    case "browser_click":
+    case "browser_type":
+    case "browser_wait":
+    case "browser_scroll":
+    case "browser_hover":
+    case "browser_select":
+    case "browser_press":
+    case "browser_read":
+    case "browser_history":
+    case "browser_console":
+    case "browser_network":
+    case "browser_fill_form":
+    case "browser_dialog":
+    case "browser_login":
+      return `mcp__zuse__${k}`;
     case "read":
     case "read_file":
     case "readfile":
@@ -209,7 +233,8 @@ const extractDiffBlock = (
           ? (b["new_text"] as string)
           : null;
     if (oldText === null || newText === null) continue;
-    const path = typeof b["path"] === "string" ? (b["path"] as string) : undefined;
+    const path =
+      typeof b["path"] === "string" ? (b["path"] as string) : undefined;
     return { path, oldText, newText };
   }
   return null;
@@ -238,7 +263,11 @@ const asSearchReplaceEnvelope = (
   const o = v as Record<string, unknown>;
   const type =
     typeof o["type"] === "string" ? (o["type"] as string).toLowerCase() : null;
-  if (type === "searchreplace" || type === "search_replace" || "EditsApplied" in o) {
+  if (
+    type === "searchreplace" ||
+    type === "search_replace" ||
+    "EditsApplied" in o
+  ) {
     return o;
   }
   if ("content" in o) return asSearchReplaceEnvelope(o["content"]);
@@ -273,7 +302,10 @@ const extractSearchReplaceEdits = (
       ? (env["EditsApplied"] as Record<string, unknown>)
       : env;
 
-  const strField = (src: Record<string, unknown>, key: string): string | null =>
+  const strField = (
+    src: Record<string, unknown>,
+    key: string,
+  ): string | null =>
     typeof src[key] === "string" && (src[key] as string).length > 0
       ? (src[key] as string)
       : null;
@@ -298,16 +330,28 @@ const extractSearchReplaceEdits = (
     for (const d of details) {
       if (d === null || typeof d !== "object") continue;
       const r = d as Record<string, unknown>;
-      const oldS = typeof r["old_string"] === "string" ? (r["old_string"] as string) : null;
-      const newS = typeof r["new_string"] === "string" ? (r["new_string"] as string) : null;
+      const oldS =
+        typeof r["old_string"] === "string"
+          ? (r["old_string"] as string)
+          : null;
+      const newS =
+        typeof r["new_string"] === "string"
+          ? (r["new_string"] as string)
+          : null;
       if (oldS !== null || newS !== null) {
         edits.push({ old_string: oldS ?? "", new_string: newS ?? "" });
       }
     }
   }
   if (edits.length === 0) {
-    const oldS = typeof applied["old_string"] === "string" ? (applied["old_string"] as string) : null;
-    const newS = typeof applied["new_string"] === "string" ? (applied["new_string"] as string) : null;
+    const oldS =
+      typeof applied["old_string"] === "string"
+        ? (applied["old_string"] as string)
+        : null;
+    const newS =
+      typeof applied["new_string"] === "string"
+        ? (applied["new_string"] as string)
+        : null;
     if (oldS !== null || newS !== null) {
       edits.push({ old_string: oldS ?? "", new_string: newS ?? "" });
     }
@@ -387,22 +431,20 @@ const buildCanonicalInput = (
         };
       }
       const file_path =
-        firstLocationPath(u) ??
-        (rawInput !== null ? pathFrom(rawInput) : null);
+        firstLocationPath(u) ?? (rawInput !== null ? pathFrom(rawInput) : null);
       if (file_path !== null) return { file_path };
       break;
     }
     case "Write": {
       const file_path =
-        firstLocationPath(u) ??
-        (rawInput !== null ? pathFrom(rawInput) : null);
+        firstLocationPath(u) ?? (rawInput !== null ? pathFrom(rawInput) : null);
       const content =
         typeof u["content"] === "string"
           ? (u["content"] as string)
-          : extractMessageText(u["content"]) ??
+          : (extractMessageText(u["content"]) ??
             (rawInput !== null && typeof rawInput["content"] === "string"
               ? (rawInput["content"] as string)
-              : null);
+              : null));
       const out: Record<string, unknown> = {};
       if (file_path !== null) out["file_path"] = file_path;
       if (content !== null) out["content"] = content;
@@ -410,8 +452,7 @@ const buildCanonicalInput = (
     }
     case "Read": {
       const file_path =
-        firstLocationPath(u) ??
-        (rawInput !== null ? pathFrom(rawInput) : null);
+        firstLocationPath(u) ?? (rawInput !== null ? pathFrom(rawInput) : null);
       if (file_path !== null) {
         const out: Record<string, unknown> = { file_path };
         if (typeof u["offset"] === "number") out["offset"] = u["offset"];
@@ -488,10 +529,14 @@ const extractToolName = (u: Record<string, unknown>): string => {
   const kind = typeof u["kind"] === "string" ? (u["kind"] as string) : null;
   if (kind !== null && kind.length > 0) return normalizeAcpKind(kind);
 
-  if (typeof u["tool"] === "string" && u["tool"].length > 0) return u["tool"] as string;
-  if (typeof u["name"] === "string" && u["name"].length > 0) return u["name"] as string;
-  if (typeof u["execution"] === "string" && u["execution"].length > 0) return u["execution"] as string;
-  if (typeof u["command"] === "string" && u["command"].length > 0) return u["command"] as string;
+  if (typeof u["tool"] === "string" && u["tool"].length > 0)
+    return u["tool"] as string;
+  if (typeof u["name"] === "string" && u["name"].length > 0)
+    return u["name"] as string;
+  if (typeof u["execution"] === "string" && u["execution"].length > 0)
+    return u["execution"] as string;
+  if (typeof u["command"] === "string" && u["command"].length > 0)
+    return u["command"] as string;
 
   // Grok (and some other agents) sometimes nest the tool identity under
   // toolCall / tool_call / toolInfo. Look one level deeper so we don't
@@ -506,13 +551,19 @@ const extractToolName = (u: Record<string, unknown>): string => {
   for (const cand of nestedCandidates) {
     if (cand && typeof cand === "object") {
       const c = cand as Record<string, unknown>;
-      const nestedKind = typeof c["kind"] === "string" ? (c["kind"] as string) : null;
-      if (nestedKind && nestedKind.length > 0) return normalizeAcpKind(nestedKind);
+      const nestedKind =
+        typeof c["kind"] === "string" ? (c["kind"] as string) : null;
+      if (nestedKind && nestedKind.length > 0)
+        return normalizeAcpKind(nestedKind);
       const nestedName =
         (typeof c["name"] === "string" && c["name"]) ||
         (typeof c["tool"] === "string" && c["tool"]) ||
         (typeof c["command"] === "string" && c["command"]);
-      if (nestedName && typeof nestedName === "string" && nestedName.length > 0) {
+      if (
+        nestedName &&
+        typeof nestedName === "string" &&
+        nestedName.length > 0
+      ) {
         return normalizeAcpKind(nestedName);
       }
     }
@@ -728,7 +779,9 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
         ? (o["FileContent"] as Record<string, unknown>)
         : null;
     const rawOutput =
-      fc !== null && typeof fc["raw_output"] === "string" && fc["raw_output"].length > 0
+      fc !== null &&
+      typeof fc["raw_output"] === "string" &&
+      fc["raw_output"].length > 0
         ? (fc["raw_output"] as string)
         : null;
     if (rawOutput !== null) return rawOutput;
@@ -755,7 +808,11 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
   // SearchReplace (edit) → a short summary. The diff itself is surfaced via
   // the canonical Edit input (see buildCanonicalInput); this is the fallback
   // for any path that renders the raw result instead of the Edit row.
-  if (type === "searchreplace" || type === "search_replace" || "EditsApplied" in o) {
+  if (
+    type === "searchreplace" ||
+    type === "search_replace" ||
+    "EditsApplied" in o
+  ) {
     const { filePath, edits } = extractSearchReplaceEdits(o);
     if (edits.length > 0) {
       const where = filePath !== null ? ` to ${filePath}` : "";
@@ -827,10 +884,7 @@ const logUnknownToolIfNeeded = (
 ): void => {
   if (toolName !== "tool") return;
   if (!ACP_TRACE) return;
-  trace(
-    provider,
-    `unknown tool ${phase} — raw payload=${safePreview(u, 800)}`,
-  );
+  trace(provider, `unknown tool ${phase} — raw payload=${safePreview(u, 800)}`);
 };
 
 /**
@@ -960,7 +1014,9 @@ const grokCallPrefix = (itemId: string): string | null => {
   return match?.[1] ?? null;
 };
 
-const isGrokCursorTaskInput = (input: unknown): input is Record<string, unknown> => {
+const isGrokCursorTaskInput = (
+  input: unknown,
+): input is Record<string, unknown> => {
   const record = recordFrom(input);
   if (record === null) return false;
   return (
@@ -969,7 +1025,9 @@ const isGrokCursorTaskInput = (input: unknown): input is Record<string, unknown>
   );
 };
 
-const grokTaskText = (input: Record<string, unknown>): {
+const grokTaskText = (
+  input: Record<string, unknown>,
+): {
   readonly description: string;
   readonly prompt: string;
   readonly model: string;
@@ -1005,16 +1063,14 @@ const GROK_TASK_STOP_WORDS = new Set([
 
 const tokenizeForGrokTaskScore = (value: string): Set<string> => {
   const out = new Set<string>();
-  for (const token of value.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) ?? []) {
+  for (const token of value.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) ??
+    []) {
     if (!GROK_TASK_STOP_WORDS.has(token)) out.add(token);
   }
   return out;
 };
 
-const scoreGrokTaskMatch = (
-  task: GrokCursorTaskRun,
-  text: string,
-): number => {
+const scoreGrokTaskMatch = (task: GrokCursorTaskRun, text: string): number => {
   const haystack = text.toLowerCase();
   const description = task.description.toLowerCase();
   let score = haystack.includes(description) ? 20 : 0;
@@ -1045,7 +1101,9 @@ const appendStreamText = (buffer: string, text: string): string => {
  *   2. `tool_call_update` is also a delta protocol — we dedupe so the
  *      renderer doesn't show a stack of "Read foo.ts" rows for one read.
  */
-export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => {
+export const createAcpTranslator = (
+  provider: AcpProviderTag,
+): AcpTranslator => {
   // Buffer for the in-flight assistant message text. Reset to "" after
   // each flush.
   let assistantBuffer = "";
@@ -1205,7 +1263,9 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
     if (prefix !== null) grokTaskLaunchPrefixes.add(prefix);
   };
 
-  const bestGrokCursorTaskForText = (text: string): GrokCursorTaskRun | null => {
+  const bestGrokCursorTaskForText = (
+    text: string,
+  ): GrokCursorTaskRun | null => {
     if (provider !== "grok" || grokCursorTaskOrder.length === 0) return null;
     let best: GrokCursorTaskRun | null = null;
     let bestScore = 0;
@@ -1221,9 +1281,7 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
     return bestScore > 0 ? best : null;
   };
 
-  const grokCursorTextParentFor = (
-    text: string,
-  ): AgentItemId | undefined => {
+  const grokCursorTextParentFor = (text: string): AgentItemId | undefined => {
     if (provider !== "grok") return undefined;
     const best = bestGrokCursorTaskForText(text);
     if (best !== null) return best.itemId;
@@ -1238,7 +1296,8 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
     update: Record<string, unknown>,
     input: unknown,
   ): AgentItemId | undefined => {
-    if (provider !== "grok" || grokCursorTaskOrder.length === 0) return undefined;
+    if (provider !== "grok" || grokCursorTaskOrder.length === 0)
+      return undefined;
     if (toolName === "Task" || toolName === "Agent") return undefined;
     const prefix = grokCallPrefix(itemId);
     if (prefix === null || grokTaskLaunchPrefixes.has(prefix)) return undefined;
@@ -1344,7 +1403,10 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
       }
       if (thinkingItemId === null) thinkingItemId = nextItemId();
       thinkingBuffer = appendStreamText(thinkingBuffer, text);
-      trace(provider, `buffer thinking chunk len=${text.length} totalLen=${thinkingBuffer.length}`);
+      trace(
+        provider,
+        `buffer thinking chunk len=${text.length} totalLen=${thinkingBuffer.length}`,
+      );
       return flushed;
     }
 
@@ -1358,7 +1420,10 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
       if (text === null || text.length === 0) return flushed;
       if (assistantItemId === null) assistantItemId = nextItemId();
       assistantBuffer = appendStreamText(assistantBuffer, text);
-      trace(provider, `buffer message chunk len=${text.length} totalLen=${assistantBuffer.length}`);
+      trace(
+        provider,
+        `buffer message chunk len=${text.length} totalLen=${assistantBuffer.length}`,
+      );
       return flushed;
     }
 
@@ -1531,8 +1596,7 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
             content !== undefined &&
             Array.isArray(content) &&
             (content as ReadonlyArray<unknown>).length > 0;
-          const isDiffOnly =
-            hasContent && extractDiffBlock(content) !== null;
+          const isDiffOnly = hasContent && extractDiffBlock(content) !== null;
           const status = typeof u["status"] === "string" ? u["status"] : null;
           const completed = status === "completed" || status === "failed";
 
@@ -1541,7 +1605,10 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
           //   - Status flipped to completed/failed (terminal — even if
           //     there's no content, the renderer needs to know the call
           //     finished so spinners stop).
-          if (!state.resultEmitted && ((hasContent && !isDiffOnly) || completed)) {
+          if (
+            !state.resultEmitted &&
+            ((hasContent && !isDiffOnly) || completed)
+          ) {
             state.resultEmitted = true;
             const output = extractOutput(u);
             const isError =
@@ -1700,7 +1767,7 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
           const isTerminal =
             status === "completed" ||
             status === "failed" ||
-            item["exitCode"] !== null && item["exitCode"] !== undefined;
+            (item["exitCode"] !== null && item["exitCode"] !== undefined);
           const state = getOrInitToolState(itemId as string);
           const events: AgentEvent[] = [];
           if (!state.useEmitted) {
@@ -1721,7 +1788,8 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
               output,
               isError:
                 status === "failed" ||
-                (typeof item["exitCode"] === "number" && item["exitCode"] !== 0),
+                (typeof item["exitCode"] === "number" &&
+                  item["exitCode"] !== 0),
               parentItemId,
             });
           }
@@ -1801,7 +1869,8 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
             events.push({
               _tag: "ToolResult",
               itemId,
-              output: item["result"] ?? item["contentItems"] ?? item["error"] ?? null,
+              output:
+                item["result"] ?? item["contentItems"] ?? item["error"] ?? null,
               isError:
                 status === "failed" ||
                 item["success"] === false ||
@@ -1852,15 +1921,30 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
           }
 
           const collab = candidate;
-          const tool = typeof collab["tool"] === "string" ? (collab["tool"] as string) : "unknown";
+          const tool =
+            typeof collab["tool"] === "string"
+              ? (collab["tool"] as string)
+              : "unknown";
           const callId = extractCallId(collab);
-          const status = typeof collab["status"] === "string" ? (collab["status"] as string) : null;
+          const status =
+            typeof collab["status"] === "string"
+              ? (collab["status"] as string)
+              : null;
           const receiverThreadIds = Array.isArray(collab["receiverThreadIds"])
             ? (collab["receiverThreadIds"] as string[])
             : [];
-          const prompt = typeof collab["prompt"] === "string" ? (collab["prompt"] as string) : null;
-          const model = typeof collab["model"] === "string" ? (collab["model"] as string) : null;
-          const agentsStates = (collab["agentsStates"] ?? {}) as Record<string, unknown>;
+          const prompt =
+            typeof collab["prompt"] === "string"
+              ? (collab["prompt"] as string)
+              : null;
+          const model =
+            typeof collab["model"] === "string"
+              ? (collab["model"] as string)
+              : null;
+          const agentsStates = (collab["agentsStates"] ?? {}) as Record<
+            string,
+            unknown
+          >;
           const parentItemId = parentItemIdForThread(collab["senderThreadId"]);
 
           if (tool === "spawnAgent") {
@@ -1876,11 +1960,7 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
               state.lastInputJson = JSON.stringify(input);
               state.toolName = "Agent";
               for (const threadId of receiverThreadIds) {
-                rememberCollabAgent(
-                  callId,
-                  threadId,
-                  model ?? "inherit",
-                );
+                rememberCollabAgent(callId, threadId, model ?? "inherit");
               }
               const events: AgentEvent[] = [
                 {
@@ -1964,7 +2044,10 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
           // Intermediate state updates (agentsStates changing while running) — we can
           // optionally emit a non-intrusive result or just trace. For v1 we stay silent
           // to avoid spamming the timeline; the live states live in the initial row's input.
-          trace(provider, `skip duplicate collab update id=${callId} tool=${tool}`);
+          trace(
+            provider,
+            `skip duplicate collab update id=${callId} tool=${tool}`,
+          );
           return [];
         }
 
@@ -1982,7 +2065,9 @@ export const createAcpTranslator = (provider: AcpProviderTag): AcpTranslator => 
     flush: () => {
       const pending = flushPending();
       const finishedTasks = finishGrokCursorTasks();
-      return finishedTasks.length === 0 ? pending : [...pending, ...finishedTasks];
+      return finishedTasks.length === 0
+        ? pending
+        : [...pending, ...finishedTasks];
     },
   };
 };

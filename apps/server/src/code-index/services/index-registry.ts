@@ -7,7 +7,7 @@ import type {
   SearchHit,
   SymbolHit,
   SymbolSummary,
-} from "@memoize/index";
+} from "@zuse/index";
 
 /**
  * Per-process registry of `IndexService` instances, keyed by absolute

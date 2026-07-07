@@ -4,13 +4,14 @@ import {
   type FolderId,
   type Worktree,
   type WorktreeCreateError,
+  type WorktreeCreateSource,
   type WorktreeDirtyError,
   type WorktreeId,
   type WorktreeNotFoundError,
   type WorktreeRemoveError,
   type WorktreeSetupError,
   type WorktreeSetupEvent,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 export interface WorktreeRestoreSnapshot {
   readonly id: WorktreeId;
@@ -25,6 +26,7 @@ export interface WorktreeRestoreSnapshot {
 export interface WorktreeServiceShape {
   readonly create: (
     projectId: FolderId,
+    source?: WorktreeCreateSource,
   ) => Effect.Effect<Worktree, WorktreeCreateError>;
   readonly list: (
     projectId: FolderId,

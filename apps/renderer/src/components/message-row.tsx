@@ -4,32 +4,61 @@ import {
   ArrowRight01Icon,
   Copy01Icon,
   DashboardSpeedIcon,
-  RotateRight01Icon,
+  Loading02Icon,
+  PlayIcon,
   Settings01Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { RefreshCw as RefreshIcon } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 import type {
-  AgentItemId,
   AttachmentRef,
+  BrowserAnnotation,
   CodeAnnotation,
+  ComposerAnnotation,
   FileRef,
   Message,
   ProviderId,
   SessionId,
   SkillRef,
-  UserQuestionAnswer,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
+import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
-import { useMessagesStore, type ChatError } from "~/store/messages";
+import {
+  classifyMessage,
+  lookupSessionProvider,
+  useMessagesStore,
+  type ChatError,
+} from "~/store/messages";
+import { useProvidersStore } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
 
 import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const browserAnnotationMeta = (annotation: BrowserAnnotation): string => {
+  const count =
+    annotation.elements.length +
+    annotation.regions.length +
+    annotation.strokes.length;
+  const first = annotation.elements[0];
+  if (first !== undefined) return `<${first.tagName}> · ${count}`;
+  try {
+    return `${new URL(annotation.pageUrl).host} · ${count}`;
+  } catch {
+    return `Browser · ${count}`;
+  }
+};
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   ExitPlanModeRow,
@@ -38,11 +67,14 @@ import {
   UserInputRow,
 } from "./tool-row.tsx";
 import { Button } from "./ui/button.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
-export interface ToolResultRecord {
-  readonly output: unknown;
-  readonly isError: boolean;
-}
+export type { ToolResultRecord } from "./chat-lookups.tsx";
+
+type MessageContent<Tag extends Message["content"]["_tag"]> = Extract<
+  Message["content"],
+  { readonly _tag: Tag }
+>;
 
 const stringifyJson = (value: unknown): string => {
   try {
@@ -66,24 +98,45 @@ const parseReconnectingStatus = (
   return { attempt, maxAttempts };
 };
 
+const formatDuration = (ms: number): string => {
+  const seconds = Math.max(0, ms) / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const min = Math.floor(seconds / 60);
+  const sec = seconds - min * 60;
+  return `${min}m, ${sec.toFixed(1)}s`;
+};
+
+const formatTokenCount = (tokens: number): string => tokens.toLocaleString();
+
+const formatCompactTokenDelta = (
+  beforeTokens: number | null,
+  afterTokens: number | null,
+): string | null => {
+  if (beforeTokens !== null && afterTokens !== null) {
+    return `${formatTokenCount(beforeTokens)} -> ${formatTokenCount(afterTokens)} tokens`;
+  }
+  if (beforeTokens !== null) {
+    return `${formatTokenCount(beforeTokens)} tokens before`;
+  }
+  if (afterTokens !== null) {
+    return `${formatTokenCount(afterTokens)} tokens after`;
+  }
+  return null;
+};
+
 /**
  * Render a single chat row. Variants are dispatched on `content._tag` rather
  * than `role` because role collapses tool_use and assistant text into one
  * bucket, but their visual treatment differs.
  *
- * `resultsByItemId` lets `tool_use` rows render their paired `tool_result`
- * inline. Standalone `tool_result` rows are suppressed when they pair with
- * a tool_use; only orphan errors fall through to the standalone error row.
+ * Tool and user-question pairing data lives in ChatLookups context so settled
+ * text rows can be memoized without receiving fresh lookup-map props.
  */
-export function MessageRow({
+function MessageRowImpl({
   message,
-  resultsByItemId,
-  answersByItemId,
   sessionId,
 }: {
   message: Message;
-  resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
-  answersByItemId?: ReadonlyMap<AgentItemId, ReadonlyArray<UserQuestionAnswer>>;
   sessionId?: SessionId;
 }) {
   switch (message.content._tag) {
@@ -117,59 +170,148 @@ export function MessageRow({
         />
       );
     case "tool_use":
-      if (message.content.tool === "ExitPlanMode") {
-        return (
-          <ExitPlanModeRow
-            input={message.content.input}
-            result={resultsByItemId.get(message.content.itemId)}
-            sessionId={sessionId}
-          />
-        );
-      }
-      return (
-        <ToolRow
-          tool={message.content.tool}
-          input={message.content.input}
-          result={resultsByItemId.get(message.content.itemId)}
-        />
-      );
-    case "tool_result": {
-      // Suppress paired results — the matching ToolRow renders them inline.
-      // Only orphan errors (no tool_use found, e.g. driver dropped the use
-      // event) surface as a standalone error row.
-      const paired = resultsByItemId.has(message.content.itemId);
-      if (paired) return null;
-      return message.content.isError ? (
-        <ToolErrorRow output={message.content.output} />
-      ) : null;
-    }
-    case "user_question": {
-      // Pending questions live in the composer slot — ChatComposer swaps the
-      // editor for a QuestionCard. Once answered, the question + the user's
-      // selections render here as a `UserInputRow` accordion so the Q&A
-      // stays visible in scrollback like every other tool call.
-      const answers = answersByItemId?.get(message.content.itemId);
-      if (answers === undefined) return null;
-      return (
-        <UserInputRow questions={message.content.questions} answers={answers} />
-      );
-    }
+      return <ToolUseMessageRow content={message.content} />;
+    case "tool_result":
+      return <ToolResultMessageRow content={message.content} />;
+    case "user_question":
+      return <UserQuestionMessageRow content={message.content} />;
     case "user_question_answer":
       // The paired `user_question` row above renders the answer inline, so
       // the standalone answer row is suppressed.
       return null;
+    case "context_compaction":
+      return (
+        <CompactRow
+          beforeTokens={message.content.beforeTokens}
+          afterTokens={message.content.afterTokens}
+          startedAt={message.content.startedAt}
+          durationMs={message.content.durationMs}
+          status={message.content.status ?? "completed"}
+        />
+      );
     case "usage":
     case "context_usage":
     case "usage_limit":
       return null;
     case "error":
+      // Classify so an auth failure (expired OAuth / 401 / "Please run
+      // /login") gets the "Sign in to {provider}" headline + inline login
+      // button rather than a bare generic error.
       return (
         <ErrorBubble
-          error={{ kind: "generic", message: message.content.message }}
+          error={classifyMessage(
+            message.content.message,
+            sessionId !== undefined
+              ? lookupSessionProvider(sessionId)
+              : undefined,
+          )}
           sessionId={sessionId}
         />
       );
+    case "interrupted":
+      // The user stopped the turn — a normal action, so render a small muted
+      // badge rather than an error bubble.
+      return (
+        <div className="flex justify-center py-1">
+          <span className="rounded-full bg-muted/50 px-2.5 py-0.5 text-[11px] text-muted-foreground">
+            Interrupted by user
+          </span>
+        </div>
+      );
   }
+}
+
+export const MessageRow = memo(MessageRowImpl);
+MessageRow.displayName = "MessageRow";
+
+function ToolUseMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_use">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  const result = resultsByItemId.get(content.itemId);
+  if (content.tool === "ExitPlanMode") {
+    return <ExitPlanModeRow input={content.input} result={result} />;
+  }
+  return <ToolRow tool={content.tool} input={content.input} result={result} />;
+}
+
+function ToolResultMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_result">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  // Suppress paired results — the matching ToolRow renders them inline.
+  // Only orphan errors (no tool_use found, e.g. driver dropped the use
+  // event) surface as a standalone error row.
+  const paired = resultsByItemId.has(content.itemId);
+  if (paired) return null;
+  return content.isError ? <ToolErrorRow output={content.output} /> : null;
+}
+
+function UserQuestionMessageRow({
+  content,
+}: {
+  content: MessageContent<"user_question">;
+}) {
+  const { answersByItemId } = useChatLookups();
+  // Pending questions live in the composer slot — ChatComposer swaps the
+  // editor for a QuestionCard. Once answered, the question + the user's
+  // selections render here as a `UserInputRow` accordion so the Q&A
+  // stays visible in scrollback like every other tool call.
+  const answers = answersByItemId.get(content.itemId);
+  if (answers === undefined) return null;
+  return <UserInputRow questions={content.questions} answers={answers} />;
+}
+
+function CompactRow({
+  beforeTokens,
+  afterTokens,
+  startedAt,
+  durationMs,
+  status,
+}: {
+  readonly beforeTokens: number | null;
+  readonly afterTokens: number | null;
+  readonly startedAt: number;
+  readonly durationMs: number;
+  readonly status: "in_progress" | "completed";
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const inProgress = status === "in_progress";
+  useEffect(() => {
+    if (!inProgress) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [inProgress]);
+  const elapsedMs = inProgress ? Math.max(0, now - startedAt) : durationMs;
+  const tokenDelta = formatCompactTokenDelta(beforeTokens, afterTokens);
+  const detail =
+    tokenDelta === null
+      ? formatDuration(elapsedMs)
+      : `${tokenDelta} · ${formatDuration(elapsedMs)}`;
+
+  return (
+    <div className="px-4 py-2 text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <RefreshIcon
+          aria-hidden
+          className={cn(
+            "size-3.5 shrink-0 opacity-70",
+            inProgress && "animate-spin",
+          )}
+        />
+        <span className="text-sm font-medium text-foreground/90">
+          {inProgress ? "Compacting..." : "Chat compacted"}
+        </span>
+      </div>
+      <div className="mt-1 pl-5 text-[11px] tabular-nums text-muted-foreground/70">
+        {detail}
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -220,7 +362,7 @@ function UserBubble({
   attachments?: ReadonlyArray<AttachmentRef>;
   fileRefs?: ReadonlyArray<FileRef>;
   skillRefs?: ReadonlyArray<SkillRef>;
-  annotations?: ReadonlyArray<CodeAnnotation>;
+  annotations?: ReadonlyArray<ComposerAnnotation>;
   goal?: boolean;
 }) {
   const hasAnnotations = annotations !== undefined && annotations.length > 0;
@@ -236,7 +378,10 @@ function UserBubble({
     name.length > 28 ? `${name.slice(0, 25)}...` : name;
   return (
     <div className="group/message flex justify-end px-4 py-2">
-      <div className="relative max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 pr-9 text-sm text-user-bubble-foreground">
+      <div
+        data-chat-user-bubble
+        className="relative max-w-[80%] rounded-2xl rounded-tr-sm bg-user-bubble px-3 py-2 pr-9 text-sm text-user-bubble-foreground"
+      >
         <CopyButton
           text={display || text}
           label="Copy message"
@@ -248,15 +393,28 @@ function UserBubble({
               <li key={a.id}>
                 <button
                   type="button"
-                  onClick={() => revealAnnotation(a)}
+                  onClick={() => {
+                    if (!isBrowserAnnotation(a)) revealAnnotation(a);
+                  }}
+                  disabled={isBrowserAnnotation(a)}
                   className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
-                  title="Open annotation"
+                  title={
+                    isBrowserAnnotation(a)
+                      ? "Browser annotation"
+                      : "Open annotation"
+                  }
                 >
                   <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
                     {i + 1}
                   </span>
                   <span className="grid min-w-0 flex-1 gap-1">
-                    <AnnotationFileChip annotation={a} />
+                    {isBrowserAnnotation(a) ? (
+                      <span className="min-w-0 truncate font-medium">
+                        {browserAnnotationMeta(a)}
+                      </span>
+                    ) : (
+                      <AnnotationFileChip annotation={a as CodeAnnotation} />
+                    )}
                     <span className="min-w-0 break-words leading-snug">
                       {a.comment}
                     </span>
@@ -271,9 +429,9 @@ function UserBubble({
             {(attachments ?? []).map((a) => {
               const isImage = a.mimeType.startsWith("image/");
               const iconUrl = isImage ? null : getFileIconUrl(a.originalName);
-              const src = `memoize://attachments/${a.id}`;
+              const src = `zuse://attachments/${a.id}`;
               const className =
-                "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)] hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground";
+                "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
               const inner = (
                 <>
                   {isImage ? (
@@ -331,7 +489,7 @@ function UserBubble({
             {(skillRefs ?? []).map((s) => (
               <span
                 key={s.name}
-                className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
+                className="inline-flex items-center rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]"
               >
                 /{s.name}
               </span>
@@ -361,7 +519,7 @@ function AssistantBubble({
 }) {
   return (
     <div className="px-4 py-2">
-      <div className="max-w-[88%]">
+      <div className="max-w-full">
         <MarkdownBody>{text}</MarkdownBody>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {createdAt !== undefined ? (
@@ -478,6 +636,159 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
   opencode: "OpenCode",
 };
 
+// Providers with a real in-app `agent.startLogin` handler — for these we offer
+// the inline one-click sign-in directly in the auth error bubble instead of
+// only pointing the user at Settings.
+const PROVIDERS_WITH_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderId>([
+  "cursor",
+  "claude",
+]);
+
+/**
+ * "Authentication required" card shown when a login-capable provider (Claude,
+ * Cursor) reports an auth failure. Reuses the shared `useProviderLogin` flow
+ * (open browser → wait for the OAuth callback → done): on success it re-probes
+ * availability and clears the bottom error.
+ *
+ * This card is a *persisted* message in scrollback, so it must not carry sticky
+ * per-instance UI: once the provider reports `authenticated` (whether via this
+ * card, another duplicate card, Settings, or the terminal) every auth card
+ * resolves to nothing. That's what kills the "stuck on Signed in. Resuming…"
+ * and the duplicate cards after a successful sign-in.
+ */
+function ProviderAuthCard({
+  providerId,
+  sessionId,
+  onOpenSettings,
+  onDismiss,
+}: {
+  providerId: ProviderId;
+  sessionId: SessionId | undefined;
+  onOpenSettings: () => void;
+  onDismiss?: () => void;
+}) {
+  const refreshProviders = useProvidersStore((s) => s.refresh);
+  const authStatus = useProvidersStore(
+    (s) => s.availability.find((a) => a.providerId === providerId)?.authStatus,
+  );
+  const clearError = useMessagesStore((s) => s.clearError);
+  const retry = useMessagesStore((s) => s.retry);
+  const { state, start, cancel } = useProviderLogin(providerId, {
+    onSuccess: () => {
+      // Re-probe first so the keychain write has landed and this card
+      // resolves (hides) before we resume — then re-send the pending message
+      // so the turn the user was blocked on actually runs. The server
+      // restarts the stale (unauthenticated) provider process on send, so it
+      // picks up the fresh credentials.
+      void (async () => {
+        await refreshProviders();
+        if (sessionId !== undefined) {
+          clearError(sessionId);
+          void retry(sessionId);
+        }
+      })();
+    },
+  });
+  const label = PROVIDER_LABEL_FOR_ERROR[providerId];
+
+  // Resolved — the provider is authenticated now, so this historical card has
+  // nothing left to do. Render nothing (no nag, no spinner, no duplicate).
+  if (authStatus === "authenticated") return null;
+
+  return (
+    <div className="px-4 py-2">
+      <div className="w-fit max-w-[80%] rounded-lg border border-border/60 bg-card px-3 py-2.5 text-xs text-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+            <HugeiconsIcon
+              icon={AlertCircleIcon}
+              className="size-3.5 text-destructive"
+              aria-hidden
+            />
+            Authentication required
+          </span>
+          {onDismiss !== undefined && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          )}
+        </div>
+
+        {state.kind === "waiting" ? (
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={Loading02Icon}
+              className="size-3.5 animate-spin"
+              aria-hidden
+            />
+            <ShimmerText as="span">Waiting for browser sign-in…</ShimmerText>
+            <button
+              type="button"
+              onClick={cancel}
+              className="rounded px-1 py-0.5 text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : state.kind === "success" ? (
+          <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+            <HugeiconsIcon
+              icon={Loading02Icon}
+              className="size-3.5 animate-spin"
+              aria-hidden
+            />
+            <ShimmerText as="span">Signed in. Finishing…</ShimmerText>
+          </div>
+        ) : (
+          <>
+            <p className="mt-1 leading-relaxed text-muted-foreground">
+              To resolve, sign in to {label}. We&apos;ll validate the login
+              automatically.
+            </p>
+            {state.kind === "failed" && (
+              <p className="mt-1 text-[11px] text-destructive">
+                {state.reason}
+              </p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                onClick={() => void start()}
+                className="gap-1.5"
+              >
+                <HugeiconsIcon icon={PlayIcon} className="size-3" aria-hidden />
+                {state.kind === "failed"
+                  ? `Try ${label} sign-in again`
+                  : `Sign in to ${label}`}
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost"
+                onClick={onOpenSettings}
+                className="gap-1"
+              >
+                <HugeiconsIcon
+                  icon={Settings01Icon}
+                  className="size-3"
+                  aria-hidden
+                />
+                Settings
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const GEMINI_UPGRADE_COMMAND = "npm i -g @google/gemini-cli@latest";
 
 const isGeminiAcpUpgradeError = (text: string): boolean =>
@@ -511,8 +822,8 @@ function GeminiUpgradeCard({ onDismiss }: { onDismiss?: () => void }) {
               Gemini CLI needs an upgrade
             </div>
             <p className="mt-1 leading-relaxed text-muted-foreground">
-              Your installed Gemini CLI does not support ACP mode yet, so
-              memoize cannot start Gemini sessions until the CLI is updated.
+              Your installed Gemini CLI does not support ACP mode yet, so Zuse
+              Alpha cannot start Gemini sessions until the CLI is updated.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <code className="rounded-md border border-border/60 bg-background/60 px-2 py-1 font-mono text-[11px] text-foreground">
@@ -572,7 +883,7 @@ export function ErrorBubble({
   if (rateLimit !== null) {
     return (
       <div className="px-4 py-1.5">
-        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
+        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
           <span className="font-medium">Limit reached</span>
           <span className="text-muted-foreground">
             {formatResetDetail(rateLimit)}
@@ -597,7 +908,7 @@ export function ErrorBubble({
     const isFinalAttempt = reconnecting.attempt >= reconnecting.maxAttempts;
     return (
       <div className="px-4 py-1.5">
-        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
+        <div className="inline-flex max-w-[88%] items-center gap-2 rounded-md border border-border/45 bg-[color-mix(in_oklch,var(--bg-elevated)_34%,var(--background))] px-2.5 py-1.5 text-xs text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]">
           <span className="font-medium">Reconnecting</span>
           <span className="font-mono text-muted-foreground">
             {reconnecting.attempt}/{reconnecting.maxAttempts}
@@ -627,6 +938,25 @@ export function ErrorBubble({
           )}
         </div>
       </div>
+    );
+  }
+
+  // Auth failure for a provider we can sign into in-app → the dedicated
+  // "Authentication required" card with the one-click OAuth button. Other
+  // providers (or auth errors without a provider) fall through to the generic
+  // bubble below with a "Open Provider Settings" link.
+  if (
+    error.kind === "auth" &&
+    error.providerId !== undefined &&
+    PROVIDERS_WITH_LOGIN.has(error.providerId)
+  ) {
+    return (
+      <ProviderAuthCard
+        providerId={error.providerId}
+        sessionId={sessionId}
+        onOpenSettings={onOpenSettings}
+        onDismiss={onDismiss}
+      />
     );
   }
 
@@ -685,11 +1015,7 @@ export function ErrorBubble({
                   onClick={onRetry}
                   className="gap-1"
                 >
-                  <HugeiconsIcon
-                    icon={RotateRight01Icon}
-                    className="size-3"
-                    aria-hidden
-                  />
+                  <RefreshIcon className="size-3" aria-hidden />
                   Retry
                 </Button>
                 {error.kind === "auth" && (

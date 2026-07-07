@@ -1,10 +1,11 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { OpencodeInventory } from "@memoize/wire";
+import type { OpencodeInventory } from "@zuse/wire";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 
 /**
  * Renderer-side cache of opencode's locally-connected providers + agents.
@@ -24,15 +25,24 @@ type State = {
   readonly refresh: () => Promise<void>;
 };
 
-// Bumped when the inventory shape changes — old payloads (e.g. models
-// without `variants`) would crash the reasoning picker if we read them
-// back as the new type.
-const STORAGE_KEY = "memoize.opencode.inventory.v2";
+// Bumped when the inventory shape changes — old payloads (e.g. providers
+// without the `connected`/`custom` flags added for the provider manager)
+// would misrender the picker if we read them back as the new type.
+const STORAGE_KEY = "zuse.opencode.inventory.v4";
+const LEGACY_STORAGE_KEYS = [
+  "zuse.opencode.inventory.v3",
+  "zuse.opencode.inventory.v2",
+  "memoize.opencode.inventory.v2",
+] as const;
 
 const readCache = (): OpencodeInventory | null => {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = readStorageWithLegacy(
+      window.localStorage,
+      STORAGE_KEY,
+      LEGACY_STORAGE_KEYS,
+    );
     if (raw === null) return null;
     return JSON.parse(raw) as OpencodeInventory;
   } catch {

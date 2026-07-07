@@ -8,9 +8,9 @@ import { IndexIoError } from "./errors.ts";
 const DEFAULT_IGNORES = [
   ".git",
   "node_modules",
-  // The code-index sqlite lives at <root>/.memoize/index.sqlite; skip the
+  // The code-index sqlite lives at <root>/.zuse/index.sqlite; skip the
   // dir so we never try to index our own database file.
-  ".memoize",
+  ".zuse",
   "dist",
   "build",
   "out",
@@ -42,7 +42,7 @@ const readGitignore = async (root: string): Promise<Ignore> => {
     // no .gitignore — defaults are enough
   }
   try {
-    const txt = await fs.readFile(join(root, ".memoize-ignore"), "utf8");
+    const txt = await fs.readFile(join(root, ".zuse-ignore"), "utf8");
     ig.add(txt);
   } catch {
     // optional override file

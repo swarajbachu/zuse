@@ -11,7 +11,7 @@ the manifest update, how does branch detection happen, what's the
 expected switch latency, and what guarantees do we make under
 concurrent agent activity.
 
-Conductor's parallel-workspace pattern raises specific cases:
+The parallel-workspace pattern raises specific cases:
 
 - Workspace A is on `main`, agent is mid-stream issuing `code_search`.
   Workspace B switches its branch. A's queries must continue against
@@ -110,7 +110,7 @@ new manifest gets the same blob_ids as `main`. Net new rows in
 
 ### Concurrent workspaces
 
-Two Conductor workspaces (A on `main`, B on `feature`) run agents in
+Two parallel workspaces (A on `main`, B on `feature`) run agents in
 parallel. Each writes its own `(branch, path, blob_id)` rows. SQLite's
 default WAL mode handles the concurrency. Reads are non-blocking.
 
@@ -125,7 +125,7 @@ default WAL mode handles the concurrency. Reads are non-blocking.
 
 ### Negative
 
-- File watcher overhead per workspace. With 5 Conductor workspaces, 5
+- File watcher overhead per workspace. With 5 parallel workspaces, 5
   `.git/HEAD` watches plus 5 working-tree watches. `@parcel/watcher`
   handles this fine, but we should profile.
 - Stale-result tolerance for in-flight queries during a swap. Documented
@@ -162,4 +162,4 @@ default WAL mode handles the concurrency. Reads are non-blocking.
 - Blocking agent queries during reconciliation.
 - Cross-workspace branch sharing (each workspace has its own active
   branch by design).
-- A unified "current branch" — Conductor's whole point is parallelism.
+- A unified "current branch" — the product model is built around parallelism.

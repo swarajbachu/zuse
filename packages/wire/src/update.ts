@@ -6,10 +6,20 @@
  *
  * Channel name lives here so both sides import the same string.
  */
-export const UPDATE_STATUS_CHANNEL = "memoize:update-status" as const;
-export const UPDATE_CHECK_CHANNEL = "memoize:update-check" as const;
-export const UPDATE_DOWNLOAD_CHANNEL = "memoize:update-download" as const;
-export const UPDATE_INSTALL_CHANNEL = "memoize:update-install" as const;
+export const UPDATE_STATUS_CHANNEL = "zuse:update-status" as const;
+export const UPDATE_CHECK_CHANNEL = "zuse:update-check" as const;
+export const UPDATE_DOWNLOAD_CHANNEL = "zuse:update-download" as const;
+export const UPDATE_INSTALL_CHANNEL = "zuse:update-install" as const;
+
+/**
+ * Renderer → main push of the current number of running agents (sessions with
+ * `status === "running"`, summed across all tabs). The renderer store is the
+ * source of truth for this; main mirrors the latest value so the `before-quit`
+ * guard can ask "N agents are running — quit anyway?" synchronously, and so the
+ * "quit/restart when idle" deferrals know when the count reaches zero.
+ */
+export const AGENTS_RUNNING_COUNT_CHANNEL =
+  "zuse:agents-running-count" as const;
 
 export type UpdateStatus =
   | { readonly kind: "idle" }

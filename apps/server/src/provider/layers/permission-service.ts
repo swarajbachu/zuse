@@ -11,7 +11,7 @@ import {
   type FolderId,
   type PermissionDecision,
   type SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { AppPaths } from "../../app-paths.ts";
 import {

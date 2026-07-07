@@ -5,10 +5,7 @@ import {
   DashboardSpeedIcon,
   Delete02Icon,
   FlashIcon,
-  Folder01Icon,
-  GitBranchIcon,
   InformationCircleIcon,
-  LockIcon,
   MapsIcon,
   PencilIcon,
   PlayIcon,
@@ -18,11 +15,14 @@ import {
   Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { EditorView } from "@codemirror/view";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Effect } from "effect";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import {
   ComposerInput,
   findModelDescriptor,
+  type BrowserAnnotation,
+  type ComposerAnnotation,
   type BooleanOptionDescriptor,
   type Message,
   type PermissionMode,
@@ -33,9 +33,8 @@ import {
   type Session,
   type SessionId,
   type ThreadGoal,
-} from "@memoize/wire";
+} from "@zuse/wire";
 import { ModelPicker } from "./model-picker.tsx";
-import { ActiveLocationChip } from "./active-location-chip.tsx";
 
 import { Card, CardPanel } from "~/components/ui/card";
 import { Frame, FrameFooter } from "~/components/ui/frame";
@@ -60,6 +59,8 @@ import {
   setComposerDoc,
   type ActiveTrigger,
 } from "~/lib/codemirror/composer";
+import { getRpcClient } from "~/lib/rpc-client";
+import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { useKeybindingsStore } from "../store/keybindings";
 import {
   addChipEffect,
@@ -74,11 +75,19 @@ import {
 } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
+import { usePaneFocus } from "../store/pane-focus.ts";
 import {
   composerDraftKeyForSession,
   useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
+import {
+  chooseComposerSubmitRoute,
+  findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
+  shouldSendPlanFeedbackNow,
+} from "~/lib/plan-feedback-routing";
 import {
   matchBuiltin,
   type BuiltinCommand,
@@ -87,8 +96,14 @@ import { parseComposerInput } from "../composer/segment-parser.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
 import { FileTagPopover } from "./composer/file-tag-popover.tsx";
+import {
+  EMULATED_PLAN_APPROVAL_PROMPT,
+  PlanApprovalTray,
+} from "./composer/plan-approval-tray.tsx";
+import { ContextTray } from "./composer/context-tray.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
+import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import {
   Menu,
@@ -112,14 +127,33 @@ import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
-import { useChatsStore } from "../store/chats.ts";
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const attachmentsWithBrowserAnnotations = (
+  attachments: ComposerInput["attachments"],
+  annotations: ReadonlyArray<ComposerAnnotation>,
+): ComposerInput["attachments"] => {
+  const next = [...attachments];
+  const seen = new Set(next.map((attachment) => attachment.id));
+  for (const annotation of annotations) {
+    if (!isBrowserAnnotation(annotation)) continue;
+    const screenshot = annotation.screenshotAttachment;
+    if (screenshot === null || seen.has(screenshot.id)) continue;
+    next.push(screenshot);
+    seen.add(screenshot.id);
+  }
+  return next;
+};
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionCard } from "./permission-card.tsx";
 import { QuestionCard } from "./question-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
 
 const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 240;
@@ -129,9 +163,16 @@ export function ChatComposer({
   session,
   onDraftSubmit,
   composerDraftKey,
+  headerSlot,
 }: {
   session: Session;
   composerDraftKey?: string;
+  /**
+   * Optional content rendered as a header row inside the composer frame, above
+   * the editor. Used by the new-chat landing to host the "Create from…" picker
+   * (draft mode only). Non-draft composers pass nothing.
+   */
+  headerSlot?: ReactNode;
   /**
    * When set, the composer runs in "draft" mode for the new-chat landing:
    * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
@@ -226,6 +267,7 @@ export function ChatComposer({
   // because the agent is already mid-tool-call.
   const requestsById = usePermissionsStore((s) => s.requestsById);
   const hydratePermissions = usePermissionsStore((s) => s.hydrate);
+  const decidePermission = usePermissionsStore((s) => s.decide);
   const pendingPermissions = useMemo(() => {
     const out: PermissionRequest[] = [];
     for (const req of Object.values(requestsById)) {
@@ -239,6 +281,46 @@ export function ChatComposer({
     out.sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());
     return out;
   }, [requestsById, sessionId]);
+  const pendingPlanApprovalRequest = useMemo(
+    () =>
+      findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
+    [requestsById, sessionId],
+  );
+  const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
+  const sendPlanFeedbackNow = useMemo(
+    () =>
+      shouldSendPlanFeedbackNow({
+        permissionMode: session.permissionMode,
+        messages: sessionMessages ?? [],
+        pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
+      }),
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
+  );
+  const emulatedPlanReady = useMemo(
+    () =>
+      hasEmulatedPlanAwaitingAction({
+        permissionMode: session.permissionMode,
+        messages: sessionMessages ?? [],
+        pendingPlanApprovalRequest,
+        usesEmulatedPlanMode,
+        isRunning: inFlight,
+      }),
+    [
+      pendingPlanApprovalRequest,
+      session.permissionMode,
+      sessionMessages,
+      usesEmulatedPlanMode,
+      inFlight,
+    ],
+  );
   useEffect(() => {
     if (isDraft) return;
     void hydratePermissions(sessionId);
@@ -280,11 +362,19 @@ export function ChatComposer({
 
   const [hasText, setHasText] = useState(false);
   const [goalSendMode, setGoalSendMode] = useState(false);
-  // Version-gated Codex features the installed CLI supports (from the
-  // availability probe). Drives whether goal/fast controls render at all.
-  const codexCapabilities = useProvidersStore((s) =>
+  // Provider features the installed CLI supports (from the availability
+  // probe). Drives whether goal/fast controls render at all. Codex resolves
+  // these from its CLI version; Grok advertises `goalMode` unconditionally.
+  const capabilities = useProvidersStore((s) =>
     s.capabilitiesFor(session.providerId),
   );
+  // Goal mode is supported by Codex (native `thread/goal/*`, version-gated via
+  // the `goalMode` capability) and Grok (native `/goal`, forwarded by the
+  // driver). Grok has no version floor, so it's always goal-capable and
+  // doesn't depend on the availability probe.
+  const goalCapable =
+    session.providerId === "grok" ||
+    (session.providerId === "codex" && capabilities.includes("goalMode"));
   const [trigger, setTrigger] = useState<ActiveTrigger | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -293,7 +383,6 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
-  const forgetActive = useAttachmentsStore((s) => s.forgetActive);
   // Submit reads through a ref so the keymap, captured at editor creation
   // time, always sees the current sessionId / send / inFlight without
   // recreating the editor on every render.
@@ -303,6 +392,10 @@ export function ChatComposer({
   const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
     () => undefined,
   );
+  // Same indirection for large text pastes. Returns whether the paste was
+  // consumed (diverted to a `.context/files` file chip) so CodeMirror knows
+  // to skip its default insert.
+  const textPastedRef = useRef<(text: string) => boolean>(() => false);
   // Same pattern for the Shift+Tab plan-mode toggle. Latest session +
   // mode without reconstructing the editor on every state change.
   const togglePlanModeRef = useRef<() => void>(() => undefined);
@@ -345,6 +438,7 @@ export function ChatComposer({
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
+      onTextPaste: (text: string) => textPastedRef.current(text),
       onTogglePlanMode: () => togglePlanModeRef.current(),
     };
     const view = createComposerView({
@@ -398,6 +492,10 @@ export function ChatComposer({
     bridge.setFocus(() => {
       editorViewRef.current?.focus();
     });
+    // Join the pane Tab-walk (F6 / Ctrl+`) so focus can hop into the composer.
+    usePaneFocus.getState().register("composer", () => {
+      editorViewRef.current?.focus();
+    });
 
     return () => {
       unsubKeybindings();
@@ -405,6 +503,7 @@ export function ChatComposer({
       b.setAttachFile(null);
       b.setInsertText(null);
       b.setFocus(null);
+      usePaneFocus.getState().unregister("composer");
       view.destroy();
       editorViewRef.current = null;
     };
@@ -501,7 +600,7 @@ export function ChatComposer({
   /**
    * Insert chips for `files`. Image files render with a thumbnail; other types
    * (PDFs, docs, archives) get a generic file-icon chip. The chip's underlying
-   * token swaps from a temp id to a `memoize://attachments/<id>` URL once the
+   * token swaps from a temp id to a `zuse://attachments/<id>` URL once the
    * upload resolves. Files beyond the per-turn cap are dropped with a warning.
    */
   const attachFiles = (files: readonly File[]): void => {
@@ -543,9 +642,9 @@ export function ChatComposer({
         }),
       });
 
-      void uploadOne(sessionId, file)
+      void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
-          const finalUrl = isImage ? `memoize://attachments/${ref.id}` : "";
+          const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
           editorViewRef.current?.dispatch({
             effects: updateImageChipEffect.of({
               previousId: tempId,
@@ -568,6 +667,53 @@ export function ChatComposer({
     }
   };
 
+  /**
+   * A paste counts as "big" when it spans more than 10 lines or 2,000
+   * characters. Such pastes become a `.context/files/paste-<uuid>.md` file
+   * chip instead of flooding the composer with inline text.
+   */
+  const isBigTextPaste = (text: string): boolean =>
+    text.split("\n").length > 10 || text.length > 2000;
+
+  /**
+   * Persist a large paste as a workspace file and drop a file chip for it.
+   * Reuses the `@`-file pipeline (`FileRef`), so the agent reads the file
+   * from its cwd. On failure, fall back to inserting the raw text so nothing
+   * the user pasted is ever lost.
+   */
+  const attachPastedText = async (text: string): Promise<void> => {
+    if (editorViewRef.current === null) return;
+    try {
+      const client = await getRpcClient();
+      const res = await Effect.runPromise(
+        client.context.saveText({
+          sessionId,
+          text,
+          ext: "md",
+          ...(workspaceRoot ? { rootPath: workspaceRoot } : {}),
+        }),
+      );
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      replaceWithChip(view, sel.from, sel.to, `@${res.relPath}`, {
+        kind: "file",
+        relPath: res.relPath,
+        absPath: res.absPath,
+        entryKind: "file",
+      });
+    } catch (err) {
+      console.error("[chat-composer] saveText failed", err);
+      const view = editorViewRef.current;
+      if (view === null) return;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        selection: { anchor: sel.from + text.length },
+      });
+    }
+  };
+
   // Paperclip → hidden file input.
   const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -577,7 +723,9 @@ export function ChatComposer({
   };
 
   // Paste handler — accepts any file type pasted into the composer (images,
-  // PDFs, docs, etc.).
+  // PDFs, docs, etc.). Large *text* pastes are handled one layer down, inside
+  // CodeMirror (`onTextPaste`), because CM inserts pasted text before this
+  // React handler runs — see `textPastedRef` / composer.ts.
   const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -620,18 +768,6 @@ export function ChatComposer({
     if (files.length > 0) attachFiles(files);
   };
 
-  // Forget any stale tempId-keyed attachments when the composer unmounts —
-  // the heartbeat tracks ids, so dropping unattached blobs is enough to
-  // let the GC reap them.
-  useEffect(
-    () => () => {
-      // No-op for now: forgetActive is called per-id only when a chip is
-      // dropped explicitly. Server GC handles long-lived orphans.
-      void forgetActive;
-    },
-    [forgetActive],
-  );
-
   const submit = (): boolean => {
     // Don't submit while a popover is open — Enter belongs to the popover.
     if (trigger !== null || modelPickerOpen) return false;
@@ -657,12 +793,23 @@ export function ChatComposer({
       annotations.length > 0
         ? ComposerInput.make({
             text: parsed.text,
-            attachments: parsed.attachments,
+            attachments: attachmentsWithBrowserAnnotations(
+              parsed.attachments,
+              annotations,
+            ),
             fileRefs: parsed.fileRefs,
             skillRefs: parsed.skillRefs,
             annotations,
           })
         : parsed;
+    const route =
+      onDraftSubmit === undefined
+        ? chooseComposerSubmitRoute({
+            sendPlanFeedbackNow,
+            goalSendMode,
+            shouldQueue: inFlight || holdForSetup,
+          })
+        : null;
     clearComposer(view);
     clearComposerDraft(draftKey);
     setGoalSendMode(false);
@@ -675,15 +822,29 @@ export function ChatComposer({
       onDraftSubmit(input, { asGoal: goalSendMode });
       return true;
     }
-    if (goalSendMode) {
-      void send(sessionId, input, { asGoal: true });
-    } else if (inFlight || holdForSetup) {
-      // Mid-turn submit — or a submit while the worktree/provider is still
-      // coming up — becomes a queue chip; auto-flushed when the turn ends,
-      // setup completes, or steered manually.
-      queue(sessionId, input);
-    } else {
-      void send(sessionId, input);
+    switch (route) {
+      case "planFeedback":
+        void (async () => {
+          if (pendingPlanApprovalRequest !== null) {
+            await decidePermission(pendingPlanApprovalRequest.id, {
+              _tag: "Deny",
+            });
+          }
+          await send(sessionId, input);
+        })();
+        break;
+      case "goal":
+        void send(sessionId, input, { asGoal: true });
+        break;
+      case "queue":
+        // Mid-turn submit — or a submit while the worktree/provider is still
+        // coming up — becomes a queue chip; auto-flushed when the turn ends,
+        // setup completes, or steered manually.
+        queue(sessionId, input);
+        break;
+      case "send":
+        void send(sessionId, input);
+        break;
     }
     return true;
   };
@@ -705,7 +866,22 @@ export function ChatComposer({
     attachFiles(files);
   };
 
+  textPastedRef.current = (text) => {
+    if (!isBigTextPaste(text)) return false;
+    void attachPastedText(text);
+    return true;
+  };
+
   const inPlanMode = session.permissionMode === "plan";
+  const approveEmulatedPlan = () => {
+    void (async () => {
+      await setPermissionMode(sessionId, "default");
+      await send(sessionId, EMULATED_PLAN_APPROVAL_PROMPT);
+    })();
+  };
+  const cancelEmulatedPlan = () => {
+    void setPermissionMode(sessionId, "default");
+  };
   const inUltracodeMode = reasoningLevel === "ultracode";
   // Keep the editor mounted at all times. Permissions / questions render as
   // a sibling above it, and we hide the editor block with `display: none`
@@ -720,7 +896,7 @@ export function ChatComposer({
     <TooltipProvider delay={0}>
       {showCard ? (
         <div className="shrink-0 px-3 pb-3 pt-2">
-          <div className="mx-auto">
+          <div className="mx-auto w-full max-w-4xl">
             {headPermission !== undefined ? (
               <PermissionCard
                 head={headPermission}
@@ -737,42 +913,55 @@ export function ChatComposer({
         </div>
       ) : null}
       <div
+        data-pane="composer"
         className="shrink-0 px-3 pb-3 pt-2"
         style={showCard ? { display: "none" } : undefined}
         aria-hidden={showCard || undefined}
       >
-        <div className="mx-auto">
+        <div className="mx-auto w-full max-w-4xl">
           {!isDraft ? (
-            <>
-              <ActiveLocationChip />
-              <ProjectPlanTray key={sessionId} sessionId={sessionId} />
-              <AnnotationTray
-                sessionId={sessionId}
-                folderId={session.projectId}
-                worktreeId={session.worktreeId}
-              />
-            </>
-          ) : null}
-          {!isDraft && session.providerId === "codex" && goal !== null ? (
-            <GoalBanner
-              goal={goal}
-              inPlanMode={inPlanMode}
-              onPause={() =>
-                void setGoal(sessionId, {
-                  status: goal.status === "active" ? "paused" : "active",
-                })
-              }
-              onSave={(objective, tokenBudget) =>
-                void setGoal(sessionId, {
-                  objective,
-                  status: "active",
-                  tokenBudget,
-                })
-              }
-              onClear={() => void clearGoal(sessionId)}
+            <AnnotationTray
+              sessionId={sessionId}
+              folderId={session.projectId}
+              worktreeId={session.worktreeId}
             />
           ) : null}
           <Frame>
+            {headerSlot !== undefined ? (
+              <div className="mb-1 flex items-center px-1">{headerSlot}</div>
+            ) : null}
+            {!isDraft ? (
+              <div className="mb-1 overflow-hidden rounded-md border border-border/50 bg-muted/30 empty:hidden empty:mb-0">
+                <PlanApprovalTray
+                  sessionId={sessionId}
+                  emulatedPlanReady={emulatedPlanReady}
+                  onApproveEmulatedPlan={approveEmulatedPlan}
+                  onCancelEmulatedPlan={cancelEmulatedPlan}
+                />
+                {goalCapable && goal !== null ? (
+                  <GoalBanner
+                    goal={goal}
+                    inPlanMode={inPlanMode}
+                    onPause={() =>
+                      void setGoal(sessionId, {
+                        status: goal.status === "active" ? "paused" : "active",
+                      })
+                    }
+                    onSave={(objective, tokenBudget) =>
+                      void setGoal(sessionId, {
+                        objective,
+                        status: "active",
+                        tokenBudget,
+                      })
+                    }
+                    onClear={() => void clearGoal(sessionId)}
+                  />
+                ) : null}
+                <ContextTray sessionId={sessionId} />
+                <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+                <QueueTray sessionId={sessionId} />
+              </div>
+            ) : null}
             <Card
               className={cn(
                 "min-h-30 rounded-lg transition-colors",
@@ -805,7 +994,6 @@ export function ChatComposer({
                 hidden
                 onChange={onPickFiles}
               />
-              {!isDraft ? <QueueTray sessionId={sessionId} /> : null}
               <CardPanel className="relative flex items-stretch gap-2 px-3 py-2">
                 {trigger !== null && editorViewRef.current !== null ? (
                   trigger.kind === "slash" ? (
@@ -897,11 +1085,10 @@ export function ChatComposer({
                   // `fastMode` descriptor and isn't version-gated, so only
                   // filter when the provider gates it.
                   (session.providerId !== "codex" ||
-                    codexCapabilities.includes("fastMode")) && (
+                    capabilities.includes("fastMode")) && (
                     <FastModeToggle sessionId={sessionId} />
                   )}
-                {session.providerId === "codex" &&
-                codexCapabilities.includes("goalMode") ? (
+                {goalCapable ? (
                   <GoalModeToggle
                     active={goalSendMode}
                     hasGoal={goal !== null}
@@ -918,10 +1105,6 @@ export function ChatComposer({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <RuntimeModeToggle
-                  sessionId={sessionId}
-                  current={session.runtimeMode}
-                />
                 {!isDraft ? <ContextStatusPopover session={session} /> : null}
                 {!isDraft ? (
                   <SessionTimer sessionId={sessionId} inFlight={inFlight} />
@@ -965,12 +1148,6 @@ export function ChatComposer({
                 )}
               </div>
             </FrameFooter>
-            {!isDraft ? (
-              <div className="flex items-center justify-between gap-2 border-t border-border/40 px-2 py-1 text-[11px] text-muted-foreground">
-                <WorkspacePicker session={session} />
-                <WorkspaceBranchLabel session={session} />
-              </div>
-            ) : null}
           </Frame>
         </div>
       </div>
@@ -979,95 +1156,31 @@ export function ChatComposer({
 }
 
 /**
- * Per-session permission posture, picked from a menu so each option can carry
- * a description. The mode is stored on the session row and read live by the
- * SDK's canUseTool callback — flipping it mid-turn applies to the next tool
- * call without restarting the conversation.
- */
-function RuntimeModeToggle({
-  sessionId,
-  current,
-}: {
-  sessionId: SessionId;
-  current: RuntimeMode;
-}) {
-  const setRuntimeMode = useSessionsStore((s) => s.setRuntimeMode);
-  const meta = MODE_META[current];
-  const triggerIcon = meta.Icon;
-
-  const onSelect = (mode: RuntimeMode) => {
-    if (mode !== current) void setRuntimeMode(sessionId, mode);
-  };
-
-  return (
-    <Menu>
-      <MenuTrigger
-        className="flex items-center gap-1.5 rounded-md border border-border/60 bg-background px-2 py-1 text-[11px] text-foreground shadow-xs/5 transition-colors hover:bg-muted/60 data-[popup-open]:bg-muted/60"
-        aria-label={`Permissions: ${meta.label}`}
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{meta.label}</span>
-        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup side="top" align="end" className="w-72 p-1">
-        {MODES_ORDER.map((mode) => {
-          const m = MODE_META[mode];
-          const itemIcon = m.Icon;
-          const active = mode === current;
-          return (
-            <MenuItem
-              key={mode}
-              onClick={() => onSelect(mode)}
-              className={cn(
-                "grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm",
-                active
-                  ? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
-                  : undefined,
-              )}
-            >
-              <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-                {active && (
-                  <HugeiconsIcon
-                    icon={Tick01Icon}
-                    className="size-3.5 opacity-90"
-                  />
-                )}
-              </span>
-              <HugeiconsIcon
-                icon={itemIcon}
-                className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-              />
-              <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-                <span className="font-medium leading-none">{m.label}</span>
-                <span className="text-xs text-muted-foreground leading-snug">
-                  {m.description}
-                </span>
-              </div>
-            </MenuItem>
-          );
-        })}
-      </MenuPopup>
-    </Menu>
-  );
-}
-
-/**
  * Claude Fast Mode is a boolean model option, persisted in the same
  * per-session sessionStorage namespace the send path already reads.
  */
 function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
-  const storageKey = `memoize.modelOptions.${sessionId}.fastMode`;
+  const storageKey = `zuse.modelOptions.${sessionId}.fastMode`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.fastMode`;
   const [enabled, setEnabled] = useState(() => {
     if (typeof window === "undefined") return false;
-    return window.sessionStorage.getItem(storageKey) === "true";
+    return (
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true"
+    );
   });
   useEffect(() => {
     if (typeof window === "undefined") {
       setEnabled(false);
       return;
     }
-    setEnabled(window.sessionStorage.getItem(storageKey) === "true");
-  }, [storageKey]);
+    setEnabled(
+      readStorageWithLegacy(window.sessionStorage, storageKey, [
+        legacyStorageKey,
+      ]) === "true",
+    );
+  }, [legacyStorageKey, storageKey]);
 
   const onClick = () => {
     const next = !enabled;
@@ -1077,6 +1190,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
         window.sessionStorage.setItem(storageKey, "true");
       } else {
         window.sessionStorage.removeItem(storageKey);
+        window.sessionStorage.removeItem(legacyStorageKey);
       }
     }
   };
@@ -1095,7 +1209,7 @@ function FastModeToggle({ sessionId }: { sessionId: SessionId }) {
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               enabled
-                ? "bg-amber-300/15 text-amber-200 dark:text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1147,7 +1261,7 @@ function PlanModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               isPlan
-                ? "bg-rose-300/15 text-rose-200 dark:text-rose-200 hover:bg-rose-300/25"
+                ? "bg-rose-400/20 text-rose-700 hover:bg-rose-400/30 dark:bg-rose-300/15 dark:text-rose-200 dark:hover:bg-rose-300/25"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1185,9 +1299,9 @@ function GoalModeToggle({
             className={cn(
               "flex h-6 items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
               active
-                ? "bg-amber-300/15 text-amber-200 hover:bg-amber-300/25"
+                ? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
                 : hasGoal
-                  ? "text-amber-200 hover:bg-muted/60"
+                  ? "text-amber-700 hover:bg-muted/60 dark:text-amber-200"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
@@ -1234,76 +1348,82 @@ function GoalBanner({
         )}s`
       : "0s";
   return (
-    <div className="mb-2 rounded-lg border border-border/70 bg-card/70 px-3 py-2 text-sm">
-      <div className="flex min-w-0 items-center gap-2">
-        <HugeiconsIcon
-          icon={DashboardSpeedIcon}
-          className="size-4 shrink-0 text-muted-foreground"
-        />
-        <div className="min-w-0 flex-1 truncate">
-          <span className="font-medium text-foreground">
-            {GOAL_LABEL[goal.status]}
-          </span>{" "}
-          <span className="text-muted-foreground">{objective}</span>
-        </div>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={onPause}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label={
-                  goal.status === "active" ? "Pause goal" : "Resume goal"
+    <>
+      <TrayPill
+        flush
+        icon={<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />}
+        title={GOAL_LABEL[goal.status]}
+        subtitle={objective}
+        actions={
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={onPause}
+                    className={trayPillActionClass}
+                    aria-label={
+                      goal.status === "active" ? "Pause goal" : "Resume goal"
+                    }
+                  >
+                    <HugeiconsIcon
+                      icon={goal.status === "active" ? SquareIcon : PlayIcon}
+                      className="size-3.5"
+                    />
+                  </button>
                 }
-              >
-                <HugeiconsIcon
-                  icon={goal.status === "active" ? SquareIcon : PlayIcon}
-                  className="size-3.5"
-                />
-              </button>
-            }
-          />
-          <TooltipPopup>
-            {goal.status === "active" ? "Pause goal" : "Resume goal"}
-          </TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label="Edit goal"
-              >
-                <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup>Edit goal</TooltipPopup>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={onClear}
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                aria-label="Delete goal"
-              >
-                <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
-              </button>
-            }
-          />
-          <TooltipPopup>Delete goal</TooltipPopup>
-        </Tooltip>
-      </div>
+              />
+              <TooltipPopup>
+                {goal.status === "active" ? "Pause goal" : "Resume goal"}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => setOpen(true)}
+                    className={trayPillActionClass}
+                    aria-label="Edit goal"
+                  >
+                    <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup>Edit goal</TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={onClear}
+                    className={cn(
+                      trayPillActionClass,
+                      "hover:bg-destructive/10 hover:text-destructive",
+                    )}
+                    aria-label="Delete goal"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+                  </button>
+                }
+              />
+              <TooltipPopup>Delete goal</TooltipPopup>
+            </Tooltip>
+          </>
+        }
+      />
       {inPlanMode && goal.status === "active" ? (
-        <div className="mt-1 text-xs text-amber-200/80">
-          Plan mode is active; Codex will not continue this goal until plan mode
-          exits.
-        </div>
+        <TrayPill
+          flush
+          tone="warning"
+          icon={
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-3.5" />
+          }
+          title="Plan mode active"
+          subtitle="Codex won't continue this goal until plan mode exits."
+        />
       ) : null}
       <GoalEditorDialog
         open={open}
@@ -1312,7 +1432,7 @@ function GoalBanner({
         elapsed={elapsed}
         onSave={onSave}
       />
-    </div>
+    </>
   );
 }
 
@@ -1469,14 +1589,19 @@ function ReasoningPicker({
 
   const defaultId = resolved?.defaultId ?? "medium";
   const descriptorId = resolved?.descriptorId ?? "reasoning";
-  const storageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
+  const storageKey = `zuse.modelOptions.${sessionId}.${descriptorId}`;
+  const legacyStorageKey = `memoize.modelOptions.${sessionId}.${descriptorId}`;
   const [level, setLevel] = useState<string>(() => {
     if (typeof window === "undefined") return defaultId;
-    const stored = window.sessionStorage.getItem(storageKey);
+    const stored = readStorageWithLegacy(window.sessionStorage, storageKey, [
+      legacyStorageKey,
+    ]);
     if (stored !== null) return stored;
     // One-shot legacy migration so users mid-session keep their pick.
-    const legacy = window.sessionStorage.getItem(
-      `memoize.reasoning.${sessionId}`,
+    const legacy = readStorageWithLegacy(
+      window.sessionStorage,
+      `zuse.reasoning.${sessionId}`,
+      [`memoize.reasoning.${sessionId}`],
     );
     if (legacy !== null && legacy.length > 0) return legacy;
     return defaultId;
@@ -1585,8 +1710,10 @@ const selectedContextWindowTokens = (
   if (typeof window === "undefined") {
     return descriptorContextWindowTokens(providerId, model);
   }
-  const stored = window.sessionStorage.getItem(
-    `memoize.modelOptions.${sessionId}.contextWindow`,
+  const stored = readStorageWithLegacy(
+    window.sessionStorage,
+    `zuse.modelOptions.${sessionId}.contextWindow`,
+    [`memoize.modelOptions.${sessionId}.contextWindow`],
   );
   return (
     contextWindowTokensFromId(stored ?? undefined) ??
@@ -1662,45 +1789,128 @@ function ContextRing({ percent }: { percent: number | null }) {
   );
 }
 
+function StickMeter({
+  percent,
+  tone = "default",
+}: {
+  readonly percent: number | null;
+  readonly tone?: "default" | "warning";
+}) {
+  const segments = 38;
+  const clamped = percent === null ? 0 : Math.min(Math.max(percent, 0), 100);
+  const filled = percent === null ? 0 : Math.ceil((clamped / 100) * segments);
+  return (
+    <div
+      className="grid h-4 grid-cols-[repeat(38,minmax(0,1fr))] gap-0.5"
+      aria-hidden
+    >
+      {Array.from({ length: segments }, (_, index) => {
+        const active = index < filled;
+        return (
+          <div
+            key={index}
+            className={cn(
+              "rounded-[2px] transition-colors",
+              active
+                ? tone === "warning"
+                  ? "bg-amber-300/65"
+                  : "bg-primary/70"
+                : "bg-muted-foreground/16",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 function ContextStatusPopover({ session }: { session: Session }) {
   const messages = useMessagesStore(
     (s) => s.messagesBySession[session.id] ?? EMPTY_MESSAGES,
   );
 
   const latestContext = useMemo(() => {
+    let latestUsage: Extract<
+      Message["content"],
+      { _tag: "context_usage" }
+    > | null = null;
+    let latestUsageIndex = -1;
+    let latestCompact: Extract<
+      Message["content"],
+      { _tag: "context_compaction" }
+    > | null = null;
+    let latestCompactIndex = -1;
     for (let i = messages.length - 1; i >= 0; i--) {
       const content = messages[i]!.content;
       if (
         content._tag === "context_usage" &&
         content.providerId === session.providerId
       ) {
-        return content;
+        latestUsage = content;
+        latestUsageIndex = i;
+        break;
       }
     }
-    return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]!.content;
+      if (
+        content._tag === "context_compaction" &&
+        content.providerId === session.providerId &&
+        (content.status ?? "completed") === "completed" &&
+        content.afterTokens !== null
+      ) {
+        latestCompact = content;
+        latestCompactIndex = i;
+        break;
+      }
+    }
+    if (latestCompact !== null && latestCompactIndex > latestUsageIndex) {
+      return {
+        _tag: "context_usage" as const,
+        providerId: latestCompact.providerId,
+        usedTokens: latestCompact.afterTokens,
+        windowTokens: latestUsage?.windowTokens ?? null,
+        precision: "exact" as const,
+        source: "Context compaction",
+      };
+    }
+    return latestUsage;
   }, [messages, session.providerId]);
 
-  const usageLimits = useMemo(
-    () =>
-      messages
-        .filter(
-          (m) =>
-            m.content._tag === "usage_limit" &&
-            m.content.providerId === session.providerId,
-        )
-        .slice(-2)
-        .map((m) => (m.content._tag === "usage_limit" ? m.content : null))
-        .filter((v): v is NonNullable<typeof v> => v !== null),
-    [messages, session.providerId],
-  );
+  const usageLimits = useMemo(() => {
+    const latestByKey = new Map<
+      string,
+      Extract<Message["content"], { _tag: "usage_limit" }>
+    >();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const content = messages[i]!.content;
+      if (
+        content._tag === "usage_limit" &&
+        content.providerId === session.providerId
+      ) {
+        const key =
+          content.windowMinutes !== null
+            ? `window:${content.windowMinutes}`
+            : `label:${content.label}`;
+        if (!latestByKey.has(key)) {
+          latestByKey.set(key, content);
+        }
+      }
+    }
+    return [...latestByKey.values()].reverse();
+  }, [messages, session.providerId]);
 
-  // Real numbers only — but the context window itself is a real capacity we
-  // know from the model, so we show it from the first message and fill in
-  // the live bar once Claude/Codex report exact usage.
   const usedTokens = latestContext?.usedTokens ?? null;
+  const reportedWindowTokens = latestContext?.windowTokens ?? null;
+  const fallbackWindowTokens = selectedContextWindowTokens(
+    session.id,
+    session.providerId,
+    session.model,
+  );
   const windowTokens =
-    latestContext?.windowTokens ??
-    selectedContextWindowTokens(session.id, session.providerId, session.model);
+    usedTokens !== null
+      ? (reportedWindowTokens ?? fallbackWindowTokens)
+      : reportedWindowTokens;
 
   const percent =
     usedTokens !== null && windowTokens !== null && windowTokens > 0
@@ -1711,7 +1921,7 @@ function ContextStatusPopover({ session }: { session: Session }) {
       ? Math.max(0, windowTokens - usedTokens)
       : null;
 
-  const hasContext = usedTokens !== null || windowTokens !== null;
+  const hasContext = usedTokens !== null && windowTokens !== null;
   const hasLimits = usageLimits.length > 0;
   if (!hasContext && !hasLimits) return null;
 
@@ -1745,10 +1955,10 @@ function ContextStatusPopover({ session }: { session: Session }) {
         side="top"
         align="end"
         sideOffset={8}
-        className="w-[256px] overflow-hidden rounded-xl border-border bg-popover p-0 text-[13px] shadow-lg"
+        className="w-[300px] overflow-hidden rounded-xl border-border bg-popover p-0 text-[13px] shadow-lg"
       >
         {hasContext ? (
-          <div className="flex flex-col gap-2.5 p-3">
+          <div className="flex flex-col gap-3 p-3.5">
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-medium text-foreground">Context</span>
               <span className="tabular-nums text-muted-foreground">
@@ -1757,22 +1967,19 @@ function ContextStatusPopover({ session }: { session: Session }) {
             </div>
             {percent !== null ? (
               <>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-[width]",
-                      high ? "bg-amber-400" : "bg-foreground",
-                    )}
-                    style={{ width: `${Math.max(percent, 2)}%` }}
-                  />
-                </div>
+                <StickMeter
+                  percent={percent}
+                  tone={high ? "warning" : "default"}
+                />
                 <div className="flex items-center justify-between text-muted-foreground">
-                  <span className="tabular-nums">
-                    {percent.toFixed(1)}% used
-                  </span>
+                  <span>Window used</span>
+                  <span className="tabular-nums">{percent.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between text-muted-foreground/70">
+                  <span>Available</span>
                   {freeTokens !== null ? (
                     <span className="tabular-nums">
-                      {formatTokens(freeTokens)} free
+                      {formatTokens(freeTokens)}
                     </span>
                   ) : null}
                 </div>
@@ -1787,40 +1994,50 @@ function ContextStatusPopover({ session }: { session: Session }) {
         {hasLimits ? (
           <div
             className={cn(
-              "flex flex-col gap-2 p-3",
+              "flex flex-col gap-3 p-3.5",
               hasContext && "border-t border-border",
             )}
           >
-            <span className="font-medium text-foreground">Usage limits</span>
-            <div className="flex flex-col gap-1.5">
-              {usageLimits.map((limit, index) => {
-                const reset = resetLabel(limit.resetsAt);
-                const remaining =
-                  limit.usedPercent !== null
-                    ? `${Math.max(0, 100 - limit.usedPercent).toFixed(0)}% left`
-                    : "Active";
-                return (
-                  <div
-                    key={`${limit.label}-${index}`}
-                    className="flex flex-col gap-0.5"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-foreground">
-                        {limit.label}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {remaining}
-                      </span>
-                    </div>
-                    {reset !== null ? (
-                      <span className="tabular-nums text-muted-foreground/50">
-                        resets {reset}
-                      </span>
-                    ) : null}
+            {usageLimits.map((limit) => {
+              const reset = resetLabel(limit.resetsAt);
+              const used = limit.usedPercent;
+              const remaining =
+                used !== null
+                  ? `${Math.max(0, 100 - used).toFixed(0)}% left`
+                  : "Active";
+              const limitHigh = used !== null && used >= 80;
+              return (
+                <div
+                  key={
+                    limit.windowMinutes !== null
+                      ? `window:${limit.windowMinutes}`
+                      : `label:${limit.label}`
+                  }
+                  className="flex flex-col gap-3"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium text-foreground">
+                      {limit.label}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {remaining}
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+                  {used !== null ? (
+                    <StickMeter
+                      percent={used}
+                      tone={limitHigh ? "warning" : "default"}
+                    />
+                  ) : null}
+                  <div className="flex items-center justify-between text-muted-foreground/70">
+                    <span>Reset</span>
+                    <span className="tabular-nums">
+                      {reset !== null ? reset : "unknown"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </TooltipPopup>
@@ -1903,168 +2120,6 @@ function SessionTimer({
       title="Total time spent across all turns in this session"
     >
       {formatCoarse(totalElapsed)}
-    </span>
-  );
-}
-
-/**
- * Pick the workspace this session runs in: the project's main checkout or
- * a freshly-created git worktree. Editable only on a brand-new session
- * (zero user messages); once the first message is sent, the chip becomes
- * a read-only label with a lock glyph — cwd cannot move under a running
- * agent.
- */
-function WorkspacePicker({ session }: { session: Session }) {
-  const setChatWorktree = useChatsStore((s) => s.setWorktree);
-  const create = useWorktreesStore((s) => s.create);
-  const refresh = useWorktreesStore((s) => s.refresh);
-  const worktrees = useWorktreesStore(
-    (s) => s.byProject[session.projectId] ?? EMPTY_WORKTREES,
-  );
-  const userMessageCount = useMessagesStore((s) => {
-    const list = s.messagesBySession[session.id] ?? [];
-    let count = 0;
-    for (const m of list) {
-      if (m.role === "user") count += 1;
-    }
-    return count;
-  });
-  const locked = userMessageCount > 0;
-
-  // Hydrate the worktree list once per session so the popover renders
-  // names (not just "New worktree") on first open.
-  useEffect(() => {
-    void refresh(session.projectId);
-  }, [refresh, session.projectId]);
-
-  const current = useMemo(
-    () =>
-      session.worktreeId === null
-        ? null
-        : (worktrees.find((w) => w.id === session.worktreeId) ?? null),
-    [session.worktreeId, worktrees],
-  );
-
-  const triggerLabel =
-    session.worktreeId === null
-      ? "Current checkout"
-      : (current?.name ?? "Worktree");
-  const triggerIcon =
-    session.worktreeId === null ? Folder01Icon : GitBranchIcon;
-
-  if (locked) {
-    return (
-      <span
-        className="flex items-center gap-1.5 rounded-md px-2 py-1"
-        title="Workspace locked — first message already sent"
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{triggerLabel}</span>
-        <HugeiconsIcon icon={LockIcon} className="size-3 opacity-60" />
-      </span>
-    );
-  }
-
-  const onPickCurrent = () => {
-    if (session.worktreeId === null) return;
-    void setChatWorktree(session.chatId, null);
-  };
-  const onPickNewWorktree = async () => {
-    const wt = await create(session.projectId);
-    if (wt === null) return;
-    await setChatWorktree(session.chatId, wt.id);
-  };
-
-  return (
-    <Menu>
-      <MenuTrigger
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60"
-        aria-label="Change workspace"
-        title="Change workspace — locks once the first message is sent"
-      >
-        <HugeiconsIcon icon={triggerIcon} className="size-3.5" />
-        <span>{triggerLabel}</span>
-        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 opacity-60" />
-      </MenuTrigger>
-      <MenuPopup side="top" align="start" className="w-64 p-1">
-        <MenuItem
-          onClick={onPickCurrent}
-          className={cn(
-            "grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm",
-            session.worktreeId === null
-              ? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
-              : undefined,
-          )}
-        >
-          <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-            {session.worktreeId === null && (
-              <HugeiconsIcon
-                icon={Tick01Icon}
-                className="size-3.5 opacity-90"
-              />
-            )}
-          </span>
-          <HugeiconsIcon
-            icon={Folder01Icon}
-            className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-          />
-          <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-            <span className="font-medium leading-none">Current checkout</span>
-            <span className="text-xs text-muted-foreground leading-snug">
-              Run in the project's main working tree.
-            </span>
-          </div>
-        </MenuItem>
-        <MenuItem
-          onClick={() => void onPickNewWorktree()}
-          className="grid grid-cols-[1rem_auto_1fr] items-start gap-x-2.5 rounded-md px-2 py-2 text-sm"
-        >
-          <span className="col-start-1 row-start-1 flex h-5 items-center justify-center">
-            {session.worktreeId !== null && (
-              <HugeiconsIcon
-                icon={Tick01Icon}
-                className="size-3.5 opacity-90"
-              />
-            )}
-          </span>
-          <HugeiconsIcon
-            icon={GitBranchIcon}
-            className="col-start-2 row-start-1 mt-0.5 size-4 shrink-0"
-          />
-          <div className="col-start-3 row-start-1 flex flex-col gap-0.5">
-            <span className="font-medium leading-none">New worktree</span>
-            <span className="text-xs text-muted-foreground leading-snug">
-              Branch off the current HEAD into a fresh worktree.
-            </span>
-          </div>
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
-  );
-}
-
-/**
- * Right-aligned label that surfaces the worktree's branch when the session
- * is running on one. Empty when running in the main checkout — the file
- * tree / status pane already shows the project's HEAD branch in that case.
- */
-function WorkspaceBranchLabel({ session }: { session: Session }) {
-  const worktrees = useWorktreesStore(
-    (s) => s.byProject[session.projectId] ?? EMPTY_WORKTREES,
-  );
-  if (session.worktreeId === null) return null;
-  const wt = worktrees.find((w) => w.id === session.worktreeId);
-  if (wt === undefined) return null;
-  return (
-    <span
-      className="flex items-center gap-1 truncate font-mono text-foreground/80"
-      title={`Branch ${wt.branch}`}
-    >
-      <HugeiconsIcon
-        icon={GitBranchIcon}
-        className="size-3 shrink-0 opacity-70"
-      />
-      <span className="truncate font-medium">{wt.branch}</span>
     </span>
   );
 }

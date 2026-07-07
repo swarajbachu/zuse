@@ -5,20 +5,21 @@ import {
   type AgentItemId,
   type Message,
   type SessionId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 
 import { useMessagesStore } from "../store/messages.ts";
 
 const EMPTY: ReadonlyArray<Message> = [];
 
 const MODEL_LABEL: Record<string, string> = {
+  "claude-sonnet-5": "Sonnet",
+  "claude-fable-5": "Fable",
   "claude-opus-4-7": "Opus",
   "claude-sonnet-4-6": "Sonnet",
   "claude-haiku-4-5": "Haiku",
 };
 
-const labelForModel = (model: string): string =>
-  MODEL_LABEL[model] ?? model;
+const labelForModel = (model: string): string => MODEL_LABEL[model] ?? model;
 
 const formatTokens = (n: number): string => {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -47,7 +48,12 @@ const newBucket = (): UsageBucket => ({
 
 const addBucket = (
   acc: UsageBucket,
-  delta: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number },
+  delta: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  },
 ): void => {
   acc.inputTokens += delta.inputTokens;
   acc.outputTokens += delta.outputTokens;
@@ -163,15 +169,17 @@ export function CostFooter({ sessionId }: { sessionId: SessionId }) {
   if (summary === null) return null;
 
   return (
-    <div className="px-4 pb-1 text-[10px] text-muted-foreground">
-      <span className="tabular-nums">
-        {summary.lines.join(" · ")}
-        {summary.saved > 0.005 ? (
-          <span className="ml-2 text-emerald-300/80">
-            saved ~{formatUsd(summary.saved)}
-          </span>
-        ) : null}
-      </span>
+    <div className="px-3 pb-1 text-[10px] text-muted-foreground">
+      <div className="mx-auto w-full max-w-4xl">
+        <span className="tabular-nums">
+          {summary.lines.join(" · ")}
+          {summary.saved > 0.005 ? (
+            <span className="ml-2 text-emerald-300/80">
+              saved ~{formatUsd(summary.saved)}
+            </span>
+          ) : null}
+        </span>
+      </div>
     </div>
   );
 }

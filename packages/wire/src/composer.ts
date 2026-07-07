@@ -6,7 +6,7 @@ import { ProviderId } from "./agent.ts";
  * Reference to an uploaded attachment. The renderer carries this on
  * `ComposerInput` and on persisted user-rich messages; the actual bytes live
  * under the desktop app's userData directory and are served to the renderer
- * via the `memoize://attachments/<id>` custom protocol.
+ * via the `zuse://attachments/<id>` custom protocol.
  *
  * `id` shape: `<sessionSegment>-<uuid>` (sanitised session id + v4 UUID).
  */
@@ -68,6 +68,67 @@ export const CodeAnnotation = Schema.Struct({
 });
 export type CodeAnnotation = typeof CodeAnnotation.Type;
 
+export const BrowserAnnotationRect = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+});
+export type BrowserAnnotationRect = typeof BrowserAnnotationRect.Type;
+
+export const BrowserAnnotationPoint = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+});
+export type BrowserAnnotationPoint = typeof BrowserAnnotationPoint.Type;
+
+export const BrowserAnnotationElement = Schema.Struct({
+  tagName: Schema.String,
+  selector: Schema.NullOr(Schema.String),
+  label: Schema.String,
+  rect: BrowserAnnotationRect,
+  textPreview: Schema.String,
+});
+export type BrowserAnnotationElement = typeof BrowserAnnotationElement.Type;
+
+export const BrowserAnnotationRegion = Schema.Struct({
+  id: Schema.String,
+  rect: BrowserAnnotationRect,
+});
+export type BrowserAnnotationRegion = typeof BrowserAnnotationRegion.Type;
+
+export const BrowserAnnotationStroke = Schema.Struct({
+  id: Schema.String,
+  points: Schema.Array(BrowserAnnotationPoint),
+  bounds: BrowserAnnotationRect,
+});
+export type BrowserAnnotationStroke = typeof BrowserAnnotationStroke.Type;
+
+/**
+ * A visual annotation the user made directly on the Browser preview. The
+ * screenshot travels through the existing attachment path, so the structured
+ * annotation never carries raw image bytes or full page text.
+ */
+export const BrowserAnnotation = Schema.Struct({
+  _tag: Schema.Literal("browser"),
+  id: Schema.String,
+  comment: Schema.String,
+  createdAt: Schema.String,
+  pageUrl: Schema.String,
+  pageTitle: Schema.NullOr(Schema.String),
+  elements: Schema.Array(BrowserAnnotationElement),
+  regions: Schema.Array(BrowserAnnotationRegion),
+  strokes: Schema.Array(BrowserAnnotationStroke),
+  screenshotAttachment: Schema.NullOr(AttachmentRef),
+});
+export type BrowserAnnotation = typeof BrowserAnnotation.Type;
+
+export const ComposerAnnotation = Schema.Union(
+  CodeAnnotation,
+  BrowserAnnotation,
+);
+export type ComposerAnnotation = typeof ComposerAnnotation.Type;
+
 /**
  * The full payload of a single composer submission. `text` is the editor
  * document with `@` / `/` tokens preserved as plain text; the typed arrays
@@ -79,7 +140,7 @@ export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
     attachments: Schema.Array(AttachmentRef),
     fileRefs: Schema.Array(FileRef),
     skillRefs: Schema.Array(SkillRef),
-    annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+    annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
       default: () => [],
     }),
   },

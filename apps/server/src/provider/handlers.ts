@@ -3,12 +3,17 @@ import {
   CredentialStoreError,
   MemoizeRpcs,
   type ProviderId,
-} from "@memoize/wire";
+} from "@zuse/wire";
 import { CommandExecutor } from "@effect/platform";
 import { Effect, Layer, Stream } from "effect";
 
+import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
-import { loadOpencodeInventory } from "./drivers/opencode.ts";
+import {
+  loadOpencodeInventory,
+  removeOpencodeProviderAuth,
+  setOpencodeProviderAuth,
+} from "./drivers/opencode.ts";
 import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
 import { startProviderLogin } from "./services/login-service.ts";
@@ -19,7 +24,7 @@ import { ProviderService } from "./services/provider-service.ts";
 
 /**
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
- * here as it registers its RPC into `MemoizeRpcs` (in `@memoize/wire`):
+ * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/wire`):
  *
  *   PR 3 — `agent.availability`         ← here
  *   PR 4 — `agent.setCredential`        ← here
@@ -69,11 +74,11 @@ const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
 );
 
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card. Today only the cursor handler does real work — it spawns
-// `cursor-agent login`, extracts the OAuth URL, and streams progress back.
-// When the renderer unsubscribes (cancel, navigate away, IPC drop), the
-// stream's scope closes and the child process is SIGTERM'd by the service's
-// finalizer.
+// provider card or in an auth error bubble. `cursor` and `claude` have real
+// handlers — they spawn the provider's `login` subcommand, extract the OAuth
+// URL, and stream progress back. When the renderer unsubscribes (cancel,
+// navigate away, IPC drop), the stream's scope closes and the child process is
+// SIGTERM'd by the service's finalizer.
 const StartLogin = MemoizeRpcs.toLayerHandler(
   "agent.startLogin",
   ({ providerId }) => startProviderLogin(providerId),
@@ -102,17 +107,97 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
   "agent.opencodeInventory",
   () =>
     Effect.gen(function* () {
-      const opencodePath = yield* resolveCliPath("opencode");
-      if (opencodePath === null) {
-        return yield* Effect.fail(
-          new AgentSessionStartError({
-            providerId: "opencode",
-            reason:
-              "OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
-          }),
-        );
-      }
-      return yield* loadOpencodeInventory(opencodePath, process.cwd());
+      const opencodePath = yield* requireOpencodePath();
+      const settings = yield* ConfigStoreService.pipe(
+        Effect.flatMap((cs) => cs.getSettings()),
+      );
+      return yield* loadOpencodeInventory(
+        opencodePath,
+        process.cwd(),
+        settings.opencodeCustomProviders,
+      );
+    }),
+);
+
+// ---------------------------------------------------------------------------
+// OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
+// credentials through to opencode's own `auth.json` (so terminal opencode sees
+// them too); custom-provider *shapes* are persisted to our settings.json
+// (`opencodeCustomProviders`) and injected into every `opencode serve` spawn.
+// ---------------------------------------------------------------------------
+
+const requireOpencodePath = (): Effect.Effect<
+  string,
+  AgentSessionStartError,
+  CommandExecutor.CommandExecutor
+> =>
+  Effect.gen(function* () {
+    const opencodePath = yield* resolveCliPath("opencode");
+    if (opencodePath === null) {
+      return yield* Effect.fail(
+        new AgentSessionStartError({
+          providerId: "opencode",
+          reason:
+            "OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
+        }),
+      );
+    }
+    return opencodePath;
+  });
+
+const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeSetProviderAuth",
+  ({ providerId, apiKey }) =>
+    Effect.gen(function* () {
+      const opencodePath = yield* requireOpencodePath();
+      yield* setOpencodeProviderAuth(
+        opencodePath,
+        process.cwd(),
+        providerId,
+        apiKey,
+      );
+    }),
+);
+
+const OpencodeRemoveProviderAuth = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeRemoveProviderAuth",
+  ({ providerId }) => removeOpencodeProviderAuth(providerId),
+);
+
+const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeAddCustomProvider",
+  ({ id, name, baseURL, npm, apiKey, models }) =>
+    Effect.gen(function* () {
+      const opencodePath = yield* requireOpencodePath();
+      const configStore = yield* ConfigStoreService;
+      // Write the key through to opencode's auth.json first — if that fails we
+      // don't want an orphaned provider def with no credential.
+      yield* setOpencodeProviderAuth(opencodePath, process.cwd(), id, apiKey);
+      const settings = yield* configStore.getSettings();
+      const others = settings.opencodeCustomProviders.filter(
+        (p) => p.id !== id,
+      );
+      yield* configStore.updateSettings({
+        opencodeCustomProviders: [
+          ...others,
+          { id, name, baseURL, npm, models: [...models] },
+        ],
+      });
+    }),
+);
+
+const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
+  "agent.opencodeRemoveCustomProvider",
+  ({ id }) =>
+    Effect.gen(function* () {
+      const configStore = yield* ConfigStoreService;
+      yield* removeOpencodeProviderAuth(id);
+      const settings = yield* configStore.getSettings();
+      yield* configStore.updateSettings({
+        opencodeCustomProviders: settings.opencodeCustomProviders.filter(
+          (p) => p.id !== id,
+        ),
+      });
     }),
 );
 
@@ -220,8 +305,12 @@ const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
     ),
 );
 
-const ChatArchive = MemoizeRpcs.toLayerHandler("chat.archive", ({ chatId }) =>
-  Effect.flatMap(MessageStore, (svc) => svc.archiveChat(chatId)),
+const ChatArchive = MemoizeRpcs.toLayerHandler(
+  "chat.archive",
+  ({ chatId, force }) =>
+    Effect.flatMap(MessageStore, (svc) =>
+      svc.archiveChat(chatId, force ?? false),
+    ),
 );
 
 const ChatUnarchive = MemoizeRpcs.toLayerHandler(
@@ -278,6 +367,38 @@ const SessionResume = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageStore, (svc) => svc.resumeSession(sessionId)),
 );
 
+const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
+  Effect.flatMap(MessageStore, (svc) =>
+    svc.forkSession({
+      sourceSessionId: input.sourceSessionId,
+      fromMessageId: input.fromMessageId,
+      destination: input.destination,
+      providerId: input.providerId,
+      model: input.model,
+      worktreeId: input.worktreeId,
+      title: input.title,
+    }),
+  ),
+);
+
+const SessionExportTranscript = MemoizeRpcs.toLayerHandler(
+  "session.exportTranscript",
+  ({ sessionId, uptoMessageId }) =>
+    Effect.flatMap(MessageStore, (svc) =>
+      svc
+        .exportTranscript(sessionId, uptoMessageId)
+        .pipe(Effect.map((markdown) => ({ markdown }))),
+    ),
+);
+
+const SessionLatestPlan = MemoizeRpcs.toLayerHandler(
+  "session.latestPlan",
+  ({ sessionId }) =>
+    Effect.flatMap(MessageStore, (svc) =>
+      svc.latestPlan(sessionId).pipe(Effect.map((plan) => ({ plan }))),
+    ),
+);
+
 const SessionSetRuntimeMode = MemoizeRpcs.toLayerHandler(
   "session.setRuntimeMode",
   ({ sessionId, runtimeMode }) =>
@@ -300,7 +421,7 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageStore, (svc) =>
       svc.answerQuestion(
         sessionId,
-        itemId as import("@memoize/wire").AgentItemId,
+        itemId as import("@zuse/wire").AgentItemId,
         answers,
       ),
     ),
@@ -322,9 +443,11 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const MessagesStream = MemoizeRpcs.toLayerHandler(
   "messages.stream",
-  ({ sessionId }) =>
+  ({ sessionId, sinceSequence }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamMessages(sessionId)),
+      Effect.map(MessageStore, (svc) =>
+        svc.streamMessages(sessionId, sinceSequence),
+      ),
     ),
 );
 
@@ -362,7 +485,7 @@ const SessionGoalStream = MemoizeRpcs.toLayerHandler(
 
 const MessagesSend = MemoizeRpcs.toLayerHandler(
   "messages.send",
-  ({ sessionId, text, input, asGoal }) => {
+  ({ sessionId, text, input, asGoal, clientMessageId }) => {
     console.log(
       `[rpc.messages.send] sessionId=${sessionId} hasInput=${input !== undefined} attachments=${
         input?.attachments?.length ?? 0
@@ -384,6 +507,7 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
         input?.skillRefs,
         input?.annotations,
         asGoal,
+        clientMessageId,
       ),
     );
   },
@@ -561,6 +685,10 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   StartLogin,
   UpdateProvider,
   OpencodeInventory,
+  OpencodeSetProviderAuth,
+  OpencodeRemoveProviderAuth,
+  OpencodeAddCustomProvider,
+  OpencodeRemoveCustomProvider,
   SessionList,
   SessionGet,
   SessionCreate,
@@ -582,6 +710,9 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   ChatUnarchive,
   ChatDelete,
   SessionResume,
+  SessionFork,
+  SessionExportTranscript,
+  SessionLatestPlan,
   SessionSetRuntimeMode,
   SessionSetPermissionMode,
   SessionAnswerQuestion,
