@@ -2168,6 +2168,7 @@ export const MessageStoreLive = Layer.scoped(
               ),
             )
           : null;
+        yield* broadcastChat(chat);
         // Path 1: the chat was created WITH its first message (the common
         // composer flow). Kick off the background auto-name when there is
         // enough context (trivial-only greetings wait for a follow-up).

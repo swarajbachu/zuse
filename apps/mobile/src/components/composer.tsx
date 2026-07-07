@@ -1,4 +1,11 @@
-import type { Session, SessionId, SessionStatus } from "@zuse/wire";
+import {
+  Message,
+  MessageId,
+  type MessageContent,
+  type Session,
+  type SessionId,
+  type SessionStatus,
+} from "@zuse/wire";
 import {
   ArrowUp01Icon,
   CloudOffIcon,
@@ -8,6 +15,7 @@ import {
   Square01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
+import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -29,7 +37,10 @@ import {
 import { isInterruptVisible } from "~/lib/composer-state";
 import { connectionSessionKey } from "~/lib/session-key";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-import { useMobileMessagesStore } from "~/store/messages";
+import {
+  addOptimisticMessage,
+  removeOptimisticMessage,
+} from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import {
   ComposerModelMenu,
@@ -49,6 +60,7 @@ export const Composer = ({
   fresh,
   projectLabel,
   sourceLabel,
+  online,
   bottomInset = 0,
 }: {
   connKey: string;
@@ -59,19 +71,13 @@ export const Composer = ({
   fresh: boolean;
   projectLabel?: string;
   sourceLabel?: string;
+  online: boolean;
   bottomInset?: number;
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const stateKey = connectionSessionKey(connKey, sessionId);
 
-  // Offline = the message stream is retrying or has surfaced an error. Sends
-  // made in this state are queued instead of dropped.
-  const online = useMobileMessagesStore(
-    (state) =>
-      state.reconnectingBySession[stateKey] !== true &&
-      (state.errorBySession[stateKey] ?? null) === null,
-  );
   const queuedCount = useOutboxStore(
     (state) => (state.queuedBySession[stateKey] ?? []).length,
   );
@@ -98,11 +104,33 @@ export const Composer = ({
       return;
     }
     setBusy(true);
+    const messageId = MessageId.make(Crypto.randomUUID());
+    const optimisticContent: MessageContent = {
+      _tag: "user",
+      text: value,
+      goal: false,
+    };
+    addOptimisticMessage(
+      stateKey,
+      Message.make({
+        id: messageId,
+        sessionId,
+        role: "user",
+        content: optimisticContent,
+        createdAt: new Date(),
+      }),
+    );
     try {
       await Effect.runPromise(
-        sendMessage({ connection, sessionId, input: makeTextInput(value) }),
+        sendMessage({
+          connection,
+          sessionId,
+          input: makeTextInput(value),
+          clientMessageId: messageId,
+        }),
       );
     } catch {
+      removeOptimisticMessage(stateKey, messageId);
       // Lost the connection mid-send — keep the text safe in the outbox.
       await enqueue(connKey, sessionId, value);
     } finally {
@@ -169,7 +197,8 @@ export const Composer = ({
         <View className="mb-2 flex-row items-center gap-1.5 px-1">
           <HugeIcon icon={CloudOffIcon} size={13} color="hsl(42 93% 56%)" />
           <Text className="font-sans-medium text-xs text-warning">
-            {queuedCount} queued · will send when reconnected
+            {queuedCount} queued ·{" "}
+            {online ? "sending…" : "will send when reconnected"}
           </Text>
         </View>
       ) : null}

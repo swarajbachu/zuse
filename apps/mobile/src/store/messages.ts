@@ -1,4 +1,4 @@
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, MessageId, SessionId } from "@zuse/wire";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
@@ -22,6 +22,7 @@ type MessagesState = {
 
 const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
 const highestSequenceBySession = new Map<string, number>();
+const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;
 
 const stop = async (key: string) => {
@@ -77,25 +78,46 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
           }));
           void get().flush(connKey, sessionId);
         }
-        const sinceSequence = highestSequenceBySession.get(liveKey);
-        console.info("[mobile] messages.stream", { sessionId, sinceSequence });
+        console.info("[mobile] messages.stream", { sessionId });
         const program = Stream.runForEach(
-          client.messages.stream({ sessionId, sinceSequence }),
+          client.messages.stream({ sessionId }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;
-              if (envelope.sequence <= previous) return;
-              highestSequenceBySession.set(liveKey, envelope.sequence);
+              if (envelope.sequence > previous) {
+                highestSequenceBySession.set(liveKey, envelope.sequence);
+              }
               console.info("[mobile] messages.stream envelope", {
                 sessionId,
                 sequence: envelope.sequence,
               });
               set((state) => {
                 const current = state.messagesBySession[liveKey] ?? [];
-                if (
-                  current.some((message) => message.id === envelope.message.id)
-                ) {
-                  return state;
+                if (optimisticIds.has(envelope.message.id)) {
+                  optimisticIds.delete(envelope.message.id);
+                  return {
+                    messagesBySession: {
+                      ...state.messagesBySession,
+                      [liveKey]: current.map((message) =>
+                        message.id === envelope.message.id
+                          ? envelope.message
+                          : message,
+                      ),
+                    },
+                  };
+                }
+                const existingIndex = current.findIndex(
+                  (message) => message.id === envelope.message.id,
+                );
+                if (existingIndex !== -1) {
+                  return {
+                    messagesBySession: {
+                      ...state.messagesBySession,
+                      [liveKey]: current.map((message, index) =>
+                        index === existingIndex ? envelope.message : message,
+                      ),
+                    },
+                  };
                 }
                 const next = [...current, envelope.message].slice(-500);
                 return {
@@ -108,12 +130,23 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
               void get().flush(connKey, sessionId);
             }),
         ).pipe(
-          Effect.tapError((cause) =>
-            Effect.sync(() => reportConnectionFailure(options, cause)),
+          Effect.catchAll((cause) =>
+            Effect.sync(() => {
+              set((state) => ({
+                reconnectingBySession: {
+                  ...state.reconnectingBySession,
+                  [liveKey]: true,
+                },
+                errorBySession: {
+                  ...state.errorBySession,
+                  [liveKey]:
+                    cause instanceof Error ? cause.message : String(cause),
+                },
+              }));
+            }),
           ),
         );
-        const fiber = await Effect.runPromise(program.pipe(Effect.fork));
-        liveFibers.set(liveKey, fiber);
+        liveFibers.set(liveKey, Effect.runFork(program));
       } catch (cause) {
         reportConnectionFailure(options, cause);
         set((state) => ({
@@ -142,6 +175,31 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
     ).catch(() => {});
   },
 }));
+
+export const addOptimisticMessage = (key: string, message: Message): void => {
+  optimisticIds.add(message.id);
+  useMobileMessagesStore.setState((state) => ({
+    messagesBySession: {
+      ...state.messagesBySession,
+      [key]: [...(state.messagesBySession[key] ?? []), message].slice(-500),
+    },
+  }));
+};
+
+export const removeOptimisticMessage = (
+  key: string,
+  messageId: MessageId,
+): void => {
+  optimisticIds.delete(messageId);
+  useMobileMessagesStore.setState((state) => ({
+    messagesBySession: {
+      ...state.messagesBySession,
+      [key]: (state.messagesBySession[key] ?? []).filter(
+        (message) => message.id !== messageId,
+      ),
+    },
+  }));
+};
 
 const installAppStateFlush = (get: () => MessagesState) => {
   if (appStateInstalled) return;
