@@ -1132,6 +1132,49 @@ function createMainWindow() {
     return browserPendingDialog.get(rawId) ?? null;
   });
 
+  ipcMain.handle("browser:listLocalServers", async () => {
+    try {
+      const byPort = new Map<number, string>();
+      if (process.platform === "darwin") {
+        const { stdout } = await execFileAsync("lsof", [
+          "-nP",
+          "-iTCP",
+          "-sTCP:LISTEN",
+        ]);
+        for (const line of stdout.split("\n").slice(1)) {
+          const trimmed = line.trim();
+          if (trimmed.length === 0) continue;
+          const parts = trimmed.split(/\s+/);
+          const command = parts[0] ?? "server";
+          const endpoint = parts.find((part) => /:(\d+)$/.test(part));
+          const match = endpoint?.match(/:(\d+)$/);
+          if (match === undefined || match === null) continue;
+          const port = Number(match[1]);
+          if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+          if (!byPort.has(port)) byPort.set(port, command.slice(0, 48));
+        }
+      } else {
+        const { stdout } = await execFileAsync("netstat", ["-an"]);
+        for (const line of stdout.split("\n")) {
+          if (!/\bLISTEN(?:ING)?\b/i.test(line)) continue;
+          const match = line.match(
+            /(?:127\.0\.0\.1|0\.0\.0\.0|\[?::1\]?|\*)[.:](\d+)/,
+          );
+          if (match === null) continue;
+          const port = Number(match[1]);
+          if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+          if (!byPort.has(port)) byPort.set(port, "localhost");
+        }
+      }
+      return [...byPort.entries()]
+        .sort(([left], [right]) => left - right)
+        .slice(0, 50)
+        .map(([port, name]) => ({ name, port }));
+    } catch {
+      return [];
+    }
+  });
+
   ipcMain.handle(
     "browser:dispatchInput",
     async (_event, rawId: unknown, rawAction: unknown) => {

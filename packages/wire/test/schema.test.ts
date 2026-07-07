@@ -469,6 +469,80 @@ describe("ComposerInput round-trip", () => {
       ],
     });
   });
+
+  it("round-trips browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "",
+      attachments: [
+        {
+          id: "screenshot-1",
+          mimeType: "image/png",
+          originalName: "browser-annotation.png",
+        },
+      ],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "tighten the hero copy",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "https://example.com/",
+          pageTitle: "Example Domain",
+          elements: [
+            {
+              tagName: "h1",
+              selector: "h1",
+              label: "h1",
+              rect: { x: 10, y: 20, width: 300, height: 60 },
+              textPreview: "Example Domain",
+            },
+          ],
+          regions: [],
+          strokes: [],
+          screenshotAttachment: {
+            id: "screenshot-1",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        },
+      ],
+    });
+  });
+
+  it("round-trips mixed code and browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "review these",
+      attachments: [],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          id: "ann-code-1",
+          relPath: "src/app.ts",
+          absPath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          comment: "extract this branch",
+        },
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "make this button clearer",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "http://localhost:3000/",
+          pageTitle: null,
+          elements: [],
+          regions: [
+            { id: "region-1", rect: { x: 1, y: 2, width: 3, height: 4 } },
+          ],
+          strokes: [],
+          screenshotAttachment: null,
+        },
+      ],
+    });
+  });
 });
 
 describe("SettingsFile round-trip", () => {

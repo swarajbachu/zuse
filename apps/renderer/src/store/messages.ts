@@ -1028,6 +1028,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             attachments: c.attachments,
             fileRefs: c.fileRefs,
             skillRefs: c.skillRefs,
+            annotations: c.annotations,
           }),
         );
         return;

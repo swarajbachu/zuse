@@ -8,6 +8,16 @@ import type {
   SessionId,
 } from "@zuse/wire";
 
+export interface BrowserBridgeDiagnostics {
+  readonly connectedRendererCount: number;
+  readonly pendingCommandCount: number;
+  readonly issuedCommandCount: number;
+  readonly timeoutCount: number;
+  readonly overloadCount: number;
+  readonly disconnectCount: number;
+  readonly missingResponseCount: number;
+}
+
 /**
  * Bridge between the in-process browser MCP tools (which call `send` from
  * inside the Claude SDK tool handler) and the renderer (which subscribes to
@@ -37,6 +47,8 @@ export interface BrowserBridgeServiceShape {
   ) => Effect.Effect<void, BrowserCommandNotFoundError>;
 
   readonly commands: () => Stream.Stream<BrowserCommandRequest>;
+
+  readonly diagnostics: Effect.Effect<BrowserBridgeDiagnostics>;
 }
 
 export class BrowserBridgeService extends Context.Tag(

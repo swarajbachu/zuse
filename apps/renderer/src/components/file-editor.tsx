@@ -58,6 +58,13 @@ type PreviewState =
   | { status: "binary"; size: number }
   | { status: "error"; reason: string };
 
+const isCodeAnnotation = (annotation: unknown): annotation is CodeAnnotation =>
+  typeof annotation === "object" &&
+  annotation !== null &&
+  "relPath" in annotation &&
+  "startLine" in annotation &&
+  !("_tag" in annotation);
+
 const formatError = (err: unknown): string => {
   if (typeof err === "object" && err !== null && "_tag" in err) {
     const tag = String((err as { _tag: unknown })._tag);
@@ -108,9 +115,9 @@ const joinPath = (base: string, rel: string): string =>
 
 const fileUrlForDirectory = (dir: string): string => {
   const normalized = dir.endsWith("/") ? dir : `${dir}/`;
-  const segments = normalized.split("/").map((segment) =>
-    segment === "" ? "" : encodeURIComponent(segment),
-  );
+  const segments = normalized
+    .split("/")
+    .map((segment) => (segment === "" ? "" : encodeURIComponent(segment)));
   return `file://${segments.join("/")}`;
 };
 
@@ -261,6 +268,7 @@ function CodeMirrorBody({
   const visibleAnnotations = useMemo(
     () =>
       draftAnnotations
+        .filter(isCodeAnnotation)
         .filter(
           (a) =>
             a.relPath === annotationPath || a.absPath === annotationAbsPath,
