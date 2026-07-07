@@ -11,7 +11,7 @@ import {
 } from "./agent.ts";
 import {
   AttachmentRef,
-  CodeAnnotation,
+  ComposerAnnotation,
   ComposerInput,
   FileRef,
   SkillRef,
@@ -177,7 +177,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   skillRefs: Schema.Array(SkillRef),
   // Additive + back-compat: rows persisted before code annotations existed
   // decode with an empty list rather than failing.
-  annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+  annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
     default: () => [],
   }),
   goal: Schema.optional(Schema.Boolean),

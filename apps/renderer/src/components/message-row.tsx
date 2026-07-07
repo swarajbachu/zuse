@@ -14,7 +14,9 @@ import { RefreshCw as RefreshIcon } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import type {
   AttachmentRef,
+  BrowserAnnotation,
   CodeAnnotation,
+  ComposerAnnotation,
   FileRef,
   Message,
   ProviderId,
@@ -38,6 +40,25 @@ import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const browserAnnotationMeta = (annotation: BrowserAnnotation): string => {
+  const count =
+    annotation.elements.length +
+    annotation.regions.length +
+    annotation.strokes.length;
+  const first = annotation.elements[0];
+  if (first !== undefined) return `<${first.tagName}> · ${count}`;
+  try {
+    return `${new URL(annotation.pageUrl).host} · ${count}`;
+  } catch {
+    return `Browser · ${count}`;
+  }
+};
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   ExitPlanModeRow,
@@ -341,7 +362,7 @@ function UserBubble({
   attachments?: ReadonlyArray<AttachmentRef>;
   fileRefs?: ReadonlyArray<FileRef>;
   skillRefs?: ReadonlyArray<SkillRef>;
-  annotations?: ReadonlyArray<CodeAnnotation>;
+  annotations?: ReadonlyArray<ComposerAnnotation>;
   goal?: boolean;
 }) {
   const hasAnnotations = annotations !== undefined && annotations.length > 0;
@@ -372,15 +393,28 @@ function UserBubble({
               <li key={a.id}>
                 <button
                   type="button"
-                  onClick={() => revealAnnotation(a)}
+                  onClick={() => {
+                    if (!isBrowserAnnotation(a)) revealAnnotation(a);
+                  }}
+                  disabled={isBrowserAnnotation(a)}
                   className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
-                  title="Open annotation"
+                  title={
+                    isBrowserAnnotation(a)
+                      ? "Browser annotation"
+                      : "Open annotation"
+                  }
                 >
                   <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
                     {i + 1}
                   </span>
                   <span className="grid min-w-0 flex-1 gap-1">
-                    <AnnotationFileChip annotation={a} />
+                    {isBrowserAnnotation(a) ? (
+                      <span className="min-w-0 truncate font-medium">
+                        {browserAnnotationMeta(a)}
+                      </span>
+                    ) : (
+                      <AnnotationFileChip annotation={a as CodeAnnotation} />
+                    )}
                     <span className="min-w-0 break-words leading-snug">
                       {a.comment}
                     </span>

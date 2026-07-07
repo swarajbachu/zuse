@@ -86,6 +86,61 @@ describe("annotations store", () => {
     expect(annotationsForSession(sessionId)).toEqual([]);
   });
 
+  it("edits annotation comments before send", () => {
+    const id = useAnnotationsStore.getState().add(sessionId, {
+      relPath: "src/app.ts",
+      absPath: "/repo/src/app.ts",
+      startLine: 3,
+      endLine: 5,
+      comment: "initial note",
+    });
+
+    useAnnotationsStore
+      .getState()
+      .updateComment(sessionId, id, "  refined instruction  ");
+
+    expect(annotationsForSession(sessionId)).toMatchObject([
+      {
+        id,
+        comment: "refined instruction",
+      },
+    ]);
+  });
+
+  it("adds browser annotations by session", () => {
+    const annotation = useAnnotationsStore.getState().addBrowser(sessionId, {
+      comment: "this can be improved",
+      pageUrl: "https://example.com/",
+      pageTitle: "Example Domain",
+      elements: [
+        {
+          tagName: "p",
+          selector: "p",
+          label: "p",
+          rect: { x: 1, y: 2, width: 300, height: 40 },
+          textPreview: "This domain is for use in documentation examples",
+        },
+      ],
+      regions: [],
+      strokes: [],
+      screenshotAttachment: {
+        id: "shot-1",
+        mimeType: "image/png",
+        originalName: "browser-annotation.png",
+      },
+    });
+
+    expect(annotation._tag).toBe("browser");
+    expect(annotationsForSession(sessionId)).toMatchObject([
+      {
+        id: annotation.id,
+        _tag: "browser",
+        comment: "this can be improved",
+        pageUrl: "https://example.com/",
+      },
+    ]);
+  });
+
   it("persists drafts to localStorage", () => {
     useAnnotationsStore.getState().add(sessionId, {
       relPath: "src/app.ts",

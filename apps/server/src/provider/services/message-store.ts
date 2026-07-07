@@ -13,7 +13,7 @@ import type {
   ChatId,
   ChatNotFoundError,
   ChatUnarchiveResult,
-  CodeAnnotation,
+  ComposerAnnotation,
   ComposerInput,
   FileRef,
   FolderId,
@@ -299,7 +299,10 @@ export interface MessageStoreShape {
    */
   readonly forkSession: (
     input: ForkSessionInput,
-  ) => Effect.Effect<ForkSessionResult, SessionNotFoundError | SessionStartError>;
+  ) => Effect.Effect<
+    ForkSessionResult,
+    SessionNotFoundError | SessionStartError
+  >;
 
   /**
    * Serialise a session's transcript to Markdown, optionally truncated at
@@ -439,7 +442,7 @@ export interface MessageStoreShape {
     attachments?: ReadonlyArray<AttachmentRef>,
     fileRefs?: ReadonlyArray<FileRef>,
     skillRefs?: ReadonlyArray<SkillRef>,
-    annotations?: ReadonlyArray<CodeAnnotation>,
+    annotations?: ReadonlyArray<ComposerAnnotation>,
     asGoal?: boolean,
     clientMessageId?: MessageId,
   ) => Effect.Effect<void, SessionNotFoundError>;

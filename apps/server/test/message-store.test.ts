@@ -69,6 +69,7 @@ const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
+let providerSentTexts: string[] = [];
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
@@ -81,7 +82,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
     }),
-  send: () => Effect.void,
+  send: (_sessionId, text) =>
+    Effect.sync(() => {
+      providerSentTexts.push(text);
+    }),
   interrupt: () => Effect.void,
   close: () => Effect.void,
   events: () => Stream.fromIterable(scriptedEvents),
@@ -301,6 +305,7 @@ const store = MessageStore;
 beforeEach(() => {
   providerStartInputs = [];
   providerStartCursors = [];
+  providerSentTexts = [];
 });
 
 describe("MessageStore migrations", () => {
@@ -691,6 +696,126 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
+  it("sendMessage stores human annotations and sends them as provider context", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const annotations = [
+        {
+          id: "ann-human-1",
+          relPath: "src/app.ts",
+          absPath: "/tmp/project/src/app.ts",
+          startLine: 12,
+          endLine: 16,
+          comment: "make this branch easier to follow",
+        },
+      ];
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            id,
+            "please handle this",
+            undefined,
+            undefined,
+            undefined,
+            annotations,
+          ),
+        ),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(id)),
+      );
+      const user = messages.filter((m) => m.role === "user").at(-1);
+      expect(user?.content).toMatchObject({
+        _tag: "user_rich",
+        text: "please handle this",
+        annotations,
+      });
+      expect(providerSentTexts.at(-1)).toBe(
+        "Code annotations:\n1. src/app.ts:12-16 — make this branch easier to follow\n\nplease handle this",
+      );
+    });
+  });
+
+  it("sendMessage serializes browser annotations without leaking page text", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const id = initialSession.id;
+      const annotations = [
+        {
+          _tag: "browser" as const,
+          id: "ann-browser-1",
+          comment: "this hero copy can be improved",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "https://example.com/",
+          pageTitle: "Example Domain",
+          elements: [
+            {
+              tagName: "p",
+              selector: "main > p",
+              label: "p",
+              rect: { x: 10, y: 20, width: 400, height: 80 },
+              textPreview:
+                "RAW PAGE TEXT THAT SHOULD NOT BE SERIALIZED INTO PROMPT",
+            },
+          ],
+          regions: [],
+          strokes: [],
+          screenshotAttachment: {
+            id: "shot-browser-1",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        },
+      ];
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            id,
+            "",
+            [
+              {
+                id: "shot-browser-1",
+                mimeType: "image/png",
+                originalName: "browser-annotation.png",
+              },
+            ],
+            undefined,
+            undefined,
+            annotations,
+          ),
+        ),
+      );
+
+      const sent = providerSentTexts.at(-1) ?? "";
+      expect(sent).toContain("Browser annotations:");
+      expect(sent).toContain(
+        "1. https://example.com/ (Example Domain) — <p> p; this hero copy can be improved. Screenshot attached.",
+      );
+      expect(sent).not.toContain("RAW PAGE TEXT");
+      expect(sent).not.toContain("image/png;base64");
+    });
+  });
+
   it("reads legacy context compaction rows without status", async () => {
     await withRuntime(async (run) => {
       const { initialSession } = await run(
@@ -812,6 +937,120 @@ describe("MessageStore — chat & session lifecycle", () => {
         "first edited",
       ]);
       expect(remaining.items[0]?.position).toBe(0);
+    });
+  });
+
+  it("queued messages preserve human annotations until they are sent", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const input = new ComposerInput({
+        text: "",
+        attachments: [],
+        fileRefs: [],
+        skillRefs: [],
+        annotations: [
+          {
+            id: "ann-queued-1",
+            relPath: "src/queued.ts",
+            absPath: "/tmp/project/src/queued.ts",
+            startLine: 4,
+            endLine: 4,
+            comment: "queued annotation only",
+          },
+        ],
+      });
+
+      const queued = await run(
+        Effect.flatMap(store, (s) =>
+          s.addQueuedMessage(initialSession.id, input),
+        ),
+      );
+      expect(queued.input.annotations).toEqual(input.annotations);
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendQueuedMessageNow(initialSession.id, queued.id),
+        ),
+      );
+
+      expect(providerSentTexts.at(-1)).toBe(
+        "Code annotations:\n1. src/queued.ts:4 — queued annotation only",
+      );
+    });
+  });
+
+  it("queued messages preserve browser annotations and screenshot attachments", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const input = new ComposerInput({
+        text: "apply this visual note",
+        attachments: [
+          {
+            id: "shot-queued-browser",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        ],
+        fileRefs: [],
+        skillRefs: [],
+        annotations: [
+          {
+            _tag: "browser",
+            id: "ann-browser-queued",
+            comment: "align this card with the list",
+            createdAt: "2026-07-07T00:00:00.000Z",
+            pageUrl: "http://localhost:3000/",
+            pageTitle: null,
+            elements: [],
+            regions: [
+              {
+                id: "region-queued",
+                rect: { x: 1, y: 2, width: 3, height: 4 },
+              },
+            ],
+            strokes: [],
+            screenshotAttachment: {
+              id: "shot-queued-browser",
+              mimeType: "image/png",
+              originalName: "browser-annotation.png",
+            },
+          },
+        ],
+      });
+
+      const queued = await run(
+        Effect.flatMap(store, (s) =>
+          s.addQueuedMessage(initialSession.id, input),
+        ),
+      );
+      expect(queued.input.annotations).toEqual(input.annotations);
+      expect(queued.input.attachments).toEqual(input.attachments);
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendQueuedMessageNow(initialSession.id, queued.id),
+        ),
+      );
+
+      expect(providerSentTexts.at(-1)).toContain(
+        "Browser annotations:\n1. http://localhost:3000/ — 1 visual target; align this card with the list. Screenshot attached.\n\napply this visual note",
+      );
     });
   });
 

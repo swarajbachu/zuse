@@ -22,7 +22,9 @@ import {
   type AgentEvent,
   AgentSessionNotFoundError,
   type AttachmentRef,
+  type BrowserAnnotation,
   type CodeAnnotation,
+  type ComposerAnnotation,
   type FileRef,
   type FolderId,
   GoalUnsupportedError,
@@ -605,7 +607,12 @@ const textFromMessageContent = (content: MessageContent): string | null => {
  * root, so the relative path resolves when it reads the file. Pure string fn —
  * no I/O.
  */
-const serializeAnnotations = (
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const serializeCodeAnnotations = (
   annotations: ReadonlyArray<CodeAnnotation>,
 ): string => {
   const lines = annotations.map((a, i) => {
@@ -616,6 +623,43 @@ const serializeAnnotations = (
     return `${i + 1}. ${a.relPath}:${range} — ${a.comment}`;
   });
   return ["Code annotations:", ...lines].join("\n");
+};
+
+const serializeBrowserAnnotations = (
+  annotations: ReadonlyArray<BrowserAnnotation>,
+): string => {
+  const lines = annotations.map((a, i) => {
+    const targetCount = a.elements.length + a.regions.length + a.strokes.length;
+    const firstElement = a.elements[0];
+    const target =
+      firstElement !== undefined
+        ? `<${firstElement.tagName}> ${firstElement.label}`.trim()
+        : `${targetCount} visual ${targetCount === 1 ? "target" : "targets"}`;
+    const title =
+      a.pageTitle !== null && a.pageTitle.trim().length > 0
+        ? ` (${a.pageTitle.trim()})`
+        : "";
+    const screenshot =
+      a.screenshotAttachment !== null ? " Screenshot attached." : "";
+    return `${i + 1}. ${a.pageUrl}${title} — ${target}; ${a.comment}.${screenshot}`;
+  });
+  return ["Browser annotations:", ...lines].join("\n");
+};
+
+const serializeAnnotations = (
+  annotations: ReadonlyArray<ComposerAnnotation>,
+): string => {
+  const code = annotations.filter(
+    (annotation): annotation is CodeAnnotation =>
+      !isBrowserAnnotation(annotation),
+  );
+  const browser = annotations.filter(isBrowserAnnotation);
+  return [
+    code.length > 0 ? serializeCodeAnnotations(code) : "",
+    browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
+  ]
+    .filter((section) => section.length > 0)
+    .join("\n\n");
 };
 
 const formatProviderFailure = (cause: unknown): string => {
@@ -3093,7 +3137,7 @@ export const MessageStoreLive = Layer.scoped(
       attachments?: ReadonlyArray<AttachmentRef>,
       fileRefs?: ReadonlyArray<FileRef>,
       skillRefs?: ReadonlyArray<SkillRef>,
-      annotations?: ReadonlyArray<CodeAnnotation>,
+      annotations?: ReadonlyArray<ComposerAnnotation>,
       asGoal?: boolean,
       clientMessageId?: MessageId,
     ): Effect.Effect<boolean, SessionNotFoundError> =>
