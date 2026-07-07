@@ -1,15 +1,32 @@
 import type { Message, MessageContent, UserQuestion } from "@zuse/wire";
-import { ChevronDown, ChevronRight, FilePenLine, Wrench } from "lucide-react-native";
+import {
+  Bot,
+  Brain,
+  Camera,
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  FileCode2,
+  FilePenLine,
+  Folder,
+  Globe,
+  Search,
+  Terminal,
+  Wrench,
+} from "lucide-react-native";
 import type React from "react";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { cn } from "~/lib/cn";
 import {
-  extractEditSummaries,
   summarizeValue,
   type ToolResultRecord,
 } from "~/lib/message-presentation";
+import {
+  buildToolPresentation,
+  type MobileToolIcon,
+} from "~/lib/tool-presentation";
 import { Markdown } from "./markdown";
 import { PendingUserInputCard, type QuestionAnswer } from "./pending-user-input-card";
 
@@ -126,25 +143,19 @@ const ToolUseRow = ({
   content: Extract<MessageContent, { _tag: "tool_use" }>;
   result?: ToolResultRecord;
 }) => {
-  const editSummaries = extractEditSummaries(content.tool, content.input);
-  const resultLabel =
-    result === undefined ? "Running" : result.isError ? "Error" : "Result";
-  const detail =
-    editSummaries.length > 0
-      ? editSummaries.map((summary) => summary.path).join(", ")
-      : summarizeValue(content.input, 96);
+  const view = buildToolPresentation(content, result);
 
   return (
     <ExpandableEventRow
-      icon="tool"
-      title={content.tool}
-      detail={detail}
-      badge={resultLabel}
-      danger={result?.isError === true}
+      icon={view.icon}
+      title={view.label}
+      detail={view.detail ?? undefined}
+      badge={view.resultLabel}
+      danger={view.isError}
     >
-      {editSummaries.length > 0 ? (
+      {view.editSummaries.length > 0 ? (
         <View className="gap-2">
-          {editSummaries.map((summary) => (
+          {view.editSummaries.map((summary) => (
             <View
               key={summary.path}
               className="rounded-xl border border-border bg-muted/45 px-3 py-2"
@@ -173,25 +184,25 @@ const ToolUseRow = ({
         </View>
       ) : (
         <Text className="font-mono text-xs leading-5 text-muted-foreground">
-          {summarizeValue(content.input)}
+          {view.body}
         </Text>
       )}
-      {result !== undefined ? (
+      {view.resultBody !== null ? (
         <View className="mt-3 border-t border-border pt-3">
           <Text
             className={cn(
               "mb-1 font-sans-medium text-[11px] uppercase text-muted-foreground",
-              result.isError && "text-danger",
+              view.isError && "text-danger",
             )}
           >
-            {result.isError ? "Error" : "Result"}
+            {view.isError ? "Error" : "Result"}
           </Text>
           <Text
             selectable
             className="font-mono text-xs leading-5 text-muted-foreground"
             numberOfLines={8}
           >
-            {summarizeValue(result.output)}
+            {view.resultBody}
           </Text>
         </View>
       ) : null}
@@ -205,7 +216,7 @@ const ToolResultRow = ({
   content: Extract<MessageContent, { _tag: "tool_result" }>;
 }) => (
   <ExpandableEventRow
-    icon="tool"
+    icon="wrench"
     title={content.isError ? "Tool error" : "Tool result"}
     detail={summarizeValue(content.output, 96)}
     danger={content.isError}
@@ -307,12 +318,11 @@ function ExpandableEventRow({
   detail?: string;
   badge?: string;
   danger?: boolean;
-  icon: "thinking" | "tool";
+  icon: "thinking" | MobileToolIcon;
   children: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const Chevron = expanded ? ChevronDown : ChevronRight;
-  const Icon = icon === "tool" ? Wrench : MessageEventIcon;
   return (
     <View className="px-2 py-1">
       <Pressable
@@ -327,7 +337,10 @@ function ExpandableEventRow({
       >
         <View className="flex-row items-center gap-2">
           <Chevron size={15} color="hsl(72 2% 64%)" />
-          <Icon size={14} color={danger ? "hsl(2 86% 64%)" : "hsl(72 98% 54%)"} />
+          {renderToolRowIcon(
+            icon,
+            danger ? "hsl(2 86% 64%)" : "hsl(72 98% 54%)",
+          )}
           <Text
             className={cn(
               "min-w-0 flex-1 font-sans-medium text-[13px]",
@@ -362,17 +375,35 @@ function ExpandableEventRow({
   );
 }
 
-const MessageEventIcon = ({ size, color }: { size: number; color: string }) => (
-  <View
-    style={{
-      width: size,
-      height: size,
-      borderRadius: size / 2,
-      borderWidth: 1.5,
-      borderColor: color,
-    }}
-  />
-);
+const renderToolRowIcon = (
+  icon: "thinking" | MobileToolIcon,
+  color: string,
+) => {
+  switch (icon) {
+    case "thinking":
+      return <Brain size={14} color={color} />;
+    case "terminal":
+      return <Terminal size={14} color={color} />;
+    case "file":
+      return <FileCode2 size={14} color={color} />;
+    case "edit":
+      return <FilePenLine size={14} color={color} />;
+    case "search":
+      return <Search size={14} color={color} />;
+    case "folder":
+      return <Folder size={14} color={color} />;
+    case "agent":
+      return <Bot size={14} color={color} />;
+    case "web":
+      return <Globe size={14} color={color} />;
+    case "camera":
+      return <Camera size={14} color={color} />;
+    case "todo":
+      return <CheckSquare size={14} color={color} />;
+    case "wrench":
+      return <Wrench size={14} color={color} />;
+  }
+};
 
 const firstLine = (value: string): string => {
   const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";

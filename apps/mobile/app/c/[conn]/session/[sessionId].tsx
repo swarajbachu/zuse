@@ -17,6 +17,7 @@ import {
 } from "~/lib/connection-params";
 import { connectionSessionKey } from "~/lib/session-key";
 import { answerQuestion } from "~/rpc/actions";
+import { isFreshChat } from "~/lib/composer-state";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { useConnectionsStore } from "~/store/connections";
 import {
@@ -74,6 +75,10 @@ export default function ThreadScreen() {
   const messages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
+  const sessionStatus =
+    useSessionsStore((state) => state.statusBySession[stateKey]) ??
+    detail?.session.status;
+  const fresh = isFreshChat(messages);
 
   const hydratePermissions = usePermissionsStore((state) => state.hydrate);
   const decidePermission = usePermissionsStore((state) => state.decide);
@@ -266,6 +271,9 @@ export default function ThreadScreen() {
           connKey={connKey}
           connection={options}
           sessionId={normalizedSessionId}
+          session={detail?.session ?? null}
+          status={sessionStatus}
+          fresh={fresh}
           bottomInset={insets.bottom}
         />
       )}

@@ -24,18 +24,24 @@ describe("PR state presentation", () => {
   test("prioritizes states that need action", () => {
     expect(
       branchStatePresentation({ ...base, mergeable: "conflicting" }),
-    ).toEqual({ label: "Needs resolve", tone: "danger" });
+    ).toEqual({ label: "Needs resolve", tone: "danger", icon: "warning" });
     expect(branchStatePresentation({ ...base, checks: "failure" })).toEqual({
       label: "Checks failed",
       tone: "danger",
+      icon: "warning",
     });
   });
 
   test("shows plain branch lifecycle states", () => {
-    expect(branchStatePresentation(base)).toEqual({ label: "Open", tone: "brand" });
+    expect(branchStatePresentation(base)).toEqual({
+      label: "Open",
+      tone: "brand",
+      icon: "pull-request",
+    });
     expect(branchStatePresentation({ ...base, state: "merged" })).toEqual({
       label: "Merged",
       tone: "success",
+      icon: "merged",
     });
     expect(branchStatePresentation({ ...base, state: "none" })).toBeNull();
   });
