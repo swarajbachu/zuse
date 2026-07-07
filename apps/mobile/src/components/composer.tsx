@@ -19,9 +19,7 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import {
-  ModePill,
-  ModelModePill,
-  RuntimePill,
+  ComposerModelMenu,
   type ModelModeValue,
 } from "./model-mode-menu";
 import { Button } from "./ui/button";
@@ -173,25 +171,16 @@ export const Composer = ({
             value={text}
             onChangeText={setText}
           />
-          {modelValue === null ? null : (
-            <View className="flex-row flex-wrap items-center gap-2">
-              <ModelModePill
+          <View className="flex-row items-center justify-between">
+            <View className="h-10 w-10" />
+            {modelValue === null ? null : (
+              <ComposerModelMenu
                 value={modelValue}
                 editable={fresh}
                 onChange={(next) => void changeModelMode(next)}
               />
-              <ModePill
-                value={modelValue}
-                editable={fresh}
-                onChange={(next) => void changeModelMode(next)}
-              />
-              <RuntimePill
-                value={modelValue}
-                editable={fresh}
-                onChange={(next) => void changeModelMode(next)}
-              />
-            </View>
-          )}
+            )}
+          </View>
         </View>
         {showInterrupt ? (
           <Button

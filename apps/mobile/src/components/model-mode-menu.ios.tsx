@@ -47,6 +47,35 @@ export function ModelModePill({
   );
 }
 
+export function ComposerModelMenu({
+  value,
+  editable,
+  onChange,
+}: {
+  value: ModelModeValue;
+  editable: boolean;
+  onChange: (value: ModelModeValue) => void;
+}) {
+  return (
+    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+      <Menu
+        label={<CompactModelLabel label={compactModelLabel(value)} />}
+        systemImage={providerSystemImage(value.providerId)}
+      >
+        <Menu label="Model" systemImage={providerSystemImage(value.providerId)}>
+          <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
+        </Menu>
+        <Menu label="Mode" systemImage="wand.and.stars">
+          <ModeButtons value={value} editable={editable} onChange={onChange} />
+        </Menu>
+        <Menu label="Permissions" systemImage="lock.open">
+          <PermissionButtons value={value} editable={editable} onChange={onChange} />
+        </Menu>
+      </Menu>
+    </Host>
+  );
+}
+
 export function ModePill({
   value,
   editable,
@@ -194,6 +223,73 @@ export function SourcePill({
   );
 }
 
+export function ProjectMenuRow({
+  label,
+  subtitle,
+  options,
+  onSelect,
+}: {
+  label: string;
+  subtitle: string;
+  options: readonly {
+    connectionKey: string;
+    connectionLabel: string;
+    projects: readonly { id: string; name: string; path: string }[];
+  }[];
+  onSelect: (connectionKey: string, projectId: string) => void;
+}) {
+  return (
+    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+      <Menu
+        label={<SelectorRow icon="desktopcomputer" label={label} subtitle={subtitle} />}
+        systemImage="desktopcomputer"
+      >
+        {options.map((group) => (
+          <Menu
+            key={group.connectionKey}
+            label={group.connectionLabel}
+            systemImage="desktopcomputer"
+          >
+            {group.projects.length === 0 ? (
+              <NativeButton label="No projects" systemImage="folder" onPress={() => {}} />
+            ) : (
+              group.projects.map((project) => (
+                <NativeButton
+                  key={project.id}
+                  label={project.name}
+                  systemImage="folder"
+                  onPress={() => onSelect(group.connectionKey, project.id)}
+                />
+              ))
+            )}
+          </Menu>
+        ))}
+      </Menu>
+    </Host>
+  );
+}
+
+export function SourceMenuRow({
+  label,
+  subtitle,
+  children,
+}: {
+  label: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+      <Menu
+        label={<SelectorRow icon="bubble.left.and.bubble.right" label={label} subtitle={subtitle} />}
+        systemImage="bubble.left.and.bubble.right"
+      >
+        {children}
+      </Menu>
+    </Host>
+  );
+}
+
 export { Divider, Menu, NativeButton, Section };
 
 function ProviderModelMenus({
@@ -322,10 +418,59 @@ function PillLabel({
   );
 }
 
+function CompactModelLabel({ label }: { label: string }) {
+  return (
+    <View className="min-w-[118px] flex-row items-center justify-center gap-1 px-2 py-1.5">
+      <Text className="font-sans-medium text-[14px] text-foreground" numberOfLines={1}>
+        {label}
+      </Text>
+      <Text className="font-sans-bold text-[12px] text-muted-foreground">⌄</Text>
+    </View>
+  );
+}
+
+function SelectorRow({
+  icon,
+  label,
+  subtitle,
+}: {
+  icon: string;
+  label: string;
+  subtitle: string;
+}) {
+  return (
+    <View
+      className="min-h-[52px] flex-row items-center gap-3 rounded-2xl bg-card/80 px-3 py-2"
+      style={{ borderCurve: "continuous" }}
+    >
+      <View className="h-8 w-8 items-center justify-center rounded-full bg-primary/12">
+        <Text className="font-sans-bold text-[13px] text-primary">{iconGlyph(icon)}</Text>
+      </View>
+      <View className="min-w-0 flex-1">
+        <Text className="font-sans-medium text-[15px] text-foreground" numberOfLines={1}>
+          {label}
+        </Text>
+        <Text className="font-sans text-[12px] text-muted-foreground" numberOfLines={1}>
+          {subtitle}
+        </Text>
+      </View>
+      <Text className="font-sans-bold text-[16px] text-muted-foreground">⌄</Text>
+    </View>
+  );
+}
+
 const modelLabel = (value: ModelModeValue): string =>
   modelOptionsForProvider(value.providerId).find(
     (model) => model.value === value.model,
   )?.label ?? value.model;
+
+const compactModelLabel = (value: ModelModeValue): string =>
+  shortModelLabel(modelLabel(value));
+
+const shortModelLabel = (label: string): string => {
+  const trimmed = label.replace(/^GPT-?/i, "").replace(/^Claude\s+/i, "").trim();
+  return trimmed.length > 0 ? trimmed : label;
+};
 
 const modeLabel = (value: ModelModeValue): string =>
   PERMISSION_OPTIONS.find((item) => item.value === value.permissionMode)?.label ??
@@ -353,6 +498,17 @@ const providerSystemImage = (providerId: ProviderId): string => {
 };
 
 const sf = (name: string) => name as never;
+
+const iconGlyph = (icon: string): string => {
+  switch (icon) {
+    case "desktopcomputer":
+      return "Mac";
+    case "bubble.left.and.bubble.right":
+      return "Chat";
+    default:
+      return "Go";
+  }
+};
 
 export const providerDisplayName = (providerId: ProviderId): string =>
   PROVIDER_LABEL[providerId];

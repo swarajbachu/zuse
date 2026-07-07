@@ -23,6 +23,19 @@ export function ModelModePill({
   return <FallbackPill label={modelLabel} />;
 }
 
+export function ComposerModelMenu({
+  value,
+}: {
+  value: ModelModeValue;
+  editable: boolean;
+  onChange: (value: ModelModeValue) => void;
+}) {
+  const modelLabel = modelOptionsForProvider(value.providerId).find(
+    (model) => model.value === value.model,
+  )?.label ?? value.model;
+  return <FallbackPill label={modelLabel} />;
+}
+
 export const ModePill = ({ value }: ModelModeProps) => (
   <FallbackPill label={value.permissionMode} />
 );
@@ -64,6 +77,33 @@ export function SourcePill({
   children: React.ReactNode;
 }) {
   return <FallbackPill label={label} />;
+}
+
+export function ProjectMenuRow({
+  label,
+  subtitle,
+}: {
+  label: string;
+  subtitle: string;
+  options: readonly {
+    connectionKey: string;
+    connectionLabel: string;
+    projects: readonly { id: string; name: string; path: string }[];
+  }[];
+  onSelect: (connectionKey: string, projectId: string) => void;
+}) {
+  return <FallbackPill label={`${label} · ${subtitle}`} />;
+}
+
+export function SourceMenuRow({
+  label,
+  subtitle,
+}: {
+  label: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return <FallbackPill label={`${label} · ${subtitle}`} />;
 }
 
 export const NativeButton = (_props: {

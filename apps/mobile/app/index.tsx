@@ -13,6 +13,8 @@ import {
   MessageSquare,
   Search,
   Settings,
+  SquarePen,
+  X,
 } from "lucide-react-native";
 import {
   ActivityIndicator,
@@ -264,7 +266,7 @@ export default function HomeScreen() {
         <Stack.Toolbar.View separateBackground>
           <GlassSurface
             style={{
-              width: Math.min(width - 88, 520),
+              width: Math.min(width - 144, 440),
               minHeight: 44,
               flexDirection: "row",
               alignItems: "center",
@@ -285,13 +287,32 @@ export default function HomeScreen() {
               value={search}
               onChangeText={setSearch}
             />
+            {search.trim().length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+                hitSlop={8}
+                onPress={() => setSearch("")}
+              >
+                <X size={16} color="hsl(72 2% 72%)" />
+              </Pressable>
+            ) : null}
           </GlassSurface>
         </Stack.Toolbar.View>
-        <Stack.Toolbar.Button
-          icon="square.and.pencil"
-          separateBackground
-          onPress={() => router.push("/new-chat")}
-        />
+        <Stack.Toolbar.View separateBackground>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="New chat"
+            className="min-h-11 flex-row items-center gap-2 rounded-full bg-primary px-4 active:opacity-80"
+            style={{ borderCurve: "continuous" }}
+            onPress={() => router.push("/new-chat")}
+          >
+            <SquarePen size={17} color="hsl(72 5% 6%)" strokeWidth={2.3} />
+            <Text className="font-sans-bold text-[16px] text-primary-foreground">
+              Chat
+            </Text>
+          </Pressable>
+        </Stack.Toolbar.View>
       </Stack.Toolbar>
       <ScrollView
         className="flex-1 bg-background"
