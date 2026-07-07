@@ -122,6 +122,9 @@ export const wsServerProtocolLayer = (opts: {
 
       const router = HttpRouter.empty.pipe(
         HttpRouter.get("/", guarded),
+        // Existing relay deployments and previously linked environments may
+        // still advertise `/rpc`. Keep accepting it while newer links use `/`.
+        HttpRouter.get("/rpc", guarded),
         HttpRouter.post("/pair", pairApp(auth, log)),
       );
 

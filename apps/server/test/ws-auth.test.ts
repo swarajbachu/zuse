@@ -184,6 +184,9 @@ describe("WS LAN auth", () => {
       await expect(
         upgradeStatus(port, `/?token=${encodeURIComponent(body.token)}`),
       ).resolves.toBe(101);
+      await expect(
+        upgradeStatus(port, `/rpc?token=${encodeURIComponent(body.token)}`),
+      ).resolves.toBe(101);
     } finally {
       await disposeRuntime(runtime);
     }
