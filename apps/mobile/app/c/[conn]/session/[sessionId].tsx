@@ -274,6 +274,13 @@ export default function ThreadScreen() {
           session={detail?.session ?? null}
           status={sessionStatus}
           fresh={fresh}
+          projectLabel={detail?.project.name}
+          sourceLabel={
+            detail?.session.worktreeId === null ||
+            detail?.session.worktreeId === undefined
+              ? "Main"
+              : "Branch"
+          }
           bottomInset={insets.bottom}
         />
       )}

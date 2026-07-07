@@ -36,6 +36,14 @@ export function ComposerModelMenu({
   return <FallbackPill label={modelLabel} />;
 }
 
+export const ComposerModeMenu = ({ value }: ModelModeProps) => (
+  <FallbackPill label={value.permissionMode} />
+);
+
+export const ComposerApprovalMenu = ({ value }: ModelModeProps) => (
+  <FallbackPill label={value.runtimeMode} />
+);
+
 export const ModePill = ({ value }: ModelModeProps) => (
   <FallbackPill label={value.permissionMode} />
 );

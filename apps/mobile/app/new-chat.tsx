@@ -6,7 +6,7 @@ import type {
 } from "@zuse/wire";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
-import { CloudOff, Send } from "lucide-react-native";
+import { CloudOff, Folder as FolderIcon, GitBranch, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -38,6 +38,8 @@ import { useSessionsStore } from "~/store/sessions";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import {
+  ComposerApprovalMenu,
+  ComposerModeMenu,
   ComposerModelMenu,
   NativeButton,
   ProjectPill,
@@ -243,21 +245,13 @@ export default function NewChatScreen() {
       >
         <GlassSurface
           style={{
-            flexDirection: "row",
-            alignItems: "flex-end",
             gap: 8,
-            padding: 8,
+            padding: 10,
           }}
         >
-          <View className="min-w-0 flex-1 gap-2">
-            <View className="flex-row flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-10 w-10 rounded-full px-0"
-              >
-                <Text className="font-sans text-[26px] leading-7 text-foreground">+</Text>
-              </Button>
+          <View className="flex-row items-center gap-2 px-1">
+            <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
+              <FolderIcon size={13} color="hsl(72 4% 76%)" />
               <ProjectPill
                 label={
                   selectedProject === undefined
@@ -273,6 +267,9 @@ export default function NewChatScreen() {
                   setSource(MAIN_SOURCE);
                 }}
               />
+            </View>
+            <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
+              <GitBranch size={13} color="hsl(72 4% 76%)" />
               <SourcePill label={sourceLabel}>
                 <NativeButton
                   label="Main"
@@ -348,36 +345,45 @@ export default function NewChatScreen() {
                 ))}
               </SourcePill>
             </View>
-            <TextInput
-              className="min-h-10 px-2 py-2 font-sans text-[17px] text-foreground"
-              multiline
-              placeholder="Ask Zuse"
-              placeholderTextColor="hsl(72 4% 56%)"
-              value={text}
-              onChangeText={setText}
-            />
-            <View className="flex-row items-center justify-between">
-              <View className="h-10 w-10" />
+          </View>
+          <TextInput
+            className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
+            multiline
+            placeholder="Ask Zuse"
+            placeholderTextColor="hsl(72 4% 56%)"
+            value={text}
+            onChangeText={setText}
+          />
+          <View className="flex-row items-center gap-2">
+            <ComposerModeMenu value={modelMode} editable onChange={setModelMode} />
+            <View className="min-w-0 flex-1 items-center">
               <ComposerModelMenu
                 value={modelMode}
                 editable
                 onChange={setModelMode}
               />
             </View>
+            <ComposerApprovalMenu
+              value={modelMode}
+              editable
+              onChange={setModelMode}
+            />
+            <Button
+              size="sm"
+              variant="primary"
+              className="h-10 w-10 rounded-full px-0"
+              disabled={!canSubmit}
+              onPress={() => void submit()}
+            >
+              {submitting ? (
+                <ActivityIndicator color="hsl(72 5% 6%)" />
+              ) : selectedOptions === null ? (
+                <CloudOff size={15} color="hsl(72 5% 6%)" />
+              ) : (
+                <Send size={15} color="hsl(72 5% 6%)" />
+              )}
+            </Button>
           </View>
-          <Button
-            variant="primary"
-            disabled={!canSubmit}
-            onPress={() => void submit()}
-          >
-            {submitting ? (
-              <ActivityIndicator color="hsl(72 5% 6%)" />
-            ) : selectedOptions === null ? (
-              <CloudOff size={16} color="hsl(72 5% 6%)" />
-            ) : (
-              <Send size={16} color="hsl(72 5% 6%)" />
-            )}
-          </Button>
         </GlassSurface>
       </View>
     </KeyboardAvoidingView>

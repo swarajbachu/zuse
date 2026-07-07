@@ -61,15 +61,43 @@ export function ComposerModelMenu({
         label={compactModelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
-        <Menu label="Model" systemImage={providerSystemImage(value.providerId)}>
-          <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
-        </Menu>
-        <Menu label="Mode" systemImage="wand.and.stars">
-          <ModeButtons value={value} editable={editable} onChange={onChange} />
-        </Menu>
-        <Menu label="Permissions" systemImage="lock.open">
-          <PermissionButtons value={value} editable={editable} onChange={onChange} />
-        </Menu>
+        <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
+      </Menu>
+    </Host>
+  );
+}
+
+export function ComposerModeMenu({
+  value,
+  editable,
+  onChange,
+}: {
+  value: ModelModeValue;
+  editable: boolean;
+  onChange: (value: ModelModeValue) => void;
+}) {
+  return (
+    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+      <Menu label={modeLabel(value)} systemImage="slider.horizontal.3">
+        <ModeButtons value={value} editable={editable} onChange={onChange} />
+      </Menu>
+    </Host>
+  );
+}
+
+export function ComposerApprovalMenu({
+  value,
+  editable,
+  onChange,
+}: {
+  value: ModelModeValue;
+  editable: boolean;
+  onChange: (value: ModelModeValue) => void;
+}) {
+  return (
+    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+      <Menu label={approvalShortLabel(value)} systemImage="hand.raised">
+        <PermissionButtons value={value} editable={editable} onChange={onChange} />
       </Menu>
     </Host>
   );
@@ -172,25 +200,28 @@ export function ProjectPill({
   }[];
   onSelect: (connectionKey: string, projectId: string) => void;
 }) {
+  const projects = options.flatMap((group) =>
+    group.projects.map((project) => ({
+      ...project,
+      connectionKey: group.connectionKey,
+    })),
+  );
+
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu label={label} systemImage="folder">
-        {options.map((group) => (
-          <Menu
-            key={group.connectionKey}
-            label={group.connectionLabel}
-            systemImage="desktopcomputer"
-          >
-            {group.projects.map((project) => (
-              <NativeButton
-                key={project.id}
-                label={project.name}
-                systemImage="folder"
-                onPress={() => onSelect(group.connectionKey, project.id)}
-              />
-            ))}
-          </Menu>
-        ))}
+        {projects.length === 0 ? (
+          <NativeButton label="No projects" systemImage="folder" onPress={() => {}} />
+        ) : (
+          projects.map((project) => (
+            <NativeButton
+              key={`${project.connectionKey}:${project.id}`}
+              label={project.name}
+              systemImage="folder"
+              onPress={() => onSelect(project.connectionKey, project.id)}
+            />
+          ))
+        )}
       </Menu>
     </Host>
   );
@@ -362,7 +393,7 @@ function PermissionButtons({
   onChange: (value: ModelModeValue) => void;
 }) {
   return (
-    <Section title="Permissions">
+    <Section title="Approval">
       {RUNTIME_OPTIONS.map((item) => (
         <NativeButton
           key={item.value}
@@ -398,6 +429,19 @@ const modeLabel = (value: ModelModeValue): string =>
 const runtimeLabel = (value: ModelModeValue): string =>
   RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
   value.runtimeMode;
+
+const approvalShortLabel = (value: ModelModeValue): string => {
+  switch (value.runtimeMode) {
+    case "approval-required":
+      return "Ask";
+    case "auto-accept-edits":
+      return "Edits";
+    case "auto-accept-edits-and-bash":
+      return "Shell";
+    case "full-access":
+      return "Full";
+  }
+};
 
 const providerSystemImage = (providerId: ProviderId): string => {
   switch (providerId) {
