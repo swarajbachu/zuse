@@ -78,15 +78,15 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
           }));
           void get().flush(connKey, sessionId);
         }
-        const sinceSequence = highestSequenceBySession.get(liveKey);
-        console.info("[mobile] messages.stream", { sessionId, sinceSequence });
+        console.info("[mobile] messages.stream", { sessionId });
         const program = Stream.runForEach(
-          client.messages.stream({ sessionId, sinceSequence }),
+          client.messages.stream({ sessionId }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;
-              if (envelope.sequence <= previous) return;
-              highestSequenceBySession.set(liveKey, envelope.sequence);
+              if (envelope.sequence > previous) {
+                highestSequenceBySession.set(liveKey, envelope.sequence);
+              }
               console.info("[mobile] messages.stream envelope", {
                 sessionId,
                 sequence: envelope.sequence,
@@ -132,6 +132,21 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
         ).pipe(
           Effect.tapError((cause) =>
             Effect.sync(() => reportConnectionFailure(options, cause)),
+          ),
+          Effect.catchAll((cause) =>
+            Effect.sync(() => {
+              set((state) => ({
+                reconnectingBySession: {
+                  ...state.reconnectingBySession,
+                  [liveKey]: true,
+                },
+                errorBySession: {
+                  ...state.errorBySession,
+                  [liveKey]:
+                    cause instanceof Error ? cause.message : String(cause),
+                },
+              }));
+            }),
           ),
         );
         const fiber = await Effect.runPromise(program.pipe(Effect.fork));
