@@ -28,6 +28,8 @@ import {
 import {
   interruptSession,
   makeTextInput,
+  flushServerQueue,
+  queueMessage,
   sendMessage,
   setSessionModel,
   setSessionPermissionMode,
@@ -81,6 +83,12 @@ export const Composer = ({
   const queuedCount = useOutboxStore(
     (state) => (state.queuedBySession[stateKey] ?? []).length,
   );
+  const queueSending = useOutboxStore(
+    (state) => state.sendingBySession[stateKey] === true,
+  );
+  const queueError = useOutboxStore(
+    (state) => state.errorBySession[stateKey],
+  );
   const enqueue = useOutboxStore((state) => state.enqueue);
 
   const canSend = text.trim().length > 0 && !busy;
@@ -104,6 +112,23 @@ export const Composer = ({
       return;
     }
     setBusy(true);
+    if (showInterrupt) {
+      try {
+        await Effect.runPromise(
+          queueMessage({
+            connection,
+            sessionId,
+            input: makeTextInput(value),
+          }),
+        );
+        await Effect.runPromise(flushServerQueue({ connection, sessionId }));
+      } catch {
+        await enqueue(connKey, sessionId, value);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const messageId = MessageId.make(Crypto.randomUUID());
     const optimisticContent: MessageContent = {
       _tag: "user",
@@ -198,7 +223,11 @@ export const Composer = ({
           <HugeIcon icon={CloudOffIcon} size={13} color="hsl(42 93% 56%)" />
           <Text className="font-sans-medium text-xs text-warning">
             {queuedCount} queued ·{" "}
-            {online ? "sending…" : "will send when reconnected"}
+            {online
+              ? queueSending
+                ? "sending…"
+                : queueError ?? "ready to send"
+              : "will send when reconnected"}
           </Text>
         </View>
       ) : null}
