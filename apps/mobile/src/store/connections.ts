@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import { getConnectionClient } from "~/rpc/connection";
 import { connectionKey } from "~/rpc/ws-protocol";
+import { visibleConnectionLabel } from "~/lib/display-names";
 
 export type ConnectionRecord = {
   key: string;
@@ -91,7 +92,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       host: trimmedHost,
       port,
       token: redeemed,
-      label: descriptor?.label ?? descriptor?.environmentId ?? key,
+      label: visibleConnectionLabel(descriptor?.label, key),
       updatedAt: Date.now()
     };
     const next = [record, ...get().connections.filter((c) => c.key !== key)];
@@ -108,7 +109,7 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
       port,
       wsBaseUrl,
       token,
-      label,
+      label: visibleConnectionLabel(label),
       updatedAt: Date.now(),
     };
     const next = [

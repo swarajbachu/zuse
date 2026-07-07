@@ -6,17 +6,18 @@ import type { SessionId, UserQuestion } from "@zuse/wire";
 import { Effect } from "effect";
 
 import { Composer } from "~/components/composer";
+import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import {
   MessageRow,
   type MessageRowContext,
 } from "~/components/messages/message-row";
-import { PendingApprovalCard } from "~/components/messages/pending-approval-card";
 import {
   normalizeConnParam,
   optionsForConnection,
 } from "~/lib/connection-params";
 import { connectionSessionKey } from "~/lib/session-key";
 import { answerQuestion } from "~/rpc/actions";
+import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { useConnectionsStore } from "~/store/connections";
 import {
   connectionStatusLabel,
@@ -36,6 +37,9 @@ const EMPTY_PENDING: ReturnType<
 const EMPTY_QUEUED: ReturnType<
   typeof useOutboxStore.getState
 >["queuedBySession"][string] = [];
+const EMPTY_MESSAGES: ReturnType<
+  typeof useMobileMessagesStore.getState
+>["messagesBySession"][string] = [];
 
 export default function ThreadScreen() {
   const insets = useSafeAreaInsets();
@@ -46,6 +50,8 @@ export default function ThreadScreen() {
   const connKey = normalizeConnParam(conn);
   const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
   const listRef = useRef<FlatList>(null);
+  const didInitialScroll = useRef(false);
+  const initialScrollQuietUntil = useRef(0);
   const {
     connections,
     hydrated,
@@ -65,10 +71,7 @@ export default function ThreadScreen() {
   );
   const { messagesBySession, reconnectingBySession, errorBySession, hydrate } =
     useMobileMessagesStore();
-  const messages = useMemo(
-    () => messagesBySession[stateKey] ?? [],
-    [messagesBySession, stateKey],
-  );
+  const messages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
 
@@ -137,6 +140,10 @@ export default function ThreadScreen() {
     }
     return { answeredQuestionIds: answered, questionsByItemId: questions };
   }, [messages]);
+  const toolResultsByItemId = useMemo(
+    () => buildToolResultsByItemId(messages),
+    [messages],
+  );
 
   const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
     (itemId, answers) =>
@@ -154,9 +161,34 @@ export default function ThreadScreen() {
   );
 
   const ctx = useMemo<MessageRowContext>(
-    () => ({ answeredQuestionIds, questionsByItemId, onAnswerQuestion }),
-    [answeredQuestionIds, questionsByItemId, onAnswerQuestion],
+    () => ({
+      answeredQuestionIds,
+      questionsByItemId,
+      toolResultsByItemId,
+      onAnswerQuestion,
+    }),
+    [
+      answeredQuestionIds,
+      onAnswerQuestion,
+      questionsByItemId,
+      toolResultsByItemId,
+    ],
   );
+
+  useEffect(() => {
+    didInitialScroll.current = false;
+    initialScrollQuietUntil.current = Date.now() + 500;
+  }, [stateKey]);
+
+  const scrollToLatest = useCallback(() => {
+    if (messages.length === 0) return;
+    const animated =
+      didInitialScroll.current && Date.now() > initialScrollQuietUntil.current;
+    didInitialScroll.current = true;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated });
+    });
+  }, [messages.length]);
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
@@ -203,35 +235,32 @@ export default function ThreadScreen() {
           ) : null
         }
         ListFooterComponent={
-          queued.length > 0 || pending.length > 0 ? (
+          queued.length > 0 ? (
             <View className="pt-1">
               {queued.map((item) => (
                 <QueuedBubble key={item.clientId} text={item.text} />
               ))}
-              {pending.map((request) => (
-                <PendingApprovalCard
-                  key={request.id}
-                  request={request}
-                  onDecide={(decision) =>
-                    options === null
-                      ? undefined
-                      : decidePermission(
-                          connKey,
-                          options,
-                          normalizedSessionId,
-                          request.id,
-                          decision,
-                        )
-                  }
-                />
-              ))}
             </View>
           ) : null
         }
-        onContentSizeChange={() =>
-          listRef.current?.scrollToEnd({ animated: true })
-        }
+        onContentSizeChange={scrollToLatest}
+        onLayout={scrollToLatest}
       />
+      {options === null || pending.length === 0 ? null : (
+        <LivePermissionAccessory
+          requests={pending}
+          bottomInset={0}
+          onDecide={(request, decision) =>
+            decidePermission(
+              connKey,
+              options,
+              normalizedSessionId,
+              request.id,
+              decision,
+            )
+          }
+        />
+      )}
       {options === null ? null : (
         <Composer
           connKey={connKey}
@@ -246,7 +275,10 @@ export default function ThreadScreen() {
 
 const QueuedBubble = ({ text }: { text: string }) => (
   <View className="items-end px-3 py-1.5">
-    <View className="max-w-[88%] rounded-lg border border-primary/40 bg-primary/20 px-3 py-2">
+    <View
+      style={{ borderCurve: "continuous" }}
+      className="max-w-[88%] rounded-2xl border border-primary/40 bg-primary/15 px-3 py-2"
+    >
       <Text className="mb-0.5 font-sans-medium text-[11px] text-warning">
         Queued
       </Text>
