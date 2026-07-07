@@ -248,11 +248,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 },
               }));
             }),
-        ).pipe(
-          Effect.tapError((cause) =>
-            Effect.sync(() => reportConnectionFailure(options, cause)),
-          ),
-        );
+        ).pipe(Effect.catchAll(() => Effect.void));
         chatFibers.set(
           `${connKey}:chat:${bundle.project.id}`,
           Effect.runFork(chatProgram),
@@ -274,11 +270,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 },
               }));
             }),
-        ).pipe(
-          Effect.tapError((cause) =>
-            Effect.sync(() => reportConnectionFailure(options, cause)),
-          ),
-        );
+        ).pipe(Effect.catchAll(() => Effect.void));
         statusFibers.set(key, Effect.runFork(statusProgram));
       }
     } catch (cause) {

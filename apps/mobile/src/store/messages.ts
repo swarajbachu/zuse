@@ -130,9 +130,6 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
               void get().flush(connKey, sessionId);
             }),
         ).pipe(
-          Effect.tapError((cause) =>
-            Effect.sync(() => reportConnectionFailure(options, cause)),
-          ),
           Effect.catchAll((cause) =>
             Effect.sync(() => {
               set((state) => ({

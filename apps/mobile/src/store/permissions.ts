@@ -76,11 +76,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
               };
             });
           }),
-      ).pipe(
-        Effect.tapError((cause) =>
-          Effect.sync(() => reportConnectionFailure(options, cause)),
-        ),
-      );
+      ).pipe(Effect.catchAll(() => Effect.void));
       liveFibers.set(liveKey, Effect.runFork(program));
     } catch (cause) {
       reportConnectionFailure(options, cause);
