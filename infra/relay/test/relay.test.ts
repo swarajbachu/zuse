@@ -406,7 +406,7 @@ const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
   cfApiToken: Redacted.make("cf-token"),
   cfAccountId: "acct_1",
   cfZoneId: "zone_1",
-  baseDomain: "t.test",
+  baseDomain: "test",
   namespace: "zenv",
 };
 

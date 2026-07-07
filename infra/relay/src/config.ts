@@ -22,7 +22,7 @@ export interface ManagedTunnelConfig {
   readonly cfApiToken: Redacted.Redacted<string>;
   readonly cfAccountId: string;
   readonly cfZoneId: string;
-  /** Apex/base domain the tunnel hostnames live under, e.g. `t.stuff.md`. */
+  /** Zone apex the tunnel hostnames live under, e.g. `stuff.md`. */
   readonly baseDomain: string;
   /** Prefix that namespaces tunnel/hostnames per deployment, e.g. `zenv`. */
   readonly namespace: string;

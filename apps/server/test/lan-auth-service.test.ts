@@ -290,6 +290,35 @@ describe("LanAuthService", () => {
     });
   });
 
+  it("rejects malformed relay connect tokens without failing verification", async () => {
+    await withRuntime(async (run) => {
+      const mintKey = await generateKeyPair("EdDSA", { extractable: true });
+      const mintPublicKey = JSON.stringify(await exportJWK(mintKey.publicKey));
+      await run(
+        Effect.gen(function* () {
+          const auth = yield* LanAuthService;
+          const environmentId = yield* auth.environmentId();
+          yield* auth.saveRelayConfig({
+            relayUrl: "https://relay.test",
+            relayIssuer: "https://relay.test",
+            environmentId,
+            environmentCredential: "zec_secret",
+            mintPublicKey,
+          });
+        }),
+      );
+
+      await expect(
+        run(
+          Effect.gen(function* () {
+            const auth = yield* LanAuthService;
+            return yield* auth.verifyToken("not-a-jwt");
+          }),
+        ),
+      ).resolves.toBe(false);
+    });
+  });
+
   it("builds LAN, loopback, and managed tunnel advertised endpoints", () => {
     const endpoints = buildAdvertisedEndpoints({
       lan: {

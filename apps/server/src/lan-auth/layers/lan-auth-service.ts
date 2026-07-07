@@ -223,8 +223,8 @@ export const LanAuthServiceLive = Layer.effect(
                 });
                 return verified.payload.environmentId === relay.environment_id;
               },
-              catch: () => false,
-            });
+              catch: (cause) => cause,
+            }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           }
           const usedAt = yield* nowIso;
           yield* sql`

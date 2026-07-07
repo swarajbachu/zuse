@@ -15,11 +15,16 @@ import { useConnectionsStore } from "~/store/connections";
 export default function ConnectionsScreen() {
   const { connections, hydrated, hydrate } = useConnectionsStore();
   const watchConnection = useConnectionRuntimeStore((state) => state.watch);
-  const snapshots = useConnectionRuntimeStore((state) => state.snapshotsByConnection);
+  const snapshots = useConnectionRuntimeStore(
+    (state) => state.snapshotsByConnection,
+  );
   const [search, setSearch] = useState("");
-  const onChangeSearch = useCallback((event: { nativeEvent: { text: string } }) => {
-    setSearch(event.nativeEvent.text);
-  }, []);
+  const onChangeSearch = useCallback(
+    (event: { nativeEvent: { text: string } }) => {
+      setSearch(event.nativeEvent.text);
+    },
+    [],
+  );
   const searchOptions = useMemo(
     () => ({
       placeholder: "Search connections",
@@ -28,7 +33,7 @@ export default function ConnectionsScreen() {
       onChangeText: onChangeSearch,
       onCancelButtonPress: () => setSearch(""),
     }),
-    [onChangeSearch]
+    [onChangeSearch],
   );
 
   useEffect(() => {
@@ -36,9 +41,10 @@ export default function ConnectionsScreen() {
   }, [hydrate, hydrated]);
 
   useEffect(() => {
-    const unwatch = connections.map((connection) =>
-      watchConnection(connection.key, optionsForConnection(connection.key, connections))
-    );
+    const unwatch = connections.flatMap((connection) => {
+      const options = optionsForConnection(connection.key, connections);
+      return options === null ? [] : [watchConnection(connection.key, options)];
+    });
     return () => {
       for (const stop of unwatch) stop();
     };

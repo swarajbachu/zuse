@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ActivityIndicator, Text, TextInput, View } from "react-native";
 
 import { interruptSession, makeTextInput, sendMessage } from "~/rpc/actions";
+import { connectionSessionKey } from "~/lib/session-key";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
@@ -15,7 +16,7 @@ export const Composer = ({
   connKey,
   connection,
   sessionId,
-  bottomInset = 0
+  bottomInset = 0,
 }: {
   connKey: string;
   connection: WsProtocolOptions;
@@ -24,16 +25,17 @@ export const Composer = ({
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const stateKey = connectionSessionKey(connKey, sessionId);
 
   // Offline = the message stream is retrying or has surfaced an error. Sends
   // made in this state are queued instead of dropped.
   const online = useMobileMessagesStore(
     (state) =>
-      state.reconnectingBySession[sessionId] !== true &&
-      (state.errorBySession[sessionId] ?? null) === null
+      state.reconnectingBySession[stateKey] !== true &&
+      (state.errorBySession[stateKey] ?? null) === null,
   );
   const queuedCount = useOutboxStore(
-    (state) => (state.queuedBySession[sessionId] ?? []).length
+    (state) => (state.queuedBySession[stateKey] ?? []).length,
   );
   const enqueue = useOutboxStore((state) => state.enqueue);
 
@@ -50,7 +52,7 @@ export const Composer = ({
     setBusy(true);
     try {
       await Effect.runPromise(
-        sendMessage({ connection, sessionId, input: makeTextInput(value) })
+        sendMessage({ connection, sessionId, input: makeTextInput(value) }),
       );
     } catch {
       // Lost the connection mid-send — keep the text safe in the outbox.
@@ -98,10 +100,18 @@ export const Composer = ({
           value={text}
           onChangeText={setText}
         />
-        <Button variant="secondary" disabled={busy || !online} onPress={interrupt}>
+        <Button
+          variant="secondary"
+          disabled={busy || !online}
+          onPress={interrupt}
+        >
           <Square size={16} color="hsl(72 4% 92%)" />
         </Button>
-        <Button variant={online ? "primary" : "secondary"} disabled={!canSend} onPress={submit}>
+        <Button
+          variant={online ? "primary" : "secondary"}
+          disabled={!canSend}
+          onPress={submit}
+        >
           {busy ? (
             <ActivityIndicator color="hsl(72 4% 8%)" />
           ) : online ? (

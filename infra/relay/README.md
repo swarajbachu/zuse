@@ -60,8 +60,11 @@ connect, cross-account isolation, proof forgery, and replay rejection.
    and paste the id into `wrangler.jsonc`.
 4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`.
 5. **Managed Cloudflare tunnel** (optional — enables reach-from-anywhere; leave off for LAN-only):
-   - In `wrangler.jsonc` set `MANAGED_TUNNEL_BASE_DOMAIN` (a zone on this CF account),
+   - In `wrangler.jsonc` set `MANAGED_TUNNEL_BASE_DOMAIN` (the CF zone apex),
      `MANAGED_TUNNEL_NAMESPACE`, `CF_ACCOUNT_ID`, and `CF_ZONE_ID` (the base domain's zone id).
+     Keep generated tunnel hostnames one label under the zone, for example
+     `zenv-<hash>.stuff.md`; a nested hostname like `zenv-<hash>.t.stuff.md`
+     can resolve but fail TLS unless a matching Cloudflare certificate exists.
    - Set the API token secret: `bun run secret:cf` (`wrangler secret put CF_API_TOKEN`). The token
      needs **Account: Cloudflare Tunnel: Edit** + **Zone: DNS: Edit** on that zone.
    - The desktop must have **`cloudflared`** on PATH (`brew install cloudflared`); it runs the
