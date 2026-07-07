@@ -18,6 +18,7 @@ import {
 import { connectionSessionKey } from "~/lib/session-key";
 import { answerQuestion } from "~/rpc/actions";
 import { isFreshChat } from "~/lib/composer-state";
+import { messageKey, sanitizeMessages } from "~/lib/message-safety";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { useConnectionsStore } from "~/store/connections";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
@@ -68,7 +69,8 @@ export default function ThreadScreen() {
     (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
   );
   const { messagesBySession, errorBySession, hydrate } = useMobileMessagesStore();
-  const messages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+  const rawMessages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+  const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
   const sessionStatus =
@@ -234,7 +236,7 @@ export default function ThreadScreen() {
       <FlatList
         ref={listRef}
         data={messages}
-        keyExtractor={(message) => message.id}
+        keyExtractor={messageKey}
         renderItem={({ item }) => <MessageRow message={item} ctx={ctx} />}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
