@@ -27,12 +27,17 @@ const loadOrCreate = async (): Promise<DeviceKey> => {
     SecureStore.getItemAsync(PUBLIC_KEY),
   ]);
   if (priv !== null && pub !== null) {
-    cached = {
-      privateJwk: parsePrivateJwk(JSON.parse(priv)),
-      publicJwk: JSON.parse(pub) as JWK,
-    };
-    return cached;
+    const restored = await restoreStoredKey(priv, pub);
+    if (restored !== null) {
+      cached = restored;
+      return cached;
+    }
   }
+  cached = await createAndStoreKey();
+  return cached;
+};
+
+const createAndStoreKey = async (): Promise<DeviceKey> => {
   const privateKey = generatePrivateKey();
   const publicJwk = publicJwkFromPrivateKey(privateKey);
   const privateJwk = { ...publicJwk, d: base64UrlBytes(privateKey) };
@@ -40,8 +45,32 @@ const loadOrCreate = async (): Promise<DeviceKey> => {
     SecureStore.setItemAsync(PRIVATE_KEY, JSON.stringify(privateJwk)),
     SecureStore.setItemAsync(PUBLIC_KEY, JSON.stringify(publicJwk)),
   ]);
-  cached = { privateJwk, publicJwk };
-  return cached;
+  return { privateJwk, publicJwk };
+};
+
+const restoreStoredKey = async (
+  privateJson: string,
+  publicJson: string,
+): Promise<DeviceKey | null> => {
+  try {
+    const privateJwk = parsePrivateJwk(JSON.parse(privateJson));
+    const publicJwk = JSON.parse(publicJson) as JWK;
+    const privateKey = base64UrlToBytes(privateJwk.d);
+    if (!p256.utils.isValidPrivateKey(privateKey)) {
+      throw new Error("mobile_dpop_private_key_invalid");
+    }
+    const derivedPublicJwk = publicJwkFromPrivateKey(privateKey);
+    if (derivedPublicJwk.x !== publicJwk.x || derivedPublicJwk.y !== publicJwk.y) {
+      throw new Error("mobile_dpop_public_key_mismatch");
+    }
+    return { privateJwk, publicJwk };
+  } catch {
+    await Promise.all([
+      SecureStore.deleteItemAsync(PRIVATE_KEY),
+      SecureStore.deleteItemAsync(PUBLIC_KEY),
+    ]);
+    return null;
+  }
 };
 
 export const devicePublicJwk = async (): Promise<JWK> =>
@@ -137,17 +166,26 @@ const base64UrlBytes = (bytes: Uint8Array): string => {
 };
 
 const base64UrlToBytes = (value: string): Uint8Array => {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(
-    normalized.length + ((4 - (normalized.length % 4)) % 4),
-    "=",
-  );
-  const binary = globalThis.atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const clean = value.replace(/=+$/g, "");
+  if (clean.length % 4 === 1) {
+    throw new Error("mobile_dpop_base64url_invalid_length");
   }
-  return bytes;
+  const bytes: number[] = [];
+  for (let index = 0; index < clean.length; index += 4) {
+    const chunk = clean.slice(index, index + 4);
+    const values = [...chunk].map((char) => alphabet.indexOf(char));
+    if (values.some((item) => item < 0)) {
+      throw new Error("mobile_dpop_base64url_invalid_character");
+    }
+    const [a = 0, b = 0, c = 0, d = 0] = values;
+    const triple = (a << 18) | (b << 12) | (c << 6) | d;
+    bytes.push((triple >> 16) & 0xff);
+    if (chunk.length > 2) bytes.push((triple >> 8) & 0xff);
+    if (chunk.length > 3) bytes.push(triple & 0xff);
+  }
+  return new Uint8Array(bytes);
 };
 
 const normalizeUrl = (value: string): string => {
