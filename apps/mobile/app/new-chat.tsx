@@ -6,19 +6,11 @@ import type {
 } from "@zuse/wire";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
-import {
-  Check,
-  CloudOff,
-  GitBranch,
-  GitPullRequest,
-  Layers3,
-  Send,
-} from "lucide-react-native";
+import { CloudOff, Send } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -33,6 +25,7 @@ import {
   listWorktrees,
 } from "~/rpc/actions";
 import { optionsForConnection } from "~/lib/connection-params";
+import { cn } from "~/lib/cn";
 import {
   buildNewChatCreatePayload,
   MAIN_SOURCE,
@@ -46,18 +39,19 @@ import { useSessionsStore } from "~/store/sessions";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import {
-  ModelModeTrigger,
+  HeaderModePill,
+  NativeButton,
+  ProjectPill,
+  SourcePill,
+  StaticModelTitle,
   type ModelModeValue,
-} from "~/components/model-mode-sheet";
-
-const ACCENT = "hsl(72 98% 54%)";
+} from "~/components/model-mode-menu";
 
 export default function NewChatScreen() {
   const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [selectedConnectionKey, setSelectedConnectionKey] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<Folder["id"] | null>(null);
   const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
@@ -105,6 +99,20 @@ export default function NewChatScreen() {
     }));
   }, [bundlesByConnection, effectiveConnectionKey]);
 
+  const projectMenuGroups = useMemo(
+    () =>
+      connections.map((connection) => ({
+        connectionKey: connection.key,
+        connectionLabel: connection.label,
+        projects: (bundlesByConnection[connection.key] ?? []).map((bundle) => ({
+          id: bundle.project.id,
+          name: bundle.project.name,
+          path: bundle.project.path,
+        })),
+      })),
+    [bundlesByConnection, connections],
+  );
+
   const effectiveProjectId =
     selectedProjectId !== null &&
     projectChoices.some((item) => item.project.id === selectedProjectId)
@@ -144,6 +152,10 @@ export default function NewChatScreen() {
   }, [selectedOptions, effectiveProjectId]);
 
   const loading = Object.values(loadingByConnection).some(Boolean);
+  const selectedProject = projectChoices.find(
+    (item) => item.project.id === effectiveProjectId,
+  )?.project;
+  const sourceLabel = source.kind === "main" ? "Main" : source.label;
   const canSubmit =
     effectiveConnectionKey !== null &&
     selectedOptions !== null &&
@@ -215,124 +227,38 @@ export default function NewChatScreen() {
       <ScrollView
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={{ padding: 16, paddingBottom: 164, gap: 18 }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 18, paddingBottom: 164, gap: 18 }}
       >
-        <View className="gap-2 pt-2">
-          <Text className="font-sans-bold text-[32px] leading-9 text-foreground">
-            What should we build?
-          </Text>
-          <Text className="font-sans text-[15px] leading-6 text-muted-foreground">
-            Pick the project, model, and branch source before starting.
-          </Text>
+        <View className="items-center gap-3 pt-8">
+          <StaticModelTitle
+            value={modelMode}
+            editable
+            onChange={setModelMode}
+          />
+          <HeaderModePill
+            value={modelMode}
+            editable
+            onChange={setModelMode}
+          />
         </View>
 
-        <Section title="Computer">
-          {connections.map((connection) => (
-            <ChoiceRow
-              key={connection.key}
-              title={connection.label}
-              detail={connection.host}
-              selected={connection.key === effectiveConnectionKey}
-              onPress={() => {
-                setSelectedConnectionKey(connection.key);
-                setSelectedProjectId(null);
-                setSource(MAIN_SOURCE);
-              }}
+        <View className="min-h-[240px] justify-end gap-3">
+          <Text className="font-sans-medium text-[15px] text-muted-foreground">
+            Suggestions
+          </Text>
+          {[
+            "Create or update my README file",
+            "Search for a TODO comment and fix it",
+            "Recommend areas to improve our tests",
+          ].map((suggestion) => (
+            <PressableSuggestion
+              key={suggestion}
+              label={suggestion}
+              onPress={() => setText(suggestion)}
             />
           ))}
-          {connections.length === 0 ? (
-            <EmptyLine text="No linked computers found." />
-          ) : null}
-        </Section>
-
-        <Section title="Project">
-          {projectChoices.map((item) => (
-            <ChoiceRow
-              key={item.project.id}
-              title={item.project.name}
-              detail={item.project.path}
-              selected={item.project.id === effectiveProjectId}
-              onPress={() => {
-                setSelectedProjectId(item.project.id);
-                setSource(MAIN_SOURCE);
-              }}
-            />
-          ))}
-          {projectChoices.length === 0 ? (
-            <EmptyLine text={loading ? "Loading projects..." : "No projects found."} />
-          ) : null}
-        </Section>
-
-        <Section title="Source">
-          <ChoiceRow
-            title="Main checkout"
-            detail="Start from the default project checkout"
-            selected={source.kind === "main"}
-            icon="main"
-            onPress={() => setSource(MAIN_SOURCE)}
-          />
-          {worktrees.slice(0, 6).map((worktree) => (
-            <ChoiceRow
-              key={worktree.id}
-              title={worktree.branch}
-              detail={`${worktree.name} / ${worktree.setupStatus}`}
-              selected={source.kind === "worktree" && source.worktreeId === worktree.id}
-              icon="branch"
-              onPress={() =>
-                setSource({
-                  kind: "worktree",
-                  label: worktree.branch,
-                  worktreeId: worktree.id,
-                })
-              }
-            />
-          ))}
-          {branches
-            .filter((branch) => !branch.current)
-            .slice(0, 6)
-            .map((branch) => (
-              <ChoiceRow
-                key={`${branch.kind}:${branch.name}`}
-                title={branch.name}
-                detail={branch.kind === "remote" ? "Remote branch" : "Local branch"}
-                selected={source.kind === "branch" && source.label === branch.name}
-                icon="branch"
-                onPress={() =>
-                  setSource({
-                    kind: "branch",
-                    label: branch.name,
-                    worktreeId: null,
-                    createSource: {
-                      _tag: "branch",
-                      branch: branch.name,
-                      remote: branch.remote,
-                    },
-                  })
-                }
-              />
-            ))}
-          {prs.slice(0, 6).map((pr) => (
-            <ChoiceRow
-              key={`pr:${pr.number}`}
-              title={`#${pr.number} ${pr.title}`}
-              detail={pr.headRefName}
-              selected={source.kind === "pr" && source.label === `#${pr.number}`}
-              icon="pr"
-              onPress={() =>
-                setSource({
-                  kind: "pr",
-                  label: `#${pr.number}`,
-                  worktreeId: null,
-                  createSource: {
-                    _tag: "pr",
-                    number: pr.number,
-                    headRefName: pr.headRefName,
-                  },
-                })
-              }
-            />
-          ))}
-        </Section>
+        </View>
 
         {error === null ? null : (
           <Text selectable className="font-sans text-[13px] leading-5 text-danger">
@@ -354,13 +280,105 @@ export default function NewChatScreen() {
           }}
         >
           <View className="min-w-0 flex-1 gap-2">
-            <ModelModeTrigger
-              value={modelMode}
-              editable
-              open={modelSheetOpen}
-              onOpenChange={setModelSheetOpen}
-              onChange={setModelMode}
-            />
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onPress={() => setText((value) => value)}
+                className="h-10 w-10 rounded-full px-0"
+              >
+                <Text className="font-sans text-[26px] leading-7 text-foreground">+</Text>
+              </Button>
+              <ProjectPill
+                label={
+                  selectedProject === undefined
+                    ? loading
+                      ? "Loading projects"
+                      : "Project"
+                    : selectedProject.name
+                }
+                options={projectMenuGroups}
+                onSelect={(connectionKey, projectId) => {
+                  setSelectedConnectionKey(connectionKey);
+                  setSelectedProjectId(projectId as Folder["id"]);
+                  setSource(MAIN_SOURCE);
+                }}
+              />
+              <SourcePill label={sourceLabel}>
+                <NativeButton
+                  label="Main"
+                  systemImage={source.kind === "main" ? "checkmark" : "folder"}
+                  onPress={() => setSource(MAIN_SOURCE)}
+                />
+                {worktrees.slice(0, 8).map((worktree) => (
+                  <NativeButton
+                    key={worktree.id}
+                    label={worktree.branch}
+                    systemImage={
+                      source.kind === "worktree" && source.worktreeId === worktree.id
+                        ? "checkmark"
+                        : "point.topleft.down.curvedto.point.bottomright.up"
+                    }
+                    onPress={() =>
+                      setSource({
+                        kind: "worktree",
+                        label: worktree.branch,
+                        worktreeId: worktree.id,
+                      })
+                    }
+                  />
+                ))}
+                {branches
+                  .filter((branch) => !branch.current)
+                  .slice(0, 8)
+                  .map((branch) => (
+                    <NativeButton
+                      key={`${branch.kind}:${branch.name}`}
+                      label={branch.name}
+                      systemImage={
+                        source.kind === "branch" && source.label === branch.name
+                          ? "checkmark"
+                          : "arrow.branch"
+                      }
+                      onPress={() =>
+                        setSource({
+                          kind: "branch",
+                          label: branch.name,
+                          worktreeId: null,
+                          createSource: {
+                            _tag: "branch",
+                            branch: branch.name,
+                            remote: branch.remote,
+                          },
+                        })
+                      }
+                    />
+                  ))}
+                {prs.slice(0, 8).map((pr) => (
+                  <NativeButton
+                    key={`pr:${pr.number}`}
+                    label={`#${pr.number} ${pr.title}`}
+                    systemImage={
+                      source.kind === "pr" && source.label === `#${pr.number}`
+                        ? "checkmark"
+                        : "arrow.triangle.pull"
+                    }
+                    onPress={() =>
+                      setSource({
+                        kind: "pr",
+                        label: `#${pr.number}`,
+                        worktreeId: null,
+                        createSource: {
+                          _tag: "pr",
+                          number: pr.number,
+                          headRefName: pr.headRefName,
+                        },
+                      })
+                    }
+                  />
+                ))}
+              </SourcePill>
+            </View>
             <TextInput
               className="min-h-10 px-2 py-2 font-sans text-[17px] text-foreground"
               multiline
@@ -389,66 +407,25 @@ export default function NewChatScreen() {
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <View className="gap-2">
-      <Text className="px-1 font-sans-medium text-[12px] uppercase text-muted-foreground">
-        {title}
-      </Text>
-      <View
-        className="overflow-hidden rounded-2xl border border-border bg-card"
-        style={{ borderCurve: "continuous" }}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function ChoiceRow({
-  title,
-  detail,
-  selected,
-  icon,
+function PressableSuggestion({
+  label,
   onPress,
 }: {
-  title: string;
-  detail: string;
-  selected: boolean;
-  icon?: "main" | "branch" | "pr";
+  label: string;
   onPress: () => void;
 }) {
-  const Icon =
-    icon === "branch" ? GitBranch : icon === "pr" ? GitPullRequest : Layers3;
   return (
-    <Pressable
+    <Text
       accessibilityRole="button"
-      accessibilityState={{ selected }}
       onPress={onPress}
-      className="min-h-[58px] flex-row items-center gap-3 border-b border-border px-3 py-2 active:bg-card-elevated"
+      className={cn(
+        "self-start rounded-full border border-border bg-card-elevated px-4 py-2.5",
+        "font-sans text-[18px] leading-6 text-foreground",
+      )}
+      style={{ borderCurve: "continuous" }}
+      numberOfLines={1}
     >
-      <Icon size={17} color={selected ? ACCENT : "hsl(72 2% 64%)"} />
-      <View className="min-w-0 flex-1">
-        <Text className="font-sans-medium text-[15px] text-foreground" numberOfLines={1}>
-          {title}
-        </Text>
-        <Text className="font-sans text-[12px] text-muted-foreground" numberOfLines={1}>
-          {detail}
-        </Text>
-      </View>
-      {selected ? <Check size={17} color={ACCENT} /> : null}
-    </Pressable>
+      {label}
+    </Text>
   );
 }
-
-const EmptyLine = ({ text }: { text: string }) => (
-  <View className="px-3 py-4">
-    <Text className="font-sans text-[13px] text-muted-foreground">{text}</Text>
-  </View>
-);

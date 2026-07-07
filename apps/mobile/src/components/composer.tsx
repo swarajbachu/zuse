@@ -18,7 +18,12 @@ import { connectionSessionKey } from "~/lib/session-key";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
-import { ModelModeTrigger, type ModelModeValue } from "./model-mode-sheet";
+import {
+  ModePill,
+  ModelModePill,
+  RuntimePill,
+  type ModelModeValue,
+} from "./model-mode-menu";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
 
@@ -41,7 +46,6 @@ export const Composer = ({
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const stateKey = connectionSessionKey(connKey, sessionId);
 
   // Offline = the message stream is retrying or has surfaced an error. Sends
@@ -161,15 +165,6 @@ export const Composer = ({
         }}
       >
         <View className="min-w-0 flex-1 gap-2">
-          {modelValue === null ? null : (
-            <ModelModeTrigger
-              value={modelValue}
-              editable={fresh}
-              open={modelSheetOpen}
-              onOpenChange={setModelSheetOpen}
-              onChange={(next) => void changeModelMode(next)}
-            />
-          )}
           <TextInput
             className="min-h-10 px-2 py-2 font-sans text-[17px] text-foreground"
             multiline
@@ -178,6 +173,25 @@ export const Composer = ({
             value={text}
             onChangeText={setText}
           />
+          {modelValue === null ? null : (
+            <View className="flex-row flex-wrap items-center gap-2">
+              <ModelModePill
+                value={modelValue}
+                editable={fresh}
+                onChange={(next) => void changeModelMode(next)}
+              />
+              <ModePill
+                value={modelValue}
+                editable={fresh}
+                onChange={(next) => void changeModelMode(next)}
+              />
+              <RuntimePill
+                value={modelValue}
+                editable={fresh}
+                onChange={(next) => void changeModelMode(next)}
+              />
+            </View>
+          )}
         </View>
         {showInterrupt ? (
           <Button
