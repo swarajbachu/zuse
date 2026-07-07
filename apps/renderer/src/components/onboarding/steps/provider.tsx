@@ -13,6 +13,7 @@ import { ProviderIcon } from "~/components/provider-icons";
 import { PROVIDER_LABEL } from "~/components/settings-page";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import { useProvidersStore } from "../../../store/providers.ts";
 import { useSettingsStore } from "../../../store/settings.ts";
@@ -123,6 +124,7 @@ export function ProviderStep() {
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
   const availability = useProvidersStore((s) => s.availability);
   const loading = useProvidersStore((s) => s.loading);
+  const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
 
   const providers: ReadonlyArray<ProviderId> = [
     "claude",
@@ -133,7 +135,15 @@ export function ProviderStep() {
     "opencode",
   ];
 
-  const selectedState = deriveState(defaultProviderId, availability, loading);
+  const initialLoading = isInitialProviderAvailabilityLoading(
+    loading,
+    availabilityLoaded,
+  );
+  const selectedState = deriveState(
+    defaultProviderId,
+    availability,
+    initialLoading,
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -150,7 +160,7 @@ export function ProviderStep() {
           <ProviderCard
             key={pid}
             providerId={pid}
-            state={deriveState(pid, availability, loading)}
+            state={deriveState(pid, availability, initialLoading)}
             active={pid === defaultProviderId}
             onClick={() => setDefaultProvider(pid)}
           />

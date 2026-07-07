@@ -40,6 +40,7 @@ import {
   formatRelativeTime,
   useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
+import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import {
   collectDiagnosticsClientContext,
@@ -1223,6 +1224,7 @@ function GeneralPane() {
 function ProvidersPane() {
   const availability = useProvidersStore((s) => s.availability);
   const loading = useProvidersStore((s) => s.loading);
+  const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
   const error = useProvidersStore((s) => s.error);
   const refresh = useProvidersStore((s) => s.refresh);
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
@@ -1338,7 +1340,10 @@ function ProvidersPane() {
             <ProviderCard
               providerId={selectedProvider}
               availability={availabilityById.get(selectedProvider)}
-              loading={loading}
+              loading={isInitialProviderAvailabilityLoading(
+                loading,
+                availabilityLoaded,
+              )}
             />
           </Card>
         </div>

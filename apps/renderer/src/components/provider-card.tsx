@@ -26,7 +26,10 @@ import { Button } from "~/components/ui/button";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { getRpcClient } from "~/lib/rpc-client";
-import { useProvidersStore } from "~/store/providers";
+import {
+  IDLE_PROVIDER_UPDATE_STATE,
+  useProvidersStore,
+} from "~/store/providers";
 import {
   Select,
   SelectItem,
@@ -580,12 +583,6 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
   );
 }
 
-type UpdateState =
-  | { readonly kind: "idle" }
-  | { readonly kind: "running"; readonly line: string | null }
-  | { readonly kind: "success" }
-  | { readonly kind: "failed"; readonly reason: string };
-
 /**
  * Subscribe to `agent.updateProvider`, which spawns the provider's update
  * command server-side and streams its output. On the terminal `done` event we
@@ -594,7 +591,12 @@ type UpdateState =
  */
 function useProviderUpdate(providerId: ProviderId) {
   const refresh = useProvidersStore((s) => s.refresh);
-  const [state, setState] = useState<UpdateState>({ kind: "idle" });
+  const state = useProvidersStore(
+    (s) => s.updateStateByProvider[providerId] ?? IDLE_PROVIDER_UPDATE_STATE,
+  );
+  const setProviderUpdateState = useProvidersStore(
+    (s) => s.setProviderUpdateState,
+  );
   const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
   const resetTimerRef = useRef<number | null>(null);
 
@@ -602,10 +604,11 @@ function useProviderUpdate(providerId: ProviderId) {
     () => () => {
       const fiber = fiberRef.current;
       if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+      setProviderUpdateState(providerId, IDLE_PROVIDER_UPDATE_STATE);
       if (resetTimerRef.current !== null)
         window.clearTimeout(resetTimerRef.current);
     },
-    [],
+    [providerId, setProviderUpdateState],
   );
 
   const run = async () => {
@@ -614,15 +617,27 @@ function useProviderUpdate(providerId: ProviderId) {
       window.clearTimeout(resetTimerRef.current);
       resetTimerRef.current = null;
     }
-    setState({ kind: "running", line: null });
-    const client = await getRpcClient();
+    setProviderUpdateState(providerId, { kind: "running", line: null });
+    let client: Awaited<ReturnType<typeof getRpcClient>>;
+    try {
+      client = await getRpcClient();
+    } catch (err) {
+      setProviderUpdateState(providerId, {
+        kind: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     const fiber = Effect.runFork(
       Stream.runForEach(
         client.agent.updateProvider({ providerId }),
         (event: ProviderUpdateEvent) =>
           Effect.sync(() => {
             if (event._tag === "log") {
-              setState({ kind: "running", line: event.text });
+              setProviderUpdateState(providerId, {
+                kind: "running",
+                line: event.text,
+              });
             } else if (event._tag === "done") {
               fiberRef.current = null;
               if (event.ok) {
@@ -631,17 +646,20 @@ function useProviderUpdate(providerId: ProviderId) {
                 // version show together for a beat. Stay on the spinner until
                 // the probe lands.
                 void refresh().finally(() => {
-                  setState({ kind: "success" });
+                  setProviderUpdateState(providerId, { kind: "success" });
                   // Re-probe hides the icon if now on latest; for
                   // version-unknown CLIs (Grok) drop the "Updated" badge after
                   // a moment so the control returns to idle.
                   resetTimerRef.current = window.setTimeout(() => {
-                    setState({ kind: "idle" });
+                    setProviderUpdateState(
+                      providerId,
+                      IDLE_PROVIDER_UPDATE_STATE,
+                    );
                     resetTimerRef.current = null;
                   }, 4_000);
                 });
               } else {
-                setState({
+                setProviderUpdateState(providerId, {
                   kind: "failed",
                   reason: event.reason ?? "Update failed.",
                 });
@@ -652,7 +670,7 @@ function useProviderUpdate(providerId: ProviderId) {
         Effect.catchAll((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
-            setState({
+            setProviderUpdateState(providerId, {
               kind: "failed",
               reason: err instanceof Error ? err.message : String(err),
             });
