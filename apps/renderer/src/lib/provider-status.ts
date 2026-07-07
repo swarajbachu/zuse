@@ -33,6 +33,13 @@ export interface ProviderSummary {
   readonly actionable: boolean;
 }
 
+export function isInitialProviderAvailabilityLoading(
+  loading: boolean,
+  availabilityLoaded: boolean,
+): boolean {
+  return loading && !availabilityLoaded;
+}
+
 const PROVIDER_DISPLAY: Record<ProviderId, string> = {
   claude: "Claude Code",
   codex: "Codex",
