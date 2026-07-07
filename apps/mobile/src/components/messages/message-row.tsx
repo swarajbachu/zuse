@@ -25,6 +25,7 @@ import {
   summarizeValue,
   type ToolResultRecord,
 } from "~/lib/message-presentation";
+import { captureMobileError } from "~/lib/crash-reporting";
 import {
   buildToolPresentation,
   type MobileToolIcon,
@@ -55,19 +56,28 @@ export const MessageRow = ({
   message: Message;
   ctx: MessageRowContext;
 }) => (
-  <MessageRowBoundary>
+  <MessageRowBoundary
+    context={`message-row:${message.id}:${message.content._tag}`}
+  >
     <MessageRowContent message={message} ctx={ctx} />
   </MessageRowBoundary>
 );
 
 class MessageRowBoundary extends React.Component<
-  { readonly children: React.ReactNode },
+  { readonly children: React.ReactNode; readonly context: string },
   { readonly failed: boolean }
 > {
   state = { failed: false };
 
   static getDerivedStateFromError(): { readonly failed: boolean } {
     return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    void captureMobileError(error, {
+      context: this.props.context,
+      componentStack: info.componentStack ?? undefined,
+    });
   }
 
   render() {

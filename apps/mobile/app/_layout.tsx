@@ -14,6 +14,8 @@ import { useEffect } from "react";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
+import { CrashReportOverlay } from "~/components/crash-report-overlay";
+import { installCrashReporting } from "~/lib/crash-reporting";
 import { installNotificationResponseHandler } from "~/notifications/push";
 
 const BG = "hsl(72 5% 6%)";
@@ -28,7 +30,10 @@ export default function RootLayout() {
     GeistMono_400Regular,
   });
 
-  useEffect(() => installNotificationResponseHandler(), []);
+  useEffect(() => {
+    installCrashReporting();
+    return installNotificationResponseHandler();
+  }, []);
 
   if (!fontsLoaded) {
     return <View className="flex-1 bg-background" />;
@@ -115,6 +120,7 @@ export default function RootLayout() {
           options={{ title: "Smoke", headerLargeTitle: false }}
         />
       </Stack>
+      <CrashReportOverlay />
     </GestureHandlerRootView>
   );
 }

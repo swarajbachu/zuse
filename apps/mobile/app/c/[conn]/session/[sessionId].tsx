@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { FlatList, KeyboardAvoidingView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +20,7 @@ import { answerQuestion } from "~/rpc/actions";
 import { isFreshChat } from "~/lib/composer-state";
 import { messageKey, sanitizeMessages } from "~/lib/message-safety";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
+import { captureMobileError } from "~/lib/crash-reporting";
 import { useConnectionsStore } from "~/store/connections";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
@@ -40,7 +41,15 @@ const EMPTY_MESSAGES: ReturnType<
   typeof useMobileMessagesStore.getState
 >["messagesBySession"][string] = [];
 
-export default function ThreadScreen() {
+export default function ThreadScreenRoute() {
+  return (
+    <ThreadScreenBoundary>
+      <ThreadScreen />
+    </ThreadScreenBoundary>
+  );
+}
+
+function ThreadScreen() {
   const insets = useSafeAreaInsets();
   const { conn, sessionId } = useLocalSearchParams<{
     conn: string;
@@ -304,6 +313,40 @@ export default function ThreadScreen() {
       )}
     </KeyboardAvoidingView>
   );
+}
+
+class ThreadScreenBoundary extends React.Component<
+  { readonly children: React.ReactNode },
+  { readonly failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { readonly failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    void captureMobileError(error, {
+      context: "thread-screen",
+      componentStack: info.componentStack ?? undefined,
+    });
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <View className="flex-1 items-center justify-center bg-background px-5">
+          <Text className="font-sans-medium text-base text-foreground">
+            This chat could not be opened.
+          </Text>
+          <Text className="mt-2 text-center font-sans text-sm leading-5 text-muted-foreground">
+            The crash report is saved and will stay visible after restart.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const QueuedBubble = ({ text }: { text: string }) => (

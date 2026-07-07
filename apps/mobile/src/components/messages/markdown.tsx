@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, Text } from "react-native";
 import MarkdownDisplay from "react-native-markdown-display";
 
 import { colors } from "~/theme";
@@ -82,7 +82,40 @@ const markdownStyles = StyleSheet.create({
  * Memoized because assistant text is immutable once streamed.
  */
 export const Markdown = memo(({ children }: { children: string }) => (
-  <MarkdownDisplay style={markdownStyles}>{children}</MarkdownDisplay>
+  shouldRenderPlainText(children) ? (
+    <Text selectable style={plainTextStyle}>
+      {children}
+    </Text>
+  ) : (
+    <MarkdownDisplay style={markdownStyles}>{children}</MarkdownDisplay>
+  )
 ));
 
 Markdown.displayName = "Markdown";
+
+const plainTextStyle = {
+  color: colors.fg,
+  fontFamily: SANS,
+  fontSize: 15,
+  lineHeight: 22,
+} as const;
+
+const shouldRenderPlainText = (value: string): boolean =>
+  value.length > 32_000 || hasLargeHtmlBlock(value) || hasVeryWideTable(value);
+
+const hasLargeHtmlBlock = (value: string): boolean =>
+  /<\/?(html|body|script|style|table|details|summary)(\s|>)/i.test(value);
+
+const hasVeryWideTable = (value: string): boolean => {
+  const lines = value.split(/\r\n|\r|\n/);
+  let tableLike = 0;
+  for (const line of lines) {
+    if ((line.match(/\|/g)?.length ?? 0) >= 8) {
+      tableLike += 1;
+      if (tableLike >= 6) {
+        return true;
+      }
+    }
+  }
+  return false;
+};
