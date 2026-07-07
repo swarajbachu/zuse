@@ -7,7 +7,6 @@ import {
   ChevronRight,
   CircleCheck,
   CircleX,
-  GitPullRequest,
   LoaderCircle,
   Loader2,
   MessageCircle,
@@ -261,11 +260,11 @@ export default function HomeScreen() {
           ),
         }}
       />
-      <Stack.Toolbar>
+      <Stack.Toolbar placement="bottom">
         <Stack.Toolbar.View separateBackground>
           <GlassSurface
             style={{
-              width: Math.min(width - 28, 520),
+              width: Math.min(width - 88, 520),
               minHeight: 44,
               flexDirection: "row",
               alignItems: "center",
@@ -288,6 +287,11 @@ export default function HomeScreen() {
             />
           </GlassSurface>
         </Stack.Toolbar.View>
+        <Stack.Toolbar.Button
+          icon="square.and.pencil"
+          separateBackground
+          onPress={() => router.push("/new-chat")}
+        />
       </Stack.Toolbar>
       <ScrollView
         className="flex-1 bg-background"
@@ -613,10 +617,7 @@ function BranchStateBadge({
         state.tone === "neutral" && "bg-muted",
       )}
     >
-      <GitPullRequest
-        size={12}
-        color={branchToneColor(state.tone)}
-      />
+      <BranchGlyph color={branchToneColor(state.tone)} icon={state.icon} />
       <Text
         className={cn(
           "font-sans-medium text-[11px]",
@@ -630,6 +631,77 @@ function BranchStateBadge({
       >
         {state.label}
       </Text>
+    </View>
+  );
+}
+
+function BranchGlyph({
+  color,
+  icon,
+}: {
+  color: string;
+  icon: NonNullable<ReturnType<typeof branchStatePresentation>>["icon"];
+}) {
+  if (icon === "warning" || icon === "closed") {
+    return (
+      <View className="h-3 w-3 items-center justify-center">
+        <Text
+          className="font-sans-bold text-[10px]"
+          style={{ color, lineHeight: 12 }}
+        >
+          {icon === "warning" ? "!" : "x"}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={{ width: 12, height: 12 }}>
+      <View
+        style={{
+          position: "absolute",
+          left: 2,
+          top: 2,
+          width: 4,
+          height: 4,
+          borderRadius: 2,
+          borderWidth: 1.4,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          right: 1,
+          bottom: 1,
+          width: 4,
+          height: 4,
+          borderRadius: 2,
+          borderWidth: 1.4,
+          borderColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          left: 4,
+          top: 6,
+          width: 1.4,
+          height: 4,
+          borderRadius: 1,
+          backgroundColor: color,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          left: 5,
+          top: 8,
+          width: 4,
+          height: 1.4,
+          borderRadius: 1,
+          backgroundColor: color,
+        }}
+      />
     </View>
   );
 }

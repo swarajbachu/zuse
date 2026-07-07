@@ -56,6 +56,14 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" options={{ title: "Chats" }} />
         <Stack.Screen
+          name="new-chat"
+          options={{
+            title: "New Chat",
+            headerLargeTitle: false,
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
           name="settings"
           options={{
             title: "Settings",

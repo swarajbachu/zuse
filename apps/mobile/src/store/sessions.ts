@@ -1,4 +1,14 @@
-import type { Chat, Folder, Session, SessionStatus } from "@zuse/wire";
+import type {
+  Chat,
+  Folder,
+  Message,
+  PermissionMode,
+  ProviderId,
+  RuntimeMode,
+  Session,
+  SessionStatus,
+  WorktreeId,
+} from "@zuse/wire";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
@@ -6,6 +16,7 @@ import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import { connectionSessionKey } from "~/lib/session-key";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { useMobileMessagesStore } from "./messages";
 
 export type ProjectBundle = {
   project: Folder;
@@ -29,6 +40,19 @@ type SessionsState = {
     options: WsProtocolOptions,
     sessionId: Session["id"],
   ) => Promise<void>;
+  createChat: (
+    connKey: string,
+    options: WsProtocolOptions,
+    input: {
+      projectId: Folder["id"];
+      providerId: ProviderId;
+      model: string;
+      initialPrompt: string;
+      runtimeMode?: RuntimeMode;
+      permissionMode?: PermissionMode;
+      worktreeId?: WorktreeId | null;
+    },
+  ) => Promise<{ chat: Chat; initialSession: Session; initialMessage: Message | null }>;
 };
 
 const statusFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
@@ -98,6 +122,58 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           [connKey]: cause instanceof Error ? cause.message : String(cause),
         },
       }));
+    }
+  },
+  createChat: async (connKey, options, input) => {
+    try {
+      const client = await Effect.runPromise(getConnectionClient(options));
+      const result = await Effect.runPromise(
+        client.chat.create({
+          projectId: input.projectId,
+          providerId: input.providerId,
+          model: input.model,
+          initialPrompt: input.initialPrompt,
+          runtimeMode: input.runtimeMode,
+          permissionMode: input.permissionMode,
+          worktreeId: input.worktreeId ?? null,
+        }),
+      );
+      set((state) => ({
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: patchCreatedChat(
+            state.bundlesByConnection[connKey] ?? [],
+            input.projectId,
+            result.chat,
+            result.initialSession,
+          ),
+        },
+        statusBySession: {
+          ...state.statusBySession,
+          [connectionSessionKey(connKey, result.initialSession.id)]:
+            result.initialSession.status,
+        },
+      }));
+      if (result.initialMessage !== null) {
+        useMobileMessagesStore.setState((state) => ({
+          messagesBySession: {
+            ...state.messagesBySession,
+            [connectionSessionKey(connKey, result.initialSession.id)]: [
+              result.initialMessage!,
+            ],
+          },
+        }));
+      }
+      return result;
+    } catch (cause) {
+      reportConnectionFailure(options, cause);
+      set((state) => ({
+        errorByConnection: {
+          ...state.errorByConnection,
+          [connKey]: cause instanceof Error ? cause.message : String(cause),
+        },
+      }));
+      throw cause;
     }
   },
   hydrate: async (connKey, options) => {
@@ -258,6 +334,30 @@ const patchChat = (
             chat,
             ...bundle.chats.filter((existing) => existing.id !== chat.id),
           ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
+      },
+  );
+
+const patchCreatedChat = (
+  bundles: readonly ProjectBundle[],
+  projectId: Folder["id"],
+  chat: Chat,
+  initialSession: Session,
+): ProjectBundle[] =>
+  bundles.map((bundle) =>
+    bundle.project.id !== projectId
+      ? bundle
+      : {
+          ...bundle,
+          chats: [
+            chat,
+            ...bundle.chats.filter((existing) => existing.id !== chat.id),
+          ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
+          sessions: [
+            initialSession,
+            ...bundle.sessions.filter(
+              (existing) => existing.id !== initialSession.id,
+            ),
+          ],
         },
   );
 
