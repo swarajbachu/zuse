@@ -56,7 +56,7 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
       relayConfig?.tunnelHostname !== undefined
         ? EnvironmentEndpoint.make({
             httpBaseUrl: `https://${relayConfig.tunnelHostname}`,
-            wsBaseUrl: `wss://${relayConfig.tunnelHostname}/rpc`,
+            wsBaseUrl: `wss://${relayConfig.tunnelHostname}`,
           })
         : config.advertisedHost !== null && config.port !== null
           ? EnvironmentEndpoint.make({

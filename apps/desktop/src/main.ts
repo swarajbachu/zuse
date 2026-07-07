@@ -24,7 +24,7 @@ import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { makeMainLayer } from "@zuse/server";
+import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
 import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
@@ -1342,6 +1342,11 @@ function createMainWindow() {
   const serverProtocol = electronServerProtocolLayer(
     mainWindow.webContents,
   ).pipe(Layer.provide(RpcSerialization.layerJson));
+  const relayWsPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8787);
+  const relayWsProtocol = wsServerProtocolLayer({
+    port: relayWsPort,
+    host: "127.0.0.1",
+  });
 
   runtimeFiber = Effect.runFork(
     Layer.launch(
@@ -1349,7 +1354,14 @@ function createMainWindow() {
         userData: app.getPath("userData"),
         folderPicker,
         serverProtocol,
+        additionalServerProtocols: [relayWsProtocol],
         authShell,
+        lanAuth: {
+          policy: "protected",
+          advertisedHost: null,
+          port: relayWsPort,
+          pairingBootstrap: false,
+        },
       }),
     ).pipe(
       Effect.catchAllCause((cause) =>

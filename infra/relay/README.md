@@ -76,5 +76,5 @@ connect, cross-account isolation, proof forgery, and replay rejection.
 - **Managed tunnels**: on link the relay creates a per-`(account, environment)` named tunnel,
   pushes its ingress (hostname → the desktop's loopback WS origin), sets a proxied CNAME, and
   returns a connector token the desktop runs `cloudflared` with. Presence/connect then route to
-  `wss://<hostname>/rpc`. Unlink tears the tunnel + DNS down. Chat bytes never touch the relay —
+  `wss://<hostname>`. Unlink tears the tunnel + DNS down. Chat bytes never touch the relay —
   the data path is phone ↔ Cloudflare edge ↔ desktop connector.

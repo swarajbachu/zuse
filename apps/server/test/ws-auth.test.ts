@@ -15,6 +15,7 @@ import {
 import type { LanAuthPolicy } from "../src/lan-auth/policy.ts";
 import { Migration0021AuthTokens } from "../src/persistence/migrations/0021_auth_tokens.ts";
 import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0024_remote_connect_state.ts";
+import { Migration0028RelayMintPublicKey } from "../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { wsServerProtocolLayer } from "../src/transports/ws.ts";
 
 const TestRpcs = RpcGroup.make(PingRpc);
@@ -45,7 +46,10 @@ const makeRuntime = (opts: {
 }) => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
-    Migration0021AuthTokens.pipe(Effect.zipRight(Migration0024RemoteConnectState)),
+    Migration0021AuthTokens.pipe(
+      Effect.zipRight(Migration0024RemoteConnectState),
+      Effect.zipRight(Migration0028RelayMintPublicKey),
+    ),
   ).pipe(
     Layer.provideMerge(SqlLive),
   );
@@ -220,13 +224,14 @@ describe("WS LAN auth", () => {
     }
   });
 
-  it("fails closed for protected boot with no token and no bootstrap", async () => {
+  it("binds protected servers without existing tokens and rejects requests", async () => {
     const port = await freePort();
     const runtime = makeRuntime({ policy: "protected", port });
     try {
-      await expect(
-        runtime.runPromise(Effect.void),
-      ).rejects.toThrow(/refusing to bind non-loopback without auth/);
+      await runtime.runPromise(Effect.void);
+      const response = await fetch(`http://127.0.0.1:${port}/`);
+      expect(response.status).toBe(401);
+      await expect(upgradeStatus(port, "/")).resolves.toBe(401);
     } finally {
       await disposeRuntime(runtime);
     }

@@ -12,7 +12,7 @@ export type WsProtocolOptions = {
   token?: string | null;
   /**
    * A full ws(s):// base URL, used for relay-connected environments reached via
-   * a managed tunnel (e.g. `wss://env-x.relay.example/rpc`). When present it
+   * a managed tunnel (e.g. `wss://env-x.relay.example`). When present it
    * takes precedence over host/port.
    */
   wsBaseUrl?: string | null;

@@ -73,14 +73,6 @@ export const wsServerProtocolLayer = (opts: {
     RpcServer.Protocol,
     Effect.gen(function* () {
       const auth = yield* LanAuthService;
-      if (auth.policy === "protected") {
-        const ok = (yield* auth.hasActiveTokens()) || auth.pairingBootstrap;
-        if (!ok) {
-          return yield* Effect.dieMessage(
-            "refusing to bind non-loopback without auth: mint a token or set ZUSE_ENABLE_PAIRING=1",
-          );
-        }
-      }
 
       const { protocol, httpApp } =
         yield* RpcServer.makeProtocolWithHttpAppWebsocket;

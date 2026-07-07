@@ -10,6 +10,7 @@ import {
   TestClock,
   TestContext,
 } from "effect";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 import { LanAuthServiceLive } from "../src/lan-auth/layers/lan-auth-service.ts";
 import { resolveAuthPolicy } from "../src/lan-auth/policy.ts";
@@ -22,6 +23,7 @@ import { Migration0024RemoteConnectState } from "../src/persistence/migrations/0
 import { Migration0025RelayEnvironmentKeys } from "../src/persistence/migrations/0025_relay_environment_keys.ts";
 import { Migration0026RelayConnectorToken } from "../src/persistence/migrations/0026_relay_connector_token.ts";
 import { Migration0027RelayTunnelHostname } from "../src/persistence/migrations/0027_relay_tunnel_hostname.ts";
+import { Migration0028RelayMintPublicKey } from "../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { buildAdvertisedEndpoints } from "../src/lan-auth/advertised-endpoints.ts";
 
 const makeRuntime = () => {
@@ -32,6 +34,7 @@ const makeRuntime = () => {
       Effect.zipRight(Migration0025RelayEnvironmentKeys),
       Effect.zipRight(Migration0026RelayConnectorToken),
       Effect.zipRight(Migration0027RelayTunnelHostname),
+      Effect.zipRight(Migration0028RelayMintPublicKey),
     ),
   ).pipe(Layer.provideMerge(SqlLive));
   const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -244,6 +247,49 @@ describe("LanAuthService", () => {
     });
   });
 
+  it("verifies relay-issued connect tokens with persisted relay mint key", async () => {
+    await withRuntime(async (run) => {
+      const mintKey = await generateKeyPair("EdDSA", { extractable: true });
+      const mintPublicKey = JSON.stringify(await exportJWK(mintKey.publicKey));
+      const environmentId = await run(
+        Effect.gen(function* () {
+          const auth = yield* LanAuthService;
+          const environmentId = yield* auth.environmentId();
+          yield* auth.saveRelayConfig({
+            relayUrl: "https://relay.test",
+            relayIssuer: "https://relay.test",
+            environmentId,
+            environmentCredential: "zec_secret",
+            mintPublicKey,
+          });
+          return environmentId;
+        }),
+      );
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const token = await new SignJWT({
+        environmentId,
+        cnf: { jkt: "thumbprint" },
+      })
+        .setProtectedHeader({ alg: "EdDSA", typ: "connect+jwt" })
+        .setIssuer("https://relay.test")
+        .setAudience(`zuse-env:${environmentId}`)
+        .setSubject("acct_test")
+        .setIssuedAt(nowSec)
+        .setExpirationTime(nowSec + 60)
+        .sign(mintKey.privateKey);
+
+      await expect(
+        run(
+          Effect.gen(function* () {
+            const auth = yield* LanAuthService;
+            return yield* auth.verifyToken(token);
+          }),
+        ),
+      ).resolves.toBe(true);
+    });
+  });
+
   it("builds LAN, loopback, and managed tunnel advertised endpoints", () => {
     const endpoints = buildAdvertisedEndpoints({
       lan: {
@@ -279,7 +325,7 @@ describe("LanAuthService", () => {
       endpoints.find((endpoint) => endpoint.id === "tunnel:managed-relay"),
     ).toMatchObject({
       httpBaseUrl: "https://env.example.test",
-      wsBaseUrl: "wss://env.example.test/rpc",
+      wsBaseUrl: "wss://env.example.test",
       reachability: "tunnel",
       compatibility: { hostedHttpsApp: "compatible" },
       status: "available",
