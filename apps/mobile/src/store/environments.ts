@@ -49,9 +49,21 @@ const message = (cause: unknown): string => {
     if (text.includes("invalid_workos_token")) {
       return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
     }
+    if (
+      text.startsWith("relay_dpop_token_5") ||
+      text.startsWith("relay_dpop_token_429")
+    ) {
+      return "Relay is temporarily unavailable. Try again in a moment.";
+    }
     return "Could not authorize this phone with the relay.";
   }
   if (text.startsWith("relay_connect_")) {
+    if (
+      text.startsWith("relay_connect_5") ||
+      text.startsWith("relay_connect_429")
+    ) {
+      return "Relay is temporarily unavailable. Try again in a moment.";
+    }
     return "Could not connect to that computer.";
   }
   return text;

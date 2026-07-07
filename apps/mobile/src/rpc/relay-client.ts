@@ -46,7 +46,12 @@ const relayError = async (
   } catch {
     // Non-JSON relay errors still get surfaced in truncated form.
   }
-  return new Error(`${fallback}:${text.slice(0, 120)}`);
+  const compact = text
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+  return new Error(compact.length > 0 ? `${fallback}:${compact}` : fallback);
 };
 
 const ensureAccessToken = async (): Promise<string> => {

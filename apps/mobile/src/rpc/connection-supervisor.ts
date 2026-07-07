@@ -60,9 +60,9 @@ const messageOf = (cause: unknown): string =>
 
 const defaultClassifyError = (cause: unknown): "auth" | "transient" => {
   const message = messageOf(cause).toLowerCase();
-  return message.includes("401") ||
-    message.includes("403") ||
-    message.includes("auth") ||
+  return /_(401|403)(?::|$)/.test(message) ||
+    message.includes("invalid_dpop_proof") ||
+    message.includes("invalid_workos_token") ||
     message.includes("unauthorized") ||
     message.includes("forbidden")
     ? "auth"

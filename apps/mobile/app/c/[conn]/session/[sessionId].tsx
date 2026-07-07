@@ -90,6 +90,7 @@ export default function ThreadScreen() {
   const queued = useOutboxStore(
     (state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
   );
+  const queuedCount = queued.length;
 
   useEffect(() => {
     if (!hydrated) void hydrateConnections();
@@ -120,12 +121,36 @@ export default function ThreadScreen() {
   const error = errorBySession[stateKey];
   const transportOnline = connectionSnapshot?.status === "connected";
 
-  // Drain the outbox in order the moment the session is back online.
+  // Drain the outbox in order while the transport is online. This runs both
+  // when the connection wakes and when an item gets queued after a failed send.
   useEffect(() => {
-    if (transportOnline && normalizedSessionId.length > 0 && options !== null) {
-      void flushOutbox(connKey, options, normalizedSessionId);
+    if (
+      !transportOnline ||
+      normalizedSessionId.length === 0 ||
+      options === null ||
+      queuedCount === 0
+    ) {
+      return;
     }
-  }, [connKey, flushOutbox, normalizedSessionId, transportOnline, options]);
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      void flushOutbox(connKey, options, normalizedSessionId);
+    };
+    run();
+    const timer = setInterval(run, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    connKey,
+    flushOutbox,
+    normalizedSessionId,
+    transportOnline,
+    options,
+    queuedCount,
+  ]);
 
   // Cross-reference question rows so answered prompts collapse and the answer
   // row can resolve selected option labels.

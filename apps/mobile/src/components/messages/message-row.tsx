@@ -15,8 +15,7 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react-native";
-import type React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { cn } from "~/lib/cn";
@@ -48,6 +47,36 @@ export type MessageRowContext = {
 };
 
 export const MessageRow = ({
+  message,
+  ctx,
+}: {
+  message: Message;
+  ctx: MessageRowContext;
+}) => (
+  <MessageRowBoundary>
+    <MessageRowContent message={message} ctx={ctx} />
+  </MessageRowBoundary>
+);
+
+class MessageRowBoundary extends React.Component<
+  { readonly children: React.ReactNode },
+  { readonly failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { readonly failed: boolean } {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <ErrorRow message="This message could not be rendered." />;
+    }
+    return this.props.children;
+  }
+}
+
+const MessageRowContent = ({
   message,
   ctx,
 }: {
