@@ -8,6 +8,7 @@ export type ModelModeValue = {
   model: string;
   runtimeMode: RuntimeMode;
   permissionMode: PermissionMode;
+  modelOptions?: Record<string, string>;
 };
 
 export function ModelModePill({
@@ -17,9 +18,10 @@ export function ModelModePill({
   editable: boolean;
   onChange: (value: ModelModeValue) => void;
 }) {
-  const modelLabel = modelOptionsForProvider(value.providerId).find(
-    (model) => model.value === value.model,
-  )?.label ?? value.model;
+  const modelLabel =
+    modelOptionsForProvider(value.providerId).find(
+      (model) => model.value === value.model,
+    )?.label ?? value.model;
   return <FallbackPill label={modelLabel} />;
 }
 
@@ -30,11 +32,19 @@ export function ComposerModelMenu({
   editable: boolean;
   onChange: (value: ModelModeValue) => void;
 }) {
-  const modelLabel = modelOptionsForProvider(value.providerId).find(
-    (model) => model.value === value.model,
-  )?.label ?? value.model;
+  const modelLabel =
+    modelOptionsForProvider(value.providerId).find(
+      (model) => model.value === value.model,
+    )?.label ?? value.model;
   return <FallbackPill label={modelLabel} />;
 }
+
+export const ComposerSettingsMenu = ({ value }: ModelModeProps) => (
+  <FallbackPill label={value.permissionMode} />
+);
+
+export const ComposerModeMenu = ComposerSettingsMenu;
+export const ComposerApprovalMenu = ComposerSettingsMenu;
 
 export const ModePill = ({ value }: ModelModeProps) => (
   <FallbackPill label={value.permissionMode} />
@@ -45,9 +55,10 @@ export const RuntimePill = ({ value }: ModelModeProps) => (
 );
 
 export const StaticModelTitle = ({ value }: ModelModeProps) => {
-  const modelLabel = modelOptionsForProvider(value.providerId).find(
-    (model) => model.value === value.model,
-  )?.label ?? value.model;
+  const modelLabel =
+    modelOptionsForProvider(value.providerId).find(
+      (model) => model.value === value.model,
+    )?.label ?? value.model;
   return <FallbackPill label={modelLabel} />;
 };
 
@@ -111,8 +122,12 @@ export const NativeButton = (_props: {
   systemImage?: string;
   onPress?: () => void;
 }) => null;
-export const Menu = (_props: { label: string; children: React.ReactNode }) => null;
-export const Section = (_props: { title?: string; children: React.ReactNode }) => null;
+export const Menu = (_props: { label: string; children: React.ReactNode }) =>
+  null;
+export const Section = (_props: {
+  title?: string;
+  children: React.ReactNode;
+}) => null;
 export const Divider = () => null;
 
 type ModelModeProps = {
@@ -126,7 +141,10 @@ const FallbackPill = ({ label }: { label: string }) => (
     className="rounded-full border border-border bg-card-elevated px-3 py-2 active:opacity-75"
     style={{ borderCurve: "continuous" }}
   >
-    <Text className="font-sans-medium text-[14px] text-foreground" numberOfLines={1}>
+    <Text
+      className="font-sans-medium text-[14px] text-foreground"
+      numberOfLines={1}
+    >
       {label}
     </Text>
   </Pressable>

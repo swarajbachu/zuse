@@ -170,10 +170,12 @@ export default function ThreadScreen() {
       answeredQuestionIds,
       questionsByItemId,
       toolResultsByItemId,
+      planMode: detail?.session.permissionMode === "plan",
       onAnswerQuestion,
     }),
     [
       answeredQuestionIds,
+      detail?.session.permissionMode,
       onAnswerQuestion,
       questionsByItemId,
       toolResultsByItemId,
@@ -274,6 +276,13 @@ export default function ThreadScreen() {
           session={detail?.session ?? null}
           status={sessionStatus}
           fresh={fresh}
+          projectLabel={detail?.project.name}
+          sourceLabel={
+            detail?.session.worktreeId === null ||
+            detail?.session.worktreeId === undefined
+              ? "Main"
+              : "Branch"
+          }
           bottomInset={insets.bottom}
         />
       )}

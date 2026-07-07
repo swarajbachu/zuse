@@ -1,6 +1,8 @@
 import {
   defaultModelFor,
+  findModelDescriptor,
   MODELS_BY_PROVIDER,
+  type SelectOptionDescriptor,
   type PermissionMode,
   type ProviderId,
   type RuntimeMode,
@@ -48,3 +50,37 @@ export const modelOptionsForProvider = (providerId: ProviderId) =>
 
 export const defaultModelForProvider = (providerId: ProviderId): string =>
   defaultModelFor(providerId);
+
+export const reasoningDescriptorForModel = (
+  providerId: ProviderId,
+  model: string,
+): SelectOptionDescriptor | null => {
+  const descriptor = findModelDescriptor(providerId, model);
+  const option = descriptor?.optionDescriptors?.find(
+    (item): item is SelectOptionDescriptor =>
+      item.kind === "select" &&
+      (item.id === "reasoning" || item.id === "effort"),
+  );
+  return option ?? null;
+};
+
+export const reasoningValueForModel = (
+  providerId: ProviderId,
+  model: string,
+  modelOptions: Readonly<Record<string, string>> | undefined,
+): {
+  descriptor: SelectOptionDescriptor;
+  value: string;
+  label: string;
+} | null => {
+  const descriptor = reasoningDescriptorForModel(providerId, model);
+  if (descriptor === null) return null;
+  const value =
+    modelOptions?.[descriptor.id] ??
+    descriptor.defaultId ??
+    descriptor.options[0]?.id;
+  if (value === undefined) return null;
+  const label =
+    descriptor.options.find((option) => option.id === value)?.label ?? value;
+  return { descriptor, value, label };
+};

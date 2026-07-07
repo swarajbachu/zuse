@@ -87,6 +87,7 @@ export interface CreateSessionInput {
    * `ExitPlanMode`. Defaults to `'default'`.
    */
   readonly permissionMode?: PermissionMode;
+  readonly modelOptions?: Readonly<Record<string, string>>;
   /**
    * Persist the deferred-tools toggle on the session row. No-op today
    * (the AskUserQuestion server is the only MCP server and is small);
@@ -127,6 +128,7 @@ export interface CreateChatInput {
   readonly agents?: Readonly<Record<string, AgentDefinition>>;
   readonly enableSubagents?: boolean;
   readonly permissionMode?: PermissionMode;
+  readonly modelOptions?: Readonly<Record<string, string>>;
   readonly toolSearch?: boolean;
   readonly resumeCursor?: string | null;
   readonly resumeStrategy?: ResumeStrategy;

@@ -78,6 +78,14 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen
+          name="plan-viewer"
+          options={{
+            title: "Plan",
+            presentation: "modal",
+            headerLargeTitle: false,
+          }}
+        />
+        <Stack.Screen
           name="connect/manual"
           options={{
             title: "Add connection",

@@ -28,6 +28,7 @@ describe("new chat helper", () => {
       model: "claude-sonnet-5",
       runtimeMode: "full-access",
       permissionMode: "plan",
+      modelOptions: { effort: "high" },
       source: {
         kind: "branch",
         label: "feature",
@@ -43,6 +44,7 @@ describe("new chat helper", () => {
       model: "claude-sonnet-5",
       runtimeMode: "full-access",
       permissionMode: "plan",
+      modelOptions: { effort: "high" },
       initialPrompt: "build it",
       createSource: { _tag: "branch", branch: "feature", remote: "origin" },
     });
