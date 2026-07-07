@@ -170,10 +170,12 @@ export default function ThreadScreen() {
       answeredQuestionIds,
       questionsByItemId,
       toolResultsByItemId,
+      planMode: detail?.session.permissionMode === "plan",
       onAnswerQuestion,
     }),
     [
       answeredQuestionIds,
+      detail?.session.permissionMode,
       onAnswerQuestion,
       questionsByItemId,
       toolResultsByItemId,

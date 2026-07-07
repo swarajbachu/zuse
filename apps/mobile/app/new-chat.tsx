@@ -1,14 +1,10 @@
-import type {
-  Folder,
-  GitBranchInfo,
-  GitPrSummary,
-  Worktree,
-} from "@zuse/wire";
+import type { Folder, GitBranchInfo, GitPrSummary, Worktree } from "@zuse/wire";
 import {
+  ArrowUp01Icon,
   CloudOffIcon,
+  CancelCircleIcon,
   Folder01Icon,
   GitBranchIcon,
-  SentIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
@@ -16,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -37,6 +34,7 @@ import {
 } from "~/lib/new-chat";
 import {
   defaultModelForProvider,
+  reasoningDescriptorForModel,
 } from "~/lib/model-options";
 import { useConnectionsStore } from "~/store/connections";
 import { useSessionsStore } from "~/store/sessions";
@@ -44,9 +42,8 @@ import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import {
-  ComposerApprovalMenu,
-  ComposerModeMenu,
   ComposerModelMenu,
+  ComposerSettingsMenu,
   NativeButton,
   ProjectPill,
   SourcePill,
@@ -58,14 +55,20 @@ export default function NewChatScreen() {
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedConnectionKey, setSelectedConnectionKey] = useState<string | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState<Folder["id"] | null>(null);
+  const [selectedConnectionKey, setSelectedConnectionKey] = useState<
+    string | null
+  >(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<
+    Folder["id"] | null
+  >(null);
   const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
+  const initialModel = defaultModelForProvider("codex");
   const [modelMode, setModelMode] = useState<ModelModeValue>({
     providerId: "codex",
-    model: defaultModelForProvider("codex"),
+    model: initialModel,
     runtimeMode: "approval-required",
     permissionMode: "default",
+    modelOptions: defaultModelOptions("codex", initialModel),
   });
   const [worktrees, setWorktrees] = useState<readonly Worktree[]>([]);
   const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
@@ -99,10 +102,12 @@ export default function NewChatScreen() {
 
   const projectChoices = useMemo(() => {
     if (effectiveConnectionKey === null) return [];
-    return (bundlesByConnection[effectiveConnectionKey] ?? []).map((bundle) => ({
-      project: bundle.project,
-      connectionKey: effectiveConnectionKey,
-    }));
+    return (bundlesByConnection[effectiveConnectionKey] ?? []).map(
+      (bundle) => ({
+        project: bundle.project,
+        connectionKey: effectiveConnectionKey,
+      }),
+    );
   }, [bundlesByConnection, effectiveConnectionKey]);
 
   const projectMenuGroups = useMemo(
@@ -138,13 +143,22 @@ export default function NewChatScreen() {
     let cancelled = false;
     void Promise.all([
       Effect.runPromise(
-        listWorktrees({ connection: selectedOptions, projectId: effectiveProjectId }),
+        listWorktrees({
+          connection: selectedOptions,
+          projectId: effectiveProjectId,
+        }),
       ).catch(() => [] as readonly Worktree[]),
       Effect.runPromise(
-        listBranches({ connection: selectedOptions, projectId: effectiveProjectId }),
+        listBranches({
+          connection: selectedOptions,
+          projectId: effectiveProjectId,
+        }),
       ),
       Effect.runPromise(
-        listPullRequests({ connection: selectedOptions, projectId: effectiveProjectId }),
+        listPullRequests({
+          connection: selectedOptions,
+          projectId: effectiveProjectId,
+        }),
       ),
     ]).then(([nextWorktrees, nextBranches, nextPrs]) => {
       if (cancelled) return;
@@ -177,10 +191,15 @@ export default function NewChatScreen() {
       model: modelMode.model,
       runtimeMode: modelMode.runtimeMode,
       permissionMode: modelMode.permissionMode,
+      modelOptions: modelMode.modelOptions,
       source,
       text,
     });
-    if (payload === null || effectiveConnectionKey === null || selectedOptions === null) {
+    if (
+      payload === null ||
+      effectiveConnectionKey === null ||
+      selectedOptions === null
+    ) {
       return;
     }
     setSubmitting(true);
@@ -205,6 +224,7 @@ export default function NewChatScreen() {
         initialPrompt: payload.initialPrompt,
         runtimeMode: payload.runtimeMode,
         permissionMode: payload.permissionMode,
+        modelOptions: payload.modelOptions,
         worktreeId,
       });
       router.replace(
@@ -234,124 +254,143 @@ export default function NewChatScreen() {
         className="flex-1"
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ padding: 18, paddingBottom: 180, gap: 18, flexGrow: 1 }}
+        contentContainerStyle={{
+          padding: 18,
+          paddingBottom: 180,
+          gap: 18,
+          flexGrow: 1,
+        }}
       >
         <View className="flex-1" />
 
         {error === null ? null : (
-          <Text selectable className="font-sans text-[13px] leading-5 text-danger">
+          <Text
+            selectable
+            className="font-sans text-[13px] leading-5 text-danger"
+          >
             {error}
           </Text>
         )}
       </ScrollView>
 
       <View
-        className="border-t border-border px-3 pt-3"
+        className="px-3 pt-2"
         style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
       >
+        <View className="mb-2 flex-row items-center gap-2 px-1">
+          <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
+            <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
+            <ProjectPill
+              label={
+                selectedProject === undefined
+                  ? loading
+                    ? "Loading projects"
+                    : "Project"
+                  : selectedProject.name
+              }
+              options={projectMenuGroups}
+              onSelect={(connectionKey, projectId) => {
+                setSelectedConnectionKey(connectionKey);
+                setSelectedProjectId(projectId as Folder["id"]);
+                setSource(MAIN_SOURCE);
+              }}
+            />
+          </View>
+          <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
+            <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
+            <SourcePill label={sourceLabel}>
+              <NativeButton
+                label="Main"
+                systemImage={source.kind === "main" ? "checkmark" : "folder"}
+                onPress={() => setSource(MAIN_SOURCE)}
+              />
+              {worktrees.slice(0, 8).map((worktree) => (
+                <NativeButton
+                  key={worktree.id}
+                  label={worktree.branch}
+                  systemImage={
+                    source.kind === "worktree" &&
+                    source.worktreeId === worktree.id
+                      ? "checkmark"
+                      : "point.topleft.down.curvedto.point.bottomright.up"
+                  }
+                  onPress={() =>
+                    setSource({
+                      kind: "worktree",
+                      label: worktree.branch,
+                      worktreeId: worktree.id,
+                    })
+                  }
+                />
+              ))}
+              {branches
+                .filter((branch) => !branch.current)
+                .slice(0, 8)
+                .map((branch) => (
+                  <NativeButton
+                    key={`${branch.kind}:${branch.name}`}
+                    label={branch.name}
+                    systemImage={
+                      source.kind === "branch" && source.label === branch.name
+                        ? "checkmark"
+                        : "arrow.branch"
+                    }
+                    onPress={() =>
+                      setSource({
+                        kind: "branch",
+                        label: branch.name,
+                        worktreeId: null,
+                        createSource: {
+                          _tag: "branch",
+                          branch: branch.name,
+                          remote: branch.remote,
+                        },
+                      })
+                    }
+                  />
+                ))}
+              {prs.slice(0, 8).map((pr) => (
+                <NativeButton
+                  key={`pr:${pr.number}`}
+                  label={`#${pr.number} ${pr.title}`}
+                  systemImage={
+                    source.kind === "pr" && source.label === `#${pr.number}`
+                      ? "checkmark"
+                      : "arrow.triangle.pull"
+                  }
+                  onPress={() =>
+                    setSource({
+                      kind: "pr",
+                      label: `#${pr.number}`,
+                      worktreeId: null,
+                      createSource: {
+                        _tag: "pr",
+                        number: pr.number,
+                        headRefName: pr.headRefName,
+                      },
+                    })
+                  }
+                />
+              ))}
+            </SourcePill>
+          </View>
+        </View>
         <GlassSurface
           style={{
             gap: 8,
             padding: 10,
           }}
         >
-          <View className="flex-row items-center gap-2 px-1">
-            <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
-              <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
-              <ProjectPill
-                label={
-                  selectedProject === undefined
-                    ? loading
-                      ? "Loading projects"
-                      : "Project"
-                    : selectedProject.name
-                }
-                options={projectMenuGroups}
-                onSelect={(connectionKey, projectId) => {
-                  setSelectedConnectionKey(connectionKey);
-                  setSelectedProjectId(projectId as Folder["id"]);
-                  setSource(MAIN_SOURCE);
-                }}
-              />
-            </View>
-            <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated px-2.5 py-1.5">
-              <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
-              <SourcePill label={sourceLabel}>
-                <NativeButton
-                  label="Main"
-                  systemImage={source.kind === "main" ? "checkmark" : "folder"}
-                  onPress={() => setSource(MAIN_SOURCE)}
-                />
-                {worktrees.slice(0, 8).map((worktree) => (
-                  <NativeButton
-                    key={worktree.id}
-                    label={worktree.branch}
-                    systemImage={
-                      source.kind === "worktree" && source.worktreeId === worktree.id
-                        ? "checkmark"
-                        : "point.topleft.down.curvedto.point.bottomright.up"
-                    }
-                    onPress={() =>
-                      setSource({
-                        kind: "worktree",
-                        label: worktree.branch,
-                        worktreeId: worktree.id,
-                      })
-                    }
-                  />
-                ))}
-                {branches
-                  .filter((branch) => !branch.current)
-                  .slice(0, 8)
-                  .map((branch) => (
-                    <NativeButton
-                      key={`${branch.kind}:${branch.name}`}
-                      label={branch.name}
-                      systemImage={
-                        source.kind === "branch" && source.label === branch.name
-                          ? "checkmark"
-                          : "arrow.branch"
-                      }
-                      onPress={() =>
-                        setSource({
-                          kind: "branch",
-                          label: branch.name,
-                          worktreeId: null,
-                          createSource: {
-                            _tag: "branch",
-                            branch: branch.name,
-                            remote: branch.remote,
-                          },
-                        })
-                      }
-                    />
-                  ))}
-                {prs.slice(0, 8).map((pr) => (
-                  <NativeButton
-                    key={`pr:${pr.number}`}
-                    label={`#${pr.number} ${pr.title}`}
-                    systemImage={
-                      source.kind === "pr" && source.label === `#${pr.number}`
-                        ? "checkmark"
-                        : "arrow.triangle.pull"
-                    }
-                    onPress={() =>
-                      setSource({
-                        kind: "pr",
-                        label: `#${pr.number}`,
-                        worktreeId: null,
-                        createSource: {
-                          _tag: "pr",
-                          number: pr.number,
-                          headRefName: pr.headRefName,
-                        },
-                      })
-                    }
-                  />
-                ))}
-              </SourcePill>
-            </View>
-          </View>
+          {modelMode.permissionMode === "plan" ? (
+            <PlanPill
+              onClear={() =>
+                setModelMode((value) => ({
+                  ...value,
+                  permissionMode: "default",
+                }))
+              }
+            />
+          ) : null}
           <TextInput
             className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
             multiline
@@ -361,7 +400,11 @@ export default function NewChatScreen() {
             onChangeText={setText}
           />
           <View className="flex-row items-center gap-2">
-            <ComposerModeMenu value={modelMode} editable onChange={setModelMode} />
+            <ComposerSettingsMenu
+              value={modelMode}
+              editable
+              onChange={setModelMode}
+            />
             <View className="min-w-0 flex-1 items-center">
               <ComposerModelMenu
                 value={modelMode}
@@ -369,11 +412,6 @@ export default function NewChatScreen() {
                 onChange={setModelMode}
               />
             </View>
-            <ComposerApprovalMenu
-              value={modelMode}
-              editable
-              onChange={setModelMode}
-            />
             <Button
               size="sm"
               variant="primary"
@@ -386,7 +424,11 @@ export default function NewChatScreen() {
               ) : selectedOptions === null ? (
                 <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 5% 6%)" />
               ) : (
-                <HugeIcon icon={SentIcon} size={15} color="hsl(72 5% 6%)" />
+                <HugeIcon
+                  icon={ArrowUp01Icon}
+                  size={16}
+                  color="hsl(72 5% 6%)"
+                />
               )}
             </Button>
           </View>
@@ -395,3 +437,23 @@ export default function NewChatScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const PlanPill = ({ onClear }: { onClear: () => void }) => (
+  <View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-2">
+    <Text className="font-sans-medium text-[15px] text-foreground">Plan</Text>
+    <Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
+      <HugeIcon icon={CancelCircleIcon} size={15} color="hsl(72 4% 76%)" />
+    </Pressable>
+  </View>
+);
+
+const defaultModelOptions = (
+  providerId: ModelModeValue["providerId"],
+  model: string,
+): Record<string, string> | undefined => {
+  const descriptor = reasoningDescriptorForModel(providerId, model);
+  const value = descriptor?.defaultId ?? descriptor?.options[0]?.id;
+  return descriptor !== null && value !== undefined
+    ? { [descriptor.id]: value }
+    : undefined;
+};

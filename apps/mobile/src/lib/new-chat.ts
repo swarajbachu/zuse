@@ -10,9 +10,24 @@ import type {
 
 export type NewChatSource =
   | { kind: "main"; label: string; worktreeId: null; createSource?: undefined }
-  | { kind: "worktree"; label: string; worktreeId: WorktreeId; createSource?: undefined }
-  | { kind: "branch"; label: string; worktreeId: null; createSource: WorktreeCreateSource }
-  | { kind: "pr"; label: string; worktreeId: null; createSource: WorktreeCreateSource };
+  | {
+      kind: "worktree";
+      label: string;
+      worktreeId: WorktreeId;
+      createSource?: undefined;
+    }
+  | {
+      kind: "branch";
+      label: string;
+      worktreeId: null;
+      createSource: WorktreeCreateSource;
+    }
+  | {
+      kind: "pr";
+      label: string;
+      worktreeId: null;
+      createSource: WorktreeCreateSource;
+    };
 
 export type NewChatDraft = {
   connectionKey: string | null;
@@ -21,6 +36,7 @@ export type NewChatDraft = {
   model: string;
   runtimeMode: RuntimeMode;
   permissionMode: PermissionMode;
+  modelOptions?: Record<string, string>;
   source: NewChatSource;
   text: string;
 };
@@ -31,6 +47,7 @@ export type NewChatCreatePayload = {
   model: string;
   runtimeMode: RuntimeMode;
   permissionMode: PermissionMode;
+  modelOptions?: Record<string, string>;
   initialPrompt: string;
   worktreeId: WorktreeId | null;
   createSource: WorktreeCreateSource | null;
@@ -53,6 +70,9 @@ export const buildNewChatCreatePayload = (
     model: draft.model,
     runtimeMode: draft.runtimeMode,
     permissionMode: draft.permissionMode,
+    ...(draft.modelOptions !== undefined
+      ? { modelOptions: draft.modelOptions }
+      : {}),
     initialPrompt: text,
     worktreeId: draft.source.worktreeId,
     createSource: draft.source.createSource ?? null,
@@ -60,7 +80,11 @@ export const buildNewChatCreatePayload = (
 };
 
 export const patchBundlesWithCreatedChat = (
-  bundles: readonly { project: Folder; chats: readonly Chat[]; sessions: readonly ChatSessionLike[] }[],
+  bundles: readonly {
+    project: Folder;
+    chats: readonly Chat[];
+    sessions: readonly ChatSessionLike[];
+  }[],
   projectId: Folder["id"],
   chat: Chat,
   initialSession: ChatSessionLike,

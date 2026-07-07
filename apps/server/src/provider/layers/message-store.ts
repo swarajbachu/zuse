@@ -1165,13 +1165,15 @@ export const MessageStoreLive = Layer.scoped(
         | "error"
         | "running",
     ): Effect.Effect<void> =>
-      relayActivity.publish({ sessionId, kind }).pipe(
-        Effect.catchAll((error) =>
-          Effect.logDebug(
-            `[MessageStore] relay activity publish failed: ${error.reason}`,
+      relayActivity
+        .publish({ sessionId, kind })
+        .pipe(
+          Effect.catchAll((error) =>
+            Effect.logDebug(
+              `[MessageStore] relay activity publish failed: ${error.reason}`,
+            ),
           ),
-        ),
-      );
+        );
 
     const broadcastMessage = (
       sessionId: SessionId,
@@ -1673,6 +1675,7 @@ export const MessageStoreLive = Layer.scoped(
                   enableSubagents: effectiveEnableSubagents,
                   cwdOverride,
                   permissionMode: initialPermissionMode,
+                  modelOptions: input.modelOptions,
                   toolSearch: initialToolSearch,
                   forkFromResume,
                 },
@@ -1745,6 +1748,7 @@ export const MessageStoreLive = Layer.scoped(
               enableSubagents: effectiveEnableSubagents,
               cwdOverride,
               permissionMode: initialPermissionMode,
+              modelOptions: input.modelOptions,
               toolSearch: initialToolSearch,
               forkFromResume,
             },
@@ -2123,6 +2127,7 @@ export const MessageStoreLive = Layer.scoped(
           agents: input.agents,
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
+          modelOptions: input.modelOptions,
           toolSearch: input.toolSearch,
           resumeCursor: input.resumeCursor,
           resumeStrategy: input.resumeStrategy,

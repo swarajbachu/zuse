@@ -50,9 +50,14 @@ type SessionsState = {
       initialPrompt: string;
       runtimeMode?: RuntimeMode;
       permissionMode?: PermissionMode;
+      modelOptions?: Record<string, string>;
       worktreeId?: WorktreeId | null;
     },
-  ) => Promise<{ chat: Chat; initialSession: Session; initialMessage: Message | null }>;
+  ) => Promise<{
+    chat: Chat;
+    initialSession: Session;
+    initialMessage: Message | null;
+  }>;
 };
 
 const statusFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
@@ -135,6 +140,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           initialPrompt: input.initialPrompt,
           runtimeMode: input.runtimeMode,
           permissionMode: input.permissionMode,
+          modelOptions: input.modelOptions,
           worktreeId: input.worktreeId ?? null,
         }),
       );
@@ -334,7 +340,7 @@ const patchChat = (
             chat,
             ...bundle.chats.filter((existing) => existing.id !== chat.id),
           ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
-      },
+        },
   );
 
 const patchCreatedChat = (

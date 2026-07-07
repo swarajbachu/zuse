@@ -486,6 +486,9 @@ export const SessionCreateRpc = Rpc.make("session.create", {
      * `'default'` (immediate execution).
      */
     permissionMode: Schema.optional(PermissionMode),
+    modelOptions: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.String }),
+    ),
     /**
      * Persist the deferred-tools toggle for this session. Reserved for
      * 0.04 code-index MCP servers; no-op today.
@@ -731,6 +734,9 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
+    modelOptions: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.String }),
+    ),
   }),
   success: Schema.Struct({
     chat: Chat,

@@ -42,8 +42,8 @@ export const sendMessage = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -57,8 +57,8 @@ export const interruptSession = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -76,8 +76,8 @@ export const decidePermission = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -105,8 +105,8 @@ export const answerQuestion = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -118,6 +118,7 @@ export const createChat = (options: {
   initialPrompt: string;
   runtimeMode?: RuntimeMode;
   permissionMode?: PermissionMode;
+  modelOptions?: Record<string, string>;
   worktreeId?: WorktreeId | null;
 }) => {
   const program = Effect.gen(function* () {
@@ -129,13 +130,14 @@ export const createChat = (options: {
       initialPrompt: options.initialPrompt,
       runtimeMode: options.runtimeMode,
       permissionMode: options.permissionMode,
+      modelOptions: options.modelOptions,
       worktreeId: options.worktreeId ?? null,
     });
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -155,8 +157,8 @@ export const setSessionProvider = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -174,8 +176,8 @@ export const setSessionModel = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -193,8 +195,8 @@ export const setSessionRuntimeMode = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -212,8 +214,8 @@ export const setSessionPermissionMode = (options: {
   });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -221,14 +223,15 @@ export const listWorktrees = (options: {
   connection: WsProtocolOptions;
   projectId: Folder["id"];
 }) => {
-  const program: Effect.Effect<readonly Worktree[], unknown, never> = Effect.gen(function* () {
-    const client = yield* getConnectionClient(options.connection);
-    return yield* client.worktree.list({ projectId: options.projectId });
-  });
+  const program: Effect.Effect<readonly Worktree[], unknown, never> =
+    Effect.gen(function* () {
+      const client = yield* getConnectionClient(options.connection);
+      return yield* client.worktree.list({ projectId: options.projectId });
+    });
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -237,17 +240,19 @@ export const createWorktree = (options: {
   projectId: Folder["id"];
   source?: WorktreeCreateSource;
 }) => {
-  const program: Effect.Effect<Worktree, unknown, never> = Effect.gen(function* () {
-    const client = yield* getConnectionClient(options.connection);
-    return yield* client.worktree.create({
-      projectId: options.projectId,
-      source: options.source,
-    });
-  });
+  const program: Effect.Effect<Worktree, unknown, never> = Effect.gen(
+    function* () {
+      const client = yield* getConnectionClient(options.connection);
+      return yield* client.worktree.create({
+        projectId: options.projectId,
+        source: options.source,
+      });
+    },
+  );
   return program.pipe(
     Effect.tapError((cause) =>
-      Effect.sync(() => reportConnectionFailure(options.connection, cause))
-    )
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
   );
 };
 
@@ -255,24 +260,22 @@ export const listBranches = (options: {
   connection: WsProtocolOptions;
   projectId: Folder["id"];
 }) => {
-  const program: Effect.Effect<readonly GitBranchInfo[], unknown, never> = Effect.gen(function* () {
-    const client = yield* getConnectionClient(options.connection);
-    return yield* client.git.branches({ folderId: options.projectId });
-  });
-  return program.pipe(
-    Effect.catchAll(() => Effect.succeed([])),
-  );
+  const program: Effect.Effect<readonly GitBranchInfo[], unknown, never> =
+    Effect.gen(function* () {
+      const client = yield* getConnectionClient(options.connection);
+      return yield* client.git.branches({ folderId: options.projectId });
+    });
+  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
 };
 
 export const listPullRequests = (options: {
   connection: WsProtocolOptions;
   projectId: Folder["id"];
 }) => {
-  const program: Effect.Effect<readonly GitPrSummary[], unknown, never> = Effect.gen(function* () {
-    const client = yield* getConnectionClient(options.connection);
-    return yield* client.git.listPrs({ folderId: options.projectId });
-  });
-  return program.pipe(
-    Effect.catchAll(() => Effect.succeed([])),
-  );
+  const program: Effect.Effect<readonly GitPrSummary[], unknown, never> =
+    Effect.gen(function* () {
+      const client = yield* getConnectionClient(options.connection);
+      return yield* client.git.listPrs({ folderId: options.projectId });
+    });
+  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
 };

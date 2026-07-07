@@ -1,4 +1,5 @@
 import type { Message, MessageContent, UserQuestion } from "@zuse/wire";
+import { router } from "expo-router";
 import {
   Bot,
   Brain,
@@ -27,20 +28,28 @@ import {
   buildToolPresentation,
   type MobileToolIcon,
 } from "~/lib/tool-presentation";
+import { putPlanDocument } from "~/store/plan-viewer";
 import { Markdown } from "./markdown";
-import { PendingUserInputCard, type QuestionAnswer } from "./pending-user-input-card";
+import {
+  PendingUserInputCard,
+  type QuestionAnswer,
+} from "./pending-user-input-card";
 
 /** Extra context the stream provides so question rows can render statefully. */
 export type MessageRowContext = {
   answeredQuestionIds: ReadonlySet<string>;
   questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
   toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
-  onAnswerQuestion: (itemId: string, answers: readonly QuestionAnswer[]) => void | Promise<void>;
+  planMode?: boolean;
+  onAnswerQuestion: (
+    itemId: string,
+    answers: readonly QuestionAnswer[],
+  ) => void | Promise<void>;
 };
 
 export const MessageRow = ({
   message,
-  ctx
+  ctx,
 }: {
   message: Message;
   ctx: MessageRowContext;
@@ -50,15 +59,33 @@ export const MessageRow = ({
     case "user":
       return <UserBubble text={content.text} goal={content.goal} />;
     case "user_rich":
-      return <UserBubble text={content.text} chips={richChips(content)} goal={content.goal} />;
+      return (
+        <UserBubble
+          text={content.text}
+          chips={richChips(content)}
+          goal={content.goal}
+        />
+      );
     case "assistant":
-      return <AssistantMarkdown text={content.text} />;
+      return (
+        <AssistantMarkdown
+          text={content.text}
+          planMode={ctx.planMode === true}
+        />
+      );
     case "thinking":
       return <ThinkingRow content={content} />;
     case "tool_use":
-      return <ToolUseRow content={content} result={ctx.toolResultsByItemId.get(content.itemId)} />;
+      return (
+        <ToolUseRow
+          content={content}
+          result={ctx.toolResultsByItemId.get(content.itemId)}
+        />
+      );
     case "tool_result":
-      return ctx.toolResultsByItemId.has(content.itemId) ? null : <ToolResultRow content={content} />;
+      return ctx.toolResultsByItemId.has(content.itemId) ? null : (
+        <ToolResultRow content={content} />
+      );
     case "error":
       return <ErrorRow message={content.message} />;
     case "user_question":
@@ -73,7 +100,10 @@ export const MessageRow = ({
       );
     case "user_question_answer":
       return (
-        <AnswerBubble content={content} questions={ctx.questionsByItemId.get(content.itemId)} />
+        <AnswerBubble
+          content={content}
+          questions={ctx.questionsByItemId.get(content.itemId)}
+        />
       );
     default:
       return <FallbackRow content={content} />;
@@ -83,7 +113,7 @@ export const MessageRow = ({
 const UserBubble = ({
   text,
   goal,
-  chips = []
+  chips = [],
 }: {
   text: string;
   goal?: boolean;
@@ -95,9 +125,13 @@ const UserBubble = ({
       className="max-w-[88%] rounded-2xl bg-primary px-3.5 py-2.5"
     >
       {goal === true ? (
-        <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">Goal</Text>
+        <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">
+          Goal
+        </Text>
       ) : null}
-      <Text className="font-sans text-[15px] leading-5 text-primary-foreground">{text}</Text>
+      <Text className="font-sans text-[15px] leading-5 text-primary-foreground">
+        {text}
+      </Text>
       {chips.length > 0 ? (
         <View className="mt-2 flex-row flex-wrap gap-1">
           {chips.map((chip) => (
@@ -114,14 +148,62 @@ const UserBubble = ({
   </View>
 );
 
-const AssistantMarkdown = ({ text }: { text: string }) => (
-  <View className="px-2 py-2">
-    <Markdown>{text}</Markdown>
-  </View>
-);
+const AssistantMarkdown = ({
+  text,
+  planMode,
+}: {
+  text: string;
+  planMode: boolean;
+}) =>
+  planMode || isLikelyPlan(text) ? (
+    <PlanPreview text={text} />
+  ) : (
+    <View className="px-2 py-2">
+      <Markdown>{text}</Markdown>
+    </View>
+  );
+
+const PlanPreview = ({ text }: { text: string }) => {
+  const title = planTitle(text);
+  const preview = planPreview(text);
+  return (
+    <View className="px-2 py-2">
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => {
+          const id = putPlanDocument(text);
+          router.push(`/plan-viewer?id=${encodeURIComponent(id)}`);
+        }}
+        className="rounded-2xl border border-border bg-card px-4 py-4 active:opacity-80"
+        style={{ borderCurve: "continuous" }}
+      >
+        <View className="mb-3 flex-row items-center gap-2">
+          <Text className="font-sans-medium text-[13px] text-muted-foreground">
+            Plan
+          </Text>
+          <Text className="ml-auto font-sans text-[12px] text-muted-foreground">
+            Open
+          </Text>
+        </View>
+        <Text
+          className="font-sans-bold text-[22px] leading-7 text-foreground"
+          numberOfLines={2}
+        >
+          {title}
+        </Text>
+        <Text
+          className="mt-3 font-sans text-[15px] leading-6 text-muted-foreground"
+          numberOfLines={5}
+        >
+          {preview}
+        </Text>
+      </Pressable>
+    </View>
+  );
+};
 
 const ThinkingRow = ({
-  content
+  content,
 }: {
   content: Extract<MessageContent, { _tag: "thinking" }>;
 }) => (
@@ -163,7 +245,10 @@ const ToolUseRow = ({
             >
               <View className="flex-row items-center gap-2">
                 <FilePenLine size={14} color="hsl(72 98% 54%)" />
-                <Text className="min-w-0 flex-1 font-mono text-xs text-foreground" numberOfLines={1}>
+                <Text
+                  className="min-w-0 flex-1 font-mono text-xs text-foreground"
+                  numberOfLines={1}
+                >
                   {summary.path}
                 </Text>
                 <Text className="font-mono text-[11px] text-presence-online">
@@ -211,7 +296,7 @@ const ToolUseRow = ({
 };
 
 const ToolResultRow = ({
-  content
+  content,
 }: {
   content: Extract<MessageContent, { _tag: "tool_result" }>;
 }) => (
@@ -221,7 +306,10 @@ const ToolResultRow = ({
     detail={summarizeValue(content.output, 96)}
     danger={content.isError}
   >
-    <Text selectable className="font-mono text-xs leading-5 text-muted-foreground">
+    <Text
+      selectable
+      className="font-mono text-xs leading-5 text-muted-foreground"
+    >
       {summarizeValue(content.output)}
     </Text>
   </ExpandableEventRow>
@@ -241,16 +329,22 @@ const ErrorRow = ({ message }: { message: string }) => (
   </View>
 );
 
-const AnsweredQuestion = ({ questions }: { questions: readonly UserQuestion[] }) => (
+const AnsweredQuestion = ({
+  questions,
+}: {
+  questions: readonly UserQuestion[];
+}) => (
   <View className="px-2 py-2">
     <View className="rounded-2xl border border-border bg-card px-3 py-3 opacity-70">
-      <Text className="font-sans-medium text-xs text-muted-foreground">Question · answered</Text>
+      <Text className="font-sans-medium text-xs text-muted-foreground">
+        Question · answered
+      </Text>
       {questions.map((question, qi) => (
         <Text
           key={`answered-${qi}`}
           className={cn(
             "font-sans-medium text-sm text-foreground",
-            qi > 0 ? "mt-2" : "mt-1"
+            qi > 0 ? "mt-2" : "mt-1",
           )}
         >
           {question.question}
@@ -262,7 +356,7 @@ const AnsweredQuestion = ({ questions }: { questions: readonly UserQuestion[] })
 
 const AnswerBubble = ({
   content,
-  questions
+  questions,
 }: {
   content: Extract<MessageContent, { _tag: "user_question_answer" }>;
   questions?: readonly UserQuestion[];
@@ -273,7 +367,9 @@ const AnswerBubble = ({
       .map((index) => options[index])
       .filter((label): label is string => label !== undefined);
     const other = answer.other?.trim();
-    return other !== undefined && other.length > 0 ? [...picked, other] : picked;
+    return other !== undefined && other.length > 0
+      ? [...picked, other]
+      : picked;
   });
   const summary = labels.length > 0 ? labels.join(", ") : "Answered";
   return (
@@ -282,8 +378,12 @@ const AnswerBubble = ({
         style={{ borderCurve: "continuous" }}
         className="max-w-[88%] rounded-2xl bg-primary px-3.5 py-2.5"
       >
-        <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">Answer</Text>
-        <Text className="font-sans text-[15px] leading-5 text-primary-foreground">{summary}</Text>
+        <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">
+          Answer
+        </Text>
+        <Text className="font-sans text-[15px] leading-5 text-primary-foreground">
+          {summary}
+        </Text>
       </View>
     </View>
   );
@@ -292,8 +392,13 @@ const AnswerBubble = ({
 const FallbackRow = ({ content }: { content: MessageContent }) => (
   <View className="px-2 py-2">
     <View className="rounded-2xl border border-border bg-muted px-3 py-2">
-      <Text className="font-sans-medium text-xs text-muted-foreground">{content._tag}</Text>
-      <Text className="mt-1 font-mono text-xs leading-5 text-muted-foreground" numberOfLines={4}>
+      <Text className="font-sans-medium text-xs text-muted-foreground">
+        {content._tag}
+      </Text>
+      <Text
+        className="mt-1 font-mono text-xs leading-5 text-muted-foreground"
+        numberOfLines={4}
+      >
         {summarizeValue(content)}
       </Text>
     </View>
@@ -303,7 +408,7 @@ const FallbackRow = ({ content }: { content: MessageContent }) => (
 const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
   ...content.attachments.map((attachment) => attachment.originalName),
   ...content.fileRefs.map((file) => file.relPath),
-  ...content.skillRefs.map((skill) => skill.name)
+  ...content.skillRefs.map((skill) => skill.name),
 ];
 
 function ExpandableEventRow({
@@ -354,7 +459,9 @@ function ExpandableEventRow({
             <Text
               className={cn(
                 "rounded-full px-2 py-0.5 font-sans-medium text-[11px]",
-                danger ? "bg-danger/15 text-danger" : "bg-muted text-muted-foreground",
+                danger
+                  ? "bg-danger/15 text-danger"
+                  : "bg-muted text-muted-foreground",
               )}
             >
               {badge}
@@ -409,3 +516,33 @@ const firstLine = (value: string): string => {
   const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
   return line.length > 0 ? line : "(empty)";
 };
+
+const isLikelyPlan = (text: string): boolean => {
+  const value = text.toLowerCase();
+  return (
+    value.includes("## summary") ||
+    value.includes("## key changes") ||
+    value.includes("## test plan") ||
+    value.includes("# implementation plan") ||
+    value.includes("implementation plan")
+  );
+};
+
+const planTitle = (text: string): string => {
+  const heading = text
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,3}\s+\S/.test(line));
+  if (heading !== undefined) return heading.replace(/^#{1,3}\s+/, "");
+  return "Implementation Plan";
+};
+
+const planPreview = (text: string): string =>
+  text
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .split(/\r\n|\r|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(1, 8)
+    .join("\n");

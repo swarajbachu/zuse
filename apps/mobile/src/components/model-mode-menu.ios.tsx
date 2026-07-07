@@ -12,6 +12,8 @@ import {
   PERMISSION_OPTIONS,
   PROVIDER_LABEL,
   providerOptions,
+  reasoningDescriptorForModel,
+  reasoningValueForModel,
   RUNTIME_OPTIONS,
 } from "~/lib/model-options";
 
@@ -20,6 +22,7 @@ export type ModelModeValue = {
   model: string;
   runtimeMode: RuntimeMode;
   permissionMode: PermissionMode;
+  modelOptions?: Record<string, string>;
 };
 
 export function ModelModePill({
@@ -37,10 +40,18 @@ export function ModelModePill({
         label={modelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
-        <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
+        <ProviderModelMenus
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
         <Divider />
         <ModeButtons value={value} editable={editable} onChange={onChange} />
-        <PermissionButtons value={value} editable={editable} onChange={onChange} />
+        <PermissionButtons
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
       </Menu>
     </Host>
   );
@@ -61,13 +72,22 @@ export function ComposerModelMenu({
         label={compactModelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
-        <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
+        <ProviderModelMenus
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
+        <ReasoningButtons
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
       </Menu>
     </Host>
   );
 }
 
-export function ComposerModeMenu({
+export function ComposerSettingsMenu({
   value,
   editable,
   onChange,
@@ -78,30 +98,24 @@ export function ComposerModeMenu({
 }) {
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
-      <Menu label={modeLabel(value)} systemImage="slider.horizontal.3">
-        <ModeButtons value={value} editable={editable} onChange={onChange} />
+      <Menu label="" systemImage="gearshape">
+        <Menu label="Mode" systemImage="slider.horizontal.3">
+          <ModeButtons value={value} editable={editable} onChange={onChange} />
+        </Menu>
+        <Menu label="Approval" systemImage="hand.raised">
+          <PermissionButtons
+            value={value}
+            editable={editable}
+            onChange={onChange}
+          />
+        </Menu>
       </Menu>
     </Host>
   );
 }
 
-export function ComposerApprovalMenu({
-  value,
-  editable,
-  onChange,
-}: {
-  value: ModelModeValue;
-  editable: boolean;
-  onChange: (value: ModelModeValue) => void;
-}) {
-  return (
-    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
-      <Menu label={approvalShortLabel(value)} systemImage="hand.raised">
-        <PermissionButtons value={value} editable={editable} onChange={onChange} />
-      </Menu>
-    </Host>
-  );
-}
+export const ComposerModeMenu = ComposerSettingsMenu;
+export const ComposerApprovalMenu = ComposerSettingsMenu;
 
 export function ModePill({
   value,
@@ -135,11 +149,12 @@ export function RuntimePill({
 }) {
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
-      <Menu
-        label={runtimeLabel(value)}
-        systemImage="lock.open"
-      >
-        <PermissionButtons value={value} editable={editable} onChange={onChange} />
+      <Menu label={runtimeLabel(value)} systemImage="lock.open">
+        <PermissionButtons
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
       </Menu>
     </Host>
   );
@@ -160,7 +175,11 @@ export function StaticModelTitle({
         label={modelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
-        <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
+        <ProviderModelMenus
+          value={value}
+          editable={editable}
+          onChange={onChange}
+        />
       </Menu>
     </Host>
   );
@@ -211,7 +230,11 @@ export function ProjectPill({
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu label={label} systemImage="folder">
         {projects.length === 0 ? (
-          <NativeButton label="No projects" systemImage="folder" onPress={() => {}} />
+          <NativeButton
+            label="No projects"
+            systemImage="folder"
+            onPress={() => {}}
+          />
         ) : (
           projects.map((project) => (
             <NativeButton
@@ -263,10 +286,7 @@ export function ProjectMenuRow({
 }) {
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
-      <Menu
-        label={`${label} · ${subtitle}`}
-        systemImage="desktopcomputer"
-      >
+      <Menu label={`${label} · ${subtitle}`} systemImage="desktopcomputer">
         {options.map((group) => (
           <Menu
             key={group.connectionKey}
@@ -274,7 +294,11 @@ export function ProjectMenuRow({
             systemImage="desktopcomputer"
           >
             {group.projects.length === 0 ? (
-              <NativeButton label="No projects" systemImage="folder" onPress={() => {}} />
+              <NativeButton
+                label="No projects"
+                systemImage="folder"
+                onPress={() => {}}
+              />
             ) : (
               group.projects.map((project) => (
                 <NativeButton
@@ -337,7 +361,8 @@ function ProviderModelMenus({
               key={model.value}
               label={model.label}
               systemImage={sf(
-                value.providerId === provider.value && value.model === model.value
+                value.providerId === provider.value &&
+                  value.model === model.value
                   ? "checkmark"
                   : providerSystemImage(provider.value),
               )}
@@ -347,11 +372,56 @@ function ProviderModelMenus({
                   ...value,
                   providerId: provider.value,
                   model: model.value,
+                  modelOptions: defaultModelOptions(
+                    provider.value,
+                    model.value,
+                  ),
                 });
               }}
             />
           ))}
         </Menu>
+      ))}
+    </Section>
+  );
+}
+
+function ReasoningButtons({
+  value,
+  editable,
+  onChange,
+}: {
+  value: ModelModeValue;
+  editable: boolean;
+  onChange: (value: ModelModeValue) => void;
+}) {
+  const reasoning = reasoningValueForModel(
+    value.providerId,
+    value.model,
+    value.modelOptions,
+  );
+  if (reasoning === null) return null;
+
+  return (
+    <Section title={reasoning.descriptor.label}>
+      {reasoning.descriptor.options.map((option) => (
+        <NativeButton
+          key={option.id}
+          label={option.label}
+          systemImage={sf(
+            reasoning.value === option.id ? "checkmark" : "brain",
+          )}
+          onPress={() => {
+            if (!editable) return;
+            onChange({
+              ...value,
+              modelOptions: {
+                ...(value.modelOptions ?? {}),
+                [reasoning.descriptor.id]: option.id,
+              },
+            });
+          }}
+        />
       ))}
     </Section>
   );
@@ -372,7 +442,11 @@ function ModeButtons({
         <NativeButton
           key={item.value}
           label={item.label}
-          systemImage={sf(value.permissionMode === item.value ? "checkmark" : "wand.and.stars")}
+          systemImage={sf(
+            value.permissionMode === item.value
+              ? "checkmark"
+              : "wand.and.stars",
+          )}
           onPress={() => {
             if (!editable) return;
             onChange({ ...value, permissionMode: item.value });
@@ -398,7 +472,9 @@ function PermissionButtons({
         <NativeButton
           key={item.value}
           label={item.label}
-          systemImage={sf(value.runtimeMode === item.value ? "checkmark" : "lock.open")}
+          systemImage={sf(
+            value.runtimeMode === item.value ? "checkmark" : "lock.open",
+          )}
           onPress={() => {
             if (!editable) return;
             onChange({ ...value, runtimeMode: item.value });
@@ -415,32 +491,39 @@ const modelLabel = (value: ModelModeValue): string =>
   )?.label ?? value.model;
 
 const compactModelLabel = (value: ModelModeValue): string =>
-  shortModelLabel(modelLabel(value));
+  [
+    shortModelLabel(modelLabel(value)),
+    reasoningValueForModel(value.providerId, value.model, value.modelOptions)
+      ?.label,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
 
 const shortModelLabel = (label: string): string => {
-  const trimmed = label.replace(/^GPT-?/i, "").replace(/^Claude\s+/i, "").trim();
+  const trimmed = label
+    .replace(/^GPT-?/i, "")
+    .replace(/^Claude\s+/i, "")
+    .trim();
   return trimmed.length > 0 ? trimmed : label;
 };
 
 const modeLabel = (value: ModelModeValue): string =>
-  PERMISSION_OPTIONS.find((item) => item.value === value.permissionMode)?.label ??
-  value.permissionMode;
+  PERMISSION_OPTIONS.find((item) => item.value === value.permissionMode)
+    ?.label ?? value.permissionMode;
 
 const runtimeLabel = (value: ModelModeValue): string =>
   RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
   value.runtimeMode;
 
-const approvalShortLabel = (value: ModelModeValue): string => {
-  switch (value.runtimeMode) {
-    case "approval-required":
-      return "Ask";
-    case "auto-accept-edits":
-      return "Edits";
-    case "auto-accept-edits-and-bash":
-      return "Shell";
-    case "full-access":
-      return "Full";
-  }
+const defaultModelOptions = (
+  providerId: ProviderId,
+  model: string,
+): Record<string, string> | undefined => {
+  const descriptor = reasoningDescriptorForModel(providerId, model);
+  const value = descriptor?.defaultId ?? descriptor?.options[0]?.id;
+  return descriptor !== null && value !== undefined
+    ? { [descriptor.id]: value }
+    : undefined;
 };
 
 const providerSystemImage = (providerId: ProviderId): string => {

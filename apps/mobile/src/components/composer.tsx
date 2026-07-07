@@ -1,14 +1,21 @@
 import type { Session, SessionId, SessionStatus } from "@zuse/wire";
 import {
+  ArrowUp01Icon,
   CloudOffIcon,
+  CancelCircleIcon,
   Folder01Icon,
   GitBranchIcon,
-  SentIcon,
   Square01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { useState } from "react";
-import { ActivityIndicator, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import {
   interruptSession,
@@ -25,9 +32,8 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import {
-  ComposerApprovalMenu,
-  ComposerModeMenu,
   ComposerModelMenu,
+  ComposerSettingsMenu,
   type ModelModeValue,
 } from "./model-mode-menu";
 import { Button } from "./ui/button";
@@ -167,21 +173,29 @@ export const Composer = ({
           </Text>
         </View>
       ) : null}
+      {projectLabel !== undefined || sourceLabel !== undefined ? (
+        <View className="mb-2 flex-row items-center gap-2 px-1">
+          {projectLabel !== undefined ? (
+            <ChromeLabel icon="project" label={projectLabel} />
+          ) : null}
+          {sourceLabel !== undefined ? (
+            <ChromeLabel icon="branch" label={sourceLabel} />
+          ) : null}
+        </View>
+      ) : null}
       <GlassSurface
         style={{
           gap: 8,
           padding: 10,
         }}
       >
-        {projectLabel !== undefined || sourceLabel !== undefined ? (
-          <View className="flex-row items-center gap-2 px-1">
-            {projectLabel !== undefined ? (
-              <ChromeLabel icon="project" label={projectLabel} />
-            ) : null}
-            {sourceLabel !== undefined ? (
-              <ChromeLabel icon="branch" label={sourceLabel} />
-            ) : null}
-          </View>
+        {modelValue?.permissionMode === "plan" ? (
+          <PlanPill
+            editable={fresh}
+            onClear={() =>
+              void changeModelMode({ ...modelValue, permissionMode: "default" })
+            }
+          />
         ) : null}
         <TextInput
           className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
@@ -194,7 +208,7 @@ export const Composer = ({
         <View className="flex-row items-center gap-2">
           {modelValue === null ? null : (
             <>
-              <ComposerModeMenu
+              <ComposerSettingsMenu
                 value={modelValue}
                 editable={fresh}
                 onChange={(next) => void changeModelMode(next)}
@@ -206,11 +220,6 @@ export const Composer = ({
                   onChange={(next) => void changeModelMode(next)}
                 />
               </View>
-              <ComposerApprovalMenu
-                value={modelValue}
-                editable={fresh}
-                onChange={(next) => void changeModelMode(next)}
-              />
             </>
           )}
           {showInterrupt ? (
@@ -234,7 +243,7 @@ export const Composer = ({
             {busy ? (
               <ActivityIndicator color="hsl(72 5% 6%)" />
             ) : online ? (
-              <HugeIcon icon={SentIcon} size={15} color="hsl(72 5% 6%)" />
+              <HugeIcon icon={ArrowUp01Icon} size={16} color="hsl(72 5% 6%)" />
             ) : (
               <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 4% 92%)" />
             )}
@@ -264,5 +273,22 @@ const ChromeLabel = ({
     >
       {label}
     </Text>
+  </View>
+);
+
+const PlanPill = ({
+  editable,
+  onClear,
+}: {
+  editable: boolean;
+  onClear: () => void;
+}) => (
+  <View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-2">
+    <Text className="font-sans-medium text-[15px] text-foreground">Plan</Text>
+    {editable ? (
+      <Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
+        <HugeIcon icon={CancelCircleIcon} size={15} color="hsl(72 4% 76%)" />
+      </Pressable>
+    ) : null}
   </View>
 );
