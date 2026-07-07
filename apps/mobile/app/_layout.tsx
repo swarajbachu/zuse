@@ -12,6 +12,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { installNotificationResponseHandler } from "~/notifications/push";
 
@@ -34,7 +35,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -53,7 +54,21 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: BG },
         }}
       >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="index" options={{ title: "Chats" }} />
+        <Stack.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            presentation: "formSheet",
+            headerLargeTitle: false,
+            headerTransparent: true,
+            contentStyle: { backgroundColor: "transparent" },
+            sheetAllowedDetents: [0.52, 0.92],
+            sheetCornerRadius: 28,
+            sheetGrabberVisible: true,
+            sheetLargestUndimmedDetentIndex: 0,
+          }}
+        />
         <Stack.Screen
           name="connect/manual"
           options={{
@@ -84,6 +99,6 @@ export default function RootLayout() {
           options={{ title: "Smoke", headerLargeTitle: false }}
         />
       </Stack>
-    </>
+    </GestureHandlerRootView>
   );
 }

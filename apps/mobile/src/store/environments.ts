@@ -5,6 +5,7 @@ import {
   getEnvironmentStatus,
   listEnvironments,
 } from "../rpc/relay-client.ts";
+import { visibleConnectionLabel } from "../lib/display-names.ts";
 import { useConnectionsStore } from "./connections.ts";
 
 export type Presence = "online" | "offline" | "unknown";
@@ -67,7 +68,7 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
       set({
         environments: list.environments.map((environment) => ({
           environmentId: environment.environmentId,
-          label: environment.label ?? environment.environmentId,
+          label: visibleConnectionLabel(environment.label),
           presence: "unknown" as const,
         })),
         loading: false,
@@ -112,7 +113,7 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
     const grant = await connectEnvironment(environmentId);
     const label =
       get().environments.find((e) => e.environmentId === environmentId)?.label ??
-      environmentId;
+      "Computer";
     const record = await useConnectionsStore.getState().addRelay({
       environmentId,
       label,

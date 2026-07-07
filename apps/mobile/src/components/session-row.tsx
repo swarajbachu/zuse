@@ -48,6 +48,6 @@ export const SessionRow = ({
         {session.providerId} / {session.model} · {status ?? session.status}
       </Text>
     </View>
-    <ChevronRight size={18} color="hsl(72 2% 42%)" />
+    <ChevronRight size={18} color="hsl(72 2% 54%)" />
   </Pressable>
 );

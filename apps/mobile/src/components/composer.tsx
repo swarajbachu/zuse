@@ -113,9 +113,9 @@ export const Composer = ({
           onPress={submit}
         >
           {busy ? (
-            <ActivityIndicator color="hsl(72 4% 8%)" />
+            <ActivityIndicator color="hsl(72 5% 6%)" />
           ) : online ? (
-            <Send size={16} color="hsl(72 4% 8%)" />
+            <Send size={16} color="hsl(72 5% 6%)" />
           ) : (
             <CloudOff size={16} color="hsl(72 4% 92%)" />
           )}

@@ -159,7 +159,7 @@ export function ListRow({
       ) : null}
       {trailing}
       {showChevron ? (
-        <ChevronRight size={18} color="hsl(72 2% 42%)" />
+        <ChevronRight size={18} color="hsl(72 2% 54%)" />
       ) : null}
     </Pressable>
   );
