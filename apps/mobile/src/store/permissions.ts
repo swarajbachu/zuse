@@ -1,8 +1,13 @@
-import type { PermissionDecision, PermissionRequest, SessionId } from "@zuse/wire";
+import type {
+  PermissionDecision,
+  PermissionRequest,
+  SessionId,
+} from "@zuse/wire";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import { decidePermission } from "~/rpc/actions";
+import { connectionSessionKey } from "~/lib/session-key";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -18,20 +23,18 @@ type PermissionsState = {
   hydrate: (
     connKey: string,
     options: WsProtocolOptions,
-    sessionId: SessionId
+    sessionId: SessionId,
   ) => Promise<void>;
   decide: (
+    connKey: string,
     options: WsProtocolOptions,
     sessionId: SessionId,
     requestId: string,
-    decision: PermissionDecision
+    decision: PermissionDecision,
   ) => Promise<void>;
 };
 
 const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
-
-const makeLiveKey = (connKey: string, sessionId: SessionId) =>
-  JSON.stringify([connKey, sessionId]);
 
 const stop = async (key: string) => {
   const fiber = liveFibers.get(key);
@@ -44,16 +47,16 @@ const stop = async (key: string) => {
 export const usePermissionsStore = create<PermissionsState>((set, get) => ({
   pendingBySession: {},
   hydrate: async (connKey, options, sessionId) => {
-    const liveKey = makeLiveKey(connKey, sessionId);
+    const liveKey = connectionSessionKey(connKey, sessionId);
     await stop(liveKey);
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
 
       const listed = await Effect.runPromise(
-        client.permission.listPending({ sessionId })
+        client.permission.listPending({ sessionId }),
       );
       set((state) => ({
-        pendingBySession: { ...state.pendingBySession, [sessionId]: listed }
+        pendingBySession: { ...state.pendingBySession, [liveKey]: listed },
       }));
 
       const program = Stream.runForEach(
@@ -62,20 +65,21 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
           Effect.sync(() => {
             if (request.sessionId !== sessionId) return;
             set((state) => {
-              const current = state.pendingBySession[sessionId] ?? [];
-              if (current.some((entry) => entry.id === request.id)) return state;
+              const current = state.pendingBySession[liveKey] ?? [];
+              if (current.some((entry) => entry.id === request.id))
+                return state;
               return {
                 pendingBySession: {
                   ...state.pendingBySession,
-                  [sessionId]: [...current, request]
-                }
+                  [liveKey]: [...current, request],
+                },
               };
             });
-          })
+          }),
       ).pipe(
         Effect.tapError((cause) =>
-          Effect.sync(() => reportConnectionFailure(options, cause))
-        )
+          Effect.sync(() => reportConnectionFailure(options, cause)),
+        ),
       );
       const fiber = await Effect.runPromise(program.pipe(Effect.fork));
       liveFibers.set(liveKey, fiber);
@@ -85,18 +89,19 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
       // surfaces the connection error, and hydrate re-runs on the next mount.
     }
   },
-  decide: async (options, sessionId, requestId, decision) => {
+  decide: async (connKey, options, sessionId, requestId, decision) => {
     // Optimistically drop the card; the server won't re-emit a decided request.
+    const key = connectionSessionKey(connKey, sessionId);
     set((state) => ({
       pendingBySession: {
         ...state.pendingBySession,
-        [sessionId]: (state.pendingBySession[sessionId] ?? []).filter(
-          (entry) => entry.id !== requestId
-        )
-      }
+        [key]: (state.pendingBySession[key] ?? []).filter(
+          (entry) => entry.id !== requestId,
+        ),
+      },
     }));
     await Effect.runPromise(
-      decidePermission({ connection: options, requestId, decision })
+      decidePermission({ connection: options, requestId, decision }),
     ).catch(() => {});
-  }
+  },
 }));

@@ -33,7 +33,22 @@ const message = (cause: unknown): string => {
     return "Could not load your computers from the relay.";
   }
   if (text.startsWith("relay_status_")) {
+    if (text.includes("invalid_dpop_proof")) {
+      return "Could not verify this phone with the relay. Restart the app and try again.";
+    }
+    if (text.includes("invalid_workos_token")) {
+      return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
+    }
     return "Could not check computer presence.";
+  }
+  if (text.startsWith("relay_dpop_token_")) {
+    if (text.includes("invalid_dpop_proof")) {
+      return "Could not verify this phone with the relay. Restart the app and try again.";
+    }
+    if (text.includes("invalid_workos_token")) {
+      return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
+    }
+    return "Could not authorize this phone with the relay.";
   }
   if (text.startsWith("relay_connect_")) {
     return "Could not connect to that computer.";
@@ -69,7 +84,16 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
                   : item,
               ),
             }));
-          } catch {
+          } catch (cause) {
+            const error = message(cause);
+            if (
+              error.startsWith("Could not authorize") ||
+              error.startsWith("Could not verify") ||
+              error.startsWith("Your sign-in expired")
+            ) {
+              set({ error });
+              return;
+            }
             set((state) => ({
               environments: state.environments.map((item) =>
                 item.environmentId === environment.environmentId

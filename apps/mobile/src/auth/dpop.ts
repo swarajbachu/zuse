@@ -1,3 +1,6 @@
+import { p256 } from "@noble/curves/nist";
+import { sha256 } from "@noble/hashes/sha2";
+import * as ExpoCrypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { calculateJwkThumbprint, type JWK } from "jose";
 
@@ -11,7 +14,7 @@ const PRIVATE_KEY = "zuse.mobile.dpop.private.v1";
 const PUBLIC_KEY = "zuse.mobile.dpop.public.v1";
 
 interface DeviceKey {
-  readonly privateJwk: JWK;
+  readonly privateJwk: JWK & { readonly d: string };
   readonly publicJwk: JWK;
 }
 
@@ -24,29 +27,50 @@ const loadOrCreate = async (): Promise<DeviceKey> => {
     SecureStore.getItemAsync(PUBLIC_KEY),
   ]);
   if (priv !== null && pub !== null) {
-    cached = {
-      privateJwk: JSON.parse(priv) as JWK,
-      publicJwk: JSON.parse(pub) as JWK,
-    };
-    return cached;
+    const restored = await restoreStoredKey(priv, pub);
+    if (restored !== null) {
+      cached = restored;
+      return cached;
+    }
   }
-  const { privateKey, publicKey } = await subtle().generateKey(
-    { name: "ECDSA", namedCurve: "P-256" },
-    true,
-    ["sign", "verify"],
-  );
-  const privateJwk = normalizePrivateJwk(
-    await subtle().exportKey("jwk", privateKey),
-  );
-  const publicJwk = normalizePublicJwk(
-    await subtle().exportKey("jwk", publicKey),
-  );
+  cached = await createAndStoreKey();
+  return cached;
+};
+
+const createAndStoreKey = async (): Promise<DeviceKey> => {
+  const privateKey = generatePrivateKey();
+  const publicJwk = publicJwkFromPrivateKey(privateKey);
+  const privateJwk = { ...publicJwk, d: base64UrlBytes(privateKey) };
   await Promise.all([
     SecureStore.setItemAsync(PRIVATE_KEY, JSON.stringify(privateJwk)),
     SecureStore.setItemAsync(PUBLIC_KEY, JSON.stringify(publicJwk)),
   ]);
-  cached = { privateJwk, publicJwk };
-  return cached;
+  return { privateJwk, publicJwk };
+};
+
+const restoreStoredKey = async (
+  privateJson: string,
+  publicJson: string,
+): Promise<DeviceKey | null> => {
+  try {
+    const privateJwk = parsePrivateJwk(JSON.parse(privateJson));
+    const publicJwk = JSON.parse(publicJson) as JWK;
+    const privateKey = base64UrlToBytes(privateJwk.d);
+    if (!p256.utils.isValidPrivateKey(privateKey)) {
+      throw new Error("mobile_dpop_private_key_invalid");
+    }
+    const derivedPublicJwk = publicJwkFromPrivateKey(privateKey);
+    if (derivedPublicJwk.x !== publicJwk.x || derivedPublicJwk.y !== publicJwk.y) {
+      throw new Error("mobile_dpop_public_key_mismatch");
+    }
+    return { privateJwk, publicJwk };
+  } catch {
+    await Promise.all([
+      SecureStore.deleteItemAsync(PRIVATE_KEY),
+      SecureStore.deleteItemAsync(PUBLIC_KEY),
+    ]);
+    return null;
+  }
 };
 
 export const devicePublicJwk = async (): Promise<JWK> =>
@@ -76,55 +100,48 @@ export const signDpopProof = async (input: {
     iat: Math.floor(Date.now() / 1000),
   };
   const signingInput = `${base64UrlJson(protectedHeader)}.${base64UrlJson(payload)}`;
-  const key = await subtle().importKey(
-    "jwk",
-    privateJwk,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
-  const signature = await subtle().sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    key,
-    new TextEncoder().encode(signingInput),
-  );
-  return `${signingInput}.${base64UrlBytes(new Uint8Array(signature))}`;
+  const privateKey = base64UrlToBytes(privateJwk.d);
+  const signature = p256
+    .sign(sha256(new TextEncoder().encode(signingInput)), privateKey, {
+      prehash: false,
+    })
+    .toCompactRawBytes();
+  return `${signingInput}.${base64UrlBytes(signature)}`;
 };
 
-const subtle = (): SubtleCrypto => {
-  const crypto = globalThis.crypto;
-  if (crypto?.subtle === undefined) {
-    throw new Error("mobile_crypto_unavailable");
+const generatePrivateKey = (): Uint8Array => {
+  for (;;) {
+    const privateKey = ExpoCrypto.getRandomBytes(32);
+    if (p256.utils.isValidPrivateKey(privateKey)) return privateKey;
   }
-  return crypto.subtle;
 };
 
-const normalizePrivateJwk = (jwk: JsonWebKey): JWK => ({
-  kty: "EC",
-  crv: "P-256",
-  alg: "ES256",
-  key_ops: ["sign"],
-  ext: true,
-  x: requiredJwkPart(jwk.x, "x"),
-  y: requiredJwkPart(jwk.y, "y"),
-  d: requiredJwkPart(jwk.d, "d"),
-});
-
-const normalizePublicJwk = (jwk: JsonWebKey): JWK => ({
-  kty: "EC",
-  crv: "P-256",
-  alg: "ES256",
-  key_ops: ["verify"],
-  ext: true,
-  x: requiredJwkPart(jwk.x, "x"),
-  y: requiredJwkPart(jwk.y, "y"),
-});
-
-const requiredJwkPart = (value: string | undefined, name: string): string => {
-  if (value === undefined || value.length === 0) {
-    throw new Error(`mobile_dpop_jwk_missing_${name}`);
+const publicJwkFromPrivateKey = (privateKey: Uint8Array): JWK => {
+  const publicKey = p256.getPublicKey(privateKey, false);
+  if (publicKey.length !== 65 || publicKey[0] !== 0x04) {
+    throw new Error("mobile_dpop_public_key_invalid");
   }
-  return value;
+  return {
+    kty: "EC",
+    crv: "P-256",
+    alg: "ES256",
+    key_ops: ["verify"],
+    ext: true,
+    x: base64UrlBytes(publicKey.slice(1, 33)),
+    y: base64UrlBytes(publicKey.slice(33, 65)),
+  };
+};
+
+const parsePrivateJwk = (value: unknown): JWK & { readonly d: string } => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("d" in value) ||
+    typeof value.d !== "string"
+  ) {
+    throw new Error("mobile_dpop_private_jwk_invalid");
+  }
+  return value as JWK & { readonly d: string };
 };
 
 const base64UrlJson = (value: unknown): string =>
@@ -146,6 +163,29 @@ const base64UrlBytes = (bytes: Uint8Array): string => {
     output += alphabet[c & 63]!;
   }
   return output;
+};
+
+const base64UrlToBytes = (value: string): Uint8Array => {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const clean = value.replace(/=+$/g, "");
+  if (clean.length % 4 === 1) {
+    throw new Error("mobile_dpop_base64url_invalid_length");
+  }
+  const bytes: number[] = [];
+  for (let index = 0; index < clean.length; index += 4) {
+    const chunk = clean.slice(index, index + 4);
+    const values = [...chunk].map((char) => alphabet.indexOf(char));
+    if (values.some((item) => item < 0)) {
+      throw new Error("mobile_dpop_base64url_invalid_character");
+    }
+    const [a = 0, b = 0, c = 0, d = 0] = values;
+    const triple = (a << 18) | (b << 12) | (c << 6) | d;
+    bytes.push((triple >> 16) & 0xff);
+    if (chunk.length > 2) bytes.push((triple >> 8) & 0xff);
+    if (chunk.length > 3) bytes.push(triple & 0xff);
+  }
+  return new Uint8Array(bytes);
 };
 
 const normalizeUrl = (value: string): string => {

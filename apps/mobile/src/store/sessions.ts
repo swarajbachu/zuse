@@ -3,6 +3,7 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
+import { connectionSessionKey } from "~/lib/session-key";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -23,7 +24,10 @@ type SessionsState = {
 const statusFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
 const chatFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
 
-const stopFiber = async (key: string, map: Map<string, Fiber.RuntimeFiber<unknown, unknown>>) => {
+const stopFiber = async (
+  key: string,
+  map: Map<string, Fiber.RuntimeFiber<unknown, unknown>>,
+) => {
   const fiber = map.get(key);
   if (fiber !== undefined) {
     map.delete(key);
@@ -45,15 +49,15 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           [connKey]: rebuildBundles(
             cached.projects as readonly Folder[],
             cached.chats as readonly Chat[],
-            cached.sessions as readonly Session[]
-          )
-        }
+            cached.sessions as readonly Session[],
+          ),
+        },
       }));
     }
 
     set((state) => ({
       loadingByConnection: { ...state.loadingByConnection, [connKey]: true },
-      errorByConnection: { ...state.errorByConnection, [connKey]: null }
+      errorByConnection: { ...state.errorByConnection, [connKey]: null },
     }));
 
     try {
@@ -63,15 +67,18 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         projects.map(async (project) => {
           const [chats, sessions] = await Promise.all([
             Effect.runPromise(client.chat.list({ projectId: project.id })),
-            Effect.runPromise(client.session.list({ projectId: project.id }))
+            Effect.runPromise(client.session.list({ projectId: project.id })),
           ]);
           return { project, chats, sessions };
-        })
+        }),
       );
 
       set((state) => ({
-        bundlesByConnection: { ...state.bundlesByConnection, [connKey]: bundles },
-        loadingByConnection: { ...state.loadingByConnection, [connKey]: false }
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: bundles,
+        },
+        loadingByConnection: { ...state.loadingByConnection, [connKey]: false },
       }));
 
       await Effect.runPromise(
@@ -79,8 +86,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           projects,
           chats: bundles.flatMap((b) => b.chats),
           sessions: bundles.flatMap((b) => b.sessions),
-          savedAt: Date.now()
-        })
+          savedAt: Date.now(),
+        }),
       );
 
       for (const bundle of bundles) {
@@ -93,16 +100,19 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 set((state) => ({
                   bundlesByConnection: {
                     ...state.bundlesByConnection,
-                    [connKey]: patchChat(state.bundlesByConnection[connKey] ?? [], chat)
-                  }
+                    [connKey]: patchChat(
+                      state.bundlesByConnection[connKey] ?? [],
+                      chat,
+                    ),
+                  },
                 }));
-              })
+              }),
           ).pipe(
             Effect.tapError((cause) =>
-              Effect.sync(() => reportConnectionFailure(options, cause))
+              Effect.sync(() => reportConnectionFailure(options, cause)),
             ),
-            Effect.fork
-          )
+            Effect.fork,
+          ),
         );
         chatFibers.set(`${connKey}:chat:${bundle.project.id}`, chatFiber);
       }
@@ -118,16 +128,17 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 set((state) => ({
                   statusBySession: {
                     ...state.statusBySession,
-                    [event.sessionId]: event.status
-                  }
+                    [connectionSessionKey(connKey, event.sessionId)]:
+                      event.status,
+                  },
                 }));
-              })
+              }),
           ).pipe(
             Effect.tapError((cause) =>
-              Effect.sync(() => reportConnectionFailure(options, cause))
+              Effect.sync(() => reportConnectionFailure(options, cause)),
             ),
-            Effect.fork
-          )
+            Effect.fork,
+          ),
         );
         statusFibers.set(key, fiber);
       }
@@ -137,25 +148,28 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         loadingByConnection: { ...state.loadingByConnection, [connKey]: false },
         errorByConnection: {
           ...state.errorByConnection,
-          [connKey]: cause instanceof Error ? cause.message : String(cause)
-        }
+          [connKey]: cause instanceof Error ? cause.message : String(cause),
+        },
       }));
     }
-  }
+  },
 }));
 
 const rebuildBundles = (
   projects: readonly Folder[],
   chats: readonly Chat[],
-  sessions: readonly Session[]
+  sessions: readonly Session[],
 ): ProjectBundle[] =>
   projects.map((project) => ({
     project,
     chats: chats.filter((chat) => chat.projectId === project.id),
-    sessions: sessions.filter((session) => session.projectId === project.id)
+    sessions: sessions.filter((session) => session.projectId === project.id),
   }));
 
-const patchChat = (bundles: readonly ProjectBundle[], chat: Chat): ProjectBundle[] =>
+const patchChat = (
+  bundles: readonly ProjectBundle[],
+  chat: Chat,
+): ProjectBundle[] =>
   bundles.map((bundle) =>
     bundle.project.id !== chat.projectId
       ? bundle
@@ -163,14 +177,14 @@ const patchChat = (bundles: readonly ProjectBundle[], chat: Chat): ProjectBundle
           ...bundle,
           chats: [
             chat,
-            ...bundle.chats.filter((existing) => existing.id !== chat.id)
-          ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt))
-        }
+            ...bundle.chats.filter((existing) => existing.id !== chat.id),
+          ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
+        },
   );
 
 export const selectSessionChat = (
   bundles: readonly ProjectBundle[],
-  sessionId: string
+  sessionId: string,
 ): { session: Session; chat: Chat | undefined; project: Folder } | null => {
   for (const bundle of bundles) {
     const session = bundle.sessions.find((item) => item.id === sessionId);
@@ -178,7 +192,7 @@ export const selectSessionChat = (
       return {
         session,
         chat: bundle.chats.find((chat) => chat.id === session.chatId),
-        project: bundle.project
+        project: bundle.project,
       };
     }
   }

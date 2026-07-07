@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import type { QueuedMessage } from "~/offline/cache";
 import { readOutboxSnapshot, writeOutboxSnapshot } from "~/offline/cache";
+import { connectionSessionKey } from "~/lib/session-key";
 import { makeTextInput, sendMessage } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -20,12 +21,12 @@ type OutboxState = {
   enqueue: (
     connKey: string,
     sessionId: SessionId,
-    text: string
+    text: string,
   ) => Promise<void>;
   flush: (
     connKey: string,
     options: WsProtocolOptions,
-    sessionId: SessionId
+    sessionId: SessionId,
   ) => Promise<void>;
 };
 
@@ -34,27 +35,29 @@ type OutboxState = {
 const flushing = new Set<string>();
 let counter = 0;
 
-const makeClientId = () => `${Date.now().toString(36)}-${(counter++).toString(36)}`;
+const makeClientId = () =>
+  `${Date.now().toString(36)}-${(counter++).toString(36)}`;
 
 const persist = (
   connKey: string,
   sessionId: SessionId,
-  items: readonly QueuedMessage[]
+  items: readonly QueuedMessage[],
 ) =>
-  Effect.runPromise(
-    writeOutboxSnapshot(connKey, sessionId, { items })
-  ).catch(() => {});
+  Effect.runPromise(writeOutboxSnapshot(connKey, sessionId, { items })).catch(
+    () => {},
+  );
 
 export const useOutboxStore = create<OutboxState>((set, get) => ({
   queuedBySession: {},
   hydrate: async (connKey, sessionId) => {
-    if (get().queuedBySession[sessionId] !== undefined) return;
+    const key = connectionSessionKey(connKey, sessionId);
+    if (get().queuedBySession[key] !== undefined) return;
     const cached = await Effect.runPromise(
-      readOutboxSnapshot(connKey, sessionId)
+      readOutboxSnapshot(connKey, sessionId),
     ).catch(() => null);
     const items = cached?.items ?? [];
     set((state) => ({
-      queuedBySession: { ...state.queuedBySession, [sessionId]: items }
+      queuedBySession: { ...state.queuedBySession, [key]: items },
     }));
   },
   enqueue: async (connKey, sessionId, text) => {
@@ -63,19 +66,21 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
     const item: QueuedMessage = {
       clientId: makeClientId(),
       text: trimmed,
-      createdAt: Date.now()
+      createdAt: Date.now(),
     };
-    const next = [...(get().queuedBySession[sessionId] ?? []), item];
+    const key = connectionSessionKey(connKey, sessionId);
+    const next = [...(get().queuedBySession[key] ?? []), item];
     set((state) => ({
-      queuedBySession: { ...state.queuedBySession, [sessionId]: next }
+      queuedBySession: { ...state.queuedBySession, [key]: next },
     }));
     await persist(connKey, sessionId, next);
   },
   flush: async (connKey, options, sessionId) => {
-    if (flushing.has(sessionId)) return;
-    const queued = get().queuedBySession[sessionId] ?? [];
+    const key = connectionSessionKey(connKey, sessionId);
+    if (flushing.has(key)) return;
+    const queued = get().queuedBySession[key] ?? [];
     if (queued.length === 0) return;
-    flushing.add(sessionId);
+    flushing.add(key);
     try {
       // Send strictly in order; stop at the first failure so ordering holds and
       // the remaining items stay queued for the next reconnect.
@@ -86,20 +91,22 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
             sendMessage({
               connection: options,
               sessionId,
-              input: makeTextInput(item.text)
-            })
+              input: makeTextInput(item.text),
+            }),
           );
         } catch {
           break;
         }
-        remaining = remaining.filter((entry) => entry.clientId !== item.clientId);
+        remaining = remaining.filter(
+          (entry) => entry.clientId !== item.clientId,
+        );
         set((state) => ({
-          queuedBySession: { ...state.queuedBySession, [sessionId]: remaining }
+          queuedBySession: { ...state.queuedBySession, [key]: remaining },
         }));
         await persist(connKey, sessionId, remaining);
       }
     } finally {
-      flushing.delete(sessionId);
+      flushing.delete(key);
     }
-  }
+  },
 }));

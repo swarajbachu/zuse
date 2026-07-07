@@ -24,7 +24,7 @@ import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { makeMainLayer } from "@zuse/server";
+import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
 import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
@@ -321,6 +321,27 @@ const appendAppLog = (fileName: string, line: string): void => {
   } catch {
     // Logging must never affect app behavior.
   }
+};
+
+const appendRemoteConnectionLog = (
+  event: string,
+  fields: Record<string, unknown> = {},
+): void => {
+  appendAppLog(
+    "remote-connection.log",
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      event,
+      ...Object.fromEntries(
+        Object.entries(fields).map(([key, value]) => [
+          key,
+          value instanceof Error
+            ? { name: value.name, message: value.message }
+            : value,
+        ]),
+      ),
+    }),
+  );
 };
 
 type OpenTargetDefinition = {
@@ -1342,6 +1363,16 @@ function createMainWindow() {
   const serverProtocol = electronServerProtocolLayer(
     mainWindow.webContents,
   ).pipe(Layer.provide(RpcSerialization.layerJson));
+  const relayWsPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8787);
+  const relayWsProtocol = wsServerProtocolLayer({
+    port: relayWsPort,
+    host: "127.0.0.1",
+    onDiagnostic: appendRemoteConnectionLog,
+  });
+  appendRemoteConnectionLog("desktop.runtime.start", {
+    relayWsPort,
+    userData: app.getPath("userData"),
+  });
 
   runtimeFiber = Effect.runFork(
     Layer.launch(
@@ -1349,7 +1380,14 @@ function createMainWindow() {
         userData: app.getPath("userData"),
         folderPicker,
         serverProtocol,
+        additionalServerProtocols: [relayWsProtocol],
         authShell,
+        lanAuth: {
+          policy: "protected",
+          advertisedHost: null,
+          port: relayWsPort,
+          pairingBootstrap: false,
+        },
       }),
     ).pipe(
       Effect.catchAllCause((cause) =>
@@ -1357,6 +1395,9 @@ function createMainWindow() {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet
           // success-after-restart is preferable to a half-running app.
+          appendRemoteConnectionLog("desktop.runtime.fatal", {
+            cause: String(cause),
+          });
           console.error("[zuse] fatal boot error", cause);
           app.exit(1);
         }),

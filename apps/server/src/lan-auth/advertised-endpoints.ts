@@ -103,7 +103,7 @@ export const buildAdvertisedEndpoints = (input: {
   const tunnelHostname = input.relay?.tunnelHostname?.trim();
   if (tunnelHostname) {
     const httpBaseUrl = `https://${tunnelHostname}`;
-    const wsBaseUrl = `wss://${tunnelHostname}/rpc`;
+    const wsBaseUrl = `wss://${tunnelHostname}`;
     const status: AdvertisedEndpointStatus =
       input.relay?.linked === true
         ? input.relay.heartbeatActive

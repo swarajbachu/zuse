@@ -6,7 +6,11 @@ import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListSection } from "~/components/ui/list";
-import { normalizeConnParam, optionsForConnection } from "~/lib/connection-params";
+import {
+  normalizeConnParam,
+  optionsForConnection,
+} from "~/lib/connection-params";
+import { connectionSessionKey } from "~/lib/session-key";
 import { useConnectionsStore } from "~/store/connections";
 import {
   connectionStatusLabel,
@@ -20,29 +24,36 @@ export default function SessionsScreen() {
   const { conn } = useLocalSearchParams<{ conn: string }>();
   const connKey = normalizeConnParam(conn);
   const [search, setSearch] = useState("");
-  const { connections, hydrated, hydrate: hydrateConnections } = useConnectionsStore();
+  const {
+    connections,
+    hydrated,
+    hydrate: hydrateConnections,
+  } = useConnectionsStore();
   const {
     bundlesByConnection,
     statusBySession,
     errorByConnection,
     loadingByConnection,
-    hydrate
+    hydrate,
   } = useSessionsStore();
   const options = useMemo(
     () => optionsForConnection(connKey, connections),
-    [connKey, connections]
+    [connKey, connections],
   );
   const watchConnection = useConnectionRuntimeStore((state) => state.watch);
   const connectionSnapshot = useConnectionRuntimeStore(
-    (state) => state.snapshotsByConnection[connKey]
+    (state) => state.snapshotsByConnection[connKey],
   );
   const bundles = useMemo(
     () => bundlesByConnection[connKey] ?? [],
-    [bundlesByConnection, connKey]
+    [bundlesByConnection, connKey],
   );
-  const onChangeSearch = useCallback((event: { nativeEvent: { text: string } }) => {
-    setSearch(event.nativeEvent.text);
-  }, []);
+  const onChangeSearch = useCallback(
+    (event: { nativeEvent: { text: string } }) => {
+      setSearch(event.nativeEvent.text);
+    },
+    [],
+  );
   const searchOptions = useMemo(
     () => ({
       placeholder: "Search sessions",
@@ -51,7 +62,7 @@ export default function SessionsScreen() {
       onChangeText: onChangeSearch,
       onCancelButtonPress: () => setSearch(""),
     }),
-    [onChangeSearch]
+    [onChangeSearch],
   );
 
   useEffect(() => {
@@ -59,12 +70,12 @@ export default function SessionsScreen() {
   }, [hydrateConnections, hydrated]);
 
   useEffect(() => {
-    if (connKey.length === 0) return;
+    if (connKey.length === 0 || options === null) return;
     return watchConnection(connKey, options);
   }, [connKey, options, watchConnection]);
 
   useEffect(() => {
-    if (connKey.length > 0) void hydrate(connKey, options);
+    if (connKey.length > 0 && options !== null) void hydrate(connKey, options);
   }, [connKey, connectionSnapshot?.generation, hydrate, options]);
 
   const rows = useMemo(
@@ -73,9 +84,9 @@ export default function SessionsScreen() {
         bundle.sessions.map((session) => {
           const chat = bundle.chats.find((item) => item.id === session.chatId);
           return { project: bundle.project, session, chat };
-        })
+        }),
       ),
-    [bundles]
+    [bundles],
   );
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -114,11 +125,19 @@ export default function SessionsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={loadingByConnection[connKey] === true}
-            onRefresh={() => void hydrate(connKey, options)}
+            onRefresh={() => {
+              if (options !== null) void hydrate(connKey, options);
+            }}
             tintColor={ACCENT}
           />
         }
       >
+        {hydrated && options === null ? (
+          <Text selectable className="px-4 font-sans text-[13px] text-danger">
+            This saved connection could not be found on this phone. Go back and
+            connect the computer again.
+          </Text>
+        ) : null}
         {errorByConnection[connKey] ? (
           <Text selectable className="px-4 font-sans text-[13px] text-danger">
             {errorByConnection[connKey]}
@@ -151,11 +170,13 @@ export default function SessionsScreen() {
                 key={session.id}
                 session={session}
                 chat={chat}
-                status={statusBySession[session.id]}
+                status={
+                  statusBySession[connectionSessionKey(connKey, session.id)]
+                }
                 unread={chat !== undefined && isUnread(chat)}
                 onPress={() =>
                   router.push(
-                    `/c/${encodeURIComponent(connKey)}/session/${encodeURIComponent(session.id)}`
+                    `/c/${encodeURIComponent(connKey)}/session/${encodeURIComponent(session.id)}`,
                   )
                 }
               />
