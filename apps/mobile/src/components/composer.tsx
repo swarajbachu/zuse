@@ -40,7 +40,6 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import {
   addOptimisticMessage,
   removeOptimisticMessage,
-  useMobileMessagesStore,
 } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import {
@@ -61,6 +60,7 @@ export const Composer = ({
   fresh,
   projectLabel,
   sourceLabel,
+  online,
   bottomInset = 0,
 }: {
   connKey: string;
@@ -71,19 +71,13 @@ export const Composer = ({
   fresh: boolean;
   projectLabel?: string;
   sourceLabel?: string;
+  online: boolean;
   bottomInset?: number;
 }) => {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const stateKey = connectionSessionKey(connKey, sessionId);
 
-  // Offline = the message stream is retrying or has surfaced an error. Sends
-  // made in this state are queued instead of dropped.
-  const online = useMobileMessagesStore(
-    (state) =>
-      state.reconnectingBySession[stateKey] !== true &&
-      (state.errorBySession[stateKey] ?? null) === null,
-  );
   const queuedCount = useOutboxStore(
     (state) => (state.queuedBySession[stateKey] ?? []).length,
   );
@@ -203,7 +197,8 @@ export const Composer = ({
         <View className="mb-2 flex-row items-center gap-1.5 px-1">
           <HugeIcon icon={CloudOffIcon} size={13} color="hsl(42 93% 56%)" />
           <Text className="font-sans-medium text-xs text-warning">
-            {queuedCount} queued · will send when reconnected
+            {queuedCount} queued ·{" "}
+            {online ? "sending…" : "will send when reconnected"}
           </Text>
         </View>
       ) : null}

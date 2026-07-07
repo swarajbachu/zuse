@@ -118,17 +118,14 @@ export default function ThreadScreen() {
 
   const reconnecting = reconnectingBySession[stateKey];
   const error = errorBySession[stateKey];
-  const online =
-    connectionSnapshot?.status === "connected" &&
-    reconnecting !== true &&
-    (error ?? null) === null;
+  const transportOnline = connectionSnapshot?.status === "connected";
 
   // Drain the outbox in order the moment the session is back online.
   useEffect(() => {
-    if (online && normalizedSessionId.length > 0 && options !== null) {
+    if (transportOnline && normalizedSessionId.length > 0 && options !== null) {
       void flushOutbox(connKey, options, normalizedSessionId);
     }
-  }, [connKey, flushOutbox, normalizedSessionId, online, options]);
+  }, [connKey, flushOutbox, normalizedSessionId, transportOnline, options]);
 
   // Cross-reference question rows so answered prompts collapse and the answer
   // row can resolve selected option labels.
@@ -283,6 +280,7 @@ export default function ThreadScreen() {
               ? "Main"
               : "Branch"
           }
+          online={transportOnline}
           bottomInset={insets.bottom}
         />
       )}
