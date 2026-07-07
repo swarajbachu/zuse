@@ -26,12 +26,14 @@
     // tunnels; leave any unset to disable (the relay then advertises the LAN
     // endpoint the desktop sends). CF_API_TOKEN is the only secret — set it via
     // `bunx wrangler secret put CF_API_TOKEN`.
-    //   MANAGED_TUNNEL_BASE_DOMAIN — apex the tunnel hostnames live under (must be
-    //     a zone on this Cloudflare account), e.g. "t.stuff.md".
+    //   MANAGED_TUNNEL_BASE_DOMAIN — zone apex the tunnel hostnames live under.
+    //     Keep generated hostnames one label below the zone so Cloudflare's
+    //     managed edge certificate covers them, e.g. "stuff.md" gives
+    //     "zenv-<hash>.stuff.md".
     //   MANAGED_TUNNEL_NAMESPACE   — per-deployment prefix for tunnel + hostname.
     //   CF_ACCOUNT_ID / CF_ZONE_ID — the account, and the DNS zone id that owns
-    //     BASE_DOMAIN (for t.stuff.md, this is the stuff.md zone).
-    "MANAGED_TUNNEL_BASE_DOMAIN": "t.stuff.md",
+    //     BASE_DOMAIN.
+    "MANAGED_TUNNEL_BASE_DOMAIN": "stuff.md",
     "MANAGED_TUNNEL_NAMESPACE": "zenv",
     "CF_ACCOUNT_ID": "40dd16663d44dc635537be6d183af841",
     "CF_ZONE_ID": "1ebb00c5fd61050e9f48ce1c791a29da",

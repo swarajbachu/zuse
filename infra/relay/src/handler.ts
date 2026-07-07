@@ -85,10 +85,10 @@ const hasSensitiveActivityKey = (value: unknown): boolean => {
 
 const publicEndpoint = (environment: EnvironmentRecord) =>
   environment.tunnelHostname !== undefined
-    ? {
-        httpBaseUrl: `https://${environment.tunnelHostname}`,
-        wsBaseUrl: `wss://${environment.tunnelHostname}/rpc`,
-      }
+      ? {
+          httpBaseUrl: `https://${environment.tunnelHostname}`,
+          wsBaseUrl: `wss://${environment.tunnelHostname}`,
+        }
     : {
         httpBaseUrl: environment.httpBaseUrl,
         wsBaseUrl: environment.wsBaseUrl,
@@ -247,7 +247,7 @@ const route = (
           tunnelHostname !== undefined
             ? {
                 httpBaseUrl: `https://${tunnelHostname}`,
-                wsBaseUrl: `wss://${tunnelHostname}/rpc`,
+                wsBaseUrl: `wss://${tunnelHostname}`,
               }
             : {
                 httpBaseUrl: body.endpoint.httpBaseUrl,

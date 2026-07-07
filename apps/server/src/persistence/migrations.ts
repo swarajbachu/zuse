@@ -27,6 +27,7 @@ import { Migration0024RemoteConnectState } from "./migrations/0024_remote_connec
 import { Migration0025RelayEnvironmentKeys } from "./migrations/0025_relay_environment_keys.ts";
 import { Migration0026RelayConnectorToken } from "./migrations/0026_relay_connector_token.ts";
 import { Migration0027RelayTunnelHostname } from "./migrations/0027_relay_tunnel_hostname.ts";
+import { Migration0028RelayMintPublicKey } from "./migrations/0028_relay_mint_public_key.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -72,6 +73,7 @@ export const MigrationsLive = Layer.effectDiscard(
       "0025_relay_environment_keys": Migration0025RelayEnvironmentKeys,
       "0026_relay_connector_token": Migration0026RelayConnectorToken,
       "0027_relay_tunnel_hostname": Migration0027RelayTunnelHostname,
+      "0028_relay_mint_public_key": Migration0028RelayMintPublicKey,
     }),
   }),
 );

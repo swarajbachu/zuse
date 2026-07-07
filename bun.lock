@@ -72,6 +72,8 @@
         "@expo-google-fonts/geist-mono": "^0.4.1",
         "@expo-google-fonts/inter": "^0.4.2",
         "@expo/ui": "~57.0.3",
+        "@noble/curves": "^1.9.7",
+        "@noble/hashes": "^1.8.0",
         "@zuse/wire": "*",
         "clsx": "^2.1.1",
         "effect": "catalog:",

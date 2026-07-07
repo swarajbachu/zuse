@@ -59,7 +59,10 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
  *   wraps `dialog.showOpenDialog`; a headless server returns null (or
  *   forwards the prompt to a connected client).
  * - `serverProtocol`: the RPC transport. Electron supplies an in-process
- *   IPC protocol; the future WS server will supply a WebSocket protocol.
+ *   IPC protocol; a headless server supplies a WebSocket protocol.
+ * - `additionalServerProtocols`: optional secondary transports that serve the
+ *   same RPC handlers from the same runtime, for example Electron IPC plus a
+ *   protected local WebSocket origin for relay tunnels.
  * - `authShell`: the WorkOS OAuth deep-link seam. Electron opens the system
  *   browser via `shell.openExternal` and funnels the `zuse://auth/callback`
  *   deep link back in; a headless server supplies a loopback-HTTP variant.
@@ -71,6 +74,9 @@ export interface MainLayerDeps {
     RpcServer.Protocol,
     never,
     LanAuthService
+  >;
+  readonly additionalServerProtocols?: ReadonlyArray<
+    Layer.Layer<RpcServer.Protocol, never, LanAuthService>
   >;
   readonly authShell: typeof AuthShell.Service;
   readonly lanAuth?: {
@@ -388,9 +394,21 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(HandlerSupportLayer),
   );
 
-  const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
-    Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+  const serverProtocols = [
+    deps.serverProtocol,
+    ...(deps.additionalServerProtocols ?? []),
+  ] as const;
+  const makeServerLayer = (
+    serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>,
+  ) =>
+    RpcServer.layer(MemoizeRpcs).pipe(
+      Layer.provide(Handlers),
+      Layer.provide(serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+    );
+
+  const ServerLayer = Layer.mergeAll(
+    makeServerLayer(serverProtocols[0]),
+    ...serverProtocols.slice(1).map(makeServerLayer),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);

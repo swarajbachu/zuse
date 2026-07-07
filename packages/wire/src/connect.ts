@@ -153,6 +153,7 @@ export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
     relayIssuer: Schema.String,
     environmentId: EnvironmentId,
     environmentCredential: Schema.String,
+    mintPublicKey: Schema.optional(Schema.String),
   }),
   success: Schema.Void,
   error: ConnectAuthError,

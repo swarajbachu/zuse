@@ -261,6 +261,7 @@ export const RelayLinkServiceLive: Layer.Layer<
           const linked = yield* postJson<{
             readonly environmentCredential: string;
             readonly relayIssuer: string;
+            readonly mintPublicKey: string;
             readonly tunnelHostname?: string;
             readonly connectorToken?: string;
           }>(`${input.relayUrl}${RelayPaths.links}`, {
@@ -321,6 +322,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               label: input.label,
               connectorToken: linked.connectorToken,
               tunnelHostname: linked.tunnelHostname,
+              mintPublicKey: linked.mintPublicKey,
             })
             .pipe(
               Effect.tap(() =>

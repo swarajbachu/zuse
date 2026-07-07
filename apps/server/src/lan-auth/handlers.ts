@@ -51,19 +51,41 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
   Effect.gen(function* () {
     const auth = yield* LanAuthService;
     const config = yield* LanAuthConfig;
-    if (config.advertisedHost === null || config.port === null) {
+    const relayConfig = yield* auth.getRelayConfig();
+    const endpoint =
+      relayConfig?.tunnelHostname !== undefined
+        ? EnvironmentEndpoint.make({
+            httpBaseUrl: `https://${relayConfig.tunnelHostname}`,
+            wsBaseUrl: `wss://${relayConfig.tunnelHostname}`,
+          })
+        : config.advertisedHost !== null && config.port !== null
+          ? EnvironmentEndpoint.make({
+              httpBaseUrl: `http://${config.advertisedHost}:${config.port}`,
+              wsBaseUrl: `ws://${config.advertisedHost}:${config.port}`,
+            })
+          : null;
+
+    if (endpoint === null) {
       return yield* Effect.fail(
         new ConnectAuthError({ reason: "no_endpoint_configured" }),
       );
     }
 
-    const httpBaseUrl = `http://${config.advertisedHost}:${config.port}`;
-    const wsBaseUrl = `ws://${config.advertisedHost}:${config.port}`;
     return EnvironmentDescriptor.make({
       environmentId: yield* auth.environmentId(),
       providerKind: "desktop",
-      endpoint: EnvironmentEndpoint.make({ httpBaseUrl, wsBaseUrl }),
-      advertisedEndpoints: buildAdvertisedEndpoints({ lan: config }),
+      endpoint,
+      advertisedEndpoints: buildAdvertisedEndpoints({
+        lan: config,
+        relay:
+          relayConfig === null
+            ? null
+            : {
+                linked: true,
+                heartbeatActive: true,
+                tunnelHostname: relayConfig.tunnelHostname,
+              },
+      }),
     });
   }).pipe(
     Effect.mapError((error) =>

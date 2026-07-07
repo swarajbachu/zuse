@@ -4,6 +4,10 @@ import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
 import { ConnectionFailed } from "./errors";
 import {
+  logConnectionDiagnostic,
+  logConnectionProblem,
+} from "./connection-diagnostics";
+import {
   createConnectionSupervisor,
   type ConnectionSnapshot,
 } from "./connection-supervisor";
@@ -20,6 +24,14 @@ const runtimeKey = (options: WsProtocolOptions) =>
   `${options.wsBaseUrl ?? `${options.host}:${options.port}`}`;
 
 const makeRuntime = (options: WsProtocolOptions) => {
+  logConnectionDiagnostic("runtime.create", {
+    key: runtimeKey(options),
+    relay: options.environmentId !== undefined,
+    wsBaseUrl: options.wsBaseUrl ?? null,
+    host: options.host,
+    port: options.port,
+    hasToken: options.token !== undefined && options.token !== null,
+  });
   const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
   const runtime = ManagedRuntime.make(protocolLayer);
   const client = runtime.runPromise(
@@ -37,7 +49,17 @@ const prepareOptions = async (
   if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
     return options;
   }
+  logConnectionDiagnostic("relay.connect_grant.start", {
+    key: runtimeKey(options),
+    environmentId: options.environmentId,
+  });
   const grant = await connectEnvironment(options.environmentId);
+  logConnectionDiagnostic("relay.connect_grant.ok", {
+    key: runtimeKey(options),
+    environmentId: options.environmentId,
+    wsBaseUrl: grant.endpoint.wsBaseUrl,
+    expiresAt: grant.expiresAt,
+  });
   return {
     ...options,
     host: new URL(grant.endpoint.wsBaseUrl).hostname,
@@ -81,6 +103,10 @@ export const reportConnectionFailure = (
   options: WsProtocolOptions,
   cause: unknown
 ): void => {
+  logConnectionProblem("runtime.report_failure", {
+    key: runtimeKey(options),
+    reason: cause instanceof Error ? cause.message : String(cause),
+  });
   supervisor.get(options).reportFailure(cause);
 };
 
@@ -94,6 +120,7 @@ export const subscribeConnection = (
 ): (() => void) => supervisor.get(options).subscribe(listener);
 
 export const setConnectionOnline = (online: boolean): void => {
+  logConnectionDiagnostic("runtime.online_set", { online });
   currentOnline = online;
   supervisor.setOnline(online);
 };

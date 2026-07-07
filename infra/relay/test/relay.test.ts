@@ -406,7 +406,7 @@ const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
   cfApiToken: Redacted.make("cf-token"),
   cfAccountId: "acct_1",
   cfZoneId: "zone_1",
-  baseDomain: "t.test",
+  baseDomain: "test",
   namespace: "zenv",
 };
 
@@ -494,7 +494,7 @@ describe("@zuse/relay managed tunnel", () => {
       };
       expect(body.connectorToken).toBe("connector-token-xyz");
       expect(body.tunnelHostname).toBe("zenv-" + body.tunnelHostname!.split("-")[1]);
-      expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}/rpc`);
+      expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
 
       // The discovery list now advertises the managed endpoint.
       const list = await relay.fetch(
@@ -504,7 +504,7 @@ describe("@zuse/relay managed tunnel", () => {
         }),
       );
       const listed = (await list.json()).environments[0];
-      expect(listed.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}/rpc`);
+      expect(listed.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
     } finally {
       cf.restore();
     }
