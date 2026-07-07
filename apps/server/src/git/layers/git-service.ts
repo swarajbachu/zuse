@@ -312,6 +312,11 @@ const parseRemoteUrl = (url: string): GitOriginInfo | null => {
   return null;
 };
 
+const githubAvatarUrl = (login: string | undefined): string | null => {
+  if (login === undefined || login.trim().length === 0) return null;
+  return `https://github.com/${encodeURIComponent(login.trim())}.png?size=40`;
+};
+
 /**
  * Collapse `gh`'s `statusCheckRollup` into the wire's four-state aggregate.
  *
@@ -695,6 +700,75 @@ export const GitServiceLive = Layer.effect(
         }),
       );
 
+    const currentPrView = (
+      folderId: FolderId,
+      cwd: string,
+      fields: string,
+    ): Effect.Effect<string, GitNotInstalledError | GitCommandError> =>
+      Effect.gen(function* () {
+        const read = (candidate: string | null) =>
+          ghRun(
+            folderId,
+            cwd,
+            candidate === null
+              ? ["pr", "view", "--json", fields]
+              : ["pr", "view", candidate, "--json", fields],
+          ).pipe(Effect.catchTag("GitCommandError", () => Effect.succeed("")));
+
+        const direct = yield* read(null);
+        if (direct.trim().length > 0) return direct;
+
+        const candidates: string[] = [];
+        const addCandidate = (value: string) => {
+          const candidate = value.trim();
+          if (
+            candidate.length === 0 ||
+            candidate === "HEAD" ||
+            candidates.includes(candidate)
+          ) {
+            return;
+          }
+          candidates.push(candidate);
+        };
+        const addRefCandidate = (value: string) => {
+          const ref = value.trim();
+          addCandidate(ref);
+          const slash = ref.indexOf("/");
+          if (slash !== -1) addCandidate(ref.slice(slash + 1));
+        };
+
+        const branch = yield* run(folderId, cwd, [
+          "rev-parse",
+          "--abbrev-ref",
+          "HEAD",
+        ]).pipe(
+          Effect.catchTags({
+            GitCommandError: () => Effect.succeed(""),
+            GitNotARepoError: () => Effect.succeed(""),
+          }),
+        );
+        addRefCandidate(branch);
+
+        const upstream = yield* run(folderId, cwd, [
+          "rev-parse",
+          "--abbrev-ref",
+          "--symbolic-full-name",
+          "@{upstream}",
+        ]).pipe(
+          Effect.catchTags({
+            GitCommandError: () => Effect.succeed(""),
+            GitNotARepoError: () => Effect.succeed(""),
+          }),
+        );
+        addRefCandidate(upstream);
+
+        for (const candidate of candidates) {
+          const stdout = yield* read(candidate);
+          if (stdout.trim().length > 0) return stdout;
+        }
+        return "";
+      });
+
     const prState: GitService["Type"]["prState"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
@@ -716,15 +790,11 @@ export const GitServiceLive = Layer.effect(
             autoMergeEnabled: false,
           });
 
-          // `gh pr view --json` returns the PR for the current branch. Exits
-          // non-zero when there's no PR, when the branch isn't pushed, or
-          // when `gh` isn't authenticated. All of those collapse to "none".
-          const stdout = yield* ghRun(folderId, cwd, [
-            "pr",
-            "view",
-            "--json",
+          const stdout = yield* currentPrView(
+            folderId,
+            cwd,
             "state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,autoMergeRequest",
-          ]).pipe(
+          ).pipe(
             Effect.catchTags({
               GitNotInstalledError: () => Effect.succeed(""),
               GitCommandError: () => Effect.succeed(""),
@@ -891,12 +961,11 @@ export const GitServiceLive = Layer.effect(
     const prDetails: GitService["Type"]["prDetails"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
-          const stdout = yield* ghRun(folderId, cwd, [
-            "pr",
-            "view",
-            "--json",
+          const stdout = yield* currentPrView(
+            folderId,
+            cwd,
             "state,additions,deletions,number,url,headRefName,baseRefName,isDraft,statusCheckRollup,title,body,author,comments,reviews,files,mergeable",
-          ]).pipe(
+          ).pipe(
             Effect.catchTags({
               GitNotInstalledError: () => Effect.succeed(""),
               GitCommandError: () => Effect.succeed(""),
@@ -919,12 +988,12 @@ export const GitServiceLive = Layer.effect(
             body?: string;
             author?: { login?: string };
             comments?: ReadonlyArray<{
-              author?: { login?: string };
+              author?: { login?: string; avatarUrl?: string };
               body?: string;
               createdAt?: string;
             }>;
             reviews?: ReadonlyArray<{
-              author?: { login?: string };
+              author?: { login?: string; avatarUrl?: string };
               state?: string;
               body?: string;
               submittedAt?: string | null;
@@ -1006,25 +1075,29 @@ export const GitServiceLive = Layer.effect(
 
           const comments = (parsed.comments ?? [])
             .filter((c) => typeof c.createdAt === "string")
-            .map((c) =>
-              GitPrComment.make({
-                author: c.author?.login ?? "",
+            .map((c) => {
+              const author = c.author?.login ?? "";
+              return GitPrComment.make({
+                author,
+                authorAvatarUrl: c.author?.avatarUrl ?? githubAvatarUrl(author),
                 body: c.body ?? "",
                 createdAt: new Date(c.createdAt as string),
-              }),
-            );
+              });
+            });
 
-          const reviews = (parsed.reviews ?? []).map((r) =>
-            GitPrReview.make({
-              author: r.author?.login ?? "",
+          const reviews = (parsed.reviews ?? []).map((r) => {
+            const author = r.author?.login ?? "";
+            return GitPrReview.make({
+              author,
+              authorAvatarUrl: r.author?.avatarUrl ?? githubAvatarUrl(author),
               state: mapReviewState(r.state ?? ""),
               body: r.body ?? "",
               submittedAt:
                 typeof r.submittedAt === "string" && r.submittedAt.length > 0
                   ? new Date(r.submittedAt)
                   : null,
-            }),
-          );
+            });
+          });
 
           const files = (parsed.files ?? [])
             .filter((f) => typeof f.path === "string" && f.path.length > 0)

@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Maximize02Icon,
   MoveIcon,
-  RotateLeft01Icon,
+  UndoIcon,
   ZoomInAreaIcon,
   ZoomOutAreaIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
@@ -241,7 +241,7 @@ function MermaidPanZoom({
           variant="ghost"
           onClick={resetView}
         >
-          <HugeiconsIcon icon={RotateLeft01Icon} />
+          <HugeiconsIcon icon={UndoIcon} />
         </Button>
         {toolbarExtra}
       </div>

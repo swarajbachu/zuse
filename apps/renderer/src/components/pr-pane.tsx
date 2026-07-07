@@ -1,25 +1,24 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CircleIcon,
-  LinkSquare01Icon,
   Loading02Icon,
   MinusSignCircleIcon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
-import { Plus, X } from "lucide-react";
-import { useEffect } from "react";
+import { ArrowUpRight, Plus, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import type {
   FolderId,
   GitPrComment,
   GitPrCheckRun,
   GitPrDetails,
-  GitPrInfo,
   GitPrReview,
   GitPrReviewState,
   WorktreeId,
 } from "@zuse/wire";
+import { GitPrInfo } from "@zuse/wire";
 
 import {
   attachFileWhenReady,
@@ -27,12 +26,24 @@ import {
 } from "../lib/context-handoff.ts";
 import { softTone, type Tone } from "../lib/tones.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
+import {
+  composerDraftKeyForSession,
+  useComposerDraftsStore,
+} from "../store/composer-drafts.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { ClaudeIcon } from "./icons/claude-icon.tsx";
 import { GitInitCta } from "./git-init-cta.tsx";
+import {
+  Frame,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from "./ui/frame.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
@@ -88,6 +99,40 @@ const isVisibleReview = (review: GitPrReview): boolean =>
   review.state !== "pending" &&
   (review.state !== "commented" || review.body.trim().length > 0);
 
+const checkCountsFromRuns = (runs: ReadonlyArray<GitPrCheckRun>) =>
+  runs.reduce(
+    (acc, run) => {
+      acc.total += 1;
+      const kind = checkKind(run);
+      if (kind === "success") acc.passing += 1;
+      else if (kind === "pending") acc.running += 1;
+      else if (kind === "failure") acc.failing += 1;
+      return acc;
+    },
+    { total: 0, passing: 0, running: 0, failing: 0 },
+  );
+
+const prInfoFromDetails = (details: GitPrDetails): GitPrInfo => {
+  const counts = checkCountsFromRuns(details.checkRuns);
+  return GitPrInfo.make({
+    state: details.state,
+    branch: details.headBranch,
+    baseBranch: details.baseBranch,
+    additions: details.additions,
+    deletions: details.deletions,
+    number: details.number,
+    url: details.url,
+    isDraft: details.isDraft,
+    checks: details.checks,
+    mergeable: details.mergeable,
+    checksTotal: counts.total,
+    checksRunning: counts.running,
+    checksPassing: counts.passing,
+    checksFailing: counts.failing,
+    autoMergeEnabled: false,
+  });
+};
+
 const markdownForReview = (
   pr: PrMarkdownContext,
   review: Pick<GitPrReview, "author" | "state" | "body" | "submittedAt">,
@@ -99,23 +144,6 @@ const markdownForReview = (
 - Submitted: ${formatAbsolute(review.submittedAt)}
 
 ${review.body.trim().length > 0 ? review.body.trim() : "(no review body)"}
-`;
-
-const markdownForReviews = (
-  pr: PrMarkdownContext,
-  reviews: ReadonlyArray<GitPrReview>,
-): string =>
-  `${prMarkdownHeader(pr)}
-${reviews
-  .map(
-    (review, idx) => `## Review ${idx + 1}
-- Author: ${review.author}
-- State: ${reviewStateLabel(review.state)}
-- Submitted: ${formatAbsolute(review.submittedAt)}
-
-${review.body.trim().length > 0 ? review.body.trim() : "(no review body)"}`,
-  )
-  .join("\n\n")}
 `;
 
 const markdownForComment = (
@@ -130,22 +158,6 @@ const markdownForComment = (
 ${comment.body.trim().length > 0 ? comment.body.trim() : "(no comment body)"}
 `;
 
-const markdownForComments = (
-  pr: PrMarkdownContext,
-  comments: ReadonlyArray<GitPrComment>,
-): string =>
-  `${prMarkdownHeader(pr)}
-${comments
-  .map(
-    (comment, idx) => `## Comment ${idx + 1}
-- Author: ${comment.author}
-- Created: ${formatAbsolute(comment.createdAt)}
-
-${comment.body.trim().length > 0 ? comment.body.trim() : "(no comment body)"}`,
-  )
-  .join("\n\n")}
-`;
-
 const markdownToPlainText = (value: string): string =>
   value
     .replace(/```[\s\S]*?```/g, " ")
@@ -158,12 +170,6 @@ const markdownToPlainText = (value: string): string =>
     .replace(/[*_~#]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-
-const truncateText = (value: string, max = 160): string => {
-  const text = markdownToPlainText(value);
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 1).trimEnd()}…`;
-};
 
 /**
  * Right-pane "PR" tab. Title, state, description, reviews, comments, and CI
@@ -217,18 +223,26 @@ export function PrPane({
     return <Empty>Reading branch state…</Empty>;
   }
 
-  const hasPr = pr !== null && pr.state !== "none";
+  const detailsPr =
+    details !== null && details.state !== "none"
+      ? prInfoFromDetails(details)
+      : null;
+  const effectivePr = pr !== null && pr.state !== "none" ? pr : detailsPr;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 text-xs">
-      {!hasPr ? (
+      {effectivePr === null ? (
         <NoPrState
           branch={status.branch}
           dirtyFiles={status.dirtyFiles}
           ahead={status.ahead}
         />
       ) : (
-        <PrBody pr={pr!} details={details} detailsLoading={detailsLoading} />
+        <PrBody
+          pr={effectivePr}
+          details={details}
+          detailsLoading={detailsLoading}
+        />
       )}
     </div>
   );
@@ -296,6 +310,21 @@ function PrBody({
   const number = details?.number ?? pr.number;
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
+  const composerDraft = useComposerDraftsStore((s) =>
+    selectedSessionId === null
+      ? null
+      : (s.draftsByKey[composerDraftKeyForSession(selectedSessionId)] ?? null),
+  );
+  const composerFilePaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const chip of composerDraft?.chips ?? []) {
+      if (chip.meta.kind === "file") paths.add(chip.meta.relPath);
+    }
+    return paths;
+  }, [composerDraft]);
+  const [feedbackFilesByKey, setFeedbackFilesByKey] = useState<
+    Record<string, string>
+  >({});
 
   // Sort failing checks first when the rollup says failure — that's what the
   // user opened the tab to investigate.
@@ -308,14 +337,18 @@ function PrBody({
             (b.conclusion === "failure" ? 0 : 1),
         )
       : checkRuns;
-  const attachMarkdown = async (markdown: string, label: string) => {
+  const attachMarkdown = async (
+    markdown: string,
+    label: string,
+    options: { toast?: boolean } = {},
+  ): Promise<string | null> => {
     if (selectedSessionId === null) {
       toastManager.add({
         type: "error",
         title: "No active chat",
         description: "Open a chat before attaching PR feedback.",
       });
-      return;
+      return null;
     }
     const ref = await saveContextFile(selectedSessionId, markdown);
     if (ref === null) {
@@ -324,16 +357,19 @@ function PrBody({
         title: "Couldn't attach feedback",
         description: "The PR feedback file could not be created.",
       });
-      return;
+      return null;
     }
     setActiveMainTab("chat");
     attachFileWhenReady(ref);
     setTimeout(() => useComposerBridge.getState().focus?.(), 75);
-    toastManager.add({
-      type: "success",
-      title: `${label} attached`,
-      description: `Added ${ref.relPath} to the composer.`,
-    });
+    if (options.toast !== false) {
+      toastManager.add({
+        type: "success",
+        title: `${label} attached`,
+        description: `Added ${ref.relPath} to the composer.`,
+      });
+    }
+    return ref.relPath;
   };
   const prContext = {
     number,
@@ -341,51 +377,125 @@ function PrBody({
     url,
   };
   const visibleReviews = details?.reviews.filter(isVisibleReview) ?? [];
+  const comments = details?.comments ?? [];
+  const feedbackCount = visibleReviews.length + comments.length;
+  const reviewKey = (review: GitPrReview, idx: number) =>
+    `review:${idx}:${review.author}:${review.submittedAt?.toISOString() ?? ""}`;
+  const commentKey = (comment: GitPrComment, idx: number) =>
+    `comment:${idx}:${comment.author}:${comment.createdAt.toISOString()}`;
+  const feedbackAttached = (key: string): boolean => {
+    const path = feedbackFilesByKey[key];
+    return path !== undefined && composerFilePaths.has(path);
+  };
+  const rememberFeedbackFile = (key: string, relPath: string) =>
+    setFeedbackFilesByKey((prev) => ({ ...prev, [key]: relPath }));
+  const attachFeedbackItem = async (
+    key: string,
+    markdown: string,
+    label: string,
+    options?: { toast?: boolean },
+  ) => {
+    const relPath = await attachMarkdown(markdown, label, options);
+    if (relPath !== null) rememberFeedbackFile(key, relPath);
+    return relPath !== null;
+  };
+  const resolveMarkdown = (markdown: string): string =>
+    `${markdown.trim()}
+
+## Requested action
+Resolve this PR feedback. Make the necessary code changes, then summarize what changed.
+`;
+  const attachAllFeedback = async () => {
+    let count = 0;
+    for (const [idx, review] of visibleReviews.entries()) {
+      const key = reviewKey(review, idx);
+      if (feedbackAttached(key)) continue;
+      const attached = await attachFeedbackItem(
+        key,
+        markdownForReview(prContext, review),
+        "Review",
+        { toast: false },
+      );
+      if (attached) count += 1;
+    }
+    for (const [idx, comment] of comments.entries()) {
+      const key = commentKey(comment, idx);
+      if (feedbackAttached(key)) continue;
+      const attached = await attachFeedbackItem(
+        key,
+        markdownForComment(prContext, comment),
+        "Comment",
+        { toast: false },
+      );
+      if (attached) count += 1;
+    }
+    if (count > 0) {
+      toastManager.add({
+        type: "success",
+        title: "Feedback attached",
+        description: `Added ${count} file${count === 1 ? "" : "s"} to the composer.`,
+      });
+    }
+  };
+  const allFeedbackAttached =
+    feedbackCount > 0 &&
+    visibleReviews.every((review, idx) =>
+      feedbackAttached(reviewKey(review, idx)),
+    ) &&
+    comments.every((comment, idx) =>
+      feedbackAttached(commentKey(comment, idx)),
+    );
 
   return (
     <div className="flex flex-col gap-3">
-      <section className="rounded-lg border border-border/55 bg-card/55 px-3 py-3 shadow-sm/5">
-        <div className="flex items-start gap-2.5">
-          <HugeiconsIcon
-            icon={GitPullRequestIcon}
-            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-          />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex items-baseline gap-2">
-              {number !== null ? (
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  #{number}
-                </span>
-              ) : null}
-              <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                {title.length > 0 ? title : "(no title)"}
-              </h2>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <PrStatePill pr={pr} />
-              {headBranch !== null && baseBranch !== null ? (
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {headBranch} → {baseBranch}
-                </span>
-              ) : null}
-              <span className="font-mono text-[10px]">
-                <span className="text-emerald-300/90">+{additions}</span>{" "}
-                <span className="text-rose-300/90">−{deletions}</span>
-              </span>
+      <Frame>
+        <FrameHeader className="flex-row items-start justify-between gap-3 px-3 py-2">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <HugeiconsIcon
+              icon={GitPullRequestIcon}
+              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <div className="flex items-baseline gap-2">
+                {number !== null ? (
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    #{number}
+                  </span>
+                ) : null}
+                <FrameTitle className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                  {title.length > 0 ? title : "(no title)"}
+                </FrameTitle>
+              </div>
             </div>
           </div>
-        </div>
+        </FrameHeader>
+        <FramePanel className="px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <PrStatePill pr={pr} />
+            {headBranch !== null && baseBranch !== null ? (
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {headBranch} → {baseBranch}
+              </span>
+            ) : null}
+            <span className="font-mono text-[10px]">
+              <span className="text-emerald-300/90">+{additions}</span>{" "}
+              <span className="text-rose-300/90">−{deletions}</span>
+            </span>
+          </div>
+        </FramePanel>
         {url !== null ? (
-          <button
-            type="button"
-            onClick={() => openExternal(url)}
-            className="-mx-1 mt-1 flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-          >
-            <HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
-            Open in browser
-          </button>
+          <FrameFooter className="px-3 py-2">
+            <button
+              type="button"
+              onClick={() => openExternal(url)}
+              className="-mx-1 flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              <ArrowUpRight className="size-3" strokeWidth={1.8} />
+              Open in browser
+            </button>
+          </FrameFooter>
         ) : null}
-      </section>
+      </Frame>
 
       {detailsLoading && details === null ? (
         <ShimmerText as="p" className="text-muted-foreground">
@@ -398,76 +508,79 @@ function PrBody({
       ) : (
         <>
           {body.trim().length > 0 ? (
-            <Section title="Description">
+            <Section title="Description" panelClassName="p-3">
               <PlainTextPreview text={body} />
             </Section>
           ) : null}
 
-          {visibleReviews.length > 0 ? (
+          {feedbackCount > 0 ? (
             <Section
-              title={`Reviews (${visibleReviews.length})`}
+              title={`Feedback (${feedbackCount})`}
               action={
                 <AttachButton
-                  label="Add all reviews to chat"
-                  onClick={() =>
-                    void attachMarkdown(
-                      markdownForReviews(prContext, visibleReviews),
-                      "Reviews",
-                    )
-                  }
+                  label="Add all feedback to chat"
+                  onClick={() => void attachAllFeedback()}
+                  attached={allFeedbackAttached}
                 >
                   Add all
                 </AttachButton>
               }
+              panelClassName="p-0"
             >
-              <div className="flex flex-col gap-2">
-                {visibleReviews.map((r, idx) => (
-                  <ReviewBlock
-                    key={`${r.author}-${idx}`}
-                    pr={prContext}
-                    author={r.author}
-                    state={r.state}
-                    body={r.body}
-                    submittedAt={r.submittedAt}
-                    onAttach={(markdown) =>
-                      void attachMarkdown(markdown, "Review")
-                    }
-                  />
-                ))}
-              </div>
-            </Section>
-          ) : null}
-
-          {details.comments.length > 0 ? (
-            <Section
-              title={`Comments (${details.comments.length})`}
-              action={
-                <AttachButton
-                  label="Add all comments to chat"
-                  onClick={() =>
-                    void attachMarkdown(
-                      markdownForComments(prContext, details.comments),
-                      "Comments",
-                    )
-                  }
-                >
-                  Add all
-                </AttachButton>
-              }
-            >
-              <div className="overflow-hidden rounded-lg border border-border/55 bg-card/40">
-                {details.comments.map((c, idx) => (
-                  <CommentBlock
-                    key={`${c.author}-${idx}`}
-                    pr={prContext}
-                    author={c.author}
-                    body={c.body}
-                    createdAt={c.createdAt}
-                    onAttach={(markdown) =>
-                      void attachMarkdown(markdown, "Comment")
-                    }
-                  />
-                ))}
+              <div className="overflow-hidden">
+                {visibleReviews.map((r, idx) => {
+                  const key = reviewKey(r, idx);
+                  const markdown = markdownForReview(prContext, r);
+                  const resolveKey = `${key}:resolve`;
+                  return (
+                    <FeedbackReviewRow
+                      key={key}
+                      author={r.author}
+                      authorAvatarUrl={r.authorAvatarUrl ?? null}
+                      state={r.state}
+                      body={r.body}
+                      submittedAt={r.submittedAt}
+                      attached={feedbackAttached(key)}
+                      resolveAttached={feedbackAttached(resolveKey)}
+                      onAttach={() =>
+                        void attachFeedbackItem(key, markdown, "Review")
+                      }
+                      onResolve={() =>
+                        void attachFeedbackItem(
+                          resolveKey,
+                          resolveMarkdown(markdown),
+                          "Resolution request",
+                        )
+                      }
+                    />
+                  );
+                })}
+                {comments.map((c, idx) => {
+                  const key = commentKey(c, idx);
+                  const markdown = markdownForComment(prContext, c);
+                  const resolveKey = `${key}:resolve`;
+                  return (
+                    <FeedbackCommentRow
+                      key={key}
+                      author={c.author}
+                      authorAvatarUrl={c.authorAvatarUrl ?? null}
+                      body={c.body}
+                      createdAt={c.createdAt}
+                      attached={feedbackAttached(key)}
+                      resolveAttached={feedbackAttached(resolveKey)}
+                      onAttach={() =>
+                        void attachFeedbackItem(key, markdown, "Comment")
+                      }
+                      onResolve={() =>
+                        void attachFeedbackItem(
+                          resolveKey,
+                          resolveMarkdown(markdown),
+                          "Resolution request",
+                        )
+                      }
+                    />
+                  );
+                })}
               </div>
             </Section>
           ) : null}
@@ -477,6 +590,14 @@ function PrBody({
               orderedChecks.length > 0
                 ? `Checks (${orderedChecks.length})`
                 : "Checks"
+            }
+            panelClassName={
+              orderedChecks.length > 0 && !pr.isDraft ? "p-0" : "p-3"
+            }
+            footer={
+              orderedChecks.length > 0 ? (
+                <CheckSummary checks={orderedChecks} />
+              ) : null
             }
           >
             {pr.isDraft ? (
@@ -515,58 +636,75 @@ function PlainTextPreview({ text }: { text: string }) {
   const preview = markdownToPlainText(text);
   if (preview.length === 0) return null;
   return (
-    <p className="overflow-hidden rounded-lg border border-border/55 bg-card/40 px-3 py-2 text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
+    <p className="overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
       {preview}
     </p>
   );
 }
 
-function ReviewBlock({
-  pr,
+function FeedbackReviewRow({
   author,
+  authorAvatarUrl,
   state,
   body,
   submittedAt,
+  attached,
+  resolveAttached,
   onAttach,
+  onResolve,
 }: {
-  pr: PrMarkdownContext;
   author: string;
+  authorAvatarUrl: string | null;
   state: GitPrReviewState;
   body: string;
   submittedAt: Date | null;
-  onAttach: (markdown: string) => void;
+  attached: boolean;
+  resolveAttached: boolean;
+  onAttach: () => void;
+  onResolve: () => void;
 }) {
   if (state === "pending") return null;
   if (state === "commented" && body.trim().length === 0) return null;
 
   return (
-    <article className="flex flex-col gap-1.5 rounded-lg border border-border/55 bg-card/40 px-3 py-2">
-      <header className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+    <article className="group flex min-w-0 items-start gap-2 border-b border-border/45 px-3 py-2 transition-colors last:border-b-0 hover:bg-muted/35">
+      <ReviewerAvatar name={author} avatarUrl={authorAvatarUrl} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-[11px] font-medium text-foreground/90">
+            {author}
+          </span>
           <ReviewStatePill state={state} />
-          <span className="text-[11px] text-foreground/90">{author}</span>
-        </div>
-        <div className="flex items-center gap-2">
           {submittedAt !== null ? (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="shrink-0 text-[10px] text-muted-foreground">
               {formatRelative(submittedAt)}
             </span>
           ) : null}
-          <AttachButton
-            label="Add review to chat"
-            onClick={() =>
-              onAttach(
-                markdownForReview(pr, { author, state, body, submittedAt }),
-              )
-            }
-          />
         </div>
-      </header>
-      {body.trim().length > 0 ? (
-        <p className="overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
-          {markdownToPlainText(body)}
-        </p>
-      ) : null}
+        {body.trim().length > 0 ? (
+          <p className="mt-0.5 overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            {markdownToPlainText(body)}
+          </p>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <AttachButton
+          label="Resolve review feedback"
+          attached={resolveAttached}
+          hideUntilHover
+          onClick={onResolve}
+        >
+          Resolve
+        </AttachButton>
+        <AttachButton
+          label="Add review to chat"
+          attached={attached}
+          hideUntilHover
+          onClick={onAttach}
+        >
+          {attached ? "Added" : "Add to chat"}
+        </AttachButton>
+      </div>
     </article>
   );
 }
@@ -579,117 +717,156 @@ function ReviewStatePill({ state }: { state: GitPrReviewState }) {
   return <Pill tone="sky">Commented</Pill>;
 }
 
-function CommentBlock({
-  pr,
+function FeedbackCommentRow({
   author,
+  authorAvatarUrl,
   body,
   createdAt,
+  attached,
+  resolveAttached,
   onAttach,
+  onResolve,
 }: {
-  pr: PrMarkdownContext;
   author: string;
+  authorAvatarUrl: string | null;
   body: string;
   createdAt: Date;
-  onAttach: (markdown: string) => void;
+  attached: boolean;
+  resolveAttached: boolean;
+  onAttach: () => void;
+  onResolve: () => void;
 }) {
   return (
-    <article className="flex min-w-0 items-center gap-2 border-b border-border/45 px-3 py-2 last:border-b-0">
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
-        {author.trim()[0]?.toUpperCase() ?? "?"}
-      </span>
+    <article className="group flex min-w-0 items-center gap-2 border-b border-border/45 px-3 py-2 transition-colors last:border-b-0 hover:bg-muted/35">
+      <ReviewerAvatar name={author} avatarUrl={authorAvatarUrl} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
           <span className="shrink-0 text-[11px] font-medium text-foreground/90">
             {author}
           </span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
-            {truncateText(body, 120)}
+          <span className="shrink-0 text-[10px] text-muted-foreground">
+            {formatRelative(createdAt)}
           </span>
         </div>
       </div>
-      <span className="shrink-0 text-[10px] text-muted-foreground">
-        {formatRelative(createdAt)}
-      </span>
-      <AttachButton
-        label="Add comment to chat"
-        onClick={() =>
-          onAttach(markdownForComment(pr, { author, body, createdAt }))
-        }
-      />
+      <div className="flex shrink-0 items-center gap-1">
+        <AttachButton
+          label="Resolve comment feedback"
+          attached={resolveAttached}
+          hideUntilHover
+          onClick={onResolve}
+        >
+          Resolve
+        </AttachButton>
+        <AttachButton
+          label="Add comment to chat"
+          attached={attached}
+          hideUntilHover
+          onClick={onAttach}
+        >
+          {attached ? "Added" : "Add to chat"}
+        </AttachButton>
+      </div>
     </article>
   );
 }
 
 type CheckTone = "emerald" | "amber" | "red" | "zinc" | "sky";
 
-function ChecksPanel({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
-  const groups = groupChecks(checks);
-  const counts = checks.reduce(
-    (acc, run) => {
-      const kind = checkKind(run);
-      acc.total += 1;
-      if (kind === "success") acc.success += 1;
-      else if (kind === "pending") acc.pending += 1;
-      else if (kind === "failure") acc.failure += 1;
-      else acc.neutral += 1;
-      return acc;
-    },
-    { total: 0, success: 0, pending: 0, failure: 0, neutral: 0 },
-  );
+function ServiceMark({
+  name,
+  className = "size-5",
+}: {
+  name: string;
+  className?: string;
+}) {
+  const lower = name.toLowerCase();
+  const githubLogo = githubServiceLogo(name);
+  if (githubLogo !== null) {
+    return (
+      <img
+        src={githubLogo.url}
+        alt=""
+        title={githubLogo.title}
+        className={`${className} shrink-0 rounded-full bg-muted object-cover`}
+      />
+    );
+  }
+  if (lower.includes("claude")) {
+    return (
+      <span
+        className={`${className} flex shrink-0 items-center justify-center rounded-full bg-orange-500/15 text-orange-400`}
+        title="Claude"
+      >
+        <ClaudeIcon className="size-3" />
+      </span>
+    );
+  }
+  const label = lower.includes("macroscope")
+    ? "M"
+    : lower.includes("coderabbit") || lower.includes("code rabbit")
+      ? "CR"
+      : name.trim().slice(0, 2).toUpperCase() || "?";
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <StatusPill tone="zinc">{counts.total} total</StatusPill>
-        {counts.failure > 0 ? (
-          <StatusPill tone="red">{counts.failure} failing</StatusPill>
-        ) : null}
-        {counts.pending > 0 ? (
-          <StatusPill tone="amber">{counts.pending} running</StatusPill>
-        ) : null}
-        {counts.success > 0 ? (
-          <StatusPill tone="emerald">{counts.success} passed</StatusPill>
-        ) : null}
-        {counts.neutral > 0 ? (
-          <StatusPill tone="zinc">{counts.neutral} skipped</StatusPill>
-        ) : null}
-      </div>
-      <div className="overflow-hidden rounded-lg border border-border/55 bg-card/40">
-        {groups.map((group, groupIdx) => (
-          <div
-            key={group.key}
-            className={groupIdx === 0 ? "" : "border-t border-border/55"}
-          >
-            {group.label !== null ? (
-              <div className="flex min-h-8 items-center justify-between gap-2 bg-muted/25 px-3 py-1.5">
-                <div className="min-w-0">
-                  <div className="truncate text-[11px] font-medium text-foreground/90">
-                    {group.label}
-                  </div>
-                  {group.runnerLabel !== null ? (
-                    <div className="truncate text-[10px] text-muted-foreground">
-                      {group.runnerLabel}
-                    </div>
-                  ) : null}
-                </div>
-                {group.runUrl !== null ? (
-                  <IconLinkButton
-                    label="Open workflow run"
-                    onClick={() => openExternal(group.runUrl!)}
-                  >
-                    Run
-                  </IconLinkButton>
-                ) : null}
-              </div>
-            ) : null}
-            <ul className="flex flex-col divide-y divide-border/45">
-              {group.checks.map((run, idx) => (
-                <CheckRunRow key={`${run.name}-${idx}`} run={run} />
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </div>
+    <span
+      className={`${className} flex shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground`}
+      title={name}
+    >
+      {label}
+    </span>
+  );
+}
+
+function githubServiceLogo(
+  name: string,
+): { readonly title: string; readonly url: string } | null {
+  const lower = name.toLowerCase();
+  const account = lower.includes("vercel")
+    ? "vercel"
+    : lower.includes("cloudflare")
+      ? "cloudflare"
+      : lower.includes("gitguardian")
+        ? "GitGuardian"
+        : lower.includes("github")
+          ? "github"
+          : lower.includes("coderabbit") || lower.includes("code rabbit")
+            ? "coderabbitai"
+            : lower.includes("macroscope")
+              ? "macroscope"
+              : null;
+  if (account === null) return null;
+  return {
+    title: account,
+    url: `https://github.com/${account}.png?size=40`,
+  };
+}
+
+function ReviewerAvatar({
+  name,
+  avatarUrl,
+}: {
+  name: string;
+  avatarUrl: string | null;
+}) {
+  if (avatarUrl !== null && avatarUrl.length > 0) {
+    return (
+      <img
+        src={avatarUrl}
+        alt=""
+        className="size-5 shrink-0 rounded-full bg-muted object-cover"
+      />
+    );
+  }
+  return <ServiceMark name={name} className="size-5" />;
+}
+
+function ChecksPanel({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
+  return (
+    <ul className="flex flex-col divide-y divide-border/45">
+      {checks.map((run, idx) => (
+        <CheckRunRow key={`${run.name}-${idx}`} run={run} />
+      ))}
+    </ul>
   );
 }
 
@@ -700,10 +877,11 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
     .filter((part): part is string => part !== null && part.length > 0)
     .join(" / ");
   return (
-    <li className="flex min-h-10 items-center gap-2 px-3 py-2">
+    <li className="group flex min-h-10 items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
       <span className="grid size-5 shrink-0 place-items-center">
         {checkIcon(run)}
       </span>
+      <ServiceMark name={run.name} className="size-5" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate text-[12px] text-foreground/90">
@@ -721,78 +899,22 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
           {duration !== null ? <span>{duration}</span> : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {run.runUrl !== null && run.runUrl !== undefined ? (
           <IconLinkButton
             label="Open workflow run"
             onClick={() => openExternal(run.runUrl!)}
-          >
-            Run
-          </IconLinkButton>
+          />
         ) : null}
         {run.url !== null ? (
           <IconLinkButton
             label="Open check details"
             onClick={() => openExternal(run.url!)}
-          >
-            Job
-          </IconLinkButton>
+          />
         ) : null}
       </div>
     </li>
   );
-}
-
-type CheckGroup = {
-  readonly key: string;
-  readonly label: string | null;
-  readonly runnerLabel: string | null;
-  readonly runUrl: string | null;
-  readonly checks: ReadonlyArray<GitPrCheckRun>;
-};
-
-function groupChecks(
-  checks: ReadonlyArray<GitPrCheckRun>,
-): ReadonlyArray<CheckGroup> {
-  const map = new Map<string, GitPrCheckRun[]>();
-  for (const check of checks) {
-    const key =
-      check.runId !== null && check.runId !== undefined
-        ? `run:${check.runId}`
-        : check.workflowName !== null && check.workflowName !== undefined
-          ? `workflow:${check.workflowName}`
-          : "external";
-    const group = map.get(key);
-    if (group === undefined) map.set(key, [check]);
-    else group.push(check);
-  }
-  return [...map.entries()].map(([key, group]) => {
-    const first = group[0]!;
-    const label =
-      first.workflowName ??
-      (first.runId != null ? `Workflow run ${first.runId}` : null);
-    const runnerNames = new Set(
-      group
-        .map((run) => run.runnerName ?? null)
-        .filter((name): name is string => name !== null && name.length > 0),
-    );
-    const runnerGroups = new Set(
-      group
-        .map((run) => run.runnerGroupName ?? null)
-        .filter((name): name is string => name !== null && name.length > 0),
-    );
-    const runnerParts = [
-      runnerGroups.size === 1 ? [...runnerGroups][0] : null,
-      runnerNames.size === 1 ? [...runnerNames][0] : null,
-    ].filter((part): part is string => part !== null);
-    return {
-      key,
-      label,
-      runnerLabel: runnerParts.length > 0 ? runnerParts.join(" / ") : null,
-      runUrl: first.runUrl ?? null,
-      checks: group,
-    };
-  });
 }
 
 function checkKind(
@@ -810,6 +932,38 @@ function checkKind(
     default:
       return "neutral";
   }
+}
+
+function CheckSummary({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
+  const counts = checks.reduce(
+    (acc, run) => {
+      const kind = checkKind(run);
+      acc.total += 1;
+      if (kind === "success") acc.success += 1;
+      else if (kind === "pending") acc.pending += 1;
+      else if (kind === "failure") acc.failure += 1;
+      else acc.neutral += 1;
+      return acc;
+    },
+    { total: 0, success: 0, pending: 0, failure: 0, neutral: 0 },
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <StatusPill tone="zinc">{counts.total} total</StatusPill>
+      {counts.failure > 0 ? (
+        <StatusPill tone="red">{counts.failure} failing</StatusPill>
+      ) : null}
+      {counts.pending > 0 ? (
+        <StatusPill tone="amber">{counts.pending} running</StatusPill>
+      ) : null}
+      {counts.success > 0 ? (
+        <StatusPill tone="emerald">{counts.success} passed</StatusPill>
+      ) : null}
+      {counts.neutral > 0 ? (
+        <StatusPill tone="zinc">{counts.neutral} skipped</StatusPill>
+      ) : null}
+    </div>
+  );
 }
 
 function checkLabel(run: GitPrCheckRun): string {
@@ -875,11 +1029,9 @@ function StatusPill({
 function IconLinkButton({
   label,
   onClick,
-  children,
 }: {
   label: string;
   onClick: () => void;
-  children: React.ReactNode;
 }) {
   return (
     <button
@@ -887,10 +1039,9 @@ function IconLinkButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+      className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
     >
-      <HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
-      {children}
+      <ArrowUpRight className="size-3.5" strokeWidth={1.8} />
     </button>
   );
 }
@@ -898,10 +1049,14 @@ function IconLinkButton({
 function AttachButton({
   label,
   onClick,
+  attached = false,
+  hideUntilHover = false,
   children,
 }: {
   label: string;
   onClick: () => void;
+  attached?: boolean;
+  hideUntilHover?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -910,9 +1065,21 @@ function AttachButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-sm px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+      className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md border px-2 text-[10px] font-medium transition focus-visible:opacity-100 ${
+        hideUntilHover && !attached
+          ? "opacity-0 group-hover:opacity-100"
+          : "opacity-100"
+      } ${
+        attached
+          ? "border-emerald-400/35 bg-emerald-400/10 text-emerald-300 hover:border-emerald-300/50 hover:bg-emerald-400/15 hover:text-emerald-200"
+          : "border-border/70 bg-muted/45 text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+      }`}
     >
-      <Plus className="size-3" strokeWidth={1.8} />
+      {attached ? (
+        <HugeiconsIcon icon={Tick01Icon} className="size-3" />
+      ) : (
+        <Plus className="size-3" strokeWidth={1.8} />
+      )}
       {children}
     </button>
   );
@@ -966,24 +1133,31 @@ function checkIcon(run: GitPrCheckRun) {
 function Section({
   title,
   action,
+  footer,
+  panelClassName = "p-3",
   children,
 }: {
   title?: string;
   action?: React.ReactNode;
+  footer?: React.ReactNode;
+  panelClassName?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-1.5">
+    <Frame>
       {title !== undefined ? (
-        <div className="flex min-h-5 items-center justify-between gap-2">
-          <h3 className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        <FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-2">
+          <FrameTitle className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {title}
-          </h3>
+          </FrameTitle>
           {action}
-        </div>
+        </FrameHeader>
       ) : null}
-      <div className="flex flex-col gap-1">{children}</div>
-    </section>
+      <FramePanel className={panelClassName}>{children}</FramePanel>
+      {footer !== undefined && footer !== null ? (
+        <FrameFooter className="px-3 py-2">{footer}</FrameFooter>
+      ) : null}
+    </Frame>
   );
 }
 

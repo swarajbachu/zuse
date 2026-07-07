@@ -273,7 +273,7 @@ body,
 
   --secondary: hsl(74 10% 92%);
   --secondary-foreground: var(--foreground);
-  --muted: hsl(74 10% 90%);
+  --muted: hsl(74 10% 86%);
   --muted-foreground: hsl(72 7% 34%);
   --accent: hsl(73 22% 84%);
   --accent-foreground: hsl(72 36% 11%);
@@ -374,7 +374,7 @@ body,
      hover/selected states and muted surfaces read clearly against cards and
      the 6% background. Previously accent == card (13%), making every dropdown
      hover invisible. */
-  --muted: hsl(72 3% 18%);
+  --muted: hsl(72 4% 24%);
   --muted-foreground: hsl(72 3% 70%);
 
   --accent: hsl(72 4% 27%);
