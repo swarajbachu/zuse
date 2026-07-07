@@ -3,6 +3,10 @@ import type { MemoizeRpcs } from "@zuse/wire";
 import { Effect } from "effect";
 
 import { ConnectionFailed } from "./errors";
+import {
+  logConnectionDiagnostic,
+  logConnectionProblem,
+} from "./connection-diagnostics";
 import type { WsProtocolOptions } from "./ws-protocol";
 
 export type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
@@ -115,10 +119,22 @@ class SupervisorEntryImpl implements SupervisorEntry {
       attempt: 0,
       error: null,
     };
+    logConnectionDiagnostic("supervisor.entry.created", {
+      key,
+      status: this.state.status,
+      relay: options.environmentId !== undefined,
+    });
   }
 
   updateOptions(options: WsProtocolOptions): void {
     this.options = options;
+    logConnectionDiagnostic("supervisor.options.updated", {
+      key: this.key,
+      relay: options.environmentId !== undefined,
+      wsBaseUrl: options.wsBaseUrl ?? null,
+      host: options.host,
+      port: options.port,
+    });
   }
 
   snapshot(): ConnectionSnapshot {
@@ -144,12 +160,17 @@ class SupervisorEntryImpl implements SupervisorEntry {
   }
 
   reportFailure(cause: unknown): void {
+    logConnectionProblem("supervisor.report_failure", {
+      key: this.key,
+      reason: messageOf(cause),
+    });
     void this.closeCurrent();
     this.inFlight = null;
     this.markFailure(cause);
   }
 
   retryNow(): void {
+    logConnectionDiagnostic("supervisor.retry_now", { key: this.key });
     this.clearRetry();
     if (!this.deps.isOnline()) {
       this.emit({ status: "offline", error: null });
@@ -161,6 +182,11 @@ class SupervisorEntryImpl implements SupervisorEntry {
   }
 
   setOnline(online: boolean): void {
+    logConnectionDiagnostic("supervisor.online_changed", {
+      key: this.key,
+      online,
+      status: this.state.status,
+    });
     if (!online) {
       this.clearRetry();
       void this.closeCurrent();
@@ -175,6 +201,7 @@ class SupervisorEntryImpl implements SupervisorEntry {
   }
 
   async remove(): Promise<void> {
+    logConnectionDiagnostic("supervisor.entry.removed", { key: this.key });
     this.clearRetry();
     await this.closeCurrent();
     this.inFlight = null;
@@ -191,6 +218,11 @@ class SupervisorEntryImpl implements SupervisorEntry {
     if (this.inFlight !== null) return this.inFlight;
 
     this.clearRetry();
+    logConnectionDiagnostic("supervisor.connect.start", {
+      key: this.key,
+      generation: this.state.generation,
+      attempt: this.state.attempt,
+    });
     this.emit({
       status: this.state.generation === 0 ? "connecting" : "reconnecting",
       error: null,
@@ -207,25 +239,51 @@ class SupervisorEntryImpl implements SupervisorEntry {
         attempt: 0,
         error: null,
       });
+      logConnectionDiagnostic("supervisor.connect.ok", {
+        key: this.key,
+        generation: this.state.generation,
+      });
       return client;
     } catch (cause) {
       this.inFlight = null;
+      logConnectionProblem("supervisor.connect.fail", {
+        key: this.key,
+        reason: messageOf(cause),
+      });
       this.markFailure(cause);
       throw cause;
     }
   }
 
   private async connectOnce(): Promise<MemoizeClient> {
+    logConnectionDiagnostic("supervisor.prepare_options.start", {
+      key: this.key,
+      relay: this.options.environmentId !== undefined,
+    });
     const prepared = await this.deps.prepareOptions(this.options);
     this.options = prepared;
+    logConnectionDiagnostic("supervisor.prepare_options.ok", {
+      key: this.key,
+      relay: prepared.environmentId !== undefined,
+      wsBaseUrl: prepared.wsBaseUrl ?? null,
+      host: prepared.host,
+      port: prepared.port,
+      hasToken: prepared.token !== undefined && prepared.token !== null,
+    });
     const session = await this.deps.createClient(prepared);
     this.disposeClient = session.dispose;
     try {
+      logConnectionDiagnostic("supervisor.describe.start", { key: this.key });
       await Effect.runPromise(session.client.connect.describe());
+      logConnectionDiagnostic("supervisor.describe.ok", { key: this.key });
       return session.client;
     } catch (cause) {
       await session.dispose().catch(() => {});
       this.disposeClient = null;
+      logConnectionProblem("supervisor.describe.fail", {
+        key: this.key,
+        reason: messageOf(cause),
+      });
       throw cause;
     }
   }
@@ -237,6 +295,10 @@ class SupervisorEntryImpl implements SupervisorEntry {
     }
     const classify = this.deps.classifyError ?? defaultClassifyError;
     if (classify(cause) === "auth") {
+      logConnectionProblem("supervisor.blocked_auth", {
+        key: this.key,
+        reason: messageOf(cause),
+      });
       this.emit({ status: "blockedAuth", error: messageOf(cause) });
       return;
     }
@@ -246,6 +308,12 @@ class SupervisorEntryImpl implements SupervisorEntry {
       MAX_BACKOFF_MS,
       INITIAL_BACKOFF_MS * 2 ** Math.max(0, attempt - 1),
     );
+    logConnectionProblem("supervisor.retry_scheduled", {
+      key: this.key,
+      attempt,
+      delayMs: delay,
+      reason: messageOf(cause),
+    });
     this.retryCancel = this.deps.schedule(delay, () => {
       this.retryCancel = null;
       void this.ensureClient().catch(() => {});
@@ -257,6 +325,7 @@ class SupervisorEntryImpl implements SupervisorEntry {
     this.client = null;
     this.disposeClient = null;
     if (dispose !== null) {
+      logConnectionDiagnostic("supervisor.client.dispose", { key: this.key });
       await dispose().catch(() => {});
     }
   }
@@ -269,7 +338,21 @@ class SupervisorEntryImpl implements SupervisorEntry {
   }
 
   private emit(patch: Partial<Omit<ConnectionSnapshot, "key">>): void {
+    const previous = this.state;
     this.state = { ...this.state, ...patch };
+    if (
+      previous.status !== this.state.status ||
+      previous.error !== this.state.error ||
+      previous.attempt !== this.state.attempt
+    ) {
+      logConnectionDiagnostic("supervisor.state", {
+        key: this.key,
+        status: this.state.status,
+        attempt: this.state.attempt,
+        generation: this.state.generation,
+        error: this.state.error,
+      });
+    }
     for (const listener of this.listeners) listener(this.state);
   }
 }

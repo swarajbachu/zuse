@@ -323,6 +323,27 @@ const appendAppLog = (fileName: string, line: string): void => {
   }
 };
 
+const appendRemoteConnectionLog = (
+  event: string,
+  fields: Record<string, unknown> = {},
+): void => {
+  appendAppLog(
+    "remote-connection.log",
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      event,
+      ...Object.fromEntries(
+        Object.entries(fields).map(([key, value]) => [
+          key,
+          value instanceof Error
+            ? { name: value.name, message: value.message }
+            : value,
+        ]),
+      ),
+    }),
+  );
+};
+
 type OpenTargetDefinition = {
   readonly id: string;
   readonly label: string;
@@ -1346,6 +1367,11 @@ function createMainWindow() {
   const relayWsProtocol = wsServerProtocolLayer({
     port: relayWsPort,
     host: "127.0.0.1",
+    onDiagnostic: appendRemoteConnectionLog,
+  });
+  appendRemoteConnectionLog("desktop.runtime.start", {
+    relayWsPort,
+    userData: app.getPath("userData"),
   });
 
   runtimeFiber = Effect.runFork(
@@ -1369,6 +1395,9 @@ function createMainWindow() {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet
           // success-after-restart is preferable to a half-running app.
+          appendRemoteConnectionLog("desktop.runtime.fatal", {
+            cause: String(cause),
+          });
           console.error("[zuse] fatal boot error", cause);
           app.exit(1);
         }),

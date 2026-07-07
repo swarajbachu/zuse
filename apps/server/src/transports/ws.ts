@@ -17,6 +17,11 @@ import {
 
 const PairRequest = Schema.Struct({ code: Schema.String });
 
+type WsDiagnostic = (
+  event: string,
+  fields?: Record<string, unknown>,
+) => void;
+
 const json = (body: unknown, status: number) =>
   HttpServerResponse.json(body, { status }).pipe(Effect.orDie);
 
@@ -32,19 +37,24 @@ const bearerFromRequest = (
   return url.searchParams.get("token");
 };
 
-const pairApp = (auth: LanAuthServiceShape) =>
+const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
   Effect.gen(function* () {
     const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
       Effect.catchAll(() => Effect.fail("bad_request" as const)),
     );
+    yield* Effect.sync(() => log("ws.pair.redeem.start"));
     const redeemed = yield* auth.redeemPairingCode(body.code).pipe(
       Effect.mapError((error) =>
         error instanceof PairingRedeemError ? error.reason : "internal",
       ),
     );
+    yield* Effect.sync(() =>
+      log("ws.pair.redeem.ok", { environmentId: redeemed.environmentId }),
+    );
     return yield* json(redeemed, 200);
   }).pipe(
     Effect.catchAll((error) => {
+      log("ws.pair.redeem.fail", { reason: error });
       if (error === "expired_code") {
         return json({ error }, 410);
       }
@@ -68,20 +78,43 @@ const pairApp = (auth: LanAuthServiceShape) =>
 export const wsServerProtocolLayer = (opts: {
   readonly port: number;
   readonly host?: string;
+  readonly onDiagnostic?: WsDiagnostic;
 }): Layer.Layer<RpcServer.Protocol, never, LanAuthService> =>
   Layer.scoped(
     RpcServer.Protocol,
     Effect.gen(function* () {
       const auth = yield* LanAuthService;
+      const log = opts.onDiagnostic ?? (() => {});
+      yield* Effect.sync(() =>
+        log("ws.bind.start", {
+          host: opts.host ?? "127.0.0.1",
+          port: opts.port,
+          policy: auth.policy,
+          pairingBootstrap: auth.pairingBootstrap,
+        }),
+      );
 
       const { protocol, httpApp } =
         yield* RpcServer.makeProtocolWithHttpAppWebsocket;
 
       const guarded = Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+        const token = bearerFromRequest(request);
+        yield* Effect.sync(() =>
+          log("ws.request", {
+            url: request.url,
+            protected: auth.policy === "protected",
+            hasToken: token !== null,
+          }),
+        );
         if (auth.policy === "protected") {
-          const token = bearerFromRequest(request);
           const ok = token !== null && (yield* auth.verifyToken(token));
+          yield* Effect.sync(() =>
+            log(ok ? "ws.auth.ok" : "ws.auth.fail", {
+              url: request.url,
+              hasToken: token !== null,
+            }),
+          );
           if (!ok) return yield* json({ error: "unauthorized" }, 401);
         }
         return yield* httpApp;
@@ -89,10 +122,17 @@ export const wsServerProtocolLayer = (opts: {
 
       const router = HttpRouter.empty.pipe(
         HttpRouter.get("/", guarded),
-        HttpRouter.post("/pair", pairApp(auth)),
+        HttpRouter.post("/pair", pairApp(auth, log)),
       );
 
       yield* HttpServer.serveEffect(router).pipe(Effect.forkScoped);
+      yield* Effect.sync(() =>
+        log("ws.bind.ok", {
+          host: opts.host ?? "127.0.0.1",
+          port: opts.port,
+          policy: auth.policy,
+        }),
+      );
 
       if (auth.policy === "protected" && auth.pairingBootstrap) {
         const pairing = yield* auth.createPairingCode();
