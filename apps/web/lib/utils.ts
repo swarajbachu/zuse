@@ -19,3 +19,8 @@ const twMerge = extendTailwindMerge({
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+/** Dummy helper for Zuse PR review testing. */
+export function cnIf(condition: boolean, ...inputs: ClassValue[]) {
+  return condition ? cn(...inputs) : ""
+}

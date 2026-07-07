@@ -8,7 +8,8 @@ export const colors = {
   border: "rgba(255,255,255,0.1)",
   danger: "hsl(2 86% 64%)",
   warning: "hsl(42 93% 56%)",
-  success: "hsl(72 98% 54%)"
+  success: "hsl(72 98% 54%)",
+  info: "hsl(210 90% 62%)"
 } as const;
 
 export const spacing = {

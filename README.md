@@ -142,3 +142,16 @@ Zuse Alpha is inspired by T3 code's work and built in our own opinionated way.
 Special thanks to [Julius Marminge](https://github.com/juliusmarminge), a main
 contributor to T3 code, whose work was a primary inspiration for our use of the
 Effect library.
+
+---
+
+## Zuse QA scratch (dummy PR)
+
+> **Test-only section** — added for Zuse PR review UI testing. Delete before merge.
+
+| Area | Dummy change |
+|------|--------------|
+| Web utils | `cnIf()` conditional class helper |
+| Mobile theme | `info` color token |
+| Mobile lib | `format-test.ts` label helpers |
+| Web lib | `zuse-test-helpers.ts` review note types |
