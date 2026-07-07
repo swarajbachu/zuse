@@ -6,7 +6,6 @@ import {
   Section,
 } from "@expo/ui/swift-ui";
 import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/wire";
-import { Text, View } from "react-native";
 
 import {
   modelOptionsForProvider,
@@ -35,7 +34,7 @@ export function ModelModePill({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<PillLabel label={modelLabel(value)} tone="brand" />}
+        label={modelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
         <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
@@ -59,7 +58,7 @@ export function ComposerModelMenu({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<CompactModelLabel label={compactModelLabel(value)} />}
+        label={compactModelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
         <Menu label="Model" systemImage={providerSystemImage(value.providerId)}>
@@ -88,7 +87,7 @@ export function ModePill({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<PillLabel label={modeLabel(value)} />}
+        label={modeLabel(value)}
         systemImage="chevron.left.forwardslash.chevron.right"
       >
         <ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -109,7 +108,7 @@ export function RuntimePill({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<PillLabel label={runtimeLabel(value)} />}
+        label={runtimeLabel(value)}
         systemImage="lock.open"
       >
         <PermissionButtons value={value} editable={editable} onChange={onChange} />
@@ -130,14 +129,7 @@ export function StaticModelTitle({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={
-          <View className="flex-row items-center gap-1 px-2 py-1">
-            <Text className="font-sans-bold text-[20px] text-foreground" numberOfLines={1}>
-              {modelLabel(value)}
-            </Text>
-            <Text className="font-sans-bold text-[18px] text-foreground/80">⌄</Text>
-          </View>
-        }
+        label={modelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
       >
         <ProviderModelMenus value={value} editable={editable} onChange={onChange} />
@@ -158,7 +150,7 @@ export function HeaderModePill({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<PillLabel label={modeLabel(value)} muted />}
+        label={modeLabel(value)}
         systemImage="chevron.left.forwardslash.chevron.right"
       >
         <ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -182,7 +174,7 @@ export function ProjectPill({
 }) {
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
-      <Menu label={<PillLabel label={label} />} systemImage="folder">
+      <Menu label={label} systemImage="folder">
         {options.map((group) => (
           <Menu
             key={group.connectionKey}
@@ -214,7 +206,7 @@ export function SourcePill({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<PillLabel label={label} />}
+        label={label}
         systemImage="point.topleft.down.curvedto.point.bottomright.up"
       >
         {children}
@@ -241,7 +233,7 @@ export function ProjectMenuRow({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<SelectorRow icon="desktopcomputer" label={label} subtitle={subtitle} />}
+        label={`${label} · ${subtitle}`}
         systemImage="desktopcomputer"
       >
         {options.map((group) => (
@@ -281,7 +273,7 @@ export function SourceMenuRow({
   return (
     <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
       <Menu
-        label={<SelectorRow icon="bubble.left.and.bubble.right" label={label} subtitle={subtitle} />}
+        label={`${label} · ${subtitle}`}
         systemImage="bubble.left.and.bubble.right"
       >
         {children}
@@ -386,79 +378,6 @@ function PermissionButtons({
   );
 }
 
-function PillLabel({
-  label,
-  muted,
-  tone,
-}: {
-  label: string;
-  muted?: boolean;
-  tone?: "brand";
-}) {
-  return (
-    <View
-      className={
-        tone === "brand"
-          ? "rounded-full bg-primary/12 px-3 py-2"
-          : "rounded-full border border-border bg-card-elevated px-3 py-2"
-      }
-      style={{ borderCurve: "continuous" }}
-    >
-      <Text
-        className={
-          muted
-            ? "font-sans-medium text-[14px] text-muted-foreground"
-            : "font-sans-medium text-[14px] text-foreground"
-        }
-        numberOfLines={1}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function CompactModelLabel({ label }: { label: string }) {
-  return (
-    <View className="min-w-[118px] flex-row items-center justify-center gap-1 px-2 py-1.5">
-      <Text className="font-sans-medium text-[14px] text-foreground" numberOfLines={1}>
-        {label}
-      </Text>
-      <Text className="font-sans-bold text-[12px] text-muted-foreground">⌄</Text>
-    </View>
-  );
-}
-
-function SelectorRow({
-  icon,
-  label,
-  subtitle,
-}: {
-  icon: string;
-  label: string;
-  subtitle: string;
-}) {
-  return (
-    <View
-      className="min-h-[52px] flex-row items-center gap-3 rounded-2xl bg-card/80 px-3 py-2"
-      style={{ borderCurve: "continuous" }}
-    >
-      <View className="h-8 w-8 items-center justify-center rounded-full bg-primary/12">
-        <Text className="font-sans-bold text-[13px] text-primary">{iconGlyph(icon)}</Text>
-      </View>
-      <View className="min-w-0 flex-1">
-        <Text className="font-sans-medium text-[15px] text-foreground" numberOfLines={1}>
-          {label}
-        </Text>
-        <Text className="font-sans text-[12px] text-muted-foreground" numberOfLines={1}>
-          {subtitle}
-        </Text>
-      </View>
-      <Text className="font-sans-bold text-[16px] text-muted-foreground">⌄</Text>
-    </View>
-  );
-}
-
 const modelLabel = (value: ModelModeValue): string =>
   modelOptionsForProvider(value.providerId).find(
     (model) => model.value === value.model,
@@ -498,17 +417,6 @@ const providerSystemImage = (providerId: ProviderId): string => {
 };
 
 const sf = (name: string) => name as never;
-
-const iconGlyph = (icon: string): string => {
-  switch (icon) {
-    case "desktopcomputer":
-      return "Mac";
-    case "bubble.left.and.bubble.right":
-      return "Chat";
-    default:
-      return "Go";
-  }
-};
 
 export const providerDisplayName = (providerId: ProviderId): string =>
   PROVIDER_LABEL[providerId];

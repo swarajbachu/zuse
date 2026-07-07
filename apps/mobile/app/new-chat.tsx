@@ -40,8 +40,8 @@ import { GlassSurface } from "~/components/ui/glass-surface";
 import {
   ComposerModelMenu,
   NativeButton,
-  ProjectMenuRow,
-  SourceMenuRow,
+  ProjectPill,
+  SourcePill,
   type ModelModeValue,
 } from "~/components/model-mode-menu";
 
@@ -153,9 +153,6 @@ export default function NewChatScreen() {
   const selectedProject = projectChoices.find(
     (item) => item.project.id === effectiveProjectId,
   )?.project;
-  const selectedConnection = connections.find(
-    (connection) => connection.key === effectiveConnectionKey,
-  );
   const sourceLabel = source.kind === "main" ? "Main" : source.label;
   const canSubmit =
     effectiveConnectionKey !== null &&
@@ -231,98 +228,7 @@ export default function NewChatScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ padding: 18, paddingBottom: 180, gap: 18, flexGrow: 1 }}
       >
-        <View className="flex-1 justify-end gap-3">
-          <ProjectMenuRow
-            label={selectedConnection?.label ?? (loading ? "Loading computers" : "Computer")}
-            subtitle={
-              selectedProject === undefined
-                ? loading
-                  ? "Loading projects"
-                  : "Choose a project"
-                : selectedProject.name
-            }
-            options={projectMenuGroups}
-            onSelect={(connectionKey, projectId) => {
-              setSelectedConnectionKey(connectionKey);
-              setSelectedProjectId(projectId as Folder["id"]);
-              setSource(MAIN_SOURCE);
-            }}
-          />
-          <SourceMenuRow label="Chat" subtitle={sourceLabel}>
-            <NativeButton
-              label="Main"
-              systemImage={source.kind === "main" ? "checkmark" : "folder"}
-              onPress={() => setSource(MAIN_SOURCE)}
-            />
-            {worktrees.slice(0, 8).map((worktree) => (
-              <NativeButton
-                key={worktree.id}
-                label={worktree.branch}
-                systemImage={
-                  source.kind === "worktree" && source.worktreeId === worktree.id
-                    ? "checkmark"
-                    : "point.topleft.down.curvedto.point.bottomright.up"
-                }
-                onPress={() =>
-                  setSource({
-                    kind: "worktree",
-                    label: worktree.branch,
-                    worktreeId: worktree.id,
-                  })
-                }
-              />
-            ))}
-            {branches
-              .filter((branch) => !branch.current)
-              .slice(0, 8)
-              .map((branch) => (
-                <NativeButton
-                  key={`${branch.kind}:${branch.name}`}
-                  label={branch.name}
-                  systemImage={
-                    source.kind === "branch" && source.label === branch.name
-                      ? "checkmark"
-                      : "arrow.branch"
-                  }
-                  onPress={() =>
-                    setSource({
-                      kind: "branch",
-                      label: branch.name,
-                      worktreeId: null,
-                      createSource: {
-                        _tag: "branch",
-                        branch: branch.name,
-                        remote: branch.remote,
-                      },
-                    })
-                  }
-                />
-              ))}
-            {prs.slice(0, 8).map((pr) => (
-              <NativeButton
-                key={`pr:${pr.number}`}
-                label={`#${pr.number} ${pr.title}`}
-                systemImage={
-                  source.kind === "pr" && source.label === `#${pr.number}`
-                    ? "checkmark"
-                    : "arrow.triangle.pull"
-                }
-                onPress={() =>
-                  setSource({
-                    kind: "pr",
-                    label: `#${pr.number}`,
-                    worktreeId: null,
-                    createSource: {
-                      _tag: "pr",
-                      number: pr.number,
-                      headRefName: pr.headRefName,
-                    },
-                  })
-                }
-              />
-            ))}
-          </SourceMenuRow>
-        </View>
+        <View className="flex-1" />
 
         {error === null ? null : (
           <Text selectable className="font-sans text-[13px] leading-5 text-danger">
@@ -344,6 +250,104 @@ export default function NewChatScreen() {
           }}
         >
           <View className="min-w-0 flex-1 gap-2">
+            <View className="flex-row flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-10 w-10 rounded-full px-0"
+              >
+                <Text className="font-sans text-[26px] leading-7 text-foreground">+</Text>
+              </Button>
+              <ProjectPill
+                label={
+                  selectedProject === undefined
+                    ? loading
+                      ? "Loading projects"
+                      : "Project"
+                    : selectedProject.name
+                }
+                options={projectMenuGroups}
+                onSelect={(connectionKey, projectId) => {
+                  setSelectedConnectionKey(connectionKey);
+                  setSelectedProjectId(projectId as Folder["id"]);
+                  setSource(MAIN_SOURCE);
+                }}
+              />
+              <SourcePill label={sourceLabel}>
+                <NativeButton
+                  label="Main"
+                  systemImage={source.kind === "main" ? "checkmark" : "folder"}
+                  onPress={() => setSource(MAIN_SOURCE)}
+                />
+                {worktrees.slice(0, 8).map((worktree) => (
+                  <NativeButton
+                    key={worktree.id}
+                    label={worktree.branch}
+                    systemImage={
+                      source.kind === "worktree" && source.worktreeId === worktree.id
+                        ? "checkmark"
+                        : "point.topleft.down.curvedto.point.bottomright.up"
+                    }
+                    onPress={() =>
+                      setSource({
+                        kind: "worktree",
+                        label: worktree.branch,
+                        worktreeId: worktree.id,
+                      })
+                    }
+                  />
+                ))}
+                {branches
+                  .filter((branch) => !branch.current)
+                  .slice(0, 8)
+                  .map((branch) => (
+                    <NativeButton
+                      key={`${branch.kind}:${branch.name}`}
+                      label={branch.name}
+                      systemImage={
+                        source.kind === "branch" && source.label === branch.name
+                          ? "checkmark"
+                          : "arrow.branch"
+                      }
+                      onPress={() =>
+                        setSource({
+                          kind: "branch",
+                          label: branch.name,
+                          worktreeId: null,
+                          createSource: {
+                            _tag: "branch",
+                            branch: branch.name,
+                            remote: branch.remote,
+                          },
+                        })
+                      }
+                    />
+                  ))}
+                {prs.slice(0, 8).map((pr) => (
+                  <NativeButton
+                    key={`pr:${pr.number}`}
+                    label={`#${pr.number} ${pr.title}`}
+                    systemImage={
+                      source.kind === "pr" && source.label === `#${pr.number}`
+                        ? "checkmark"
+                        : "arrow.triangle.pull"
+                    }
+                    onPress={() =>
+                      setSource({
+                        kind: "pr",
+                        label: `#${pr.number}`,
+                        worktreeId: null,
+                        createSource: {
+                          _tag: "pr",
+                          number: pr.number,
+                          headRefName: pr.headRefName,
+                        },
+                      })
+                    }
+                  />
+                ))}
+              </SourcePill>
+            </View>
             <TextInput
               className="min-h-10 px-2 py-2 font-sans text-[17px] text-foreground"
               multiline
