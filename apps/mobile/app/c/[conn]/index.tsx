@@ -14,7 +14,6 @@ import { visibleConnectionLabel } from "~/lib/display-names";
 import { connectionSessionKey } from "~/lib/session-key";
 import { useConnectionsStore } from "~/store/connections";
 import {
-  connectionStatusLabel,
   useConnectionRuntimeStore,
 } from "~/store/connection-runtime";
 import { isUnread, useSessionsStore } from "~/store/sessions";
@@ -110,11 +109,11 @@ export default function SessionsScreen() {
             {errorByConnection[connKey]}
           </Text>
         ) : null}
-        {connectionSnapshot?.status !== undefined &&
-        connectionSnapshot.status !== "connected" ? (
-          <Text className="px-4 font-sans text-[13px] text-warning">
-            {connectionStatusLabel(connectionSnapshot)}
-            {connectionSnapshot.error ? `: ${connectionSnapshot.error}` : ""}
+        {(connectionSnapshot?.status === "blockedAuth" ||
+          connectionSnapshot?.status === "error") &&
+        connectionSnapshot.error ? (
+          <Text selectable className="px-4 font-sans text-[13px] text-danger">
+            {connectionSnapshot.error}
           </Text>
         ) : null}
 

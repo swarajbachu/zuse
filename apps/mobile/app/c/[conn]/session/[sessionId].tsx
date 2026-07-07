@@ -20,10 +20,7 @@ import { answerQuestion } from "~/rpc/actions";
 import { isFreshChat } from "~/lib/composer-state";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { useConnectionsStore } from "~/store/connections";
-import {
-  connectionStatusLabel,
-  useConnectionRuntimeStore,
-} from "~/store/connection-runtime";
+import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
@@ -70,8 +67,7 @@ export default function ThreadScreen() {
   const bundles = useSessionsStore(
     (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
   );
-  const { messagesBySession, reconnectingBySession, errorBySession, hydrate } =
-    useMobileMessagesStore();
+  const { messagesBySession, errorBySession, hydrate } = useMobileMessagesStore();
   const messages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
@@ -117,9 +113,14 @@ export default function ThreadScreen() {
     options,
   ]);
 
-  const reconnecting = reconnectingBySession[stateKey];
   const error = errorBySession[stateKey];
   const transportOnline = connectionSnapshot?.status === "connected";
+  const connectionProblem =
+    connectionSnapshot?.status === "blockedAuth" ||
+    connectionSnapshot?.status === "offline" ||
+    connectionSnapshot?.status === "error"
+      ? connectionSnapshot.error
+      : null;
 
   // Drain the outbox in order while the transport is online. This runs both
   // when the connection wakes and when an item gets queued after a failed send.
@@ -238,21 +239,11 @@ export default function ThreadScreen() {
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
         ListHeaderComponent={
-          reconnecting ||
-          error ||
-          connectionSnapshot?.status !== "connected" ? (
+          error || connectionProblem ? (
             <View className="pb-2">
-              {connectionSnapshot?.status !== "connected" ? (
-                <Text className="font-sans text-[13px] text-warning">
-                  {connectionStatusLabel(connectionSnapshot)}
-                  {connectionSnapshot?.error
-                    ? `: ${connectionSnapshot.error}`
-                    : ""}
-                </Text>
-              ) : null}
-              {reconnecting ? (
-                <Text className="font-sans text-[13px] text-warning">
-                  Reconnecting…
+              {connectionProblem ? (
+                <Text selectable className="font-sans text-[13px] text-danger">
+                  {connectionProblem}
                 </Text>
               ) : null}
               {error ? (
