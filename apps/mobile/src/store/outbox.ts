@@ -106,12 +106,16 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
               input: makeTextInput(item.text),
             }),
           );
-          await Effect.runPromise(flushServerQueue({ connection: options, sessionId }));
-        } catch {
+        } catch (cause) {
+          const reason = messageOf(cause);
+          console.warn("[mobile] outbox.queue_add_failed", {
+            sessionId,
+            reason,
+          });
           set((state) => ({
             errorBySession: {
               ...state.errorBySession,
-              [key]: "Could not send queued message. It will retry when the connection is ready.",
+              [key]: `Could not queue message: ${reason}`,
             },
           }));
           break;
@@ -123,6 +127,14 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
           queuedBySession: { ...state.queuedBySession, [key]: remaining },
         }));
         await persist(connKey, sessionId, remaining);
+        await Effect.runPromise(
+          flushServerQueue({ connection: options, sessionId }),
+        ).catch((cause) => {
+          console.warn("[mobile] outbox.flush_failed", {
+            sessionId,
+            reason: messageOf(cause),
+          });
+        });
       }
     } finally {
       flushing.delete(key);
@@ -132,3 +144,6 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
     }
   },
 }));
+
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);

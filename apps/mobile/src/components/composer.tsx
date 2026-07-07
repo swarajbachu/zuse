@@ -121,12 +121,24 @@ export const Composer = ({
             input: makeTextInput(value),
           }),
         );
-        await Effect.runPromise(flushServerQueue({ connection, sessionId }));
-      } catch {
+      } catch (cause) {
+        console.warn("[mobile] composer.queue_add_failed", {
+          sessionId,
+          reason: messageOf(cause),
+        });
         await enqueue(connKey, sessionId, value);
-      } finally {
         setBusy(false);
+        return;
       }
+      await Effect.runPromise(flushServerQueue({ connection, sessionId })).catch(
+        (cause) => {
+          console.warn("[mobile] composer.queue_flush_failed", {
+            sessionId,
+            reason: messageOf(cause),
+          });
+        },
+      );
+      setBusy(false);
       return;
     }
     const messageId = MessageId.make(Crypto.randomUUID());
@@ -311,6 +323,9 @@ export const Composer = ({
     </View>
   );
 };
+
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
 
 const ChromeLabel = ({
   icon,
