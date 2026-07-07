@@ -27,6 +27,24 @@ const decodeAccess = Schema.decodeUnknownPromise(RelayAccessToken);
 
 const url = (path: string): string => `${relayBaseUrl()}${path}`;
 
+const relayError = async (
+  response: Response,
+  prefix: string,
+): Promise<Error> => {
+  const fallback = `${prefix}_${response.status}`;
+  const text = await response.text().catch(() => "");
+  if (text.trim().length === 0) return new Error(fallback);
+  try {
+    const body = JSON.parse(text) as { readonly error?: unknown };
+    if (typeof body.error === "string" && body.error.length > 0) {
+      return new Error(`${fallback}:${body.error}`);
+    }
+  } catch {
+    // Non-JSON relay errors still get surfaced in truncated form.
+  }
+  return new Error(`${fallback}:${text.slice(0, 120)}`);
+};
+
 const ensureAccessToken = async (): Promise<string> => {
   if (accessToken !== null && accessToken.expiresAtMs - Date.now() > 30_000) {
     return accessToken.token;
@@ -40,7 +58,7 @@ const ensureAccessToken = async (): Promise<string> => {
       dpop: await signDpopProof({ method: "POST", url: target }),
     },
   });
-  if (!response.ok) throw new Error(`relay_dpop_token_${response.status}`);
+  if (!response.ok) throw await relayError(response, "relay_dpop_token");
   const grant = await decodeAccess(await response.json());
   accessToken = {
     token: grant.accessToken,
@@ -66,7 +84,7 @@ export const listEnvironments = async (): Promise<RelayEnvironmentList> => {
   const response = await fetch(url(RelayPaths.environments), {
     headers: { authorization: `Bearer ${workosToken}` },
   });
-  if (!response.ok) throw new Error(`relay_list_${response.status}`);
+  if (!response.ok) throw await relayError(response, "relay_list");
   return decodeList(await response.json());
 };
 
@@ -74,7 +92,7 @@ export const getEnvironmentStatus = async (
   environmentId: string,
 ): Promise<RelayEnvironmentStatus> => {
   const response = await dpopFetch(RelayPaths.status(environmentId), "POST");
-  if (!response.ok) throw new Error(`relay_status_${response.status}`);
+  if (!response.ok) throw await relayError(response, "relay_status");
   return decodeStatus(await response.json());
 };
 
@@ -82,7 +100,7 @@ export const connectEnvironment = async (
   environmentId: string,
 ): Promise<RelayConnectGrant> => {
   const response = await dpopFetch(RelayPaths.connect(environmentId), "POST");
-  if (!response.ok) throw new Error(`relay_connect_${response.status}`);
+  if (!response.ok) throw await relayError(response, "relay_connect");
   return decodeGrant(await response.json());
 };
 
@@ -107,7 +125,7 @@ export const registerDevice = async (input: {
       dpopJwk: await devicePublicJwk(),
     }),
   });
-  if (!response.ok) throw new Error(`relay_register_${response.status}`);
+  if (!response.ok) throw await relayError(response, "relay_register");
 };
 
 export const resetRelayAccessToken = (): void => {
