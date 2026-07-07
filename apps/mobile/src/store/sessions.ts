@@ -234,55 +234,52 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 
       for (const bundle of bundles) {
         await stopFiber(`${connKey}:chat:${bundle.project.id}`, chatFibers);
-        const chatFiber = await Effect.runPromise(
-          Stream.runForEach(
-            client.chat.streamChanges({ projectId: bundle.project.id }),
-            (chat) =>
-              Effect.sync(() => {
-                set((state) => ({
-                  bundlesByConnection: {
-                    ...state.bundlesByConnection,
-                    [connKey]: patchChat(
-                      state.bundlesByConnection[connKey] ?? [],
-                      chat,
-                    ),
-                  },
-                }));
-              }),
-          ).pipe(
-            Effect.tapError((cause) =>
-              Effect.sync(() => reportConnectionFailure(options, cause)),
-            ),
-            Effect.fork,
+        const chatProgram = Stream.runForEach(
+          client.chat.streamChanges({ projectId: bundle.project.id }),
+          (chat) =>
+            Effect.sync(() => {
+              set((state) => ({
+                bundlesByConnection: {
+                  ...state.bundlesByConnection,
+                  [connKey]: patchChat(
+                    state.bundlesByConnection[connKey] ?? [],
+                    chat,
+                  ),
+                },
+              }));
+            }),
+        ).pipe(
+          Effect.tapError((cause) =>
+            Effect.sync(() => reportConnectionFailure(options, cause)),
           ),
         );
-        chatFibers.set(`${connKey}:chat:${bundle.project.id}`, chatFiber);
+        chatFibers.set(
+          `${connKey}:chat:${bundle.project.id}`,
+          Effect.runFork(chatProgram),
+        );
       }
 
       for (const session of bundles.flatMap((b) => b.sessions)) {
         const key = `${connKey}:status:${session.id}`;
         await stopFiber(key, statusFibers);
-        const fiber = await Effect.runPromise(
-          Stream.runForEach(
-            client.session.streamStatus({ sessionId: session.id }),
-            (event) =>
-              Effect.sync(() => {
-                set((state) => ({
-                  statusBySession: {
-                    ...state.statusBySession,
-                    [connectionSessionKey(connKey, event.sessionId)]:
-                      event.status,
-                  },
-                }));
-              }),
-          ).pipe(
-            Effect.tapError((cause) =>
-              Effect.sync(() => reportConnectionFailure(options, cause)),
-            ),
-            Effect.fork,
+        const statusProgram = Stream.runForEach(
+          client.session.streamStatus({ sessionId: session.id }),
+          (event) =>
+            Effect.sync(() => {
+              set((state) => ({
+                statusBySession: {
+                  ...state.statusBySession,
+                  [connectionSessionKey(connKey, event.sessionId)]:
+                    event.status,
+                },
+              }));
+            }),
+        ).pipe(
+          Effect.tapError((cause) =>
+            Effect.sync(() => reportConnectionFailure(options, cause)),
           ),
         );
-        statusFibers.set(key, fiber);
+        statusFibers.set(key, Effect.runFork(statusProgram));
       }
     } catch (cause) {
       reportConnectionFailure(options, cause);

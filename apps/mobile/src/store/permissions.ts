@@ -81,8 +81,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
           Effect.sync(() => reportConnectionFailure(options, cause)),
         ),
       );
-      const fiber = await Effect.runPromise(program.pipe(Effect.fork));
-      liveFibers.set(liveKey, fiber);
+      liveFibers.set(liveKey, Effect.runFork(program));
     } catch (cause) {
       reportConnectionFailure(options, cause);
       // A dropped permission stream is non-fatal: the messages store already

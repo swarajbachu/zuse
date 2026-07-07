@@ -149,8 +149,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
             }),
           ),
         );
-        const fiber = await Effect.runPromise(program.pipe(Effect.fork));
-        liveFibers.set(liveKey, fiber);
+        liveFibers.set(liveKey, Effect.runFork(program));
       } catch (cause) {
         reportConnectionFailure(options, cause);
         set((state) => ({
