@@ -147,6 +147,30 @@ describe("connection supervisor", () => {
     expect(entry.snapshot().status).toBe("connected");
   });
 
+  test("treats relay server errors as transient", async () => {
+    let failures = 1;
+    const harness = makeHarness({
+      createClient: async () => {
+        if (failures > 0) {
+          failures -= 1;
+          throw new Error("relay_connect_500:temporarily unavailable");
+        }
+        return { client: makeClient(), dispose: async () => {} };
+      },
+    });
+    const entry = harness.watch({ host: "relay.test", port: 443 });
+
+    await expect(Effect.runPromise(entry.getClient())).rejects.toThrow(
+      "relay_connect_500",
+    );
+    expect(entry.snapshot().status).toBe("reconnecting");
+    expect(harness.scheduled).toHaveLength(1);
+
+    harness.scheduled[0]?.fn();
+    await Effect.runPromise(entry.getClient());
+    expect(entry.snapshot().status).toBe("connected");
+  });
+
   test("refreshes prepared options before reconnecting relay environments", async () => {
     let token = 0;
     const harness = makeHarness({

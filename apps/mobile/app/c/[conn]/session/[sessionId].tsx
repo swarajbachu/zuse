@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { FlatList, KeyboardAvoidingView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,12 +18,11 @@ import {
 import { connectionSessionKey } from "~/lib/session-key";
 import { answerQuestion } from "~/rpc/actions";
 import { isFreshChat } from "~/lib/composer-state";
+import { messageKey, sanitizeMessages } from "~/lib/message-safety";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
+import { captureMobileError } from "~/lib/crash-reporting";
 import { useConnectionsStore } from "~/store/connections";
-import {
-  connectionStatusLabel,
-  useConnectionRuntimeStore,
-} from "~/store/connection-runtime";
+import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
@@ -42,7 +41,15 @@ const EMPTY_MESSAGES: ReturnType<
   typeof useMobileMessagesStore.getState
 >["messagesBySession"][string] = [];
 
-export default function ThreadScreen() {
+export default function ThreadScreenRoute() {
+  return (
+    <ThreadScreenBoundary>
+      <ThreadScreen />
+    </ThreadScreenBoundary>
+  );
+}
+
+function ThreadScreen() {
   const insets = useSafeAreaInsets();
   const { conn, sessionId } = useLocalSearchParams<{
     conn: string;
@@ -70,9 +77,9 @@ export default function ThreadScreen() {
   const bundles = useSessionsStore(
     (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
   );
-  const { messagesBySession, reconnectingBySession, errorBySession, hydrate } =
-    useMobileMessagesStore();
-  const messages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+  const { messagesBySession, errorBySession, hydrate } = useMobileMessagesStore();
+  const rawMessages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+  const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
   const sessionStatus =
@@ -90,6 +97,7 @@ export default function ThreadScreen() {
   const queued = useOutboxStore(
     (state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
   );
+  const queuedCount = queued.length;
 
   useEffect(() => {
     if (!hydrated) void hydrateConnections();
@@ -116,16 +124,45 @@ export default function ThreadScreen() {
     options,
   ]);
 
-  const reconnecting = reconnectingBySession[stateKey];
   const error = errorBySession[stateKey];
   const transportOnline = connectionSnapshot?.status === "connected";
+  const connectionProblem =
+    connectionSnapshot?.status === "blockedAuth" ||
+    connectionSnapshot?.status === "offline" ||
+    connectionSnapshot?.status === "error"
+      ? connectionSnapshot.error
+      : null;
 
-  // Drain the outbox in order the moment the session is back online.
+  // Drain the outbox in order while the transport is online. This runs both
+  // when the connection wakes and when an item gets queued after a failed send.
   useEffect(() => {
-    if (transportOnline && normalizedSessionId.length > 0 && options !== null) {
-      void flushOutbox(connKey, options, normalizedSessionId);
+    if (
+      !transportOnline ||
+      normalizedSessionId.length === 0 ||
+      options === null ||
+      queuedCount === 0
+    ) {
+      return;
     }
-  }, [connKey, flushOutbox, normalizedSessionId, transportOnline, options]);
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      void flushOutbox(connKey, options, normalizedSessionId);
+    };
+    run();
+    const timer = setInterval(run, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    connKey,
+    flushOutbox,
+    normalizedSessionId,
+    transportOnline,
+    options,
+    queuedCount,
+  ]);
 
   // Cross-reference question rows so answered prompts collapse and the answer
   // row can resolve selected option labels.
@@ -208,26 +245,16 @@ export default function ThreadScreen() {
       <FlatList
         ref={listRef}
         data={messages}
-        keyExtractor={(message) => message.id}
+        keyExtractor={messageKey}
         renderItem={({ item }) => <MessageRow message={item} ctx={ctx} />}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
         ListHeaderComponent={
-          reconnecting ||
-          error ||
-          connectionSnapshot?.status !== "connected" ? (
+          error || connectionProblem ? (
             <View className="pb-2">
-              {connectionSnapshot?.status !== "connected" ? (
-                <Text className="font-sans text-[13px] text-warning">
-                  {connectionStatusLabel(connectionSnapshot)}
-                  {connectionSnapshot?.error
-                    ? `: ${connectionSnapshot.error}`
-                    : ""}
-                </Text>
-              ) : null}
-              {reconnecting ? (
-                <Text className="font-sans text-[13px] text-warning">
-                  Reconnecting…
+              {connectionProblem ? (
+                <Text selectable className="font-sans text-[13px] text-danger">
+                  {connectionProblem}
                 </Text>
               ) : null}
               {error ? (
@@ -286,6 +313,40 @@ export default function ThreadScreen() {
       )}
     </KeyboardAvoidingView>
   );
+}
+
+class ThreadScreenBoundary extends React.Component<
+  { readonly children: React.ReactNode },
+  { readonly failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { readonly failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    void captureMobileError(error, {
+      context: "thread-screen",
+      componentStack: info.componentStack ?? undefined,
+    });
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <View className="flex-1 items-center justify-center bg-background px-5">
+          <Text className="font-sans-medium text-base text-foreground">
+            This chat could not be opened.
+          </Text>
+          <Text className="mt-2 text-center font-sans text-sm leading-5 text-muted-foreground">
+            The crash report is saved and will stay visible after restart.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 const QueuedBubble = ({ text }: { text: string }) => (

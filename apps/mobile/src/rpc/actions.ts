@@ -1,5 +1,6 @@
-import type {
+import {
   ComposerInput,
+  type ComposerInput as ComposerInputType,
   Folder,
   GitBranchInfo,
   GitPrSummary,
@@ -18,18 +19,19 @@ import { Effect } from "effect";
 import { getConnectionClient, reportConnectionFailure } from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
 
-export const makeTextInput = (text: string): ComposerInput => ({
-  text,
-  attachments: [],
-  fileRefs: [],
-  skillRefs: [],
-  annotations: [],
-});
+export const makeTextInput = (text: string): ComposerInputType =>
+  ComposerInput.make({
+    text,
+    attachments: [],
+    fileRefs: [],
+    skillRefs: [],
+    annotations: [],
+  });
 
 export const sendMessage = (options: {
   connection: WsProtocolOptions;
   sessionId: SessionId;
-  input: ComposerInput;
+  input: ComposerInputType;
   asGoal?: boolean;
   clientMessageId?: MessageId;
 }) => {
@@ -44,6 +46,40 @@ export const sendMessage = (options: {
         : { clientMessageId: options.clientMessageId }),
     };
     yield* client.messages.send(payload);
+  });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
+  );
+};
+
+export const queueMessage = (options: {
+  connection: WsProtocolOptions;
+  sessionId: SessionId;
+  input: ComposerInputType;
+}) => {
+  const program = Effect.gen(function* () {
+    const client = yield* getConnectionClient(options.connection);
+    yield* client.messages["queue.add"]({
+      sessionId: options.sessionId,
+      input: options.input,
+    });
+  });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
+  );
+};
+
+export const flushServerQueue = (options: {
+  connection: WsProtocolOptions;
+  sessionId: SessionId;
+}) => {
+  const program = Effect.gen(function* () {
+    const client = yield* getConnectionClient(options.connection);
+    yield* client.messages["queue.flush"]({ sessionId: options.sessionId });
   });
   return program.pipe(
     Effect.tapError((cause) =>

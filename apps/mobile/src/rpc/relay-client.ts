@@ -14,6 +14,7 @@ import {
   logConnectionDiagnostic,
   logConnectionProblem,
 } from "./connection-diagnostics";
+import { normalizeRelayError } from "./relay-errors";
 
 /**
  * Client for the account relay's HTTP API. WorkOS-authenticated endpoints
@@ -35,18 +36,8 @@ const relayError = async (
   response: Response,
   prefix: string,
 ): Promise<Error> => {
-  const fallback = `${prefix}_${response.status}`;
   const text = await response.text().catch(() => "");
-  if (text.trim().length === 0) return new Error(fallback);
-  try {
-    const body = JSON.parse(text) as { readonly error?: unknown };
-    if (typeof body.error === "string" && body.error.length > 0) {
-      return new Error(`${fallback}:${body.error}`);
-    }
-  } catch {
-    // Non-JSON relay errors still get surfaced in truncated form.
-  }
-  return new Error(`${fallback}:${text.slice(0, 120)}`);
+  return new Error(normalizeRelayError(response.status, text, prefix));
 };
 
 const ensureAccessToken = async (): Promise<string> => {

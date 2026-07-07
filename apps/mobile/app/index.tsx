@@ -45,7 +45,6 @@ import { branchStatePresentation } from "~/lib/pr-state-presentation";
 import { selectionTap, successTap } from "~/lib/haptics";
 import { useAuthStore } from "~/store/auth";
 import {
-  connectionStatusLabel,
   useConnectionRuntimeStore,
 } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
@@ -509,11 +508,7 @@ function InboxItem({
     );
   }
 
-  const snapshot = snapshots[item.row.connectionKey];
-  const statusLabel =
-    snapshot?.status !== undefined && snapshot.status !== "connected"
-      ? connectionStatusLabel(snapshot)
-      : item.row.status;
+  const statusLabel = item.row.status;
   const href =
     `/c/${encodeURIComponent(item.row.connectionKey)}/session/${encodeURIComponent(
       item.row.session.id,
