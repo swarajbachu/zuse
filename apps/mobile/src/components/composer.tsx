@@ -1,4 +1,11 @@
-import type { Session, SessionId, SessionStatus } from "@zuse/wire";
+import {
+  Message,
+  MessageId,
+  type MessageContent,
+  type Session,
+  type SessionId,
+  type SessionStatus,
+} from "@zuse/wire";
 import {
   ArrowUp01Icon,
   CloudOffIcon,
@@ -8,6 +15,7 @@ import {
   Square01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
+import * as Crypto from "expo-crypto";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -29,7 +37,11 @@ import {
 import { isInterruptVisible } from "~/lib/composer-state";
 import { connectionSessionKey } from "~/lib/session-key";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-import { useMobileMessagesStore } from "~/store/messages";
+import {
+  addOptimisticMessage,
+  removeOptimisticMessage,
+  useMobileMessagesStore,
+} from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import {
   ComposerModelMenu,
@@ -98,11 +110,33 @@ export const Composer = ({
       return;
     }
     setBusy(true);
+    const messageId = MessageId.make(Crypto.randomUUID());
+    const optimisticContent: MessageContent = {
+      _tag: "user",
+      text: value,
+      goal: false,
+    };
+    addOptimisticMessage(
+      stateKey,
+      Message.make({
+        id: messageId,
+        sessionId,
+        role: "user",
+        content: optimisticContent,
+        createdAt: new Date(),
+      }),
+    );
     try {
       await Effect.runPromise(
-        sendMessage({ connection, sessionId, input: makeTextInput(value) }),
+        sendMessage({
+          connection,
+          sessionId,
+          input: makeTextInput(value),
+          clientMessageId: messageId,
+        }),
       );
     } catch {
+      removeOptimisticMessage(stateKey, messageId);
       // Lost the connection mid-send — keep the text safe in the outbox.
       await enqueue(connKey, sessionId, value);
     } finally {

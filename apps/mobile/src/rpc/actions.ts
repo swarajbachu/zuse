@@ -3,6 +3,7 @@ import type {
   Folder,
   GitBranchInfo,
   GitPrSummary,
+  MessageId,
   PermissionDecision,
   PermissionMode,
   ProviderId,
@@ -30,13 +31,17 @@ export const sendMessage = (options: {
   sessionId: SessionId;
   input: ComposerInput;
   asGoal?: boolean;
+  clientMessageId?: MessageId;
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     const payload = {
       sessionId: options.sessionId,
-      text: options.input.text,
+      input: options.input,
       ...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
+      ...(options.clientMessageId === undefined
+        ? {}
+        : { clientMessageId: options.clientMessageId }),
     };
     yield* client.messages.send(payload);
   });

@@ -183,7 +183,15 @@ const ensureChangeStream = (projectId: FolderId): void => {
               useChatsStore.setState((s) => {
                 const chats = s.chatsByProject[projectId];
                 if (chats === undefined) return s;
-                if (!chats.some((c) => c.id === chat.id)) return s;
+                if (!chats.some((c) => c.id === chat.id)) {
+                  void useSessionsStore.getState().hydrate(projectId);
+                  return {
+                    chatsByProject: {
+                      ...s.chatsByProject,
+                      [projectId]: [chat, ...chats],
+                    },
+                  };
+                }
                 return {
                   chatsByProject: {
                     ...s.chatsByProject,
