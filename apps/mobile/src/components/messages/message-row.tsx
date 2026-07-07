@@ -1,6 +1,7 @@
 import type { Message, MessageContent, UserQuestion } from "@zuse/wire";
 import { router } from "expo-router";
 import {
+  AlertCircle,
   Bot,
   Brain,
   Camera,
@@ -11,6 +12,7 @@ import {
   FilePenLine,
   Folder,
   Globe,
+  Hourglass,
   Search,
   Terminal,
   Wrench,
@@ -117,6 +119,17 @@ const MessageRowContent = ({
       );
     case "error":
       return <ErrorRow message={content.message} />;
+    case "usage_limit":
+      return <UsageLimitRow content={content} />;
+    case "interrupted":
+      return <InlineSystemRow label="Interrupted by user" />;
+    case "context_compaction":
+      return <ContextCompactionRow content={content} />;
+    case "subagent_summary":
+      return <SubagentSummaryRow content={content} />;
+    case "usage":
+    case "context_usage":
+      return null;
     case "user_question":
       return ctx.answeredQuestionIds.has(content.itemId) ? (
         <AnsweredQuestion questions={content.questions} />
@@ -358,6 +371,107 @@ const ErrorRow = ({ message }: { message: string }) => (
   </View>
 );
 
+const UsageLimitRow = ({
+  content,
+}: {
+  content: Extract<MessageContent, { _tag: "usage_limit" }>;
+}) => {
+  const reset = formatResetTime(content.resetsAt);
+  const detail =
+    reset !== null
+      ? `${content.label} · resets ${reset}`
+      : content.label.length > 0
+        ? content.label
+        : "This provider has reached its current usage window.";
+
+  return (
+    <View className="px-2 py-1.5">
+      <View
+        style={{ borderCurve: "continuous" }}
+        className="rounded-2xl border border-primary/25 bg-primary/10 px-3 py-2.5"
+      >
+        <View className="flex-row items-center gap-2">
+          <AlertCircle size={15} color="hsl(72 98% 54%)" />
+          <Text className="font-sans-medium text-sm text-foreground">
+            Limit reached
+          </Text>
+          {typeof content.usedPercent === "number" ? (
+            <Text className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 font-sans-medium text-[11px] text-primary">
+              {Math.round(content.usedPercent)}%
+            </Text>
+          ) : null}
+        </View>
+        <Text
+          className="mt-1 font-sans text-[13px] leading-5 text-muted-foreground"
+          numberOfLines={2}
+        >
+          {detail}
+        </Text>
+      </View>
+    </View>
+  );
+};
+
+const InlineSystemRow = ({ label }: { label: string }) => (
+  <View className="items-center px-2 py-1">
+    <Text className="rounded-full bg-muted px-2.5 py-1 font-sans text-[11px] text-muted-foreground">
+      {label}
+    </Text>
+  </View>
+);
+
+const ContextCompactionRow = ({
+  content,
+}: {
+  content: Extract<MessageContent, { _tag: "context_compaction" }>;
+}) => {
+  const before = formatTokens(content.beforeTokens);
+  const after = formatTokens(content.afterTokens);
+  const detail =
+    before !== null && after !== null
+      ? `${before} to ${after}`
+      : content.status === "in_progress"
+        ? "Compacting context"
+        : "Context compacted";
+
+  return (
+    <ExpandableEventRow
+      icon="hourglass"
+      title={
+        content.status === "in_progress" ? "Compacting context" : "Compacted"
+      }
+      detail={detail}
+      badge={formatDuration(content.durationMs)}
+    >
+      <Text className="font-sans text-sm leading-5 text-muted-foreground">
+        {before !== null && after !== null
+          ? `Context changed from ${before} to ${after}.`
+          : "The conversation context was compacted for the next turn."}
+      </Text>
+    </ExpandableEventRow>
+  );
+};
+
+const SubagentSummaryRow = ({
+  content,
+}: {
+  content: Extract<MessageContent, { _tag: "subagent_summary" }>;
+}) => (
+  <ExpandableEventRow
+    icon="agent"
+    title={content.isError ? `${content.agentName} failed` : content.agentName}
+    detail={`${content.turns} ${content.turns === 1 ? "turn" : "turns"} · ${formatDuration(content.durationMs)}`}
+    danger={content.isError}
+  >
+    <Text
+      selectable
+      className="font-sans text-sm leading-5 text-muted-foreground"
+    >
+      {content.summary}
+    </Text>
+  </ExpandableEventRow>
+);
+
 const AnsweredQuestion = ({
   questions,
 }: {
@@ -428,7 +542,7 @@ const FallbackRow = ({ content }: { content: MessageContent }) => (
         className="mt-1 font-mono text-xs leading-5 text-muted-foreground"
         numberOfLines={4}
       >
-        {summarizeValue(content)}
+        {safeSummary(content)}
       </Text>
     </View>
   </View>
@@ -452,7 +566,7 @@ function ExpandableEventRow({
   detail?: string;
   badge?: string;
   danger?: boolean;
-  icon: "thinking" | MobileToolIcon;
+  icon: "thinking" | "hourglass" | MobileToolIcon;
   children: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -512,12 +626,14 @@ function ExpandableEventRow({
 }
 
 const renderToolRowIcon = (
-  icon: "thinking" | MobileToolIcon,
+  icon: "thinking" | "hourglass" | MobileToolIcon,
   color: string,
 ) => {
   switch (icon) {
     case "thinking":
       return <Brain size={14} color={color} />;
+    case "hourglass":
+      return <Hourglass size={14} color={color} />;
     case "terminal":
       return <Terminal size={14} color={color} />;
     case "file":
@@ -540,6 +656,53 @@ const renderToolRowIcon = (
       return <Wrench size={14} color={color} />;
   }
 };
+
+function formatResetTime(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(date);
+  } catch {
+    return date.toLocaleTimeString();
+  }
+}
+
+function formatTokens(value: number | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (value >= 1000) {
+    return `${Math.round(value / 100) / 10}k tokens`;
+  }
+  return `${value} tokens`;
+}
+
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return "now";
+  }
+  if (durationMs < 1000) {
+    return `${Math.round(durationMs)}ms`;
+  }
+  return `${Math.round(durationMs / 1000)}s`;
+}
+
+function safeSummary(value: unknown): string {
+  try {
+    return summarizeValue(value);
+  } catch {
+    return "Unsupported message payload";
+  }
+}
 
 const firstLine = (value: string): string => {
   const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
