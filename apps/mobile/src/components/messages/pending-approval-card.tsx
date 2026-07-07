@@ -1,22 +1,9 @@
-import type { PermissionDecision, PermissionKind, PermissionRequest } from "@zuse/wire";
+import type { PermissionDecision, PermissionRequest } from "@zuse/wire";
 import { useState } from "react";
 import { Text, View } from "react-native";
 
 import { Button } from "~/components/ui/button";
-
-/** Human summary + whether the detail reads better in monospace. */
-const describeKind = (kind: PermissionKind): { label: string; detail: string; mono: boolean } => {
-  switch (kind._tag) {
-    case "FileWrite":
-      return { label: "Write file", detail: kind.path, mono: true };
-    case "Bash":
-      return { label: "Run command", detail: kind.command, mono: true };
-    case "Network":
-      return { label: "Network request", detail: kind.url, mono: true };
-    case "Other":
-      return { label: kind.tool, detail: kind.summary, mono: false };
-  }
-};
+import { describePermissionKind } from "~/lib/permission-presentation";
 
 /**
  * Inline card for a pending tool-permission prompt. `forcePrompt` requests
@@ -31,7 +18,7 @@ export const PendingApprovalCard = ({
   onDecide: (decision: PermissionDecision) => void | Promise<void>;
 }) => {
   const [deciding, setDeciding] = useState(false);
-  const { label, detail, mono } = describeKind(request.kind);
+  const { label, detail, mono } = describePermissionKind(request.kind);
 
   const decide = async (decision: PermissionDecision) => {
     if (deciding) return;

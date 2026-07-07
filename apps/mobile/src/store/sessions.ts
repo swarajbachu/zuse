@@ -7,7 +7,7 @@ import { connectionSessionKey } from "~/lib/session-key";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
-type ProjectBundle = {
+export type ProjectBundle = {
   project: Folder;
   chats: readonly Chat[];
   sessions: readonly Session[];
@@ -19,6 +19,16 @@ type SessionsState = {
   errorByConnection: Record<string, string | null>;
   loadingByConnection: Record<string, boolean>;
   hydrate: (connKey: string, options: WsProtocolOptions) => Promise<void>;
+  archiveChat: (
+    connKey: string,
+    options: WsProtocolOptions,
+    chatId: Chat["id"],
+  ) => Promise<void>;
+  archiveSession: (
+    connKey: string,
+    options: WsProtocolOptions,
+    sessionId: Session["id"],
+  ) => Promise<void>;
 };
 
 const statusFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
@@ -40,6 +50,56 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   statusBySession: {},
   errorByConnection: {},
   loadingByConnection: {},
+  archiveChat: async (connKey, options, chatId) => {
+    const previous = get().bundlesByConnection[connKey] ?? [];
+    set((state) => ({
+      bundlesByConnection: {
+        ...state.bundlesByConnection,
+        [connKey]: removeChat(previous, chatId),
+      },
+    }));
+    try {
+      const client = await Effect.runPromise(getConnectionClient(options));
+      await Effect.runPromise(client.chat.archive({ chatId }));
+    } catch (cause) {
+      reportConnectionFailure(options, cause);
+      set((state) => ({
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: previous,
+        },
+        errorByConnection: {
+          ...state.errorByConnection,
+          [connKey]: cause instanceof Error ? cause.message : String(cause),
+        },
+      }));
+    }
+  },
+  archiveSession: async (connKey, options, sessionId) => {
+    const previous = get().bundlesByConnection[connKey] ?? [];
+    set((state) => ({
+      bundlesByConnection: {
+        ...state.bundlesByConnection,
+        [connKey]: removeSession(previous, sessionId),
+      },
+    }));
+    try {
+      const client = await Effect.runPromise(getConnectionClient(options));
+      await Effect.runPromise(client.session.archive({ sessionId }));
+    } catch (cause) {
+      reportConnectionFailure(options, cause);
+      set((state) => ({
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: previous,
+        },
+        errorByConnection: {
+          ...state.errorByConnection,
+          [connKey]: cause instanceof Error ? cause.message : String(cause),
+        },
+      }));
+    }
+  },
   hydrate: async (connKey, options) => {
     const cached = await Effect.runPromise(readSessionsSnapshot(connKey));
     if (cached !== null) {
@@ -154,6 +214,25 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
 }));
+
+const removeChat = (
+  bundles: readonly ProjectBundle[],
+  chatId: Chat["id"],
+): ProjectBundle[] =>
+  bundles.map((bundle) => ({
+    ...bundle,
+    chats: bundle.chats.filter((chat) => chat.id !== chatId),
+    sessions: bundle.sessions.filter((session) => session.chatId !== chatId),
+  }));
+
+const removeSession = (
+  bundles: readonly ProjectBundle[],
+  sessionId: Session["id"],
+): ProjectBundle[] =>
+  bundles.map((bundle) => ({
+    ...bundle,
+    sessions: bundle.sessions.filter((session) => session.id !== sessionId),
+  }));
 
 const rebuildBundles = (
   projects: readonly Folder[],

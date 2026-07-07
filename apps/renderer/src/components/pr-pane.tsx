@@ -33,7 +33,6 @@ import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
-import { MarkdownBody } from "./markdown-body.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
@@ -146,6 +145,25 @@ ${comment.body.trim().length > 0 ? comment.body.trim() : "(no comment body)"}`,
   )
   .join("\n\n")}
 `;
+
+const markdownToPlainText = (value: string): string =>
+  value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/[*_~#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const truncateText = (value: string, max = 160): string => {
+  const text = markdownToPlainText(value);
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trimEnd()}…`;
+};
 
 /**
  * Right-pane "PR" tab. Title, state, description, reviews, comments, and CI
@@ -325,9 +343,9 @@ function PrBody({
   const visibleReviews = details?.reviews.filter(isVisibleReview) ?? [];
 
   return (
-    <>
-      <Section>
-        <div className="flex items-start gap-2">
+    <div className="flex flex-col gap-3">
+      <section className="rounded-lg border border-border/55 bg-card/55 px-3 py-3 shadow-sm/5">
+        <div className="flex items-start gap-2.5">
           <HugeiconsIcon
             icon={GitPullRequestIcon}
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
@@ -367,7 +385,7 @@ function PrBody({
             Open in browser
           </button>
         ) : null}
-      </Section>
+      </section>
 
       {detailsLoading && details === null ? (
         <ShimmerText as="p" className="text-muted-foreground">
@@ -381,9 +399,7 @@ function PrBody({
         <>
           {body.trim().length > 0 ? (
             <Section title="Description">
-              <ScrollBox>
-                <MarkdownBody>{body}</MarkdownBody>
-              </ScrollBox>
+              <PlainTextPreview text={body} />
             </Section>
           ) : null}
 
@@ -439,7 +455,7 @@ function PrBody({
                 </AttachButton>
               }
             >
-              <div className="flex flex-col gap-2">
+              <div className="overflow-hidden rounded-lg border border-border/55 bg-card/40">
                 {details.comments.map((c, idx) => (
                   <CommentBlock
                     key={`${c.author}-${idx}`}
@@ -491,20 +507,17 @@ function PrBody({
           </Section>
         </>
       )}
-    </>
+    </div>
   );
 }
 
-/**
- * Bounded scroller for long PR bodies / comments. The fz-prose surface inside
- * can render arbitrarily long markdown — without a cap a single comment with
- * code listings dominates the panel and pushes everything below off-screen.
- */
-function ScrollBox({ children }: { children: React.ReactNode }) {
+function PlainTextPreview({ text }: { text: string }) {
+  const preview = markdownToPlainText(text);
+  if (preview.length === 0) return null;
   return (
-    <div className="max-h-64 overflow-y-auto rounded-sm border border-border/60 bg-foreground/[0.02] px-2 py-1.5">
-      {children}
-    </div>
+    <p className="overflow-hidden rounded-lg border border-border/55 bg-card/40 px-3 py-2 text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
+      {preview}
+    </p>
   );
 }
 
@@ -527,7 +540,7 @@ function ReviewBlock({
   if (state === "commented" && body.trim().length === 0) return null;
 
   return (
-    <article className="flex flex-col gap-1.5 rounded-sm border border-border/60 bg-foreground/[0.02] px-2 py-1.5">
+    <article className="flex flex-col gap-1.5 rounded-lg border border-border/55 bg-card/40 px-3 py-2">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <ReviewStatePill state={state} />
@@ -550,9 +563,9 @@ function ReviewBlock({
         </div>
       </header>
       {body.trim().length > 0 ? (
-        <div className="max-h-48 overflow-y-auto">
-          <MarkdownBody>{body}</MarkdownBody>
-        </div>
+        <p className="overflow-hidden text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+          {markdownToPlainText(body)}
+        </p>
       ) : null}
     </article>
   );
@@ -580,26 +593,29 @@ function CommentBlock({
   onAttach: (markdown: string) => void;
 }) {
   return (
-    <article className="flex flex-col gap-1.5 rounded-sm border border-border/60 bg-foreground/[0.02] px-2 py-1.5">
-      <header className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-foreground/90">{author}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground">
-            {formatRelative(createdAt)}
+    <article className="flex min-w-0 items-center gap-2 border-b border-border/45 px-3 py-2 last:border-b-0">
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
+        {author.trim()[0]?.toUpperCase() ?? "?"}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="shrink-0 text-[11px] font-medium text-foreground/90">
+            {author}
           </span>
-          <AttachButton
-            label="Add comment to chat"
-            onClick={() =>
-              onAttach(markdownForComment(pr, { author, body, createdAt }))
-            }
-          />
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+            {truncateText(body, 120)}
+          </span>
         </div>
-      </header>
-      {body.trim().length > 0 ? (
-        <div className="max-h-48 overflow-y-auto">
-          <MarkdownBody>{body}</MarkdownBody>
-        </div>
-      ) : null}
+      </div>
+      <span className="shrink-0 text-[10px] text-muted-foreground">
+        {formatRelative(createdAt)}
+      </span>
+      <AttachButton
+        label="Add comment to chat"
+        onClick={() =>
+          onAttach(markdownForComment(pr, { author, body, createdAt }))
+        }
+      />
     </article>
   );
 }
@@ -637,14 +653,14 @@ function ChecksPanel({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
           <StatusPill tone="zinc">{counts.neutral} skipped</StatusPill>
         ) : null}
       </div>
-      <div className="overflow-hidden rounded-sm border border-border/60">
+      <div className="overflow-hidden rounded-lg border border-border/55 bg-card/40">
         {groups.map((group, groupIdx) => (
           <div
             key={group.key}
-            className={groupIdx === 0 ? "" : "border-t border-border/60"}
+            className={groupIdx === 0 ? "" : "border-t border-border/55"}
           >
             {group.label !== null ? (
-              <div className="flex min-h-7 items-center justify-between gap-2 bg-foreground/[0.025] px-2 py-1">
+              <div className="flex min-h-8 items-center justify-between gap-2 bg-muted/25 px-3 py-1.5">
                 <div className="min-w-0">
                   <div className="truncate text-[11px] font-medium text-foreground/90">
                     {group.label}
@@ -665,7 +681,7 @@ function ChecksPanel({ checks }: { checks: ReadonlyArray<GitPrCheckRun> }) {
                 ) : null}
               </div>
             ) : null}
-            <ul className="flex flex-col divide-y divide-border/40">
+            <ul className="flex flex-col divide-y divide-border/45">
               {group.checks.map((run, idx) => (
                 <CheckRunRow key={`${run.name}-${idx}`} run={run} />
               ))}
@@ -684,11 +700,13 @@ function CheckRunRow({ run }: { run: GitPrCheckRun }) {
     .filter((part): part is string => part !== null && part.length > 0)
     .join(" / ");
   return (
-    <li className="flex min-h-9 items-center gap-2 px-2 py-1.5">
-      <span className="shrink-0">{checkIcon(run)}</span>
+    <li className="flex min-h-10 items-center gap-2 px-3 py-2">
+      <span className="grid size-5 shrink-0 place-items-center">
+        {checkIcon(run)}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 truncate text-[11px] text-foreground/90">
+          <span className="min-w-0 truncate text-[12px] text-foreground/90">
             {run.name}
           </span>
           <StatusPill tone={checkTone(kind)}>{checkLabel(run)}</StatusPill>

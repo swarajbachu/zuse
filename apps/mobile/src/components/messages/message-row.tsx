@@ -1,7 +1,15 @@
 import type { Message, MessageContent, UserQuestion } from "@zuse/wire";
-import { Text, View } from "react-native";
+import { ChevronDown, ChevronRight, FilePenLine, Wrench } from "lucide-react-native";
+import type React from "react";
+import { useState } from "react";
+import { Pressable, Text, View } from "react-native";
 
 import { cn } from "~/lib/cn";
+import {
+  extractEditSummaries,
+  summarizeValue,
+  type ToolResultRecord,
+} from "~/lib/message-presentation";
 import { Markdown } from "./markdown";
 import { PendingUserInputCard, type QuestionAnswer } from "./pending-user-input-card";
 
@@ -9,6 +17,7 @@ import { PendingUserInputCard, type QuestionAnswer } from "./pending-user-input-
 export type MessageRowContext = {
   answeredQuestionIds: ReadonlySet<string>;
   questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
+  toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
   onAnswerQuestion: (itemId: string, answers: readonly QuestionAnswer[]) => void | Promise<void>;
 };
 
@@ -30,9 +39,9 @@ export const MessageRow = ({
     case "thinking":
       return <ThinkingRow content={content} />;
     case "tool_use":
-      return <ToolUseRow content={content} />;
+      return <ToolUseRow content={content} result={ctx.toolResultsByItemId.get(content.itemId)} />;
     case "tool_result":
-      return <ToolResultRow content={content} />;
+      return ctx.toolResultsByItemId.has(content.itemId) ? null : <ToolResultRow content={content} />;
     case "error":
       return <ErrorRow message={content.message} />;
     case "user_question":
@@ -63,8 +72,11 @@ const UserBubble = ({
   goal?: boolean;
   chips?: string[];
 }) => (
-  <View className="items-end px-3 py-1.5">
-    <View className="max-w-[88%] rounded-lg bg-primary px-3 py-2">
+  <View className="items-end px-2 py-2">
+    <View
+      style={{ borderCurve: "continuous" }}
+      className="max-w-[88%] rounded-2xl bg-primary px-3.5 py-2.5"
+    >
       {goal === true ? (
         <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">Goal</Text>
       ) : null}
@@ -86,7 +98,7 @@ const UserBubble = ({
 );
 
 const AssistantMarkdown = ({ text }: { text: string }) => (
-  <View className="px-3 py-1.5">
+  <View className="px-2 py-2">
     <Markdown>{text}</Markdown>
   </View>
 );
@@ -96,65 +108,120 @@ const ThinkingRow = ({
 }: {
   content: Extract<MessageContent, { _tag: "thinking" }>;
 }) => (
-  <View className="px-3 py-1.5">
-    <View className="rounded-lg border border-border bg-muted px-3 py-2">
-      <Text className="font-sans-medium text-xs text-muted-foreground">
-        {content.redacted ? "Redacted thinking" : "Thinking"}
-      </Text>
-      {!content.redacted ? (
-        <Text className="mt-1 font-sans text-sm leading-5 text-muted-foreground">
-          {content.text}
-        </Text>
-      ) : null}
-    </View>
-  </View>
+  <ExpandableEventRow
+    icon="thinking"
+    title={content.redacted ? "Redacted thinking" : "Thinking"}
+    detail={content.redacted ? "Hidden by the model" : firstLine(content.text)}
+  >
+    <Text className="font-sans text-sm leading-5 text-muted-foreground">
+      {content.redacted ? "Thought content was redacted." : content.text}
+    </Text>
+  </ExpandableEventRow>
 );
 
 const ToolUseRow = ({
-  content
+  content,
+  result,
 }: {
   content: Extract<MessageContent, { _tag: "tool_use" }>;
-}) => (
-  <View className="px-3 py-1.5">
-    <View className="rounded-lg border border-border bg-card px-3 py-2">
-      <Text className="font-sans-medium text-xs text-primary">{content.tool}</Text>
-      <Text className="mt-1 font-mono text-xs leading-5 text-muted-foreground" numberOfLines={6}>
-        {preview(content.input)}
-      </Text>
-    </View>
-  </View>
-);
+  result?: ToolResultRecord;
+}) => {
+  const editSummaries = extractEditSummaries(content.tool, content.input);
+  const resultLabel =
+    result === undefined ? "Running" : result.isError ? "Error" : "Result";
+  const detail =
+    editSummaries.length > 0
+      ? editSummaries.map((summary) => summary.path).join(", ")
+      : summarizeValue(content.input, 96);
+
+  return (
+    <ExpandableEventRow
+      icon="tool"
+      title={content.tool}
+      detail={detail}
+      badge={resultLabel}
+      danger={result?.isError === true}
+    >
+      {editSummaries.length > 0 ? (
+        <View className="gap-2">
+          {editSummaries.map((summary) => (
+            <View
+              key={summary.path}
+              className="rounded-xl border border-border bg-muted/45 px-3 py-2"
+              style={{ borderCurve: "continuous" }}
+            >
+              <View className="flex-row items-center gap-2">
+                <FilePenLine size={14} color="hsl(72 98% 54%)" />
+                <Text className="min-w-0 flex-1 font-mono text-xs text-foreground" numberOfLines={1}>
+                  {summary.path}
+                </Text>
+                <Text className="font-mono text-[11px] text-presence-online">
+                  +{summary.added}
+                </Text>
+                <Text className="font-mono text-[11px] text-danger">
+                  -{summary.removed}
+                </Text>
+              </View>
+              <Text
+                className="mt-2 font-mono text-xs leading-5 text-muted-foreground"
+                numberOfLines={6}
+              >
+                {summary.preview}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text className="font-mono text-xs leading-5 text-muted-foreground">
+          {summarizeValue(content.input)}
+        </Text>
+      )}
+      {result !== undefined ? (
+        <View className="mt-3 border-t border-border pt-3">
+          <Text
+            className={cn(
+              "mb-1 font-sans-medium text-[11px] uppercase text-muted-foreground",
+              result.isError && "text-danger",
+            )}
+          >
+            {result.isError ? "Error" : "Result"}
+          </Text>
+          <Text
+            selectable
+            className="font-mono text-xs leading-5 text-muted-foreground"
+            numberOfLines={8}
+          >
+            {summarizeValue(result.output)}
+          </Text>
+        </View>
+      ) : null}
+    </ExpandableEventRow>
+  );
+};
 
 const ToolResultRow = ({
   content
 }: {
   content: Extract<MessageContent, { _tag: "tool_result" }>;
 }) => (
-  <View className="px-3 py-1.5">
-    <View
-      className={cn(
-        "rounded-lg border px-3 py-2",
-        content.isError ? "border-danger bg-danger/10" : "border-border bg-card"
-      )}
-    >
-      <Text
-        className={cn(
-          "font-sans-medium text-xs",
-          content.isError ? "text-danger" : "text-muted-foreground"
-        )}
-      >
-        Tool result
-      </Text>
-      <Text className="mt-1 font-mono text-xs leading-5 text-muted-foreground" numberOfLines={8}>
-        {preview(content.output)}
-      </Text>
-    </View>
-  </View>
+  <ExpandableEventRow
+    icon="tool"
+    title={content.isError ? "Tool error" : "Tool result"}
+    detail={summarizeValue(content.output, 96)}
+    danger={content.isError}
+  >
+    <Text selectable className="font-mono text-xs leading-5 text-muted-foreground">
+      {summarizeValue(content.output)}
+    </Text>
+  </ExpandableEventRow>
 );
 
 const ErrorRow = ({ message }: { message: string }) => (
-  <View className="px-3 py-1.5">
-    <View className="rounded-lg border border-danger bg-danger/10 px-3 py-2">
+  <View className="px-2 py-2">
+    <View
+      style={{ borderCurve: "continuous" }}
+      className="rounded-2xl border border-danger bg-danger/10 px-3 py-2"
+    >
       <Text className="font-sans-medium text-xs text-danger">Error</Text>
       <Text selectable className="mt-1 font-sans text-sm leading-5 text-danger">
         {message}
@@ -164,7 +231,7 @@ const ErrorRow = ({ message }: { message: string }) => (
 );
 
 const AnsweredQuestion = ({ questions }: { questions: readonly UserQuestion[] }) => (
-  <View className="px-3 py-1.5">
+  <View className="px-2 py-2">
     <View className="rounded-2xl border border-border bg-card px-3 py-3 opacity-70">
       <Text className="font-sans-medium text-xs text-muted-foreground">Question · answered</Text>
       {questions.map((question, qi) => (
@@ -200,7 +267,10 @@ const AnswerBubble = ({
   const summary = labels.length > 0 ? labels.join(", ") : "Answered";
   return (
     <View className="items-end px-3 py-1.5">
-      <View className="max-w-[88%] rounded-lg bg-primary px-3 py-2">
+      <View
+        style={{ borderCurve: "continuous" }}
+        className="max-w-[88%] rounded-2xl bg-primary px-3.5 py-2.5"
+      >
         <Text className="mb-1 font-sans-medium text-xs text-primary-foreground/75">Answer</Text>
         <Text className="font-sans text-[15px] leading-5 text-primary-foreground">{summary}</Text>
       </View>
@@ -209,11 +279,11 @@ const AnswerBubble = ({
 };
 
 const FallbackRow = ({ content }: { content: MessageContent }) => (
-  <View className="px-3 py-1.5">
-    <View className="rounded-lg border border-border bg-muted px-3 py-2">
+  <View className="px-2 py-2">
+    <View className="rounded-2xl border border-border bg-muted px-3 py-2">
       <Text className="font-sans-medium text-xs text-muted-foreground">{content._tag}</Text>
       <Text className="mt-1 font-mono text-xs leading-5 text-muted-foreground" numberOfLines={4}>
-        {preview(content)}
+        {summarizeValue(content)}
       </Text>
     </View>
   </View>
@@ -225,11 +295,86 @@ const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
   ...content.skillRefs.map((skill) => skill.name)
 ];
 
-const preview = (value: unknown) => {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+function ExpandableEventRow({
+  title,
+  detail,
+  badge,
+  danger,
+  icon,
+  children,
+}: {
+  title: string;
+  detail?: string;
+  badge?: string;
+  danger?: boolean;
+  icon: "thinking" | "tool";
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  const Icon = icon === "tool" ? Wrench : MessageEventIcon;
+  return (
+    <View className="px-2 py-1">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        className={cn(
+          "rounded-xl border px-3 py-2 active:opacity-75",
+          danger ? "border-danger/40 bg-danger/10" : "border-border bg-card",
+        )}
+        style={{ borderCurve: "continuous" }}
+      >
+        <View className="flex-row items-center gap-2">
+          <Chevron size={15} color="hsl(72 2% 64%)" />
+          <Icon size={14} color={danger ? "hsl(2 86% 64%)" : "hsl(72 98% 54%)"} />
+          <Text
+            className={cn(
+              "min-w-0 flex-1 font-sans-medium text-[13px]",
+              danger ? "text-danger" : "text-foreground",
+            )}
+            numberOfLines={1}
+          >
+            {title}
+          </Text>
+          {badge ? (
+            <Text
+              className={cn(
+                "rounded-full px-2 py-0.5 font-sans-medium text-[11px]",
+                danger ? "bg-danger/15 text-danger" : "bg-muted text-muted-foreground",
+              )}
+            >
+              {badge}
+            </Text>
+          ) : null}
+        </View>
+        {detail ? (
+          <Text
+            className="mt-1 pl-11 font-sans text-[12px] leading-4 text-muted-foreground"
+            numberOfLines={expanded ? 3 : 1}
+          >
+            {detail}
+          </Text>
+        ) : null}
+        {expanded ? <View className="mt-3 pl-6">{children}</View> : null}
+      </Pressable>
+    </View>
+  );
+}
+
+const MessageEventIcon = ({ size, color }: { size: number; color: string }) => (
+  <View
+    style={{
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      borderWidth: 1.5,
+      borderColor: color,
+    }}
+  />
+);
+
+const firstLine = (value: string): string => {
+  const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
+  return line.length > 0 ? line : "(empty)";
 };
