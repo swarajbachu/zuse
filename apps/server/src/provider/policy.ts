@@ -53,7 +53,7 @@ export type FsPolicy =
  * Rules (mirrors the spirit of Claude's policyFor + sensitive checks):
  *  1. Sensitive paths → always prompt (forcePrompt: true), even in full-access.
  *  2. Pure reads → auto-allow.
- *  3. auto-accept-edits → non-sensitive writes/edits are auto-allowed.
+ *  3. auto-accept-edits modes → non-sensitive writes/edits are auto-allowed.
  *  4. full-access → auto-allow anything that survived the sensitive check.
  *  5. plan mode (when passed) → we can force-deny or force-prompt (caller decides).
  *  6. default → prompt (forcePrompt: false).
@@ -83,8 +83,14 @@ export const getFsPolicy = (
     return { kind: "prompt", forcePrompt: true };
   }
 
-  // 4. auto-accept-edits — only non-sensitive file mutations are auto-allowed.
-  if (runtimeMode === "auto-accept-edits" && isMutating) {
+  // 4. auto-accept-edits modes — non-sensitive file mutations are
+  //    auto-allowed. The "-and-bash" variant widens command execution too,
+  //    but file behavior is identical.
+  if (
+    (runtimeMode === "auto-accept-edits" ||
+      runtimeMode === "auto-accept-edits-and-bash") &&
+    isMutating
+  ) {
     return { kind: "auto-allow" };
   }
 
@@ -112,10 +118,10 @@ export type BashPolicy =
  * agents (Grok, Gemini, Cursor) get the same gating as the SDK drivers:
  *  1. plan mode → always prompt (forcePrompt) — never silently run commands.
  *  2. full-access → auto-allow.
- *  3. auto-accept-edits → still prompt. Unlike file edits, command execution
- *     is NOT auto-accepted in this mode (matches Claude: only FILE_EDIT_TOOLS
- *     skip the prompt under auto-accept-edits, Bash falls through).
- *  4. default (approval-required) → prompt (forcePrompt: false).
+ *  3. auto-accept-edits-and-bash → auto-allow.
+ *  4. auto-accept-edits → still prompt. Unlike file edits, command execution
+ *     is NOT auto-accepted in this mode.
+ *  5. default (approval-required) → prompt (forcePrompt: false).
  *
  * `command` is accepted for future per-command heuristics (e.g. forcing a
  * prompt on obviously destructive commands) but is not inspected yet.
@@ -137,8 +143,13 @@ export const getBashPolicy = (
     return { kind: "auto-allow" };
   }
 
-  // 3. auto-accept-edits — commands still prompt (only file edits are auto-
-  //    accepted in this mode, matching Claude).
-  // 4. Default — prompt.
+  // 3. auto-accept-edits-and-bash — commands are explicitly auto-allowed.
+  if (runtimeMode === "auto-accept-edits-and-bash") {
+    return { kind: "auto-allow" };
+  }
+
+  // 4. auto-accept-edits — commands still prompt (only file edits are auto-
+  //    accepted in this mode).
+  // 5. Default — prompt.
   return { kind: "prompt", forcePrompt: false };
 };

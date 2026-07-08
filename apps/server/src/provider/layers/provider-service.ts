@@ -217,6 +217,18 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            const geminiMcpCommand = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            );
+            if (geminiMcpCommand === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "gemini",
+                  reason:
+                    "Bun was not found on PATH. It is required for the Gemini MCP stdio fallback.",
+                }),
+              );
+            }
             handle = yield* startGeminiSession(
               driverInput,
               cwd,
@@ -225,6 +237,12 @@ export const ProviderServiceLive = Layer.effect(
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Runtime.runPromise(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
+              geminiMcpCommand,
+              orchestrationTools,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "grok") {
@@ -391,24 +409,15 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            const codexOrchestrationMcpCommand =
-              orchestrationTools === null
-                ? null
-                : yield* resolveCliPath("bun").pipe(
-                    Effect.provideService(
-                      CommandExecutor.CommandExecutor,
-                      executor,
-                    ),
-                  );
-            if (
-              orchestrationTools !== null &&
-              codexOrchestrationMcpCommand === null
-            ) {
+            const codexMcpCommand = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            );
+            if (codexMcpCommand === null) {
               return yield* Effect.fail(
                 new AgentSessionStartError({
                   providerId: "codex",
                   reason:
-                    "Bun was not found on PATH. It is required to expose Zuse orchestration tools to Codex via MCP.",
+                    "Bun was not found on PATH. It is required for the Codex MCP stdio fallback.",
                 }),
               );
             }
@@ -431,8 +440,13 @@ export const ProviderServiceLive = Layer.effect(
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Runtime.runPromise(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
+              codexMcpCommand,
               orchestrationTools,
-              codexOrchestrationMcpCommand,
+              codexMcpCommand,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           }

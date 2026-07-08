@@ -7,9 +7,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import {
+  BROWSER_MCP_SERVER_NAME,
   BROWSER_MCP_TOOLS,
   type BrowserMcpToolResult,
-} from "./browser-mcp-bridge.ts";
+} from "../browser-mcp-tools.ts";
 
 const bridgeUrl = process.env.ZUSE_BROWSER_MCP_URL;
 const token = process.env.ZUSE_BROWSER_MCP_TOKEN;
@@ -48,7 +49,7 @@ const callParent = async (
 };
 
 const server = new Server(
-  { name: "zuse-browser", version: "0.0.1" },
+  { name: BROWSER_MCP_SERVER_NAME, version: "0.0.1" },
   { capabilities: { tools: {} } },
 );
 

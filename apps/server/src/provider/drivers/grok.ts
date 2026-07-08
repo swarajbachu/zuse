@@ -39,19 +39,18 @@ import {
 } from "./compact.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
-import {
-  browserMcpPromptHint,
-  startBrowserMcpBridge,
-} from "./acp/browser-mcp-bridge.ts";
+import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
 import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import type { BrowserSend } from "./browser-tools.ts";
+import { browserMcpPromptHint } from "./browser-mcp-tools.ts";
 import { getBashPolicy, getFsPolicy } from "../policy.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 import {
   orchestrationMcpPromptHint,
   type OrchestrationSessionTools,
 } from "./orchestration-tools.ts";
+import { issueMcpGatewaySession } from "../mcp-gateway/index.ts";
 
 /**
  * Live-only handle for one Grok conversation. Mirrors Codex/Claude handle
@@ -599,51 +598,93 @@ export const startGrokSession = (
       getPermissionMode: () => currentMode,
     });
 
-    const browserMcpBridge = yield* Effect.tryPromise({
+    const mcpGatewaySession = yield* Effect.tryPromise({
       try: () =>
-        startBrowserMcpBridge({
+        issueMcpGatewaySession({
+          sessionId,
+          scopes: {
+            browser: true,
+            orchestration: orchestrationTools !== null,
+          },
+          ctx: {
+            browser: {
+              send: browserSend,
+              requestPermission: (kind, options) =>
+                requestPermission(sessionId, kind, options),
+              getRuntimeMode,
+              getPermissionMode: () => currentMode,
+            },
+            ...(orchestrationTools === null
+              ? {}
+              : {
+                  orchestration: {
+                    deps: orchestrationTools.deps,
+                    requestPermission: (kind, options) =>
+                      requestPermission(sessionId, kind, options),
+                    getRuntimeMode,
+                    getPermissionMode: () => currentMode,
+                  },
+                }),
+          },
+        }),
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "grok",
+          reason: `Could not start MCP gateway: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        }),
+    });
+    let browserMcpBridge: Awaited<
+      ReturnType<typeof startBrowserMcpBridge>
+    > | null = null;
+    let orchestrationMcpBridge: Awaited<
+      ReturnType<typeof startOrchestrationMcpBridge>
+    > | null = null;
+    let restoreProjectMcpConfig: () => void = () => {};
+
+    const ensureStdioFallbackMcp = async (): Promise<
+      ReadonlyArray<{
+        readonly name: string;
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+        readonly env: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+      }>
+    > => {
+      if (browserMcpBridge === null) {
+        browserMcpBridge = await startBrowserMcpBridge({
           send: browserSend,
           command: browserMcpCommand,
           requestPermission: (kind, options) =>
             requestPermission(sessionId, kind, options),
           getRuntimeMode,
           getPermissionMode: () => currentMode,
-        }),
-      catch: (cause) =>
-        new AgentSessionStartError({
-          providerId: "grok",
-          reason: `Could not start browser MCP bridge: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
-        }),
-    });
-    const orchestrationMcpBridge =
-      orchestrationTools === null
-        ? null
-        : yield* Effect.tryPromise({
-            try: () =>
-              startOrchestrationMcpBridge({
-                deps: orchestrationTools.deps,
-                command: browserMcpCommand,
-                requestPermission: (kind, options) =>
-                  requestPermission(sessionId, kind, options),
-                getRuntimeMode,
-                getPermissionMode: () => currentMode,
-              }),
-            catch: (cause) =>
-              new AgentSessionStartError({
-                providerId: "grok",
-                reason: `Could not start orchestration MCP bridge: ${
-                  cause instanceof Error ? cause.message : String(cause)
-                }`,
-              }),
-          });
-    const restoreProjectMcpConfig = installProjectMcpConfig(cwd, [
-      browserMcpBridge.projectConfigToml,
-      ...(orchestrationMcpBridge === null
-        ? []
-        : [orchestrationMcpBridge.projectConfigToml]),
-    ]);
+        });
+      }
+      if (orchestrationTools !== null && orchestrationMcpBridge === null) {
+        orchestrationMcpBridge = await startOrchestrationMcpBridge({
+          deps: orchestrationTools.deps,
+          command: browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        });
+      }
+      restoreProjectMcpConfig();
+      restoreProjectMcpConfig = installProjectMcpConfig(cwd, [
+        browserMcpBridge.projectConfigToml,
+        ...(orchestrationMcpBridge === null
+          ? []
+          : [orchestrationMcpBridge.projectConfigToml]),
+      ]);
+      return [
+        browserMcpBridge.serverConfig,
+        ...(orchestrationMcpBridge === null
+          ? []
+          : [orchestrationMcpBridge.serverConfig]),
+      ];
+    };
 
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
@@ -659,7 +700,7 @@ export const startGrokSession = (
     let dead = false;
     // One-shot browser-tools hint for the model. True whenever the ACP
     // server-side context is fresh (initial connect + every respawn); the
-    // next session/prompt prepends the zuse-browser tool list so the model
+    // next session/prompt prepends the browser tool list so the model
     // calls tools directly instead of hunting the filesystem for schemas.
     let browserHintPending = true;
     let inflight: Promise<void> = Promise.resolve();
@@ -1194,15 +1235,33 @@ export const startGrokSession = (
         result: authResult,
       });
 
-      const sessionResult = (await request("session/new", {
-        cwd,
-        mcpServers: [
-          browserMcpBridge.serverConfig,
-          ...(orchestrationMcpBridge === null
-            ? []
-            : [orchestrationMcpBridge.serverConfig]),
-        ],
-      })) as { sessionId?: unknown };
+      const httpMcpServers = [
+        mcpGatewaySession.httpServerConfigs.browser,
+        ...(orchestrationTools === null
+          ? []
+          : [mcpGatewaySession.httpServerConfigs.orchestration]),
+      ];
+      let sessionResult: { sessionId?: unknown };
+      try {
+        sessionResult = (await request("session/new", {
+          cwd,
+          mcpServers: httpMcpServers,
+        })) as { sessionId?: unknown };
+        console.info(`[mcp-gateway] session ${sessionId} connected via http`);
+      } catch (cause) {
+        console.warn(
+          `[mcp-gateway] session ${sessionId} http setup failed; using stdio-fallback: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+        sessionResult = (await request("session/new", {
+          cwd,
+          mcpServers: await ensureStdioFallbackMcp(),
+        })) as { sessionId?: unknown };
+        console.info(
+          `[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
+        );
+      }
 
       if (typeof sessionResult.sessionId !== "string") {
         throw new Error("Grok ACP session/new returned no sessionId.");
@@ -1236,7 +1295,13 @@ export const startGrokSession = (
             // ignore — child may not be alive
           }
           restoreProjectMcpConfig();
-          void browserMcpBridge.close();
+          if (browserMcpBridge !== null) {
+            void browserMcpBridge.close();
+          }
+          if (orchestrationMcpBridge !== null) {
+            void orchestrationMcpBridge.close();
+          }
+          void mcpGatewaySession.close();
         }),
       ),
     );
@@ -1326,7 +1391,7 @@ export const startGrokSession = (
             browserHintPending && compactSnapshot === null
               ? [
                   browserMcpPromptHint(),
-                  ...(orchestrationMcpBridge === null
+                  ...(orchestrationTools === null
                     ? []
                     : [orchestrationMcpPromptHint()]),
                   promptText,
@@ -1491,10 +1556,15 @@ export const startGrokSession = (
           child.kill("SIGTERM");
           rl.close();
           restoreProjectMcpConfig();
-          yield* Effect.promise(() => browserMcpBridge.close());
-          if (orchestrationMcpBridge !== null) {
-            yield* Effect.promise(() => orchestrationMcpBridge.close());
+          const browserBridge = browserMcpBridge;
+          if (browserBridge !== null) {
+            yield* Effect.promise(() => browserBridge.close());
           }
+          const orchestrationBridge = orchestrationMcpBridge;
+          if (orchestrationBridge !== null) {
+            yield* Effect.promise(() => orchestrationBridge.close());
+          }
+          yield* Effect.promise(() => mcpGatewaySession.close());
           yield* events.end;
         }),
       setPermissionMode: (mode) =>

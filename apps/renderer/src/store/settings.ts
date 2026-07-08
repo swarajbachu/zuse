@@ -33,7 +33,7 @@ import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 
 const DEFAULT_PROVIDER: ProviderId = "claude";
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
-const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "off";
+const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "approval-gated";
 const DEFAULT_BRANCH_NAMING_STYLE: BranchNamingStyle = "username-slug";
 
 const PROVIDER_IDS: ReadonlyArray<ProviderId> = [

@@ -86,7 +86,7 @@ let providerSentTexts: string[] = [];
 let providerStartOrchestrationTools: Array<
   OrchestrationSessionTools | null | undefined
 > = [];
-let testAutonomyLevel: AutonomyLevel = "off";
+let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
 
@@ -367,7 +367,7 @@ beforeEach(() => {
   providerStartCursors = [];
   providerSentTexts = [];
   providerStartOrchestrationTools = [];
-  testAutonomyLevel = "off";
+  testAutonomyLevel = "approval-gated";
   createdWorktreeCount = 0;
   createdWorktrees = new Map();
 });
@@ -510,7 +510,6 @@ describe("MessageStore — chat & session lifecycle", () => {
   });
 
   it("create_session without chatId opens a new tab in the caller's chat", async () => {
-    testAutonomyLevel = "approval-gated";
     await withRuntime(async (run) => {
       const parent = await run(
         Effect.flatMap(store, (s) =>
@@ -547,7 +546,6 @@ describe("MessageStore — chat & session lifecycle", () => {
   });
 
   it("create_thread creates a new worktree and uses the target provider default model", async () => {
-    testAutonomyLevel = "approval-gated";
     await withRuntime(async (run) => {
       const parent = await run(
         Effect.flatMap(store, (s) =>

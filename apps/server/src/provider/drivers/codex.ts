@@ -26,7 +26,9 @@ import {
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { CodexAppServerClient } from "../codex-app-server-client.ts";
+import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
 import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
+import { getBashPolicy, getFsPolicy } from "../policy.ts";
 import {
   finishCompactEvent,
   nextCompactItemId,
@@ -39,14 +41,21 @@ import type { ServerRequest } from "../codex-app-protocol/ServerRequest";
 import type { SandboxPolicy } from "../codex-app-protocol/v2/SandboxPolicy";
 import type { Model } from "../codex-app-protocol/v2/Model";
 import type { ModelListResponse } from "../codex-app-protocol/v2/ModelListResponse";
+import type { AskForApproval } from "../codex-app-protocol/v2/AskForApproval";
 import type { ThreadGoal as CodexThreadGoal } from "../codex-app-protocol/v2/ThreadGoal";
 import type { ThreadItem } from "../codex-app-protocol/v2/ThreadItem";
 import type { UserInput } from "../codex-app-protocol/v2/UserInput";
+import {
+  BROWSER_MCP_SERVER_NAME,
+  browserMcpPromptHint,
+} from "./browser-mcp-tools.ts";
+import type { BrowserSend } from "./browser-tools.ts";
 import {
   ORCHESTRATION_MCP_SERVER_NAME,
   orchestrationMcpPromptHint,
   type OrchestrationSessionTools,
 } from "./orchestration-tools.ts";
+import { issueMcpGatewaySession } from "../mcp-gateway/index.ts";
 
 const SUPPORTED_CODEX_IMAGE_MIME = new Set([
   "image/png",
@@ -55,16 +64,48 @@ const SUPPORTED_CODEX_IMAGE_MIME = new Set([
   "image/webp",
 ]);
 
+const MANAGED_MCP_SERVER_NAMES = new Set([
+  BROWSER_MCP_SERVER_NAME,
+  ORCHESTRATION_MCP_SERVER_NAME,
+]);
+
 export type RequestPermission = (
   sessionId: AgentSessionId,
   kind: PermissionKind,
   options: { readonly forcePrompt: boolean },
 ) => Promise<PermissionDecision>;
 
+const codexApprovalPolicy = (
+  runtimeMode: RuntimeMode,
+  permissionMode: PermissionMode,
+): AskForApproval => {
+  if (permissionMode === "plan") return "untrusted";
+  switch (runtimeMode) {
+    case "approval-required":
+      return "untrusted";
+    case "auto-accept-edits":
+    case "auto-accept-edits-and-bash":
+      return "on-request";
+    case "full-access":
+      return "never";
+  }
+};
+
 const toSandboxMode = (
-  mode: PermissionMode,
-): "read-only" | "workspace-write" =>
-  mode === "plan" ? "read-only" : "workspace-write";
+  runtimeMode: RuntimeMode,
+  permissionMode: PermissionMode,
+): "read-only" | "workspace-write" | "danger-full-access" => {
+  if (permissionMode === "plan") return "read-only";
+  switch (runtimeMode) {
+    case "approval-required":
+      return "read-only";
+    case "auto-accept-edits":
+    case "auto-accept-edits-and-bash":
+      return "workspace-write";
+    case "full-access":
+      return "danger-full-access";
+  }
+};
 
 const dedupe = (paths: ReadonlyArray<string>): ReadonlyArray<string> => [
   ...new Set(paths),
@@ -109,16 +150,30 @@ export const codexWritableRootsForCwd = (
   ]);
 };
 
-const toSandboxPolicy = (mode: PermissionMode, cwd: string): SandboxPolicy =>
-  mode === "plan"
-    ? { type: "readOnly", networkAccess: false }
-    : {
+const toSandboxPolicy = (
+  runtimeMode: RuntimeMode,
+  permissionMode: PermissionMode,
+  cwd: string,
+): SandboxPolicy => {
+  if (permissionMode === "plan") {
+    return { type: "readOnly", networkAccess: false };
+  }
+  switch (runtimeMode) {
+    case "approval-required":
+      return { type: "readOnly", networkAccess: false };
+    case "auto-accept-edits":
+    case "auto-accept-edits-and-bash":
+      return {
         type: "workspaceWrite",
         writableRoots: [...codexWritableRootsForCwd(cwd)],
         networkAccess: true,
         excludeTmpdirEnvVar: false,
         excludeSlashTmp: false,
       };
+    case "full-access":
+      return { type: "dangerFullAccess" };
+  }
+};
 
 export interface CodexSessionHandle {
   readonly events: Stream.Stream<AgentEvent>;
@@ -816,6 +871,8 @@ export const startCodexSession = (
   sessionId: AgentSessionId,
   requestPermission: RequestPermission,
   getRuntimeMode: () => RuntimeMode,
+  browserSend: BrowserSend,
+  browserMcpCommand: string,
   orchestrationTools: OrchestrationSessionTools | null = null,
   orchestrationMcpCommand: string | null = null,
   resumeCursor: string | null = null,
@@ -835,6 +892,7 @@ export const startCodexSession = (
     let latestDiff = "";
     let closed = false;
     let pending: Promise<void> = Promise.resolve();
+    let browserHintPending = true;
     let orchestrationHintPending = orchestrationTools !== null;
     // Runtime fast-tier gate for the model this session resolved to, from the
     // live `model/list` `serviceTiers`. `null` = unknown (probe not done /
@@ -862,10 +920,49 @@ export const startCodexSession = (
       mode: "sdk",
     });
 
+    const mcpGatewaySession = yield* Effect.tryPromise({
+      try: () =>
+        issueMcpGatewaySession({
+          sessionId,
+          scopes: {
+            browser: true,
+            orchestration: orchestrationTools !== null,
+          },
+          ctx: {
+            browser: {
+              send: browserSend,
+              requestPermission: (kind, options) =>
+                requestPermission(sessionId, kind, options),
+              getRuntimeMode,
+              getPermissionMode: () => currentMode,
+            },
+            ...(orchestrationTools === null
+              ? {}
+              : {
+                  orchestration: {
+                    deps: orchestrationTools.deps,
+                    requestPermission: (kind, options) =>
+                      requestPermission(sessionId, kind, options),
+                    getRuntimeMode,
+                    getPermissionMode: () => currentMode,
+                  },
+                }),
+          },
+        }),
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "codex",
+          reason: `Could not start MCP gateway: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        }),
+    });
+
     const app = yield* Effect.tryPromise({
       try: () =>
         CodexAppServerClient.start({
           codexPath,
+          env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
           onNotification: (notification) => {
             for (const event of translateNotification(notification))
               emit(event);
@@ -895,64 +992,127 @@ export const startCodexSession = (
       );
     }
 
-    const orchestrationMcpBridge =
-      orchestrationTools === null
-        ? null
-        : yield* Effect.tryPromise({
-            try: () =>
-              startOrchestrationMcpBridge({
-                deps: orchestrationTools.deps,
-                command: orchestrationMcpCommand ?? process.execPath,
-                requestPermission: (kind, options) =>
-                  requestPermission(sessionId, kind, options),
-                getRuntimeMode,
-                getPermissionMode: () => currentMode,
-              }),
-            catch: (cause) =>
-              new AgentSessionStartError({
-                providerId: "codex",
-                reason: `Could not start orchestration MCP bridge: ${
-                  cause instanceof Error ? cause.message : String(cause)
-                }`,
-              }),
-          });
+    let browserMcpBridge: Awaited<
+      ReturnType<typeof startBrowserMcpBridge>
+    > | null = null;
+    let orchestrationMcpBridge: Awaited<
+      ReturnType<typeof startOrchestrationMcpBridge>
+    > | null = null;
 
-    const installCodexOrchestrationMcp = async (): Promise<void> => {
-      if (orchestrationMcpBridge === null) return;
-      const env = Object.fromEntries(
-        orchestrationMcpBridge.serverConfig.env.map((entry) => [
-          entry.name,
-          entry.value,
-        ]),
-      );
-      await app.request("config/value/write", {
-        keyPath: `mcp_servers.${JSON.stringify(ORCHESTRATION_MCP_SERVER_NAME)}`,
-        value: {
-          command: orchestrationMcpBridge.serverConfig.command,
-          args: orchestrationMcpBridge.serverConfig.args,
-          env,
-          enabled: true,
-        },
-        mergeStrategy: "replace",
-      });
-      await app.request("config/mcpServer/reload", undefined);
+    const expectCodexMcpServers = async (
+      names: ReadonlyArray<string>,
+    ): Promise<void> => {
       const status = await app.request<{
         data?: ReadonlyArray<{ name: string }>;
       }>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
-      const found =
-        Array.isArray(status.data) &&
-        status.data.some(
-          (server) => server.name === ORCHESTRATION_MCP_SERVER_NAME,
-        );
-      if (!found) {
+      const found = new Set(
+        Array.isArray(status.data)
+          ? status.data.map((server) => server.name)
+          : [],
+      );
+      const missing = names.filter((name) => !found.has(name));
+      if (missing.length > 0) {
         throw new Error(
-          `Codex did not report ${ORCHESTRATION_MCP_SERVER_NAME} after MCP reload.`,
+          `Codex did not report MCP server(s) after reload: ${missing.join(", ")}.`,
         );
       }
     };
 
+    const installCodexHttpMcp = async (): Promise<void> => {
+      await app.request("config/value/write", {
+        keyPath: `mcp_servers.${JSON.stringify(BROWSER_MCP_SERVER_NAME)}`,
+        value: mcpGatewaySession.codexServerConfigs.browser,
+        mergeStrategy: "replace",
+      });
+      if (orchestrationTools !== null) {
+        await app.request("config/value/write", {
+          keyPath: `mcp_servers.${JSON.stringify(ORCHESTRATION_MCP_SERVER_NAME)}`,
+          value: mcpGatewaySession.codexServerConfigs.orchestration,
+          mergeStrategy: "replace",
+        });
+      }
+      await app.request("config/mcpServer/reload", undefined);
+      await expectCodexMcpServers([
+        BROWSER_MCP_SERVER_NAME,
+        ...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
+      ]);
+      console.info(`[mcp-gateway] session ${sessionId} connected via http`);
+    };
+
+    const installCodexStdioFallbackMcp = async (): Promise<void> => {
+      browserMcpBridge = await startBrowserMcpBridge({
+        send: browserSend,
+        command: browserMcpCommand,
+        requestPermission: (kind, options) =>
+          requestPermission(sessionId, kind, options),
+        getRuntimeMode,
+        getPermissionMode: () => currentMode,
+      });
+      const writeStdioServer = async (
+        name: string,
+        serverConfig: {
+          readonly command: string;
+          readonly args: ReadonlyArray<string>;
+          readonly env: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+        },
+      ) => {
+        const env = Object.fromEntries(
+          serverConfig.env.map((entry) => [entry.name, entry.value]),
+        );
+        await app.request("config/value/write", {
+          keyPath: `mcp_servers.${JSON.stringify(name)}`,
+          value: {
+            command: serverConfig.command,
+            args: serverConfig.args,
+            env,
+            enabled: true,
+          },
+          mergeStrategy: "replace",
+        });
+      };
+      await writeStdioServer(
+        BROWSER_MCP_SERVER_NAME,
+        browserMcpBridge.serverConfig,
+      );
+      if (orchestrationTools !== null) {
+        orchestrationMcpBridge = await startOrchestrationMcpBridge({
+          deps: orchestrationTools.deps,
+          command: orchestrationMcpCommand ?? browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        });
+        await writeStdioServer(
+          ORCHESTRATION_MCP_SERVER_NAME,
+          orchestrationMcpBridge.serverConfig,
+        );
+      }
+      await app.request("config/mcpServer/reload", undefined);
+      await expectCodexMcpServers([
+        BROWSER_MCP_SERVER_NAME,
+        ...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
+      ]);
+      console.info(
+        `[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
+      );
+    };
+
+    const installCodexMcp = async (): Promise<void> => {
+      try {
+        await installCodexHttpMcp();
+      } catch (cause) {
+        console.warn(
+          `[mcp-gateway] session ${sessionId} http setup failed; using stdio-fallback: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+        await installCodexStdioFallbackMcp();
+      }
+    };
+
     yield* Effect.tryPromise({
-      try: installCodexOrchestrationMcp,
+      try: installCodexMcp,
       catch: (cause) =>
         new AgentSessionStartError({
           providerId: "codex",
@@ -963,8 +1123,8 @@ export const startCodexSession = (
     const commonThreadParams = {
       model: input.model ?? null,
       cwd,
-      approvalPolicy: "never" as const,
-      sandbox: toSandboxMode(currentMode),
+      approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+      sandbox: toSandboxMode(getRuntimeMode(), currentMode),
       serviceName: "zuse",
       developerInstructions: input.workspaceInstructions ?? null,
     };
@@ -1116,10 +1276,17 @@ export const startCodexSession = (
       // prepend a developer-instructions block while plan mode is active.
       // The sandbox policy still gates writes, so this is belt-and-braces.
       const basePromptText = applyPlanModePrefix(currentMode, text);
+      const promptHints = [
+        ...(browserHintPending ? [browserMcpPromptHint()] : []),
+        ...(orchestrationHintPending && orchestrationTools !== null
+          ? [orchestrationMcpPromptHint()]
+          : []),
+      ];
       const promptText =
-        orchestrationHintPending && orchestrationMcpBridge !== null
-          ? `${orchestrationMcpPromptHint()}\n\n${basePromptText}`
+        promptHints.length > 0
+          ? `${promptHints.join("\n\n")}\n\n${basePromptText}`
           : basePromptText;
+      browserHintPending = false;
       orchestrationHintPending = false;
       // Reasoning effort: forwarded from FE picker via
       // `input.modelOptions.reasoning`. Pass through low/medium/high
@@ -1156,8 +1323,8 @@ export const startCodexSession = (
           )),
         ],
         cwd,
-        approvalPolicy: "never",
-        sandboxPolicy: toSandboxPolicy(currentMode, cwd),
+        approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+        sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
         model: input.model ?? null,
         ...(effort !== null ? { effort } : {}),
         ...(fastMode ? { serviceTier: "fast" } : {}),
@@ -1343,6 +1510,8 @@ export const startCodexSession = (
               },
             ],
             cwd,
+            approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
+            sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
           });
           return true;
         case "ps":
@@ -1499,6 +1668,11 @@ export const startCodexSession = (
       switch (request.method) {
         case "item/commandExecution/requestApproval": {
           const p = request.params;
+          const command = p.command ?? "";
+          const policy = getBashPolicy(command, getRuntimeMode(), currentMode);
+          if (policy.kind === "auto-allow") {
+            return { decision: "accept" };
+          }
           emit({
             _tag: "PermissionRequest",
             itemId: p.itemId as AgentItemId,
@@ -1507,13 +1681,23 @@ export const startCodexSession = (
           });
           const decision = await requestPermission(
             sessionId,
-            { _tag: "Bash", command: p.command ?? "" },
-            { forcePrompt: false },
+            { _tag: "Bash", command },
+            { forcePrompt: policy.forcePrompt },
           );
           return { decision: decisionToCodex(decision) };
         }
         case "item/fileChange/requestApproval": {
           const p = request.params;
+          const path = p.grantRoot ?? cwd;
+          const policy = getFsPolicy(
+            "write",
+            path,
+            getRuntimeMode(),
+            currentMode,
+          );
+          if (policy.kind === "auto-allow") {
+            return { decision: "accept" };
+          }
           emit({
             _tag: "PermissionRequest",
             itemId: p.itemId as AgentItemId,
@@ -1522,13 +1706,16 @@ export const startCodexSession = (
           });
           const decision = await requestPermission(
             sessionId,
-            { _tag: "FileWrite", path: p.grantRoot ?? cwd },
-            { forcePrompt: false },
+            { _tag: "FileWrite", path },
+            { forcePrompt: policy.forcePrompt },
           );
           return { decision: decisionToCodex(decision) };
         }
         case "item/permissions/requestApproval": {
           const p = request.params;
+          if (currentMode !== "plan" && getRuntimeMode() === "full-access") {
+            return { permissions: {}, scope: "session" };
+          }
           emit({
             _tag: "PermissionRequest",
             itemId: p.itemId as AgentItemId,
@@ -1587,6 +1774,13 @@ export const startCodexSession = (
         }
         case "mcpServer/elicitation/request": {
           const p = request.params;
+          if (MANAGED_MCP_SERVER_NAMES.has(p.serverName)) {
+            return {
+              action: "accept",
+              content: null,
+              _meta: null,
+            };
+          }
           const itemId = nextItemId();
           const answers = await new Promise<ReadonlyArray<UserQuestionAnswer>>(
             (resolve) => {
@@ -1667,6 +1861,10 @@ export const startCodexSession = (
           if (orchestrationMcpBridge !== null) {
             void orchestrationMcpBridge.close();
           }
+          if (browserMcpBridge !== null) {
+            void browserMcpBridge.close();
+          }
+          void mcpGatewaySession.close();
           app.close();
           void Effect.runPromise(events.end);
         }),

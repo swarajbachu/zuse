@@ -23,13 +23,13 @@ into every worktree. Public schemas are served from
 
 ## Self-Orchestration
 
-When a Zuse-managed chat has autonomy enabled, Zuse exposes a provider-neutral
-MCP server named \`zuse-orchestration\`. Use these tools for agent-controlled
-parallel work instead of provider-specific built-ins:
+Zuse-managed chats expose a provider-neutral MCP server named
+\`zuse-orchestration\`. Use these tools for agent-controlled parallel work
+instead of provider-specific built-ins:
 
 **Workspaces vs chat threads.** Zuse's model is project → workspaces (git worktrees) → sidebar chats → session tabs. One sidebar chat can host many session tabs; \`worktreeId: null\` means the project's main checkout. \`create_thread\` spawns isolated work by creating a new workspace (worktree + branch) and a sidebar chat with an initial session inside it. \`create_session\` opens another tab in an existing sidebar chat — your own current chat by default. Use \`whoami\` / \`list_threads\` (both return \`chatId\` and \`worktreeId\`) to see the topology before spawning.
 
-- \`whoami\`: inspect the current Zuse session, chat, project, provider, model, and autonomy level.
+- \`whoami\`: inspect the current Zuse session, chat, project, provider, model, and orchestration mode.
 - \`list_threads\`: list sibling and spawned Zuse chat threads.
 - \`list_models\`: list provider/model choices for \`create_thread\` and \`create_session\`.
 - \`read_thread\`: read recent messages from a Zuse thread.
@@ -48,8 +48,8 @@ expected smoke flow is:
 5. Call \`create_session\` when you want another tab in an existing sidebar chat.
 6. Call \`read_thread\` to inspect the spawned thread.
 
-If \`zuse-orchestration\` is not available, report that autonomy tools are not
-registered for this session instead of silently using another provider feature.
+If \`zuse-orchestration\` is not available, report that orchestration tools are
+not registered for this session instead of silently using another provider feature.
 `;
 
 const assetCandidates = (): string[] => {

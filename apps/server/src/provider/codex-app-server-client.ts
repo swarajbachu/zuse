@@ -64,14 +64,15 @@ export class CodexAppServerClient {
 
   static async start(options: {
     readonly codexPath: string | null;
+    readonly env?: NodeJS.ProcessEnv;
     readonly onNotification: NotificationHandler;
     readonly onServerRequest: ServerRequestHandler;
   }): Promise<CodexAppServerClient> {
-    const child = spawn(options.codexPath ?? "codex", [
-      "app-server",
-      "--listen",
-      "stdio://",
-    ]);
+    const child = spawn(
+      options.codexPath ?? "codex",
+      ["app-server", "--listen", "stdio://"],
+      options.env === undefined ? undefined : { env: options.env },
+    );
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
 
@@ -118,7 +119,9 @@ export class CodexAppServerClient {
 
     const init = await bootstrap.request<InitializeResponse>("initialize", {
       clientInfo: { name: "zuse", version: "0.0.0" },
-      capabilities: null,
+      capabilities: {
+        experimentalApi: true,
+      },
     });
     bootstrap.initializeResponse = init;
     return bootstrap;

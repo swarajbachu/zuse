@@ -4,17 +4,12 @@ import { createServer, type Server } from "node:http";
 import { basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type {
-  PermissionDecision,
-  PermissionKind,
-  PermissionMode,
-  RuntimeMode,
-} from "@zuse/wire";
+import type { PermissionDecision, PermissionKind, PermissionMode, RuntimeMode } from "@zuse/wire";
 
 import {
   callOrchestrationTool,
+  ensureOrchestrationPermission,
   isOrchestrationToolName,
-  MUTATING_ORCHESTRATION_TOOLS,
   ORCHESTRATION_MCP_SERVER_NAME,
   ORCHESTRATION_MCP_TOOLS,
   type OrchestrationMcpToolResult,
@@ -28,11 +23,7 @@ const text = (value: string, isError = false): OrchestrationMcpToolResult => ({
   ...(isError ? { isError: true } : {}),
 });
 
-const asString = (
-  args: JsonObject,
-  key: string,
-  required = false,
-): string | undefined => {
+const asString = (args: JsonObject, key: string, required = false): string | undefined => {
   const value = args[key];
   if (typeof value === "string" && value.length > 0) return value;
   if (required) throw new Error(`Missing ${key}.`);
@@ -54,19 +45,6 @@ const readBody = async (req: import("node:http").IncomingMessage) =>
     req.on("error", reject);
   });
 
-const permissionSummary = (name: string, args: JsonObject): string => {
-  switch (name) {
-    case "create_thread":
-      return `Create isolated Zuse thread "${asString(args, "title") ?? "untitled"}"`;
-    case "create_session":
-      return `Create Zuse session tab "${asString(args, "title") ?? "untitled"}"`;
-    case "send_to_thread":
-      return `Send a message to Zuse session ${asString(args, "sessionId") ?? ""}`;
-    default:
-      return name;
-  }
-};
-
 export interface OrchestrationMcpBridgeOptions {
   readonly deps: OrchestrationToolDeps;
   readonly command: string;
@@ -77,30 +55,6 @@ export interface OrchestrationMcpBridgeOptions {
   readonly getRuntimeMode: () => RuntimeMode;
   readonly getPermissionMode: () => PermissionMode;
 }
-
-const ensureOrchestrationPermission = async (
-  name: string,
-  args: JsonObject,
-  opts: OrchestrationMcpBridgeOptions,
-): Promise<void> => {
-  if (!isOrchestrationToolName(name)) throw new Error(`Unknown tool: ${name}`);
-  if (!MUTATING_ORCHESTRATION_TOOLS.has(name)) return;
-
-  const forcePrompt = opts.getPermissionMode() === "plan";
-  if (!forcePrompt && opts.getRuntimeMode() === "full-access") return;
-
-  const decision = await opts.requestPermission(
-    {
-      _tag: "Other",
-      tool: name,
-      summary: permissionSummary(name, args),
-    },
-    { forcePrompt },
-  );
-  if (decision._tag === "Deny") {
-    throw new Error(`Permission denied for ${name}.`);
-  }
-};
 
 const handleOrchestrationTool = async (
   name: string,
