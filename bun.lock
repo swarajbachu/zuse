@@ -19,7 +19,6 @@
       "name": "desktop",
       "version": "0.11.0",
       "dependencies": {
-        "@zuse/ssh": "*",
         "better-sqlite3": "^12.9.0",
         "electron-updater": "^6.3.9",
         "keytar": "^7.9.0",
@@ -35,6 +34,7 @@
         "@repo/typescript-config": "*",
         "@types/node": "catalog:",
         "@zuse/server": "*",
+        "@zuse/ssh": "*",
         "@zuse/wire": "*",
         "effect": "catalog:",
         "electron": "^33.2.0",
