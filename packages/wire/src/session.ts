@@ -159,8 +159,21 @@ export const MessageRole = Schema.Literal(
 );
 export type MessageRole = typeof MessageRole.Type;
 
+/**
+ * Attribution for a user-role message injected by ANOTHER agent (via the
+ * zuse-orchestration create_thread / send_to_thread tools) rather than typed
+ * by the human. Additive + optional: old rows decode without it.
+ */
+export const MessageOrigin = Schema.Struct({
+  chatId: ChatId,
+  sessionId: SessionId,
+  providerId: ProviderId,
+});
+export type MessageOrigin = typeof MessageOrigin.Type;
+
 const UserContent = Schema.TaggedStruct("user", {
   text: Schema.String,
+  origin: Schema.optional(MessageOrigin),
   goal: Schema.optional(Schema.Boolean),
 });
 
@@ -180,6 +193,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
     default: () => [],
   }),
+  origin: Schema.optional(MessageOrigin),
   goal: Schema.optional(Schema.Boolean),
 });
 

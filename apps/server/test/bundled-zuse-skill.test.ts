@@ -36,7 +36,9 @@ describe("bundled Zuse skill installer", () => {
       const installedCodexSkill = readFileSync(codexPath!, "utf8");
       expect(installedClaudeSkill).toContain("name: zuse");
       expect(installedClaudeSkill).toContain("zuse-orchestration");
+      expect(installedClaudeSkill).toContain("Workspaces vs chat threads");
       expect(installedClaudeSkill).toContain("whoami");
+      expect(installedClaudeSkill).toContain("list_models");
       expect(installedClaudeSkill).toContain("create_thread");
       expect(installedCodexSkill).toContain("zuse-orchestration");
       expect(installedCodexSkill).toContain("Do not substitute");

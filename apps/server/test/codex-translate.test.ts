@@ -182,6 +182,23 @@ describe("translateCodexItem", () => {
     expect(ev.tool).toBe("mcp__zuse__browser_screenshot");
   });
 
+  it("keeps the orchestration server hyphen in mcpToolCall names", () => {
+    const item: ThreadItem = {
+      type: "mcpToolCall",
+      id: "mcp-orch",
+      server: "zuse-orchestration",
+      tool: "create_thread",
+      status: "inProgress",
+      arguments: {},
+      result: null,
+      error: null,
+      durationMs: null,
+    };
+
+    const ev = only(translateCodexItem(item, "started"), "ToolUse");
+    expect(ev.tool).toBe("mcp__zuse-orchestration__create_thread");
+  });
+
   it("renders context compaction as a compact event with token counts", () => {
     const item: ThreadItem = { type: "contextCompaction", id: "compact1" };
 

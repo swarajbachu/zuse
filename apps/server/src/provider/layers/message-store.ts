@@ -16,6 +16,9 @@ import {
   Message,
   MessageEnvelope,
   MessageId,
+  MODELS_BY_PROVIDER,
+  defaultModelFor,
+  visibleModelsForProvider,
   type PermissionMode,
   SessionAlreadyStartedError,
   type AgentDefinition,
@@ -30,6 +33,7 @@ import {
   GoalUnsupportedError,
   type MessageContent,
   type MessageId as MessageIdType,
+  type MessageOrigin,
   type MessageRole,
   type ProviderId,
   QueueState,
@@ -715,6 +719,9 @@ const serializeAnnotations = (
     .filter((section) => section.length > 0)
     .join("\n\n");
 };
+
+const originPromptPreamble = (origin: MessageOrigin): string =>
+  `[Zuse: this message was sent by another agent (provider "${origin.providerId}", session ${origin.sessionId}) from a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]`;
 
 const formatProviderFailure = (cause: unknown): string => {
   if (cause instanceof Error) return cause.message;
@@ -1626,16 +1633,17 @@ export const MessageStoreLive = Layer.scoped(
       readonly sessionId: SessionId;
       readonly chatId: ChatId;
       readonly projectId: FolderId;
+      readonly worktreeId: WorktreeId | null;
       readonly providerId: ProviderId;
       readonly model: string;
     }): Effect.Effect<OrchestrationSessionTools | null> =>
       Effect.gen(function* () {
         // Fail closed: if settings can't be read, register no control-plane
         // tools (autonomy = off) rather than dying the whole session boot.
-        const level: AutonomyLevel = yield* configStore.getSettings().pipe(
-          Effect.map((settings) => settings.defaultAutonomyLevel),
-          Effect.catchAllCause(() => Effect.succeed<AutonomyLevel>("off")),
-        );
+        const settings = yield* configStore
+          .getSettings()
+          .pipe(Effect.catchAllCause(() => Effect.succeed(null)));
+        const level: AutonomyLevel = settings?.defaultAutonomyLevel ?? "off";
         if (!autonomyEnablesOrchestration(level)) return null;
         const run = Runtime.runPromise(runtime);
         const deps: OrchestrationToolDeps = {
@@ -1656,14 +1664,20 @@ export const MessageStoreLive = Layer.scoped(
                 ),
               ),
             ),
-          createThread: (input) =>
-            run(
+          createThread: (input) => {
+            const providerId =
+              (input.providerId as ProviderId | undefined) ?? ctx.providerId;
+            const model =
+              input.model ??
+              (providerId === ctx.providerId
+                ? ctx.model
+                : (settings?.defaultModelByProvider[providerId] ??
+                  defaultModelFor(providerId)));
+            return run(
               createChat({
                 projectId: ctx.projectId,
-                providerId:
-                  (input.providerId as ProviderId | undefined) ??
-                  ctx.providerId,
-                model: input.model ?? ctx.model,
+                providerId,
+                model,
                 title: input.title,
                 initialPrompt: input.prompt,
                 worktreeId:
@@ -1685,11 +1699,33 @@ export const MessageStoreLive = Layer.scoped(
                   }),
                 ),
               ),
-            ),
+            );
+          },
           sendToThread: (input) =>
             run(
-              sendMessage(input.sessionId as SessionId, input.text).pipe(
-                Effect.map(() => ({ ok: true as const, queued: false })),
+              Effect.gen(function* () {
+                const target = yield* getSession(input.sessionId as SessionId);
+                yield* sendMessage(
+                  input.sessionId as SessionId,
+                  input.text,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  {
+                    chatId: ctx.chatId,
+                    sessionId: ctx.sessionId,
+                    providerId: ctx.providerId,
+                  },
+                );
+                return {
+                  ok: true as const,
+                  queued: false,
+                  chatId: target.chatId as string,
+                };
+              }).pipe(
                 Effect.catchAll((err) =>
                   Effect.succeed({
                     ok: false as const,
@@ -1738,6 +1774,8 @@ export const MessageStoreLive = Layer.scoped(
                   chatId: c.id as string,
                   sessionId: (c.activeSessionId ?? "") as string,
                   title: c.title,
+                  worktreeId:
+                    c.worktreeId === null ? null : (c.worktreeId as string),
                   status:
                     c.activeSessionId !== null
                       ? (statusBySession.get(c.activeSessionId as string) ??
@@ -1755,11 +1793,53 @@ export const MessageStoreLive = Layer.scoped(
                 ),
               ),
             ),
+          listModels: (input) =>
+            Promise.resolve().then(() => {
+              const allProviderIds = Object.keys(
+                MODELS_BY_PROVIDER,
+              ) as ProviderId[];
+              const providerIds =
+                input.providerId !== undefined
+                  ? allProviderIds.includes(input.providerId as ProviderId)
+                    ? [input.providerId as ProviderId]
+                    : []
+                  : allProviderIds;
+              if (input.providerId !== undefined && providerIds.length === 0) {
+                return {
+                  ok: false as const,
+                  error: `Unknown providerId: ${input.providerId}`,
+                };
+              }
+              const providers = providerIds.map((providerId) => {
+                const defaultModel =
+                  settings?.defaultModelByProvider[providerId] ??
+                  defaultModelFor(providerId);
+                const models = visibleModelsForProvider(
+                  providerId,
+                  settings?.modelEnabledByProvider,
+                  { includeModelId: defaultModel },
+                ).map((model) => ({
+                  id: model.id,
+                  label: model.label,
+                  defaultModel: model.id === defaultModel,
+                }));
+                return {
+                  providerId,
+                  defaultModel,
+                  models,
+                };
+              });
+              return { ok: true as const, providers };
+            }),
           whoami: () =>
             Promise.resolve({
               sessionId: ctx.sessionId as string,
               chatId: ctx.chatId as string,
               projectId: ctx.projectId as string,
+              worktreeId:
+                ctx.worktreeId === null ? null : (ctx.worktreeId as string),
+              providerId: ctx.providerId as string,
+              model: ctx.model,
               autonomyLevel: level,
             }),
         };
@@ -1811,6 +1891,7 @@ export const MessageStoreLive = Layer.scoped(
           sessionId,
           chatId: input.chatId,
           projectId,
+          worktreeId,
           providerId: input.providerId,
           model: input.model,
         });
@@ -1837,6 +1918,31 @@ export const MessageStoreLive = Layer.scoped(
         const hasInitial =
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
+        // Lineage: when this chat was spawned by another agent (create_thread
+        // sets chats.origin_session_id), stamp the initial user message with
+        // the origin so the renderer can attribute + link it. Skip silently
+        // if the origin session row is gone.
+        let origin: MessageOrigin | undefined = undefined;
+        if (hasInitial && chatRow.origin_session_id !== null) {
+          const originRows = yield* sql<{
+            readonly chat_id: string;
+            readonly provider_id: string;
+          }>`
+            SELECT chat_id, provider_id FROM sessions WHERE id = ${chatRow.origin_session_id}
+          `.pipe(Effect.orDie);
+          const originRow = originRows[0];
+          if (originRow !== undefined) {
+            origin = {
+              chatId: originRow.chat_id as ChatId,
+              sessionId: chatRow.origin_session_id as SessionId,
+              providerId: originRow.provider_id as ProviderId,
+            };
+          }
+        }
+        const promptForProvider =
+          origin !== undefined && input.initialPrompt !== undefined
+            ? `[Zuse: this task was assigned by an orchestrating agent (provider "${origin.providerId}", session ${origin.sessionId}) in a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]\n\n${input.initialPrompt}`
+            : input.initialPrompt;
         const background = input.background === true;
         const resumeCursor = input.resumeCursor ?? null;
         const resumeStrategy: ResumeStrategy =
@@ -1881,6 +1987,7 @@ export const MessageStoreLive = Layer.scoped(
               _tag: "user",
               text: input.initialPrompt!,
               goal: false,
+              ...(origin !== undefined ? { origin } : {}),
             });
           }
           // Detach the boot so the RPC reply happens immediately. The status
@@ -1895,7 +2002,7 @@ export const MessageStoreLive = Layer.scoped(
                   providerId: input.providerId,
                   mode: "sdk",
                   sessionId,
-                  initialPrompt: input.initialPrompt,
+                  initialPrompt: promptForProvider,
                   model: input.model,
                   agents: input.agents,
                   enableSubagents: effectiveEnableSubagents,
@@ -1969,7 +2076,7 @@ export const MessageStoreLive = Layer.scoped(
               providerId: input.providerId,
               mode: "sdk",
               sessionId,
-              initialPrompt: input.initialPrompt,
+              initialPrompt: promptForProvider,
               model: input.model,
               agents: input.agents,
               enableSubagents: effectiveEnableSubagents,
@@ -2020,6 +2127,7 @@ export const MessageStoreLive = Layer.scoped(
             _tag: "user",
             text: input.initialPrompt!,
             goal: false,
+            ...(origin !== undefined ? { origin } : {}),
           });
         }
         yield* startSubscription(sessionId);
@@ -3298,6 +3406,7 @@ export const MessageStoreLive = Layer.scoped(
         sessionId: session.id,
         chatId: session.chatId,
         projectId: session.projectId,
+        worktreeId: session.worktreeId,
         providerId: session.providerId,
         model: session.model,
       }).pipe(
@@ -3382,6 +3491,7 @@ export const MessageStoreLive = Layer.scoped(
           sessionId: session.id,
           chatId: session.chatId,
           projectId: session.projectId,
+          worktreeId: session.worktreeId,
           providerId: session.providerId,
           model: session.model,
         });
@@ -3430,6 +3540,7 @@ export const MessageStoreLive = Layer.scoped(
       annotations?: ReadonlyArray<ComposerAnnotation>,
       asGoal?: boolean,
       clientMessageId?: MessageId,
+      origin?: MessageOrigin,
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
@@ -3467,19 +3578,31 @@ export const MessageStoreLive = Layer.scoped(
               fileRefs: fileRefs ?? [],
               skillRefs: skillRefs ?? [],
               annotations: annotationList,
+              ...(origin !== undefined ? { origin } : {}),
               goal: asGoal === true,
             }
-          : { _tag: "user", text, goal: asGoal === true };
+          : {
+              _tag: "user",
+              text,
+              ...(origin !== undefined ? { origin } : {}),
+              goal: asGoal === true,
+            };
         // Annotations have no native CLI token (unlike `@file` / `/skill`),
         // so the only place the model ever sees them is the prompt text.
         // Serialise them into a numbered list here — the single injection
         // point before `provider.send`, so every driver benefits. The
         // persisted `text` above stays clean; the structured `annotations`
         // array drives the rendered bubble.
-        const sendText =
+        const sendText = [
+          origin !== undefined ? originPromptPreamble(origin) : null,
           annotationList.length > 0
-            ? `${serializeAnnotations(annotationList)}\n\n${text}`.trim()
-            : text;
+            ? serializeAnnotations(annotationList)
+            : null,
+          text,
+        ]
+          .filter((part): part is string => part !== null && part.length > 0)
+          .join("\n\n")
+          .trim();
         const persisted = yield* persistMessage(
           sessionId,
           content,
@@ -3674,6 +3797,7 @@ export const MessageStoreLive = Layer.scoped(
       annotations,
       asGoal,
       clientMessageId,
+      origin,
     ) =>
       Effect.gen(function* () {
         yield* submitUserMessage(
@@ -3685,6 +3809,7 @@ export const MessageStoreLive = Layer.scoped(
           annotations,
           asGoal,
           clientMessageId,
+          origin,
         );
       });
 

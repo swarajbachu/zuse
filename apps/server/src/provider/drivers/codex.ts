@@ -238,7 +238,9 @@ const normalizeMcpServerName = (server: string): string =>
   server === "memoize" ? "zuse" : server;
 
 const toMcpToolName = (server: string, tool: string): string =>
-  `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
+  server === ORCHESTRATION_MCP_SERVER_NAME
+    ? `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__${toolIdentifierPart(tool)}`
+    : `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
 
 const dynamicToolName = (namespace: string | null, tool: string): string =>
   namespace !== null ? `${namespace}.${tool}` : tool;

@@ -24,6 +24,7 @@ import type {
   MessageContent,
   MessageEnvelope,
   MessageId,
+  MessageOrigin,
   PermissionMode,
   ProviderId,
   QueueState,
@@ -454,6 +455,7 @@ export interface MessageStoreShape {
     annotations?: ReadonlyArray<ComposerAnnotation>,
     asGoal?: boolean,
     clientMessageId?: MessageId,
+    origin?: MessageOrigin,
   ) => Effect.Effect<void, SessionNotFoundError>;
 
   readonly interruptSession: (

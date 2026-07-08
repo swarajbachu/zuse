@@ -21,6 +21,7 @@ import { join } from "node:path";
 import type {
   AgentEvent,
   AgentSessionId,
+  AutonomyLevel,
   FolderId,
   SessionId,
   StartSessionInput,
@@ -31,6 +32,7 @@ import {
   MessageId,
   RepositorySettings,
   Worktree,
+  defaultModelFor,
 } from "@zuse/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
@@ -65,6 +67,7 @@ import { RepositorySettingsService } from "../src/repository-settings/services/r
 import { GitService } from "../src/git/services/git-service.ts";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
+import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
@@ -80,14 +83,19 @@ let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 let providerSentTexts: string[] = [];
+let providerStartOrchestrationTools: Array<
+  OrchestrationSessionTools | null | undefined
+> = [];
+let testAutonomyLevel: AutonomyLevel = "off";
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
-  start: (input, resumeCursor) =>
+  start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
     Effect.sync(() => {
       providerStartInputs.push(input);
       providerStartCursors.push(resumeCursor);
+      providerStartOrchestrationTools.push(orchestrationTools);
       return {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
@@ -161,11 +169,19 @@ const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
   generate: () => Effect.die("not used"),
 });
 
-// The autonomy gate reads settings on every createSession, but it fails
-// closed (autonomy `off` → no control-plane tools) if the read errors, so
-// these persistence tests can leave `getSettings` unimplemented.
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
-  getSettings: () => Effect.die("not used"),
+  getSettings: () =>
+    Effect.succeed({
+      defaultAutonomyLevel: testAutonomyLevel,
+      defaultModelByProvider: {
+        claude: defaultModelFor("claude"),
+        codex: defaultModelFor("codex"),
+        grok: defaultModelFor("grok"),
+        cursor: defaultModelFor("cursor"),
+        gemini: defaultModelFor("gemini"),
+        opencode: defaultModelFor("opencode"),
+      },
+    } as never),
   updateSettings: () => Effect.die("not used"),
   settingsChanges: () => Stream.die("not used"),
   migrateLocalStorage: () => Effect.die("not used"),
@@ -325,6 +341,8 @@ beforeEach(() => {
   providerStartInputs = [];
   providerStartCursors = [];
   providerSentTexts = [];
+  providerStartOrchestrationTools = [];
+  testAutonomyLevel = "off";
 });
 
 describe("MessageStore migrations", () => {
@@ -423,6 +441,89 @@ describe("MessageStore — chat & session lifecycle", () => {
         text: "fix the bug",
       });
       expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+    });
+  });
+
+  it("createChat stamps origin + prefixes the provider prompt for spawned chats", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const parent = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          });
+          const child = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "do the spawned task",
+            originSessionId: parent.initialSession.id,
+          });
+          return { parent, child };
+        }),
+      );
+
+      expect(result.child.initialMessage?.content).toMatchObject({
+        _tag: "user",
+        text: "do the spawned task",
+        origin: {
+          chatId: result.parent.chat.id,
+          sessionId: result.parent.initialSession.id,
+          providerId: "claude",
+        },
+      });
+      expect(
+        providerStartInputs
+          .at(-1)
+          ?.initialPrompt?.startsWith("[Zuse: this task was assigned"),
+      ).toBe(true);
+    });
+  });
+
+  it("create_thread uses the target provider default model when providerId changes", async () => {
+    testAutonomyLevel = "approval-gated";
+    await withRuntime(async (run) => {
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const tools = providerStartOrchestrationTools.at(-1);
+      expect(tools).not.toBeNull();
+      expect(tools).not.toBeUndefined();
+
+      const models = await tools!.deps.listModels({ providerId: "codex" });
+      expect(models.ok).toBe(true);
+      if (!models.ok) return;
+      expect(models.providers).toHaveLength(1);
+      expect(models.providers[0]?.providerId).toBe("codex");
+      expect(models.providers[0]?.models.map((m) => m.id)).toContain(
+        defaultModelFor("codex"),
+      );
+
+      const created = await tools!.deps.createThread({
+        title: "Codex greeting",
+        prompt: "Say hi!",
+        providerId: "codex",
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+
+      const child = await run(
+        Effect.flatMap(store, (s) =>
+          s.getSession(created.sessionId as SessionId),
+        ),
+      );
+      expect(child.providerId).toBe("codex");
+      expect(child.model).toBe(defaultModelFor("codex"));
+      expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
+      expect(providerStartInputs.at(-1)?.model).toBe(defaultModelFor("codex"));
     });
   });
 
@@ -699,6 +800,55 @@ describe("MessageStore — chat & session lifecycle", () => {
         _tag: "user",
         text: "hello there",
       });
+    });
+  });
+
+  it("sendMessage with origin persists origin and prefixes only the provider text", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession, chat } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const origin = {
+        chatId: chat.id,
+        sessionId: initialSession.id,
+        providerId: "claude" as const,
+      };
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            initialSession.id,
+            "do the thing",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            origin,
+          ),
+        ),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+      );
+      expect(messages.at(-1)?.content).toMatchObject({
+        _tag: "user",
+        text: "do the thing",
+        origin,
+      });
+      const sent = providerSentTexts.at(-1) ?? "";
+      expect(
+        sent.startsWith("[Zuse: this message was sent by another agent"),
+      ).toBe(true);
+      expect(sent.endsWith("do the thing")).toBe(true);
     });
   });
 

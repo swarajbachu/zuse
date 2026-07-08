@@ -19,14 +19,20 @@ import type {
   ComposerAnnotation,
   FileRef,
   Message,
+  MessageOrigin,
   ProviderId,
   SessionId,
   SkillRef,
 } from "@zuse/wire";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
+import {
+  orchestrationToolName,
+  parseOrchestrationResult,
+} from "~/lib/orchestration-tools";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
+import { useChatsStore } from "~/store/chats";
 import {
   classifyMessage,
   lookupSessionProvider,
@@ -40,6 +46,7 @@ import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+import { ProviderIcon } from "./provider-icons.tsx";
 
 const isBrowserAnnotation = (
   annotation: ComposerAnnotation,
@@ -62,6 +69,7 @@ const browserAnnotationMeta = (annotation: BrowserAnnotation): string => {
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   ExitPlanModeRow,
+  OrchestrationThreadRow,
   ThinkingRow,
   ToolRow,
   UserInputRow,
@@ -142,7 +150,11 @@ function MessageRowImpl({
   switch (message.content._tag) {
     case "user":
       return (
-        <UserBubble text={message.content.text} goal={message.content.goal} />
+        <UserBubble
+          text={message.content.text}
+          origin={message.content.origin}
+          goal={message.content.goal}
+        />
       );
     case "user_rich":
       return (
@@ -152,6 +164,7 @@ function MessageRowImpl({
           fileRefs={message.content.fileRefs}
           skillRefs={message.content.skillRefs}
           annotations={message.content.annotations}
+          origin={message.content.origin}
           goal={message.content.goal}
         />
       );
@@ -233,6 +246,17 @@ function ToolUseMessageRow({
   const result = resultsByItemId.get(content.itemId);
   if (content.tool === "ExitPlanMode") {
     return <ExitPlanModeRow input={content.input} result={result} />;
+  }
+  const orch = orchestrationToolName(content.tool);
+  if (orch === "create_thread" || orch === "send_to_thread") {
+    const parsed =
+      result !== undefined ? parseOrchestrationResult(result.output) : null;
+    const renderCard =
+      result === undefined ||
+      (!result.isError && parsed !== null && typeof parsed.chatId === "string");
+    if (renderCard) {
+      return <OrchestrationThreadRow variant={orch} result={result} />;
+    }
   }
   return <ToolRow tool={content.tool} input={content.input} result={result} />;
 }
@@ -356,6 +380,7 @@ function UserBubble({
   fileRefs,
   skillRefs,
   annotations,
+  origin,
   goal = false,
 }: {
   text: string;
@@ -363,10 +388,18 @@ function UserBubble({
   fileRefs?: ReadonlyArray<FileRef>;
   skillRefs?: ReadonlyArray<SkillRef>;
   annotations?: ReadonlyArray<ComposerAnnotation>;
+  origin?: MessageOrigin;
   goal?: boolean;
 }) {
   const hasAnnotations = annotations !== undefined && annotations.length > 0;
   const revealAnnotation = useRevealAnnotation();
+  const originChatLoaded = useChatsStore((s) =>
+    origin === undefined
+      ? false
+      : Object.values(s.chatsByProject).some((list) =>
+          list.some((c) => c.id === origin.chatId),
+        ),
+  );
   const hasChips =
     (attachments !== undefined && attachments.length > 0) ||
     (fileRefs !== undefined && fileRefs.length > 0) ||
@@ -387,6 +420,25 @@ function UserBubble({
           label="Copy message"
           className="absolute right-2 top-1.5 size-5 text-user-bubble-foreground/50 opacity-60 hover:bg-background/10 hover:text-user-bubble-foreground hover:opacity-100 focus-visible:opacity-100"
         />
+        {origin !== undefined ? (
+          <button
+            type="button"
+            disabled={!originChatLoaded}
+            onClick={() => useChatsStore.getState().select(origin.chatId)}
+            className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
+            title={
+              originChatLoaded
+                ? "Open the sender's chat"
+                : "Sender chat not loaded"
+            }
+          >
+            <ProviderIcon providerId={origin.providerId} className="size-3" />
+            <span>
+              Sent by {PROVIDER_LABEL_FOR_ERROR[origin.providerId]} from another
+              chat
+            </span>
+          </button>
+        ) : null}
         {hasAnnotations ? (
           <ol className="mb-2 space-y-1">
             {(annotations ?? []).map((a, i) => (
