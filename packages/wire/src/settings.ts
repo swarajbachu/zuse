@@ -78,7 +78,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   defaultAutoCreateWorktree: Schema.Boolean,
   /**
    * Default autonomy level for new sessions — gates whether the in-process
-   * control-plane tools (create_thread / create_chat / …) are registered
+   * control-plane tools (create_thread / create_session / …) are registered
    * so an agent can spawn and drive its own threads. Defaults to `"off"`;
    * see {@link AutonomyLevel}.
    */

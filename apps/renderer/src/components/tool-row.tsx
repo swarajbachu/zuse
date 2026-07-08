@@ -20,11 +20,17 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import type { ChatId, UserQuestion, UserQuestionAnswer } from "@zuse/wire";
+import type {
+  ChatId,
+  SessionId,
+  UserQuestion,
+  UserQuestionAnswer,
+} from "@zuse/wire";
 
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
+import { useSessionsStore } from "~/store/sessions";
 
 import { Button } from "./ui/button.tsx";
 import { CodeBlock } from "./code-block.tsx";
@@ -1309,12 +1315,17 @@ export function OrchestrationThreadRow({
   variant,
   result,
 }: {
-  variant: "create_thread" | "create_chat" | "send_to_thread";
+  variant:
+    | "create_thread"
+    | "create_chat"
+    | "create_session"
+    | "send_to_thread";
   result?: ToolResult;
 }) {
   const parsed =
     result !== undefined ? parseOrchestrationResult(result.output) : null;
   const chatId = parsed?.chatId;
+  const sessionId = parsed?.sessionId;
   const chatLoaded = useChatsStore((s) =>
     chatId !== undefined
       ? Object.values(s.chatsByProject).some((list) =>
@@ -1331,8 +1342,8 @@ export function OrchestrationThreadRow({
           <span>
             {variant === "send_to_thread"
               ? "Sending to thread..."
-              : variant === "create_thread"
-                ? "Creating chat..."
+              : variant === "create_session"
+                ? "Creating session tab..."
                 : "Creating chat..."}
           </span>
         </div>
@@ -1341,10 +1352,17 @@ export function OrchestrationThreadRow({
   }
 
   const label =
-    variant === "send_to_thread" ? "Message sent to thread" : "Chat created";
+    variant === "send_to_thread"
+      ? "Message sent to thread"
+      : variant === "create_session"
+        ? "Session tab created"
+        : "Chat created";
   const openChat = () => {
     if (chatId !== undefined && chatLoaded) {
       useChatsStore.getState().select(chatId as ChatId);
+    }
+    if (sessionId !== undefined) {
+      useSessionsStore.getState().select(sessionId as SessionId);
     }
   };
 

@@ -25,6 +25,15 @@ describe("orchestration tool helpers", () => {
     expect(orchestrationToolName("mcp__zuse_orchestration__create_chat")).toBe(
       "create_chat",
     );
+    expect(
+      orchestrationToolName("mcp__zuse-orchestration__create_session"),
+    ).toBe("create_session");
+    expect(
+      orchestrationToolName("mcp__zuse_orchestration__create_session"),
+    ).toBe("create_session");
+    expect(orchestrationToolName("Zuse Orchestration Create Session")).toBe(
+      "create_session",
+    );
     expect(orchestrationToolName("Bash")).toBeNull();
     expect(orchestrationToolName("mcp__zuse__browser_navigate")).toBeNull();
   });

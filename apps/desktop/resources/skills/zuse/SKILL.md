@@ -78,14 +78,14 @@ When a Zuse-managed chat has autonomy enabled, Zuse exposes a provider-neutral
 MCP server named `zuse-orchestration`. Use these tools for agent-controlled
 parallel work instead of provider-specific built-ins:
 
-**Workspaces vs chat threads.** Zuse's model is project → workspaces (git worktrees) → chat threads. One workspace can host many chat threads; `worktreeId: null` means the project's main checkout. `create_thread` spawns isolated work by creating a new workspace (worktree + branch) and a chat inside it. `create_chat` opens another chat in an existing workspace — your own current workspace by default. Use `whoami` / `list_threads` (both return `worktreeId`) to see the topology before spawning.
+**Workspaces vs chat threads.** Zuse's model is project → workspaces (git worktrees) → sidebar chats → session tabs. One sidebar chat can host many session tabs; `worktreeId: null` means the project's main checkout. `create_thread` spawns isolated work by creating a new workspace (worktree + branch) and a sidebar chat with an initial session inside it. `create_session` opens another tab in an existing sidebar chat — your own current chat by default. Use `whoami` / `list_threads` (both return `chatId` and `worktreeId`) to see the topology before spawning.
 
 - `whoami`: inspect the current Zuse session, chat, project, provider, model, and autonomy level.
 - `list_threads`: list sibling and spawned Zuse chat threads.
-- `list_models`: list provider/model choices for `create_thread`.
+- `list_models`: list provider/model choices for `create_thread` and `create_session`.
 - `read_thread`: read recent messages from a Zuse thread.
 - `create_thread`: spawn isolated work by creating a new Zuse workspace (worktree + branch) and a chat inside it.
-- `create_chat`: open another chat in an existing workspace — your own by default.
+- `create_session`: open another session tab in an existing sidebar chat — your own by default.
 - `send_to_thread`: send follow-up instructions to an existing thread.
 
 Do not substitute Claude `Agent`, Codex workers/explorers, Grok collaboration
@@ -96,7 +96,7 @@ expected smoke flow is:
 2. Call `list_threads`.
 3. Call `list_models` when you need to pick a provider/model.
 4. Call `create_thread` when isolated implementation needs a new workspace/branch.
-5. Call `create_chat` when you want another chat in an existing workspace.
+5. Call `create_session` when you want another tab in an existing sidebar chat.
 6. Call `read_thread` to inspect the spawned thread.
 
 If `zuse-orchestration` is not available, report that autonomy tools are not

@@ -251,6 +251,7 @@ function ToolUseMessageRow({
   if (
     orch === "create_thread" ||
     orch === "create_chat" ||
+    orch === "create_session" ||
     orch === "send_to_thread"
   ) {
     const parsed =

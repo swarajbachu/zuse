@@ -14,7 +14,7 @@ describe("orchestration MCP tools", () => {
     expect(ORCHESTRATION_MCP_SERVER_NAME).toBe("zuse-orchestration");
     expect(ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name)).toEqual([
       "create_thread",
-      "create_chat",
+      "create_session",
       "send_to_thread",
       "read_thread",
       "list_threads",
@@ -31,7 +31,7 @@ describe("orchestration MCP tools", () => {
       "whoami",
     ]);
     expect([...MUTATING_ORCHESTRATION_TOOLS].sort()).toEqual([
-      "create_chat",
+      "create_session",
       "create_thread",
       "send_to_thread",
     ]);
@@ -41,14 +41,14 @@ describe("orchestration MCP tools", () => {
     const createThread = ORCHESTRATION_MCP_TOOLS.find(
       (tool) => tool.name === "create_thread",
     );
-    const createChat = ORCHESTRATION_MCP_TOOLS.find(
-      (tool) => tool.name === "create_chat",
+    const createSession = ORCHESTRATION_MCP_TOOLS.find(
+      (tool) => tool.name === "create_session",
     );
     const sendToThread = ORCHESTRATION_MCP_TOOLS.find(
       (tool) => tool.name === "send_to_thread",
     );
     expect(createThread?.inputSchema.required).toEqual(["task"]);
-    expect(createChat?.inputSchema.required).toEqual(["task"]);
+    expect(createSession?.inputSchema.required).toEqual(["task"]);
     expect(sendToThread?.inputSchema.required).toEqual(["sessionId", "text"]);
   });
 
@@ -65,8 +65,8 @@ describe("orchestration MCP tools", () => {
     const createThread = ORCHESTRATION_MCP_TOOLS.find(
       (tool) => tool.name === "create_thread",
     );
-    const createChat = ORCHESTRATION_MCP_TOOLS.find(
-      (tool) => tool.name === "create_chat",
+    const createSession = ORCHESTRATION_MCP_TOOLS.find(
+      (tool) => tool.name === "create_session",
     );
     const sendToThread = ORCHESTRATION_MCP_TOOLS.find(
       (tool) => tool.name === "send_to_thread",
@@ -78,9 +78,11 @@ describe("orchestration MCP tools", () => {
     expect(createThread?.description).toContain(
       "ALWAYS creates a new Zuse workspace",
     );
-    expect(createThread?.description).toContain("use create_chat instead");
-    expect(createChat?.description).toContain("YOUR OWN current workspace");
-    expect(createChat?.description).toContain("never creates a worktree");
+    expect(createThread?.description).toContain("use create_session instead");
+    expect(createSession?.description).toContain("YOUR OWN current chat");
+    expect(createSession?.description).toContain(
+      "never creates a new sidebar chat",
+    );
     expect(sendToThread?.description).toContain("queued is always false");
     expect(listModels?.description).toContain("providerId/model");
     expect(sendToThread?.description).not.toContain(
@@ -106,11 +108,11 @@ describe("orchestration MCP tools", () => {
           path: "/tmp/worktree",
           branch: "test",
         }),
-        createChat: async () => ({
+        createSession: async () => ({
           ok: true,
           chatId: "chat_2",
           sessionId: "s_2",
-          title: "Chat",
+          title: "Session",
           worktreeId: null,
         }),
         sendToThread: async () => ({

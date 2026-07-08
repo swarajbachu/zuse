@@ -116,6 +116,12 @@ export interface CreateSessionInput {
   readonly forkedFromSessionId?: SessionId | null;
   readonly forkedFromMessageId?: MessageId | null;
   readonly forkFromResume?: boolean;
+  /**
+   * Lineage for sessions opened inside an existing chat by orchestration
+   * control-plane tools. Chat-level lineage covers newly-created sidebar
+   * chats; this covers new session tabs inside an existing chat.
+   */
+  readonly originSessionId?: SessionId | null;
 }
 
 export interface CreateChatInput {

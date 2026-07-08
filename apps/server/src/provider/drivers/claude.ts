@@ -1032,7 +1032,7 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ZUSE_MCP_NAME}__browser_history`,
   // Control-plane (orchestration) reads. Inspecting threads/models is
   // non-mutating and visible to the user, so auto-allow like the browser
-  // reads. The MUTATING control-plane tools — create_thread, create_chat,
+  // reads. The MUTATING control-plane tools — create_thread, create_session,
   // send_to_thread — are deliberately absent: they spawn real work and must
   // fall through to the permission prompt, which is the approval gate for the
   // `approval-gated` autonomy level.

@@ -1698,6 +1698,35 @@ export const MessageStoreLive = Layer.scoped(
             })),
           );
         };
+        const createOrchestrationSession = (input: {
+          readonly task: string;
+          readonly title?: string;
+          readonly chatId: ChatId;
+          readonly providerId?: string;
+          readonly model?: string;
+        }) => {
+          const { providerId, model } = providerModelFor(input);
+          return createSession({
+            chatId: input.chatId,
+            providerId,
+            model,
+            title: input.title,
+            initialPrompt: input.task,
+            originSessionId: ctx.sessionId,
+            background: true,
+          }).pipe(
+            Effect.map((session) => ({
+              ok: true as const,
+              chatId: session.chatId as string,
+              sessionId: session.id as string,
+              title: session.title,
+              worktreeId:
+                session.worktreeId === null
+                  ? null
+                  : (session.worktreeId as string),
+            })),
+          );
+        };
         const deps: OrchestrationToolDeps = {
           createWorktree: (input) =>
             run(
@@ -1753,36 +1782,38 @@ export const MessageStoreLive = Layer.scoped(
                 ),
               ),
             ),
-          createChat: (input) =>
+          createSession: (input) =>
             run(
               Effect.gen(function* () {
-                const explicitWorktreeId =
-                  input.worktreeId !== undefined
-                    ? (input.worktreeId as WorktreeId)
-                    : undefined;
-                const worktreeId =
-                  explicitWorktreeId !== undefined
-                    ? explicitWorktreeId
-                    : ctx.worktreeId;
-                if (explicitWorktreeId !== undefined) {
-                  const wt = yield* worktrees.get(explicitWorktreeId);
-                  if (wt === null) {
-                    return {
-                      ok: false as const,
-                      error: `worktreeId ${input.worktreeId} not found`,
-                    };
-                  }
-                  if ((wt.projectId as string) !== (ctx.projectId as string)) {
-                    return {
-                      ok: false as const,
-                      error: `worktreeId ${input.worktreeId} does not belong to this project`,
-                    };
-                  }
+                const chatId =
+                  input.chatId !== undefined
+                    ? (input.chatId as ChatId)
+                    : ctx.chatId;
+                const chat = yield* lookupChat(chatId).pipe(Effect.either);
+                if (chat._tag === "Left") {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} not found`,
+                  };
                 }
-                return yield* createOrchestrationChat({
+                if (
+                  (chat.right.projectId as string) !== (ctx.projectId as string)
+                ) {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} does not belong to this project`,
+                  };
+                }
+                if (chat.right.archivedAt !== null) {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} is archived`,
+                  };
+                }
+                return yield* createOrchestrationSession({
                   task: input.task,
                   title: input.title,
-                  worktreeId,
+                  chatId,
                   providerId: input.providerId,
                   model: input.model,
                 });
@@ -2017,18 +2048,20 @@ export const MessageStoreLive = Layer.scoped(
         // the origin so the renderer can attribute + link it. Skip silently
         // if the origin session row is gone.
         let origin: MessageOrigin | undefined = undefined;
-        if (hasInitial && chatRow.origin_session_id !== null) {
+        const originSessionId =
+          input.originSessionId ?? chatRow.origin_session_id;
+        if (hasInitial && originSessionId !== null) {
           const originRows = yield* sql<{
             readonly chat_id: string;
             readonly provider_id: string;
           }>`
-            SELECT chat_id, provider_id FROM sessions WHERE id = ${chatRow.origin_session_id}
+            SELECT chat_id, provider_id FROM sessions WHERE id = ${originSessionId}
           `.pipe(Effect.orDie);
           const originRow = originRows[0];
           if (originRow !== undefined) {
             origin = {
               chatId: originRow.chat_id as ChatId,
-              sessionId: chatRow.origin_session_id as SessionId,
+              sessionId: originSessionId as SessionId,
               providerId: originRow.provider_id as ProviderId,
             };
           }

@@ -509,7 +509,7 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
-  it("create_chat without worktreeId lands in the caller's workspace", async () => {
+  it("create_session without chatId opens a new tab in the caller's chat", async () => {
     testAutonomyLevel = "approval-gated";
     await withRuntime(async (run) => {
       const parent = await run(
@@ -527,11 +527,13 @@ describe("MessageStore — chat & session lifecycle", () => {
       expect(tools).not.toBeNull();
       expect(tools).not.toBeUndefined();
 
-      const created = await tools!.deps.createChat({
+      const created = await tools!.deps.createSession({
         task: "Open another tab here",
       });
       expect(created.ok).toBe(true);
       if (!created.ok) return;
+      expect(created.chatId).toBe(parent.chat.id);
+      expect(created.sessionId).not.toBe(parent.initialSession.id);
       expect(created.worktreeId).toBe(TEST_WORKTREE_ID);
 
       const child = await run(
@@ -540,6 +542,7 @@ describe("MessageStore — chat & session lifecycle", () => {
         ),
       );
       expect(child.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(child.chatId).toBe(parent.chat.id);
     });
   });
 

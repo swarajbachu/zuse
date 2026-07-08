@@ -18,7 +18,7 @@ import { z } from "zod";
  *
  * Registration is gated on autonomy: `MessageStore` only builds + passes these
  * when the session's autonomy level is not `"off"`. The mutating tools
- * (create_thread / create_chat / send_to_thread) fall through the driver's
+ * (create_thread / create_session / send_to_thread) fall through the driver's
  * permission policy to a prompt, which IS the approval gate for the
  * `approval-gated` level; the read-only tools (read_thread / list_threads /
  * list_models / whoami) are auto-allowed by the driver alongside the index
@@ -48,7 +48,7 @@ export type CreateThreadResult =
     }
   | { readonly ok: false; readonly error: string };
 
-export type CreateChatResult =
+export type CreateSessionResult =
   | {
       readonly ok: true;
       readonly chatId: string;
@@ -132,13 +132,13 @@ export interface OrchestrationToolDeps {
     readonly providerId?: string;
     readonly model?: string;
   }) => Promise<CreateThreadResult>;
-  readonly createChat: (input: {
+  readonly createSession: (input: {
     readonly task: string;
+    readonly chatId?: string;
     readonly title?: string;
-    readonly worktreeId?: string;
     readonly providerId?: string;
     readonly model?: string;
-  }) => Promise<CreateChatResult>;
+  }) => Promise<CreateSessionResult>;
   readonly sendToThread: (input: {
     readonly sessionId: string;
     readonly text: string;
@@ -172,7 +172,7 @@ export type OrchestrationMcpToolResult = {
 
 export type OrchestrationToolName =
   | "create_thread"
-  | "create_chat"
+  | "create_session"
   | "send_to_thread"
   | "read_thread"
   | "list_threads"
@@ -214,10 +214,10 @@ const numberProp = (description: string, maximum?: number): JsonObject => ({
 export const ORCHESTRATION_MCP_SERVER_NAME = "zuse-orchestration";
 
 const CREATE_THREAD_DESCRIPTION =
-  "Spawn ISOLATED parallel work: create_thread ALWAYS creates a new Zuse workspace (a fresh git worktree on its own branch, visible in the sidebar) and then opens a new chat inside it. Use this when the task needs its own branch/PR and must not collide with existing work. To open another conversation in an EXISTING workspace, use create_chat instead. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId, path, branch }; use sessionId with send_to_thread / read_thread. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
+  "Spawn ISOLATED parallel work: create_thread ALWAYS creates a new Zuse workspace (a fresh git worktree on its own branch, visible in the sidebar) and then opens a new sidebar chat with an initial session inside it. Use this when the task needs its own branch/PR and must not collide with existing work. To open another tab in an EXISTING sidebar chat, use create_session instead. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId, path, branch }; use sessionId with send_to_thread / read_thread. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
 
-const CREATE_CHAT_DESCRIPTION =
-  "Open a NEW chat in an EXISTING workspace; this never creates a worktree. Omit worktreeId to open the chat in YOUR OWN current workspace (which may be null for the project's main checkout), or pass a worktreeId from list_threads to place it in that workspace. Use this for another tab/conversation sharing the same checkout. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId }. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
+const CREATE_SESSION_DESCRIPTION =
+  "Open a NEW SESSION TAB inside an EXISTING sidebar chat; this never creates a worktree and never creates a new sidebar chat. Omit chatId to add the tab to YOUR OWN current chat, or pass a chatId from list_threads. The new session inherits that chat's workspace/worktree. Use this for another tab/conversation sharing the same sidebar chat and checkout. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId }. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
 
 const SEND_TO_THREAD_DESCRIPTION =
   "Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is handed to the target session immediately and the receiving agent sees it attributed to you; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued is always false today (delivery is immediate).";
@@ -226,10 +226,10 @@ const READ_THREAD_DESCRIPTION =
   "Read a thread's recent messages and current status (idle / running / closed / error). Use to check what a spawned thread has done — e.g. read a review thread's findings before deciding to merge. Returns { status, messages: [{ role, text }] }. Read-only.";
 
 const LIST_THREADS_DESCRIPTION =
-  "List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, and whether you spawned them. Threads that share a worktreeId share one workspace. Use to see the topology of work before spawning isolated work with create_thread or adding a chat to an existing workspace with create_chat. Read-only.";
+  "List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, chatId, and whether you spawned them. Sessions that share a chatId are tabs in one sidebar chat; chats that share a worktreeId share one workspace. Use to see the topology before spawning isolated work with create_thread or adding a session tab with create_session. Read-only.";
 
 const LIST_MODELS_DESCRIPTION =
-  "List providers and model slugs available for create_thread and create_chat. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
+  "List providers and model slugs available for create_thread and create_session. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
 
 const WHOAMI_DESCRIPTION =
   "Return your own session id, chat id, project id, workspace (worktreeId — null means the project's main checkout), providerId, model, and autonomy level. Use to reason about your own constraints and location before spawning more work. Read-only.";
@@ -258,20 +258,22 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
     ),
   },
   {
-    name: "create_chat",
-    description: CREATE_CHAT_DESCRIPTION,
+    name: "create_session",
+    description: CREATE_SESSION_DESCRIPTION,
     inputSchema: objectSchema(
       {
         task: stringProp("The task/instructions for the spawned agent."),
-        worktreeId: stringProp(
-          "Existing workspace for the chat. Omit to use your own current workspace.",
+        chatId: stringProp(
+          "Existing sidebar chat for the new session tab. Omit to use your own current chat.",
         ),
         title: stringProp(
-          "Optional short human-readable chat title. Defaults from task.",
+          "Optional short human-readable session tab title. Defaults from task.",
         ),
-        providerId: stringProp("Provider for the new chat. Defaults to yours."),
+        providerId: stringProp(
+          "Provider for the new session. Defaults to yours.",
+        ),
         model: stringProp(
-          "Model slug for the new chat. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
+          "Model slug for the new session. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
         ),
       },
       ["task"],
@@ -334,7 +336,7 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 
 export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
   "create_thread",
-  "create_chat",
+  "create_session",
   "send_to_thread",
 ]);
 
@@ -407,18 +409,18 @@ export const callOrchestrationTool = async (
         }),
       );
     }
-    case "create_chat": {
+    case "create_session": {
       const task = asString(args, "task");
       if (task === undefined) {
         return {
-          content: [{ type: "text", text: "create_chat requires task." }],
+          content: [{ type: "text", text: "create_session requires task." }],
           isError: true,
         };
       }
       return settle(
-        await deps.createChat({
+        await deps.createSession({
           task,
-          worktreeId: asString(args, "worktreeId"),
+          chatId: asString(args, "chatId"),
           title: asString(args, "title"),
           providerId: asString(args, "providerId"),
           model: asString(args, "model"),
@@ -485,10 +487,10 @@ export const orchestrationMcpPromptHint = (): string => {
   };
   return [
     "<zuse-orchestration-tools>",
-    `The "${ORCHESTRATION_MCP_SERVER_NAME}" MCP server lets this Zuse chat create real Zuse worktrees and real Zuse chat threads that appear in the sidebar.`,
+    `The "${ORCHESTRATION_MCP_SERVER_NAME}" MCP server lets this Zuse chat create real Zuse worktrees, sidebar chats, and session tabs.`,
     `Tools: ${ORCHESTRATION_MCP_TOOLS.map(signature).join(", ")}.`,
-    "Model: project -> workspaces (worktrees) -> chats; one workspace hosts many chats. create_thread makes a new workspace plus chat for isolated branch/PR work; create_chat adds a chat to an existing workspace.",
-    "Smoke flow: whoami -> list_threads -> create_thread -> read_thread. Use list_models before choosing providerId/model, and create_chat for same-workspace chats.",
+    "Model: project -> workspaces (worktrees) -> sidebar chats -> session tabs. create_thread makes a new workspace plus sidebar chat for isolated branch/PR work; create_session adds a tab to an existing sidebar chat.",
+    "Smoke flow: whoami -> list_threads -> create_thread -> read_thread. Use list_models before choosing providerId/model, and create_session for same-chat tabs.",
     "Do not substitute built-in Agent/Task, Codex worker/explorer/default subagents, or EnterWorktree/ExitWorktree. Those test different provider-native features, not Zuse self-orchestration.",
     "</zuse-orchestration-tools>",
   ].join("\n");
@@ -547,43 +549,43 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
   ),
 
   tool(
-    "create_chat",
-    CREATE_CHAT_DESCRIPTION,
+    "create_session",
+    CREATE_SESSION_DESCRIPTION,
     {
       task: z
         .string()
         .min(1)
         .describe("The task/instructions for the spawned agent."),
-      worktreeId: z
+      chatId: z
         .string()
         .optional()
         .describe(
-          "Existing workspace for the chat. Omit to use your own current workspace.",
+          "Existing sidebar chat for the new session tab. Omit to use your own current chat.",
         ),
       title: z
         .string()
         .optional()
         .describe(
-          "Optional short human-readable chat title. Defaults from task.",
+          "Optional short human-readable session tab title. Defaults from task.",
         ),
       providerId: z
         .string()
         .optional()
         .describe(
-          "Provider for the new chat (e.g. 'claude'). Defaults to yours.",
+          "Provider for the new session (e.g. 'claude'). Defaults to yours.",
         ),
       model: z
         .string()
         .optional()
         .describe(
-          "Model slug for the new chat. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
+          "Model slug for the new session. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
         ),
     },
     async (args) =>
       settle(
-        await deps.createChat({
+        await deps.createSession({
           task: args.task,
-          worktreeId: args.worktreeId,
+          chatId: args.chatId,
           title: args.title,
           providerId: args.providerId,
           model: args.model,
