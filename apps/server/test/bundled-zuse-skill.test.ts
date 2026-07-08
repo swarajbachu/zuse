@@ -32,7 +32,14 @@ describe("bundled Zuse skill installer", () => {
 
       writeFileSync(claudePath!, "stale", "utf8");
       ensureBundledZuseSkillInstalled("claude", home);
-      expect(readFileSync(claudePath!, "utf8")).toContain("name: zuse");
+      const installedClaudeSkill = readFileSync(claudePath!, "utf8");
+      const installedCodexSkill = readFileSync(codexPath!, "utf8");
+      expect(installedClaudeSkill).toContain("name: zuse");
+      expect(installedClaudeSkill).toContain("zuse-orchestration");
+      expect(installedClaudeSkill).toContain("whoami");
+      expect(installedClaudeSkill).toContain("create_thread");
+      expect(installedCodexSkill).toContain("zuse-orchestration");
+      expect(installedCodexSkill).toContain("Do not substitute");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

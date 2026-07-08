@@ -5,7 +5,15 @@ import { SqlClient } from "@effect/sql";
 // of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
 // `bun test`. Test-only — the app keeps the node client.
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { Chunk, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import {
+  Chunk,
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Stream,
+} from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -404,6 +412,32 @@ describe("MessageStore — chat & session lifecycle", () => {
         text: "fix the bug",
       });
       expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+    });
+  });
+
+  it("createChat publishes the new chat to live chat streams", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const streamFiber = yield* s
+            .streamChatChanges(PROJECT_ID)
+            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+          yield* Effect.yieldNow();
+          const created = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "spawn a sibling thread",
+          });
+          const emitted = yield* Fiber.join(streamFiber);
+          return { created, emitted };
+        }),
+      );
+
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
+      ).toEqual([result.created.chat.id]);
     });
   });
 

@@ -40,9 +40,14 @@ import {
   browserMcpPromptHint,
   startBrowserMcpBridge,
 } from "./acp/browser-mcp-bridge.ts";
+import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
+import {
+  orchestrationMcpPromptHint,
+  type OrchestrationSessionTools,
+} from "./orchestration-tools.ts";
 
 /**
  * Live-only handle for one Grok conversation. Mirrors Codex/Claude handle
@@ -113,15 +118,21 @@ type PendingResolver = {
   timer: NodeJS.Timeout;
 };
 
-const BROWSER_MCP_CONFIG_START =
+const MCP_CONFIG_START = "# >>> zuse-generated-mcp: do not edit";
+const MCP_CONFIG_END = "# <<< zuse-generated-mcp";
+const LEGACY_BROWSER_MCP_CONFIG_START =
   "# >>> zuse-generated-browser-mcp: do not edit";
-const BROWSER_MCP_CONFIG_END = "# <<< zuse-generated-browser-mcp";
+const LEGACY_BROWSER_MCP_CONFIG_END = "# <<< zuse-generated-browser-mcp";
 
-const stripGeneratedBrowserMcpConfig = (value: string): string =>
+const stripGeneratedMcpConfig = (value: string): string =>
   value
     .replace(
+      new RegExp(`\\n?${MCP_CONFIG_START}[\\s\\S]*?${MCP_CONFIG_END}\\n?`, "g"),
+      "\n",
+    )
+    .replace(
       new RegExp(
-        `\\n?${BROWSER_MCP_CONFIG_START}[\\s\\S]*?${BROWSER_MCP_CONFIG_END}\\n?`,
+        `\\n?${LEGACY_BROWSER_MCP_CONFIG_START}[\\s\\S]*?${LEGACY_BROWSER_MCP_CONFIG_END}\\n?`,
         "g",
       ),
       "\n",
@@ -129,21 +140,22 @@ const stripGeneratedBrowserMcpConfig = (value: string): string =>
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd();
 
-const installProjectBrowserMcpConfig = (
+const installProjectMcpConfig = (
   cwd: string,
-  toml: string,
+  tomlBlocks: ReadonlyArray<string>,
 ): (() => void) => {
   const grokDir = join(cwd, ".grok");
   const configPath = join(grokDir, "config.toml");
   const previous = existsSync(configPath)
     ? readFileSync(configPath, "utf8")
     : "";
-  const userConfig = stripGeneratedBrowserMcpConfig(previous);
-  const next = `${userConfig.length > 0 ? `${userConfig}\n\n` : ""}${BROWSER_MCP_CONFIG_START}\n${toml.trimEnd()}\n${BROWSER_MCP_CONFIG_END}\n`;
+  const userConfig = stripGeneratedMcpConfig(previous);
+  const generatedToml = tomlBlocks.map((block) => block.trimEnd()).join("\n");
+  const next = `${userConfig.length > 0 ? `${userConfig}\n\n` : ""}${MCP_CONFIG_START}\n${generatedToml}\n${MCP_CONFIG_END}\n`;
 
   mkdirSync(grokDir, { recursive: true });
   writeFileSync(configPath, next, "utf8");
-  console.info(`[grok.browser-mcp] wrote project MCP config ${configPath}`);
+  console.info(`[grok.mcp] wrote project MCP config ${configPath}`);
 
   return () => {
     try {
@@ -154,7 +166,7 @@ const installProjectBrowserMcpConfig = (
       }
     } catch (cause) {
       console.warn(
-        `[grok.browser-mcp] could not restore project MCP config ${configPath}: ${
+        `[grok.mcp] could not restore project MCP config ${configPath}: ${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -337,6 +349,7 @@ export const startGrokSession = (
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
   browserSend: BrowserSend,
+  orchestrationTools: OrchestrationSessionTools | null = null,
   resumeCursor: string | null = null,
 ): Effect.Effect<
   GrokSessionHandle,
@@ -386,10 +399,33 @@ export const startGrokSession = (
           }`,
         }),
     });
-    const restoreProjectBrowserMcpConfig = installProjectBrowserMcpConfig(
-      cwd,
+    const orchestrationMcpBridge =
+      orchestrationTools === null
+        ? null
+        : yield* Effect.tryPromise({
+            try: () =>
+              startOrchestrationMcpBridge({
+                deps: orchestrationTools.deps,
+                command: browserMcpCommand,
+                requestPermission: (kind, options) =>
+                  requestPermission(sessionId, kind, options),
+                getRuntimeMode,
+                getPermissionMode: () => currentMode,
+              }),
+            catch: (cause) =>
+              new AgentSessionStartError({
+                providerId: "grok",
+                reason: `Could not start orchestration MCP bridge: ${
+                  cause instanceof Error ? cause.message : String(cause)
+                }`,
+              }),
+          });
+    const restoreProjectMcpConfig = installProjectMcpConfig(cwd, [
       browserMcpBridge.projectConfigToml,
-    );
+      ...(orchestrationMcpBridge === null
+        ? []
+        : [orchestrationMcpBridge.projectConfigToml]),
+    ]);
 
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
@@ -901,7 +937,12 @@ export const startGrokSession = (
 
       const sessionResult = (await request("session/new", {
         cwd,
-        mcpServers: [browserMcpBridge.serverConfig],
+        mcpServers: [
+          browserMcpBridge.serverConfig,
+          ...(orchestrationMcpBridge === null
+            ? []
+            : [orchestrationMcpBridge.serverConfig]),
+        ],
       })) as { sessionId?: unknown };
 
       if (typeof sessionResult.sessionId !== "string") {
@@ -935,7 +976,7 @@ export const startGrokSession = (
           } catch {
             // ignore — child may not be alive
           }
-          restoreProjectBrowserMcpConfig();
+          restoreProjectMcpConfig();
           void browserMcpBridge.close();
         }),
       ),
@@ -1024,7 +1065,13 @@ export const startGrokSession = (
           // they replay a synthetic summary, not a user ask.
           const finalPromptText =
             browserHintPending && compactSnapshot === null
-              ? `${browserMcpPromptHint()}\n\n${promptText}`
+              ? [
+                  browserMcpPromptHint(),
+                  ...(orchestrationMcpBridge === null
+                    ? []
+                    : [orchestrationMcpPromptHint()]),
+                  promptText,
+                ].join("\n\n")
               : promptText;
           browserHintPending = false;
           if (GROK_RPC_TRACE || GROK_DIAG) {
@@ -1184,8 +1231,11 @@ export const startGrokSession = (
           }
           child.kill("SIGTERM");
           rl.close();
-          restoreProjectBrowserMcpConfig();
+          restoreProjectMcpConfig();
           yield* Effect.promise(() => browserMcpBridge.close());
+          if (orchestrationMcpBridge !== null) {
+            yield* Effect.promise(() => orchestrationMcpBridge.close());
+          }
           yield* events.end;
         }),
       setPermissionMode: (mode) =>

@@ -129,6 +129,9 @@ const startProvider = async (
         binaryPath,
         sessionId,
         requestPermission,
+        () => DEFAULT_RUNTIME_MODE,
+        null,
+        null,
       );
     case "grok":
       return startGrokSession(
@@ -136,9 +139,15 @@ const startProvider = async (
         cwd,
         apiKey,
         binaryPath,
+        which("bun") ?? "bun",
         sessionId,
         requestPermission,
         () => DEFAULT_RUNTIME_MODE,
+        async () => ({
+          ok: false,
+          error: "Browser unavailable in live smoke.",
+        }),
+        null,
       );
     case "gemini":
       return startGeminiSession(

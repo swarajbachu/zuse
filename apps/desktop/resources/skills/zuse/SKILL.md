@@ -7,7 +7,8 @@ description: Configure and troubleshoot Zuse projects, repository settings, work
 
 Use this skill when helping with Zuse project setup, `.zuse/settings.toml`,
 worktree creation, setup/run/archive scripts, files to include in worktrees,
-provider skills, user settings, keybindings, or schema URLs.
+provider skills, user settings, keybindings, orchestration tools, MCP, or
+schema URLs.
 
 Zuse is a local-first macOS app for running coding agents against registered
 projects and git worktrees. Repository-shared configuration lives in
@@ -70,3 +71,29 @@ Public schemas are served by the Zuse website:
 - `https://zuse.dev/schemas/keybindings.schema.json`
 
 Use these URLs in editor configuration and documentation examples.
+
+## Self-Orchestration
+
+When a Zuse-managed chat has autonomy enabled, Zuse exposes a provider-neutral
+MCP server named `zuse-orchestration`. Use these tools for agent-controlled
+parallel work instead of provider-specific built-ins:
+
+- `whoami`: inspect the current Zuse session, chat, project, and autonomy level.
+- `list_threads`: list sibling and spawned Zuse chat threads.
+- `read_thread`: read recent messages from a Zuse thread.
+- `create_worktree`: create an isolated Zuse git worktree.
+- `create_thread`: create a new Zuse chat thread, optionally in a worktree.
+- `send_to_thread`: send follow-up instructions to an existing thread.
+
+Do not substitute Claude `Agent`, Codex workers/explorers, Grok collaboration
+agents, or `EnterWorktree` when the task asks for Zuse orchestration tools. The
+expected smoke flow is:
+
+1. Call `whoami`.
+2. Call `list_threads`.
+3. Call `create_worktree` when isolated implementation is needed.
+4. Call `create_thread`, passing the `worktreeId` when using that worktree.
+5. Call `read_thread` to inspect the spawned thread.
+
+If `zuse-orchestration` is not available, report that autonomy tools are not
+registered for this session instead of silently using another provider feature.

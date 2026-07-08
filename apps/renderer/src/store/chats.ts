@@ -46,9 +46,7 @@ const defaultArchiveDirtyConfirm: ArchiveDirtyConfirm = () => {
 
 let archiveDirtyConfirm: ArchiveDirtyConfirm = defaultArchiveDirtyConfirm;
 
-export const setArchiveDirtyConfirm = (
-  confirm: ArchiveDirtyConfirm,
-): void => {
+export const setArchiveDirtyConfirm = (confirm: ArchiveDirtyConfirm): void => {
   archiveDirtyConfirm = confirm;
 };
 
@@ -160,6 +158,17 @@ const findChatProject = (
   return null;
 };
 
+const chatSortTime = (chat: Chat): number =>
+  (chat.updatedAt ?? chat.createdAt).getTime();
+
+const upsertChat = (
+  chats: ReadonlyArray<Chat>,
+  chat: Chat,
+): ReadonlyArray<Chat> =>
+  [chat, ...chats.filter((row) => row.id !== chat.id)].sort(
+    (a, b) => chatSortTime(b) - chatSortTime(a),
+  );
+
 /**
  * Live `chat.streamChanges` subscription per project — one long-lived fiber
  * keyed by projectId. Carries server-side chat-row patches (notably the
@@ -180,19 +189,21 @@ const ensureChangeStream = (projectId: FolderId): void => {
         (client) =>
           Stream.runForEach(client.chat.streamChanges({ projectId }), (chat) =>
             Effect.sync(() => {
+              let inserted = false;
               useChatsStore.setState((s) => {
                 const chats = s.chatsByProject[projectId];
                 if (chats === undefined) return s;
-                if (!chats.some((c) => c.id === chat.id)) return s;
+                inserted = !chats.some((c) => c.id === chat.id);
                 return {
                   chatsByProject: {
                     ...s.chatsByProject,
-                    [projectId]: chats.map((c) =>
-                      c.id === chat.id ? chat : c,
-                    ),
+                    [projectId]: upsertChat(chats, chat),
                   },
                 };
               });
+              if (inserted) {
+                void useSessionsStore.getState().hydrate(projectId);
+              }
               // Mirror the server-side auto-namer onto member session tabs.
               useSessionsStore.setState((s) => {
                 const sessions = s.sessionsByProject[projectId];
@@ -293,7 +304,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
         return {
           chatsByProject: {
             ...s.chatsByProject,
-            [projectId]: [chat, ...existing],
+            [projectId]: upsertChat(existing, chat),
           },
           selectedChatId: chat.id,
           selectedChatByProject: {

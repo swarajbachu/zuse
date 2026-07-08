@@ -47,7 +47,11 @@ import {
   autonomyEnablesOrchestration,
 } from "@zuse/wire";
 
-import { buildOrchestrationTools } from "../drivers/orchestration-tools.ts";
+import {
+  buildOrchestrationTools,
+  type OrchestrationSessionTools,
+  type OrchestrationToolDeps,
+} from "../drivers/orchestration-tools.ts";
 
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
@@ -950,12 +954,12 @@ export const MessageStoreLive = Layer.scoped(
     >(new Map());
     const goalsBySession = new Map<string, ThreadGoal | null>();
 
-    // Single hub for chat-row changes (title / worktree binding). Unlike the
-    // per-session message/status pubsubs, chats are few and updates rare, so
-    // one project-filtered hub keeps it simple. The renderer already holds
-    // the chat list via `chat.list`; this stream only carries live patches
-    // (e.g. the background auto-namer rewriting a title), so there's no
-    // backfill on subscribe.
+    // Single hub for chat-row changes (create / title / worktree binding).
+    // Unlike the per-session message/status pubsubs, chats are few and updates
+    // rare, so one project-filtered hub keeps it simple. The renderer seeds
+    // from `chat.list`; this stream carries live changes after subscription,
+    // so a Zuse-orchestrated `create_thread` appears in the sidebar without
+    // requiring a full app reload.
     const chatChangesHub = yield* PubSub.unbounded<Chat>();
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
@@ -1529,23 +1533,23 @@ export const MessageStoreLive = Layer.scoped(
       });
 
     /**
-     * Build the in-process control-plane (orchestration) tools for a session,
-     * gated on the project's autonomy level. Returns `[]` when autonomy is
-     * `"off"` so the agent sees no spawn tools and memoize behaves exactly as
-     * before. Each tool bridges back into these Effect methods via
+     * Build the session-bound control-plane (orchestration) tool bundle,
+     * gated on the project's autonomy level. Returns `null` when autonomy is
+     * `"off"` so providers register no spawn tools and memoize behaves
+     * exactly as before. Each tool bridges back into these Effect methods via
      * `Runtime.runPromise`, mapping every typed failure to a
-     * `{ ok: false, error }` result so the SDK handlers never throw.
+     * `{ ok: false, error }` result so provider MCP handlers never throw.
      *
      * Spawned threads carry `originSessionId = ctx.sessionId` for lineage, and
      * inherit this session's provider/model unless the agent overrides them.
      */
-    const buildExtraToolsForSession = (ctx: {
+    const buildOrchestrationForSession = (ctx: {
       readonly sessionId: SessionId;
       readonly chatId: ChatId;
       readonly projectId: FolderId;
       readonly providerId: ProviderId;
       readonly model: string;
-    }): Effect.Effect<ReadonlyArray<unknown>> =>
+    }): Effect.Effect<OrchestrationSessionTools | null> =>
       Effect.gen(function* () {
         // Fail closed: if settings can't be read, register no control-plane
         // tools (autonomy = off) rather than dying the whole session boot.
@@ -1553,9 +1557,9 @@ export const MessageStoreLive = Layer.scoped(
           Effect.map((settings) => settings.defaultAutonomyLevel),
           Effect.catchAllCause(() => Effect.succeed<AutonomyLevel>("off")),
         );
-        if (!autonomyEnablesOrchestration(level)) return [];
+        if (!autonomyEnablesOrchestration(level)) return null;
         const run = Runtime.runPromise(runtime);
-        return buildOrchestrationTools({
+        const deps: OrchestrationToolDeps = {
           createWorktree: () =>
             run(
               worktrees.create(ctx.projectId).pipe(
@@ -1679,7 +1683,11 @@ export const MessageStoreLive = Layer.scoped(
               projectId: ctx.projectId as string,
               autonomyLevel: level,
             }),
-        });
+        };
+        return {
+          deps,
+          claudeTools: buildOrchestrationTools(deps),
+        };
       });
 
     const createSession: MessageStoreShape["createSession"] = (
@@ -1717,10 +1725,10 @@ export const MessageStoreLive = Layer.scoped(
         const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
         runtimeModeBySession.set(sessionId, initialRuntimeMode);
         permissionModeBySession.set(sessionId, initialPermissionMode);
-        // Control-plane orchestration tools — empty unless the project's
+        // Control-plane orchestration tools — null unless the project's
         // autonomy level opts in. Passed to `provider.start` so the agent can
         // spawn + steer its own worktrees/threads.
-        const extraTools = yield* buildExtraToolsForSession({
+        const orchestrationTools = yield* buildOrchestrationForSession({
           sessionId,
           chatId: input.chatId,
           projectId,
@@ -1819,7 +1827,7 @@ export const MessageStoreLive = Layer.scoped(
                 },
                 resumeCursor,
                 newSessionRuntimeMode,
-                extraTools,
+                orchestrationTools,
               )
               .pipe(
                 Effect.flatMap(() =>
@@ -1892,7 +1900,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             resumeCursor,
             newSessionRuntimeMode,
-            extraTools,
+            orchestrationTools,
           )
           .pipe(
             Effect.mapError((err) =>
@@ -2285,6 +2293,7 @@ export const MessageStoreLive = Layer.scoped(
           ),
         );
         const chat = yield* lookupChat(chatId).pipe(Effect.orDie);
+        yield* broadcastChat(chat);
         // Fetch the initial user message (if any) so the renderer can seed
         // its messages store and skip the empty-state flash while the live
         // message stream is connecting. `createSession` writes the row
@@ -3202,14 +3211,14 @@ export const MessageStoreLive = Layer.scoped(
       runtimeModeBySession.set(session.id, session.runtimeMode);
       permissionModeBySession.set(session.id, session.permissionMode);
       const subagents = agentsFor(session.id);
-      return buildExtraToolsForSession({
+      return buildOrchestrationForSession({
         sessionId: session.id,
         chatId: session.chatId,
         projectId: session.projectId,
         providerId: session.providerId,
         model: session.model,
       }).pipe(
-        Effect.flatMap((extraTools) =>
+        Effect.flatMap((orchestrationTools) =>
           cwdForWorktree(session.worktreeId).pipe(
             Effect.flatMap((cwdOverride) =>
               provider
@@ -3231,7 +3240,7 @@ export const MessageStoreLive = Layer.scoped(
                   // reloads history and continues from there.
                   session.cursor,
                   () => getRuntimeModeFor(session.id),
-                  extraTools,
+                  orchestrationTools,
                 )
                 .pipe(
                   Effect.flatMap(() => startSubscription(session.id)),
@@ -3286,7 +3295,7 @@ export const MessageStoreLive = Layer.scoped(
         const cwdOverride = yield* cwdForWorktree(session.worktreeId);
         // Re-attach the control-plane tools so a resumed autonomous session
         // keeps its ability to spawn + steer threads.
-        const extraTools = yield* buildExtraToolsForSession({
+        const orchestrationTools = yield* buildOrchestrationForSession({
           sessionId: session.id,
           chatId: session.chatId,
           projectId: session.projectId,
@@ -3309,7 +3318,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             session.cursor,
             () => getRuntimeModeFor(session.id),
-            extraTools,
+            orchestrationTools,
           )
           .pipe(
             Effect.mapError((err) =>
