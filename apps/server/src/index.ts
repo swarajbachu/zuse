@@ -5,4 +5,5 @@
  */
 export { AppPaths } from "./app-paths.ts";
 export { makeMainLayer, type MainLayerDeps } from "./runtime.ts";
+export { wsServerProtocolLayer } from "./transports/ws.ts";
 export { FolderPicker } from "./workspace/services/folder-picker.ts";

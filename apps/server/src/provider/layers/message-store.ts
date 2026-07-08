@@ -22,7 +22,9 @@ import {
   type AgentEvent,
   AgentSessionNotFoundError,
   type AttachmentRef,
+  type BrowserAnnotation,
   type CodeAnnotation,
+  type ComposerAnnotation,
   type FileRef,
   type FolderId,
   GoalUnsupportedError,
@@ -60,6 +62,7 @@ import { GitService } from "../../git/services/git-service.ts";
 import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import {
   TitleGenerator,
@@ -658,7 +661,12 @@ const textFromMessageContent = (content: MessageContent): string | null => {
  * root, so the relative path resolves when it reads the file. Pure string fn —
  * no I/O.
  */
-const serializeAnnotations = (
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const serializeCodeAnnotations = (
   annotations: ReadonlyArray<CodeAnnotation>,
 ): string => {
   const lines = annotations.map((a, i) => {
@@ -669,6 +677,43 @@ const serializeAnnotations = (
     return `${i + 1}. ${a.relPath}:${range} — ${a.comment}`;
   });
   return ["Code annotations:", ...lines].join("\n");
+};
+
+const serializeBrowserAnnotations = (
+  annotations: ReadonlyArray<BrowserAnnotation>,
+): string => {
+  const lines = annotations.map((a, i) => {
+    const targetCount = a.elements.length + a.regions.length + a.strokes.length;
+    const firstElement = a.elements[0];
+    const target =
+      firstElement !== undefined
+        ? `<${firstElement.tagName}> ${firstElement.label}`.trim()
+        : `${targetCount} visual ${targetCount === 1 ? "target" : "targets"}`;
+    const title =
+      a.pageTitle !== null && a.pageTitle.trim().length > 0
+        ? ` (${a.pageTitle.trim()})`
+        : "";
+    const screenshot =
+      a.screenshotAttachment !== null ? " Screenshot attached." : "";
+    return `${i + 1}. ${a.pageUrl}${title} — ${target}; ${a.comment}.${screenshot}`;
+  });
+  return ["Browser annotations:", ...lines].join("\n");
+};
+
+const serializeAnnotations = (
+  annotations: ReadonlyArray<ComposerAnnotation>,
+): string => {
+  const code = annotations.filter(
+    (annotation): annotation is CodeAnnotation =>
+      !isBrowserAnnotation(annotation),
+  );
+  const browser = annotations.filter(isBrowserAnnotation);
+  return [
+    code.length > 0 ? serializeCodeAnnotations(code) : "",
+    browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
+  ]
+    .filter((section) => section.length > 0)
+    .join("\n\n");
 };
 
 const formatProviderFailure = (cause: unknown): string => {
@@ -740,6 +785,7 @@ export const MessageStoreLive = Layer.scoped(
     // these Effect methods via `Runtime.runPromise`. Same shape as the
     // browser-bridge tool binding in ProviderService.
     const runtime = yield* Effect.runtime<never>();
+    const relayActivity = yield* RelayActivityPublisher;
 
     const chatColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(chats)
@@ -1168,6 +1214,25 @@ export const MessageStoreLive = Layer.scoped(
         }
       });
 
+    const publishRelayActivity = (
+      sessionId: SessionId,
+      kind:
+        | "approval-needed"
+        | "question-needed"
+        | "completed"
+        | "error"
+        | "running",
+    ): Effect.Effect<void> =>
+      relayActivity
+        .publish({ sessionId, kind })
+        .pipe(
+          Effect.catchAll((error) =>
+            Effect.logDebug(
+              `[MessageStore] relay activity publish failed: ${error.reason}`,
+            ),
+          ),
+        );
+
     const broadcastMessage = (
       sessionId: SessionId,
       persisted: PersistedMessage,
@@ -1292,6 +1357,9 @@ export const MessageStoreLive = Layer.scoped(
                   event.status === "idle"
                 ) {
                   yield* setStatus(sessionId, event.status);
+                  if (event.status === "running") {
+                    yield* publishRelayActivity(sessionId, "running");
+                  }
                   if (event.status === "idle") {
                     yield* maybeForkAutoName(session.chatId, sessionId);
                   }
@@ -1302,6 +1370,10 @@ export const MessageStoreLive = Layer.scoped(
                 yield* setStatus(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
+                );
+                yield* publishRelayActivity(
+                  sessionId,
+                  event.reason === "error" ? "error" : "completed",
                 );
                 if (event.reason !== "error") {
                   yield* maybeForkAutoName(session.chatId, sessionId);
@@ -1347,6 +1419,12 @@ export const MessageStoreLive = Layer.scoped(
               ) {
                 return;
               }
+              if (event._tag === "PermissionRequest") {
+                yield* publishRelayActivity(sessionId, "approval-needed");
+              }
+              if (event._tag === "UserQuestion") {
+                yield* publishRelayActivity(sessionId, "question-needed");
+              }
               const content = eventToContent(event);
               if (content === null) return;
               const persisted = yield* persistMessage(sessionId, content);
@@ -1360,6 +1438,7 @@ export const MessageStoreLive = Layer.scoped(
               // mid-stream Error with no trailing result message). Flip to
               // `error` so the renderer shows the error bubble + login CTA.
               if (event._tag === "Error") {
+                yield* publishRelayActivity(sessionId, "error");
                 yield* setStatus(sessionId, "error");
               }
             }),
@@ -1822,6 +1901,7 @@ export const MessageStoreLive = Layer.scoped(
                   enableSubagents: effectiveEnableSubagents,
                   cwdOverride,
                   permissionMode: initialPermissionMode,
+                  modelOptions: input.modelOptions,
                   toolSearch: initialToolSearch,
                   forkFromResume,
                 },
@@ -1895,6 +1975,7 @@ export const MessageStoreLive = Layer.scoped(
               enableSubagents: effectiveEnableSubagents,
               cwdOverride,
               permissionMode: initialPermissionMode,
+              modelOptions: input.modelOptions,
               toolSearch: initialToolSearch,
               forkFromResume,
             },
@@ -2275,6 +2356,7 @@ export const MessageStoreLive = Layer.scoped(
           agents: input.agents,
           enableSubagents: input.enableSubagents,
           permissionMode: input.permissionMode,
+          modelOptions: input.modelOptions,
           toolSearch: input.toolSearch,
           resumeCursor: input.resumeCursor,
           resumeStrategy: input.resumeStrategy,
@@ -2316,6 +2398,7 @@ export const MessageStoreLive = Layer.scoped(
               ),
             )
           : null;
+        yield* broadcastChat(chat);
         // Path 1: the chat was created WITH its first message (the common
         // composer flow). Kick off the background auto-name when there is
         // enough context (trivial-only greetings wait for a follow-up).
@@ -3344,7 +3427,7 @@ export const MessageStoreLive = Layer.scoped(
       attachments?: ReadonlyArray<AttachmentRef>,
       fileRefs?: ReadonlyArray<FileRef>,
       skillRefs?: ReadonlyArray<SkillRef>,
-      annotations?: ReadonlyArray<CodeAnnotation>,
+      annotations?: ReadonlyArray<ComposerAnnotation>,
       asGoal?: boolean,
       clientMessageId?: MessageId,
     ): Effect.Effect<boolean, SessionNotFoundError> =>

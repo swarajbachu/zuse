@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { FlatList, KeyboardAvoidingView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,73 +6,163 @@ import type { SessionId, UserQuestion } from "@zuse/wire";
 import { Effect } from "effect";
 
 import { Composer } from "~/components/composer";
+import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import {
   MessageRow,
-  type MessageRowContext
+  type MessageRowContext,
 } from "~/components/messages/message-row";
-import { PendingApprovalCard } from "~/components/messages/pending-approval-card";
-import { normalizeConnParam, optionsForConnection } from "~/lib/connection-params";
+import {
+  normalizeConnParam,
+  optionsForConnection,
+} from "~/lib/connection-params";
+import { connectionSessionKey } from "~/lib/session-key";
 import { answerQuestion } from "~/rpc/actions";
+import { isFreshChat } from "~/lib/composer-state";
+import { messageKey, sanitizeMessages } from "~/lib/message-safety";
+import { buildToolResultsByItemId } from "~/lib/message-presentation";
+import { captureMobileError } from "~/lib/crash-reporting";
 import { useConnectionsStore } from "~/store/connections";
+import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
 
-export default function ThreadScreen() {
+const EMPTY_BUNDLES: ReturnType<
+  typeof useSessionsStore.getState
+>["bundlesByConnection"][string] = [];
+const EMPTY_PENDING: ReturnType<
+  typeof usePermissionsStore.getState
+>["pendingBySession"][string] = [];
+const EMPTY_QUEUED: ReturnType<
+  typeof useOutboxStore.getState
+>["queuedBySession"][string] = [];
+const EMPTY_MESSAGES: ReturnType<
+  typeof useMobileMessagesStore.getState
+>["messagesBySession"][string] = [];
+
+export default function ThreadScreenRoute() {
+  return (
+    <ThreadScreenBoundary>
+      <ThreadScreen />
+    </ThreadScreenBoundary>
+  );
+}
+
+function ThreadScreen() {
   const insets = useSafeAreaInsets();
-  const { conn, sessionId } = useLocalSearchParams<{ conn: string; sessionId: string }>();
+  const { conn, sessionId } = useLocalSearchParams<{
+    conn: string;
+    sessionId: string;
+  }>();
   const connKey = normalizeConnParam(conn);
   const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
   const listRef = useRef<FlatList>(null);
-  const { connections, hydrated, hydrate: hydrateConnections } = useConnectionsStore();
+  const didInitialScroll = useRef(false);
+  const initialScrollQuietUntil = useRef(0);
+  const {
+    connections,
+    hydrated,
+    hydrate: hydrateConnections,
+  } = useConnectionsStore();
   const options = useMemo(
     () => optionsForConnection(connKey, connections),
-    [connKey, connections]
+    [connKey, connections],
   );
-  const bundles = useSessionsStore((state) => state.bundlesByConnection[connKey] ?? []);
-  const { messagesBySession, reconnectingBySession, errorBySession, hydrate } =
-    useMobileMessagesStore();
-  const messages = useMemo(
-    () => messagesBySession[normalizedSessionId] ?? [],
-    [messagesBySession, normalizedSessionId]
+  const stateKey = connectionSessionKey(connKey, normalizedSessionId);
+  const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+  const connectionSnapshot = useConnectionRuntimeStore(
+    (state) => state.snapshotsByConnection[connKey],
   );
+  const bundles = useSessionsStore(
+    (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
+  );
+  const { messagesBySession, errorBySession, hydrate } = useMobileMessagesStore();
+  const rawMessages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+  const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
   const detail = selectSessionChat(bundles, normalizedSessionId);
   const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
+  const sessionStatus =
+    useSessionsStore((state) => state.statusBySession[stateKey]) ??
+    detail?.session.status;
+  const fresh = isFreshChat(messages);
 
   const hydratePermissions = usePermissionsStore((state) => state.hydrate);
   const decidePermission = usePermissionsStore((state) => state.decide);
   const pending = usePermissionsStore(
-    (state) => state.pendingBySession[normalizedSessionId] ?? []
+    (state) => state.pendingBySession[stateKey] ?? EMPTY_PENDING,
   );
   const hydrateOutbox = useOutboxStore((state) => state.hydrate);
   const flushOutbox = useOutboxStore((state) => state.flush);
   const queued = useOutboxStore(
-    (state) => state.queuedBySession[normalizedSessionId] ?? []
+    (state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
   );
+  const queuedCount = queued.length;
 
   useEffect(() => {
     if (!hydrated) void hydrateConnections();
   }, [hydrateConnections, hydrated]);
 
   useEffect(() => {
-    if (normalizedSessionId.length > 0) {
+    if (connKey.length === 0 || options === null) return;
+    return watchConnection(connKey, options);
+  }, [connKey, options, watchConnection]);
+
+  useEffect(() => {
+    if (normalizedSessionId.length > 0 && options !== null) {
       void hydrate(connKey, options, normalizedSessionId);
       void hydratePermissions(connKey, options, normalizedSessionId);
       void hydrateOutbox(connKey, normalizedSessionId);
     }
-  }, [connKey, hydrate, hydrateOutbox, hydratePermissions, normalizedSessionId, options]);
+  }, [
+    connKey,
+    connectionSnapshot?.generation,
+    hydrate,
+    hydrateOutbox,
+    hydratePermissions,
+    normalizedSessionId,
+    options,
+  ]);
 
-  const reconnecting = reconnectingBySession[normalizedSessionId];
-  const error = errorBySession[normalizedSessionId];
-  const online = reconnecting !== true && (error ?? null) === null;
+  const error = errorBySession[stateKey];
+  const transportOnline = connectionSnapshot?.status === "connected";
+  const connectionProblem =
+    connectionSnapshot?.status === "blockedAuth" ||
+    connectionSnapshot?.status === "offline" ||
+    connectionSnapshot?.status === "error"
+      ? connectionSnapshot.error
+      : null;
 
-  // Drain the outbox in order the moment the session is back online.
+  // Drain the outbox in order while the transport is online. This runs both
+  // when the connection wakes and when an item gets queued after a failed send.
   useEffect(() => {
-    if (online && normalizedSessionId.length > 0) {
-      void flushOutbox(connKey, options, normalizedSessionId);
+    if (
+      !transportOnline ||
+      normalizedSessionId.length === 0 ||
+      options === null ||
+      queuedCount === 0
+    ) {
+      return;
     }
-  }, [connKey, flushOutbox, normalizedSessionId, online, options]);
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      void flushOutbox(connKey, options, normalizedSessionId);
+    };
+    run();
+    const timer = setInterval(run, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    connKey,
+    flushOutbox,
+    normalizedSessionId,
+    transportOnline,
+    options,
+    queuedCount,
+  ]);
 
   // Cross-reference question rows so answered prompts collapse and the answer
   // row can resolve selected option labels.
@@ -89,41 +179,82 @@ export default function ThreadScreen() {
     }
     return { answeredQuestionIds: answered, questionsByItemId: questions };
   }, [messages]);
+  const toolResultsByItemId = useMemo(
+    () => buildToolResultsByItemId(messages),
+    [messages],
+  );
 
   const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
     (itemId, answers) =>
-      Effect.runPromise(
-        answerQuestion({
-          connection: options,
-          sessionId: normalizedSessionId,
-          itemId,
-          answers
-        })
-      ).catch(() => {}),
-    [normalizedSessionId, options]
+      options === null
+        ? Promise.resolve()
+        : Effect.runPromise(
+            answerQuestion({
+              connection: options,
+              sessionId: normalizedSessionId,
+              itemId,
+              answers,
+            }),
+          ).catch(() => {}),
+    [normalizedSessionId, options],
   );
 
   const ctx = useMemo<MessageRowContext>(
-    () => ({ answeredQuestionIds, questionsByItemId, onAnswerQuestion }),
-    [answeredQuestionIds, questionsByItemId, onAnswerQuestion]
+    () => ({
+      answeredQuestionIds,
+      questionsByItemId,
+      toolResultsByItemId,
+      planMode: detail?.session.permissionMode === "plan",
+      onAnswerQuestion,
+    }),
+    [
+      answeredQuestionIds,
+      detail?.session.permissionMode,
+      onAnswerQuestion,
+      questionsByItemId,
+      toolResultsByItemId,
+    ],
   );
+
+  useEffect(() => {
+    didInitialScroll.current = false;
+    initialScrollQuietUntil.current = Date.now() + 500;
+  }, [stateKey]);
+
+  const scrollToLatest = useCallback(() => {
+    if (messages.length === 0) return;
+    const animated =
+      didInitialScroll.current && Date.now() > initialScrollQuietUntil.current;
+    didInitialScroll.current = true;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated });
+    });
+  }, [messages.length]);
 
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
       <Stack.Screen options={{ title }} />
+      {hydrated && options === null ? (
+        <View className="px-4 py-3">
+          <Text selectable className="font-sans text-[13px] text-danger">
+            This saved connection could not be found on this phone. Go back and
+            connect the computer again.
+          </Text>
+        </View>
+      ) : null}
       <FlatList
         ref={listRef}
         data={messages}
-        keyExtractor={(message) => message.id}
+        keyExtractor={messageKey}
         renderItem={({ item }) => <MessageRow message={item} ctx={ctx} />}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
         ListHeaderComponent={
-          reconnecting || error ? (
+          error || connectionProblem ? (
             <View className="pb-2">
-              {reconnecting ? (
-                <Text className="font-sans text-[13px] text-warning">
-                  Reconnecting…
+              {connectionProblem ? (
+                <Text selectable className="font-sans text-[13px] text-danger">
+                  {connectionProblem}
                 </Text>
               ) : null}
               {error ? (
@@ -135,40 +266,101 @@ export default function ThreadScreen() {
           ) : null
         }
         ListFooterComponent={
-          queued.length > 0 || pending.length > 0 ? (
+          queued.length > 0 ? (
             <View className="pt-1">
               {queued.map((item) => (
                 <QueuedBubble key={item.clientId} text={item.text} />
               ))}
-              {pending.map((request) => (
-                <PendingApprovalCard
-                  key={request.id}
-                  request={request}
-                  onDecide={(decision) =>
-                    decidePermission(options, normalizedSessionId, request.id, decision)
-                  }
-                />
-              ))}
             </View>
           ) : null
         }
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+        onContentSizeChange={scrollToLatest}
+        onLayout={scrollToLatest}
       />
-      <Composer
-        connKey={connKey}
-        connection={options}
-        sessionId={normalizedSessionId}
-        bottomInset={insets.bottom}
-      />
+      {options === null || pending.length === 0 ? null : (
+        <LivePermissionAccessory
+          requests={pending}
+          bottomInset={0}
+          onDecide={(request, decision) =>
+            decidePermission(
+              connKey,
+              options,
+              normalizedSessionId,
+              request.id,
+              decision,
+            )
+          }
+        />
+      )}
+      {options === null ? null : (
+        <Composer
+          connKey={connKey}
+          connection={options}
+          sessionId={normalizedSessionId}
+          session={detail?.session ?? null}
+          status={sessionStatus}
+          fresh={fresh}
+          projectLabel={detail?.project.name}
+          sourceLabel={
+            detail?.session.worktreeId === null ||
+            detail?.session.worktreeId === undefined
+              ? "Main"
+              : "Branch"
+          }
+          online={transportOnline}
+          bottomInset={insets.bottom}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
 
+class ThreadScreenBoundary extends React.Component<
+  { readonly children: React.ReactNode },
+  { readonly failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { readonly failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: React.ErrorInfo): void {
+    void captureMobileError(error, {
+      context: "thread-screen",
+      componentStack: info.componentStack ?? undefined,
+    });
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <View className="flex-1 items-center justify-center bg-background px-5">
+          <Text className="font-sans-medium text-base text-foreground">
+            This chat could not be opened.
+          </Text>
+          <Text className="mt-2 text-center font-sans text-sm leading-5 text-muted-foreground">
+            The crash report is saved and will stay visible after restart.
+          </Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const QueuedBubble = ({ text }: { text: string }) => (
   <View className="items-end px-3 py-1.5">
-    <View className="max-w-[88%] rounded-lg border border-primary/40 bg-primary/20 px-3 py-2">
-      <Text className="mb-0.5 font-sans-medium text-[11px] text-warning">Queued</Text>
-      <Text className="font-sans text-[15px] leading-5 text-foreground">{text}</Text>
+    <View
+      style={{ borderCurve: "continuous" }}
+      className="max-w-[88%] rounded-2xl border border-primary/40 bg-primary/15 px-3 py-2"
+    >
+      <Text className="mb-0.5 font-sans-medium text-[11px] text-warning">
+        Queued
+      </Text>
+      <Text className="font-sans text-[15px] leading-5 text-foreground">
+        {text}
+      </Text>
     </View>
   </View>
 );

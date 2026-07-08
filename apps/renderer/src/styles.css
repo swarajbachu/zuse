@@ -273,7 +273,7 @@ body,
 
   --secondary: hsl(74 10% 92%);
   --secondary-foreground: var(--foreground);
-  --muted: hsl(74 10% 90%);
+  --muted: hsl(74 10% 86%);
   --muted-foreground: hsl(72 7% 34%);
   --accent: hsl(73 22% 84%);
   --accent-foreground: hsl(72 36% 11%);
@@ -364,7 +364,7 @@ body,
   --accent-green: hsl(131 72% 59%);
   --accent-blue: hsl(220 96% 68%);
   --accent-amber: hsl(18 96% 62%);
-  --accent-red: hsl(0 91% 71%);
+  --accent-red: hsl(0 84% 60%);
   --accent-zinc: hsl(72 2% 63%);
 
   --secondary: hsl(72 4% 10%);
@@ -374,14 +374,14 @@ body,
      hover/selected states and muted surfaces read clearly against cards and
      the 6% background. Previously accent == card (13%), making every dropdown
      hover invisible. */
-  --muted: hsl(72 3% 18%);
+  --muted: hsl(72 4% 24%);
   --muted-foreground: hsl(72 3% 70%);
 
   --accent: hsl(72 4% 27%);
   --accent-foreground: hsl(72 4% 92%);
 
-  --destructive: hsl(0 91% 71%);
-  --destructive-foreground: hsl(72 5% 6%);
+  --destructive: hsl(0 84% 52%);
+  --destructive-foreground: hsl(0 0% 100%);
 
   --success: hsl(131 72% 59%);
   --success-foreground: hsl(130 66% 10%);
@@ -392,7 +392,7 @@ body,
   --info: hsl(220 96% 68%);
   --info-foreground: hsl(217 45% 14%);
 
-  --alert-error-bg: hsl(360 15% 22%);
+  --alert-error-bg: hsl(0 54% 18%);
   --alert-warning-bg: hsl(360 15% 22%);
   --alert-info-bg: hsl(217 45% 18%);
   --alert-success-bg: hsl(130 64% 11%);
@@ -422,7 +422,7 @@ body,
   --chart-2: hsl(131 72% 59%);
   --chart-3: hsl(18 96% 62%);
   --chart-4: hsl(220 96% 68%);
-  --chart-5: hsl(0 91% 71%);
+  --chart-5: hsl(0 84% 60%);
 
   --user-bubble: hsl(72 4% 13%);
   --user-bubble-foreground: hsl(72 4% 92%);

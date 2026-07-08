@@ -17,6 +17,7 @@ import {
 } from "./crypto.ts";
 import { badRequest, forbidden, notFound, RelayError, gone } from "./errors.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
+import { PushDelivery } from "./push.ts";
 import {
   RelayStore,
   type ActivityKind,
@@ -30,7 +31,8 @@ export type RelayContext =
   | WorkosVerifier
   | RelayStore
   | RelayConfiguration
-  | ManagedTunnelProvider;
+  | ManagedTunnelProvider
+  | PushDelivery;
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -57,13 +59,40 @@ const isActivityKind = (value: unknown): value is ActivityKind =>
   value === "error" ||
   value === "running";
 
+const SENSITIVE_ACTIVITY_KEYS = new Set([
+  "chatBytes",
+  "command",
+  "content",
+  "filePath",
+  "message",
+  "messages",
+  "output",
+  "path",
+  "text",
+  "toolArgs",
+  "toolInput",
+]);
+
+const hasSensitiveActivityKey = (value: unknown): boolean => {
+  if (Array.isArray(value)) return value.some(hasSensitiveActivityKey);
+  if (value === null || typeof value !== "object") return false;
+  for (const [key, entry] of Object.entries(value)) {
+    if (SENSITIVE_ACTIVITY_KEYS.has(key)) return true;
+    if (hasSensitiveActivityKey(entry)) return true;
+  }
+  return false;
+};
+
 const publicEndpoint = (environment: EnvironmentRecord) =>
   environment.tunnelHostname !== undefined
-    ? {
-        httpBaseUrl: `https://${environment.tunnelHostname}`,
-        wsBaseUrl: `wss://${environment.tunnelHostname}/rpc`,
-      }
-    : { httpBaseUrl: environment.httpBaseUrl, wsBaseUrl: environment.wsBaseUrl };
+      ? {
+          httpBaseUrl: `https://${environment.tunnelHostname}`,
+          wsBaseUrl: `wss://${environment.tunnelHostname}`,
+        }
+    : {
+        httpBaseUrl: environment.httpBaseUrl,
+        wsBaseUrl: environment.wsBaseUrl,
+      };
 
 /** Routes a request to the matching endpoint. Failures surface as RelayError. */
 const route = (
@@ -75,10 +104,14 @@ const route = (
     const path = url.pathname;
     const config = yield* RelayConfiguration;
     const store = yield* RelayStore;
+    const push = yield* PushDelivery;
     const nowMs = yield* Clock.currentTimeMillis;
 
     // 1. Issue a link challenge (desktop, WorkOS-authenticated).
-    if (method === "POST" && path === "/v1/client/environment-link-challenges") {
+    if (
+      method === "POST" &&
+      path === "/v1/client/environment-link-challenges"
+    ) {
       const principal = yield* requireWorkos(request);
       const challengeId = yield* randomToken("chl");
       const challenge = yield* randomToken("nonce", 32);
@@ -107,7 +140,10 @@ const route = (
         readonly environmentId?: string;
         readonly environmentPublicKey?: string;
         readonly providerKind?: string;
-        readonly endpoint?: { readonly httpBaseUrl?: string; readonly wsBaseUrl?: string };
+        readonly endpoint?: {
+          readonly httpBaseUrl?: string;
+          readonly wsBaseUrl?: string;
+        };
         readonly label?: string;
         readonly managedTunnel?: boolean;
         readonly origin?: {
@@ -211,9 +247,12 @@ const route = (
           tunnelHostname !== undefined
             ? {
                 httpBaseUrl: `https://${tunnelHostname}`,
-                wsBaseUrl: `wss://${tunnelHostname}/rpc`,
+                wsBaseUrl: `wss://${tunnelHostname}`,
               }
-            : { httpBaseUrl: body.endpoint.httpBaseUrl, wsBaseUrl: body.endpoint.wsBaseUrl },
+            : {
+                httpBaseUrl: body.endpoint.httpBaseUrl,
+                wsBaseUrl: body.endpoint.wsBaseUrl,
+              },
         relayIssuer: config.relayIssuer,
         environmentCredential: credentialSecret,
         mintPublicKey: config.mintPublicKey,
@@ -226,12 +265,17 @@ const route = (
     // tunnel and delete the record so it disappears from the account.
     if (method === "POST" && path === "/v1/client/environment-unlink") {
       const principal = yield* requireWorkos(request);
-      const body = yield* readJson<{ readonly environmentId?: string }>(request);
+      const body = yield* readJson<{ readonly environmentId?: string }>(
+        request,
+      );
       if (typeof body.environmentId !== "string") {
         return yield* Effect.fail(badRequest("invalid_environment"));
       }
       const environment = yield* store.getEnvironment(body.environmentId);
-      if (environment === null || environment.accountId !== principal.accountId) {
+      if (
+        environment === null ||
+        environment.accountId !== principal.accountId
+      ) {
         return yield* Effect.fail(notFound());
       }
       if (environment.tunnelId !== undefined) {
@@ -269,7 +313,10 @@ const route = (
         RELAY_SCOPES.connect,
         RELAY_SCOPES.register,
       ]);
-      return json({ accessToken: minted.accessToken, expiresIn: minted.expiresInMs });
+      return json({
+        accessToken: minted.accessToken,
+        expiresIn: minted.expiresInMs,
+      });
     }
 
     // 5. Register a mobile device (DPoP-scoped).
@@ -301,7 +348,10 @@ const route = (
       const environmentId = decodeURIComponent(statusMatch[1]!);
       const principal = yield* requireDpop(request, RELAY_SCOPES.status);
       const environment = yield* store.getEnvironment(environmentId);
-      if (environment === null || environment.accountId !== principal.accountId) {
+      if (
+        environment === null ||
+        environment.accountId !== principal.accountId
+      ) {
         return yield* Effect.fail(notFound());
       }
       const online =
@@ -319,7 +369,10 @@ const route = (
       const environmentId = decodeURIComponent(connectMatch[1]!);
       const principal = yield* requireDpop(request, RELAY_SCOPES.connect);
       const environment = yield* store.getEnvironment(environmentId);
-      if (environment === null || environment.accountId !== principal.accountId) {
+      if (
+        environment === null ||
+        environment.accountId !== principal.accountId
+      ) {
         return yield* Effect.fail(notFound());
       }
       const connectToken = yield* signConnectToken({
@@ -339,7 +392,9 @@ const route = (
     }
 
     // 6. Heartbeat (desktop, environment-credential auth) — presence origin.
-    const heartbeatMatch = /^\/v1\/environments\/([^/]+)\/heartbeat$/.exec(path);
+    const heartbeatMatch = /^\/v1\/environments\/([^/]+)\/heartbeat$/.exec(
+      path,
+    );
     if (method === "POST" && heartbeatMatch !== null) {
       const environmentId = decodeURIComponent(heartbeatMatch[1]!);
       yield* requireEnvironmentCredential(request, environmentId);
@@ -348,33 +403,54 @@ const route = (
     }
 
     // 7. Agent activity (desktop, environment-credential auth) — never chat data.
-    const activityMatch = /^\/v1\/environments\/([^/]+)\/agent-activity$/.exec(path);
+    const activityMatch = /^\/v1\/environments\/([^/]+)\/agent-activity$/.exec(
+      path,
+    );
     if (method === "POST" && activityMatch !== null) {
       const environmentId = decodeURIComponent(activityMatch[1]!);
-      const principal = yield* requireEnvironmentCredential(request, environmentId);
+      const principal = yield* requireEnvironmentCredential(
+        request,
+        environmentId,
+      );
       const body = yield* readJson<{
         readonly sessionId?: string;
         readonly kind?: string;
         readonly title?: string;
-        readonly messages?: unknown;
-        readonly chatBytes?: unknown;
       }>(request);
-      if (body.messages !== undefined || body.chatBytes !== undefined) {
+      if (hasSensitiveActivityKey(body)) {
         return yield* Effect.fail(badRequest("chat_data_not_allowed"));
       }
       if (typeof body.sessionId !== "string" || !isActivityKind(body.kind)) {
         return yield* Effect.fail(badRequest("invalid_activity"));
       }
+      if (body.title !== undefined && typeof body.title !== "string") {
+        return yield* Effect.fail(badRequest("invalid_activity"));
+      }
+      const activityKind = body.kind;
       yield* store.recordActivity({
         environmentId,
         accountId: principal.accountId,
         sessionId: body.sessionId,
-        kind: body.kind,
+        kind: activityKind,
         title: body.title,
         occurredAtMs: nowMs,
       });
       const devices = yield* store.listDevices(principal.accountId);
-      return json({ delivered: devices.filter((device) => device.pushToken).length });
+      const notifications = devices.flatMap((device) =>
+        device.pushToken === undefined
+          ? []
+          : [
+              {
+                to: device.pushToken,
+                environmentId,
+                kind: activityKind,
+                title: body.title,
+                target: `zuse://computers?environmentId=${encodeURIComponent(environmentId)}`,
+              },
+            ],
+      );
+      yield* push.send(notifications).pipe(Effect.ignore);
+      return json({ delivered: notifications.length });
     }
 
     return yield* Effect.fail(notFound());

@@ -35,6 +35,60 @@ export class EnvironmentEndpoint extends Schema.Class<EnvironmentEndpoint>(
   wsBaseUrl: Schema.String,
 }) {}
 
+export const AdvertisedEndpointProviderKind = Schema.Literal(
+  "core",
+  "tunnel",
+  "manual",
+  "private-network",
+);
+export type AdvertisedEndpointProviderKind =
+  typeof AdvertisedEndpointProviderKind.Type;
+
+export const AdvertisedEndpointReachability = Schema.Literal(
+  "loopback",
+  "lan",
+  "public",
+  "tunnel",
+  "private-network",
+);
+export type AdvertisedEndpointReachability =
+  typeof AdvertisedEndpointReachability.Type;
+
+export const AdvertisedEndpointHostedHttpsCompatibility = Schema.Literal(
+  "compatible",
+  "mixed-content-blocked",
+  "unknown",
+);
+export type AdvertisedEndpointHostedHttpsCompatibility =
+  typeof AdvertisedEndpointHostedHttpsCompatibility.Type;
+
+export const AdvertisedEndpointStatus = Schema.Literal(
+  "available",
+  "unavailable",
+  "unknown",
+);
+export type AdvertisedEndpointStatus = typeof AdvertisedEndpointStatus.Type;
+
+export const AdvertisedEndpointCompatibility = Schema.Struct({
+  hostedHttpsApp: AdvertisedEndpointHostedHttpsCompatibility,
+});
+export type AdvertisedEndpointCompatibility =
+  typeof AdvertisedEndpointCompatibility.Type;
+
+export class AdvertisedEndpoint extends Schema.Class<AdvertisedEndpoint>(
+  "AdvertisedEndpoint",
+)({
+  id: Schema.String,
+  label: Schema.String,
+  providerKind: AdvertisedEndpointProviderKind,
+  httpBaseUrl: Schema.String,
+  wsBaseUrl: Schema.String,
+  reachability: AdvertisedEndpointReachability,
+  compatibility: AdvertisedEndpointCompatibility,
+  status: AdvertisedEndpointStatus,
+  isDefault: Schema.Boolean,
+}) {}
+
 /**
  * Everything a client needs to identify and reach an environment. Keyed by
  * `environmentId` (never by "this laptop"), so the relay and clients treat
@@ -46,6 +100,7 @@ export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
   environmentId: EnvironmentId,
   providerKind: ProviderKind,
   endpoint: EnvironmentEndpoint,
+  advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
   label: Schema.optional(Schema.String),
 }) {}
 
@@ -98,6 +153,7 @@ export const ConnectRelayConfigRpc = Rpc.make("connect.relayConfig", {
     relayIssuer: Schema.String,
     environmentId: EnvironmentId,
     environmentCredential: Schema.String,
+    mintPublicKey: Schema.optional(Schema.String),
   }),
   success: Schema.Void,
   error: ConnectAuthError,
@@ -121,6 +177,7 @@ export class RelayLinkStatus extends Schema.Class<RelayLinkStatus>(
   environmentId: Schema.optional(EnvironmentId),
   label: Schema.optional(Schema.String),
   heartbeatActive: Schema.Boolean,
+  advertisedEndpoints: Schema.optional(Schema.Array(AdvertisedEndpoint)),
 }) {}
 
 /** Link this environment to a relay under the signed-in WorkOS account. */

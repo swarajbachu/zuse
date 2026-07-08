@@ -11,7 +11,7 @@ import {
 } from "./agent.ts";
 import {
   AttachmentRef,
-  CodeAnnotation,
+  ComposerAnnotation,
   ComposerInput,
   FileRef,
   SkillRef,
@@ -177,7 +177,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   skillRefs: Schema.Array(SkillRef),
   // Additive + back-compat: rows persisted before code annotations existed
   // decode with an empty list rather than failing.
-  annotations: Schema.optionalWith(Schema.Array(CodeAnnotation), {
+  annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
     default: () => [],
   }),
   goal: Schema.optional(Schema.Boolean),
@@ -486,6 +486,9 @@ export const SessionCreateRpc = Rpc.make("session.create", {
      * `'default'` (immediate execution).
      */
     permissionMode: Schema.optional(PermissionMode),
+    modelOptions: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.String }),
+    ),
     /**
      * Persist the deferred-tools toggle for this session. Reserved for
      * 0.04 code-index MCP servers; no-op today.
@@ -743,6 +746,9 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
      * spawning session id. Omitted for user-created chats.
      */
     originSessionId: Schema.optional(SessionId),
+    modelOptions: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.String }),
+    ),
   }),
   success: Schema.Struct({
     chat: Chat,

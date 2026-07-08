@@ -10,7 +10,13 @@ import {
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+
+import { CrashReportOverlay } from "~/components/crash-report-overlay";
+import { installCrashReporting } from "~/lib/crash-reporting";
+import { installNotificationResponseHandler } from "~/notifications/push";
 
 const BG = "hsl(72 5% 6%)";
 const FG = "hsl(72 4% 92%)";
@@ -24,12 +30,17 @@ export default function RootLayout() {
     GeistMono_400Regular,
   });
 
+  useEffect(() => {
+    installCrashReporting();
+    return installNotificationResponseHandler();
+  }, []);
+
   if (!fontsLoaded) {
     return <View className="flex-1 bg-background" />;
   }
 
   return (
-    <>
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -48,16 +59,35 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: BG },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "Connections" }} />
+        <Stack.Screen name="index" options={{ title: "Chats" }} />
         <Stack.Screen
-          name="computers"
+          name="new-chat"
           options={{
-            title: "Your computers",
-            // Native @expo/ui List content sizes itself; a solid, non-large
-            // header avoids the transparent large-title inset overlapping it.
+            title: "New Chat",
             headerLargeTitle: false,
-            headerTransparent: false,
-            headerStyle: { backgroundColor: BG },
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
+          name="settings"
+          options={{
+            title: "Settings",
+            presentation: "formSheet",
+            headerLargeTitle: false,
+            headerTransparent: true,
+            contentStyle: { backgroundColor: "transparent" },
+            sheetAllowedDetents: [0.52, 0.92],
+            sheetCornerRadius: 28,
+            sheetGrabberVisible: true,
+            sheetLargestUndimmedDetentIndex: 0,
+          }}
+        />
+        <Stack.Screen
+          name="plan-viewer"
+          options={{
+            title: "Plan",
+            presentation: "modal",
+            headerLargeTitle: false,
           }}
         />
         <Stack.Screen
@@ -90,6 +120,7 @@ export default function RootLayout() {
           options={{ title: "Smoke", headerLargeTitle: false }}
         />
       </Stack>
-    </>
+      <CrashReportOverlay />
+    </GestureHandlerRootView>
   );
 }

@@ -50,7 +50,8 @@ export const usePrDetailsStore = create<PrDetailsState>((set, get) => ({
   loadingByKey: {},
   hydrate: async (folderId, worktreeId) => {
     const key = prDetailsKey(folderId, worktreeId);
-    if (key in get().byKey) return;
+    const existing = get().byKey[key];
+    if (existing !== undefined && existing.state !== "none") return;
     if (get().loadingByKey[key] === true) return;
     set((s) => ({ loadingByKey: { ...s.loadingByKey, [key]: true } }));
     const info = await fetchPrDetails(folderId, worktreeId);

@@ -16,6 +16,7 @@ import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
+import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
 import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
 import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
@@ -58,7 +59,10 @@ import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
  *   wraps `dialog.showOpenDialog`; a headless server returns null (or
  *   forwards the prompt to a connected client).
  * - `serverProtocol`: the RPC transport. Electron supplies an in-process
- *   IPC protocol; the future WS server will supply a WebSocket protocol.
+ *   IPC protocol; a headless server supplies a WebSocket protocol.
+ * - `additionalServerProtocols`: optional secondary transports that serve the
+ *   same RPC handlers from the same runtime, for example Electron IPC plus a
+ *   protected local WebSocket origin for relay tunnels.
  * - `authShell`: the WorkOS OAuth deep-link seam. Electron opens the system
  *   browser via `shell.openExternal` and funnels the `zuse://auth/callback`
  *   deep link back in; a headless server supplies a loopback-HTTP variant.
@@ -70,6 +74,9 @@ export interface MainLayerDeps {
     RpcServer.Protocol,
     never,
     LanAuthService
+  >;
+  readonly additionalServerProtocols?: ReadonlyArray<
+    Layer.Layer<RpcServer.Protocol, never, LanAuthService>
   >;
   readonly authShell: typeof AuthShell.Service;
   readonly lanAuth?: {
@@ -115,6 +122,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MigratedSqlite),
     Layer.provide(NodeContext.layer),
     Layer.provide(AppPathsLayer),
+  );
+
+  const LanAuthLayer = LanAuthServiceLive.pipe(
+    Layer.provide(MigratedSqlite),
+    Layer.provide(LanAuthConfigLayer),
   );
 
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
@@ -261,6 +273,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     }),
   ).pipe(Layer.provide(MigratedSqlite));
 
+  const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
+    Layer.provide(LanAuthLayer),
+  );
+
   const MessageStoreLayer = MessageStoreLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
@@ -271,6 +287,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
+    Layer.provide(RelayActivityPublisherLayer),
     Layer.provide(ProjectorCatchup),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
@@ -313,11 +330,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(AuthShellLayer),
   );
 
-  const LanAuthLayer = LanAuthServiceLive.pipe(
-    Layer.provide(MigratedSqlite),
-    Layer.provide(LanAuthConfigLayer),
-  );
-
   // RelayLinkService orchestrates the desktop's self-registration with the
   // account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
   // reuses the environment identity (LanAuthService) and the WorkOS token
@@ -327,7 +339,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthConfigLayer),
     Layer.provide(AuthLayer),
     // The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
-    Layer.provide(ManagedTunnelRuntimeLive.pipe(Layer.provide(NodeContext.layer))),
+    Layer.provide(
+      ManagedTunnelRuntimeLive.pipe(
+        Layer.provide(NodeContext.layer),
+        Layer.provide(AppPathsLayer),
+      ),
+    ),
+    Layer.provide(AppPathsLayer),
   );
 
   const HandlerSupportLayer = Layer.mergeAll(
@@ -376,9 +394,21 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(HandlerSupportLayer),
   );
 
-  const ServerLayer = RpcServer.layer(MemoizeRpcs).pipe(
-    Layer.provide(Handlers),
-    Layer.provide(deps.serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+  const serverProtocols = [
+    deps.serverProtocol,
+    ...(deps.additionalServerProtocols ?? []),
+  ] as const;
+  const makeServerLayer = (
+    serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>,
+  ) =>
+    RpcServer.layer(MemoizeRpcs).pipe(
+      Layer.provide(Handlers),
+      Layer.provide(serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+    );
+
+  const ServerLayer = Layer.mergeAll(
+    makeServerLayer(serverProtocols[0]),
+    ...serverProtocols.slice(1).map(makeServerLayer),
   );
 
   return Layer.mergeAll(ServerLayer, NodeContext.layer);

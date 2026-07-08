@@ -24,8 +24,8 @@ import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { makeMainLayer } from "@zuse/server";
-import { AGENTS_RUNNING_COUNT_CHANNEL } from "@zuse/wire";
+import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
+import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/wire";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -323,6 +323,27 @@ const appendAppLog = (fileName: string, line: string): void => {
   }
 };
 
+const appendRemoteConnectionLog = (
+  event: string,
+  fields: Record<string, unknown> = {},
+): void => {
+  appendAppLog(
+    "remote-connection.log",
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      event,
+      ...Object.fromEntries(
+        Object.entries(fields).map(([key, value]) => [
+          key,
+          value instanceof Error
+            ? { name: value.name, message: value.message }
+            : value,
+        ]),
+      ),
+    }),
+  );
+};
+
 type OpenTargetDefinition = {
   readonly id: string;
   readonly label: string;
@@ -611,8 +632,17 @@ const folderPicker = {
 const authShell = {
   redirectUri: AUTH_REDIRECT_URI,
   open: (url: string) =>
-    Effect.sync(() => {
-      void shell.openExternal(url);
+    Effect.tryPromise({
+      try: async () => {
+        await shell.openExternal(url);
+      },
+      catch: (cause) =>
+        new AuthFlowError({
+          reason:
+            cause instanceof Error
+              ? `Could not open browser: ${cause.message}`
+              : "Could not open browser.",
+        }),
     }),
   onCallbackUrl: (handler: (url: string) => void) =>
     Effect.sync(() => {
@@ -1123,6 +1153,49 @@ function createMainWindow() {
     return browserPendingDialog.get(rawId) ?? null;
   });
 
+  ipcMain.handle("browser:listLocalServers", async () => {
+    try {
+      const byPort = new Map<number, string>();
+      if (process.platform === "darwin") {
+        const { stdout } = await execFileAsync("lsof", [
+          "-nP",
+          "-iTCP",
+          "-sTCP:LISTEN",
+        ]);
+        for (const line of stdout.split("\n").slice(1)) {
+          const trimmed = line.trim();
+          if (trimmed.length === 0) continue;
+          const parts = trimmed.split(/\s+/);
+          const command = parts[0] ?? "server";
+          const endpoint = parts.find((part) => /:(\d+)$/.test(part));
+          const match = endpoint?.match(/:(\d+)$/);
+          if (match === undefined || match === null) continue;
+          const port = Number(match[1]);
+          if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+          if (!byPort.has(port)) byPort.set(port, command.slice(0, 48));
+        }
+      } else {
+        const { stdout } = await execFileAsync("netstat", ["-an"]);
+        for (const line of stdout.split("\n")) {
+          if (!/\bLISTEN(?:ING)?\b/i.test(line)) continue;
+          const match = line.match(
+            /(?:127\.0\.0\.1|0\.0\.0\.0|\[?::1\]?|\*)[.:](\d+)/,
+          );
+          if (match === null) continue;
+          const port = Number(match[1]);
+          if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
+          if (!byPort.has(port)) byPort.set(port, "localhost");
+        }
+      }
+      return [...byPort.entries()]
+        .sort(([left], [right]) => left - right)
+        .slice(0, 50)
+        .map(([port, name]) => ({ name, port }));
+    } catch {
+      return [];
+    }
+  });
+
   ipcMain.handle(
     "browser:dispatchInput",
     async (_event, rawId: unknown, rawAction: unknown) => {
@@ -1290,6 +1363,16 @@ function createMainWindow() {
   const serverProtocol = electronServerProtocolLayer(
     mainWindow.webContents,
   ).pipe(Layer.provide(RpcSerialization.layerJson));
+  const relayWsPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8787);
+  const relayWsProtocol = wsServerProtocolLayer({
+    port: relayWsPort,
+    host: "127.0.0.1",
+    onDiagnostic: appendRemoteConnectionLog,
+  });
+  appendRemoteConnectionLog("desktop.runtime.start", {
+    relayWsPort,
+    userData: app.getPath("userData"),
+  });
 
   runtimeFiber = Effect.runFork(
     Layer.launch(
@@ -1297,7 +1380,14 @@ function createMainWindow() {
         userData: app.getPath("userData"),
         folderPicker,
         serverProtocol,
+        additionalServerProtocols: [relayWsProtocol],
         authShell,
+        lanAuth: {
+          policy: "protected",
+          advertisedHost: null,
+          port: relayWsPort,
+          pairingBootstrap: false,
+        },
       }),
     ).pipe(
       Effect.catchAllCause((cause) =>
@@ -1305,6 +1395,9 @@ function createMainWindow() {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet
           // success-after-restart is preferable to a half-running app.
+          appendRemoteConnectionLog("desktop.runtime.fatal", {
+            cause: String(cause),
+          });
           console.error("[zuse] fatal boot error", cause);
           app.exit(1);
         }),

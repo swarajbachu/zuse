@@ -91,7 +91,8 @@ export const usePrStateStore = create<PrState>((set, get) => ({
   byKey: {},
   hydrate: async (folderId, worktreeId) => {
     const key = prStateKey(folderId, worktreeId);
-    if (key in get().byKey) return;
+    const existing = get().byKey[key];
+    if (existing !== undefined && existing.state !== "none") return;
     const info = await fetchPrState(folderId, worktreeId);
     if (info === null) return;
     set((s) => ({ byKey: { ...s.byKey, [key]: info } }));

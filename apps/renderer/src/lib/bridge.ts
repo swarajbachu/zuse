@@ -164,6 +164,11 @@ export interface BrowserDialogState {
   readonly defaultPrompt?: string;
 }
 
+export interface LocalServerSummary {
+  readonly name: string;
+  readonly port: number;
+}
+
 export interface BrowserBridge {
   /**
    * Attach Chrome DevTools Protocol to the embedded webview's webContents so
@@ -197,6 +202,7 @@ export interface BrowserBridge {
   readonly getDialogState?: (
     webContentsId: number,
   ) => Promise<BrowserDialogState | null>;
+  readonly listLocalServers?: () => Promise<ReadonlyArray<LocalServerSummary>>;
 }
 
 export interface SshBridge {

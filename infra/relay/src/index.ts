@@ -5,6 +5,7 @@ import { handleRequest, type RelayContext } from "./handler.ts";
 export * from "./config.ts";
 export * from "./errors.ts";
 export * from "./managed-tunnel.ts";
+export * from "./push.ts";
 export * from "./store.ts";
 export * from "./workos.ts";
 export { RELAY_SCOPES } from "./auth.ts";

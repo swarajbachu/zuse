@@ -10,7 +10,10 @@ export const workosClientId = (): string =>
   process.env.EXPO_PUBLIC_WORKOS_CLIENT_ID ?? "";
 
 export const relayBaseUrl = (): string =>
-  (process.env.EXPO_PUBLIC_ZUSE_RELAY_URL ?? "").replace(/\/$/, "");
+  (process.env.EXPO_PUBLIC_ZUSE_RELAY_URL ?? "https://relay.stuff.md").replace(
+    /\/$/,
+    "",
+  );
 
 /** App deep-link scheme (matches app.json `scheme`). */
 export const APP_SCHEME = "zuse";

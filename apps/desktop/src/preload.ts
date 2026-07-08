@@ -99,6 +99,10 @@ const bridge = {
         message: string;
         defaultPrompt?: string;
       } | null>,
+    listLocalServers: () =>
+      ipcRenderer.invoke("browser:listLocalServers") as Promise<
+        ReadonlyArray<{ name: string; port: number }>
+      >,
   },
   notch: {
     setItems: (items: unknown) => {

@@ -70,13 +70,17 @@ export interface ActivityRecord {
 }
 
 export interface RelayStoreApi {
-  readonly createChallenge: (challenge: LinkChallengeRecord) => Effect.Effect<void>;
+  readonly createChallenge: (
+    challenge: LinkChallengeRecord,
+  ) => Effect.Effect<void>;
   /** Single-use: returns the challenge and deletes it, only if it belongs to `accountId`. */
   readonly consumeChallenge: (
     challengeId: string,
     accountId: string,
   ) => Effect.Effect<LinkChallengeRecord | null>;
-  readonly upsertEnvironment: (environment: EnvironmentRecord) => Effect.Effect<void>;
+  readonly upsertEnvironment: (
+    environment: EnvironmentRecord,
+  ) => Effect.Effect<void>;
   readonly listEnvironments: (
     accountId: string,
   ) => Effect.Effect<ReadonlyArray<EnvironmentRecord>>;
@@ -101,7 +105,9 @@ export interface RelayStoreApi {
     environmentId: string,
     accountId: string,
   ) => Effect.Effect<void>;
-  readonly insertCredential: (credential: CredentialRecord) => Effect.Effect<void>;
+  readonly insertCredential: (
+    credential: CredentialRecord,
+  ) => Effect.Effect<void>;
   readonly findActiveCredentialByHash: (
     credentialHash: string,
   ) => Effect.Effect<CredentialRecord | null>;
@@ -146,7 +152,8 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
       consumeChallenge: (challengeId, accountId) =>
         Ref.modify(challenges, (map) => {
           const found = map.get(challengeId) ?? null;
-          if (found === null || found.accountId !== accountId) return [null, map];
+          if (found === null || found.accountId !== accountId)
+            return [null, map];
           const next = new Map(map);
           next.delete(challengeId);
           return [found, next];
@@ -199,7 +206,8 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
         Effect.zipRight(
           Ref.update(environments, (map) => {
             const found = map.get(environmentId);
-            if (found === undefined || found.accountId !== accountId) return map;
+            if (found === undefined || found.accountId !== accountId)
+              return map;
             const next = new Map(map);
             next.delete(environmentId);
             return next;
@@ -232,7 +240,9 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
       listDevices: (accountId) =>
         Ref.get(devices).pipe(
           Effect.map((map) =>
-            [...map.values()].filter((device) => device.accountId === accountId),
+            [...map.values()].filter(
+              (device) => device.accountId === accountId,
+            ),
           ),
         ),
       consumeDpopProof: (input) =>
@@ -284,7 +294,8 @@ const toEnvironment = (row: EnvironmentRow): EnvironmentRecord => ({
   dnsRecordId: row.dns_record_id ?? undefined,
   tunnelStatus: row.tunnel_status ?? undefined,
   linkedAtMs: Number(row.linked_at),
-  lastSeenAtMs: row.last_seen_at === null ? undefined : Number(row.last_seen_at),
+  lastSeenAtMs:
+    row.last_seen_at === null ? undefined : Number(row.last_seen_at),
 });
 
 export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
@@ -297,14 +308,16 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
 
       return RelayStore.of({
         createChallenge: (challenge) =>
-          orDie(sql`
+          orDie(
+            sql`
             INSERT INTO relay_link_challenges
               (challenge_id, account_id, challenge, relay_issuer, expires_at)
             VALUES (
               ${challenge.challengeId}, ${challenge.accountId}, ${challenge.challenge},
               ${challenge.relayIssuer}, ${challenge.expiresAtMs}
             )
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         consumeChallenge: (challengeId, accountId) =>
           orDie(
             sql<{
@@ -332,7 +345,8 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
             ),
           ),
         upsertEnvironment: (env) =>
-          orDie(sql`
+          orDie(
+            sql`
             INSERT INTO relay_environments
               (environment_id, account_id, org_id, provider_kind, label,
                environment_public_key, http_base_url, ws_base_url, tunnel_hostname,
@@ -352,7 +366,8 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
               http_base_url = EXCLUDED.http_base_url,
               ws_base_url = EXCLUDED.ws_base_url,
               linked_at = EXCLUDED.linked_at
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         listEnvironments: (accountId) =>
           orDie(
             sql<EnvironmentRow>`
@@ -370,42 +385,52 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
             ),
           ),
         touchEnvironment: (environmentId, lastSeenAtMs) =>
-          orDie(sql`
+          orDie(
+            sql`
             UPDATE relay_environments SET last_seen_at = ${lastSeenAtMs}
             WHERE environment_id = ${environmentId}
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         setTunnelAllocation: (environmentId, allocation) =>
-          orDie(sql`
+          orDie(
+            sql`
             UPDATE relay_environments SET
               tunnel_hostname = ${allocation.tunnelHostname},
               tunnel_id = ${allocation.tunnelId},
               dns_record_id = ${allocation.dnsRecordId ?? null},
               tunnel_status = ${allocation.tunnelStatus}
             WHERE environment_id = ${environmentId}
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         clearTunnelAllocation: (environmentId) =>
-          orDie(sql`
+          orDie(
+            sql`
             UPDATE relay_environments SET
               tunnel_hostname = NULL,
               tunnel_id = NULL,
               dns_record_id = NULL,
               tunnel_status = NULL
             WHERE environment_id = ${environmentId}
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         deleteEnvironment: (environmentId, accountId) =>
-          orDie(sql`
+          orDie(
+            sql`
             DELETE FROM relay_environments
             WHERE environment_id = ${environmentId} AND account_id = ${accountId}
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         insertCredential: (cred) =>
-          orDie(sql`
+          orDie(
+            sql`
             INSERT INTO relay_environment_credentials
               (credential_id, environment_id, account_id, credential_hash, created_at)
             VALUES (
               ${cred.credentialId}, ${cred.environmentId}, ${cred.accountId},
               ${cred.credentialHash}, ${cred.createdAtMs}
             )
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         findActiveCredentialByHash: (credentialHash) =>
           orDie(
             sql<{
@@ -429,13 +454,16 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
                   credentialHash: row.credential_hash,
                   createdAtMs: Number(row.created_at),
                   revokedAtMs:
-                    row.revoked_at === null ? undefined : Number(row.revoked_at),
+                    row.revoked_at === null
+                      ? undefined
+                      : Number(row.revoked_at),
                 } satisfies CredentialRecord;
               }),
             ),
           ),
         upsertDevice: (device) =>
-          orDie(sql`
+          orDie(
+            sql`
             INSERT INTO relay_devices
               (device_id, account_id, platform, push_token, dpop_jwk, updated_at)
             VALUES (
@@ -450,7 +478,8 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
               push_token = EXCLUDED.push_token,
               dpop_jwk = EXCLUDED.dpop_jwk,
               updated_at = EXCLUDED.updated_at
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
         listDevices: (accountId) =>
           orDie(
             sql<{
@@ -485,14 +514,16 @@ export const RelayStorePg: Layer.Layer<RelayStore, never, SqlClient.SqlClient> =
             `.pipe(Effect.map((rows) => rows.length > 0)),
           ),
         recordActivity: (activity) =>
-          orDie(sql`
+          orDie(
+            sql`
             INSERT INTO relay_agent_activity
               (environment_id, account_id, session_id, kind, title, occurred_at)
             VALUES (
               ${activity.environmentId}, ${activity.accountId}, ${activity.sessionId},
               ${activity.kind}, ${activity.title ?? null}, ${activity.occurredAtMs}
             )
-          `.pipe(Effect.asVoid)),
+          `.pipe(Effect.asVoid),
+          ),
       });
     }),
   );

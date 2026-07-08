@@ -21,6 +21,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ComposerInput,
   findModelDescriptor,
+  type BrowserAnnotation,
+  type ComposerAnnotation,
   type BooleanOptionDescriptor,
   type Message,
   type PermissionMode,
@@ -125,6 +127,27 @@ import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const attachmentsWithBrowserAnnotations = (
+  attachments: ComposerInput["attachments"],
+  annotations: ReadonlyArray<ComposerAnnotation>,
+): ComposerInput["attachments"] => {
+  const next = [...attachments];
+  const seen = new Set(next.map((attachment) => attachment.id));
+  for (const annotation of annotations) {
+    if (!isBrowserAnnotation(annotation)) continue;
+    const screenshot = annotation.screenshotAttachment;
+    if (screenshot === null || seen.has(screenshot.id)) continue;
+    next.push(screenshot);
+    seen.add(screenshot.id);
+  }
+  return next;
+};
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
@@ -770,7 +793,10 @@ export function ChatComposer({
       annotations.length > 0
         ? ComposerInput.make({
             text: parsed.text,
-            attachments: parsed.attachments,
+            attachments: attachmentsWithBrowserAnnotations(
+              parsed.attachments,
+              annotations,
+            ),
             fileRefs: parsed.fileRefs,
             skillRefs: parsed.skillRefs,
             annotations,

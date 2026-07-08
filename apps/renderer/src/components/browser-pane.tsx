@@ -1,17 +1,50 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { StarIcon } from "@hugeicons-pro/core-bulk-rounded";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { Effect, Fiber, Stream } from "effect";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Eraser,
+  MousePointer2,
+  MousePointerClick,
+  PencilLine,
+  RefreshCw,
+  SendHorizontal,
+  Server,
+  SquareDashedMousePointer,
+  X,
+} from "lucide-react";
 
-import { BrowserCommandResult, type BrowserCommandRequest } from "@zuse/wire";
+import {
+  BrowserCommandResult,
+  type BrowserAnnotationElement,
+  type BrowserAnnotationPoint,
+  type BrowserAnnotationRect,
+  type BrowserAnnotationRegion,
+  type BrowserAnnotationStroke,
+  type BrowserCommandRequest,
+  type SessionId,
+} from "@zuse/wire";
 
 import type {
   BrowserInputAction,
   CdpCommandOutcome,
+  LocalServerSummary,
   NetworkQueryResult,
 } from "../lib/bridge.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { useAnnotationsStore } from "../store/annotations.ts";
+import { useAttachmentsStore } from "../store/attachments.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
@@ -32,6 +65,101 @@ const CURSOR_GLIDE_MS = 350;
  * this long plus a small buffer before letting the next command run.
  */
 const SMOOTH_SCROLL_MS = 700;
+
+type AnnotationTool = "select" | "region" | "draw" | "erase";
+
+type BrowserElementPick = BrowserAnnotationElement & { id: string };
+
+const annotationTools: ReadonlyArray<{
+  readonly id: AnnotationTool;
+  readonly label: string;
+  readonly icon: ComponentType<{ className?: string; strokeWidth?: number }>;
+}> = [
+  { id: "select", label: "Select", icon: MousePointer2 },
+  { id: "region", label: "Region", icon: SquareDashedMousePointer },
+  { id: "draw", label: "Draw", icon: PencilLine },
+  { id: "erase", label: "Erase", icon: Eraser },
+];
+
+const fallbackLocalServers: ReadonlyArray<LocalServerSummary> = [
+  { name: "T3 Code", port: 3773 },
+  { name: "Vite", port: 5173 },
+  { name: "Zuse", port: 5733 },
+  { name: "Next.js", port: 3000 },
+];
+
+const newAnnotationId = (prefix: string): string => {
+  try {
+    return `${prefix}-${crypto.randomUUID()}`;
+  } catch {
+    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  }
+};
+
+const normalizeRect = (
+  start: BrowserAnnotationPoint,
+  end: BrowserAnnotationPoint,
+): BrowserAnnotationRect => ({
+  x: Math.min(start.x, end.x),
+  y: Math.min(start.y, end.y),
+  width: Math.abs(end.x - start.x),
+  height: Math.abs(end.y - start.y),
+});
+
+const isUsableRect = (rect: BrowserAnnotationRect): boolean =>
+  rect.width >= 4 && rect.height >= 4;
+
+const boundsForPoints = (
+  points: ReadonlyArray<BrowserAnnotationPoint>,
+): BrowserAnnotationRect => {
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const right = Math.max(...xs);
+  const bottom = Math.max(...ys);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+};
+
+const unionRects = (
+  rects: ReadonlyArray<BrowserAnnotationRect>,
+): BrowserAnnotationRect | null => {
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((rect) => rect.x));
+  const top = Math.min(...rects.map((rect) => rect.y));
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+};
+
+const pointInRect = (
+  point: BrowserAnnotationPoint,
+  rect: BrowserAnnotationRect,
+): boolean =>
+  point.x >= rect.x &&
+  point.x <= rect.x + rect.width &&
+  point.y >= rect.y &&
+  point.y <= rect.y + rect.height;
+
+const pathFromPoints = (
+  points: ReadonlyArray<BrowserAnnotationPoint>,
+): string => {
+  if (points.length === 0) return "";
+  return points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .join(" ");
+};
+
+const nativeImageToFile = async (
+  image: NativeImageLike,
+  name: string,
+): Promise<File> => {
+  const png = image.toPNG();
+  const source = png instanceof Uint8Array ? png : new Uint8Array(png);
+  const bytes = new Uint8Array(source.length);
+  bytes.set(source);
+  return new File([bytes], name, { type: "image/png" });
+};
 
 /**
  * In-app Browser tab — toolbar (back/forward/refresh/URL bar) + Electron
@@ -76,6 +204,47 @@ export function BrowserPane() {
     null,
   );
   const cursorNonceRef = useRef(0);
+  const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
+  const addBrowserAnnotation = useAnnotationsStore((s) => s.addBrowser);
+  const uploadAttachment = useAttachmentsStore((s) => s.uploadOne);
+  const [annotating, setAnnotating] = useState(false);
+  const [annotationTool, setAnnotationTool] =
+    useState<AnnotationTool>("select");
+  const [hoverPick, setHoverPick] = useState<BrowserElementPick | null>(null);
+  const [pickedElements, setPickedElements] = useState<BrowserElementPick[]>(
+    [],
+  );
+  const [regions, setRegions] = useState<BrowserAnnotationRegion[]>([]);
+  const [strokes, setStrokes] = useState<BrowserAnnotationStroke[]>([]);
+  const [dragStart, setDragStart] = useState<BrowserAnnotationPoint | null>(
+    null,
+  );
+  const [dragRect, setDragRect] = useState<BrowserAnnotationRect | null>(null);
+  const [activeStroke, setActiveStroke] =
+    useState<BrowserAnnotationStroke | null>(null);
+  const [annotationComment, setAnnotationComment] = useState("");
+  const [attachingAnnotation, setAttachingAnnotation] = useState(false);
+  const [localServers, setLocalServers] =
+    useState<ReadonlyArray<LocalServerSummary>>(fallbackLocalServers);
+  const hasLoadedPage = url !== "" && url !== "about:blank";
+  const hasAnnotationTargets =
+    pickedElements.length > 0 || regions.length > 0 || strokes.length > 0;
+  const annotationBounds = unionRects([
+    ...pickedElements.map((element) => element.rect),
+    ...regions.map((region) => region.rect),
+    ...strokes.map((stroke) => stroke.bounds),
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.zuse?.browser?.listLocalServers?.().then((servers) => {
+      if (cancelled || servers.length === 0) return;
+      setLocalServers(servers);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Wire navigation lifecycle events onto the underlying webview element.
   // We attach via `addEventListener` because the webview tag isn't a real
@@ -131,6 +300,15 @@ export function BrowserPane() {
       // Fresh page — drop the previous page's console history and refs.
       consoleBufferRef.current = [];
       refStoreRef.current = { mode: "dom", map: new Map() };
+      setAnnotating(false);
+      setHoverPick(null);
+      setPickedElements([]);
+      setRegions([]);
+      setStrokes([]);
+      setDragStart(null);
+      setDragRect(null);
+      setActiveStroke(null);
+      setAnnotationComment("");
     };
     const onStop = () => {
       setIsLoading(false);
@@ -294,6 +472,230 @@ export function BrowserPane() {
     }
   };
 
+  const resetAnnotationDraft = () => {
+    setHoverPick(null);
+    setPickedElements([]);
+    setRegions([]);
+    setStrokes([]);
+    setDragStart(null);
+    setDragRect(null);
+    setActiveStroke(null);
+    setAnnotationComment("");
+  };
+
+  const pointFromEvent = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): BrowserAnnotationPoint => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const pickElementAt = async (
+    point: BrowserAnnotationPoint,
+  ): Promise<BrowserElementPick | null> => {
+    const wv = webviewRef.current as WebviewElement | null;
+    if (wv === null || url === "") return null;
+    const code = `
+(() => {
+  const x = ${JSON.stringify(point.x)};
+  const y = ${JSON.stringify(point.y)};
+  const element = document.elementFromPoint(x, y);
+  if (!element || element === document.documentElement || element === document.body) return null;
+  const selectorFor = (node) => {
+    if (node.id) return "#" + CSS.escape(node.id);
+    const parts = [];
+    let current = node;
+    while (current && current.nodeType === 1 && current !== document.body && parts.length < 4) {
+      const tag = current.tagName.toLowerCase();
+      const parent = current.parentElement;
+      if (!parent) {
+        parts.unshift(tag);
+        break;
+      }
+      const siblings = Array.from(parent.children).filter((child) => child.tagName === current.tagName);
+      const index = siblings.indexOf(current) + 1;
+      parts.unshift(siblings.length > 1 ? tag + ":nth-of-type(" + index + ")" : tag);
+      current = parent;
+    }
+    return parts.join(" > ");
+  };
+  const rect = element.getBoundingClientRect();
+  const tagName = element.tagName.toLowerCase();
+  const text = (element.innerText || element.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 140);
+  const label = element.id ? tagName + "#" + element.id : tagName;
+  return {
+    tagName,
+    selector: selectorFor(element),
+    label,
+    textPreview: text,
+    rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height }
+  };
+})()
+`;
+    try {
+      const raw = await wv.executeJavaScript(code);
+      if (raw === null || typeof raw !== "object") return null;
+      const candidate = raw as BrowserAnnotationElement;
+      if (
+        typeof candidate.tagName !== "string" ||
+        typeof candidate.label !== "string" ||
+        typeof candidate.textPreview !== "string" ||
+        candidate.rect === undefined ||
+        !isUsableRect(candidate.rect)
+      ) {
+        return null;
+      }
+      return { ...candidate, id: newAnnotationId("element") };
+    } catch {
+      return null;
+    }
+  };
+
+  const removeAnnotationTargetAt = (point: BrowserAnnotationPoint): void => {
+    setPickedElements((current) =>
+      current.filter((element) => !pointInRect(point, element.rect)),
+    );
+    setRegions((current) =>
+      current.filter((region) => !pointInRect(point, region.rect)),
+    );
+    setStrokes((current) =>
+      current.filter((stroke) => !pointInRect(point, stroke.bounds)),
+    );
+  };
+
+  const handleAnnotationPointerDown = async (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!annotating || event.button !== 0) return;
+    const point = pointFromEvent(event);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+    if (annotationTool === "select") {
+      const picked = await pickElementAt(point);
+      if (picked === null) return;
+      setPickedElements((current) => {
+        const exists = current.some(
+          (element) => element.selector === picked.selector,
+        );
+        return exists ? current : [...current, picked];
+      });
+      return;
+    }
+    if (annotationTool === "erase") {
+      removeAnnotationTargetAt(point);
+      return;
+    }
+    if (annotationTool === "region") {
+      setDragStart(point);
+      setDragRect({ ...point, width: 0, height: 0 });
+      return;
+    }
+    if (annotationTool === "draw") {
+      setActiveStroke({
+        id: newAnnotationId("stroke"),
+        points: [point],
+        bounds: { ...point, width: 0, height: 0 },
+      });
+    }
+  };
+
+  const handleAnnotationPointerMove = async (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!annotating) return;
+    const point = pointFromEvent(event);
+    if (annotationTool === "select" && dragStart === null) {
+      const picked = await pickElementAt(point);
+      setHoverPick(picked);
+      return;
+    }
+    if (annotationTool === "region" && dragStart !== null) {
+      setDragRect(normalizeRect(dragStart, point));
+      return;
+    }
+    if (annotationTool === "draw" && activeStroke !== null) {
+      const points = [...activeStroke.points, point];
+      setActiveStroke({
+        ...activeStroke,
+        points,
+        bounds: boundsForPoints(points),
+      });
+    }
+  };
+
+  const handleAnnotationPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!annotating) return;
+    const point = pointFromEvent(event);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (annotationTool === "region" && dragStart !== null) {
+      const rect = normalizeRect(dragStart, point);
+      if (isUsableRect(rect)) {
+        setRegions((current) => [
+          ...current,
+          { id: newAnnotationId("region"), rect },
+        ]);
+      }
+      setDragStart(null);
+      setDragRect(null);
+    }
+    if (annotationTool === "draw" && activeStroke !== null) {
+      if (
+        activeStroke.points.length >= 2 &&
+        isUsableRect(activeStroke.bounds)
+      ) {
+        setStrokes((current) => [...current, activeStroke]);
+      }
+      setActiveStroke(null);
+    }
+  };
+
+  const attachBrowserAnnotation = async (): Promise<void> => {
+    const wv = webviewRef.current as WebviewElement | null;
+    if (
+      wv === null ||
+      selectedSessionId === null ||
+      !hasAnnotationTargets ||
+      annotationComment.trim().length === 0
+    ) {
+      return;
+    }
+    setAttachingAnnotation(true);
+    try {
+      const image = await wv.capturePage();
+      const file = await nativeImageToFile(
+        image,
+        `browser-annotation-${Date.now()}.png`,
+      );
+      const screenshotAttachment = await uploadAttachment(
+        selectedSessionId as SessionId,
+        file,
+      );
+      addBrowserAnnotation(selectedSessionId, {
+        comment: annotationComment.trim(),
+        pageUrl: safeCall(() => wv.getURL(), url),
+        pageTitle: safeCall(() => wv.getTitle(), "") || null,
+        elements: pickedElements.map(({ id: _id, ...element }) => element),
+        regions,
+        strokes,
+        screenshotAttachment,
+      });
+      resetAnnotationDraft();
+      setAnnotating(false);
+    } catch (error) {
+      console.warn("[browser.annotation] attach failed", error);
+    } finally {
+      setAttachingAnnotation(false);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background">
       <form
@@ -341,12 +743,34 @@ export function BrowserPane() {
           spellCheck={false}
           className="flex-1 rounded bg-transparent px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:bg-muted/40"
         />
+        <ToolbarButton
+          onClick={() => {
+            if (!hasLoadedPage) return;
+            setAnnotating((value) => {
+              const next = !value;
+              if (!next) resetAnnotationDraft();
+              return next;
+            });
+          }}
+          disabled={!hasLoadedPage}
+          ariaLabel={annotating ? "Cancel annotation" : "Annotate page"}
+        >
+          <MousePointerClick
+            className={`size-3.5 ${annotating ? "text-primary" : ""}`}
+            strokeWidth={1.8}
+          />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => setShutterNonce((n) => n + 1)}
+          disabled={!hasLoadedPage}
+          ariaLabel="Capture screenshot"
+        >
+          <Camera className="size-3.5" strokeWidth={1.8} />
+        </ToolbarButton>
       </form>
       <div className="relative min-h-0 flex-1">
-        {url === "" ? (
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-            Type a URL above to start browsing.
-          </div>
+        {!hasLoadedPage ? (
+          <BrowserEmptyState servers={localServers} onOpen={navigate} />
         ) : null}
         <webview
           ref={webviewRef as unknown as React.RefObject<HTMLElement>}
@@ -356,14 +780,43 @@ export function BrowserPane() {
           // attribute — and the loads abort each other (ERR_ABORTED -3, agent
           // navigations intermittently reporting about:blank).
           src="about:blank"
-          allowpopups={true}
+          {...({ allowpopups: "true" } as Record<string, string>)}
           style={{
-            display: url === "" ? "none" : "flex",
+            display: !hasLoadedPage ? "none" : "flex",
             width: "100%",
             height: "100%",
           }}
         />
-        <AgentCursor intent={cursorIntent} visible={url !== ""} />
+        {annotating && hasLoadedPage ? (
+          <BrowserAnnotationOverlay
+            tool={annotationTool}
+            setTool={setAnnotationTool}
+            hoverPick={hoverPick}
+            elements={pickedElements}
+            regions={regions}
+            strokes={strokes}
+            dragRect={dragRect}
+            activeStroke={activeStroke}
+            bounds={annotationBounds}
+            comment={annotationComment}
+            setComment={setAnnotationComment}
+            canAttach={
+              selectedSessionId !== null &&
+              hasAnnotationTargets &&
+              annotationComment.trim().length > 0
+            }
+            attaching={attachingAnnotation}
+            onAttach={() => void attachBrowserAnnotation()}
+            onCancel={() => {
+              resetAnnotationDraft();
+              setAnnotating(false);
+            }}
+            onPointerDown={handleAnnotationPointerDown}
+            onPointerMove={handleAnnotationPointerMove}
+            onPointerUp={handleAnnotationPointerUp}
+          />
+        ) : null}
+        <AgentCursor intent={cursorIntent} visible={hasLoadedPage} />
         <BrowserShutter nonce={shutterNonce} />
       </div>
     </div>
@@ -1645,6 +2098,269 @@ function loadAndWait(wv: WebviewElement, url: string): Promise<void> {
   });
 }
 
+function BrowserEmptyState({
+  servers,
+  onOpen,
+}: {
+  servers: ReadonlyArray<LocalServerSummary>;
+  onOpen: (url: string) => void;
+}) {
+  const rows = servers.length > 0 ? servers : fallbackLocalServers;
+  return (
+    <div className="absolute inset-0 z-10 overflow-auto bg-background px-8 py-10">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-5 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <Server className="size-4" strokeWidth={1.8} />
+          Local servers
+        </div>
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-card/70">
+          {rows.map((server) => (
+            <button
+              key={`${server.name}-${server.port}`}
+              type="button"
+              onClick={() => onOpen(`http://localhost:${server.port}`)}
+              className="flex w-full items-center gap-4 border-b border-border/60 px-4 py-3 text-left last:border-b-0 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground">
+                <Server className="size-4" strokeWidth={1.8} />
+              </span>
+              <span className="grid min-w-0 flex-1">
+                <span className="truncate text-sm font-semibold text-foreground">
+                  {server.name}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  localhost:{server.port}
+                </span>
+              </span>
+              <span className="size-2.5 rounded-full bg-emerald-500" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BrowserAnnotationOverlay({
+  tool,
+  setTool,
+  hoverPick,
+  elements,
+  regions,
+  strokes,
+  dragRect,
+  activeStroke,
+  bounds,
+  comment,
+  setComment,
+  canAttach,
+  attaching,
+  onAttach,
+  onCancel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+}: {
+  tool: AnnotationTool;
+  setTool: (tool: AnnotationTool) => void;
+  hoverPick: BrowserElementPick | null;
+  elements: ReadonlyArray<BrowserElementPick>;
+  regions: ReadonlyArray<BrowserAnnotationRegion>;
+  strokes: ReadonlyArray<BrowserAnnotationStroke>;
+  dragRect: BrowserAnnotationRect | null;
+  activeStroke: BrowserAnnotationStroke | null;
+  bounds: BrowserAnnotationRect | null;
+  comment: string;
+  setComment: (value: string) => void;
+  canAttach: boolean;
+  attaching: boolean;
+  onAttach: () => void;
+  onCancel: () => void;
+  onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
+}) {
+  const maxLeft =
+    typeof window === "undefined" ? 16 : Math.max(16, window.innerWidth - 452);
+  const maxTop =
+    typeof window === "undefined" ? 16 : Math.max(16, window.innerHeight - 92);
+  const editorStyle =
+    bounds === null
+      ? { left: "50%", top: "58%", transform: "translate(-50%, -50%)" }
+      : {
+          left: Math.min(
+            Math.max(16, bounds.x + Math.max(0, bounds.width - 360)),
+            maxLeft,
+          ),
+          top: Math.min(Math.max(16, bounds.y + bounds.height + 12), maxTop),
+          transform: "translate(0, 0)",
+        };
+
+  return (
+    <div
+      className="absolute inset-0 z-20 cursor-crosshair bg-black/[0.03]"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      <div
+        className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-lg backdrop-blur"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {annotationTools.map((item) => {
+          const Icon = item.icon;
+          const active = item.id === tool;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTool(item.id)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm font-medium ${
+                active
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground hover:bg-muted"
+              }`}
+            >
+              <Icon className="size-3.5" strokeWidth={1.8} />
+              {item.label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={onCancel}
+          className="ml-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label="Cancel annotation"
+        >
+          <X className="size-4" strokeWidth={1.8} />
+        </button>
+      </div>
+
+      {hoverPick !== null && tool === "select" ? (
+        <AnnotationRect
+          rect={hoverPick.rect}
+          label={hoverPick.tagName}
+          subtle
+        />
+      ) : null}
+      {elements.map((element) => (
+        <AnnotationRect
+          key={element.id}
+          rect={element.rect}
+          label={element.tagName}
+        />
+      ))}
+      {regions.map((region) => (
+        <AnnotationRect key={region.id} rect={region.rect} label="region" />
+      ))}
+      {dragRect !== null ? (
+        <AnnotationRect rect={dragRect} label="region" subtle />
+      ) : null}
+
+      <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+        {strokes.map((stroke) => (
+          <path
+            key={stroke.id}
+            d={pathFromPoints(stroke.points)}
+            fill="none"
+            stroke="rgb(37 99 235)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={3}
+          />
+        ))}
+        {activeStroke !== null ? (
+          <path
+            d={pathFromPoints(activeStroke.points)}
+            fill="none"
+            stroke="rgb(37 99 235)"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={3}
+          />
+        ) : null}
+      </svg>
+
+      {bounds !== null ? (
+        <div
+          className="absolute flex w-[min(420px,calc(100%-32px))] items-start gap-2 rounded-xl border border-border/70 bg-background/95 p-2 shadow-xl backdrop-blur"
+          style={editorStyle}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+            aria-label="Annotation details"
+          >
+            <MousePointerClick className="size-4" strokeWidth={1.8} />
+          </button>
+          <textarea
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && canAttach) {
+                event.preventDefault();
+                onAttach();
+              }
+            }}
+            placeholder="Describe the change..."
+            rows={1}
+            className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={onAttach}
+            disabled={!canAttach || attaching}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 disabled:opacity-50"
+          >
+            <SendHorizontal className="size-3.5" strokeWidth={1.8} />
+            {attaching ? "Attaching" : "Attach"}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AnnotationRect({
+  rect,
+  label,
+  subtle = false,
+}: {
+  rect: BrowserAnnotationRect;
+  label: string;
+  subtle?: boolean;
+}) {
+  return (
+    <>
+      <div
+        className={`pointer-events-none absolute rounded border-2 ${
+          subtle
+            ? "border-primary/80 bg-primary/10"
+            : "border-primary bg-primary/20"
+        }`}
+        style={{
+          left: rect.x,
+          top: rect.y,
+          width: rect.width,
+          height: rect.height,
+        }}
+      />
+      <div
+        className="pointer-events-none absolute rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground shadow"
+        style={{
+          left: Math.max(4, rect.x),
+          top: Math.max(4, rect.y - 24),
+        }}
+      >
+        {label}
+      </div>
+    </>
+  );
+}
+
 function ToolbarButton({
   onClick,
   disabled,
@@ -1654,7 +2370,7 @@ function ToolbarButton({
   onClick: () => void;
   disabled: boolean;
   ariaLabel: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -1709,5 +2425,6 @@ type WebviewElement = HTMLElement & {
 // `toDataURL` keeps us off `Buffer`, which the sandboxed renderer lacks.
 type NativeImageLike = {
   toDataURL: () => string;
+  toPNG: () => Uint8Array | ArrayBuffer;
   isEmpty: () => boolean;
 };

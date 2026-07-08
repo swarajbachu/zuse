@@ -3,6 +3,7 @@ import { Schema } from "effect";
 
 import {
   AgentEvent,
+  AdvertisedEndpoint,
   Chat,
   ComposerInput,
   defaultModelEnabledByProvider,
@@ -13,6 +14,8 @@ import {
   MODELS_BY_PROVIDER,
   PokemonPokedexEntry,
   RepositorySettingsFile,
+  RelayEnvironmentList,
+  RelayLinkStatus,
   resolveModelSlug,
   SettingsFile,
   Session,
@@ -143,6 +146,85 @@ describe("AgentEvent round-trips", () => {
         status: "spinning",
       }),
     ).toThrow();
+  });
+});
+
+describe("AdvertisedEndpoint round-trip", () => {
+  const encoded = {
+    id: "tunnel:managed-relay",
+    label: "Managed tunnel",
+    providerKind: "tunnel" as const,
+    httpBaseUrl: "https://env.example.test",
+    wsBaseUrl: "wss://env.example.test/rpc",
+    reachability: "tunnel" as const,
+    compatibility: { hostedHttpsApp: "compatible" as const },
+    status: "available" as const,
+    isDefault: true,
+  };
+
+  it("round-trips the advertised endpoint wire shape", () => {
+    roundTrip(AdvertisedEndpoint, encoded);
+  });
+
+  it("rejects invalid enum literals", () => {
+    expect(() =>
+      Schema.decodeUnknownSync(AdvertisedEndpoint)({
+        ...encoded,
+        reachability: "vpn",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("RelayLinkStatus advertised endpoint compatibility", () => {
+  const base = {
+    linked: true,
+    relayUrl: "https://relay.example.test",
+    environmentId: "env_123",
+    label: "Mac",
+    heartbeatActive: true,
+  };
+
+  it("decodes legacy status without advertisedEndpoints", () => {
+    const decoded = Schema.decodeUnknownSync(RelayLinkStatus)(base);
+    expect(decoded.linked).toBe(true);
+    expect(decoded.advertisedEndpoints).toBeUndefined();
+  });
+
+  it("round-trips status with advertisedEndpoints", () => {
+    roundTrip(RelayLinkStatus, {
+      ...base,
+      advertisedEndpoints: [
+        {
+          id: "core:lan",
+          label: "LAN",
+          providerKind: "core" as const,
+          httpBaseUrl: "http://192.168.1.10:8787",
+          wsBaseUrl: "ws://192.168.1.10:8787",
+          reachability: "lan" as const,
+          compatibility: { hostedHttpsApp: "mixed-content-blocked" as const },
+          status: "available" as const,
+          isDefault: true,
+        },
+      ],
+    });
+  });
+});
+
+describe("RelayEnvironmentList compatibility", () => {
+  it("decodes legacy environment records without endpoint", () => {
+    const decoded = Schema.decodeUnknownSync(RelayEnvironmentList)({
+      environments: [
+        {
+          environmentId: "env_123",
+          label: "Mac",
+          providerKind: "desktop",
+          linkedAt: Date.now(),
+        },
+      ],
+    });
+
+    expect(decoded.environments[0]?.endpoint).toBeUndefined();
   });
 });
 
@@ -384,6 +466,80 @@ describe("ComposerInput round-trip", () => {
           startLine: 4,
           endLine: 8,
           comment: "extract this branch",
+        },
+      ],
+    });
+  });
+
+  it("round-trips browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "",
+      attachments: [
+        {
+          id: "screenshot-1",
+          mimeType: "image/png",
+          originalName: "browser-annotation.png",
+        },
+      ],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "tighten the hero copy",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "https://example.com/",
+          pageTitle: "Example Domain",
+          elements: [
+            {
+              tagName: "h1",
+              selector: "h1",
+              label: "h1",
+              rect: { x: 10, y: 20, width: 300, height: 60 },
+              textPreview: "Example Domain",
+            },
+          ],
+          regions: [],
+          strokes: [],
+          screenshotAttachment: {
+            id: "screenshot-1",
+            mimeType: "image/png",
+            originalName: "browser-annotation.png",
+          },
+        },
+      ],
+    });
+  });
+
+  it("round-trips mixed code and browser annotations", () => {
+    roundTrip(ComposerInput, {
+      text: "review these",
+      attachments: [],
+      fileRefs: [],
+      skillRefs: [],
+      annotations: [
+        {
+          id: "ann-code-1",
+          relPath: "src/app.ts",
+          absPath: "/repo/src/app.ts",
+          startLine: 4,
+          endLine: 8,
+          comment: "extract this branch",
+        },
+        {
+          _tag: "browser",
+          id: "ann-browser-1",
+          comment: "make this button clearer",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          pageUrl: "http://localhost:3000/",
+          pageTitle: null,
+          elements: [],
+          regions: [
+            { id: "region-1", rect: { x: 1, y: 2, width: 3, height: 4 } },
+          ],
+          strokes: [],
+          screenshotAttachment: null,
         },
       ],
     });

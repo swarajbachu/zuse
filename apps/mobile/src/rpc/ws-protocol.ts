@@ -3,12 +3,16 @@ import { RpcClient, RpcSerialization } from "@effect/rpc";
 import { Layer } from "effect";
 
 export type WsProtocolOptions = {
+  /** Stable saved-connection key. Manual records use host:port; relay records use environmentId. */
+  key?: string;
+  /** Relay-linked environments refresh their connect token before reconnecting. */
+  environmentId?: string;
   host: string;
   port: number;
   token?: string | null;
   /**
    * A full ws(s):// base URL, used for relay-connected environments reached via
-   * a managed tunnel (e.g. `wss://env-x.relay.example/rpc`). When present it
+   * a managed tunnel (e.g. `wss://env-x.relay.example`). When present it
    * takes precedence over host/port.
    */
   wsBaseUrl?: string | null;

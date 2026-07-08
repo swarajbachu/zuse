@@ -1,5 +1,6 @@
 import { SqlClient } from "@effect/sql";
 import { Clock, Effect, Layer, Ref } from "effect";
+import { importJWK, jwtVerify, type JWK } from "jose";
 import { createHash, randomBytes } from "node:crypto";
 import { networkInterfaces } from "node:os";
 
@@ -42,6 +43,12 @@ interface EnvironmentKeyRow {
 
 interface PairingCodeState {
   readonly expiresAtMs: number;
+}
+
+interface RelayConfigAuthRow {
+  readonly environment_id: string;
+  readonly relay_issuer: string;
+  readonly relay_mint_public_key: string | null;
 }
 
 const randomBase64Url = (bytes: number): Effect.Effect<string> =>
@@ -191,7 +198,34 @@ export const LanAuthServiceLive = Layer.effect(
               AND revoked_at IS NULL
             LIMIT 1
           `;
-          if (rows.length === 0) return false;
+          if (rows.length === 0) {
+            const relayRows = yield* sql<RelayConfigAuthRow>`
+              SELECT environment_id, relay_issuer, relay_mint_public_key
+              FROM relay_config
+              LIMIT 1
+            `;
+            const relay = relayRows[0];
+            if (
+              relay === undefined ||
+              relay.relay_mint_public_key === null
+            ) {
+              return false;
+            }
+            const mintPublicKey = relay.relay_mint_public_key;
+            return yield* Effect.tryPromise({
+              try: async () => {
+                const jwk = JSON.parse(mintPublicKey) as JWK;
+                const key = await importJWK(jwk, "EdDSA");
+                const verified = await jwtVerify(token, key, {
+                  issuer: relay.relay_issuer,
+                  audience: `zuse-env:${relay.environment_id}`,
+                  typ: "connect+jwt",
+                });
+                return verified.payload.environmentId === relay.environment_id;
+              },
+              catch: (cause) => cause,
+            }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          }
           const usedAt = yield* nowIso;
           yield* sql`
             UPDATE auth_tokens
@@ -311,17 +345,21 @@ export const LanAuthServiceLive = Layer.effect(
           const updatedAt = yield* nowIso;
           yield* sql`
             INSERT INTO relay_config
-              (environment_id, relay_url, relay_issuer, environment_credential, label, connector_token, updated_at)
+              (environment_id, relay_url, relay_issuer, environment_credential, label, connector_token, tunnel_hostname, relay_mint_public_key, updated_at)
             VALUES
               (${input.environmentId}, ${input.relayUrl}, ${input.relayIssuer},
                ${input.environmentCredential}, ${input.label ?? null},
-               ${input.connectorToken ?? null}, ${updatedAt})
+               ${input.connectorToken ?? null}, ${input.tunnelHostname ?? null},
+               ${input.mintPublicKey ?? null},
+               ${updatedAt})
             ON CONFLICT(environment_id) DO UPDATE SET
               relay_url = excluded.relay_url,
               relay_issuer = excluded.relay_issuer,
               environment_credential = excluded.environment_credential,
               label = excluded.label,
               connector_token = excluded.connector_token,
+              tunnel_hostname = excluded.tunnel_hostname,
+              relay_mint_public_key = excluded.relay_mint_public_key,
               updated_at = excluded.updated_at
           `;
         }).pipe(Effect.asVoid, Effect.mapError(toLanAuthError)),
@@ -334,8 +372,10 @@ export const LanAuthServiceLive = Layer.effect(
             readonly environment_credential: string;
             readonly label: string | null;
             readonly connector_token: string | null;
+            readonly tunnel_hostname: string | null;
+            readonly relay_mint_public_key: string | null;
           }>`
-            SELECT relay_url, relay_issuer, environment_id, environment_credential, label, connector_token
+            SELECT relay_url, relay_issuer, environment_id, environment_credential, label, connector_token, tunnel_hostname, relay_mint_public_key
             FROM relay_config
             LIMIT 1
           `;
@@ -348,6 +388,8 @@ export const LanAuthServiceLive = Layer.effect(
             environmentCredential: row.environment_credential,
             label: row.label ?? undefined,
             connectorToken: row.connector_token ?? undefined,
+            tunnelHostname: row.tunnel_hostname ?? undefined,
+            mintPublicKey: row.relay_mint_public_key ?? undefined,
           };
         }).pipe(Effect.mapError(toLanAuthError)),
       clearRelayConfig: () =>

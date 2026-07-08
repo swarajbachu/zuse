@@ -219,6 +219,7 @@ export const GitPrStateRpc = Rpc.make("git.prState", {
 
 export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({
   author: Schema.String,
+  authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
   body: Schema.String,
   createdAt: Schema.DateFromString,
 }) {}
@@ -234,6 +235,7 @@ export type GitPrReviewState = typeof GitPrReviewState.Type;
 
 export class GitPrReview extends Schema.Class<GitPrReview>("GitPrReview")({
   author: Schema.String,
+  authorAvatarUrl: Schema.optional(Schema.NullOr(Schema.String)),
   state: GitPrReviewState,
   body: Schema.String,
   submittedAt: Schema.NullOr(Schema.DateFromString),
@@ -270,6 +272,14 @@ export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
     status: GitPrCheckRunStatus,
     conclusion: Schema.NullOr(GitPrCheckRunConclusion),
     url: Schema.NullOr(Schema.String),
+    workflowName: Schema.optional(Schema.NullOr(Schema.String)),
+    runId: Schema.optional(Schema.NullOr(Schema.String)),
+    jobId: Schema.optional(Schema.NullOr(Schema.String)),
+    runnerName: Schema.optional(Schema.NullOr(Schema.String)),
+    runnerGroupName: Schema.optional(Schema.NullOr(Schema.String)),
+    startedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+    completedAt: Schema.optional(Schema.NullOr(Schema.DateFromString)),
+    runUrl: Schema.optional(Schema.NullOr(Schema.String)),
   },
 ) {}
 

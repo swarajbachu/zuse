@@ -370,7 +370,7 @@ function MainShell() {
       >
         <Panel
           id="projects"
-          defaultSize="18%"
+          defaultSize="20%"
           // minSize 0 so the open/close tween can rest at any width down to 0
           // — the library otherwise snaps sub-minSize widths to minSize/0,
           // which turns the last stretch of the animation into a hard jump.
@@ -385,7 +385,7 @@ function MainShell() {
             if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-background">
+          <div className="flex h-full min-h-0 flex-col bg-background/40">
             <TopBarLeft />
             <div className="flex min-h-0 flex-1 flex-col">
               <ProjectsSidebar />
@@ -470,7 +470,7 @@ function MainShell() {
           // minSize 0 so the open/close tween stays smooth all the way to 0
           // (see the left panel note).
           minSize="0px"
-          maxSize="45%"
+          maxSize="55%"
           collapsible
           collapsedSize="0%"
           panelRef={rightPanelRef}
@@ -485,7 +485,7 @@ function MainShell() {
             if (open !== rightSidebarOpen) setRightSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-sidebar">
+          <div className="flex h-full min-h-0 flex-col bg-background/20">
             <TopBarRight />
             <div className="flex min-h-0 flex-1 flex-col">
               <RightPane />

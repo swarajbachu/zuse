@@ -1,13 +1,11 @@
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, MessageId, SessionId } from "@zuse/wire";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
 
-import {
-  readMessagesSnapshot,
-  writeMessagesSnapshot
-} from "~/offline/cache";
-import { getConnectionClient } from "~/rpc/connection";
+import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
+import { connectionSessionKey } from "~/lib/session-key";
+import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 type MessagesState = {
@@ -17,13 +15,14 @@ type MessagesState = {
   hydrate: (
     connKey: string,
     options: WsProtocolOptions,
-    sessionId: SessionId
+    sessionId: SessionId,
   ) => Promise<void>;
   flush: (connKey: string, sessionId: SessionId) => Promise<void>;
 };
 
 const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
 const highestSequenceBySession = new Map<string, number>();
+const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;
 
 const stop = async (key: string) => {
@@ -40,99 +39,167 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
   errorBySession: {},
   hydrate: async (connKey, options, sessionId) => {
     installAppStateFlush(get);
-    const liveKey = makeLiveKey(connKey, sessionId);
+    const liveKey = connectionSessionKey(connKey, sessionId);
     await stop(liveKey);
 
-    const cached = await Effect.runPromise(readMessagesSnapshot(connKey, sessionId));
+    const cached = await Effect.runPromise(
+      readMessagesSnapshot(connKey, sessionId),
+    );
     if (cached !== null) {
       highestSequenceBySession.set(liveKey, cached.highestSequence);
       set((state) => ({
         messagesBySession: {
           ...state.messagesBySession,
-          [sessionId]: cached.messages
-        }
+          [liveKey]: cached.messages,
+        },
       }));
     }
 
     set((state) => ({
-      reconnectingBySession: { ...state.reconnectingBySession, [sessionId]: false },
-      errorBySession: { ...state.errorBySession, [sessionId]: null }
+      reconnectingBySession: {
+        ...state.reconnectingBySession,
+        [liveKey]: false,
+      },
+      errorBySession: { ...state.errorBySession, [liveKey]: null },
     }));
 
     const run = async () => {
       try {
         const client = await Effect.runPromise(getConnectionClient(options));
-        const listed = await Effect.runPromise(client.messages.list({ sessionId }));
+        const listed = await Effect.runPromise(
+          client.messages.list({ sessionId }),
+        );
         if (listed.length > 0) {
           set((state) => ({
             messagesBySession: {
               ...state.messagesBySession,
-              [sessionId]: listed
-            }
+              [liveKey]: listed,
+            },
           }));
           void get().flush(connKey, sessionId);
         }
-        const sinceSequence = highestSequenceBySession.get(liveKey);
-        console.info("[mobile] messages.stream", { sessionId, sinceSequence });
+        console.info("[mobile] messages.stream", { sessionId });
         const program = Stream.runForEach(
-          client.messages.stream({ sessionId, sinceSequence }),
+          client.messages.stream({ sessionId }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;
-              if (envelope.sequence <= previous) return;
-              highestSequenceBySession.set(liveKey, envelope.sequence);
+              if (envelope.sequence > previous) {
+                highestSequenceBySession.set(liveKey, envelope.sequence);
+              }
               console.info("[mobile] messages.stream envelope", {
                 sessionId,
-                sequence: envelope.sequence
+                sequence: envelope.sequence,
               });
               set((state) => {
-                const current = state.messagesBySession[sessionId] ?? [];
-                if (current.some((message) => message.id === envelope.message.id)) {
-                  return state;
+                const current = state.messagesBySession[liveKey] ?? [];
+                if (optimisticIds.has(envelope.message.id)) {
+                  optimisticIds.delete(envelope.message.id);
+                  return {
+                    messagesBySession: {
+                      ...state.messagesBySession,
+                      [liveKey]: current.map((message) =>
+                        message.id === envelope.message.id
+                          ? envelope.message
+                          : message,
+                      ),
+                    },
+                  };
+                }
+                const existingIndex = current.findIndex(
+                  (message) => message.id === envelope.message.id,
+                );
+                if (existingIndex !== -1) {
+                  return {
+                    messagesBySession: {
+                      ...state.messagesBySession,
+                      [liveKey]: current.map((message, index) =>
+                        index === existingIndex ? envelope.message : message,
+                      ),
+                    },
+                  };
                 }
                 const next = [...current, envelope.message].slice(-500);
                 return {
                   messagesBySession: {
                     ...state.messagesBySession,
-                    [sessionId]: next
-                  }
+                    [liveKey]: next,
+                  },
                 };
               });
               void get().flush(connKey, sessionId);
-            })
+            }),
+        ).pipe(
+          Effect.catchAll((cause) =>
+            Effect.sync(() => {
+              set((state) => ({
+                reconnectingBySession: {
+                  ...state.reconnectingBySession,
+                  [liveKey]: true,
+                },
+                errorBySession: {
+                  ...state.errorBySession,
+                  [liveKey]:
+                    cause instanceof Error ? cause.message : String(cause),
+                },
+              }));
+            }),
+          ),
         );
-        const fiber = await Effect.runPromise(program.pipe(Effect.fork));
-        liveFibers.set(liveKey, fiber);
+        liveFibers.set(liveKey, Effect.runFork(program));
       } catch (cause) {
+        reportConnectionFailure(options, cause);
         set((state) => ({
           reconnectingBySession: {
             ...state.reconnectingBySession,
-            [sessionId]: true
+            [liveKey]: true,
           },
           errorBySession: {
             ...state.errorBySession,
-            [sessionId]: cause instanceof Error ? cause.message : String(cause)
-          }
+            [liveKey]: cause instanceof Error ? cause.message : String(cause),
+          },
         }));
-        setTimeout(() => {
-          void get().hydrate(connKey, options, sessionId);
-        }, 2_000);
       }
     };
 
     await run();
   },
   flush: async (connKey, sessionId) => {
-    const liveKey = makeLiveKey(connKey, sessionId);
-    const messages = get().messagesBySession[sessionId] ?? [];
+    const liveKey = connectionSessionKey(connKey, sessionId);
+    const messages = get().messagesBySession[liveKey] ?? [];
     await Effect.runPromise(
       writeMessagesSnapshot(connKey, sessionId, {
         highestSequence: highestSequenceBySession.get(liveKey) ?? 0,
-        messages
-      })
+        messages,
+      }),
     ).catch(() => {});
-  }
+  },
 }));
+
+export const addOptimisticMessage = (key: string, message: Message): void => {
+  optimisticIds.add(message.id);
+  useMobileMessagesStore.setState((state) => ({
+    messagesBySession: {
+      ...state.messagesBySession,
+      [key]: [...(state.messagesBySession[key] ?? []), message].slice(-500),
+    },
+  }));
+};
+
+export const removeOptimisticMessage = (
+  key: string,
+  messageId: MessageId,
+): void => {
+  optimisticIds.delete(messageId);
+  useMobileMessagesStore.setState((state) => ({
+    messagesBySession: {
+      ...state.messagesBySession,
+      [key]: (state.messagesBySession[key] ?? []).filter(
+        (message) => message.id !== messageId,
+      ),
+    },
+  }));
+};
 
 const installAppStateFlush = (get: () => MessagesState) => {
   if (appStateInstalled) return;
@@ -149,10 +216,9 @@ const installAppStateFlush = (get: () => MessagesState) => {
   });
 };
 
-const makeLiveKey = (connKey: string, sessionId: SessionId) =>
-  JSON.stringify([connKey, sessionId]);
-
-const parseLiveKey = (key: string): [string | undefined, string | undefined] => {
+const parseLiveKey = (
+  key: string,
+): [string | undefined, string | undefined] => {
   try {
     return JSON.parse(key) as [string, string];
   } catch {

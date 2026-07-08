@@ -5,6 +5,7 @@ import {
   getEnvironmentStatus,
   listEnvironments,
 } from "../rpc/relay-client.ts";
+import { visibleConnectionLabel } from "../lib/display-names.ts";
 import { useConnectionsStore } from "./connections.ts";
 
 export type Presence = "online" | "offline" | "unknown";
@@ -24,8 +25,49 @@ type EnvironmentsState = {
   connect: (environmentId: string) => Promise<string>;
 };
 
-const message = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
+const message = (cause: unknown): string => {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  if (text.includes("RelayEnvironmentList")) {
+    return "Relay returned an older computer list. Refresh after the relay finishes updating.";
+  }
+  if (text.startsWith("relay_list_")) {
+    return "Could not load your computers from the relay.";
+  }
+  if (text.startsWith("relay_status_")) {
+    if (text.includes("invalid_dpop_proof")) {
+      return "Could not verify this phone with the relay. Restart the app and try again.";
+    }
+    if (text.includes("invalid_workos_token")) {
+      return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
+    }
+    return "Could not check computer presence.";
+  }
+  if (text.startsWith("relay_dpop_token_")) {
+    if (text.includes("invalid_dpop_proof")) {
+      return "Could not verify this phone with the relay. Restart the app and try again.";
+    }
+    if (text.includes("invalid_workos_token")) {
+      return "Your sign-in expired. Sign out, sign in again, and refresh computers.";
+    }
+    if (
+      text.startsWith("relay_dpop_token_5") ||
+      text.startsWith("relay_dpop_token_429")
+    ) {
+      return "Relay is temporarily unavailable. Try again in a moment.";
+    }
+    return "Could not authorize this phone with the relay.";
+  }
+  if (text.startsWith("relay_connect_")) {
+    if (
+      text.startsWith("relay_connect_5") ||
+      text.startsWith("relay_connect_429")
+    ) {
+      return "Relay is temporarily unavailable. Try again in a moment.";
+    }
+    return "Could not connect to that computer.";
+  }
+  return text;
+};
 
 export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
   environments: [],
@@ -38,7 +80,7 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
       set({
         environments: list.environments.map((environment) => ({
           environmentId: environment.environmentId,
-          label: environment.label ?? environment.environmentId,
+          label: visibleConnectionLabel(environment.label),
           presence: "unknown" as const,
         })),
         loading: false,
@@ -55,7 +97,16 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
                   : item,
               ),
             }));
-          } catch {
+          } catch (cause) {
+            const error = message(cause);
+            if (
+              error.startsWith("Could not authorize") ||
+              error.startsWith("Could not verify") ||
+              error.startsWith("Your sign-in expired")
+            ) {
+              set({ error });
+              return;
+            }
             set((state) => ({
               environments: state.environments.map((item) =>
                 item.environmentId === environment.environmentId
@@ -74,7 +125,7 @@ export const useEnvironmentsStore = create<EnvironmentsState>((set, get) => ({
     const grant = await connectEnvironment(environmentId);
     const label =
       get().environments.find((e) => e.environmentId === environmentId)?.label ??
-      environmentId;
+      "Computer";
     const record = await useConnectionsStore.getState().addRelay({
       environmentId,
       label,

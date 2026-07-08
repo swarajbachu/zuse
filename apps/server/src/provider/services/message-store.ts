@@ -13,7 +13,7 @@ import type {
   ChatId,
   ChatNotFoundError,
   ChatUnarchiveResult,
-  CodeAnnotation,
+  ComposerAnnotation,
   ComposerInput,
   FileRef,
   FolderId,
@@ -87,6 +87,7 @@ export interface CreateSessionInput {
    * `ExitPlanMode`. Defaults to `'default'`.
    */
   readonly permissionMode?: PermissionMode;
+  readonly modelOptions?: Readonly<Record<string, string>>;
   /**
    * Persist the deferred-tools toggle on the session row. No-op today
    * (the AskUserQuestion server is the only MCP server and is small);
@@ -127,6 +128,7 @@ export interface CreateChatInput {
   readonly agents?: Readonly<Record<string, AgentDefinition>>;
   readonly enableSubagents?: boolean;
   readonly permissionMode?: PermissionMode;
+  readonly modelOptions?: Readonly<Record<string, string>>;
   readonly toolSearch?: boolean;
   /**
    * Lineage — when set, this chat was spawned by another session via the
@@ -306,7 +308,10 @@ export interface MessageStoreShape {
    */
   readonly forkSession: (
     input: ForkSessionInput,
-  ) => Effect.Effect<ForkSessionResult, SessionNotFoundError | SessionStartError>;
+  ) => Effect.Effect<
+    ForkSessionResult,
+    SessionNotFoundError | SessionStartError
+  >;
 
   /**
    * Serialise a session's transcript to Markdown, optionally truncated at
@@ -446,7 +451,7 @@ export interface MessageStoreShape {
     attachments?: ReadonlyArray<AttachmentRef>,
     fileRefs?: ReadonlyArray<FileRef>,
     skillRefs?: ReadonlyArray<SkillRef>,
-    annotations?: ReadonlyArray<CodeAnnotation>,
+    annotations?: ReadonlyArray<ComposerAnnotation>,
     asGoal?: boolean,
     clientMessageId?: MessageId,
   ) => Effect.Effect<void, SessionNotFoundError>;

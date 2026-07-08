@@ -231,6 +231,7 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
       agents: input.agents,
       enableSubagents: input.enableSubagents,
       permissionMode: input.permissionMode,
+      modelOptions: input.modelOptions,
       toolSearch: input.toolSearch,
       // Detach `provider.start` so the new in-chat tab appears in
       // ~hundreds of ms; the booting status flips when the CLI handshake
@@ -266,6 +267,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
       agents: input.agents,
       enableSubagents: input.enableSubagents,
       permissionMode: input.permissionMode,
+      modelOptions: input.modelOptions,
       toolSearch: input.toolSearch,
       originSessionId: input.originSessionId ?? null,
     }),
