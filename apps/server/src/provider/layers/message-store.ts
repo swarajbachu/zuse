@@ -48,6 +48,7 @@ import {
   ThreadGoal,
   type ThreadGoalSetInput,
   type Worktree,
+  type WorktreeCreateSource,
   WorktreeId,
   type AutonomyLevel,
   autonomyEnablesOrchestration,
@@ -1011,7 +1012,7 @@ export const MessageStoreLive = Layer.scoped(
     // Unlike the per-session message/status pubsubs, chats are few and updates
     // rare, so one project-filtered hub keeps it simple. The renderer seeds
     // from `chat.list`; this stream carries live changes after subscription,
-    // so a Zuse-orchestrated `create_thread` appears in the sidebar without
+    // so a Zuse-orchestrated spawn appears in the sidebar without
     // requiring a full app reload.
     const chatChangesHub = yield* PubSub.unbounded<Chat>();
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
@@ -1646,10 +1647,61 @@ export const MessageStoreLive = Layer.scoped(
         const level: AutonomyLevel = settings?.defaultAutonomyLevel ?? "off";
         if (!autonomyEnablesOrchestration(level)) return null;
         const run = Runtime.runPromise(runtime);
+        const providerModelFor = (input: {
+          readonly providerId?: string;
+          readonly model?: string;
+        }): { readonly providerId: ProviderId; readonly model: string } => {
+          const providerId =
+            (input.providerId as ProviderId | undefined) ?? ctx.providerId;
+          const model =
+            input.model ??
+            (providerId === ctx.providerId
+              ? ctx.model
+              : (settings?.defaultModelByProvider[providerId] ??
+                defaultModelFor(providerId)));
+          return { providerId, model };
+        };
+        const sourceForBaseBranch = (
+          baseBranch: string | undefined,
+        ): WorktreeCreateSource | undefined =>
+          baseBranch !== undefined
+            ? { _tag: "branch", branch: baseBranch, remote: null }
+            : undefined;
+        const createWorktreeForOrchestration = (baseBranch?: string) =>
+          worktrees.create(ctx.projectId, sourceForBaseBranch(baseBranch));
+        const createOrchestrationChat = (input: {
+          readonly task: string;
+          readonly title?: string;
+          readonly worktreeId: WorktreeId | null;
+          readonly providerId?: string;
+          readonly model?: string;
+        }) => {
+          const { providerId, model } = providerModelFor(input);
+          return createChat({
+            projectId: ctx.projectId,
+            providerId,
+            model,
+            title: input.title,
+            initialPrompt: input.task,
+            worktreeId: input.worktreeId,
+            originSessionId: ctx.sessionId,
+          }).pipe(
+            Effect.map((res) => ({
+              ok: true as const,
+              chatId: res.chat.id as string,
+              sessionId: res.initialSession.id as string,
+              title: res.chat.title,
+              worktreeId:
+                res.chat.worktreeId === null
+                  ? null
+                  : (res.chat.worktreeId as string),
+            })),
+          );
+        };
         const deps: OrchestrationToolDeps = {
-          createWorktree: () =>
+          createWorktree: (input) =>
             run(
-              worktrees.create(ctx.projectId).pipe(
+              createWorktreeForOrchestration(input.baseBranch).pipe(
                 Effect.map((wt) => ({
                   ok: true as const,
                   worktreeId: wt.id as string,
@@ -1664,34 +1716,35 @@ export const MessageStoreLive = Layer.scoped(
                 ),
               ),
             ),
-          createThread: (input) => {
-            const providerId =
-              (input.providerId as ProviderId | undefined) ?? ctx.providerId;
-            const model =
-              input.model ??
-              (providerId === ctx.providerId
-                ? ctx.model
-                : (settings?.defaultModelByProvider[providerId] ??
-                  defaultModelFor(providerId)));
-            return run(
-              createChat({
-                projectId: ctx.projectId,
-                providerId,
-                model,
-                title: input.title,
-                initialPrompt: input.prompt,
-                worktreeId:
-                  input.worktreeId !== undefined
-                    ? (input.worktreeId as WorktreeId)
-                    : null,
-                originSessionId: ctx.sessionId,
-              }).pipe(
-                Effect.map((res) => ({
+          createThread: (input) =>
+            run(
+              Effect.gen(function* () {
+                const wt = yield* createWorktreeForOrchestration(
+                  input.baseBranch,
+                );
+                const chat = yield* createOrchestrationChat({
+                  task: input.task,
+                  title: input.title,
+                  worktreeId: wt.id,
+                  providerId: input.providerId,
+                  model: input.model,
+                }).pipe(Effect.either);
+                if (chat._tag === "Left") {
+                  return {
+                    ok: false as const,
+                    error: `${orchestrationErrorText(chat.left)}; orphaned worktreeId: ${wt.id as string}`,
+                  };
+                }
+                return {
                   ok: true as const,
-                  chatId: res.chat.id as string,
-                  sessionId: res.initialSession.id as string,
-                  title: res.chat.title,
-                })),
+                  chatId: chat.right.chatId,
+                  sessionId: chat.right.sessionId,
+                  title: chat.right.title,
+                  worktreeId: wt.id as string,
+                  path: wt.path,
+                  branch: wt.branch,
+                };
+              }).pipe(
                 Effect.catchAll((err) =>
                   Effect.succeed({
                     ok: false as const,
@@ -1699,8 +1752,49 @@ export const MessageStoreLive = Layer.scoped(
                   }),
                 ),
               ),
-            );
-          },
+            ),
+          createChat: (input) =>
+            run(
+              Effect.gen(function* () {
+                const explicitWorktreeId =
+                  input.worktreeId !== undefined
+                    ? (input.worktreeId as WorktreeId)
+                    : undefined;
+                const worktreeId =
+                  explicitWorktreeId !== undefined
+                    ? explicitWorktreeId
+                    : ctx.worktreeId;
+                if (explicitWorktreeId !== undefined) {
+                  const wt = yield* worktrees.get(explicitWorktreeId);
+                  if (wt === null) {
+                    return {
+                      ok: false as const,
+                      error: `worktreeId ${input.worktreeId} not found`,
+                    };
+                  }
+                  if ((wt.projectId as string) !== (ctx.projectId as string)) {
+                    return {
+                      ok: false as const,
+                      error: `worktreeId ${input.worktreeId} does not belong to this project`,
+                    };
+                  }
+                }
+                return yield* createOrchestrationChat({
+                  task: input.task,
+                  title: input.title,
+                  worktreeId,
+                  providerId: input.providerId,
+                  model: input.model,
+                });
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
           sendToThread: (input) =>
             run(
               Effect.gen(function* () {
@@ -1918,7 +2012,7 @@ export const MessageStoreLive = Layer.scoped(
         const hasInitial =
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
-        // Lineage: when this chat was spawned by another agent (create_thread
+        // Lineage: when this chat was spawned by another agent (orchestration
         // sets chats.origin_session_id), stamp the initial user message with
         // the origin so the renderer can attribute + link it. Skip silently
         // if the origin session row is gone.

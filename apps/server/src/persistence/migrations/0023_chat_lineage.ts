@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 /**
  * Adds `chats.origin_session_id` — lineage for agent-spawned threads. When a
- * session uses the `create_thread` control-plane tool to spawn a new chat,
+ * session uses orchestration control-plane tools to spawn a new chat,
  * this records the spawning session so the sidebar can nest agent-spawned
  * chats under their parent and badge them.
  *

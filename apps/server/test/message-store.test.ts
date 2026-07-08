@@ -87,6 +87,8 @@ let providerStartOrchestrationTools: Array<
   OrchestrationSessionTools | null | undefined
 > = [];
 let testAutonomyLevel: AutonomyLevel = "off";
+let createdWorktreeCount = 0;
+let createdWorktrees = new Map<string, Worktree>();
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
@@ -131,10 +133,33 @@ const testWorktree = Worktree.make({
 });
 
 const StubWorktreeLive = Layer.succeed(WorktreeService, {
-  create: () => Effect.die("not used"),
-  list: () => Effect.succeed([]),
+  create: (projectId) =>
+    Effect.sync(() => {
+      createdWorktreeCount += 1;
+      const worktree = Worktree.make({
+        id: `wt-created-${createdWorktreeCount}` as WorktreeId,
+        projectId,
+        path: `/tmp/project/.memo/created-${createdWorktreeCount}`,
+        name: `created-${createdWorktreeCount}`,
+        branch: `created-${createdWorktreeCount}`,
+        baseBranch: "origin/main",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        setupStatus: "succeeded",
+        setupOutput: "",
+        setupStartedAt: null,
+        setupFinishedAt: null,
+        pokemon: null,
+      });
+      createdWorktrees.set(worktree.id as string, worktree);
+      return worktree;
+    }),
+  list: () => Effect.succeed([...createdWorktrees.values()]),
   get: (worktreeId) =>
-    Effect.succeed(worktreeId === TEST_WORKTREE_ID ? testWorktree : null),
+    Effect.succeed(
+      worktreeId === TEST_WORKTREE_ID
+        ? testWorktree
+        : (createdWorktrees.get(worktreeId as string) ?? null),
+    ),
   updateBranch: () => Effect.void,
   remove: () => Effect.void,
   rerunSetup: () => Effect.die("not used"),
@@ -343,6 +368,8 @@ beforeEach(() => {
   providerSentTexts = [];
   providerStartOrchestrationTools = [];
   testAutonomyLevel = "off";
+  createdWorktreeCount = 0;
+  createdWorktrees = new Map();
 });
 
 describe("MessageStore migrations", () => {
@@ -482,15 +509,50 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
-  it("create_thread uses the target provider default model when providerId changes", async () => {
+  it("create_chat without worktreeId lands in the caller's workspace", async () => {
     testAutonomyLevel = "approval-gated";
     await withRuntime(async (run) => {
-      await run(
+      const parent = await run(
         Effect.flatMap(store, (s) =>
           s.createChat({
             projectId: PROJECT_ID,
             providerId: "claude",
             model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
+          }),
+        ),
+      );
+      expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
+      const tools = providerStartOrchestrationTools.at(-1);
+      expect(tools).not.toBeNull();
+      expect(tools).not.toBeUndefined();
+
+      const created = await tools!.deps.createChat({
+        task: "Open another tab here",
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.worktreeId).toBe(TEST_WORKTREE_ID);
+
+      const child = await run(
+        Effect.flatMap(store, (s) =>
+          s.getSession(created.sessionId as SessionId),
+        ),
+      );
+      expect(child.worktreeId).toBe(TEST_WORKTREE_ID);
+    });
+  });
+
+  it("create_thread creates a new worktree and uses the target provider default model", async () => {
+    testAutonomyLevel = "approval-gated";
+    await withRuntime(async (run) => {
+      const parent = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
           }),
         ),
       );
@@ -509,11 +571,15 @@ describe("MessageStore — chat & session lifecycle", () => {
 
       const created = await tools!.deps.createThread({
         title: "Codex greeting",
-        prompt: "Say hi!",
+        task: "Say hi!",
         providerId: "codex",
       });
       expect(created.ok).toBe(true);
       if (!created.ok) return;
+      expect(created.worktreeId).not.toBeNull();
+      expect(created.worktreeId).not.toBe(TEST_WORKTREE_ID);
+      expect(created.path).toContain("/tmp/project/.memo/created-");
+      expect(created.branch).toContain("created-");
 
       const child = await run(
         Effect.flatMap(store, (s) =>
@@ -522,6 +588,8 @@ describe("MessageStore — chat & session lifecycle", () => {
       );
       expect(child.providerId).toBe("codex");
       expect(child.model).toBe(defaultModelFor("codex"));
+      expect(child.worktreeId).toBe(created.worktreeId as WorktreeId);
+      expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
       expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
       expect(providerStartInputs.at(-1)?.model).toBe(defaultModelFor("codex"));
     });

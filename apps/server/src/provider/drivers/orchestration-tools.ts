@@ -18,7 +18,7 @@ import { z } from "zod";
  *
  * Registration is gated on autonomy: `MessageStore` only builds + passes these
  * when the session's autonomy level is not `"off"`. The mutating tools
- * (create_worktree / create_thread / send_to_thread) fall through the driver's
+ * (create_thread / create_chat / send_to_thread) fall through the driver's
  * permission policy to a prompt, which IS the approval gate for the
  * `approval-gated` level; the read-only tools (read_thread / list_threads /
  * list_models / whoami) are auto-allowed by the driver alongside the index
@@ -42,6 +42,19 @@ export type CreateThreadResult =
       readonly chatId: string;
       readonly sessionId: string;
       readonly title: string;
+      readonly worktreeId: string;
+      readonly path: string;
+      readonly branch: string;
+    }
+  | { readonly ok: false; readonly error: string };
+
+export type CreateChatResult =
+  | {
+      readonly ok: true;
+      readonly chatId: string;
+      readonly sessionId: string;
+      readonly title: string;
+      readonly worktreeId: string | null;
     }
   | { readonly ok: false; readonly error: string };
 
@@ -113,12 +126,19 @@ export interface OrchestrationToolDeps {
     readonly baseBranch?: string;
   }) => Promise<CreateWorktreeResult>;
   readonly createThread: (input: {
-    readonly title: string;
-    readonly prompt: string;
-    readonly worktreeId?: string;
+    readonly task: string;
+    readonly title?: string;
+    readonly baseBranch?: string;
     readonly providerId?: string;
     readonly model?: string;
   }) => Promise<CreateThreadResult>;
+  readonly createChat: (input: {
+    readonly task: string;
+    readonly title?: string;
+    readonly worktreeId?: string;
+    readonly providerId?: string;
+    readonly model?: string;
+  }) => Promise<CreateChatResult>;
   readonly sendToThread: (input: {
     readonly sessionId: string;
     readonly text: string;
@@ -151,8 +171,8 @@ export type OrchestrationMcpToolResult = {
 };
 
 export type OrchestrationToolName =
-  | "create_worktree"
   | "create_thread"
+  | "create_chat"
   | "send_to_thread"
   | "read_thread"
   | "list_threads"
@@ -193,11 +213,11 @@ const numberProp = (description: string, maximum?: number): JsonObject => ({
 
 export const ORCHESTRATION_MCP_SERVER_NAME = "zuse-orchestration";
 
-const CREATE_WORKTREE_DESCRIPTION =
-  "Create a new WORKSPACE: a fresh git worktree (isolated checkout on its own branch) in this project. Zuse's model is project -> workspaces (worktrees) -> chat threads, and ONE workspace can host MANY chat threads. A workspace is NOT a chat: only call this when the new work needs its own branch + PR that must not collide with other work. To start another conversation in an EXISTING workspace (including this one), skip this tool and call create_thread with that worktreeId, or omit worktreeId to use the project's main checkout. Returns { worktreeId, path, branch } — pass worktreeId to create_thread. This is a real, user-visible workspace (it appears in the sidebar), not a temp dir.";
-
 const CREATE_THREAD_DESCRIPTION =
-  "Open a NEW chat thread (a conversation with its own agent session) and hand it a task. This is how you spawn parallel work the user can watch in the sidebar. A thread lives inside a workspace: pass a worktreeId (from create_worktree, or reuse one from list_threads) to run it in that workspace; omit worktreeId to run in the project's main checkout. Creating a thread does NOT create a workspace — multiple threads can share one workspace, and you should NOT call create_worktree per thread unless the task needs its own branch/PR. Returns { chatId, sessionId, title }; use the sessionId with send_to_thread / read_thread to steer and inspect it. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
+  "Spawn ISOLATED parallel work: create_thread ALWAYS creates a new Zuse workspace (a fresh git worktree on its own branch, visible in the sidebar) and then opens a new chat inside it. Use this when the task needs its own branch/PR and must not collide with existing work. To open another conversation in an EXISTING workspace, use create_chat instead. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId, path, branch }; use sessionId with send_to_thread / read_thread. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
+
+const CREATE_CHAT_DESCRIPTION =
+  "Open a NEW chat in an EXISTING workspace; this never creates a worktree. Omit worktreeId to open the chat in YOUR OWN current workspace (which may be null for the project's main checkout), or pass a worktreeId from list_threads to place it in that workspace. Use this for another tab/conversation sharing the same checkout. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId }. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
 
 const SEND_TO_THREAD_DESCRIPTION =
   "Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is handed to the target session immediately and the receiving agent sees it attributed to you; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued is always false today (delivery is immediate).";
@@ -206,35 +226,26 @@ const READ_THREAD_DESCRIPTION =
   "Read a thread's recent messages and current status (idle / running / closed / error). Use to check what a spawned thread has done — e.g. read a review thread's findings before deciding to merge. Returns { status, messages: [{ role, text }] }. Read-only.";
 
 const LIST_THREADS_DESCRIPTION =
-  "List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, and whether you spawned them. Threads that share a worktreeId share one workspace. Use to see the topology of work (which workspaces exist, which threads live in them) before creating more workspaces or threads. Read-only.";
+  "List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, and whether you spawned them. Threads that share a worktreeId share one workspace. Use to see the topology of work before spawning isolated work with create_thread or adding a chat to an existing workspace with create_chat. Read-only.";
 
 const LIST_MODELS_DESCRIPTION =
-  "List providers and model slugs available for create_thread. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
+  "List providers and model slugs available for create_thread and create_chat. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
 
 const WHOAMI_DESCRIPTION =
   "Return your own session id, chat id, project id, workspace (worktreeId — null means the project's main checkout), providerId, model, and autonomy level. Use to reason about your own constraints and location before spawning more work. Read-only.";
 
 export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
   {
-    name: "create_worktree",
-    description: CREATE_WORKTREE_DESCRIPTION,
-    inputSchema: objectSchema({
-      baseBranch: stringProp(
-        "Branch to fork from. Defaults to the project's main branch.",
-      ),
-    }),
-  },
-  {
     name: "create_thread",
     description: CREATE_THREAD_DESCRIPTION,
     inputSchema: objectSchema(
       {
-        title: stringProp("Short human-readable thread title."),
-        prompt: stringProp(
-          "The initial task/instructions for the spawned agent.",
+        task: stringProp("The task/instructions for the spawned agent."),
+        title: stringProp(
+          "Optional short human-readable chat title. Defaults from task.",
         ),
-        worktreeId: stringProp(
-          "Run the thread in this workspace (a worktreeId from create_worktree or list_threads). Omit to run in the project's main checkout.",
+        baseBranch: stringProp(
+          "Branch to fork from. Defaults to the project's main branch.",
         ),
         providerId: stringProp(
           "Provider for the new thread. Defaults to yours.",
@@ -243,7 +254,27 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
           "Model slug for the new thread. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
         ),
       },
-      ["title", "prompt"],
+      ["task"],
+    ),
+  },
+  {
+    name: "create_chat",
+    description: CREATE_CHAT_DESCRIPTION,
+    inputSchema: objectSchema(
+      {
+        task: stringProp("The task/instructions for the spawned agent."),
+        worktreeId: stringProp(
+          "Existing workspace for the chat. Omit to use your own current workspace.",
+        ),
+        title: stringProp(
+          "Optional short human-readable chat title. Defaults from task.",
+        ),
+        providerId: stringProp("Provider for the new chat. Defaults to yours."),
+        model: stringProp(
+          "Model slug for the new chat. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
+        ),
+      },
+      ["task"],
     ),
   },
   {
@@ -302,8 +333,8 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 ]);
 
 export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
-  "create_worktree",
   "create_thread",
+  "create_chat",
   "send_to_thread",
 ]);
 
@@ -358,26 +389,37 @@ export const callOrchestrationTool = async (
 ): Promise<OrchestrationMcpToolResult> => {
   const args = asRecord(rawArgs);
   switch (name) {
-    case "create_worktree":
-      return settle(
-        await deps.createWorktree({ baseBranch: asString(args, "baseBranch") }),
-      );
     case "create_thread": {
-      const title = asString(args, "title");
-      const prompt = asString(args, "prompt");
-      if (title === undefined || prompt === undefined) {
+      const task = asString(args, "task");
+      if (task === undefined) {
         return {
-          content: [
-            { type: "text", text: "create_thread requires title and prompt." },
-          ],
+          content: [{ type: "text", text: "create_thread requires task." }],
           isError: true,
         };
       }
       return settle(
         await deps.createThread({
-          title,
-          prompt,
+          task,
+          title: asString(args, "title"),
+          baseBranch: asString(args, "baseBranch"),
+          providerId: asString(args, "providerId"),
+          model: asString(args, "model"),
+        }),
+      );
+    }
+    case "create_chat": {
+      const task = asString(args, "task");
+      if (task === undefined) {
+        return {
+          content: [{ type: "text", text: "create_chat requires task." }],
+          isError: true,
+        };
+      }
+      return settle(
+        await deps.createChat({
+          task,
           worktreeId: asString(args, "worktreeId"),
+          title: asString(args, "title"),
           providerId: asString(args, "providerId"),
           model: asString(args, "model"),
         }),
@@ -445,8 +487,8 @@ export const orchestrationMcpPromptHint = (): string => {
     "<zuse-orchestration-tools>",
     `The "${ORCHESTRATION_MCP_SERVER_NAME}" MCP server lets this Zuse chat create real Zuse worktrees and real Zuse chat threads that appear in the sidebar.`,
     `Tools: ${ORCHESTRATION_MCP_TOOLS.map(signature).join(", ")}.`,
-    "Model: project -> workspaces (worktrees) -> chat threads; one workspace hosts many threads. create_worktree makes a workspace, create_thread makes a thread — do not create a workspace per thread unless it needs its own branch/PR.",
-    "Smoke flow: whoami -> list_threads -> list_models -> create_worktree -> create_thread -> read_thread.",
+    "Model: project -> workspaces (worktrees) -> chats; one workspace hosts many chats. create_thread makes a new workspace plus chat for isolated branch/PR work; create_chat adds a chat to an existing workspace.",
+    "Smoke flow: whoami -> list_threads -> create_thread -> read_thread. Use list_models before choosing providerId/model, and create_chat for same-workspace chats.",
     "Do not substitute built-in Agent/Task, Codex worker/explorer/default subagents, or EnterWorktree/ExitWorktree. Those test different provider-native features, not Zuse self-orchestration.",
     "</zuse-orchestration-tools>",
   ].join("\n");
@@ -460,34 +502,24 @@ export const orchestrationMcpPromptHint = (): string => {
  */
 export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
   tool(
-    "create_worktree",
-    CREATE_WORKTREE_DESCRIPTION,
+    "create_thread",
+    CREATE_THREAD_DESCRIPTION,
     {
+      task: z
+        .string()
+        .min(1)
+        .describe("The task/instructions for the spawned agent."),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Optional short human-readable chat title. Defaults from task.",
+        ),
       baseBranch: z
         .string()
         .optional()
         .describe(
           "Branch to fork from. Defaults to the project's main branch.",
-        ),
-    },
-    async (args) =>
-      settle(await deps.createWorktree({ baseBranch: args.baseBranch })),
-  ),
-
-  tool(
-    "create_thread",
-    CREATE_THREAD_DESCRIPTION,
-    {
-      title: z.string().min(1).describe("Short human-readable thread title."),
-      prompt: z
-        .string()
-        .min(1)
-        .describe("The initial task/instructions for the spawned agent."),
-      worktreeId: z
-        .string()
-        .optional()
-        .describe(
-          "Run the thread in this workspace (a worktreeId from create_worktree or list_threads). Omit to run in the project's main checkout.",
         ),
       providerId: z
         .string()
@@ -505,9 +537,54 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
     async (args) =>
       settle(
         await deps.createThread({
+          task: args.task,
           title: args.title,
-          prompt: args.prompt,
+          baseBranch: args.baseBranch,
+          providerId: args.providerId,
+          model: args.model,
+        }),
+      ),
+  ),
+
+  tool(
+    "create_chat",
+    CREATE_CHAT_DESCRIPTION,
+    {
+      task: z
+        .string()
+        .min(1)
+        .describe("The task/instructions for the spawned agent."),
+      worktreeId: z
+        .string()
+        .optional()
+        .describe(
+          "Existing workspace for the chat. Omit to use your own current workspace.",
+        ),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "Optional short human-readable chat title. Defaults from task.",
+        ),
+      providerId: z
+        .string()
+        .optional()
+        .describe(
+          "Provider for the new chat (e.g. 'claude'). Defaults to yours.",
+        ),
+      model: z
+        .string()
+        .optional()
+        .describe(
+          "Model slug for the new chat. Defaults to yours when providerId is omitted; if providerId is overridden, defaults to that provider's configured default model.",
+        ),
+    },
+    async (args) =>
+      settle(
+        await deps.createChat({
+          task: args.task,
           worktreeId: args.worktreeId,
+          title: args.title,
           providerId: args.providerId,
           model: args.model,
         }),

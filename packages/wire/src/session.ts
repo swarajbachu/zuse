@@ -636,8 +636,8 @@ export class Chat extends Schema.Class<Chat>("Chat")({
   title: Schema.String,
   activeSessionId: Schema.NullOr(SessionId),
   /**
-   * Lineage. When an agent spawns this chat via the `create_thread`
-   * control-plane tool, this records the session that spawned it so the
+   * Lineage. When an agent spawns this chat via the orchestration
+   * control-plane tools, this records the session that spawned it so the
    * sidebar can nest agent-spawned chats under their parent and badge them.
    * `null` for user-created chats.
    */
@@ -756,8 +756,8 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
     /**
-     * Lineage — set by the `create_thread` control-plane tool to the
-     * spawning session id. Omitted for user-created chats.
+     * Lineage — set by orchestration control-plane tools to the spawning
+     * session id. Omitted for user-created chats.
      */
     originSessionId: Schema.optional(SessionId),
     modelOptions: Schema.optional(

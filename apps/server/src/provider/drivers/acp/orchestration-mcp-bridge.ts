@@ -56,10 +56,10 @@ const readBody = async (req: import("node:http").IncomingMessage) =>
 
 const permissionSummary = (name: string, args: JsonObject): string => {
   switch (name) {
-    case "create_worktree":
-      return `Create a Zuse worktree${asString(args, "baseBranch") !== undefined ? ` from ${asString(args, "baseBranch")}` : ""}`;
     case "create_thread":
-      return `Create Zuse thread "${asString(args, "title") ?? "untitled"}"`;
+      return `Create isolated Zuse thread "${asString(args, "title") ?? "untitled"}"`;
+    case "create_chat":
+      return `Create Zuse chat "${asString(args, "title") ?? "untitled"}"`;
     case "send_to_thread":
       return `Send a message to Zuse session ${asString(args, "sessionId") ?? ""}`;
     default:

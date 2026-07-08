@@ -27,14 +27,14 @@ When a Zuse-managed chat has autonomy enabled, Zuse exposes a provider-neutral
 MCP server named \`zuse-orchestration\`. Use these tools for agent-controlled
 parallel work instead of provider-specific built-ins:
 
-**Workspaces vs chat threads.** Zuse's model is project → workspaces (git worktrees) → chat threads. One workspace can host many chat threads; \`worktreeId: null\` means the project's main checkout. \`create_worktree\` makes a new workspace (isolated branch + PR); \`create_thread\` makes a new conversation inside a workspace. To add a thread to an existing workspace, call \`create_thread\` with that \`worktreeId\` — do not create a workspace per thread unless the work needs its own branch/PR. Use \`whoami\` / \`list_threads\` (both return \`worktreeId\`) to see the topology before spawning.
+**Workspaces vs chat threads.** Zuse's model is project → workspaces (git worktrees) → chat threads. One workspace can host many chat threads; \`worktreeId: null\` means the project's main checkout. \`create_thread\` spawns isolated work by creating a new workspace (worktree + branch) and a chat inside it. \`create_chat\` opens another chat in an existing workspace — your own current workspace by default. Use \`whoami\` / \`list_threads\` (both return \`worktreeId\`) to see the topology before spawning.
 
 - \`whoami\`: inspect the current Zuse session, chat, project, provider, model, and autonomy level.
 - \`list_threads\`: list sibling and spawned Zuse chat threads.
 - \`list_models\`: list provider/model choices for \`create_thread\`.
 - \`read_thread\`: read recent messages from a Zuse thread.
-- \`create_worktree\`: create an isolated Zuse workspace (git worktree) that can host multiple chat threads.
-- \`create_thread\`: create a new Zuse chat thread inside an existing workspace (pass \`worktreeId\`) or the main checkout (omit it).
+- \`create_thread\`: spawn isolated work by creating a new Zuse workspace (worktree + branch) and a chat inside it.
+- \`create_chat\`: open another chat in an existing workspace — your own by default.
 - \`send_to_thread\`: send follow-up instructions to an existing thread.
 
 Do not substitute Claude \`Agent\`, Codex workers/explorers, Grok collaboration
@@ -44,8 +44,8 @@ expected smoke flow is:
 1. Call \`whoami\`.
 2. Call \`list_threads\`.
 3. Call \`list_models\` when you need to pick a provider/model.
-4. Call \`create_worktree\` when isolated implementation is needed.
-5. Call \`create_thread\`, passing the \`worktreeId\` when using that worktree and optional \`providerId\` / \`model\` from \`list_models\`.
+4. Call \`create_thread\` when isolated implementation needs a new workspace/branch.
+5. Call \`create_chat\` when you want another chat in an existing workspace.
 6. Call \`read_thread\` to inspect the spawned thread.
 
 If \`zuse-orchestration\` is not available, report that autonomy tools are not

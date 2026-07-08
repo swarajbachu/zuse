@@ -19,6 +19,12 @@ describe("orchestration tool helpers", () => {
     expect(orchestrationToolName("Zuse Orchestration Create Thread")).toBe(
       "create_thread",
     );
+    expect(orchestrationToolName("mcp__zuse-orchestration__create_chat")).toBe(
+      "create_chat",
+    );
+    expect(orchestrationToolName("mcp__zuse_orchestration__create_chat")).toBe(
+      "create_chat",
+    );
     expect(orchestrationToolName("Bash")).toBeNull();
     expect(orchestrationToolName("mcp__zuse__browser_navigate")).toBeNull();
   });

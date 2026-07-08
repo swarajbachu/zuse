@@ -248,7 +248,11 @@ function ToolUseMessageRow({
     return <ExitPlanModeRow input={content.input} result={result} />;
   }
   const orch = orchestrationToolName(content.tool);
-  if (orch === "create_thread" || orch === "send_to_thread") {
+  if (
+    orch === "create_thread" ||
+    orch === "create_chat" ||
+    orch === "send_to_thread"
+  ) {
     const parsed =
       result !== undefined ? parseOrchestrationResult(result.output) : null;
     const renderCard =

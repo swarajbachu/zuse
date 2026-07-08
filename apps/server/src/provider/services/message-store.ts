@@ -132,8 +132,8 @@ export interface CreateChatInput {
   readonly modelOptions?: Readonly<Record<string, string>>;
   readonly toolSearch?: boolean;
   /**
-   * Lineage — when set, this chat was spawned by another session via the
-   * `create_thread` control-plane tool. Persisted on the chat row so the
+   * Lineage — when set, this chat was spawned by another session via
+   * orchestration control-plane tools. Persisted on the chat row so the
    * sidebar can nest agent-spawned chats under their parent. `null`/omitted
    * for user-created chats.
    */

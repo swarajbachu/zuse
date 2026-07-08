@@ -4,7 +4,7 @@ import { Schema } from "effect";
  * How much an agent is allowed to orchestrate other work on its own — spawn
  * git worktrees, open new chats/sessions ("threads"), and (later phases)
  * drive loops. This gates whether the in-process control-plane MCP tools
- * (`create_worktree`, `create_thread`, `send_to_thread`, …) are registered
+ * (`create_thread`, `create_chat`, `send_to_thread`, …) are registered
  * for a session at start time.
  *
  *   - `off`            → control-plane tools are NOT registered. memoize

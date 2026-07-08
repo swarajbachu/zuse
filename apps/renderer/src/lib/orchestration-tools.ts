@@ -5,6 +5,7 @@ const ORCHESTRATION_TOOL_RE =
 // toNiceToolLabel fallback. Match those too so old timelines render cards.
 const LEGACY_LABELS: Record<string, string> = {
   "Zuse Orchestration Create Thread": "create_thread",
+  "Zuse Orchestration Create Chat": "create_chat",
   "Zuse Orchestration Send To Thread": "send_to_thread",
 };
 
@@ -18,6 +19,7 @@ export interface OrchestrationResultJson {
   readonly chatId?: string;
   readonly sessionId?: string;
   readonly title?: string;
+  readonly branch?: string;
   readonly queued?: boolean;
 }
 

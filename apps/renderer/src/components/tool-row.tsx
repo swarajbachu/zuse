@@ -1309,7 +1309,7 @@ export function OrchestrationThreadRow({
   variant,
   result,
 }: {
-  variant: "create_thread" | "send_to_thread";
+  variant: "create_thread" | "create_chat" | "send_to_thread";
   result?: ToolResult;
 }) {
   const parsed =
@@ -1329,9 +1329,11 @@ export function OrchestrationThreadRow({
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
           <span>
-            {variant === "create_thread"
-              ? "Creating chat..."
-              : "Sending to thread..."}
+            {variant === "send_to_thread"
+              ? "Sending to thread..."
+              : variant === "create_thread"
+                ? "Creating chat..."
+                : "Creating chat..."}
           </span>
         </div>
       </div>
@@ -1339,7 +1341,7 @@ export function OrchestrationThreadRow({
   }
 
   const label =
-    variant === "create_thread" ? "Chat created" : "Message sent to thread";
+    variant === "send_to_thread" ? "Message sent to thread" : "Chat created";
   const openChat = () => {
     if (chatId !== undefined && chatLoaded) {
       useChatsStore.getState().select(chatId as ChatId);
@@ -1355,12 +1357,22 @@ export function OrchestrationThreadRow({
               <HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
               <span>{label}</span>
             </div>
-            {variant === "create_thread" &&
-            typeof parsed?.title === "string" &&
-            parsed.title.length > 0 ? (
-              <div className="mt-1 truncate text-sm text-foreground">
-                {parsed.title}
-              </div>
+            {variant !== "send_to_thread" ? (
+              <>
+                {typeof parsed?.title === "string" &&
+                parsed.title.length > 0 ? (
+                  <div className="mt-1 truncate text-sm text-foreground">
+                    {parsed.title}
+                  </div>
+                ) : null}
+                {variant === "create_thread" &&
+                typeof parsed?.branch === "string" &&
+                parsed.branch.length > 0 ? (
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {parsed.branch}
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
           <Button

@@ -40,6 +40,8 @@ describe("bundled Zuse skill installer", () => {
       expect(installedClaudeSkill).toContain("whoami");
       expect(installedClaudeSkill).toContain("list_models");
       expect(installedClaudeSkill).toContain("create_thread");
+      expect(installedClaudeSkill).toContain("create_chat");
+      expect(installedClaudeSkill).not.toContain("create_worktree");
       expect(installedCodexSkill).toContain("zuse-orchestration");
       expect(installedCodexSkill).toContain("Do not substitute");
     } finally {
