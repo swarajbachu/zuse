@@ -1,6 +1,7 @@
 export * from "./agent.ts";
 export * from "./attachment.ts";
 export * from "./auth.ts";
+export * from "./autonomy.ts";
 export * from "./browser.ts";
 export * from "./code-index.ts";
 export * from "./composer.ts";

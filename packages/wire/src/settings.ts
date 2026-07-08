@@ -7,6 +7,7 @@ import {
   ProviderId,
   RuntimeMode,
 } from "./agent.ts";
+import { AutonomyLevel } from "./autonomy.ts";
 import { GitMergeMethod } from "./git.ts";
 
 /**
@@ -75,6 +76,13 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   }),
   defaultRuntimeMode: RuntimeMode,
   defaultAutoCreateWorktree: Schema.Boolean,
+  /**
+   * Default autonomy level for new sessions — gates whether the in-process
+   * control-plane tools (create_thread / create_session / …) are registered
+   * so an agent can spawn and drive its own threads. Defaults to `"off"`;
+   * see {@link AutonomyLevel}.
+   */
+  defaultAutonomyLevel: AutonomyLevel,
   onboardingCompleted: Schema.Boolean,
   appearanceMode: AppearanceMode,
   completionSoundEnabled: Schema.Boolean,
@@ -164,6 +172,7 @@ export const SettingsPatch = Schema.Struct({
   ),
   defaultRuntimeMode: Schema.optional(RuntimeMode),
   defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
+  defaultAutonomyLevel: Schema.optional(AutonomyLevel),
   onboardingCompleted: Schema.optional(Schema.Boolean),
   appearanceMode: Schema.optional(AppearanceMode),
   completionSoundEnabled: Schema.optional(Schema.Boolean),

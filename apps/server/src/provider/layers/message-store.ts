@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql";
-import { Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { Effect, Fiber, Layer, PubSub, Ref, Runtime, Stream } from "effect";
 import { spawn } from "node:child_process";
 
 import {
@@ -16,6 +16,9 @@ import {
   Message,
   MessageEnvelope,
   MessageId,
+  MODELS_BY_PROVIDER,
+  defaultModelFor,
+  visibleModelsForProvider,
   type PermissionMode,
   SessionAlreadyStartedError,
   type AgentDefinition,
@@ -30,6 +33,7 @@ import {
   GoalUnsupportedError,
   type MessageContent,
   type MessageId as MessageIdType,
+  type MessageOrigin,
   type MessageRole,
   type ProviderId,
   QueueState,
@@ -44,8 +48,17 @@ import {
   ThreadGoal,
   type ThreadGoalSetInput,
   type Worktree,
+  type WorktreeCreateSource,
   WorktreeId,
+  type AutonomyLevel,
+  autonomyEnablesOrchestration,
 } from "@zuse/wire";
+
+import {
+  buildOrchestrationTools,
+  type OrchestrationSessionTools,
+  type OrchestrationToolDeps,
+} from "../drivers/orchestration-tools.ts";
 
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
@@ -103,6 +116,7 @@ interface ChatRow {
   readonly worktree_id: string | null;
   readonly title: string;
   readonly active_session_id: string | null;
+  readonly origin_session_id: string | null;
   readonly archived_at: string | null;
   readonly archived_worktree_json: string | null;
   readonly last_message_at: string | null;
@@ -118,7 +132,7 @@ const SESSION_COLUMNS =
   "forked_from_message_id, permission_mode, tool_search, created_at, updated_at";
 
 const CHAT_COLUMNS =
-  "id, project_id, worktree_id, title, active_session_id, " +
+  "id, project_id, worktree_id, title, active_session_id, origin_session_id, " +
   "archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at";
 
 const ARCHIVE_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -282,6 +296,10 @@ const chatFromRow = (row: ChatRow): Chat =>
       row.active_session_id === null
         ? null
         : SessionId.make(row.active_session_id),
+    originSessionId:
+      row.origin_session_id === null
+        ? null
+        : SessionId.make(row.origin_session_id),
     archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
     lastMessageAt:
       row.last_message_at === null ? null : new Date(row.last_message_at),
@@ -308,6 +326,46 @@ const messageFromRow = (row: MessageRow): Message => {
     content,
     createdAt: new Date(row.created_at),
   });
+};
+
+/**
+ * Best-effort human string for a failed orchestration tool call. The control
+ * plane never throws to the agent — failures come back as
+ * `{ ok: false, error }`, and this turns a typed Effect error (or anything)
+ * into the `error` string. Prefers a `reason` field, then `_tag`.
+ */
+const orchestrationErrorText = (err: unknown): string => {
+  if (typeof err === "object" && err !== null) {
+    const e = err as Record<string, unknown>;
+    if (typeof e.reason === "string") return e.reason;
+    if (typeof e._tag === "string") return e._tag;
+  }
+  return "Operation failed.";
+};
+
+/**
+ * Flatten a persisted message's content to a single line for `read_thread`,
+ * so a spawning agent can skim what a thread has done without the full
+ * structured payload.
+ */
+const messageContentToText = (content: MessageContent): string => {
+  switch (content._tag) {
+    case "user":
+    case "user_rich":
+    case "assistant":
+    case "thinking":
+      return content.text;
+    case "tool_use":
+      return `[tool_use: ${content.tool}]`;
+    case "tool_result":
+      return String(content.output);
+    case "error":
+      return `[error: ${content.message}]`;
+    case "subagent_summary":
+      return content.summary;
+    default:
+      return `[${content._tag}]`;
+  }
 };
 
 /**
@@ -663,6 +721,9 @@ const serializeAnnotations = (
     .join("\n\n");
 };
 
+const originPromptPreamble = (origin: MessageOrigin): string =>
+  `[Zuse: this message was sent by another agent (provider "${origin.providerId}", session ${origin.sessionId}) from a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]`;
+
 const formatProviderFailure = (cause: unknown): string => {
   if (cause instanceof Error) return cause.message;
   if (cause !== null && typeof cause === "object") {
@@ -727,6 +788,11 @@ export const MessageStoreLive = Layer.scoped(
     const git = yield* GitService;
     const titleGen = yield* TitleGenerator;
     const configStore = yield* ConfigStoreService;
+    // Captured once so the control-plane orchestration tools — which the
+    // Claude SDK invokes as plain async functions — can bridge back into
+    // these Effect methods via `Runtime.runPromise`. Same shape as the
+    // browser-bridge tool binding in ProviderService.
+    const runtime = yield* Effect.runtime<never>();
     const relayActivity = yield* RelayActivityPublisher;
 
     const chatColumns = yield* sql<{ readonly name: string }>`
@@ -942,12 +1008,12 @@ export const MessageStoreLive = Layer.scoped(
     >(new Map());
     const goalsBySession = new Map<string, ThreadGoal | null>();
 
-    // Single hub for chat-row changes (title / worktree binding). Unlike the
-    // per-session message/status pubsubs, chats are few and updates rare, so
-    // one project-filtered hub keeps it simple. The renderer already holds
-    // the chat list via `chat.list`; this stream only carries live patches
-    // (e.g. the background auto-namer rewriting a title), so there's no
-    // backfill on subscribe.
+    // Single hub for chat-row changes (create / title / worktree binding).
+    // Unlike the per-session message/status pubsubs, chats are few and updates
+    // rare, so one project-filtered hub keeps it simple. The renderer seeds
+    // from `chat.list`; this stream carries live changes after subscription,
+    // so a Zuse-orchestrated spawn appears in the sidebar without
+    // requiring a full app reload.
     const chatChangesHub = yield* PubSub.unbounded<Chat>();
     const broadcastChat = (chat: Chat): Effect.Effect<void> =>
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
@@ -1529,7 +1595,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<ChatRow, SessionStartError> =>
       Effect.gen(function* () {
         const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -1551,6 +1617,361 @@ export const MessageStoreLive = Layer.scoped(
           );
         }
         return row;
+      });
+
+    /**
+     * Build the session-bound control-plane (orchestration) tool bundle,
+     * gated on the project's autonomy level. Returns `null` when autonomy is
+     * `"off"` so providers register no spawn tools and memoize behaves
+     * exactly as before. Each tool bridges back into these Effect methods via
+     * `Runtime.runPromise`, mapping every typed failure to a
+     * `{ ok: false, error }` result so provider MCP handlers never throw.
+     *
+     * Spawned threads carry `originSessionId = ctx.sessionId` for lineage, and
+     * inherit this session's provider/model unless the agent overrides them.
+     */
+    const buildOrchestrationForSession = (ctx: {
+      readonly sessionId: SessionId;
+      readonly chatId: ChatId;
+      readonly projectId: FolderId;
+      readonly worktreeId: WorktreeId | null;
+      readonly providerId: ProviderId;
+      readonly model: string;
+    }): Effect.Effect<OrchestrationSessionTools | null> =>
+      Effect.gen(function* () {
+        // Fail closed: if settings can't be read, register no control-plane
+        // tools (autonomy = off) rather than dying the whole session boot.
+        const settings = yield* configStore
+          .getSettings()
+          .pipe(Effect.catchAllCause(() => Effect.succeed(null)));
+        const level: AutonomyLevel = settings?.defaultAutonomyLevel ?? "off";
+        if (!autonomyEnablesOrchestration(level)) return null;
+        const run = Runtime.runPromise(runtime);
+        const providerModelFor = (input: {
+          readonly providerId?: string;
+          readonly model?: string;
+        }): { readonly providerId: ProviderId; readonly model: string } => {
+          const providerId =
+            (input.providerId as ProviderId | undefined) ?? ctx.providerId;
+          const model =
+            input.model ??
+            (providerId === ctx.providerId
+              ? ctx.model
+              : (settings?.defaultModelByProvider[providerId] ??
+                defaultModelFor(providerId)));
+          return { providerId, model };
+        };
+        const sourceForBaseBranch = (
+          baseBranch: string | undefined,
+        ): WorktreeCreateSource | undefined =>
+          baseBranch !== undefined
+            ? { _tag: "branch", branch: baseBranch, remote: null }
+            : undefined;
+        const createWorktreeForOrchestration = (baseBranch?: string) =>
+          worktrees.create(ctx.projectId, sourceForBaseBranch(baseBranch));
+        const createOrchestrationChat = (input: {
+          readonly task: string;
+          readonly title?: string;
+          readonly worktreeId: WorktreeId | null;
+          readonly providerId?: string;
+          readonly model?: string;
+        }) => {
+          const { providerId, model } = providerModelFor(input);
+          return createChat({
+            projectId: ctx.projectId,
+            providerId,
+            model,
+            title: input.title,
+            initialPrompt: input.task,
+            worktreeId: input.worktreeId,
+            originSessionId: ctx.sessionId,
+          }).pipe(
+            Effect.map((res) => ({
+              ok: true as const,
+              chatId: res.chat.id as string,
+              sessionId: res.initialSession.id as string,
+              title: res.chat.title,
+              worktreeId:
+                res.chat.worktreeId === null
+                  ? null
+                  : (res.chat.worktreeId as string),
+            })),
+          );
+        };
+        const createOrchestrationSession = (input: {
+          readonly task: string;
+          readonly title?: string;
+          readonly chatId: ChatId;
+          readonly providerId?: string;
+          readonly model?: string;
+        }) => {
+          const { providerId, model } = providerModelFor(input);
+          return createSession({
+            chatId: input.chatId,
+            providerId,
+            model,
+            title: input.title,
+            initialPrompt: input.task,
+            originSessionId: ctx.sessionId,
+            background: true,
+          }).pipe(
+            Effect.map((session) => ({
+              ok: true as const,
+              chatId: session.chatId as string,
+              sessionId: session.id as string,
+              title: session.title,
+              worktreeId:
+                session.worktreeId === null
+                  ? null
+                  : (session.worktreeId as string),
+            })),
+          );
+        };
+        const deps: OrchestrationToolDeps = {
+          createWorktree: (input) =>
+            run(
+              createWorktreeForOrchestration(input.baseBranch).pipe(
+                Effect.map((wt) => ({
+                  ok: true as const,
+                  worktreeId: wt.id as string,
+                  path: wt.path,
+                  branch: wt.branch,
+                })),
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          createThread: (input) =>
+            run(
+              Effect.gen(function* () {
+                const wt = yield* createWorktreeForOrchestration(
+                  input.baseBranch,
+                );
+                const chat = yield* createOrchestrationChat({
+                  task: input.task,
+                  title: input.title,
+                  worktreeId: wt.id,
+                  providerId: input.providerId,
+                  model: input.model,
+                }).pipe(Effect.either);
+                if (chat._tag === "Left") {
+                  return {
+                    ok: false as const,
+                    error: `${orchestrationErrorText(chat.left)}; orphaned worktreeId: ${wt.id as string}`,
+                  };
+                }
+                return {
+                  ok: true as const,
+                  chatId: chat.right.chatId,
+                  sessionId: chat.right.sessionId,
+                  title: chat.right.title,
+                  worktreeId: wt.id as string,
+                  path: wt.path,
+                  branch: wt.branch,
+                };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          createSession: (input) =>
+            run(
+              Effect.gen(function* () {
+                const chatId =
+                  input.chatId !== undefined
+                    ? (input.chatId as ChatId)
+                    : ctx.chatId;
+                const chat = yield* lookupChat(chatId).pipe(Effect.either);
+                if (chat._tag === "Left") {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} not found`,
+                  };
+                }
+                if (
+                  (chat.right.projectId as string) !== (ctx.projectId as string)
+                ) {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} does not belong to this project`,
+                  };
+                }
+                if (chat.right.archivedAt !== null) {
+                  return {
+                    ok: false as const,
+                    error: `chatId ${chatId as string} is archived`,
+                  };
+                }
+                return yield* createOrchestrationSession({
+                  task: input.task,
+                  title: input.title,
+                  chatId,
+                  providerId: input.providerId,
+                  model: input.model,
+                });
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          sendToThread: (input) =>
+            run(
+              Effect.gen(function* () {
+                const target = yield* getSession(input.sessionId as SessionId);
+                yield* sendMessage(
+                  input.sessionId as SessionId,
+                  input.text,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  {
+                    chatId: ctx.chatId,
+                    sessionId: ctx.sessionId,
+                    providerId: ctx.providerId,
+                  },
+                );
+                return {
+                  ok: true as const,
+                  queued: false,
+                  chatId: target.chatId as string,
+                };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          readThread: (input) =>
+            run(
+              Effect.gen(function* () {
+                const session = yield* getSession(input.sessionId as SessionId);
+                const msgs = yield* listMessages(input.sessionId as SessionId);
+                const limit = input.limit ?? 20;
+                const messages = msgs.slice(-limit).map((m) => ({
+                  role: m.role,
+                  text: messageContentToText(m.content),
+                }));
+                return {
+                  ok: true as const,
+                  status: session.status,
+                  messages,
+                };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          listThreads: (input) =>
+            run(
+              Effect.gen(function* () {
+                const includeArchived = input.includeArchived ?? false;
+                const chats = yield* listChats(ctx.projectId, includeArchived);
+                const sessions = yield* listSessions(
+                  ctx.projectId,
+                  includeArchived,
+                );
+                const statusBySession = new Map(
+                  sessions.map((s) => [s.id as string, s.status as string]),
+                );
+                const threads = chats.map((c) => ({
+                  chatId: c.id as string,
+                  sessionId: (c.activeSessionId ?? "") as string,
+                  title: c.title,
+                  worktreeId:
+                    c.worktreeId === null ? null : (c.worktreeId as string),
+                  status:
+                    c.activeSessionId !== null
+                      ? (statusBySession.get(c.activeSessionId as string) ??
+                        "unknown")
+                      : "unknown",
+                  spawnedByMe: c.originSessionId === ctx.sessionId,
+                }));
+                return { ok: true as const, threads };
+              }).pipe(
+                Effect.catchAll((err) =>
+                  Effect.succeed({
+                    ok: false as const,
+                    error: orchestrationErrorText(err),
+                  }),
+                ),
+              ),
+            ),
+          listModels: (input) =>
+            Promise.resolve().then(() => {
+              const allProviderIds = Object.keys(
+                MODELS_BY_PROVIDER,
+              ) as ProviderId[];
+              const providerIds =
+                input.providerId !== undefined
+                  ? allProviderIds.includes(input.providerId as ProviderId)
+                    ? [input.providerId as ProviderId]
+                    : []
+                  : allProviderIds;
+              if (input.providerId !== undefined && providerIds.length === 0) {
+                return {
+                  ok: false as const,
+                  error: `Unknown providerId: ${input.providerId}`,
+                };
+              }
+              const providers = providerIds.map((providerId) => {
+                const defaultModel =
+                  settings?.defaultModelByProvider[providerId] ??
+                  defaultModelFor(providerId);
+                const models = visibleModelsForProvider(
+                  providerId,
+                  settings?.modelEnabledByProvider,
+                  { includeModelId: defaultModel },
+                ).map((model) => ({
+                  id: model.id,
+                  label: model.label,
+                  defaultModel: model.id === defaultModel,
+                }));
+                return {
+                  providerId,
+                  defaultModel,
+                  models,
+                };
+              });
+              return { ok: true as const, providers };
+            }),
+          whoami: () =>
+            Promise.resolve({
+              sessionId: ctx.sessionId as string,
+              chatId: ctx.chatId as string,
+              projectId: ctx.projectId as string,
+              worktreeId:
+                ctx.worktreeId === null ? null : (ctx.worktreeId as string),
+              providerId: ctx.providerId as string,
+              model: ctx.model,
+              autonomyLevel: level,
+            }),
+        };
+        return {
+          deps,
+          claudeTools: buildOrchestrationTools(deps),
+        };
       });
 
     const createSession: MessageStoreShape["createSession"] = (
@@ -1588,6 +2009,17 @@ export const MessageStoreLive = Layer.scoped(
         const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
         runtimeModeBySession.set(sessionId, initialRuntimeMode);
         permissionModeBySession.set(sessionId, initialPermissionMode);
+        // Control-plane orchestration tools — null unless the project's
+        // autonomy level opts in. Passed to `provider.start` so the agent can
+        // spawn + steer its own worktrees/threads.
+        const orchestrationTools = yield* buildOrchestrationForSession({
+          sessionId,
+          chatId: input.chatId,
+          projectId,
+          worktreeId,
+          providerId: input.providerId,
+          model: input.model,
+        });
         if (
           input.agents !== undefined &&
           Object.keys(input.agents).length > 0
@@ -1611,6 +2043,33 @@ export const MessageStoreLive = Layer.scoped(
         const hasInitial =
           input.initialPrompt !== undefined &&
           input.initialPrompt.trim().length > 0;
+        // Lineage: when this chat was spawned by another agent (orchestration
+        // sets chats.origin_session_id), stamp the initial user message with
+        // the origin so the renderer can attribute + link it. Skip silently
+        // if the origin session row is gone.
+        let origin: MessageOrigin | undefined = undefined;
+        const originSessionId =
+          input.originSessionId ?? chatRow.origin_session_id;
+        if (hasInitial && originSessionId !== null) {
+          const originRows = yield* sql<{
+            readonly chat_id: string;
+            readonly provider_id: string;
+          }>`
+            SELECT chat_id, provider_id FROM sessions WHERE id = ${originSessionId}
+          `.pipe(Effect.orDie);
+          const originRow = originRows[0];
+          if (originRow !== undefined) {
+            origin = {
+              chatId: originRow.chat_id as ChatId,
+              sessionId: originSessionId as SessionId,
+              providerId: originRow.provider_id as ProviderId,
+            };
+          }
+        }
+        const promptForProvider =
+          origin !== undefined && input.initialPrompt !== undefined
+            ? `[Zuse: this task was assigned by an orchestrating agent (provider "${origin.providerId}", session ${origin.sessionId}) in a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]\n\n${input.initialPrompt}`
+            : input.initialPrompt;
         const background = input.background === true;
         const resumeCursor = input.resumeCursor ?? null;
         const resumeStrategy: ResumeStrategy =
@@ -1650,11 +2109,16 @@ export const MessageStoreLive = Layer.scoped(
             SET active_session_id = ${sessionId}, updated_at = ${nowIso}
             WHERE id = ${input.chatId}
           `.pipe(Effect.asVoid, Effect.orDie);
+          yield* lookupChat(input.chatId).pipe(
+            Effect.flatMap(broadcastChat),
+            Effect.catchAll(() => Effect.void),
+          );
           if (hasInitial) {
             yield* persistMessage(sessionId, {
               _tag: "user",
               text: input.initialPrompt!,
               goal: false,
+              ...(origin !== undefined ? { origin } : {}),
             });
           }
           // Detach the boot so the RPC reply happens immediately. The status
@@ -1669,7 +2133,7 @@ export const MessageStoreLive = Layer.scoped(
                   providerId: input.providerId,
                   mode: "sdk",
                   sessionId,
-                  initialPrompt: input.initialPrompt,
+                  initialPrompt: promptForProvider,
                   model: input.model,
                   agents: input.agents,
                   enableSubagents: effectiveEnableSubagents,
@@ -1681,6 +2145,7 @@ export const MessageStoreLive = Layer.scoped(
                 },
                 resumeCursor,
                 newSessionRuntimeMode,
+                orchestrationTools,
               )
               .pipe(
                 Effect.flatMap(() =>
@@ -1742,7 +2207,7 @@ export const MessageStoreLive = Layer.scoped(
               providerId: input.providerId,
               mode: "sdk",
               sessionId,
-              initialPrompt: input.initialPrompt,
+              initialPrompt: promptForProvider,
               model: input.model,
               agents: input.agents,
               enableSubagents: effectiveEnableSubagents,
@@ -1754,6 +2219,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             resumeCursor,
             newSessionRuntimeMode,
+            orchestrationTools,
           )
           .pipe(
             Effect.mapError((err) =>
@@ -1787,11 +2253,16 @@ export const MessageStoreLive = Layer.scoped(
           SET active_session_id = ${sessionId}, updated_at = ${nowIso}
           WHERE id = ${input.chatId}
         `.pipe(Effect.asVoid, Effect.orDie);
+        yield* lookupChat(input.chatId).pipe(
+          Effect.flatMap(broadcastChat),
+          Effect.catchAll(() => Effect.void),
+        );
         if (hasInitial) {
           yield* persistMessage(sessionId, {
             _tag: "user",
             text: input.initialPrompt!,
             goal: false,
+            ...(origin !== undefined ? { origin } : {}),
           });
         }
         yield* startSubscription(sessionId);
@@ -2058,7 +2529,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<Chat, ChatNotFoundError> =>
       Effect.gen(function* () {
         const rows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -2075,13 +2546,13 @@ export const MessageStoreLive = Layer.scoped(
       Effect.gen(function* () {
         const rows = includeArchived
           ? yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id,
+              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats WHERE project_id = ${projectId}
               ORDER BY updated_at DESC
             `.pipe(Effect.orDie)
           : yield* sql<ChatRow>`
-              SELECT id, project_id, worktree_id, title, active_session_id,
+              SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                      archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
               FROM chats
               WHERE project_id = ${projectId} AND archived_at IS NULL
@@ -2109,13 +2580,14 @@ export const MessageStoreLive = Layer.scoped(
         const title =
           input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
+        const originSessionId = input.originSessionId ?? null;
         yield* sql`
           INSERT INTO chats
-            (id, project_id, worktree_id, title, active_session_id,
+            (id, project_id, worktree_id, title, active_session_id, origin_session_id,
              archived_at, last_message_at, last_read_at, created_at, updated_at)
           VALUES
             (${chatId}, ${input.projectId}, ${worktreeId}, ${title}, NULL,
-             NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso})
+             ${originSessionId}, NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso})
         `.pipe(Effect.asVoid, Effect.orDie);
         const initialSession = yield* createSession({
           chatId,
@@ -2146,6 +2618,7 @@ export const MessageStoreLive = Layer.scoped(
           ),
         );
         const chat = yield* lookupChat(chatId).pipe(Effect.orDie);
+        yield* broadcastChat(chat);
         // Fetch the initial user message (if any) so the renderer can seed
         // its messages store and skip the empty-state flash while the live
         // message stream is connecting. `createSession` writes the row
@@ -2696,7 +3169,7 @@ export const MessageStoreLive = Layer.scoped(
     const unarchiveChat: MessageStoreShape["unarchiveChat"] = (chatId) =>
       Effect.gen(function* () {
         const chatRows = yield* sql<ChatRow>`
-          SELECT id, project_id, worktree_id, title, active_session_id,
+          SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
@@ -3064,50 +3537,62 @@ export const MessageStoreLive = Layer.scoped(
       runtimeModeBySession.set(session.id, session.runtimeMode);
       permissionModeBySession.set(session.id, session.permissionMode);
       const subagents = agentsFor(session.id);
-      return cwdForWorktree(session.worktreeId).pipe(
-        Effect.flatMap((cwdOverride) =>
-          provider
-            .start(
-              {
-                folderId: session.projectId,
-                providerId: session.providerId,
-                mode: "sdk",
-                sessionId: session.id,
-                model: session.model,
-                agents: subagents?.agents,
-                enableSubagents: subagents?.enableSubagents,
-                cwdOverride,
-                permissionMode: session.permissionMode,
-                toolSearch: session.toolSearch,
-              },
-              // Re-attach to the upstream conversation when we have a
-              // cursor. The driver passes it as `options.resume`; SDK
-              // reloads history and continues from there.
-              session.cursor,
-              () => getRuntimeModeFor(session.id),
-            )
-            .pipe(
-              Effect.flatMap(() => startSubscription(session.id)),
-              Effect.flatMap(() =>
-                provider.send(session.id, text, attachments),
-              ),
-              Effect.mapError((err) =>
-                err._tag === "ProviderNotAvailableError"
-                  ? new SessionStartError({
-                      providerId: session.providerId,
-                      reason: err.reason,
-                    })
-                  : err._tag === "AgentSessionStartError"
-                    ? new SessionStartError({
-                        providerId: err.providerId,
-                        reason: err.reason,
-                      })
-                    : new SessionStartError({
-                        providerId: session.providerId,
-                        reason: formatProviderFailure(err),
-                      }),
-              ),
+      return buildOrchestrationForSession({
+        sessionId: session.id,
+        chatId: session.chatId,
+        projectId: session.projectId,
+        worktreeId: session.worktreeId,
+        providerId: session.providerId,
+        model: session.model,
+      }).pipe(
+        Effect.flatMap((orchestrationTools) =>
+          cwdForWorktree(session.worktreeId).pipe(
+            Effect.flatMap((cwdOverride) =>
+              provider
+                .start(
+                  {
+                    folderId: session.projectId,
+                    providerId: session.providerId,
+                    mode: "sdk",
+                    sessionId: session.id,
+                    model: session.model,
+                    agents: subagents?.agents,
+                    enableSubagents: subagents?.enableSubagents,
+                    cwdOverride,
+                    permissionMode: session.permissionMode,
+                    toolSearch: session.toolSearch,
+                  },
+                  // Re-attach to the upstream conversation when we have a
+                  // cursor. The driver passes it as `options.resume`; SDK
+                  // reloads history and continues from there.
+                  session.cursor,
+                  () => getRuntimeModeFor(session.id),
+                  orchestrationTools,
+                )
+                .pipe(
+                  Effect.flatMap(() => startSubscription(session.id)),
+                  Effect.flatMap(() =>
+                    provider.send(session.id, text, attachments),
+                  ),
+                  Effect.mapError((err) =>
+                    err._tag === "ProviderNotAvailableError"
+                      ? new SessionStartError({
+                          providerId: session.providerId,
+                          reason: err.reason,
+                        })
+                      : err._tag === "AgentSessionStartError"
+                        ? new SessionStartError({
+                            providerId: err.providerId,
+                            reason: err.reason,
+                          })
+                        : new SessionStartError({
+                            providerId: session.providerId,
+                            reason: formatProviderFailure(err),
+                          }),
+                  ),
+                ),
             ),
+          ),
         ),
       );
     };
@@ -3135,6 +3620,16 @@ export const MessageStoreLive = Layer.scoped(
         permissionModeBySession.set(session.id, session.permissionMode);
         const subagents = agentsFor(session.id);
         const cwdOverride = yield* cwdForWorktree(session.worktreeId);
+        // Re-attach the control-plane tools so a resumed autonomous session
+        // keeps its ability to spawn + steer threads.
+        const orchestrationTools = yield* buildOrchestrationForSession({
+          sessionId: session.id,
+          chatId: session.chatId,
+          projectId: session.projectId,
+          worktreeId: session.worktreeId,
+          providerId: session.providerId,
+          model: session.model,
+        });
         yield* provider
           .start(
             {
@@ -3151,6 +3646,7 @@ export const MessageStoreLive = Layer.scoped(
             },
             session.cursor,
             () => getRuntimeModeFor(session.id),
+            orchestrationTools,
           )
           .pipe(
             Effect.mapError((err) =>
@@ -3179,6 +3675,7 @@ export const MessageStoreLive = Layer.scoped(
       annotations?: ReadonlyArray<ComposerAnnotation>,
       asGoal?: boolean,
       clientMessageId?: MessageId,
+      origin?: MessageOrigin,
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
@@ -3216,19 +3713,31 @@ export const MessageStoreLive = Layer.scoped(
               fileRefs: fileRefs ?? [],
               skillRefs: skillRefs ?? [],
               annotations: annotationList,
+              ...(origin !== undefined ? { origin } : {}),
               goal: asGoal === true,
             }
-          : { _tag: "user", text, goal: asGoal === true };
+          : {
+              _tag: "user",
+              text,
+              ...(origin !== undefined ? { origin } : {}),
+              goal: asGoal === true,
+            };
         // Annotations have no native CLI token (unlike `@file` / `/skill`),
         // so the only place the model ever sees them is the prompt text.
         // Serialise them into a numbered list here — the single injection
         // point before `provider.send`, so every driver benefits. The
         // persisted `text` above stays clean; the structured `annotations`
         // array drives the rendered bubble.
-        const sendText =
+        const sendText = [
+          origin !== undefined ? originPromptPreamble(origin) : null,
           annotationList.length > 0
-            ? `${serializeAnnotations(annotationList)}\n\n${text}`.trim()
-            : text;
+            ? serializeAnnotations(annotationList)
+            : null,
+          text,
+        ]
+          .filter((part): part is string => part !== null && part.length > 0)
+          .join("\n\n")
+          .trim();
         const persisted = yield* persistMessage(
           sessionId,
           content,
@@ -3423,6 +3932,7 @@ export const MessageStoreLive = Layer.scoped(
       annotations,
       asGoal,
       clientMessageId,
+      origin,
     ) =>
       Effect.gen(function* () {
         yield* submitUserMessage(
@@ -3434,6 +3944,7 @@ export const MessageStoreLive = Layer.scoped(
           annotations,
           asGoal,
           clientMessageId,
+          origin,
         );
       });
 

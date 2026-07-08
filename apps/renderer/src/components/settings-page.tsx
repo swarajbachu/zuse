@@ -26,6 +26,7 @@ import { getRpcClient } from "../lib/rpc-client.ts";
 
 import {
   type AppearanceMode,
+  type AutonomyLevel,
   type BranchNamingStyle,
   MODELS_BY_PROVIDER,
   type CompletionSoundPreset,
@@ -42,9 +43,7 @@ import {
 } from "~/lib/use-relative-time.ts";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
-import {
-  collectDiagnosticsClientContext,
-} from "../lib/diagnostics-client-context.ts";
+import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
 import { recordUiAction } from "../lib/diagnostics-recorder.ts";
 import {
   COMPLETION_SOUND_PRESETS,
@@ -876,12 +875,42 @@ const APPEARANCE_OPTIONS: ReadonlyArray<{
   { value: "dark", label: "Dark" },
 ];
 
+const AUTONOMY_ORDER: ReadonlyArray<AutonomyLevel> = [
+  "off",
+  "approval-gated",
+  "autonomous",
+];
+const AUTONOMY_META: Record<
+  AutonomyLevel,
+  { readonly label: string; readonly description: string }
+> = {
+  off: {
+    label: "Off",
+    description:
+      "Agents can't spawn their own worktrees or threads. (Default.)",
+  },
+  "approval-gated": {
+    label: "Approval-gated",
+    description:
+      "Agents may spawn worktrees/threads and steer them — each spawn asks your approval.",
+  },
+  autonomous: {
+    label: "Autonomous",
+    description:
+      "Agents spawn freely, bounded by budgets + the kill switch (coming soon). Behaves like approval-gated for now.",
+  },
+};
+
 function GeneralPane() {
   const appearanceMode = useSettingsStore((s) => s.appearanceMode);
   const setAppearanceMode = useSettingsStore((s) => s.setAppearanceMode);
   const defaultRuntimeMode = useSettingsStore((s) => s.defaultRuntimeMode);
   const setDefaultRuntimeMode = useSettingsStore(
     (s) => s.setDefaultRuntimeMode,
+  );
+  const defaultAutonomyLevel = useSettingsStore((s) => s.defaultAutonomyLevel);
+  const setDefaultAutonomyLevel = useSettingsStore(
+    (s) => s.setDefaultAutonomyLevel,
   );
   const completionSoundEnabled = useSettingsStore(
     (s) => s.completionSoundEnabled,
@@ -1061,6 +1090,40 @@ function GeneralPane() {
                         <span>{m.label}</span>
                         <span className="text-[10px] text-muted-foreground">
                           {m.description}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Agent autonomy"
+          description="Whether agents can spawn and steer their own worktrees and chat threads. Spawns are permission-gated; keep this off unless you want agents orchestrating parallel work."
+          action={
+            <Select
+              value={defaultAutonomyLevel}
+              onValueChange={(v) => setDefaultAutonomyLevel(v as AutonomyLevel)}
+              items={AUTONOMY_ORDER.map((level) => ({
+                label: AUTONOMY_META[level].label,
+                value: level,
+              }))}
+            >
+              <SelectTrigger size="sm" className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {AUTONOMY_ORDER.map((level) => {
+                  const meta = AUTONOMY_META[level];
+                  return (
+                    <SelectItem key={level} value={level}>
+                      <div className="flex flex-col">
+                        <span>{meta.label}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {meta.description}
                         </span>
                       </div>
                     </SelectItem>

@@ -20,10 +20,19 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import type { UserQuestion, UserQuestionAnswer } from "@zuse/wire";
+import type {
+  ChatId,
+  SessionId,
+  UserQuestion,
+  UserQuestionAnswer,
+} from "@zuse/wire";
 
+import { parseOrchestrationResult } from "~/lib/orchestration-tools";
 import { cn } from "~/lib/utils";
+import { useChatsStore } from "~/store/chats";
+import { useSessionsStore } from "~/store/sessions";
 
+import { Button } from "./ui/button.tsx";
 import { CodeBlock } from "./code-block.tsx";
 import { FileBadge } from "./file-badge.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
@@ -1299,6 +1308,104 @@ export function ExitPlanModeRow({
       hasContent
       body={body}
     />
+  );
+}
+
+export function OrchestrationThreadRow({
+  variant,
+  result,
+}: {
+  variant:
+    | "create_thread"
+    | "create_chat"
+    | "create_session"
+    | "send_to_thread";
+  result?: ToolResult;
+}) {
+  const parsed =
+    result !== undefined ? parseOrchestrationResult(result.output) : null;
+  const chatId = parsed?.chatId;
+  const sessionId = parsed?.sessionId;
+  const chatLoaded = useChatsStore((s) =>
+    chatId !== undefined
+      ? Object.values(s.chatsByProject).some((list) =>
+          list.some((c) => c.id === chatId),
+        )
+      : false,
+  );
+
+  if (result === undefined) {
+    return (
+      <div className="px-4 py-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
+          <span>
+            {variant === "send_to_thread"
+              ? "Sending to thread..."
+              : variant === "create_session"
+                ? "Creating session tab..."
+                : "Creating chat..."}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  const label =
+    variant === "send_to_thread"
+      ? "Message sent to thread"
+      : variant === "create_session"
+        ? "Session tab created"
+        : "Chat created";
+  const openChat = () => {
+    if (chatId !== undefined && chatLoaded) {
+      useChatsStore.getState().select(chatId as ChatId);
+    }
+    if (sessionId !== undefined) {
+      useSessionsStore.getState().select(sessionId as SessionId);
+    }
+  };
+
+  return (
+    <div className="px-4 py-2">
+      <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <HugeiconsIcon icon={BubbleChatIcon} size={14} strokeWidth={2} />
+              <span>{label}</span>
+            </div>
+            {variant !== "send_to_thread" ? (
+              <>
+                {typeof parsed?.title === "string" &&
+                parsed.title.length > 0 ? (
+                  <div className="mt-1 truncate text-sm text-foreground">
+                    {parsed.title}
+                  </div>
+                ) : null}
+                {variant === "create_thread" &&
+                typeof parsed?.branch === "string" &&
+                parsed.branch.length > 0 ? (
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {parsed.branch}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!chatLoaded}
+            title={chatLoaded ? "Open chat" : "Chat not loaded yet"}
+            onClick={openChat}
+          >
+            Open chat
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

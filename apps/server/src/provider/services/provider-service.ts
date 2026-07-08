@@ -22,6 +22,7 @@ import type {
 } from "@zuse/wire";
 
 import type { CredentialsError } from "../errors.ts";
+import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 
 /**
  * Live-read of the per-session runtime mode. Bound at start time and read by
@@ -43,6 +44,13 @@ export interface ProviderServiceShape {
     input: StartSessionInput,
     resumeCursor?: string | null,
     getRuntimeMode?: GetRuntimeMode,
+    /**
+     * Session-bound orchestration tools. `MessageStore` owns the actual
+     * operations and passes this bundle when autonomy is enabled. Drivers
+     * expose it through their native MCP path (Claude SDK, Codex app-server,
+     * Grok ACP) without duplicating worktree/chat persistence logic.
+     */
+    orchestrationTools?: OrchestrationSessionTools | null,
   ) => Effect.Effect<
     { readonly sessionId: AgentSessionId },
     ProviderNotAvailableError | AgentSessionStartError

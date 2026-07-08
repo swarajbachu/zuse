@@ -159,8 +159,21 @@ export const MessageRole = Schema.Literal(
 );
 export type MessageRole = typeof MessageRole.Type;
 
+/**
+ * Attribution for a user-role message injected by ANOTHER agent (via the
+ * zuse-orchestration create_thread / send_to_thread tools) rather than typed
+ * by the human. Additive + optional: old rows decode without it.
+ */
+export const MessageOrigin = Schema.Struct({
+  chatId: ChatId,
+  sessionId: SessionId,
+  providerId: ProviderId,
+});
+export type MessageOrigin = typeof MessageOrigin.Type;
+
 const UserContent = Schema.TaggedStruct("user", {
   text: Schema.String,
+  origin: Schema.optional(MessageOrigin),
   goal: Schema.optional(Schema.Boolean),
 });
 
@@ -180,6 +193,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
     default: () => [],
   }),
+  origin: Schema.optional(MessageOrigin),
   goal: Schema.optional(Schema.Boolean),
 });
 
@@ -621,6 +635,13 @@ export class Chat extends Schema.Class<Chat>("Chat")({
   worktreeId: Schema.NullOr(WorktreeId),
   title: Schema.String,
   activeSessionId: Schema.NullOr(SessionId),
+  /**
+   * Lineage. When an agent spawns this chat via the orchestration
+   * control-plane tools, this records the session that spawned it so the
+   * sidebar can nest agent-spawned chats under their parent and badge them.
+   * `null` for user-created chats.
+   */
+  originSessionId: Schema.NullOr(SessionId),
   archivedAt: Schema.NullOr(Schema.DateFromString),
   /**
    * Read/unread tracking. `lastMessageAt` advances every time a message is
@@ -734,6 +755,11 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
+    /**
+     * Lineage — set by orchestration control-plane tools to the spawning
+     * session id. Omitted for user-created chats.
+     */
+    originSessionId: Schema.optional(SessionId),
     modelOptions: Schema.optional(
       Schema.Record({ key: Schema.String, value: Schema.String }),
     ),

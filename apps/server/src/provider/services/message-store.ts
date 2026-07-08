@@ -24,6 +24,7 @@ import type {
   MessageContent,
   MessageEnvelope,
   MessageId,
+  MessageOrigin,
   PermissionMode,
   ProviderId,
   QueueState,
@@ -115,6 +116,12 @@ export interface CreateSessionInput {
   readonly forkedFromSessionId?: SessionId | null;
   readonly forkedFromMessageId?: MessageId | null;
   readonly forkFromResume?: boolean;
+  /**
+   * Lineage for sessions opened inside an existing chat by orchestration
+   * control-plane tools. Chat-level lineage covers newly-created sidebar
+   * chats; this covers new session tabs inside an existing chat.
+   */
+  readonly originSessionId?: SessionId | null;
 }
 
 export interface CreateChatInput {
@@ -130,6 +137,13 @@ export interface CreateChatInput {
   readonly permissionMode?: PermissionMode;
   readonly modelOptions?: Readonly<Record<string, string>>;
   readonly toolSearch?: boolean;
+  /**
+   * Lineage — when set, this chat was spawned by another session via
+   * orchestration control-plane tools. Persisted on the chat row so the
+   * sidebar can nest agent-spawned chats under their parent. `null`/omitted
+   * for user-created chats.
+   */
+  readonly originSessionId?: SessionId | null;
   readonly resumeCursor?: string | null;
   readonly resumeStrategy?: ResumeStrategy;
   readonly forkedFromSessionId?: SessionId | null;
@@ -447,6 +461,7 @@ export interface MessageStoreShape {
     annotations?: ReadonlyArray<ComposerAnnotation>,
     asGoal?: boolean,
     clientMessageId?: MessageId,
+    origin?: MessageOrigin,
   ) => Effect.Effect<void, SessionNotFoundError>;
 
   readonly interruptSession: (

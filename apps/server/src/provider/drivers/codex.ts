@@ -14,6 +14,7 @@ import {
   type PermissionDecision,
   type PermissionKind,
   type PermissionMode,
+  type RuntimeMode,
   type SkillRef,
   type StartSessionInput,
   ThreadGoal,
@@ -25,6 +26,7 @@ import {
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { CodexAppServerClient } from "../codex-app-server-client.ts";
+import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
 import {
   finishCompactEvent,
   nextCompactItemId,
@@ -40,6 +42,11 @@ import type { ModelListResponse } from "../codex-app-protocol/v2/ModelListRespon
 import type { ThreadGoal as CodexThreadGoal } from "../codex-app-protocol/v2/ThreadGoal";
 import type { ThreadItem } from "../codex-app-protocol/v2/ThreadItem";
 import type { UserInput } from "../codex-app-protocol/v2/UserInput";
+import {
+  ORCHESTRATION_MCP_SERVER_NAME,
+  orchestrationMcpPromptHint,
+  type OrchestrationSessionTools,
+} from "./orchestration-tools.ts";
 
 const SUPPORTED_CODEX_IMAGE_MIME = new Set([
   "image/png",
@@ -231,7 +238,9 @@ const normalizeMcpServerName = (server: string): string =>
   server === "memoize" ? "zuse" : server;
 
 const toMcpToolName = (server: string, tool: string): string =>
-  `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
+  server === ORCHESTRATION_MCP_SERVER_NAME
+    ? `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__${toolIdentifierPart(tool)}`
+    : `mcp__${toolIdentifierPart(normalizeMcpServerName(server))}__${toolIdentifierPart(tool)}`;
 
 const dynamicToolName = (namespace: string | null, tool: string): string =>
   namespace !== null ? `${namespace}.${tool}` : tool;
@@ -806,6 +815,9 @@ export const startCodexSession = (
   codexPath: string | null,
   sessionId: AgentSessionId,
   requestPermission: RequestPermission,
+  getRuntimeMode: () => RuntimeMode,
+  orchestrationTools: OrchestrationSessionTools | null = null,
+  orchestrationMcpCommand: string | null = null,
   resumeCursor: string | null = null,
 ): Effect.Effect<
   CodexSessionHandle,
@@ -823,6 +835,7 @@ export const startCodexSession = (
     let latestDiff = "";
     let closed = false;
     let pending: Promise<void> = Promise.resolve();
+    let orchestrationHintPending = orchestrationTools !== null;
     // Runtime fast-tier gate for the model this session resolved to, from the
     // live `model/list` `serviceTiers`. `null` = unknown (probe not done /
     // failed) → trust the FE gate; `true`/`false` = the model definitively
@@ -881,6 +894,71 @@ export const startCodexSession = (
         "[codex] API key credential present; app-server uses Codex CLI auth",
       );
     }
+
+    const orchestrationMcpBridge =
+      orchestrationTools === null
+        ? null
+        : yield* Effect.tryPromise({
+            try: () =>
+              startOrchestrationMcpBridge({
+                deps: orchestrationTools.deps,
+                command: orchestrationMcpCommand ?? process.execPath,
+                requestPermission: (kind, options) =>
+                  requestPermission(sessionId, kind, options),
+                getRuntimeMode,
+                getPermissionMode: () => currentMode,
+              }),
+            catch: (cause) =>
+              new AgentSessionStartError({
+                providerId: "codex",
+                reason: `Could not start orchestration MCP bridge: ${
+                  cause instanceof Error ? cause.message : String(cause)
+                }`,
+              }),
+          });
+
+    const installCodexOrchestrationMcp = async (): Promise<void> => {
+      if (orchestrationMcpBridge === null) return;
+      const env = Object.fromEntries(
+        orchestrationMcpBridge.serverConfig.env.map((entry) => [
+          entry.name,
+          entry.value,
+        ]),
+      );
+      await app.request("config/value/write", {
+        keyPath: `mcp_servers.${JSON.stringify(ORCHESTRATION_MCP_SERVER_NAME)}`,
+        value: {
+          command: orchestrationMcpBridge.serverConfig.command,
+          args: orchestrationMcpBridge.serverConfig.args,
+          env,
+          enabled: true,
+        },
+        mergeStrategy: "replace",
+      });
+      await app.request("config/mcpServer/reload", undefined);
+      const status = await app.request<{
+        data?: ReadonlyArray<{ name: string }>;
+      }>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
+      const found =
+        Array.isArray(status.data) &&
+        status.data.some(
+          (server) => server.name === ORCHESTRATION_MCP_SERVER_NAME,
+        );
+      if (!found) {
+        throw new Error(
+          `Codex did not report ${ORCHESTRATION_MCP_SERVER_NAME} after MCP reload.`,
+        );
+      }
+    };
+
+    yield* Effect.tryPromise({
+      try: installCodexOrchestrationMcp,
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "codex",
+          reason: cause instanceof Error ? cause.message : String(cause),
+        }),
+    });
 
     const commonThreadParams = {
       model: input.model ?? null,
@@ -1037,7 +1115,12 @@ export const startCodexSession = (
       // Plan-mode emulation: Codex has no native "plan" runtime mode, so
       // prepend a developer-instructions block while plan mode is active.
       // The sandbox policy still gates writes, so this is belt-and-braces.
-      const promptText = applyPlanModePrefix(currentMode, text);
+      const basePromptText = applyPlanModePrefix(currentMode, text);
+      const promptText =
+        orchestrationHintPending && orchestrationMcpBridge !== null
+          ? `${orchestrationMcpPromptHint()}\n\n${basePromptText}`
+          : basePromptText;
+      orchestrationHintPending = false;
       // Reasoning effort: forwarded from FE picker via
       // `input.modelOptions.reasoning`. Pass through low/medium/high
       // directly — Codex accepts the same literal set we use in wire's
@@ -1581,6 +1664,9 @@ export const startCodexSession = (
         Effect.sync(() => {
           emit({ _tag: "Completed", reason: "ended" });
           closed = true;
+          if (orchestrationMcpBridge !== null) {
+            void orchestrationMcpBridge.close();
+          }
           app.close();
           void Effect.runPromise(events.end);
         }),

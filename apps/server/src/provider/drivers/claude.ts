@@ -38,6 +38,10 @@ import {
   startCompactSnapshot,
   type CompactSnapshot,
 } from "./compact.ts";
+import {
+  ORCHESTRATION_MCP_SERVER_NAME,
+  ORCHESTRATION_MCP_TOOLS,
+} from "./orchestration-tools.ts";
 
 /**
  * Live-only handle for one Claude SDK conversation. The orchestrator
@@ -90,6 +94,9 @@ const toSdkPermissionMode = (mode: PermissionMode): SdkPermissionMode =>
 const ZUSE_MCP_NAME = "zuse";
 const ASK_USER_QUESTION_TOOL = "ask_user_question";
 const ASK_USER_QUESTION_FQN = `mcp__${ZUSE_MCP_NAME}__${ASK_USER_QUESTION_TOOL}`;
+const ORCHESTRATION_TOOL_FQNS = ORCHESTRATION_MCP_TOOLS.map(
+  (toolDef) => `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__${toolDef.name}`,
+);
 
 /**
  * Anthropic accepts these media types as image content blocks. Anything else
@@ -1023,6 +1030,16 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ZUSE_MCP_NAME}__browser_console`,
   `mcp__${ZUSE_MCP_NAME}__browser_network`,
   `mcp__${ZUSE_MCP_NAME}__browser_history`,
+  // Control-plane (orchestration) reads. Inspecting threads/models is
+  // non-mutating and visible to the user, so auto-allow like the browser
+  // reads. The MUTATING control-plane tools — create_thread, create_session,
+  // send_to_thread — are deliberately absent: they spawn real work and must
+  // fall through to the permission prompt, which is the approval gate for the
+  // `approval-gated` autonomy level.
+  `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__read_thread`,
+  `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__list_threads`,
+  `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__list_models`,
+  `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__whoami`,
 ]);
 
 /**
@@ -1325,13 +1342,18 @@ export const startClaudeSession = (
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
   resumeCursor: string | null = null,
-  // Extra MCP tools to register inside the in-process memoize MCP server.
-  // Tools arrive already bound to their session-specific backing service, so
-  // the driver itself stays path-agnostic. Typed loosely because the SDK's
+  // Extra MCP tools to register inside the in-process zuse MCP server. Tools
+  // arrive already bound to their session-specific backing service, so the
+  // driver itself stays path-agnostic. Typed loosely because the SDK's
   // `SdkMcpToolDefinition` is parameterized by each tool's zod schema and
   // doesn't compose across distinct shapes in an array.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   extraTools: ReadonlyArray<any> = [],
+  // Provider-neutral orchestration tools are intentionally registered under a
+  // separate server name (`zuse-orchestration`) so Claude, Codex, and Grok see
+  // the same MCP surface and smoke-test instructions.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  orchestrationTools: ReadonlyArray<any> = [],
 ): Effect.Effect<
   ClaudeSessionHandle,
   AgentSessionStartError,
@@ -1535,6 +1557,15 @@ export const startClaudeSession = (
       tools: [askUserQuestionToolDefinition, ...extraTools] as any,
       alwaysLoad: !(input.toolSearch ?? false),
     });
+    const orchestrationMcpServer =
+      orchestrationTools.length === 0
+        ? null
+        : createSdkMcpServer({
+            name: ORCHESTRATION_MCP_SERVER_NAME,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            tools: orchestrationTools as any,
+            alwaysLoad: true,
+          });
 
     const env = applyClaudeWorktreeEnv(
       scrubInheritedClaudeMarkers(process.env),
@@ -1556,7 +1587,11 @@ export const startClaudeSession = (
     const subagentOptions = subagentsEffective
       ? ({
           agents: agentsMap,
-          allowedTools: ["Agent", ASK_USER_QUESTION_FQN],
+          allowedTools: [
+            "Agent",
+            ASK_USER_QUESTION_FQN,
+            ...ORCHESTRATION_TOOL_FQNS,
+          ],
         } as Pick<Options, "agents" | "allowedTools">)
       : {};
     // The SDK ships a built-in `AskUserQuestion` tool that opens its
@@ -1591,7 +1626,12 @@ export const startClaudeSession = (
               (t) => !subagentOptions.allowedTools!.includes(t),
             )),
       ],
-      mcpServers: { [ZUSE_MCP_NAME]: memoizeMcpServer },
+      mcpServers: {
+        [ZUSE_MCP_NAME]: memoizeMcpServer,
+        ...(orchestrationMcpServer === null
+          ? {}
+          : { [ORCHESTRATION_MCP_SERVER_NAME]: orchestrationMcpServer }),
+      },
       permissionMode: toSdkPermissionMode(initialPermissionMode),
       // Trim the SDK's stock plan-mode body to nudge the agent toward
       // memoize's two structured-interaction tools. The SDK still wraps

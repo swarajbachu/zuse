@@ -39,6 +39,8 @@ import { Migration0018PokemonWorktrees } from "../../src/persistence/migrations/
 import { Migration0019QueuePaused } from "../../src/persistence/migrations/0019_queue_paused.ts";
 import { Migration0020Events } from "../../src/persistence/migrations/0020_events.ts";
 import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_auth_tokens.ts";
+import { Migration0022AttachmentAbsPath } from "../../src/persistence/migrations/0022_attachment_abs_path.ts";
+import { Migration0023ChatLineage } from "../../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
 import { MessageStoreLive } from "../../src/provider/layers/message-store.ts";
 import { MessageStore } from "../../src/provider/services/message-store.ts";
@@ -88,6 +90,8 @@ const runAllMigrations = Effect.all(
     Migration0019QueuePaused,
     Migration0020Events,
     Migration0021AuthTokens,
+    Migration0022AttachmentAbsPath,
+    Migration0023ChatLineage,
     Migration0024RemoteConnectState,
   ],
   { discard: true },

@@ -78,6 +78,7 @@ const freshSettings = (): SettingsFile =>
     // Worktrees on by default: each new chat runs on its own branch so parallel
     // agents stay isolated. Per-repo settings can still opt a repo out.
     defaultAutoCreateWorktree: true,
+    defaultAutonomyLevel: "off",
     onboardingCompleted: false,
     appearanceMode: "dark",
     completionSoundEnabled: false,
@@ -116,6 +117,11 @@ const isRuntimeMode = (v: unknown): v is SettingsFile["defaultRuntimeMode"] =>
   v === "auto-accept-edits" ||
   v === "auto-accept-edits-and-bash" ||
   v === "full-access";
+
+const isAutonomyLevel = (
+  v: unknown,
+): v is SettingsFile["defaultAutonomyLevel"] =>
+  v === "off" || v === "approval-gated" || v === "autonomous";
 
 const isCompletionSoundPreset = (v: unknown): v is CompletionSoundPreset =>
   v === "chime" ||
@@ -216,6 +222,10 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     typeof obj.defaultAutoCreateWorktree === "boolean"
       ? obj.defaultAutoCreateWorktree
       : base.defaultAutoCreateWorktree;
+
+  const autonomy = isAutonomyLevel(obj.defaultAutonomyLevel)
+    ? obj.defaultAutonomyLevel
+    : base.defaultAutonomyLevel;
 
   const onboarding =
     typeof obj.onboardingCompleted === "boolean"
@@ -414,6 +424,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     defaultModelByProvider: models,
     defaultRuntimeMode: runtime,
     defaultAutoCreateWorktree: autoWorktree,
+    defaultAutonomyLevel: autonomy,
     onboardingCompleted: onboarding,
     appearanceMode,
     completionSoundEnabled,
@@ -683,6 +694,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
             patch.defaultRuntimeMode ?? cur.defaultRuntimeMode,
           defaultAutoCreateWorktree:
             patch.defaultAutoCreateWorktree ?? cur.defaultAutoCreateWorktree,
+          defaultAutonomyLevel:
+            patch.defaultAutonomyLevel ?? cur.defaultAutonomyLevel,
           onboardingCompleted:
             patch.onboardingCompleted ?? cur.onboardingCompleted,
           appearanceMode: patch.appearanceMode ?? cur.appearanceMode,
@@ -820,6 +833,8 @@ export const ConfigStoreServiceLive = Layer.scoped(
             defaultModelByProvider: models,
             defaultRuntimeMode: runtime,
             defaultAutoCreateWorktree: autoWorktree,
+            // Autonomy has no localStorage predecessor — preserve current.
+            defaultAutonomyLevel: cur.defaultAutonomyLevel,
             onboardingCompleted: onboarding,
             appearanceMode,
             completionSoundEnabled,

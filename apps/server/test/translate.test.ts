@@ -134,6 +134,34 @@ describe("translateAcpSessionUpdate — tool-call normalization", () => {
     );
     expect(ev.itemId).toBe("snake_id");
   });
+
+  it("normalizes zuse-orchestration MCP tool names to the canonical FQN", () => {
+    const kindEvent = only(
+      translateAcpSessionUpdate(
+        {
+          sessionUpdate: "tool_call",
+          kind: "zuse-orchestration__create_thread",
+          toolCallId: "orch1",
+        },
+        "grok",
+      ),
+      "ToolUse",
+    );
+    expect(kindEvent.tool).toBe("mcp__zuse-orchestration__create_thread");
+
+    const titleEvent = only(
+      translateAcpSessionUpdate(
+        {
+          sessionUpdate: "tool_call",
+          title: "zuse-orchestration__send_to_thread",
+          toolCallId: "orch2",
+        },
+        "grok",
+      ),
+      "ToolUse",
+    );
+    expect(titleEvent.tool).toBe("mcp__zuse-orchestration__send_to_thread");
+  });
 });
 
 describe("translateAcpSessionUpdate — result normalization", () => {
@@ -159,7 +187,10 @@ describe("translateAcpSessionUpdate — result normalization", () => {
         {
           sessionUpdate: "tool_result",
           toolCallId: "r1",
-          output: { type: "ReadFile", FileContent: { content: "1→hello\n2→world" } },
+          output: {
+            type: "ReadFile",
+            FileContent: { content: "1→hello\n2→world" },
+          },
         },
         "grok",
       ),
@@ -174,7 +205,9 @@ describe("translateAcpSessionUpdate — result normalization", () => {
         {
           sessionUpdate: "tool_result",
           toolCallId: "m1",
-          content: [{ type: "content", content: { type: "text", text: "body" } }],
+          content: [
+            { type: "content", content: { type: "text", text: "body" } },
+          ],
         },
         "grok",
       ),
@@ -204,12 +237,12 @@ describe("translateAcpSessionUpdate — result normalization", () => {
 describe("createAcpTranslator — assistant + thinking coalescing", () => {
   it("buffers agent_message_chunk deltas and flushes one AssistantMessage", () => {
     const t = createAcpTranslator("grok");
-    expect(t.translate({ sessionUpdate: "agent_message_chunk", content: "Hello " })).toEqual(
-      [],
-    );
-    expect(t.translate({ sessionUpdate: "agent_message_chunk", content: "world" })).toEqual(
-      [],
-    );
+    expect(
+      t.translate({ sessionUpdate: "agent_message_chunk", content: "Hello " }),
+    ).toEqual([]);
+    expect(
+      t.translate({ sessionUpdate: "agent_message_chunk", content: "world" }),
+    ).toEqual([]);
     const flushed = only(t.flush(), "AssistantMessage");
     expect(flushed.text).toBe("Hello world");
   });
@@ -217,7 +250,10 @@ describe("createAcpTranslator — assistant + thinking coalescing", () => {
   it("repairs missing spaces between streamed sentence words", () => {
     const t = createAcpTranslator("grok");
     t.translate({ sessionUpdate: "agent_message_chunk", content: "I'll" });
-    t.translate({ sessionUpdate: "agent_message_chunk", content: "Starting now" });
+    t.translate({
+      sessionUpdate: "agent_message_chunk",
+      content: "Starting now",
+    });
     const flushed = only(t.flush(), "AssistantMessage");
     expect(flushed.text).toBe("I'll Starting now");
   });
@@ -232,9 +268,9 @@ describe("createAcpTranslator — assistant + thinking coalescing", () => {
       locations: [{ path: "/a.ts" }],
     });
     expect(tags(out)).toEqual(["AssistantMessage", "ToolUse"]);
-    expect((out[0] as Extract<AgentEvent, { _tag: "AssistantMessage" }>).text).toBe(
-      "intro",
-    );
+    expect(
+      (out[0] as Extract<AgentEvent, { _tag: "AssistantMessage" }>).text,
+    ).toBe("intro");
   });
 
   it("does not split Grok streamed text around tool result updates", () => {
@@ -263,12 +299,12 @@ describe("createAcpTranslator — assistant + thinking coalescing", () => {
 
   it("coalesces thinking chunks into one Thinking event", () => {
     const t = createAcpTranslator("gemini");
-    expect(t.translate({ sessionUpdate: "agent_thought_chunk", content: "think " })).toEqual(
-      [],
-    );
-    expect(t.translate({ sessionUpdate: "agent_thought_chunk", content: "more" })).toEqual(
-      [],
-    );
+    expect(
+      t.translate({ sessionUpdate: "agent_thought_chunk", content: "think " }),
+    ).toEqual([]);
+    expect(
+      t.translate({ sessionUpdate: "agent_thought_chunk", content: "more" }),
+    ).toEqual([]);
     const ev = only(t.flush(), "Thinking");
     expect(ev.text).toBe("think more");
     expect(ev.redacted).toBe(false);
@@ -278,7 +314,8 @@ describe("createAcpTranslator — assistant + thinking coalescing", () => {
     const t = createAcpTranslator("grok");
     t.translate({
       sessionUpdate: "agent_thought_chunk",
-      content: 'The user says: "do X" Now I need to plan the real approach here',
+      content:
+        'The user says: "do X" Now I need to plan the real approach here',
     });
     const ev = only(t.flush(), "Thinking");
     expect(ev.text).not.toContain("The user says");
@@ -339,7 +376,9 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
       sessionUpdate: "tool_call_update",
       toolCallId: "c1",
       status: "completed",
-      content: [{ type: "content", content: { type: "text", text: "file body" } }],
+      content: [
+        { type: "content", content: { type: "text", text: "file body" } },
+      ],
     });
     const ev = only(result, "ToolResult");
     expect(ev.output).toBe("file body");
@@ -662,7 +701,10 @@ describe("createAcpTranslator — per-provider quirks & errors", () => {
 
   it("returns no events for unknown / ignored update kinds", () => {
     expect(
-      translateAcpSessionUpdate({ sessionUpdate: "current_mode_update" }, "cursor"),
+      translateAcpSessionUpdate(
+        { sessionUpdate: "current_mode_update" },
+        "cursor",
+      ),
     ).toEqual([]);
     expect(translateAcpSessionUpdate(null, "grok")).toEqual([]);
     expect(translateAcpSessionUpdate({ noKindHere: true }, "grok")).toEqual([]);

@@ -107,4 +107,17 @@ export default defineConfig([
     },
     external: [],
   },
+  {
+    ...shared,
+    // The zuse-orchestration MCP child that provider-neutral sessions spawn
+    // via bun/node to reach the session-bound parent bridge.
+    entry: {
+      "orchestration-mcp-child":
+        "../server/src/provider/drivers/acp/orchestration-mcp-child.ts",
+    },
+    deps: {
+      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+    },
+    external: [],
+  },
 ]);

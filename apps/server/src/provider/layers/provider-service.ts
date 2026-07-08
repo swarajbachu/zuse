@@ -170,7 +170,12 @@ export const ProviderServiceLive = Layer.effect(
 
     return {
       availability,
-      start: (input, resumeCursor = null, getRuntimeMode) =>
+      start: (
+        input,
+        resumeCursor = null,
+        getRuntimeMode,
+        orchestrationTools = null,
+      ) =>
         Effect.gen(function* () {
           const runtimeModeGetter =
             getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
@@ -264,6 +269,7 @@ export const ProviderServiceLive = Layer.effect(
                 Runtime.runPromise(runtime)(
                   browserBridge.send(sessionId, command),
                 ),
+              orchestrationTools,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {
@@ -364,6 +370,9 @@ export const ProviderServiceLive = Layer.effect(
               runtimeModeGetter,
               resumeCursor,
               browserTools,
+              // Control-plane orchestration tools (when autonomy != off) use
+              // their own provider-neutral `zuse-orchestration` MCP server.
+              orchestrationTools?.claudeTools ?? [],
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native
@@ -379,6 +388,27 @@ export const ProviderServiceLive = Layer.effect(
                   providerId: "codex",
                   reason:
                     "Codex CLI not found on PATH. Install Codex from https://github.com/openai/codex and try again.",
+                }),
+              );
+            }
+            const codexOrchestrationMcpCommand =
+              orchestrationTools === null
+                ? null
+                : yield* resolveCliPath("bun").pipe(
+                    Effect.provideService(
+                      CommandExecutor.CommandExecutor,
+                      executor,
+                    ),
+                  );
+            if (
+              orchestrationTools !== null &&
+              codexOrchestrationMcpCommand === null
+            ) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "codex",
+                  reason:
+                    "Bun was not found on PATH. It is required to expose Zuse orchestration tools to Codex via MCP.",
                 }),
               );
             }
@@ -400,6 +430,9 @@ export const ProviderServiceLive = Layer.effect(
               codexPath,
               sessionId,
               buildRequestPermission(input.folderId),
+              runtimeModeGetter,
+              orchestrationTools,
+              codexOrchestrationMcpCommand,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           }

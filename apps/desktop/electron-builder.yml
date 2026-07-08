@@ -57,14 +57,14 @@ extraResources:
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/
 # and the loader transparently rewrites the path.
-# browser-mcp-child.cjs is spawned by bun (Grok's zuse-browser MCP server) —
-# an external process that can't read inside the asar, so it must be unpacked
-# too; browser-mcp-bridge.ts rewrites app.asar → app.asar.unpacked when
-# resolving it.
+# MCP child scripts are spawned by external agent processes that can't read
+# inside the asar, so they must be unpacked too; their bridges rewrite
+# app.asar → app.asar.unpacked when resolving them.
 asar: true
 asarUnpack:
   - "**/*.node"
   - "dist-electron/browser-mcp-child.cjs"
+  - "dist-electron/orchestration-mcp-child.cjs"
   - "node_modules/better-sqlite3/**"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"

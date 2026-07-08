@@ -116,6 +116,12 @@ const normalizeAcpKind = (rawKind: string): string => {
   if (k.startsWith("mcp__zuse-browser__browser_")) {
     return `mcp__zuse__${k.slice("mcp__zuse-browser__".length)}`;
   }
+  if (k.startsWith("zuse-orchestration__")) {
+    return `mcp__${k}`;
+  }
+  if (k.startsWith("mcp__zuse-orchestration__")) {
+    return k;
+  }
   switch (k) {
     case "browser_navigate":
     case "browser_screenshot":
@@ -574,6 +580,9 @@ const extractToolName = (u: Record<string, unknown>): string => {
   const title = typeof u["title"] === "string" ? (u["title"] as string) : null;
   if (title && title.length > 0 && title.length < 40) {
     // Heuristic: if it looks like a tool identifier, normalize it.
+    if (/^(?:mcp__)?zuse-orchestration__[a-z0-9_]+$/i.test(title)) {
+      return normalizeAcpKind(title);
+    }
     if (/^[a-z0-9_]+$/i.test(title)) return normalizeAcpKind(title);
   }
 

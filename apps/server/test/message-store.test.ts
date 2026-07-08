@@ -5,7 +5,15 @@ import { SqlClient } from "@effect/sql";
 // of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
 // `bun test`. Test-only — the app keeps the node client.
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { Chunk, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import {
+  Chunk,
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Stream,
+} from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +21,7 @@ import { join } from "node:path";
 import type {
   AgentEvent,
   AgentSessionId,
+  AutonomyLevel,
   FolderId,
   SessionId,
   StartSessionInput,
@@ -23,6 +32,7 @@ import {
   MessageId,
   RepositorySettings,
   Worktree,
+  defaultModelFor,
 } from "@zuse/wire";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
@@ -47,6 +57,7 @@ import { Migration0017ChatReadState } from "../src/persistence/migrations/0017_c
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";
 import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
 import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
+import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_chat_lineage.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -56,6 +67,7 @@ import { RepositorySettingsService } from "../src/repository-settings/services/r
 import { GitService } from "../src/git/services/git-service.ts";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
+import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
@@ -71,14 +83,21 @@ let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 let providerSentTexts: string[] = [];
+let providerStartOrchestrationTools: Array<
+  OrchestrationSessionTools | null | undefined
+> = [];
+let testAutonomyLevel: AutonomyLevel = "off";
+let createdWorktreeCount = 0;
+let createdWorktrees = new Map<string, Worktree>();
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
   availability: () => Effect.succeed([]),
-  start: (input, resumeCursor) =>
+  start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
     Effect.sync(() => {
       providerStartInputs.push(input);
       providerStartCursors.push(resumeCursor);
+      providerStartOrchestrationTools.push(orchestrationTools);
       return {
         sessionId: input.sessionId ?? ("stub" as AgentSessionId),
       };
@@ -114,10 +133,33 @@ const testWorktree = Worktree.make({
 });
 
 const StubWorktreeLive = Layer.succeed(WorktreeService, {
-  create: () => Effect.die("not used"),
-  list: () => Effect.succeed([]),
+  create: (projectId) =>
+    Effect.sync(() => {
+      createdWorktreeCount += 1;
+      const worktree = Worktree.make({
+        id: `wt-created-${createdWorktreeCount}` as WorktreeId,
+        projectId,
+        path: `/tmp/project/.memo/created-${createdWorktreeCount}`,
+        name: `created-${createdWorktreeCount}`,
+        branch: `created-${createdWorktreeCount}`,
+        baseBranch: "origin/main",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        setupStatus: "succeeded",
+        setupOutput: "",
+        setupStartedAt: null,
+        setupFinishedAt: null,
+        pokemon: null,
+      });
+      createdWorktrees.set(worktree.id as string, worktree);
+      return worktree;
+    }),
+  list: () => Effect.succeed([...createdWorktrees.values()]),
   get: (worktreeId) =>
-    Effect.succeed(worktreeId === TEST_WORKTREE_ID ? testWorktree : null),
+    Effect.succeed(
+      worktreeId === TEST_WORKTREE_ID
+        ? testWorktree
+        : (createdWorktrees.get(worktreeId as string) ?? null),
+    ),
   updateBranch: () => Effect.void,
   remove: () => Effect.void,
   rerunSetup: () => Effect.die("not used"),
@@ -153,7 +195,18 @@ const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 });
 
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
-  getSettings: () => Effect.die("not used"),
+  getSettings: () =>
+    Effect.succeed({
+      defaultAutonomyLevel: testAutonomyLevel,
+      defaultModelByProvider: {
+        claude: defaultModelFor("claude"),
+        codex: defaultModelFor("codex"),
+        grok: defaultModelFor("grok"),
+        cursor: defaultModelFor("cursor"),
+        gemini: defaultModelFor("gemini"),
+        opencode: defaultModelFor("opencode"),
+      },
+    } as never),
   updateSettings: () => Effect.die("not used"),
   settingsChanges: () => Stream.die("not used"),
   migrateLocalStorage: () => Effect.die("not used"),
@@ -247,6 +300,7 @@ const runAllMigrations = Effect.all(
     Migration0018PokemonWorktrees,
     Migration0019QueuePaused,
     Migration0020Events,
+    Migration0023ChatLineage,
   ],
   { discard: true },
 );
@@ -312,6 +366,10 @@ beforeEach(() => {
   providerStartInputs = [];
   providerStartCursors = [];
   providerSentTexts = [];
+  providerStartOrchestrationTools = [];
+  testAutonomyLevel = "off";
+  createdWorktreeCount = 0;
+  createdWorktrees = new Map();
 });
 
 describe("MessageStore migrations", () => {
@@ -410,6 +468,196 @@ describe("MessageStore — chat & session lifecycle", () => {
         text: "fix the bug",
       });
       expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+    });
+  });
+
+  it("createChat stamps origin + prefixes the provider prompt for spawned chats", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const parent = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          });
+          const child = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "do the spawned task",
+            originSessionId: parent.initialSession.id,
+          });
+          return { parent, child };
+        }),
+      );
+
+      expect(result.child.initialMessage?.content).toMatchObject({
+        _tag: "user",
+        text: "do the spawned task",
+        origin: {
+          chatId: result.parent.chat.id,
+          sessionId: result.parent.initialSession.id,
+          providerId: "claude",
+        },
+      });
+      expect(
+        providerStartInputs
+          .at(-1)
+          ?.initialPrompt?.startsWith("[Zuse: this task was assigned"),
+      ).toBe(true);
+    });
+  });
+
+  it("create_session without chatId opens a new tab in the caller's chat", async () => {
+    testAutonomyLevel = "approval-gated";
+    await withRuntime(async (run) => {
+      const parent = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
+          }),
+        ),
+      );
+      expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
+      const tools = providerStartOrchestrationTools.at(-1);
+      expect(tools).not.toBeNull();
+      expect(tools).not.toBeUndefined();
+
+      const created = await tools!.deps.createSession({
+        task: "Open another tab here",
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.chatId).toBe(parent.chat.id);
+      expect(created.sessionId).not.toBe(parent.initialSession.id);
+      expect(created.worktreeId).toBe(TEST_WORKTREE_ID);
+
+      const child = await run(
+        Effect.flatMap(store, (s) =>
+          s.getSession(created.sessionId as SessionId),
+        ),
+      );
+      expect(child.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(child.chatId).toBe(parent.chat.id);
+    });
+  });
+
+  it("create_thread creates a new worktree and uses the target provider default model", async () => {
+    testAutonomyLevel = "approval-gated";
+    await withRuntime(async (run) => {
+      const parent = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            worktreeId: TEST_WORKTREE_ID,
+          }),
+        ),
+      );
+      const tools = providerStartOrchestrationTools.at(-1);
+      expect(tools).not.toBeNull();
+      expect(tools).not.toBeUndefined();
+
+      const models = await tools!.deps.listModels({ providerId: "codex" });
+      expect(models.ok).toBe(true);
+      if (!models.ok) return;
+      expect(models.providers).toHaveLength(1);
+      expect(models.providers[0]?.providerId).toBe("codex");
+      expect(models.providers[0]?.models.map((m) => m.id)).toContain(
+        defaultModelFor("codex"),
+      );
+
+      const created = await tools!.deps.createThread({
+        title: "Codex greeting",
+        task: "Say hi!",
+        providerId: "codex",
+      });
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      expect(created.worktreeId).not.toBeNull();
+      expect(created.worktreeId).not.toBe(TEST_WORKTREE_ID);
+      expect(created.path).toContain("/tmp/project/.memo/created-");
+      expect(created.branch).toContain("created-");
+
+      const child = await run(
+        Effect.flatMap(store, (s) =>
+          s.getSession(created.sessionId as SessionId),
+        ),
+      );
+      expect(child.providerId).toBe("codex");
+      expect(child.model).toBe(defaultModelFor("codex"));
+      expect(child.worktreeId).toBe(created.worktreeId as WorktreeId);
+      expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
+      expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
+      expect(providerStartInputs.at(-1)?.model).toBe(defaultModelFor("codex"));
+    });
+  });
+
+  it("createChat publishes the new chat to live chat streams", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const streamFiber = yield* s
+            .streamChatChanges(PROJECT_ID)
+            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+          yield* Effect.sleep("10 millis");
+          const created = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "spawn a sibling thread",
+          });
+          const emitted = yield* Fiber.join(streamFiber);
+          return { created, emitted };
+        }),
+      );
+
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
+      ).toEqual([result.created.chat.id]);
+    });
+  });
+
+  it("createSession publishes the updated active session to live chat streams", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const created = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          });
+          const streamFiber = yield* s
+            .streamChatChanges(PROJECT_ID)
+            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+          yield* Effect.sleep("10 millis");
+          const session = yield* s.createSession({
+            chatId: created.chat.id,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "open another tab",
+            background: true,
+          });
+          const emitted = yield* Fiber.join(streamFiber);
+          return { session, emitted };
+        }),
+      );
+
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
+      ).toEqual([result.session.chatId]);
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map(
+          (chat) => chat.activeSessionId,
+        ),
+      ).toEqual([result.session.id]);
     });
   });
 
@@ -660,6 +908,55 @@ describe("MessageStore — chat & session lifecycle", () => {
         _tag: "user",
         text: "hello there",
       });
+    });
+  });
+
+  it("sendMessage with origin persists origin and prefixes only the provider text", async () => {
+    await withRuntime(async (run) => {
+      const { initialSession, chat } = await run(
+        Effect.flatMap(store, (s) =>
+          s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const origin = {
+        chatId: chat.id,
+        sessionId: initialSession.id,
+        providerId: "claude" as const,
+      };
+
+      await run(
+        Effect.flatMap(store, (s) =>
+          s.sendMessage(
+            initialSession.id,
+            "do the thing",
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            origin,
+          ),
+        ),
+      );
+
+      const messages = await run(
+        Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+      );
+      expect(messages.at(-1)?.content).toMatchObject({
+        _tag: "user",
+        text: "do the thing",
+        origin,
+      });
+      const sent = providerSentTexts.at(-1) ?? "";
+      expect(
+        sent.startsWith("[Zuse: this message was sent by another agent"),
+      ).toBe(true);
+      expect(sent.endsWith("do the thing")).toBe(true);
     });
   });
 
