@@ -18,7 +18,10 @@ import {
   type AgentItemId,
   type AgentSessionId,
   type AttachmentRef,
+  type PermissionDecision,
+  type PermissionKind,
   type PermissionMode,
+  type RuntimeMode,
   type StartSessionInput,
   type ThreadGoalSetInput,
   type UserQuestionAnswer,
@@ -42,6 +45,7 @@ import {
 } from "./acp/browser-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
 import type { BrowserSend } from "./browser-tools.ts";
+import { getBashPolicy, getFsPolicy } from "../policy.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
@@ -219,6 +223,220 @@ const appendGrokAcpLog = (
   } catch {
     // Best-effort local diagnostics only.
   }
+};
+
+type GrokNativePermissionContext = {
+  readonly requestPermission: (
+    kind: PermissionKind,
+    options: { readonly forcePrompt: boolean },
+  ) => Promise<PermissionDecision>;
+  readonly getRuntimeMode: () => RuntimeMode;
+  readonly getPermissionMode: () => PermissionMode;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+
+const lower = (value: string): string => value.toLowerCase();
+
+export const isGrokNativePermissionMethod = (method: string): boolean => {
+  const m = lower(method);
+  return (
+    m.includes("permission") ||
+    m.includes("approval") ||
+    m.includes("authorize") ||
+    m.includes("authorization") ||
+    m.includes("canusetool") ||
+    m.includes("can_use_tool") ||
+    m.includes("request_tool")
+  );
+};
+
+const firstStringByKey = (
+  value: unknown,
+  keys: ReadonlySet<string>,
+  depth = 0,
+): string | null => {
+  if (depth > 5) return null;
+  if (typeof value === "string") return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = firstStringByKey(item, keys, depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  const record = asRecord(value);
+  if (record === null) return null;
+  for (const [key, item] of Object.entries(record)) {
+    if (keys.has(lower(key)) && typeof item === "string" && item.length > 0) {
+      return item;
+    }
+  }
+  for (const item of Object.values(record)) {
+    const found = firstStringByKey(item, keys, depth + 1);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+const stringifyCompact = (value: unknown, max = 220): string => {
+  const raw =
+    typeof value === "string"
+      ? value
+      : (() => {
+          try {
+            return JSON.stringify(value);
+          } catch {
+            return String(value);
+          }
+        })();
+  return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
+};
+
+const COMMAND_KEYS = new Set([
+  "command",
+  "cmd",
+  "shellcommand",
+  "shell_command",
+  "displaycommand",
+  "display_command",
+]);
+const PATH_KEYS = new Set([
+  "path",
+  "filepath",
+  "file_path",
+  "targetpath",
+  "target_path",
+  "destination",
+  "newpath",
+  "new_path",
+]);
+const URL_KEYS = new Set(["url", "uri", "href", "target"]);
+const TOOL_KEYS = new Set([
+  "tool",
+  "toolname",
+  "tool_name",
+  "name",
+  "kind",
+  "title",
+]);
+const SUMMARY_KEYS = new Set([
+  "reason",
+  "summary",
+  "description",
+  "prompt",
+  "message",
+  "question",
+]);
+
+const classifyGrokNativePermission = (
+  method: string,
+  params: unknown,
+): PermissionKind => {
+  const command = firstStringByKey(params, COMMAND_KEYS);
+  const path = firstStringByKey(params, PATH_KEYS);
+  const url = firstStringByKey(params, URL_KEYS);
+  const tool = firstStringByKey(params, TOOL_KEYS) ?? method;
+  const toolKey = lower(tool);
+
+  if (
+    command !== null ||
+    toolKey.includes("shell") ||
+    toolKey.includes("bash") ||
+    toolKey.includes("terminal")
+  ) {
+    return { _tag: "Bash", command: command ?? tool };
+  }
+  if (
+    path !== null ||
+    toolKey.includes("edit") ||
+    toolKey.includes("write") ||
+    toolKey.includes("replace") ||
+    toolKey.includes("delete") ||
+    toolKey.includes("move")
+  ) {
+    return { _tag: "FileWrite", path: path ?? tool };
+  }
+  if (url !== null || toolKey.includes("fetch") || toolKey.includes("web")) {
+    return { _tag: "Network", url: url ?? tool };
+  }
+
+  return {
+    _tag: "Other",
+    tool,
+    summary:
+      firstStringByKey(params, SUMMARY_KEYS) ??
+      command ??
+      path ??
+      url ??
+      stringifyCompact(params),
+  };
+};
+
+const nativePermissionPolicy = (
+  kind: PermissionKind,
+  runtimeMode: RuntimeMode,
+  permissionMode: PermissionMode,
+):
+  | { readonly kind: "auto-allow" }
+  | {
+      readonly kind: "prompt";
+      readonly forcePrompt: boolean;
+    } => {
+  switch (kind._tag) {
+    case "Bash":
+      return getBashPolicy(kind.command, runtimeMode, permissionMode);
+    case "FileWrite":
+      return getFsPolicy("write", kind.path, runtimeMode, permissionMode);
+    case "Network":
+    case "Other":
+      if (permissionMode === "plan") {
+        return { kind: "prompt", forcePrompt: true };
+      }
+      if (runtimeMode === "full-access") return { kind: "auto-allow" };
+      return { kind: "prompt", forcePrompt: false };
+  }
+};
+
+const grokPermissionResponse = (allowed: boolean): Record<string, unknown> =>
+  allowed
+    ? {
+        outcome: "approved",
+        decision: "approved",
+        approved: true,
+        allow: true,
+        allowed: true,
+      }
+    : {
+        outcome: "denied",
+        decision: "denied",
+        approved: false,
+        allow: false,
+        allowed: false,
+      };
+
+export const handleGrokNativePermissionRequest = async (
+  method: string,
+  params: unknown,
+  ctx: GrokNativePermissionContext,
+): Promise<unknown | null> => {
+  if (!isGrokNativePermissionMethod(method)) return null;
+
+  const kind = classifyGrokNativePermission(method, params);
+  const policy = nativePermissionPolicy(
+    kind,
+    ctx.getRuntimeMode(),
+    ctx.getPermissionMode(),
+  );
+  if (policy.kind === "auto-allow") return grokPermissionResponse(true);
+
+  const decision = await ctx.requestPermission(kind, {
+    forcePrompt: policy.forcePrompt,
+  });
+  return grokPermissionResponse(decision._tag !== "Deny");
 };
 
 /**
@@ -649,6 +867,41 @@ export const startGrokSession = (
               return;
             }
 
+            if (isGrokNativePermissionMethod(msg.method)) {
+              process.stderr.write(
+                `[grok.rpc] native permission request method=${msg.method} id=${msg.id} params=${JSON.stringify(msg.params ?? {})}\n`,
+              );
+              handleGrokNativePermissionRequest(
+                msg.method,
+                msg.params,
+                acpHandlerContext(),
+              )
+                .then((result) => {
+                  if (result === null) {
+                    writeMessage({
+                      jsonrpc: "2.0",
+                      id: msg.id,
+                      error: {
+                        code: -32601,
+                        message: `Method not supported by Zuse ACP client: ${msg.method}`,
+                      },
+                    });
+                    return;
+                  }
+                  writeMessage({ jsonrpc: "2.0", id: msg.id, result });
+                })
+                .catch((err) => {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  writeMessage({
+                    jsonrpc: "2.0",
+                    id: msg.id,
+                    error: { code: -32603, message },
+                  });
+                });
+              return;
+            }
+
             // User question / interactive prompts from the Grok agent
             // (e.g. _x.ai/ask_user_question or similar namespaced methods).
             // These are used by the agent when it wants to ask the human for
@@ -685,6 +938,12 @@ export const startGrokSession = (
             // For everything else (permission prompts, collab callbacks, etc.)
             // we still reply with a clean error so the agent never hangs forever
             // waiting for a response that will never come.
+            const paramsPreview = stringifyCompact(msg.params);
+            if (/permission|approval|authoriz/i.test(paramsPreview)) {
+              process.stderr.write(
+                `[grok.rpc] unrecognized permission-like request method=${msg.method} id=${msg.id} params=${paramsPreview}\n`,
+              );
+            }
             writeMessage({
               jsonrpc: "2.0",
               id: msg.id,
