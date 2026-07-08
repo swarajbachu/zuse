@@ -11,6 +11,7 @@ export * from "./git.ts";
 export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
+export * from "./mobile.ts";
 export * from "./permission.ts";
 export * from "./pokemon.ts";
 export * from "./ping.ts";

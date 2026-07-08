@@ -15,6 +15,7 @@ import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { MobileServiceLive } from "./mobile/layers/mobile-service.ts";
 import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -138,6 +139,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   );
 
   const PtyLayer = PtyServiceLive;
+  const MobileLayer = MobileServiceLive.pipe(Layer.provide(PtyLayer));
 
   // Global settings + user keybindings live in JSON files under userData
   // (Electron's `app.getPath("userData")`). Watched for external hand-edits.
@@ -210,6 +212,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(PermissionLayer),
     Layer.provide(AttachmentLayer),
     Layer.provide(BrowserBridgeLayer),
+    Layer.provide(MobileLayer),
     Layer.provide(IndexLayer),
     Layer.provide(NodeContext.layer),
   );
@@ -312,6 +315,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     PermissionLayer,
     AttachmentLayer,
     BrowserBridgeLayer,
+    MobileLayer,
     // browser.* credential RPCs read/write the keychain directly.
     CredentialsServiceLive,
     SkillBridgeLayer,

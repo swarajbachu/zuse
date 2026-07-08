@@ -79,6 +79,16 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
+import {
+  MobileAvailabilityRpc,
+  MobileDetectProjectRpc,
+  MobileEventsRpc,
+  MobileFramesRpc,
+  MobileListDevicesRpc,
+  MobileStartRpc,
+  MobileStatusRpc,
+  MobileStopRpc,
+} from "./mobile.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
 import {
@@ -301,6 +311,14 @@ export const MemoizeRpcs = RpcGroup.make(
   BrowserListCredentialsRpc,
   BrowserRemoveCredentialRpc,
   BrowserFillForOriginRpc,
+  MobileAvailabilityRpc,
+  MobileListDevicesRpc,
+  MobileDetectProjectRpc,
+  MobileStartRpc,
+  MobileStopRpc,
+  MobileStatusRpc,
+  MobileEventsRpc,
+  MobileFramesRpc,
   WorktreeCreateRpc,
   WorktreeListRpc,
   WorktreeGetRpc,

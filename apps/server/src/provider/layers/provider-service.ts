@@ -40,6 +40,8 @@ import {
 } from "../drivers/opencode.ts";
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { buildIndexTools } from "../../code-index/claude-tools.ts";
+import { buildMobileTools } from "../../mobile/mobile-tools.ts";
+import { MobileService } from "../../mobile/services/mobile-service.ts";
 import { buildBrowserTools } from "../drivers/browser-tools.ts";
 import { IndexRegistry } from "../../code-index/services/index-registry.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -90,6 +92,7 @@ export const ProviderServiceLive = Layer.effect(
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
+    const mobile = yield* MobileService;
     const indexRegistry = yield* IndexRegistry;
     const runtime = yield* Effect.runtime<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
@@ -332,6 +335,66 @@ export const ProviderServiceLive = Layer.effect(
                 browserBridge.send(sessionId, command),
               ),
             );
+            const mobileTools =
+              process.platform === "darwin"
+                ? buildMobileTools({
+                    availability: () =>
+                      Runtime.runPromise(runtime)(mobile.availability()),
+                    status: () => Runtime.runPromise(runtime)(mobile.status()),
+                    listDevices: () =>
+                      Runtime.runPromise(runtime)(mobile.listDevices()),
+                    detectProject: () =>
+                      Runtime.runPromise(runtime)(mobile.detectProject(cwd)),
+                    logTail: (lines) =>
+                      Runtime.runPromise(runtime)(mobile.logTail(lines)),
+                    screenshot: () =>
+                      Runtime.runPromise(runtime)(mobile.screenshot("agent")),
+                    launch: async (requested) => {
+                      const devices = await Runtime.runPromise(runtime)(
+                        mobile.listDevices(),
+                      );
+                      const current = await Runtime.runPromise(runtime)(
+                        mobile.status(),
+                      );
+                      const device =
+                        (requested !== undefined
+                          ? devices.find(
+                              (d) =>
+                                d.udid === requested ||
+                                d.name.toLowerCase() ===
+                                  requested.toLowerCase(),
+                            )
+                          : null) ??
+                        (current.device !== undefined
+                          ? devices.find((d) => d.udid === current.device?.udid)
+                          : null) ??
+                        devices.find((d) => d.name.includes("iPhone")) ??
+                        devices[0];
+                      if (device === undefined) {
+                        throw new Error("No available iOS simulators found.");
+                      }
+                      await Runtime.runPromise(runtime)(
+                        mobile.start(cwd, device.udid, "agent"),
+                      );
+                      const deadline = Date.now() + 10 * 60 * 1000;
+                      while (Date.now() < deadline) {
+                        const next = await Runtime.runPromise(runtime)(
+                          mobile.status(),
+                        );
+                        if (
+                          next.phase === "streaming" ||
+                          next.phase === "error"
+                        ) {
+                          return next;
+                        }
+                        await new Promise((resolve) =>
+                          setTimeout(resolve, 1000),
+                        );
+                      }
+                      throw new Error("Timed out waiting for mobile launch.");
+                    },
+                  })
+                : [];
 
             handle = yield* startClaudeSession(
               input,
@@ -342,7 +405,7 @@ export const ProviderServiceLive = Layer.effect(
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
               resumeCursor,
-              [...indexTools, ...browserTools],
+              [...indexTools, ...browserTools, ...mobileTools],
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native
