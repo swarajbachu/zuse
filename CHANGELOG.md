@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0]
+
+### Changed
+- Fix mobile relay and queued sends (#287)
+- Fix live chat sync (#286)
+- Refine mobile composer controls (#285)
+- [codex] Polish mobile chat UI (#282)
+- [codex] Polish PR checks and feedback UI (#284)
+- [codex] Redesign mobile UX (#280)
+- Fix mobile relay DPoP auth (#279)
+- [codex] Fix provider update state bleed (#278)
+- [codex] Add browser visual annotations (#277)
+- Harden mobile connection runtime (#273)
+- [codex] fix WorkOS refresh token persistence (#275)
+- [codex] Update mobile app identity (#274)
+- [codex] Add remote mobile push notifications (#272)
+- Fix chat timeline live scrolling (#271)
+- [codex] Add advertised endpoint model (#270)
+- Improve chat timeline scrolling (#269)
+- [codex] Fix project accordion toggle (#268)
+- [codex] Align chat footer controls (#267)
+- Add managed relay tunnel support (#266)
+- Mobile: interactive chat — question cards, permission approvals, offline outbox, markdown (#265)
+- iOS native polish: glass surfaces, animated presence dots, haptics (#264)
+- Mobile: Expo 54→57 upgrade + iOS-native design pass (@expo/ui) (#263)
+- Add OpenCode provider management: connect providers, custom endpoints, visibility (#260)
+- Account-based laptop → phone connection (relay + WorkOS + DPoP) (#262)
+- [codex] Fix chat autoscroll performance (#261)
+- [codex] add zuse repository settings and bundled skill (#258)
+- [codex] Implement remote multi-client foundations (#259)
+- [codex] Store editable settings in JSON (#248)
+- [codex] Add create-from source picker (#257)
+- [codex] add macbook notch notification tray (#249)
+- Improve chat auto-naming with real-time sidebar updates (#247)
+- Auto-update: background download, restart toast, quit guard (#256)
+
 ## [0.10.3]
 
 ### Changed
