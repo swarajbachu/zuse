@@ -204,6 +204,17 @@ const ensureChangeStream = (projectId: FolderId): void => {
               if (inserted) {
                 void useSessionsStore.getState().hydrate(projectId);
               }
+              const activeSessionId = chat.activeSessionId;
+              if (activeSessionId !== null) {
+                const knownSessions =
+                  useSessionsStore.getState().sessionsByProject[projectId];
+                if (
+                  knownSessions !== undefined &&
+                  !knownSessions.some((row) => row.id === activeSessionId)
+                ) {
+                  void useSessionsStore.getState().hydrate(projectId);
+                }
+              }
               // Mirror the server-side auto-namer onto member session tabs.
               useSessionsStore.setState((s) => {
                 const sessions = s.sessionsByProject[projectId];

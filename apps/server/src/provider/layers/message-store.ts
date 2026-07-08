@@ -2109,6 +2109,10 @@ export const MessageStoreLive = Layer.scoped(
             SET active_session_id = ${sessionId}, updated_at = ${nowIso}
             WHERE id = ${input.chatId}
           `.pipe(Effect.asVoid, Effect.orDie);
+          yield* lookupChat(input.chatId).pipe(
+            Effect.flatMap(broadcastChat),
+            Effect.catchAll(() => Effect.void),
+          );
           if (hasInitial) {
             yield* persistMessage(sessionId, {
               _tag: "user",
@@ -2249,6 +2253,10 @@ export const MessageStoreLive = Layer.scoped(
           SET active_session_id = ${sessionId}, updated_at = ${nowIso}
           WHERE id = ${input.chatId}
         `.pipe(Effect.asVoid, Effect.orDie);
+        yield* lookupChat(input.chatId).pipe(
+          Effect.flatMap(broadcastChat),
+          Effect.catchAll(() => Effect.void),
+        );
         if (hasInitial) {
           yield* persistMessage(sessionId, {
             _tag: "user",

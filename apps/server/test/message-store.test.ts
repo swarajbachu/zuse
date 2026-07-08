@@ -606,7 +606,7 @@ describe("MessageStore — chat & session lifecycle", () => {
           const streamFiber = yield* s
             .streamChatChanges(PROJECT_ID)
             .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
-          yield* Effect.yieldNow();
+          yield* Effect.sleep("10 millis");
           const created = yield* s.createChat({
             projectId: PROJECT_ID,
             providerId: "claude",
@@ -621,6 +621,43 @@ describe("MessageStore — chat & session lifecycle", () => {
       expect(
         Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
       ).toEqual([result.created.chat.id]);
+    });
+  });
+
+  it("createSession publishes the updated active session to live chat streams", async () => {
+    await withRuntime(async (run) => {
+      const result = await run(
+        Effect.gen(function* () {
+          const s = yield* store;
+          const created = yield* s.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          });
+          const streamFiber = yield* s
+            .streamChatChanges(PROJECT_ID)
+            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+          yield* Effect.sleep("10 millis");
+          const session = yield* s.createSession({
+            chatId: created.chat.id,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+            initialPrompt: "open another tab",
+            background: true,
+          });
+          const emitted = yield* Fiber.join(streamFiber);
+          return { session, emitted };
+        }),
+      );
+
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
+      ).toEqual([result.session.chatId]);
+      expect(
+        Chunk.toReadonlyArray(result.emitted).map(
+          (chat) => chat.activeSessionId,
+        ),
+      ).toEqual([result.session.id]);
     });
   });
 
