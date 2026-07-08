@@ -91,11 +91,16 @@ describe("getFsPolicy", () => {
     expect(policy).toEqual({ kind: "prompt", forcePrompt: true });
   });
 
-  it("auto-accept-edits auto-allows non-sensitive mutations", () => {
-    for (const op of ["write", "create", "delete", "move"] as const) {
-      expect(getFsPolicy(op, "/repo/src/a.ts", "auto-accept-edits")).toEqual({
-        kind: "auto-allow",
-      });
+  it("auto-accept-edits modes auto-allow non-sensitive mutations", () => {
+    for (const mode of [
+      "auto-accept-edits",
+      "auto-accept-edits-and-bash",
+    ] as const) {
+      for (const op of ["write", "create", "delete", "move"] as const) {
+        expect(getFsPolicy(op, "/repo/src/a.ts", mode)).toEqual({
+          kind: "auto-allow",
+        });
+      }
     }
   });
 
@@ -131,6 +136,12 @@ describe("getBashPolicy", () => {
     expect(getBashPolicy("ls", "auto-accept-edits")).toEqual({
       kind: "prompt",
       forcePrompt: false,
+    });
+  });
+
+  it("auto-accept-edits-and-bash auto-allows commands", () => {
+    expect(getBashPolicy("ls", "auto-accept-edits-and-bash")).toEqual({
+      kind: "auto-allow",
     });
   });
 

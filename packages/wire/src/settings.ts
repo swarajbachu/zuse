@@ -77,10 +77,9 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   defaultRuntimeMode: RuntimeMode,
   defaultAutoCreateWorktree: Schema.Boolean,
   /**
-   * Default autonomy level for new sessions — gates whether the in-process
-   * control-plane tools (create_thread / create_session / …) are registered
-   * so an agent can spawn and drive its own threads. Defaults to `"off"`;
-   * see {@link AutonomyLevel}.
+   * Legacy autonomy level for new sessions. Current runtimes expose the
+   * built-in orchestration tools by default and route mutating calls through
+   * the normal permission system; see {@link AutonomyLevel}.
    */
   defaultAutonomyLevel: AutonomyLevel,
   onboardingCompleted: Schema.Boolean,

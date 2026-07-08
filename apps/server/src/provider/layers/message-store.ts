@@ -51,7 +51,6 @@ import {
   type WorktreeCreateSource,
   WorktreeId,
   type AutonomyLevel,
-  autonomyEnablesOrchestration,
 } from "@zuse/wire";
 
 import {
@@ -1620,11 +1619,10 @@ export const MessageStoreLive = Layer.scoped(
       });
 
     /**
-     * Build the session-bound control-plane (orchestration) tool bundle,
-     * gated on the project's autonomy level. Returns `null` when autonomy is
-     * `"off"` so providers register no spawn tools and memoize behaves
-     * exactly as before. Each tool bridges back into these Effect methods via
-     * `Runtime.runPromise`, mapping every typed failure to a
+     * Build the session-bound control-plane (orchestration) tool bundle. The
+     * tools are built in for every managed session; mutating calls still go
+     * through the normal provider permission gate. Each tool bridges back into
+     * these Effect methods via `Runtime.runPromise`, mapping every typed failure to a
      * `{ ok: false, error }` result so provider MCP handlers never throw.
      *
      * Spawned threads carry `originSessionId = ctx.sessionId` for lineage, and
@@ -1639,13 +1637,10 @@ export const MessageStoreLive = Layer.scoped(
       readonly model: string;
     }): Effect.Effect<OrchestrationSessionTools | null> =>
       Effect.gen(function* () {
-        // Fail closed: if settings can't be read, register no control-plane
-        // tools (autonomy = off) rather than dying the whole session boot.
         const settings = yield* configStore
           .getSettings()
           .pipe(Effect.catchAllCause(() => Effect.succeed(null)));
-        const level: AutonomyLevel = settings?.defaultAutonomyLevel ?? "off";
-        if (!autonomyEnablesOrchestration(level)) return null;
+        const level: AutonomyLevel = "approval-gated";
         const run = Runtime.runPromise(runtime);
         const providerModelFor = (input: {
           readonly providerId?: string;

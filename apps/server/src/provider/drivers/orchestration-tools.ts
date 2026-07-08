@@ -1,4 +1,10 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  PermissionDecision,
+  PermissionKind,
+  PermissionMode,
+  RuntimeMode,
+} from "@zuse/wire";
 import { z } from "zod";
 
 /**
@@ -154,6 +160,15 @@ export interface OrchestrationToolDeps {
     readonly providerId?: string;
   }) => Promise<ListModelsResult>;
   readonly whoami: () => Promise<WhoamiResult>;
+}
+
+export interface OrchestrationPermissionOptions {
+  readonly requestPermission: (
+    kind: PermissionKind,
+    options: { readonly forcePrompt: boolean },
+  ) => Promise<PermissionDecision>;
+  readonly getRuntimeMode: () => RuntimeMode;
+  readonly getPermissionMode: () => PermissionMode;
 }
 
 export interface OrchestrationSessionTools {
@@ -383,6 +398,43 @@ export const isOrchestrationToolName = (
   name: string,
 ): name is OrchestrationToolName =>
   ORCHESTRATION_MCP_TOOLS.some((tool) => tool.name === name);
+
+const permissionSummary = (name: string, args: JsonObject): string => {
+  switch (name) {
+    case "create_thread":
+      return `Create isolated Zuse thread "${asString(args, "title") ?? "untitled"}"`;
+    case "create_session":
+      return `Create Zuse session tab "${asString(args, "title") ?? "untitled"}"`;
+    case "send_to_thread":
+      return `Send a message to Zuse session ${asString(args, "sessionId") ?? ""}`;
+    default:
+      return name;
+  }
+};
+
+export const ensureOrchestrationPermission = async (
+  name: string,
+  args: JsonObject,
+  opts: OrchestrationPermissionOptions,
+): Promise<void> => {
+  if (!isOrchestrationToolName(name)) throw new Error(`Unknown tool: ${name}`);
+  if (!MUTATING_ORCHESTRATION_TOOLS.has(name)) return;
+
+  const forcePrompt = opts.getPermissionMode() === "plan";
+  if (!forcePrompt && opts.getRuntimeMode() === "full-access") return;
+
+  const decision = await opts.requestPermission(
+    {
+      _tag: "Other",
+      tool: name,
+      summary: permissionSummary(name, args),
+    },
+    { forcePrompt },
+  );
+  if (decision._tag === "Deny") {
+    throw new Error(`Permission denied for ${name}.`);
+  }
+};
 
 export const callOrchestrationTool = async (
   deps: OrchestrationToolDeps,

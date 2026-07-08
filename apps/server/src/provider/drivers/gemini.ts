@@ -27,8 +27,17 @@ import {
 } from "./compact.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
+import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
+import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
 import type { GetRuntimeMode, RequestPermission } from "./claude.ts";
+import type { BrowserSend } from "./browser-tools.ts";
+import { browserMcpPromptHint } from "./browser-mcp-tools.ts";
+import {
+  orchestrationMcpPromptHint,
+  type OrchestrationSessionTools,
+} from "./orchestration-tools.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instructions.ts";
+import { issueMcpGatewaySession } from "../mcp-gateway/index.ts";
 
 /**
  * Live-only handle for one Gemini conversation. Mirrors the Grok/Codex/Claude
@@ -240,6 +249,9 @@ export const startGeminiSession = (
   sessionId: AgentSessionId,
   requestPermission: RequestPermission,
   getRuntimeMode: GetRuntimeMode,
+  browserSend: BrowserSend,
+  browserMcpCommand: string,
+  orchestrationTools: OrchestrationSessionTools | null = null,
   resumeCursor: string | null = null,
 ): Effect.Effect<
   GeminiSessionHandle,
@@ -270,6 +282,86 @@ export const startGeminiSession = (
       getPermissionMode: () => currentMode,
     });
 
+    const mcpGatewaySession = yield* Effect.tryPromise({
+      try: () =>
+        issueMcpGatewaySession({
+          sessionId,
+          scopes: {
+            browser: true,
+            orchestration: orchestrationTools !== null,
+          },
+          ctx: {
+            browser: {
+              send: browserSend,
+              requestPermission: (kind, options) =>
+                requestPermission(sessionId, kind, options),
+              getRuntimeMode,
+              getPermissionMode: () => currentMode,
+            },
+            ...(orchestrationTools === null
+              ? {}
+              : {
+                  orchestration: {
+                    deps: orchestrationTools.deps,
+                    requestPermission: (kind, options) =>
+                      requestPermission(sessionId, kind, options),
+                    getRuntimeMode,
+                    getPermissionMode: () => currentMode,
+                  },
+                }),
+          },
+        }),
+      catch: (cause) =>
+        new AgentSessionStartError({
+          providerId: "gemini",
+          reason: `Could not start MCP gateway: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        }),
+    });
+
+    let browserMcpBridge: Awaited<
+      ReturnType<typeof startBrowserMcpBridge>
+    > | null = null;
+    let orchestrationMcpBridge: Awaited<
+      ReturnType<typeof startOrchestrationMcpBridge>
+    > | null = null;
+    const ensureStdioFallbackMcp = async (): Promise<
+      ReadonlyArray<{
+        readonly name: string;
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+        readonly env: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+      }>
+    > => {
+      if (browserMcpBridge === null) {
+        browserMcpBridge = await startBrowserMcpBridge({
+          send: browserSend,
+          command: browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        });
+      }
+      if (orchestrationTools !== null && orchestrationMcpBridge === null) {
+        orchestrationMcpBridge = await startOrchestrationMcpBridge({
+          deps: orchestrationTools.deps,
+          command: browserMcpCommand,
+          requestPermission: (kind, options) =>
+            requestPermission(sessionId, kind, options),
+          getRuntimeMode,
+          getPermissionMode: () => currentMode,
+        });
+      }
+      return [
+        browserMcpBridge.serverConfig,
+        ...(orchestrationMcpBridge === null
+          ? []
+          : [orchestrationMcpBridge.serverConfig]),
+      ];
+    };
+
     let acpSessionId: string | null = null;
     let nextRpcId = 1;
     let closed = false;
@@ -278,6 +370,7 @@ export const startGeminiSession = (
     const pending = new Map<number, PendingResolver>();
     let stderrTail = "";
     let stdoutNoiseTail = "";
+    let mcpHintPending = true;
 
     const diagnosticTail = (): string => {
       const parts: string[] = [];
@@ -619,10 +712,33 @@ export const startGeminiSession = (
               : { headless: true },
         });
 
-        const sessionResult = (await request("session/new", {
-          cwd,
-          mcpServers: [],
-        })) as { sessionId?: unknown };
+        const httpMcpServers = [
+          mcpGatewaySession.httpServerConfigs.browser,
+          ...(orchestrationTools === null
+            ? []
+            : [mcpGatewaySession.httpServerConfigs.orchestration]),
+        ];
+        let sessionResult: { sessionId?: unknown };
+        try {
+          sessionResult = (await request("session/new", {
+            cwd,
+            mcpServers: httpMcpServers,
+          })) as { sessionId?: unknown };
+          console.info(`[mcp-gateway] session ${sessionId} connected via http`);
+        } catch (cause) {
+          console.warn(
+            `[mcp-gateway] session ${sessionId} http setup failed; using stdio-fallback: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+          );
+          sessionResult = (await request("session/new", {
+            cwd,
+            mcpServers: await ensureStdioFallbackMcp(),
+          })) as { sessionId?: unknown };
+          console.info(
+            `[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
+          );
+        }
 
         if (typeof sessionResult.sessionId !== "string") {
           throw new Error("Gemini ACP session/new returned no sessionId.");
@@ -640,6 +756,13 @@ export const startGeminiSession = (
       Effect.tapError(() =>
         Effect.sync(() => {
           child.kill("SIGTERM");
+          if (browserMcpBridge !== null) {
+            void browserMcpBridge.close();
+          }
+          if (orchestrationMcpBridge !== null) {
+            void orchestrationMcpBridge.close();
+          }
+          void mcpGatewaySession.close();
         }),
       ),
     );
@@ -682,13 +805,24 @@ export const startGeminiSession = (
                 text,
               ),
             );
+      const finalPromptText =
+        mcpHintPending && compactSnapshot === null
+          ? [
+              browserMcpPromptHint(),
+              ...(orchestrationTools === null
+                ? []
+                : [orchestrationMcpPromptHint()]),
+              promptText,
+            ].join("\n\n")
+          : promptText;
+      mcpHintPending = false;
       if (compactSnapshot === null) workspaceInstructionsPending = undefined;
       inflight = inflight
         .then(async () => {
           if (closed) return;
           if (GEMINI_RPC_TRACE) {
             process.stderr.write(
-              `[gemini.prompt] enqueue len=${promptText.length} mode=${currentMode}\n`,
+              `[gemini.prompt] enqueue len=${finalPromptText.length} mode=${currentMode}\n`,
             );
           }
           try {
@@ -696,7 +830,7 @@ export const startGeminiSession = (
               "session/prompt",
               {
                 sessionId: sid,
-                prompt: [{ type: "text", text: promptText }],
+                prompt: [{ type: "text", text: finalPromptText }],
                 _meta: {
                   permissionMode: currentMode,
                   ...(input.model !== undefined ? { model: input.model } : {}),
@@ -800,6 +934,15 @@ export const startGeminiSession = (
           }
           child.kill("SIGTERM");
           rl.close();
+          const browserBridge = browserMcpBridge;
+          if (browserBridge !== null) {
+            yield* Effect.promise(() => browserBridge.close());
+          }
+          const orchestrationBridge = orchestrationMcpBridge;
+          if (orchestrationBridge !== null) {
+            yield* Effect.promise(() => orchestrationBridge.close());
+          }
+          yield* Effect.promise(() => mcpGatewaySession.close());
           yield* events.end;
         }),
       setPermissionMode: (mode) =>

@@ -78,7 +78,7 @@ const freshSettings = (): SettingsFile =>
     // Worktrees on by default: each new chat runs on its own branch so parallel
     // agents stay isolated. Per-repo settings can still opt a repo out.
     defaultAutoCreateWorktree: true,
-    defaultAutonomyLevel: "off",
+    defaultAutonomyLevel: "approval-gated",
     onboardingCompleted: false,
     appearanceMode: "dark",
     completionSoundEnabled: false,

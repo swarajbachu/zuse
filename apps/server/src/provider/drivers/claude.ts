@@ -84,6 +84,22 @@ export interface ClaudeSessionHandle {
 const toSdkPermissionMode = (mode: PermissionMode): SdkPermissionMode =>
   mode satisfies SdkPermissionMode;
 
+const runtimeModeToSdkPermissionMode = (
+  runtimeMode: RuntimeMode,
+  permissionMode: PermissionMode,
+): SdkPermissionMode => {
+  if (permissionMode === "plan") return toSdkPermissionMode(permissionMode);
+  switch (runtimeMode) {
+    case "full-access":
+      return "bypassPermissions" as SdkPermissionMode;
+    case "auto-accept-edits":
+    case "auto-accept-edits-and-bash":
+      return "acceptEdits" as SdkPermissionMode;
+    case "approval-required":
+      return toSdkPermissionMode(permissionMode);
+  }
+};
+
 /**
  * Name we register the in-process AskUserQuestion tool under. The SDK
  * exposes MCP tools to the model as `mcp__<server>__<tool>`, so the
@@ -1564,7 +1580,7 @@ export const startClaudeSession = (
             name: ORCHESTRATION_MCP_SERVER_NAME,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             tools: orchestrationTools as any,
-            alwaysLoad: true,
+            alwaysLoad: !(input.toolSearch ?? false),
           });
 
     const env = applyClaudeWorktreeEnv(
@@ -1604,6 +1620,10 @@ export const startClaudeSession = (
       SDK_BUILTIN_ASK_USER_QUESTION,
     ];
     const initialPermissionMode = input.permissionMode ?? "default";
+    const initialSdkPermissionMode = runtimeModeToSdkPermissionMode(
+      getRuntimeMode(),
+      initialPermissionMode,
+    );
     const options: Options = {
       cwd,
       systemPrompt: {
@@ -1632,7 +1652,10 @@ export const startClaudeSession = (
           ? {}
           : { [ORCHESTRATION_MCP_SERVER_NAME]: orchestrationMcpServer }),
       },
-      permissionMode: toSdkPermissionMode(initialPermissionMode),
+      permissionMode: initialSdkPermissionMode,
+      ...(initialSdkPermissionMode === "bypassPermissions"
+        ? { allowDangerouslySkipPermissions: true }
+        : {}),
       // Trim the SDK's stock plan-mode body to nudge the agent toward
       // memoize's two structured-interaction tools. The SDK still wraps
       // this with its read-only enforcement preamble + ExitPlanMode
