@@ -5,6 +5,7 @@ import { RelayPaths, type EnvironmentId } from "@zuse/wire";
 import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
 import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
+import { defaultEnvironmentLabel } from "../lan-auth/environment-label.ts";
 import {
   LanAuthConfig,
   LanAuthService,
@@ -198,6 +199,9 @@ export const RelayLinkServiceLive: Layer.Layer<
             relayUrl: input.relayUrl,
             hasLabel: input.label !== undefined && input.label.length > 0,
           });
+          // Give relay-listed environments the same human name as LAN clients.
+          const label =
+            input.label ?? (yield* defaultEnvironmentLabel());
           const token = yield* authService
             .getAccessToken()
             .pipe(
@@ -273,7 +277,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               environmentPublicKey: keys.publicJwk,
               providerKind: "desktop",
               endpoint: computeEndpoint(config),
-              label: input.label,
+              label,
               // Ask the relay to provision a managed Cloudflare tunnel so the
               // phone can reach this Mac from anywhere. If the relay has tunnels
               // disabled it simply returns no connector token and we stay on LAN.
@@ -319,7 +323,7 @@ export const RelayLinkServiceLive: Layer.Layer<
               relayIssuer: linked.relayIssuer,
               environmentId: keys.envId,
               environmentCredential: linked.environmentCredential,
-              label: input.label,
+              label,
               connectorToken: linked.connectorToken,
               tunnelHostname: linked.tunnelHostname,
               mintPublicKey: linked.mintPublicKey,
@@ -353,7 +357,7 @@ export const RelayLinkServiceLive: Layer.Layer<
             linked: true,
             relayUrl: input.relayUrl,
             environmentId: keys.envId,
-            label: input.label,
+            label,
             heartbeatActive: true,
             advertisedEndpoints: buildAdvertisedEndpoints({
               lan: config,

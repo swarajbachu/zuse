@@ -9,6 +9,7 @@ import {
 } from "@zuse/wire";
 
 import { buildAdvertisedEndpoints } from "./advertised-endpoints.ts";
+import { defaultEnvironmentLabel } from "./environment-label.ts";
 import { LanAuthConfig } from "./services/lan-auth-service.ts";
 import { LanAuthService } from "./services/lan-auth-service.ts";
 
@@ -75,6 +76,7 @@ const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
       environmentId: yield* auth.environmentId(),
       providerKind: "desktop",
       endpoint,
+      label: yield* defaultEnvironmentLabel(),
       advertisedEndpoints: buildAdvertisedEndpoints({
         lan: config,
         relay:

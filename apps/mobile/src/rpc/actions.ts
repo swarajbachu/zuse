@@ -1,4 +1,6 @@
 import {
+  type AgentAvailability,
+  type Chat,
   ComposerInput,
   type ComposerInput as ComposerInputType,
   Folder,
@@ -222,6 +224,29 @@ export const setSessionModel = (options: {
   );
 };
 
+/**
+ * Fetch the per-provider availability report so the model menu can hide
+ * providers/models whose CLI isn't installed. Resolves to `null` on any
+ * failure (old server without the RPC, transport error) so callers fall back
+ * to the full static catalog rather than showing an empty menu.
+ */
+export const fetchAgentAvailability = (options: {
+  connection: WsProtocolOptions;
+}): Effect.Effect<readonly AgentAvailability[] | null, never, never> => {
+  const program = Effect.gen(function* () {
+    const client = yield* getConnectionClient(options.connection);
+    return yield* client.agent.availability({});
+  });
+  return program.pipe(
+    Effect.catchAll((cause) =>
+      Effect.sync(() => {
+        reportConnectionFailure(options.connection, cause);
+        return null;
+      }),
+    ),
+  );
+};
+
 export const setSessionRuntimeMode = (options: {
   connection: WsProtocolOptions;
   sessionId: SessionId;
@@ -252,6 +277,40 @@ export const setSessionPermissionMode = (options: {
       sessionId: options.sessionId,
       mode: options.mode,
     });
+  });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
+  );
+};
+
+export const renameChat = (options: {
+  connection: WsProtocolOptions;
+  chatId: Chat["id"];
+  title: string;
+}) => {
+  const program = Effect.gen(function* () {
+    const client = yield* getConnectionClient(options.connection);
+    yield* client.chat.rename({
+      chatId: options.chatId,
+      title: options.title,
+    });
+  });
+  return program.pipe(
+    Effect.tapError((cause) =>
+      Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+    ),
+  );
+};
+
+export const markChatRead = (options: {
+  connection: WsProtocolOptions;
+  chatId: Chat["id"];
+}): Effect.Effect<Chat, unknown, never> => {
+  const program: Effect.Effect<Chat, unknown, never> = Effect.gen(function* () {
+    const client = yield* getConnectionClient(options.connection);
+    return yield* client.chat.markRead({ chatId: options.chatId });
   });
   return program.pipe(
     Effect.tapError((cause) =>

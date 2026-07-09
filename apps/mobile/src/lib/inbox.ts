@@ -22,7 +22,10 @@ export type InboxChatRow = {
   chat: Chat | null;
   session: Session;
   title: string;
+  /** Relative time since the last message ("2m", "3h", "Mon"). */
   subtitle: string;
+  /** `"${providerId} / ${model}"` — kept off the visible row but searchable. */
+  providerModel: string;
   status: SessionStatus;
   unread: boolean;
   updatedAt: number;
@@ -238,6 +241,9 @@ const rowForSession = ({
 }): InboxChatRow => {
   const status =
     statusBySession[connectionSessionKey(connection.key, session.id)] ?? session.status;
+  const updatedAt = timestampOf(
+    chat?.lastMessageAt ?? chat?.updatedAt ?? chat?.createdAt ?? 0,
+  );
   return {
     key: `chat:${connection.key}:${chat?.id ?? session.id}`,
     connectionKey: connection.key,
@@ -248,12 +254,51 @@ const rowForSession = ({
     chat,
     session,
     title: chat?.title ?? session.title,
-    subtitle: `${session.providerId} / ${session.model}`,
+    subtitle: relativeTimeLabel(updatedAt),
+    providerModel: `${session.providerId} / ${session.model}`,
     status,
     unread: chat !== null && isUnreadChat(chat),
-    updatedAt: timestampOf(chat?.lastMessageAt ?? chat?.updatedAt ?? chat?.createdAt ?? 0),
+    updatedAt,
   };
 };
+
+/**
+ * Compact relative-time label for an inbox row: "now", "2m", "3h", a weekday
+ * for the past week ("Mon"), then a short date ("Jul 3"). Returns "" when the
+ * timestamp is unknown. `now` is injectable for testing.
+ */
+export const relativeTimeLabel = (
+  updatedAt: number,
+  now: number = Date.now(),
+): string => {
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return "";
+  const diff = Math.max(0, now - updatedAt);
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const date = new Date(updatedAt);
+  if (days < 7) return WEEKDAYS[date.getDay()] ?? "";
+  return `${MONTHS[date.getMonth()] ?? ""} ${date.getDate()}`.trim();
+};
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 const compareRows = (a: InboxChatRow, b: InboxChatRow): number => {
   const active = Number(isActiveStatus(b.status)) - Number(isActiveStatus(a.status));
@@ -270,7 +315,7 @@ const matchesQuery = (row: InboxChatRow, query: string): boolean => {
     row.projectName,
     row.projectPath,
     row.connectionLabel,
-    row.subtitle,
+    row.providerModel,
     row.status,
     row.chat?.id,
     row.session.id,

@@ -1,9 +1,12 @@
 import type {
   Chat,
   Folder,
+  GitBranchInfo,
+  GitPrSummary,
   PermissionMode,
   ProviderId,
   RuntimeMode,
+  Worktree,
   WorktreeCreateSource,
   WorktreeId,
 } from "@zuse/wire";
@@ -57,6 +60,90 @@ export const MAIN_SOURCE: NewChatSource = {
   kind: "main",
   label: "Main checkout",
   worktreeId: null,
+};
+
+export type NewChatSourceKind = NewChatSource["kind"];
+
+/** A pickable source in the branch selector for a given work-mode. */
+export type NewChatSourceOption = {
+  key: string;
+  label: string;
+  source: NewChatSource;
+};
+
+/** Work-mode categories shown in the new-chat work-mode selector. */
+export const WORK_MODE_OPTIONS: readonly {
+  kind: NewChatSourceKind;
+  label: string;
+}[] = [
+  { kind: "main", label: "Work locally" },
+  { kind: "worktree", label: "New worktree" },
+  { kind: "branch", label: "Existing branch" },
+  { kind: "pr", label: "Pull request" },
+];
+
+export const workModeLabel = (kind: NewChatSourceKind): string =>
+  WORK_MODE_OPTIONS.find((option) => option.kind === kind)?.label ??
+  "Work locally";
+
+/**
+ * The concrete source options for the branch selector given the chosen
+ * work-mode, derived from the already-fetched worktree/branch/PR lists. Pure so
+ * the row content is testable. Builds the same {@link NewChatSource} objects
+ * the screen used before the layout change.
+ */
+export const sourceOptionsForKind = (
+  kind: NewChatSourceKind,
+  worktrees: readonly Worktree[],
+  branches: readonly GitBranchInfo[],
+  prs: readonly GitPrSummary[],
+): NewChatSourceOption[] => {
+  switch (kind) {
+    case "main":
+      return [{ key: "main", label: MAIN_SOURCE.label, source: MAIN_SOURCE }];
+    case "worktree":
+      return worktrees.map((worktree) => ({
+        key: worktree.id,
+        label: worktree.branch,
+        source: {
+          kind: "worktree",
+          label: worktree.branch,
+          worktreeId: worktree.id,
+        },
+      }));
+    case "branch":
+      return branches
+        .filter((branch) => !branch.current)
+        .map((branch) => ({
+          key: `${branch.kind}:${branch.name}`,
+          label: branch.name,
+          source: {
+            kind: "branch",
+            label: branch.name,
+            worktreeId: null,
+            createSource: {
+              _tag: "branch",
+              branch: branch.name,
+              remote: branch.remote,
+            },
+          },
+        }));
+    case "pr":
+      return prs.map((pr) => ({
+        key: `pr:${pr.number}`,
+        label: `#${pr.number} ${pr.title}`,
+        source: {
+          kind: "pr",
+          label: `#${pr.number}`,
+          worktreeId: null,
+          createSource: {
+            _tag: "pr",
+            number: pr.number,
+            headRefName: pr.headRefName,
+          },
+        },
+      }));
+  }
 };
 
 export const buildNewChatCreatePayload = (

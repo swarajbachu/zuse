@@ -8,11 +8,11 @@ import {
 import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/wire";
 
 import {
+  defaultModelOptions,
   modelOptionsForProvider,
   PERMISSION_OPTIONS,
   PROVIDER_LABEL,
   providerOptions,
-  reasoningDescriptorForModel,
   reasoningValueForModel,
   RUNTIME_OPTIONS,
 } from "~/lib/model-options";
@@ -61,13 +61,31 @@ export function ComposerModelMenu({
   value,
   editable,
   onChange,
+  availableProviders,
+  canChangeProvider = true,
+  canChangeReasoning = true,
 }: {
   value: ModelModeValue;
   editable: boolean;
   onChange: (value: ModelModeValue) => void;
+  /** Provider ids to show; `null`/`undefined` = no filtering (full catalog). */
+  availableProviders?: readonly ProviderId[] | null;
+  /** When false, only the current provider's model submenu is shown. */
+  canChangeProvider?: boolean;
+  /** When false, the reasoning/effort section is hidden. */
+  canChangeReasoning?: boolean;
 }) {
   return (
-    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+    // Re-mount the native Host on provider/model change: iOS UIMenu snapshots
+    // its content when opened, so switching provider/model must rebuild the
+    // menu to refresh the reasoning options on next open. The re-mount is
+    // invisible because a model tap dismisses the menu first.
+    <Host
+      key={`${value.providerId}:${value.model}`}
+      matchContents
+      seedColor="hsl(72 98% 54%)"
+      colorScheme="dark"
+    >
       <Menu
         label={compactModelLabel(value)}
         systemImage={providerSystemImage(value.providerId)}
@@ -76,12 +94,16 @@ export function ComposerModelMenu({
           value={value}
           editable={editable}
           onChange={onChange}
+          availableProviders={availableProviders}
+          canChangeProvider={canChangeProvider}
         />
-        <ReasoningButtons
-          value={value}
-          editable={editable}
-          onChange={onChange}
-        />
+        {canChangeReasoning ? (
+          <ReasoningButtons
+            value={value}
+            editable={editable}
+            onChange={onChange}
+          />
+        ) : null}
       </Menu>
     </Host>
   );
@@ -343,14 +365,30 @@ function ProviderModelMenus({
   value,
   editable,
   onChange,
+  availableProviders,
+  canChangeProvider = true,
 }: {
   value: ModelModeValue;
   editable: boolean;
   onChange: (value: ModelModeValue) => void;
+  availableProviders?: readonly ProviderId[] | null;
+  canChangeProvider?: boolean;
 }) {
+  const providers = providerOptions().filter((provider) => {
+    // Locked to the current provider mid-session (provider swaps need a fresh
+    // chat) — show only its model submenu.
+    if (!canChangeProvider) return provider.value === value.providerId;
+    // Hide providers whose CLI isn't installed; keep the current provider so a
+    // stale selection never vanishes from the menu.
+    if (availableProviders == null) return true;
+    return (
+      provider.value === value.providerId ||
+      availableProviders.includes(provider.value)
+    );
+  });
   return (
     <Section title="Models">
-      {providerOptions().map((provider) => (
+      {providers.map((provider) => (
         <Menu
           key={provider.value}
           label={provider.label}
@@ -514,17 +552,6 @@ const modeLabel = (value: ModelModeValue): string =>
 const runtimeLabel = (value: ModelModeValue): string =>
   RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
   value.runtimeMode;
-
-const defaultModelOptions = (
-  providerId: ProviderId,
-  model: string,
-): Record<string, string> | undefined => {
-  const descriptor = reasoningDescriptorForModel(providerId, model);
-  const value = descriptor?.defaultId ?? descriptor?.options[0]?.id;
-  return descriptor !== null && value !== undefined
-    ? { [descriptor.id]: value }
-    : undefined;
-};
 
 const providerSystemImage = (providerId: ProviderId): string => {
   switch (providerId) {

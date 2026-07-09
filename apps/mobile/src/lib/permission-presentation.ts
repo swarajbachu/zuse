@@ -20,3 +20,20 @@ export const describePermissionKind = (
       return { label: kind.tool, detail: kind.summary, mono: false };
   }
 };
+
+/**
+ * Bold headline question for the docked permission panel, phrased per kind so
+ * the ask reads naturally above the command/detail box.
+ */
+export const permissionQuestion = (kind: PermissionKind): string => {
+  switch (kind._tag) {
+    case "Bash":
+      return "Do you want to allow running this command?";
+    case "FileWrite":
+      return "Do you want to allow writing to this file?";
+    case "Network":
+      return "Do you want to allow this network request?";
+    case "Other":
+      return "Do you want to allow this action?";
+  }
+};

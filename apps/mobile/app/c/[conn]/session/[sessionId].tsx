@@ -1,7 +1,28 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Stack, useLocalSearchParams } from "expo-router";
-import { FlatList, KeyboardAvoidingView, Text, View } from "react-native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { router, Stack, useLocalSearchParams } from "expo-router";
+import {
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
 import type { SessionId, UserQuestion } from "@zuse/wire";
 import { Effect } from "effect";
 
@@ -11,12 +32,21 @@ import {
   MessageRow,
   type MessageRowContext,
 } from "~/components/messages/message-row";
+import { SessionActionsMenu } from "~/components/session-actions-menu";
+import { GlassSurface } from "~/components/ui/glass-surface";
+import { ShimmerText } from "~/components/ui/shimmer-text";
 import {
   normalizeConnParam,
   optionsForConnection,
 } from "~/lib/connection-params";
+import { visibleConnectionLabel } from "~/lib/display-names";
 import { connectionSessionKey } from "~/lib/session-key";
-import { answerQuestion } from "~/rpc/actions";
+import {
+  answerQuestion,
+  flushServerQueue,
+  makeTextInput,
+  queueMessage,
+} from "~/rpc/actions";
 import { isFreshChat } from "~/lib/composer-state";
 import { messageKey, sanitizeMessages } from "~/lib/message-safety";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
@@ -60,6 +90,9 @@ function ThreadScreen() {
   const listRef = useRef<FlatList>(null);
   const didInitialScroll = useRef(false);
   const initialScrollQuietUntil = useRef(0);
+  const atBottomRef = useRef(true);
+  const [showJumpButton, setShowJumpButton] = useState(false);
+  const jumpOpacity = useSharedValue(0);
   const {
     connections,
     hydrated,
@@ -77,6 +110,16 @@ function ThreadScreen() {
   const bundles = useSessionsStore(
     (state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
   );
+  const archiveChat = useSessionsStore((state) => state.archiveChat);
+  const renameChatAction = useSessionsStore((state) => state.renameChat);
+  const markChatRead = useSessionsStore((state) => state.markChatRead);
+  const machineLabel = useMemo(() => {
+    const record = connections.find(
+      (connection) =>
+        connection.key === connKey || connection.environmentId === connKey,
+    );
+    return record?.label ?? visibleConnectionLabel(undefined, connKey);
+  }, [connections, connKey]);
   const { messagesBySession, errorBySession, hydrate } = useMobileMessagesStore();
   const rawMessages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
   const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
@@ -86,6 +129,12 @@ function ThreadScreen() {
     useSessionsStore((state) => state.statusBySession[stateKey]) ??
     detail?.session.status;
   const fresh = isFreshChat(messages);
+  const lastMessageTag = messages[messages.length - 1]?.content._tag;
+  // Show a "Working" shimmer only before the first tool/assistant row streams
+  // in — i.e. the last thing on screen is still the user's message.
+  const showWorking =
+    sessionStatus === "running" &&
+    (lastMessageTag === "user" || lastMessageTag === "user_rich");
 
   const hydratePermissions = usePermissionsStore((state) => state.hydrate);
   const decidePermission = usePermissionsStore((state) => state.decide);
@@ -123,6 +172,14 @@ function ThreadScreen() {
     normalizedSessionId,
     options,
   ]);
+
+  const chatId = detail?.chat?.id ?? null;
+  // Mark the chat read on open/focus (and when the chat resolves after a
+  // hydrate) so the inbox unread styling clears. Idempotent server-side.
+  useEffect(() => {
+    if (chatId === null || options === null) return;
+    void markChatRead(connKey, options, chatId);
+  }, [chatId, connKey, options, markChatRead]);
 
   const error = errorBySession[stateKey];
   const transportOnline = connectionSnapshot?.status === "connected";
@@ -205,6 +262,7 @@ function ThreadScreen() {
       questionsByItemId,
       toolResultsByItemId,
       planMode: detail?.session.permissionMode === "plan",
+      sessionRunning: sessionStatus === "running",
       onAnswerQuestion,
     }),
     [
@@ -212,6 +270,7 @@ function ThreadScreen() {
       detail?.session.permissionMode,
       onAnswerQuestion,
       questionsByItemId,
+      sessionStatus,
       toolResultsByItemId,
     ],
   );
@@ -219,10 +278,21 @@ function ThreadScreen() {
   useEffect(() => {
     didInitialScroll.current = false;
     initialScrollQuietUntil.current = Date.now() + 500;
+    atBottomRef.current = true;
   }, [stateKey]);
+
+  // Fade the jump button in/out from its visibility state (assignment must
+  // live in an effect for the React Compiler's shared-value immutability rule).
+  useEffect(() => {
+    jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, { duration: 160 });
+  }, [showJumpButton, jumpOpacity]);
 
   const scrollToLatest = useCallback(() => {
     if (messages.length === 0) return;
+    // Only autoscroll when the user is already at the bottom, or during the
+    // very first positioning of a freshly-opened chat. Otherwise leave the
+    // scroll position alone so reading isn't yanked (D6).
+    if (didInitialScroll.current && !atBottomRef.current) return;
     const animated =
       didInitialScroll.current && Date.now() > initialScrollQuietUntil.current;
     didInitialScroll.current = true;
@@ -231,9 +301,101 @@ function ThreadScreen() {
     });
   }, [messages.length]);
 
+  // Plain functions (not useCallback): the React Compiler memoizes them, and
+  // manual memoization of setState-calling callbacks trips its preservation rule.
+  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const atBottom = distanceFromBottom <= 40;
+    atBottomRef.current = atBottom;
+    if (atBottom === showJumpButton) setShowJumpButton(!atBottom);
+  };
+
+  const jumpToBottom = () => {
+    atBottomRef.current = true;
+    setShowJumpButton(false);
+    listRef.current?.scrollToEnd({ animated: true });
+  };
+
+  const jumpStyle = useAnimatedStyle(() => ({ opacity: jumpOpacity.value }));
+
+  const onRename = useCallback(() => {
+    if (chatId === null || options === null) return;
+    Alert.prompt(
+      "Rename chat",
+      undefined,
+      (value) => {
+        const next = value?.trim() ?? "";
+        if (next.length === 0) return;
+        void renameChatAction(connKey, options, chatId, next);
+      },
+      "plain-text",
+      title,
+    );
+  }, [chatId, connKey, options, renameChatAction, title]);
+
+  const onArchive = useCallback(() => {
+    if (chatId === null || options === null) return;
+    void archiveChat(connKey, options, chatId).then(() => router.back());
+  }, [archiveChat, chatId, connKey, options]);
+
   return (
     <KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen
+        options={{
+          headerBackVisible: false,
+          headerTitleAlign: "center",
+          headerLeft: () => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              hitSlop={10}
+              onPress={() => router.back()}
+              className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
+              style={{ borderCurve: "continuous" }}
+            >
+              <ChevronLeft size={20} color="hsl(72 4% 92%)" />
+            </Pressable>
+          ),
+          headerTitle: () => (
+            <View className="items-center">
+              <Text
+                className="font-sans-medium text-[15px] text-foreground"
+                numberOfLines={1}
+              >
+                {title}
+              </Text>
+              <Text
+                className="font-sans text-[11px] text-muted-foreground"
+                numberOfLines={1}
+              >
+                {detail?.project.name
+                  ? `${detail.project.name} · ${machineLabel}`
+                  : machineLabel}
+              </Text>
+            </View>
+          ),
+          headerRight: () => (
+            <View className="flex-row items-center gap-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="New chat"
+                hitSlop={10}
+                onPress={() => router.push("/new-chat")}
+                className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
+                style={{ borderCurve: "continuous" }}
+              >
+                <Plus size={19} color="hsl(72 4% 92%)" />
+              </Pressable>
+              <SessionActionsMenu
+                onRename={chatId === null ? undefined : onRename}
+                onArchive={onArchive}
+              />
+            </View>
+          ),
+        }}
+      />
       {hydrated && options === null ? (
         <View className="px-4 py-3">
           <Text selectable className="font-sans text-[13px] text-danger">
@@ -246,7 +408,13 @@ function ThreadScreen() {
         ref={listRef}
         data={messages}
         keyExtractor={messageKey}
-        renderItem={({ item }) => <MessageRow message={item} ctx={ctx} />}
+        renderItem={({ item, index }) => (
+          <MessageRow
+            message={item}
+            ctx={ctx}
+            isLast={index === messages.length - 1}
+          />
+        )}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerClassName="gap-1 px-4 py-3"
         ListHeaderComponent={
@@ -266,17 +434,51 @@ function ThreadScreen() {
           ) : null
         }
         ListFooterComponent={
-          queued.length > 0 ? (
+          showWorking || queued.length > 0 ? (
             <View className="pt-1">
+              {showWorking ? (
+                <View className="px-2 py-1.5">
+                  <ShimmerText className="font-sans text-[13px] text-muted-foreground">
+                    Working
+                  </ShimmerText>
+                </View>
+              ) : null}
               {queued.map((item) => (
                 <QueuedBubble key={item.clientId} text={item.text} />
               ))}
             </View>
           ) : null
         }
+        onScroll={onScroll}
+        scrollEventThrottle={32}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onContentSizeChange={scrollToLatest}
         onLayout={scrollToLatest}
       />
+      {showJumpButton ? (
+        <Animated.View
+          pointerEvents={showJumpButton ? "auto" : "none"}
+          style={[jumpStyle, { position: "absolute", right: 16, bottom: 96 }]}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Scroll to latest"
+            onPress={jumpToBottom}
+          >
+            <GlassSurface
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ChevronDown size={20} color="hsl(72 4% 92%)" />
+            </GlassSurface>
+          </Pressable>
+        </Animated.View>
+      ) : null}
       {options === null || pending.length === 0 ? null : (
         <LivePermissionAccessory
           requests={pending}
@@ -290,6 +492,30 @@ function ThreadScreen() {
               decision,
             )
           }
+          onDenyWithMessage={async (request, message) => {
+            await decidePermission(
+              connKey,
+              options,
+              normalizedSessionId,
+              request.id,
+              { _tag: "Deny" },
+            );
+            // Queue the typed guidance as the next user message (the Deny wire
+            // decision carries no text of its own).
+            await Effect.runPromise(
+              queueMessage({
+                connection: options,
+                sessionId: normalizedSessionId,
+                input: makeTextInput(message),
+              }),
+            ).catch(() => {});
+            await Effect.runPromise(
+              flushServerQueue({
+                connection: options,
+                sessionId: normalizedSessionId,
+              }),
+            ).catch(() => {});
+          }}
         />
       )}
       {options === null ? null : (
@@ -300,13 +526,6 @@ function ThreadScreen() {
           session={detail?.session ?? null}
           status={sessionStatus}
           fresh={fresh}
-          projectLabel={detail?.project.name}
-          sourceLabel={
-            detail?.session.worktreeId === null ||
-            detail?.session.worktreeId === undefined
-              ? "Main"
-              : "Branch"
-          }
           online={transportOnline}
           bottomInset={insets.bottom}
         />

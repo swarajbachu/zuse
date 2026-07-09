@@ -14,6 +14,10 @@ import { create } from "zustand";
 
 import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import { connectionSessionKey } from "~/lib/session-key";
+import {
+  markChatRead as markChatReadRpc,
+  renameChat as renameChatRpc,
+} from "~/rpc/actions";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useMobileMessagesStore } from "./messages";
@@ -39,6 +43,17 @@ type SessionsState = {
     connKey: string,
     options: WsProtocolOptions,
     sessionId: Session["id"],
+  ) => Promise<void>;
+  renameChat: (
+    connKey: string,
+    options: WsProtocolOptions,
+    chatId: Chat["id"],
+    title: string,
+  ) => Promise<void>;
+  markChatRead: (
+    connKey: string,
+    options: WsProtocolOptions,
+    chatId: Chat["id"],
   ) => Promise<void>;
   createChat: (
     connKey: string,
@@ -127,6 +142,61 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           [connKey]: cause instanceof Error ? cause.message : String(cause),
         },
       }));
+    }
+  },
+  renameChat: async (connKey, options, chatId, title) => {
+    const trimmed = title.trim();
+    if (trimmed.length === 0) return;
+    const previous = get().bundlesByConnection[connKey] ?? [];
+    set((state) => ({
+      bundlesByConnection: {
+        ...state.bundlesByConnection,
+        [connKey]: patchChatFields(previous, chatId, { title: trimmed }),
+      },
+    }));
+    try {
+      await Effect.runPromise(
+        renameChatRpc({ connection: options, chatId, title: trimmed }),
+      );
+    } catch (cause) {
+      set((state) => ({
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: previous,
+        },
+        errorByConnection: {
+          ...state.errorByConnection,
+          [connKey]: cause instanceof Error ? cause.message : String(cause),
+        },
+      }));
+    }
+  },
+  markChatRead: async (connKey, options, chatId) => {
+    // Optimistically stamp last-read to now so the inbox unread styling clears
+    // immediately; reconcile with the server's canonical chat on success.
+    const now = new Date();
+    set((state) => ({
+      bundlesByConnection: {
+        ...state.bundlesByConnection,
+        [connKey]: patchChatFields(
+          state.bundlesByConnection[connKey] ?? [],
+          chatId,
+          { lastReadAt: now },
+        ),
+      },
+    }));
+    try {
+      const chat = await Effect.runPromise(
+        markChatReadRpc({ connection: options, chatId }),
+      );
+      set((state) => ({
+        bundlesByConnection: {
+          ...state.bundlesByConnection,
+          [connKey]: patchChat(state.bundlesByConnection[connKey] ?? [], chat),
+        },
+      }));
+    } catch {
+      // Non-fatal: the optimistic stamp stands until the next hydrate.
     }
   },
   createChat: async (connKey, options, input) => {
@@ -331,6 +401,18 @@ const patchChat = (
           ].sort((a, b) => timestampOf(b.updatedAt) - timestampOf(a.updatedAt)),
         },
   );
+
+const patchChatFields = (
+  bundles: readonly ProjectBundle[],
+  chatId: Chat["id"],
+  fields: Partial<Chat>,
+): ProjectBundle[] =>
+  bundles.map((bundle) => ({
+    ...bundle,
+    chats: bundle.chats.map((chat) =>
+      chat.id === chatId ? ({ ...chat, ...fields } as Chat) : chat,
+    ),
+  }));
 
 const patchCreatedChat = (
   bundles: readonly ProjectBundle[],

@@ -31,6 +31,7 @@ import {
   type MobileToolIcon,
 } from "~/lib/tool-presentation";
 import { putPlanDocument } from "~/store/plan-viewer";
+import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Markdown } from "./markdown";
 import {
   PendingUserInputCard,
@@ -43,6 +44,8 @@ export type MessageRowContext = {
   questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
   toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
   planMode?: boolean;
+  /** Whether the session is actively running (drives the shimmer on the last row). */
+  sessionRunning?: boolean;
   onAnswerQuestion: (
     itemId: string,
     answers: readonly QuestionAnswer[],
@@ -52,14 +55,16 @@ export type MessageRowContext = {
 export const MessageRow = ({
   message,
   ctx,
+  isLast = false,
 }: {
   message: Message;
   ctx: MessageRowContext;
+  isLast?: boolean;
 }) => (
   <MessageRowBoundary
     context={`message-row:${message.id}:${message.content._tag}`}
   >
-    <MessageRowContent message={message} ctx={ctx} />
+    <MessageRowContent message={message} ctx={ctx} isLast={isLast} />
   </MessageRowBoundary>
 );
 
@@ -91,11 +96,14 @@ class MessageRowBoundary extends React.Component<
 const MessageRowContent = ({
   message,
   ctx,
+  isLast,
 }: {
   message: Message;
   ctx: MessageRowContext;
+  isLast: boolean;
 }) => {
   const content = message.content;
+  const shimmerActive = ctx.sessionRunning === true && isLast;
   switch (content._tag) {
     case "user":
       return <UserBubble text={content.text} goal={content.goal} />;
@@ -115,12 +123,13 @@ const MessageRowContent = ({
         />
       );
     case "thinking":
-      return <ThinkingRow content={content} />;
+      return <ThinkingRow content={content} shimmer={shimmerActive} />;
     case "tool_use":
       return (
         <ToolUseRow
           content={content}
           result={ctx.toolResultsByItemId.get(content.itemId)}
+          shimmer={shimmerActive}
         />
       );
     case "tool_result":
@@ -256,38 +265,75 @@ const PlanPreview = ({ text }: { text: string }) => {
 
 const ThinkingRow = ({
   content,
+  shimmer,
 }: {
   content: Extract<MessageContent, { _tag: "thinking" }>;
+  shimmer: boolean;
 }) => (
-  <ExpandableEventRow
+  <PlainEventRow
     icon="thinking"
-    title={content.redacted ? "Redacted thinking" : "Thinking"}
-    detail={content.redacted ? "Hidden by the model" : firstLine(content.text)}
+    label={content.redacted ? "Redacted thinking" : "Thinking"}
+    shimmer={shimmer && !content.redacted}
   >
-    <Text className="font-sans text-sm leading-5 text-muted-foreground">
+    <Text className="font-sans text-[13px] leading-5 text-muted-foreground">
       {content.redacted ? "Thought content was redacted." : content.text}
     </Text>
-  </ExpandableEventRow>
+  </PlainEventRow>
 );
 
 const ToolUseRow = ({
   content,
   result,
+  shimmer,
 }: {
   content: Extract<MessageContent, { _tag: "tool_use" }>;
   result?: ToolResultRecord;
+  shimmer: boolean;
 }) => {
   const view = buildToolPresentation(content, result);
+  const running = view.resultLabel === "Running";
 
-  return (
-    <ExpandableEventRow
-      icon={view.icon}
-      title={view.label}
-      detail={view.detail ?? undefined}
-      badge={view.resultLabel}
-      danger={view.isError}
-    >
-      {view.editSummaries.length > 0 ? (
+  // Errors keep the boxed danger row for readability (risk containment).
+  if (view.isError) {
+    return (
+      <ExpandableEventRow
+        icon={view.icon}
+        title={view.label}
+        detail={view.detail ?? undefined}
+        badge={view.resultLabel}
+        danger
+      >
+        <Text className="font-mono text-xs leading-5 text-muted-foreground">
+          {view.body}
+        </Text>
+        {view.resultBody !== null ? (
+          <View className="mt-3 border-t border-border pt-3">
+            <Text className="mb-1 font-sans-medium text-[11px] uppercase text-danger">
+              Error
+            </Text>
+            <Text
+              selectable
+              className="font-mono text-xs leading-5 text-muted-foreground"
+              numberOfLines={8}
+            >
+              {view.resultBody}
+            </Text>
+          </View>
+        ) : null}
+      </ExpandableEventRow>
+    );
+  }
+
+  // File-changing tools keep a subtle rounded container headed by the change
+  // summary, expandable to the per-file mono diffs.
+  if (view.fileChangeSummary !== null) {
+    return (
+      <ExpandableEventRow
+        icon="edit"
+        title={view.fileChangeSummary}
+        badge={running ? "Running" : undefined}
+        shimmer={shimmer && running}
+      >
         <View className="gap-2">
           {view.editSummaries.map((summary) => (
             <View
@@ -319,31 +365,30 @@ const ToolUseRow = ({
             </View>
           ))}
         </View>
-      ) : (
-        <Text className="font-mono text-xs leading-5 text-muted-foreground">
-          {view.body}
-        </Text>
-      )}
+      </ExpandableEventRow>
+    );
+  }
+
+  // Everything else: a plain full-width tool line.
+  return (
+    <PlainEventRow
+      icon={view.icon}
+      label={view.inlineLabel}
+      shimmer={shimmer && running}
+    >
+      <Text className="font-mono text-xs leading-5 text-muted-foreground">
+        {view.body}
+      </Text>
       {view.resultBody !== null ? (
-        <View className="mt-3 border-t border-border pt-3">
-          <Text
-            className={cn(
-              "mb-1 font-sans-medium text-[11px] uppercase text-muted-foreground",
-              view.isError && "text-danger",
-            )}
-          >
-            {view.isError ? "Error" : "Result"}
-          </Text>
-          <Text
-            selectable
-            className="font-mono text-xs leading-5 text-muted-foreground"
-            numberOfLines={8}
-          >
-            {view.resultBody}
-          </Text>
-        </View>
+        <Text
+          selectable
+          className="mt-2 font-mono text-xs leading-5 text-muted-foreground"
+          numberOfLines={8}
+        >
+          {view.resultBody}
+        </Text>
       ) : null}
-    </ExpandableEventRow>
+    </PlainEventRow>
   );
 };
 
@@ -351,21 +396,31 @@ const ToolResultRow = ({
   content,
 }: {
   content: Extract<MessageContent, { _tag: "tool_result" }>;
-}) => (
-  <ExpandableEventRow
-    icon="wrench"
-    title={content.isError ? "Tool error" : "Tool result"}
-    detail={summarizeValue(content.output, 96)}
-    danger={content.isError}
-  >
-    <Text
-      selectable
-      className="font-mono text-xs leading-5 text-muted-foreground"
+}) =>
+  content.isError ? (
+    <ExpandableEventRow
+      icon="wrench"
+      title="Tool error"
+      detail={summarizeValue(content.output, 96)}
+      danger
     >
-      {summarizeValue(content.output)}
-    </Text>
-  </ExpandableEventRow>
-);
+      <Text
+        selectable
+        className="font-mono text-xs leading-5 text-muted-foreground"
+      >
+        {summarizeValue(content.output)}
+      </Text>
+    </ExpandableEventRow>
+  ) : (
+    <PlainEventRow icon="wrench" label="Tool result">
+      <Text
+        selectable
+        className="font-mono text-xs leading-5 text-muted-foreground"
+      >
+        {summarizeValue(content.output)}
+      </Text>
+    </PlainEventRow>
+  );
 
 const ErrorRow = ({ message }: { message: string }) => (
   <View className="px-2 py-2">
@@ -564,12 +619,60 @@ const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
   ...content.skillRefs.map((skill) => skill.name),
 ];
 
+/**
+ * Boxless, full-width event row for thinking / non-error tool lines: a leading
+ * muted icon, a single-line label (optionally shimmering while the row is the
+ * last running one), and a trailing chevron. Expanded content renders as plain
+ * indented text — no border, no background.
+ */
+function PlainEventRow({
+  icon,
+  label,
+  shimmer = false,
+  children,
+}: {
+  icon: "thinking" | "hourglass" | MobileToolIcon;
+  label: string;
+  shimmer?: boolean;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={() => setExpanded((value) => !value)}
+      className="px-2 py-1.5 active:opacity-60"
+    >
+      <View className="flex-row items-center gap-2">
+        {renderToolRowIcon(icon, "hsl(72 2% 64%)")}
+        {shimmer ? (
+          <ShimmerText className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground">
+            {label}
+          </ShimmerText>
+        ) : (
+          <Text
+            className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground"
+            numberOfLines={1}
+          >
+            {label}
+          </Text>
+        )}
+        <Chevron size={12} color="hsl(72 2% 64%)" />
+      </View>
+      {expanded ? <View className="mt-2 pl-6">{children}</View> : null}
+    </Pressable>
+  );
+}
+
 function ExpandableEventRow({
   title,
   detail,
   badge,
   danger,
   icon,
+  shimmer = false,
   children,
 }: {
   title: string;
@@ -577,6 +680,7 @@ function ExpandableEventRow({
   badge?: string;
   danger?: boolean;
   icon: "thinking" | "hourglass" | MobileToolIcon;
+  shimmer?: boolean;
   children: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -599,15 +703,21 @@ function ExpandableEventRow({
             icon,
             danger ? "hsl(2 86% 64%)" : "hsl(72 98% 54%)",
           )}
-          <Text
-            className={cn(
-              "min-w-0 flex-1 font-sans-medium text-[13px]",
-              danger ? "text-danger" : "text-foreground",
-            )}
-            numberOfLines={1}
-          >
-            {title}
-          </Text>
+          {shimmer && !danger ? (
+            <ShimmerText className="min-w-0 flex-1 font-sans-medium text-[13px] text-foreground">
+              {title}
+            </ShimmerText>
+          ) : (
+            <Text
+              className={cn(
+                "min-w-0 flex-1 font-sans-medium text-[13px]",
+                danger ? "text-danger" : "text-foreground",
+              )}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+          )}
           {badge ? (
             <Text
               className={cn(
@@ -713,11 +823,6 @@ function safeSummary(value: unknown): string {
     return "Unsupported message payload";
   }
 }
-
-const firstLine = (value: string): string => {
-  const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
-  return line.length > 0 ? line : "(empty)";
-};
 
 const isLikelyPlan = (text: string): boolean => {
   const value = text.toLowerCase();

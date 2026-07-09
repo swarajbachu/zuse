@@ -21,12 +21,23 @@ export type MobileToolIcon =
 export type MobileToolPresentation = {
   icon: MobileToolIcon;
   label: string;
+  /**
+   * Compact one-line label for the plain (boxless) tool row, e.g. "Ran bun
+   * test", "Edited app.ts", "Read app.ts". Falls back to {@link label} for
+   * tools without a natural verb phrase.
+   */
+  inlineLabel: string;
   detail: string | null;
   body: string;
   resultBody: string | null;
   resultLabel: "Running" | "Result" | "Error";
   isError: boolean;
   editSummaries: ReturnType<typeof extractEditSummaries>;
+  /**
+   * "N file(s) changed +A −B" header for the file-change container, or `null`
+   * when the tool produced no edit summaries.
+   */
+  fileChangeSummary: string | null;
 };
 
 type ToolUseContent = Extract<MessageContent, { _tag: "tool_use" }>;
@@ -44,12 +55,75 @@ export const buildToolPresentation = (
 
   return {
     ...base,
+    inlineLabel: inlineLabelFor(normalizedTool, input, content.input, base.label),
     resultBody: resultText,
     resultLabel:
       result === undefined ? "Running" : result.isError ? "Error" : "Result",
     isError: result?.isError === true,
     editSummaries,
+    fileChangeSummary: fileChangeSummaryFor(editSummaries),
   };
+};
+
+const inlineLabelFor = (
+  tool: string,
+  input: Record<string, unknown>,
+  rawInput: unknown,
+  fallbackLabel: string,
+): string => {
+  switch (tool) {
+    case "Bash":
+    case "Shell":
+    case "Execute":
+    case "Run":
+    case "run_shell_command":
+    case "run_terminal_cmd": {
+      const command =
+        stringValue(input.command) ??
+        stringValue(input.cmd) ??
+        stringValue(input.shell_command);
+      return command === null
+        ? fallbackLabel
+        : `Ran ${firstLineOf(command)}`;
+    }
+    case "Write":
+    case "WriteFile": {
+      const path = stringValue(input.file_path) ?? stringValue(input.path);
+      return path === null ? fallbackLabel : `Created ${basename(path)}`;
+    }
+    case "Edit":
+    case "MultiEdit": {
+      const path = stringValue(input.file_path) ?? stringValue(input.path);
+      return path === null ? fallbackLabel : `Edited ${basename(path)}`;
+    }
+    case "Read":
+    case "ReadFile": {
+      const path = stringValue(input.file_path) ?? stringValue(input.path);
+      return path === null ? fallbackLabel : `Read ${basename(path)}`;
+    }
+    default:
+      return fallbackLabel;
+  }
+};
+
+const fileChangeSummaryFor = (
+  summaries: readonly { added: number; removed: number }[],
+): string | null => {
+  if (summaries.length === 0) return null;
+  const added = summaries.reduce((sum, item) => sum + item.added, 0);
+  const removed = summaries.reduce((sum, item) => sum + item.removed, 0);
+  const files = `${summaries.length} file${summaries.length === 1 ? "" : "s"} changed`;
+  return `${files} +${added} −${removed}`;
+};
+
+const firstLineOf = (value: string): string => {
+  const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
+  return line.length > 0 ? line : value.trim();
+};
+
+const basename = (path: string): string => {
+  const parts = path.split("/").filter((part) => part.length > 0);
+  return parts.length > 0 ? parts[parts.length - 1]! : path;
 };
 
 export const toResultText = (output: unknown): string => {
@@ -87,7 +161,15 @@ const buildBaseToolView = (
   input: Record<string, unknown>,
   rawInput: unknown,
   resultText: string | null,
-): Omit<MobileToolPresentation, "resultBody" | "resultLabel" | "isError" | "editSummaries"> => {
+): Omit<
+  MobileToolPresentation,
+  | "resultBody"
+  | "resultLabel"
+  | "isError"
+  | "editSummaries"
+  | "inlineLabel"
+  | "fileChangeSummary"
+> => {
   switch (tool) {
     case "Bash":
     case "Shell":
