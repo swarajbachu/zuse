@@ -1738,6 +1738,65 @@ describe("MessageStore — provider event persistence", () => {
       scriptedEvents = [];
     }
   });
+
+  it("does not persist duplicate tool_use events for equivalent tool input", async () => {
+    scriptedEvents = [
+      {
+        _tag: "ToolUse",
+        itemId: "call-read" as never,
+        tool: "Read",
+        input: { target_file: "/repo/a.ts" },
+      },
+      {
+        _tag: "ToolUse",
+        itemId: "call-read" as never,
+        tool: "Read",
+        input: { file_path: "/repo/a.ts" },
+      },
+      { _tag: "Completed", reason: "ended" },
+    ];
+    try {
+      await withRuntime(async (run) => {
+        const { initialSession } = await run(
+          Effect.flatMap(store, (s) =>
+            s.createChat({
+              projectId: PROJECT_ID,
+              providerId: "grok",
+              model: "grok-4.5",
+              initialPrompt: "read file",
+            }),
+          ),
+        );
+        const id = initialSession.id;
+
+        const findToolRows = Effect.flatMap(store, (s) =>
+          s.listMessages(id),
+        ).pipe(
+          Effect.map((msgs) =>
+            msgs.filter((m) => m.content._tag === "tool_use"),
+          ),
+          Effect.flatMap((rows) =>
+            rows.length > 0 ? Effect.succeed(rows) : Effect.fail("not yet"),
+          ),
+          Effect.retry(
+            Schedule.spaced("10 millis").pipe(
+              Schedule.intersect(Schedule.recurs(100)),
+            ),
+          ),
+        );
+
+        const toolRows = await run(findToolRows);
+        expect(toolRows).toHaveLength(1);
+        expect(toolRows[0]?.content).toMatchObject({
+          _tag: "tool_use",
+          itemId: "call-read",
+          tool: "Read",
+        });
+      });
+    } finally {
+      scriptedEvents = [];
+    }
+  });
 });
 
 describe("MessageStore cursor streaming", () => {

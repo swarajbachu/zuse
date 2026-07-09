@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.12.2",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Stabilize chat transcript ingestion"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.12.1",
     "sections": [
       {

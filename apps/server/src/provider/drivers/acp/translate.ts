@@ -37,6 +37,32 @@ const safePreview = (v: unknown, max = 240): string => {
   }
 };
 
+const canonicalizeToolInput = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(canonicalizeToolInput);
+  if (value === null || typeof value !== "object") return value;
+
+  const input = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, raw] of Object.entries(input)) {
+    const canonicalKey =
+      key === "target_file" || key === "filePath" ? "file_path" : key;
+    out[canonicalKey] = canonicalizeToolInput(raw);
+  }
+
+  return Object.fromEntries(
+    Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
+  );
+};
+
+const toolInputFingerprint = (input: unknown): string =>
+  (() => {
+    try {
+      return JSON.stringify({ input: canonicalizeToolInput(input) });
+    } catch {
+      return String(input);
+    }
+  })();
+
 let itemCounter = 0;
 const nextItemId = (): AgentItemId =>
   `i_acp_${Date.now()}_${++itemCounter}` as AgentItemId;
@@ -392,7 +418,9 @@ const buildCanonicalInput = (
     const v =
       typeof src["file_path"] === "string"
         ? (src["file_path"] as string)
-        : typeof src["filePath"] === "string"
+        : typeof src["target_file"] === "string"
+          ? (src["target_file"] as string)
+          : typeof src["filePath"] === "string"
           ? (src["filePath"] as string)
           : typeof src["path"] === "string"
             ? (src["path"] as string)
@@ -1486,7 +1514,7 @@ export const createAcpTranslator = (
             u,
             input,
           );
-          const inputJson = safeStringify({ input });
+          const inputJson = toolInputFingerprint(input);
           const state = getOrInitToolState(callId);
           // Pin the canonical tool name on first sight so later update
           // frames (which omit `kind` for Cursor) still resolve to the
@@ -1576,7 +1604,7 @@ export const createAcpTranslator = (
               );
               return events;
             }
-            const inputJson = safeStringify({ input });
+            const inputJson = toolInputFingerprint(input);
             if (state.lastInputJson !== inputJson) {
               state.lastInputJson = inputJson;
               state.useEmitted = true;
