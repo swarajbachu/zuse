@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4]
+
+### Changed
+- [codex] Fix landing composer attachments (#309)
+- Mobile new-chat: docked selectors, real provider logos, menu polish (#308)
+- Fix chat scroll anchoring (#307)
+
 ## [0.12.3]
 
 ### Changed
