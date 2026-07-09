@@ -123,6 +123,13 @@ export type BashPolicy =
  *     is NOT auto-accepted in this mode.
  *  5. default (approval-required) → prompt (forcePrompt: false).
  *
+ * Important: this policy does **not** path-scan `command` for sensitive
+ * strings (`.env`, keys, etc.). A shell line that `ls`s another project
+ * directory is not a "sensitive path". When `forcePrompt` is true for Bash,
+ * the cause is plan mode (or a future per-command heuristic), never
+ * `isSensitivePath`. The renderer must not label Bash force-prompts as
+ * "Sensitive path" — that copy confuses Grok/ACP users in plan mode.
+ *
  * `command` is accepted for future per-command heuristics (e.g. forcing a
  * prompt on obviously destructive commands) but is not inspected yet.
  */
