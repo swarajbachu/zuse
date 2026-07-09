@@ -7,6 +7,7 @@ import { MemoizeRpcs } from "@zuse/wire";
 
 import { AppPaths } from "./app-paths.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
+import { SessionStoreLive } from "./auth/layers/session-store.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
@@ -319,14 +320,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(MessageStoreLayer),
     Layer.provide(WorkspaceLayer),
   );
-  // AuthService owns the WorkOS PKCE flow + keychain token bundle. Depends on
-  // CredentialsService (keychain) and the host-supplied AuthShell (browser +
-  // deep-link). It registers its callback sink with the shell at build time,
-  // so it must be constructed at boot — Handlers depends on it, which forces
-  // that. No SqlClient: the (non-secret) profile rides along in the keychain
-  // bundle, so there's no users table to migrate.
+  // AuthService owns the WorkOS PKCE flow + shared file-backed session bundle.
+  // It still depends on CredentialsService for one-time migration from older
+  // keychain storage. The host supplies AuthShell (browser + callback), and
+  // the callback sink is registered at build time, so Handlers forces boot.
   const AuthLayer = AuthServiceLive.pipe(
     Layer.provide(CredentialsServiceLive),
+    Layer.provide(SessionStoreLive),
     Layer.provide(AuthShellLayer),
   );
 

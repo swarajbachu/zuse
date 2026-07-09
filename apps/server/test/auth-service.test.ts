@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Chunk, Effect, Layer, ManagedRuntime, Stream } from "effect";
 
 import type { ProviderId } from "@zuse/wire";
 
 import { AuthServiceLive } from "../src/auth/layers/auth-service.ts";
 import type { SessionBundle } from "../src/auth/layers/workos.ts";
+import { SessionStore } from "../src/auth/services/session-store.ts";
 import { AuthService } from "../src/auth/services/auth-service.ts";
 import { AuthShell } from "../src/auth/services/auth-shell.ts";
 import { CredentialsService } from "../src/provider/services/credentials-service.ts";
@@ -29,6 +30,7 @@ const makeBundle = (overrides: Partial<SessionBundle> = {}): SessionBundle => ({
   accessToken: jwtWithExp(Date.now() + 15 * 60_000),
   refreshToken: "refresh-token",
   expiresAt: Date.now() + 15 * 60_000,
+  refreshedAt: Date.now(),
   organizationId: null,
   user: {
     id: "user_123",
@@ -40,8 +42,21 @@ const makeBundle = (overrides: Partial<SessionBundle> = {}): SessionBundle => ({
   ...overrides,
 });
 
-const decodeStored = (raw: string | null): SessionBundle | null =>
-  raw === null ? null : (JSON.parse(raw) as SessionBundle);
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitFor = async (
+  predicate: () => boolean,
+  timeoutMs = 500,
+): Promise<void> => {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Timed out waiting for condition.");
+    }
+    await delay(10);
+  }
+};
 
 interface Harness {
   readonly run: <A>(
@@ -51,8 +66,17 @@ interface Harness {
   readonly dispose: () => Promise<void>;
 }
 
-const makeHarness = (initial: SessionBundle): Harness => {
-  let stored: string | null = JSON.stringify(initial);
+const makeHarness = (
+  initial: SessionBundle | null,
+  options: {
+    readonly onRead?: (
+      stored: SessionBundle | null,
+      readCount: number,
+    ) => SessionBundle | null;
+  } = {},
+): Harness => {
+  let stored: SessionBundle | null = initial;
+  let readCount = 0;
   const CredentialsLayer = Layer.succeed(
     CredentialsService,
     CredentialsService.of({
@@ -65,10 +89,10 @@ const makeHarness = (initial: SessionBundle): Harness => {
       getBrowser: (_origin: string) => Effect.succeed(null),
       removeBrowser: (_origin: string) => Effect.void,
       listBrowser: () => Effect.succeed([]),
-      getWorkosSession: () => Effect.succeed(stored),
+      getWorkosSession: () => Effect.succeed(null),
       setWorkosSession: (bundleJson: string) =>
         Effect.sync(() => {
-          stored = bundleJson;
+          stored = JSON.parse(bundleJson) as SessionBundle;
         }),
       removeWorkosSession: () =>
         Effect.sync(() => {
@@ -84,16 +108,40 @@ const makeHarness = (initial: SessionBundle): Harness => {
       onCallbackUrl: (_handler: (url: string) => void) => Effect.void,
     }),
   );
+  const SessionStoreLayer = Layer.succeed(
+    SessionStore,
+    SessionStore.of({
+      read: () =>
+        Effect.sync(() => {
+          readCount += 1;
+          return options.onRead?.(stored, readCount) ?? stored;
+        }),
+      write: (bundle) =>
+        Effect.sync(() => {
+          if (stored !== null && stored.refreshedAt > bundle.refreshedAt) {
+            return stored;
+          }
+          stored = bundle;
+          return bundle;
+        }),
+      clear: () =>
+        Effect.sync(() => {
+          stored = null;
+        }),
+      withLock: (effect) => effect,
+    }),
+  );
   const runtime = ManagedRuntime.make(
     AuthServiceLive.pipe(
       Layer.provide(CredentialsLayer),
+      Layer.provide(SessionStoreLayer),
       Layer.provide(AuthShellLayer),
     ),
   );
   return {
     run: <A>(effect: Effect.Effect<A, unknown, AuthService>) =>
       runtime.runPromise(effect as Effect.Effect<A, unknown, never>),
-    readStored: () => decodeStored(stored),
+    readStored: () => stored,
     dispose: () => runtime.dispose(),
   };
 };
@@ -199,12 +247,89 @@ describe("AuthService WorkOS refresh", () => {
         Effect.flatMap(AuthService, (svc) => svc.getSession()),
       );
       expect(state._tag).toBe("SignedIn");
+      await waitFor(() => calls.length === 1);
       expect(calls).toHaveLength(1);
       expect(harness.readStored()?.refreshToken).toBe(
         "temporarily-failing-refresh",
       );
     } finally {
       await harness.dispose();
+    }
+  });
+
+  it("returns a stale signed-in session immediately while refresh runs in the background", async () => {
+    const old = makeBundle({
+      accessToken: jwtWithExp(Date.now() - 5 * 60_000),
+      refreshToken: "expired-refresh",
+      expiresAt: Date.now() - 5 * 60_000,
+      refreshedAt: Date.now(),
+    });
+    let releaseRefresh: (() => void) | null = null;
+    const nextAccessToken = jwtWithExp(Date.now() + 20 * 60_000);
+    const calls = mockAuthenticate(async () => {
+      await new Promise<void>((resolve) => {
+        releaseRefresh = resolve;
+      });
+      return Response.json({
+        access_token: nextAccessToken,
+        refresh_token: "background-refresh",
+        user: { id: "user_123", email: "user@example.com" },
+      });
+    });
+    const harness = makeHarness(old);
+    try {
+      const state = await harness.run(
+        Effect.flatMap(AuthService, (svc) => svc.getSession()),
+      );
+      expect(state._tag).toBe("SignedIn");
+      await waitFor(() => calls.length === 1);
+      releaseRefresh?.();
+      await waitFor(
+        () => harness.readStored()?.refreshToken === "background-refresh",
+      );
+    } finally {
+      releaseRefresh?.();
+      await harness.dispose();
+    }
+  });
+
+  it("sessionChanges emits the current auth state before live updates", async () => {
+    const signedInHarness = makeHarness(makeBundle());
+    try {
+      const first = await signedInHarness.run(
+        Effect.gen(function* () {
+          const svc = yield* AuthService;
+          return yield* svc
+            .sessionChanges()
+            .pipe(
+              Stream.take(1),
+              Stream.runCollect,
+              Effect.map(Chunk.toReadonlyArray),
+            );
+        }),
+      );
+      expect(first[0]?._tag).toBe("SignedIn");
+    } finally {
+      await signedInHarness.dispose();
+    }
+
+    const signedOutHarness = makeHarness(null);
+    try {
+      const first = await signedOutHarness.run(
+        Effect.gen(function* () {
+          const svc = yield* AuthService;
+          return yield* svc
+            .sessionChanges()
+            .pipe(
+              Stream.take(1),
+              Stream.runCollect,
+              Effect.map(Chunk.toReadonlyArray),
+            );
+        }),
+      );
+      expect(first).toEqual([{ _tag: "SignedOut" }]);
+    } finally {
+      await signedOutHarness.dispose();
     }
   });
 

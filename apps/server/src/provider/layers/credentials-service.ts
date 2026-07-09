@@ -71,6 +71,48 @@ const KNOWN_PROVIDERS: ReadonlyArray<ProviderId> = [
 const isKnownProvider = (id: string): id is ProviderId =>
   (KNOWN_PROVIDERS as ReadonlyArray<string>).includes(id);
 
+const providerCache = new Map<ProviderId, string | null>();
+const browserCache = new Map<string, BrowserCred | null>();
+let configuredCache: ReadonlyArray<ProviderId> | null = null;
+let browserListCache: ReadonlyArray<{
+  origin: string;
+  username: string;
+}> | null = null;
+
+const invalidateProviderList = (): void => {
+  configuredCache = null;
+};
+
+const invalidateBrowserList = (): void => {
+  browserListCache = null;
+};
+
+const collectConfigured = (
+  entries: ReadonlyArray<{ account: string }>,
+): ProviderId[] => {
+  const out: ProviderId[] = [];
+  for (const { account } of entries) {
+    const idx = account.indexOf(":");
+    if (idx === -1 || account.slice(0, idx) !== "apiKey") continue;
+    const id = account.slice(idx + 1);
+    if (isKnownProvider(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+};
+
+const collectBrowser = (
+  entries: ReadonlyArray<{ account: string; password: string }>,
+): Array<{ origin: string; username: string }> => {
+  const out: Array<{ origin: string; username: string }> = [];
+  for (const { account, password } of entries) {
+    if (!account.startsWith(BROWSER_PREFIX)) continue;
+    const origin = account.slice(BROWSER_PREFIX.length);
+    const cred = parseBrowserCred(password);
+    out.push({ origin, username: cred?.username ?? "" });
+  }
+  return out;
+};
+
 const tryKeychain = <A>(
   providerId: ProviderId | "*",
   thunk: () => Promise<A>,
@@ -102,37 +144,64 @@ export const CredentialsServiceLive = Layer.succeed(
   CredentialsService,
   CredentialsService.of({
     get: (providerId) =>
-      tryKeychain(providerId, () =>
-        getPasswordWithLegacyPromotion(accountFor(providerId)),
-      ),
+      providerCache.has(providerId)
+        ? Effect.succeed(providerCache.get(providerId) ?? null)
+        : tryKeychain(providerId, () =>
+            getPasswordWithLegacyPromotion(accountFor(providerId)),
+          ).pipe(
+            Effect.tap((value) =>
+              Effect.sync(() => {
+                providerCache.set(providerId, value);
+              }),
+            ),
+          ),
     set: (providerId, apiKey) =>
       tryKeychain(providerId, () =>
         keytar.setPassword(SERVICE_NAME, accountFor(providerId), apiKey),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            providerCache.set(providerId, apiKey);
+            invalidateProviderList();
+          }),
+        ),
       ),
     remove: (providerId) =>
-      tryKeychain(providerId, async () =>
-        (await keytar.deletePassword(SERVICE_NAME, accountFor(providerId))) ||
-        (await keytar.deletePassword(
-          LEGACY_SERVICE_NAME,
-          accountFor(providerId),
-        )),
-      ).pipe(Effect.asVoid),
-    listConfigured: () =>
-      tryKeychain("*", async () => [
-        ...(await keytar.findCredentials(SERVICE_NAME)),
-        ...(await keytar.findCredentials(LEGACY_SERVICE_NAME)),
-      ]).pipe(
-        Effect.map((entries) => {
-          const out: ProviderId[] = [];
-          for (const { account } of entries) {
-            const idx = account.indexOf(":");
-            if (idx === -1 || account.slice(0, idx) !== "apiKey") continue;
-            const id = account.slice(idx + 1);
-            if (isKnownProvider(id) && !out.includes(id)) out.push(id);
-          }
-          return out;
-        }),
+      tryKeychain(
+        providerId,
+        async () =>
+          (await keytar.deletePassword(SERVICE_NAME, accountFor(providerId))) ||
+          (await keytar.deletePassword(
+            LEGACY_SERVICE_NAME,
+            accountFor(providerId),
+          )),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            providerCache.delete(providerId);
+            invalidateProviderList();
+          }),
+        ),
+        Effect.asVoid,
       ),
+    listConfigured: () =>
+      configuredCache !== null
+        ? Effect.succeed(configuredCache)
+        : tryKeychain("*", async () => {
+            const current = collectConfigured(
+              await keytar.findCredentials(SERVICE_NAME),
+            );
+            if (current.length > 0) return current;
+            return collectConfigured(
+              await keytar.findCredentials(LEGACY_SERVICE_NAME),
+            );
+          }).pipe(
+            Effect.tap((value) =>
+              Effect.sync(() => {
+                configuredCache = value;
+              }),
+            ),
+          ),
     setBrowser: (origin, username, password) =>
       tryKeychain("*", () =>
         keytar.setPassword(
@@ -140,35 +209,66 @@ export const CredentialsServiceLive = Layer.succeed(
           browserAccountFor(origin),
           JSON.stringify({ username, password }),
         ),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            browserCache.set(normalizeOrigin(origin), { username, password });
+            invalidateBrowserList();
+          }),
+        ),
       ),
     getBrowser: (origin) =>
-      tryKeychain("*", () =>
-        getPasswordWithLegacyPromotion(browserAccountFor(origin)),
-      ).pipe(Effect.map(parseBrowserCred)),
+      browserCache.has(normalizeOrigin(origin))
+        ? Effect.succeed(browserCache.get(normalizeOrigin(origin)) ?? null)
+        : tryKeychain("*", () =>
+            getPasswordWithLegacyPromotion(browserAccountFor(origin)),
+          ).pipe(
+            Effect.map(parseBrowserCred),
+            Effect.tap((value) =>
+              Effect.sync(() => {
+                browserCache.set(normalizeOrigin(origin), value);
+              }),
+            ),
+          ),
     removeBrowser: (origin) =>
-      tryKeychain("*", async () =>
-        (await keytar.deletePassword(SERVICE_NAME, browserAccountFor(origin))) ||
-        (await keytar.deletePassword(
-          LEGACY_SERVICE_NAME,
-          browserAccountFor(origin),
-        )),
-      ).pipe(Effect.asVoid),
-    listBrowser: () =>
-      tryKeychain("*", async () => [
-        ...(await keytar.findCredentials(SERVICE_NAME)),
-        ...(await keytar.findCredentials(LEGACY_SERVICE_NAME)),
-      ]).pipe(
-        Effect.map((entries) => {
-          const out: Array<{ origin: string; username: string }> = [];
-          for (const { account, password } of entries) {
-            if (!account.startsWith(BROWSER_PREFIX)) continue;
-            const origin = account.slice(BROWSER_PREFIX.length);
-            const cred = parseBrowserCred(password);
-            out.push({ origin, username: cred?.username ?? "" });
-          }
-          return out;
-        }),
+      tryKeychain(
+        "*",
+        async () =>
+          (await keytar.deletePassword(
+            SERVICE_NAME,
+            browserAccountFor(origin),
+          )) ||
+          (await keytar.deletePassword(
+            LEGACY_SERVICE_NAME,
+            browserAccountFor(origin),
+          )),
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            browserCache.delete(normalizeOrigin(origin));
+            invalidateBrowserList();
+          }),
+        ),
+        Effect.asVoid,
       ),
+    listBrowser: () =>
+      browserListCache !== null
+        ? Effect.succeed(browserListCache)
+        : tryKeychain("*", async () => {
+            const current = collectBrowser(
+              await keytar.findCredentials(SERVICE_NAME),
+            );
+            if (current.length > 0) return current;
+            return collectBrowser(
+              await keytar.findCredentials(LEGACY_SERVICE_NAME),
+            );
+          }).pipe(
+            Effect.tap((value) =>
+              Effect.sync(() => {
+                browserListCache = value;
+              }),
+            ),
+          ),
     getWorkosSession: () =>
       tryKeychain("*", () =>
         keytar.getPassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),

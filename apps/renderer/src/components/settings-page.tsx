@@ -10,6 +10,7 @@ import {
   GlobeIcon,
   KeyboardIcon,
   PackageIcon,
+  PencilEdit01Icon,
   Settings01Icon,
   SmartPhone01Icon,
   TaskDone01Icon,
@@ -56,6 +57,7 @@ import { useSettingsStore } from "../store/settings.ts";
 import { useSubagentsStore } from "../store/subagents.ts";
 import { useUiStore, type SettingsSection } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { BlurredEmail } from "./blurred-email.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
@@ -925,9 +927,13 @@ function GeneralPane() {
   // Display-name override draft (local cosmetic alias; persisted to localStorage
   // via the auth store). Mirror on external change.
   const [nameDraft, setNameDraft] = useState(displayName);
+  const [editingName, setEditingName] = useState(false);
   useEffect(() => {
     setNameDraft(displayName);
+    setEditingName(false);
   }, [displayName]);
+
+  const accountNameIsEmail = Boolean(user?.email && name === user.email);
 
   return (
     <div className="flex flex-col gap-4">
@@ -947,12 +953,55 @@ function GeneralPane() {
                 </AvatarFallback>
               </Avatar>
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm font-medium text-foreground">
-                  {name}
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {user?.email}
-                </span>
+                {editingName ? (
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onBlur={() => {
+                      setDisplayName(nameDraft);
+                      setEditingName(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Escape") {
+                        setNameDraft(displayName);
+                        setEditingName(false);
+                      }
+                    }}
+                    placeholder="Your name"
+                    className="h-7 w-full max-w-[220px] rounded-md border border-border/50 bg-background px-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
+                  />
+                ) : (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {accountNameIsEmail && user?.email ? (
+                      <BlurredEmail email={user.email} />
+                    ) : (
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {name}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNameDraft(displayName);
+                        setEditingName(true);
+                      }}
+                      aria-label="Edit display name"
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                    >
+                      <HugeiconsIcon
+                        icon={PencilEdit01Icon}
+                        className="size-3.5"
+                      />
+                    </button>
+                  </div>
+                )}
+                {!accountNameIsEmail && user?.email ? (
+                  <BlurredEmail email={user.email} />
+                ) : null}
               </div>
               <Button
                 variant="settings"
@@ -962,23 +1011,6 @@ function GeneralPane() {
                 Sign out
               </Button>
             </div>
-            <SettingsRow
-              title="Display name"
-              description="How your name shows in Zuse Alpha. Local to this device — it doesn't change your WorkOS profile."
-            >
-              <input
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onBlur={() => setDisplayName(nameDraft)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.currentTarget.blur();
-                  }
-                }}
-                placeholder={user?.email ?? "Your name"}
-                className="h-8 w-full max-w-[260px] rounded-lg border border-border/50 bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
-              />
-            </SettingsRow>
           </>
         ) : (
           <SettingsRow

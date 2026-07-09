@@ -6,12 +6,14 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 
 import { Button } from "~/components/ui/button";
+import { BlurredEmail } from "~/components/blurred-email";
 import { Spinner } from "~/components/ui/spinner";
 import { useAuth } from "~/hooks/use-auth.ts";
 import { StepHeader } from "./shared.tsx";
 
 export function SigninStep() {
   const { isSignedIn, name, user, signIn, signingIn, error } = useAuth();
+  const nameIsEmail = Boolean(user?.email && name === user.email);
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -33,11 +35,30 @@ export function SigninStep() {
             <span className="text-sm font-medium text-foreground">
               {isSignedIn ? "Account connected" : "WorkOS sign-in"}
             </span>
-            <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
-              {isSignedIn
-                ? `Signed in as ${name}${user?.email ? ` (${user.email})` : ""}.`
-                : "A browser window opens for authentication and returns here automatically."}
-            </p>
+            {isSignedIn ? (
+              <p className="flex max-w-sm flex-wrap items-center gap-1 text-[12px] leading-relaxed text-muted-foreground">
+                <span>Signed in as</span>
+                {nameIsEmail && user?.email ? (
+                  <BlurredEmail email={user.email} />
+                ) : (
+                  <span>{name}</span>
+                )}
+                {!nameIsEmail && user?.email ? (
+                  <>
+                    <span>(</span>
+                    <BlurredEmail email={user.email} />
+                    <span>).</span>
+                  </>
+                ) : (
+                  <span>.</span>
+                )}
+              </p>
+            ) : (
+              <p className="max-w-sm text-[12px] leading-relaxed text-muted-foreground">
+                A browser window opens for authentication and returns here
+                automatically.
+              </p>
+            )}
           </div>
         </div>
 
