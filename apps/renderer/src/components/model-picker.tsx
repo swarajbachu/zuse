@@ -3,9 +3,18 @@ import {
   ArrowDown01Icon,
   ArrowUpRight01Icon,
   Search01Icon,
+  StarIcon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import type {
   AgentAvailability,
@@ -31,6 +40,11 @@ import { useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { ProviderIcon } from "./provider-icons";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  filterModelPickerRecents,
+  isModelPickerProviderVisible,
+} from "~/lib/model-picker-availability";
 import {
   pushModelPickerEvent,
   readModelPickerEvents,
@@ -120,6 +134,9 @@ export function ModelPicker(props: ModelPickerProps) {
   );
 
   const availability = useProvidersStore((s) => s.availability);
+  const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
+  const availabilityLoading = useProvidersStore((s) => s.loading);
+  const refreshAvailability = useProvidersStore((s) => s.refresh);
   const opencodeInventory = useOpencodeInventory((s) => s.inventory);
   const ensureOpencodeInventory = useOpencodeInventory((s) => s.ensureLoaded);
 
@@ -166,8 +183,11 @@ export function ModelPicker(props: ModelPickerProps) {
       setScope("all");
       setPickError(null);
       setPicking(false);
+      if (!availabilityLoaded && !availabilityLoading) {
+        void refreshAvailability();
+      }
     }
-  }, [open]);
+  }, [open, availabilityLoaded, availabilityLoading, refreshAvailability]);
 
   const modelsForProvider = useCallback(
     (
@@ -203,15 +223,20 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [availability]);
 
   const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
-    return (
-      Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>
-    ).filter((pid) => {
-      if (pid === providerId) return true;
-      if (providerEnabled[pid] === false) return false;
-      const a = availabilityById.get(pid);
-      return a?.status !== "error";
-    });
-  }, [providerId, providerEnabled, availabilityById]);
+    return (Object.keys(MODELS_BY_PROVIDER) as ReadonlyArray<ProviderId>).filter(
+      (pid) =>
+        isModelPickerProviderVisible({
+          providerId: pid,
+          availability: availabilityById.get(pid),
+          providerEnabled,
+          availabilityLoaded,
+        }),
+    );
+  }, [providerEnabled, availabilityById, availabilityLoaded]);
+  const visibleProviderSet = useMemo(
+    () => new Set<ProviderId>(pickableProviders),
+    [pickableProviders],
+  );
 
   const allModels = useMemo<ModelPickerEntry[]>(() => {
     const out: ModelPickerEntry[] = [];
@@ -275,7 +300,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const scopedRecents = useMemo<
     Array<ModelPickerEntry & { count: number }>
   >(() => {
-    const top: ModelPickerRecent[] = topRecents(events, scope, 4);
+    const top: ModelPickerRecent[] = filterModelPickerRecents(
+      topRecents(events, scope, 4),
+      visibleProviderSet,
+    );
     const out: Array<ModelPickerEntry & { count: number }> = [];
     for (const r of top) {
       const match = allModels.find(
@@ -290,7 +318,7 @@ export function ModelPicker(props: ModelPickerProps) {
       out.push({ ...match, count: r.count });
     }
     return out;
-  }, [events, scope, allModels, modelEnabledByProvider]);
+  }, [events, scope, allModels, modelEnabledByProvider, visibleProviderSet]);
 
   const modelGroups = useMemo(() => {
     if (scope !== "all") return [];
@@ -523,6 +551,9 @@ export function ModelPicker(props: ModelPickerProps) {
                           currentModelId={currentModel}
                           isFresh={isFresh}
                           onSelect={handlePick}
+                          defaultProviderId={defaultProviderId}
+                          defaultModelByProvider={defaultModelByProvider}
+                          onSetDefault={setDefaultProviderAndModel}
                           countSuffix={`${m.count}×`}
                           showNowBadge
                           shortcut={shortcutFor(m.providerId, m.modelId)}
@@ -555,6 +586,9 @@ export function ModelPicker(props: ModelPickerProps) {
                               currentModelId={currentModel}
                               isFresh={isFresh}
                               onSelect={handlePick}
+                              defaultProviderId={defaultProviderId}
+                              defaultModelByProvider={defaultModelByProvider}
+                              onSetDefault={setDefaultProviderAndModel}
                               shortcut={shortcutFor(m.providerId, m.modelId)}
                             />
                           ))}
@@ -581,6 +615,9 @@ export function ModelPicker(props: ModelPickerProps) {
                             currentModelId={currentModel}
                             isFresh={isFresh}
                             onSelect={handlePick}
+                            defaultProviderId={defaultProviderId}
+                            defaultModelByProvider={defaultModelByProvider}
+                            onSetDefault={setDefaultProviderAndModel}
                             shortcut={shortcutFor(m.providerId, m.modelId)}
                             showProvider={scope === "all"}
                           />
@@ -720,8 +757,11 @@ function ModelRow({
   entry,
   currentProviderId,
   currentModelId,
+  defaultProviderId,
+  defaultModelByProvider,
   isFresh,
   onSelect,
+  onSetDefault,
   dense = false,
   countSuffix,
   showNowBadge = false,
@@ -731,8 +771,11 @@ function ModelRow({
   entry: ModelPickerEntry;
   currentProviderId: ProviderId;
   currentModelId: string;
+  defaultProviderId: ProviderId;
+  defaultModelByProvider: Record<ProviderId, string>;
   isFresh: boolean;
   onSelect: (providerId: ProviderId, modelId: string) => void;
+  onSetDefault: (providerId: ProviderId, modelId: string) => void;
   dense?: boolean;
   countSuffix?: string;
   showNowBadge?: boolean;
@@ -741,12 +784,28 @@ function ModelRow({
 }) {
   const isActive =
     entry.providerId === currentProviderId && entry.modelId === currentModelId;
+  const isDefault =
+    entry.providerId === defaultProviderId &&
+    defaultModelByProvider[entry.providerId] === entry.modelId;
   const isCross = entry.providerId !== currentProviderId;
   const opensNewTab = isCross && !isFresh;
+  const select = () => onSelect(entry.providerId, entry.modelId);
+  const onRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    select();
+  };
+  const setDefault = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onSetDefault(entry.providerId, entry.modelId);
+  };
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(entry.providerId, entry.modelId)}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={select}
+      onKeyDown={onRowKeyDown}
       aria-current={isActive || undefined}
       title={opensNewTab ? "Open in new tab" : undefined}
       className={cn(
@@ -790,6 +849,26 @@ function ModelRow({
           {entry.badgeLabel}
         </span>
       )}
+      <Tooltip>
+        <TooltipTrigger
+          type="button"
+          onClick={setDefault}
+          onKeyDown={(event) => event.stopPropagation()}
+          aria-label={isDefault ? "Default model" : "Make default model"}
+          title={undefined}
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+            isDefault
+              ? "text-primary opacity-100"
+              : "opacity-0 group-hover:opacity-70 group-focus-within:opacity-70 hover:opacity-100",
+          )}
+        >
+          <HugeiconsIcon icon={StarIcon} className="size-3.5" />
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          {isDefault ? "Default model" : "Make default"}
+        </TooltipPopup>
+      </Tooltip>
       {opensNewTab && (
         <HugeiconsIcon
           icon={ArrowUpRight01Icon}
@@ -819,6 +898,6 @@ function ModelRow({
           {shortcut}
         </kbd>
       )}
-    </button>
+    </div>
   );
 }
