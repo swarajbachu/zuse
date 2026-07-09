@@ -16,15 +16,15 @@ import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
  */
 type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
 
-let runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null = null;
+let runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null =
+  null;
 let cachedClient: Promise<MemoizeClient> | null = null;
 
 function resolveWebSocketUrl() {
-  const env = (import.meta as { readonly env?: Record<string, string | undefined> })
-    .env;
-  return (
-    env?.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`
-  );
+  const env = (
+    import.meta as { readonly env?: Record<string, string | undefined> }
+  ).env;
+  return env?.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`;
 }
 
 export function resolveRendererRpcTransportForTest(): {
@@ -55,12 +55,21 @@ function getRuntime() {
 export function getRpcClient(): Promise<MemoizeClient> {
   if (cachedClient === null) {
     const rt = getRuntime();
-    cachedClient = rt.runPromise(
+    const next = rt.runPromise(
       Effect.gen(function* () {
         const scope = yield* Scope.make();
         return yield* RpcClient.make(MemoizeRpcs).pipe(Scope.extend(scope));
       }),
     );
+    let guarded: Promise<MemoizeClient>;
+    guarded = next.catch((err) => {
+      if (cachedClient === guarded) {
+        cachedClient = null;
+        runtime = null;
+      }
+      throw err;
+    });
+    cachedClient = guarded;
   }
   return cachedClient;
 }
