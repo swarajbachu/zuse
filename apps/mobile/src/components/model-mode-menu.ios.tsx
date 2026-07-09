@@ -2,9 +2,13 @@ import { Host } from "@expo/ui";
 import {
   Button as NativeButton,
   Divider,
+  HStack,
+  Image,
   Menu,
   Section,
+  Text,
 } from "@expo/ui/swift-ui";
+import { font, foregroundColor } from "@expo/ui/swift-ui/modifiers";
 import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/wire";
 
 import {
@@ -83,12 +87,17 @@ export function ComposerModelMenu({
     <Host
       key={`${value.providerId}:${value.model}`}
       matchContents
-      seedColor="hsl(72 98% 54%)"
+      seedColor={WHITE}
       colorScheme="dark"
     >
       <Menu
-        label={compactModelLabel(value)}
-        systemImage={providerSystemImage(value.providerId)}
+        label={
+          <ProviderLabel
+            providerId={value.providerId}
+            text={compactModelLabel(value)}
+            tint={WHITE}
+          />
+        }
       >
         <ProviderModelMenus
           value={value}
@@ -119,7 +128,7 @@ export function ComposerSettingsMenu({
   onChange: (value: ModelModeValue) => void;
 }) {
   return (
-    <Host matchContents seedColor="hsl(72 98% 54%)" colorScheme="dark">
+    <Host matchContents seedColor={WHITE} colorScheme="dark">
       <Menu label="" systemImage="gearshape">
         <Menu label="Mode" systemImage="slider.horizontal.3">
           <ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -391,19 +400,20 @@ function ProviderModelMenus({
       {providers.map((provider) => (
         <Menu
           key={provider.value}
-          label={provider.label}
-          systemImage={providerSystemImage(provider.value)}
+          label={
+            <ProviderLabel providerId={provider.value} text={provider.label} />
+          }
         >
           {modelOptionsForProvider(provider.value).map((model) => (
             <NativeButton
               key={model.value}
               label={model.label}
-              systemImage={sf(
+              systemImage={
                 value.providerId === provider.value &&
-                  value.model === model.value
-                  ? "checkmark"
-                  : providerSystemImage(provider.value),
-              )}
+                value.model === model.value
+                  ? sf("checkmark")
+                  : undefined
+              }
               onPress={() => {
                 if (!editable) return;
                 onChange({
@@ -424,6 +434,25 @@ function ProviderModelMenus({
   );
 }
 
+// Reasoning/effort levels get an ascending gauge glyph (low → high) so the menu
+// reads as "increasing" instead of a flat brain icon on every row. The active
+// level is reflected by the composer trigger label, so we intentionally show
+// the level glyph on every row rather than a checkmark.
+const REASONING_GAUGE_ICONS = [
+  "gauge.with.dots.needle.0percent",
+  "gauge.with.dots.needle.33percent",
+  "gauge.with.dots.needle.67percent",
+  "gauge.with.dots.needle.100percent",
+] as const;
+
+const reasoningLevelIcon = (index: number, count: number): string => {
+  if (count <= 1) return REASONING_GAUGE_ICONS[2];
+  const ratio = index / (count - 1);
+  return REASONING_GAUGE_ICONS[
+    Math.round(ratio * (REASONING_GAUGE_ICONS.length - 1))
+  ]!;
+};
+
 function ReasoningButtons({
   value,
   editable,
@@ -440,15 +469,14 @@ function ReasoningButtons({
   );
   if (reasoning === null) return null;
 
+  const options = reasoning.descriptor.options;
   return (
     <Section title={reasoning.descriptor.label}>
-      {reasoning.descriptor.options.map((option) => (
+      {options.map((option, index) => (
         <NativeButton
           key={option.id}
           label={option.label}
-          systemImage={sf(
-            reasoning.value === option.id ? "checkmark" : "brain",
-          )}
+          systemImage={sf(reasoningLevelIcon(index, options.length))}
           onPress={() => {
             if (!editable) return;
             onChange({
@@ -552,6 +580,49 @@ const modeLabel = (value: ModelModeValue): string =>
 const runtimeLabel = (value: ModelModeValue): string =>
   RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
   value.runtimeMode;
+
+const WHITE = "#ffffff";
+
+/** Asset-catalog name for a provider's real brand logo (template image set). */
+const providerAsset = (providerId: ProviderId): string =>
+  `provider-${providerId}`;
+
+/**
+ * A native menu label showing a provider's real brand logo (loaded from the
+ * iOS asset catalog as a template image, so it tints) beside its text. Used for
+ * the composer trigger and each provider submenu so the menu shows real logos
+ * instead of approximated SF Symbols. Pass `tint` to force a colour (white on
+ * the dark composer); omit it inside the popup so rows inherit the system menu
+ * colour.
+ */
+function ProviderLabel({
+  providerId,
+  text,
+  tint,
+  size = 15,
+}: {
+  providerId: ProviderId;
+  text: string;
+  tint?: string;
+  size?: number;
+}) {
+  return (
+    <HStack spacing={6}>
+      <Image
+        assetName={providerAsset(providerId)}
+        size={size}
+        modifiers={tint ? [foregroundColor(tint)] : []}
+      />
+      <Text
+        modifiers={
+          tint ? [foregroundColor(tint), font({ size })] : [font({ size })]
+        }
+      >
+        {text}
+      </Text>
+    </HStack>
+  );
+}
 
 const providerSystemImage = (providerId: ProviderId): string => {
   switch (providerId) {
