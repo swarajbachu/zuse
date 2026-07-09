@@ -101,32 +101,26 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   start: () => {
     if (started) return;
     started = true;
-    void (async () => {
-      let client: Awaited<ReturnType<typeof getRpcClient>>;
-      try {
-        client = await getRpcClient();
-      } catch {
-        started = false;
-        return;
-      }
-      const subscribe = Stream.runForEach(
-        client.auth.sessionChanges({}),
-        (next) => Effect.sync(() => set({ state: next })),
-      );
-      // Self-healing: re-establish after any completion/error with bounded
-      // backoff so a server restart / dev HMR doesn't kill live delivery.
-      const program = subscribe.pipe(
-        Effect.catchAll(() => Effect.void),
-        Effect.repeat(Schedule.spaced("2 seconds")),
-        Effect.ensuring(
-          Effect.sync(() => {
-            streamFiber = null;
-            started = false;
-          }),
+    const subscribeOnce = Effect.tryPromise(() => getRpcClient()).pipe(
+      Effect.flatMap((client) =>
+        Stream.runForEach(client.auth.sessionChanges({}), (next) =>
+          Effect.sync(() => set({ state: next })),
         ),
-      );
-      streamFiber = Effect.runFork(program);
-    })();
+      ),
+    );
+    // Self-healing: re-establish after any completion/error with bounded
+    // backoff so a server restart / dev HMR doesn't kill live delivery.
+    const program = subscribeOnce.pipe(
+      Effect.catchAll(() => Effect.void),
+      Effect.repeat(Schedule.spaced("2 seconds")),
+      Effect.ensuring(
+        Effect.sync(() => {
+          streamFiber = null;
+          started = false;
+        }),
+      ),
+    );
+    streamFiber = Effect.runFork(program);
   },
   hydrate: async () => {
     try {
@@ -140,9 +134,9 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         const next = await Effect.runPromise(client.auth.getSession({}));
         set({ state: next });
       } catch {
-        // Bridge not up yet / transient — assume signed out so the UI can
-        // render. A later stream emit or re-hydrate corrects it.
-        set((prev) => ({ state: prev.state ?? SIGNED_OUT }));
+        // Bridge not up yet / transient. Keep the previous/loading state; the
+        // retrying sessionChanges stream will publish the definitive state.
+        set((prev) => ({ state: prev.state }));
       }
     }
   },
