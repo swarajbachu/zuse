@@ -7,7 +7,7 @@ import {
   type SessionStatus,
 } from "@zuse/wire";
 import {
-  ArrowUp01Icon,
+  ArrowUpIcon,
   CloudOffIcon,
   CancelCircleIcon,
   Square01Icon,
@@ -290,23 +290,22 @@ export const Composer = ({
                 editable
                 onChange={(next) => void changeModelMode(next)}
               />
-              <View className="min-w-0 flex-1 items-center">
-                <ComposerModelMenu
-                  value={modelValue}
-                  editable
-                  onChange={(next) => void changeModelMode(next)}
-                  availableProviders={availableProviders}
-                  canChangeProvider={fresh}
-                  canChangeReasoning={fresh}
-                />
-              </View>
+              <View className="min-w-0 flex-1" />
+              <ComposerModelMenu
+                value={modelValue}
+                editable
+                onChange={(next) => void changeModelMode(next)}
+                availableProviders={availableProviders}
+                canChangeProvider={fresh}
+                canChangeReasoning={fresh}
+              />
             </>
           )}
           {showInterrupt ? (
             <Button
               size="sm"
               variant="secondary"
-              className="h-10 w-10 rounded-full px-0"
+              className="h-10 w-10 rounded-2xl px-0"
               disabled={busy || !online}
               onPress={interrupt}
             >
@@ -316,14 +315,14 @@ export const Composer = ({
           <Button
             size="sm"
             variant={online ? "primary" : "secondary"}
-            className="h-10 w-10 rounded-full px-0"
+            className="h-10 w-10 rounded-2xl px-0"
             disabled={!canSend}
             onPress={submit}
           >
             {busy ? (
               <ActivityIndicator color="hsl(72 5% 6%)" />
             ) : online ? (
-              <HugeIcon icon={ArrowUp01Icon} size={16} color="hsl(72 5% 6%)" />
+              <HugeIcon icon={ArrowUpIcon} size={18} color="hsl(72 5% 6%)" />
             ) : (
               <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 4% 92%)" />
             )}

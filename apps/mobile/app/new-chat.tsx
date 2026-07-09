@@ -1,13 +1,9 @@
 import type { Folder, GitBranchInfo, GitPrSummary, Worktree } from "@zuse/wire";
 import {
   Add01Icon,
-  ArrowUp01Icon,
+  ArrowUpIcon,
   CloudOffIcon,
   CancelCircleIcon,
-  ComputerIcon,
-  Folder01Icon,
-  GitBranchIcon,
-  LaptopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
@@ -69,6 +65,12 @@ export default function NewChatScreen() {
     Folder["id"] | null
   >(null);
   const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
+  // The work-mode kind is tracked separately from `source`: a kind can have no
+  // sub-options (e.g. no worktrees yet), and `source` falls back to MAIN in
+  // that case — so keying the work-mode selector off `source.kind` would make
+  // it snap back to "Work locally". `sourceKind` is the source of truth for
+  // which work mode is selected.
+  const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
   const initialModel = defaultModelForProvider("codex");
   const [modelMode, setModelMode] = useState<ModelModeValue>({
     providerId: "codex",
@@ -85,6 +87,7 @@ export default function NewChatScreen() {
     connections,
     hydrated,
     hydrate: hydrateConnections,
+    refreshLabel,
   } = useConnectionsStore();
   const {
     bundlesByConnection,
@@ -100,9 +103,13 @@ export default function NewChatScreen() {
   useEffect(() => {
     for (const connection of connections) {
       const options = optionsForConnection(connection.key, connections);
-      if (options !== null) void hydrateSessions(connection.key, options);
+      if (options === null) continue;
+      void hydrateSessions(connection.key, options);
+      // Adopt the machine's computed name here too, so the machine row shows
+      // the nice label even if the inbox hasn't refreshed it yet.
+      void refreshLabel(connection.key, options);
     }
-  }, [connections, hydrateSessions]);
+  }, [connections, hydrateSessions, refreshLabel]);
 
   const effectiveConnectionKey =
     selectedConnectionKey ?? connections[0]?.key ?? null;
@@ -216,6 +223,7 @@ export default function NewChatScreen() {
       setSelectedConnectionKey(connection.key);
       setSelectedProjectId(null);
       setSource(MAIN_SOURCE);
+      setSourceKind("main");
     },
   }));
   const machineLabel =
@@ -229,6 +237,7 @@ export default function NewChatScreen() {
     onSelect: () => {
       setSelectedProjectId(item.project.id);
       setSource(MAIN_SOURCE);
+      setSourceKind("main");
     },
   }));
   const projectLabel =
@@ -240,14 +249,23 @@ export default function NewChatScreen() {
   const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
     key: option.kind,
     label: option.label,
-    selected: source.kind === option.kind,
-    onSelect: () => setSource(firstSourceForKind(option.kind)),
+    selected: sourceKind === option.kind,
+    onSelect: () => {
+      setSourceKind(option.kind);
+      setSource(firstSourceForKind(option.kind));
+    },
   }));
 
   const defaultBranchLabel =
     branches.find((branch) => branch.current)?.name ?? "main";
+  const emptyBranchLabel =
+    sourceKind === "worktree"
+      ? "No worktrees"
+      : sourceKind === "pr"
+        ? "No pull requests"
+        : "No branches";
   const branchOptions = sourceOptionsForKind(
-    source.kind,
+    sourceKind,
     worktrees,
     branches,
     prs,
@@ -258,14 +276,23 @@ export default function NewChatScreen() {
       option.source.kind === source.kind && option.source.label === source.label,
     onSelect: () => setSource(option.source),
   }));
-  const branchLabel = source.kind === "main" ? defaultBranchLabel : source.label;
+  const branchLabel =
+    sourceKind === "main"
+      ? defaultBranchLabel
+      : source.kind === sourceKind
+        ? source.label
+        : emptyBranchLabel;
 
   const canSubmit =
     effectiveConnectionKey !== null &&
     selectedOptions !== null &&
     effectiveProjectId !== null &&
     text.trim().length > 0 &&
-    !submitting;
+    !submitting &&
+    // For a non-"main" work mode, require a concrete sub-option (a real
+    // worktree/branch/PR) — otherwise `source` is still the MAIN fallback and
+    // we'd silently create a main-checkout chat.
+    (sourceKind === "main" || source.kind === sourceKind);
 
   const submit = useCallback(async () => {
     const payload = buildNewChatCreatePayload({
@@ -340,52 +367,11 @@ export default function NewChatScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           padding: 18,
-          paddingBottom: 180,
+          paddingBottom: 24,
           gap: 18,
           flexGrow: 1,
         }}
       >
-        <View className="self-start">
-          <SelectorRow
-            leading={
-              <HugeIcon icon={LaptopIcon} size={16} color="hsl(72 4% 76%)" />
-            }
-            label={machineLabel}
-            options={machineOptions}
-            emptyLabel="No machines"
-          />
-          <SelectorRow
-            leading={
-              <HugeIcon icon={Folder01Icon} size={16} color="hsl(72 4% 76%)" />
-            }
-            label={projectLabel}
-            options={projectOptions}
-            emptyLabel={loading ? "Loading projects" : "No projects"}
-          />
-          <SelectorRow
-            leading={
-              <HugeIcon icon={ComputerIcon} size={16} color="hsl(72 4% 76%)" />
-            }
-            label={workModeLabel(source.kind)}
-            options={workModeOptions}
-          />
-          <SelectorRow
-            leading={
-              <HugeIcon icon={GitBranchIcon} size={16} color="hsl(72 4% 76%)" />
-            }
-            label={branchLabel}
-            options={branchOptions}
-            disabled={source.kind === "main"}
-            emptyLabel={
-              source.kind === "worktree"
-                ? "No worktrees"
-                : source.kind === "pr"
-                  ? "No pull requests"
-                  : "No branches"
-            }
-          />
-        </View>
-
         <View className="flex-1" />
 
         {error === null ? null : (
@@ -402,6 +388,32 @@ export default function NewChatScreen() {
         className="px-3 pt-2"
         style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
       >
+        <View className="mb-2 gap-0.5 px-1">
+          <SelectorRow
+            symbol="laptopcomputer"
+            label={machineLabel}
+            options={machineOptions}
+            emptyLabel="No machines"
+          />
+          <SelectorRow
+            symbol="folder"
+            label={projectLabel}
+            options={projectOptions}
+            emptyLabel={loading ? "Loading projects" : "No projects"}
+          />
+          <SelectorRow
+            symbol="desktopcomputer"
+            label={workModeLabel(sourceKind)}
+            options={workModeOptions}
+          />
+          <SelectorRow
+            symbol="arrow.triangle.branch"
+            label={branchLabel}
+            options={branchOptions}
+            disabled={sourceKind === "main"}
+            emptyLabel={emptyBranchLabel}
+          />
+        </View>
         <GlassSurface
           style={{
             gap: 8,
@@ -450,7 +462,7 @@ export default function NewChatScreen() {
             <Button
               size="sm"
               variant="primary"
-              className="h-10 w-10 rounded-full px-0"
+              className="h-10 w-10 rounded-2xl px-0"
               disabled={!canSubmit}
               onPress={() => void submit()}
             >
@@ -459,11 +471,7 @@ export default function NewChatScreen() {
               ) : selectedOptions === null ? (
                 <HugeIcon icon={CloudOffIcon} size={15} color="hsl(72 5% 6%)" />
               ) : (
-                <HugeIcon
-                  icon={ArrowUp01Icon}
-                  size={16}
-                  color="hsl(72 5% 6%)"
-                />
+                <HugeIcon icon={ArrowUpIcon} size={18} color="hsl(72 5% 6%)" />
               )}
             </Button>
           </View>
