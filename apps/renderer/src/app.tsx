@@ -43,7 +43,6 @@ import { usePermissionsStore } from "./store/permissions.ts";
 import { useProvidersStore } from "./store/providers.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
-import { hydrateSubagentsStore } from "./store/subagents.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
@@ -177,15 +176,14 @@ export function App() {
   // "quit/restart when idle" deferrals have a live value.
   useReportRunningAgents();
 
-  // Hydrate settings + keybindings + subagents from the on-disk config
-  // store. Each call is idempotent; subsequent emits flow through the
-  // RPC streams maintained by the stores themselves.
+  // Hydrate settings + keybindings from the on-disk config store. Each call is
+  // idempotent; subsequent emits flow through the RPC streams maintained by the
+  // stores themselves.
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateKeybindings = useKeybindingsStore((s) => s.hydrate);
   useEffect(() => {
     void hydrateSettings();
     void hydrateKeybindings();
-    void hydrateSubagentsStore();
   }, [hydrateSettings, hydrateKeybindings]);
 
   // Probe provider availability once on boot so the "update available" launch
