@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.12.3",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix merge action render loop",
+          "Fix Jump to latest threshold and chat scroll lifecycle (#304)",
+          "Fix permission card mislabeling plan-mode prompts as sensitive paths (#302)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.12.2",
     "sections": [
       {
