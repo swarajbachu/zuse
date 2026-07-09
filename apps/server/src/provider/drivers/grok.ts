@@ -1331,8 +1331,10 @@ export const startGrokSession = (
           startCompactEvent({ providerId: "grok", snapshot: compactSnapshot }),
         );
       }
-      // Plan-mode emulation: grok ACP has no native read-only switch, so
-      // prepend a developer-instructions block while plan mode is active.
+      // Plan-mode emulation: Grok ACP has no session-level plan switch, so
+      // prepend the rich plan-mode developer-instructions block (including
+      // `<proposed_plan>` finalization) while plan mode is active. Mutating
+      // tools still go through permission policy as the hard gate.
       const promptText =
         compactSnapshot !== null
           ? text.trim()

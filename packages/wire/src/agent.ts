@@ -739,9 +739,10 @@ export type StartSessionInput = typeof StartSessionInput.Type;
  *   - `optionDescriptors`: per-model knobs the composer renders (reasoning,
  *     etc.). Omitting the descriptor hides the control.
  *   - `supportsPlanMode`: whether the plan-mode toggle is shown for this
- *     model. `true` for every model today (native for Claude/Cursor,
- *     emulated via dev-instructions prefix for Codex/Grok/Gemini); set
- *     `false` only when there's a hard reason not to allow planning.
+ *     model. `true` for every model today (native for Claude/Cursor/Codex
+ *     collaborationMode; emulated via dev-instructions prefix for
+ *     Grok/Gemini); set `false` only when there's a hard reason not to
+ *     allow planning.
  *   - `supportsWebSearch`: `"native"` (driver emits real results),
  *     `"queryOnly"` (driver emits the query but no results), or omitted
  *     (provider doesn't search).

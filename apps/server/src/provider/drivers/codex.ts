@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import {
   AgentSessionStartError,
+  defaultModelFor,
   resolveModelSlug,
   type AgentEvent,
   type AgentItemId,
@@ -24,7 +25,7 @@ import {
 } from "@zuse/wire";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
-import { applyPlanModePrefix } from "./planMode.ts";
+import { buildCodexCollaborationMode } from "./planMode.ts";
 import { CodexAppServerClient } from "../codex-app-server-client.ts";
 import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
 import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
@@ -1272,10 +1273,10 @@ export const startCodexSession = (
       if (commandHandled) return;
 
       emit({ _tag: "Status", status: "running" });
-      // Plan-mode emulation: Codex has no native "plan" runtime mode, so
-      // prepend a developer-instructions block while plan mode is active.
-      // The sandbox policy still gates writes, so this is belt-and-braces.
-      const basePromptText = applyPlanModePrefix(currentMode, text);
+      // Plan mode is a native Codex collaboration mode. Pass it on every
+      // turn/start so toggles actually stick (omitting the field leaves the
+      // previous collaboration mode active on the Codex side). Sandbox
+      // policy still gates writes as belt-and-braces.
       const promptHints = [
         ...(browserHintPending ? [browserMcpPromptHint()] : []),
         ...(orchestrationHintPending && orchestrationTools !== null
@@ -1284,8 +1285,8 @@ export const startCodexSession = (
       ];
       const promptText =
         promptHints.length > 0
-          ? `${promptHints.join("\n\n")}\n\n${basePromptText}`
-          : basePromptText;
+          ? `${promptHints.join("\n\n")}\n\n${text}`
+          : text;
       browserHintPending = false;
       orchestrationHintPending = false;
       // Reasoning effort: forwarded from FE picker via
@@ -1312,6 +1313,11 @@ export const startCodexSession = (
           text: "Fast mode isn't available for this model — running at the standard tier.",
         });
       }
+      const collaborationMode = buildCodexCollaborationMode({
+        permissionMode: currentMode,
+        model: input.model ?? defaultModelFor("codex"),
+        effort,
+      });
       const turn = await app.request<{ turn: { id: string } }>("turn/start", {
         threadId: activeThreadId,
         input: [
@@ -1326,6 +1332,7 @@ export const startCodexSession = (
         approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
         sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
         model: input.model ?? null,
+        collaborationMode,
         ...(effort !== null ? { effort } : {}),
         ...(fastMode ? { serviceTier: "fast" } : {}),
       });
@@ -1512,6 +1519,10 @@ export const startCodexSession = (
             cwd,
             approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
             sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
+            collaborationMode: buildCodexCollaborationMode({
+              permissionMode: currentMode,
+              model: input.model ?? defaultModelFor("codex"),
+            }),
           });
           return true;
         case "ps":
