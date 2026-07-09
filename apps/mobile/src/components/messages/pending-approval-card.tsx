@@ -7,8 +7,9 @@ import { describePermissionKind } from "~/lib/permission-presentation";
 
 /**
  * Inline card for a pending tool-permission prompt. `forcePrompt` requests
- * (sensitive paths) hide "Allow session" so the user can't silence future
- * prompts on them by accident — mirroring the renderer's rule.
+ * hide "Allow session" so the user can't silence future prompts by accident
+ * — mirroring the renderer. That flag is used for sensitive paths, plan
+ * mode, and a few always-prompt tools; it is not only "sensitive path".
  */
 export const PendingApprovalCard = ({
   request,

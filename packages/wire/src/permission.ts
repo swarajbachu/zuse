@@ -53,9 +53,16 @@ export class PermissionRequest extends Schema.Class<PermissionRequest>(
   kind: PermissionKind,
   requestedAt: Schema.DateFromString,
   /**
-   * Sensitive paths (e.g. `.env`, SSH keys) flip this to `true` server-side.
-   * The renderer disables `AllowForSession` and `AlwaysAllow` for these so
-   * the user can't silence future prompts on them by accident.
+   * When true, the renderer disables `AllowForSession` and `AlwaysAllow` so
+   * the user can't silence future matching prompts by accident.
+   *
+   * Set server-side for more than just credential files:
+   *  - sensitive paths (`.env`, `.ssh`, keys, etc.) on file ops
+   *  - plan mode (every bash / mutating / network gate)
+   *  - a few always-prompt tools (e.g. browser login, ExitPlanMode)
+   *
+   * Do not treat `forcePrompt` as "this path is sensitive" in the UI —
+   * bash/network prompts almost never are; they usually mean plan mode.
    */
   forcePrompt: Schema.Boolean,
 }) {}
