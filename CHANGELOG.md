@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0]
+
+### Added
+- Self-orchestrating agents: Phase 1 control plane + spec (#250)
+- [codex] Add shared HTTP MCP gateway (#292)
+- Add Grok 4.5 model picker support (#294)
+
+### Changed
+- Mobile UI overhaul: naming, new chat, session, stream, permission, inbox (#295)
+- [codex] Remove manual sub-agent settings (#297)
+- [codex] Improve model picker defaults (#299)
+
+### Fixed
+- [codex] Fix Grok native permission handling (#291)
+- [codex] Fix WorkOS auth persistence (#296)
+- [codex] Fix auth client startup retry (#298)
+
 ## [0.11.0]
 
 ### Added
