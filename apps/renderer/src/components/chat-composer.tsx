@@ -92,6 +92,10 @@ import {
   matchBuiltin,
   type BuiltinCommand,
 } from "../composer/builtin-commands.ts";
+import type {
+  PendingDraftAttachment,
+  PendingDraftContextFile,
+} from "../composer/draft-attachments.ts";
 import { parseComposerInput } from "../composer/segment-parser.ts";
 import { AnnotationTray } from "./composer/annotation-tray.tsx";
 import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
@@ -127,6 +131,7 @@ import { useOpencodeInventory } from "../store/opencode-inventory.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
+import { useSkillsStore } from "../store/skills.ts";
 
 const isBrowserAnnotation = (
   annotation: ComposerAnnotation,
@@ -183,7 +188,14 @@ export function ChatComposer({
    * model/runtime/permission/provider toggles still work — their store setters
    * route to the draft slot — so the user's picks carry into `create()`.
    */
-  onDraftSubmit?: (input: ComposerInput, opts: { asGoal: boolean }) => void;
+  onDraftSubmit?: (
+    input: ComposerInput,
+    opts: {
+      readonly asGoal: boolean;
+      readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
+      readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
+    },
+  ) => void;
 }) {
   const sessionId: SessionId = session.id;
   const draftKey = composerDraftKey ?? composerDraftKeyForSession(sessionId);
@@ -383,6 +395,9 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
+  const hydrateDraftSkills = useSkillsStore((s) => s.hydrateForDraft);
+  const pendingDraftAttachmentsRef = useRef<PendingDraftAttachment[]>([]);
+  const pendingDraftContextFilesRef = useRef<PendingDraftContextFile[]>([]);
   // Submit reads through a ref so the keymap, captured at editor creation
   // time, always sees the current sessionId / send / inFlight without
   // recreating the editor on every render.
@@ -410,6 +425,17 @@ export function ChatComposer({
   const annotationCount = useAnnotationsStore(
     (s) => (s.bySession[sessionId] ?? []).length,
   );
+
+  useEffect(() => {
+    if (!isDraft) return;
+    void hydrateDraftSkills(sessionId, session.projectId, session.providerId);
+  }, [
+    hydrateDraftSkills,
+    isDraft,
+    sessionId,
+    session.projectId,
+    session.providerId,
+  ]);
 
   // Stacked annotations are a valid message on their own, so they enable Send
   // even with an empty text box.
@@ -504,6 +530,11 @@ export function ChatComposer({
       b.setInsertText(null);
       b.setFocus(null);
       usePaneFocus.getState().unregister("composer");
+      for (const pending of pendingDraftAttachmentsRef.current) {
+        if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+      }
+      pendingDraftAttachmentsRef.current = [];
+      pendingDraftContextFilesRef.current = [];
       view.destroy();
       editorViewRef.current = null;
     };
@@ -524,11 +555,21 @@ export function ChatComposer({
     view.focus();
   }, [session.providerId, session.model]);
 
-  const clearComposer = (view: EditorView): void => {
+  const clearComposer = (
+    view: EditorView,
+    opts?: { readonly clearPendingAttachments?: boolean },
+  ): void => {
     setComposerDoc(view, "");
     view.dispatch({ effects: clearChipsEffect.of() });
     setHasText(false);
     setTrigger(null);
+    if (opts?.clearPendingAttachments !== false) {
+      for (const pending of pendingDraftAttachmentsRef.current) {
+        if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+      }
+      pendingDraftAttachmentsRef.current = [];
+      pendingDraftContextFilesRef.current = [];
+    }
   };
 
   const dispatchBuiltin = (parsed: {
@@ -642,6 +683,14 @@ export function ChatComposer({
         }),
       });
 
+      if (isDraft) {
+        pendingDraftAttachmentsRef.current = [
+          ...pendingDraftAttachmentsRef.current,
+          { tempId, file, previewUrl: blobUrl },
+        ];
+        continue;
+      }
+
       void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
           const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
@@ -683,6 +732,24 @@ export function ChatComposer({
    */
   const attachPastedText = async (text: string): Promise<void> => {
     if (editorViewRef.current === null) return;
+    if (isDraft) {
+      const tempRelPath = `.context/files/paste-pending-${Math.random()
+        .toString(36)
+        .slice(2, 10)}.md`;
+      pendingDraftContextFilesRef.current = [
+        ...pendingDraftContextFilesRef.current,
+        { tempRelPath, text, ext: "md" },
+      ];
+      const view = editorViewRef.current;
+      const sel = view.state.selection.main;
+      replaceWithChip(view, sel.from, sel.to, `@${tempRelPath}`, {
+        kind: "file",
+        relPath: tempRelPath,
+        absPath: tempRelPath,
+        entryKind: "file",
+      });
+      return;
+    }
     try {
       const client = await getRpcClient();
       const res = await Effect.runPromise(
@@ -810,7 +877,9 @@ export function ChatComposer({
             shouldQueue: inFlight || holdForSetup,
           })
         : null;
-    clearComposer(view);
+    clearComposer(view, {
+      clearPendingAttachments: onDraftSubmit === undefined,
+    });
     clearComposerDraft(draftKey);
     setGoalSendMode(false);
     // Drain the tray: the annotations now live on `input` (carried into the
@@ -819,7 +888,15 @@ export function ChatComposer({
     // Draft mode (new-chat landing): hand the input back to the landing, which
     // creates the worktree + chat and queues this as the first message.
     if (onDraftSubmit !== undefined) {
-      onDraftSubmit(input, { asGoal: goalSendMode });
+      const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
+      const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
+      pendingDraftAttachmentsRef.current = [];
+      pendingDraftContextFilesRef.current = [];
+      onDraftSubmit(input, {
+        asGoal: goalSendMode,
+        pendingAttachments: pendingDraftAttachments,
+        pendingContextFiles: pendingDraftContextFiles,
+      });
       return true;
     }
     switch (route) {

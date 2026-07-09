@@ -167,7 +167,11 @@ import {
   SessionStatusStreamRpc,
   SessionUnarchiveRpc,
 } from "./session.ts";
-import { SkillListRpc, SkillStreamRpc } from "./skill.ts";
+import {
+  SkillListForProjectRpc,
+  SkillListRpc,
+  SkillStreamRpc,
+} from "./skill.ts";
 import {
   WorkspaceAddRpc,
   WorkspaceCloneRepoRpc,
@@ -326,6 +330,7 @@ export const MemoizeRpcs = RpcGroup.make(
   AttachmentUploadRpc,
   ContextSaveTextRpc,
   SkillListRpc,
+  SkillListForProjectRpc,
   SkillStreamRpc,
   PermissionRequestsRpc,
   PermissionDecideRpc,

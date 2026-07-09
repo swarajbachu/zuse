@@ -12,10 +12,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-import {
-  getFileIconUrl,
-  getFolderIconUrl,
-} from "../icons/material-icons.ts";
+import { getFileIconUrl, getFolderIconUrl } from "../icons/material-icons.ts";
 
 /**
  * One inline chip in the composer document. The chip renders as an atomic
@@ -31,7 +28,11 @@ export type ChipMeta =
       readonly absPath: string;
       readonly entryKind: "file" | "directory";
     }
-  | { readonly kind: "skill"; readonly name: string; readonly scope: "global" | "project" }
+  | {
+      readonly kind: "skill";
+      readonly name: string;
+      readonly scope: "global" | "project";
+    }
   | {
       readonly kind: "image";
       readonly id: string;
@@ -143,6 +144,11 @@ class ChipWidget extends WidgetType {
     } else if (this.meta.kind === "skill") {
       span.dataset.skillName = this.meta.name;
       span.dataset.skillScope = this.meta.scope;
+    } else if (this.meta.kind === "image") {
+      span.dataset.attachmentId = this.meta.id;
+      span.dataset.mimeType = this.meta.mimeType;
+      span.dataset.originalName = this.meta.originalName;
+      span.dataset.previewUrl = this.meta.previewUrl;
     }
 
     const label = document.createElement("span");
@@ -213,12 +219,14 @@ const buildIconNode = (meta: ChipMeta): Node => {
     // Image attachment → thumbnail. Non-image attachments share the same
     // chip kind (so the wire shape stays tidy) but render with the
     // file-type material icon instead.
-    const isImage = meta.mimeType.startsWith("image/") && meta.previewUrl !== "";
+    const isImage =
+      meta.mimeType.startsWith("image/") && meta.previewUrl !== "";
     if (isImage) {
       const img = document.createElement("img");
       img.src = meta.previewUrl;
       img.alt = "";
       img.className = "fz-chip-thumb";
+      img.draggable = false;
       return img;
     }
     const url = getFileIconUrl(meta.originalName);
@@ -270,9 +278,7 @@ export const chipExtensions = [
 /** Look up the chip range that covers (or starts at) `pos`. */
 export const chipAt = (state: EditorState, pos: number): ChipRange | null => {
   const chips = state.field(chipsField);
-  return (
-    chips.find((c) => pos >= c.from && pos <= c.to) ?? null
-  );
+  return chips.find((c) => pos >= c.from && pos <= c.to) ?? null;
 };
 
 /** Used by the segment parser at submit time. */

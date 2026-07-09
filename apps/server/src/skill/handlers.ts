@@ -7,12 +7,22 @@ const SkillList = MemoizeRpcs.toLayerHandler("skill.list", ({ sessionId }) =>
   Effect.flatMap(SkillBridge, (svc) => svc.list(sessionId)),
 );
 
-const SkillStream = MemoizeRpcs.toLayerHandler(
-  "skill.stream",
-  ({ sessionId }) =>
-    Stream.unwrap(
-      Effect.map(SkillBridge, (svc) => svc.stream(sessionId)),
+const SkillListForProject = MemoizeRpcs.toLayerHandler(
+  "skill.listForProject",
+  ({ projectId, providerId }) =>
+    Effect.flatMap(SkillBridge, (svc) =>
+      svc.listForProject(projectId, providerId),
     ),
 );
 
-export const SkillHandlersLayer = Layer.mergeAll(SkillList, SkillStream);
+const SkillStream = MemoizeRpcs.toLayerHandler(
+  "skill.stream",
+  ({ sessionId }) =>
+    Stream.unwrap(Effect.map(SkillBridge, (svc) => svc.stream(sessionId))),
+);
+
+export const SkillHandlersLayer = Layer.mergeAll(
+  SkillList,
+  SkillListForProject,
+  SkillStream,
+);
