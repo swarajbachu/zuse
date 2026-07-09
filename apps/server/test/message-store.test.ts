@@ -58,6 +58,7 @@ import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/001
 import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_queue_paused.ts";
 import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_chat_lineage.ts";
+import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/0029_chat_lineage_repair.ts";
 import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
@@ -301,6 +302,7 @@ const runAllMigrations = Effect.all(
     Migration0019QueuePaused,
     Migration0020Events,
     Migration0023ChatLineage,
+    Migration0029ChatLineageRepair,
   ],
   { discard: true },
 );
@@ -440,6 +442,58 @@ describe("MessageStore migrations", () => {
       );
       expect(row?.queue_paused).toBe(0);
     });
+  });
+
+  it("0029 repairs databases that skipped chat lineage", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mz-chat-lineage-repair-"));
+    const dbPath = join(dir, "test.sqlite");
+    const runtime = ManagedRuntime.make(
+      SqliteClient.layer({ filename: dbPath }),
+    );
+    try {
+      await runtime.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`
+            CREATE TABLE projects (
+              id TEXT PRIMARY KEY,
+              path TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            )
+          `;
+          yield* sql`
+            CREATE TABLE chats (
+              id TEXT PRIMARY KEY,
+              project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+              worktree_id TEXT,
+              title TEXT NOT NULL,
+              active_session_id TEXT,
+              archived_at TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              archived_worktree_json TEXT,
+              last_message_at TEXT,
+              last_read_at TEXT
+            )
+          `;
+
+          yield* Migration0029ChatLineageRepair;
+          yield* Migration0029ChatLineageRepair;
+
+          const columns = yield* sql<{ readonly name: string }>`
+            PRAGMA table_info(chats)
+          `;
+          expect(columns.map((column) => column.name)).toContain(
+            "origin_session_id",
+          );
+        }),
+      );
+    } finally {
+      await runtime.dispose();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

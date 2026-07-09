@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.12.1",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix skipped chat lineage migration"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.12.0",
     "sections": [
       {
