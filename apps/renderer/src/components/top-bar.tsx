@@ -66,6 +66,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
+import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
@@ -882,6 +883,36 @@ function RunButton() {
 }
 
 export function TopBarRight() {
+  const ctx = useActiveContext();
+  const selectedChatId = useChatsStore((s) => s.selectedChatId);
+  const resetKey =
+    ctx.status === "ready"
+      ? `${ctx.folderId}:${ctx.worktreeId ?? "main"}:${selectedChatId ?? "none"}`
+      : `empty:${selectedChatId ?? "none"}`;
+
+  return (
+    <ErrorBoundary
+      resetKey={resetKey}
+      fallback={
+        <header className={`${SECTION_CLASS} justify-between px-2`}>
+          <div className={ACTION_CLASS} />
+          <div
+            className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
+          >
+            Actions unavailable
+          </div>
+        </header>
+      }
+      onError={(error) => {
+        console.error("[top-bar] action surface crashed", error);
+      }}
+    >
+      <TopBarRightContent />
+    </ErrorBoundary>
+  );
+}
+
+function TopBarRightContent() {
   const ctx = useActiveContext();
   const folderId = ctx.status === "ready" ? ctx.folderId : null;
   const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
