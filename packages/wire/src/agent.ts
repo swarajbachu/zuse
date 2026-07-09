@@ -1057,6 +1057,12 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "queryOnly",
     },
     {
+      id: "grok-4.5",
+      label: "Grok 4.5",
+      supportsPlanMode: true,
+      supportsWebSearch: "queryOnly",
+    },
+    {
       id: "grok-composer-2.5-fast",
       label: "Grok Composer 2.5 Fast",
       supportsPlanMode: true,
@@ -1292,7 +1298,10 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
     "gpt-5-codex": "gpt-5.5",
     "gpt-5": "gpt-5.5",
   },
-  grok: {},
+  grok: {
+    "grok-4.5-latest": "grok-4.5",
+    "grok-build-latest": "grok-4.5",
+  },
   gemini: {
     "gemini-3-pro": "gemini-3-pro-preview",
     "gemini-3.1-pro-preview": "gemini-3-pro-preview",
