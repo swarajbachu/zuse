@@ -1,18 +1,18 @@
 import type { PermissionDecision, PermissionRequest } from "@zuse/wire";
-import { ShieldCheck } from "lucide-react-native";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 
-import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
-import { describePermissionKind } from "~/lib/permission-presentation";
-
-const ACCENT = "hsl(72 98% 54%)";
+import {
+  describePermissionKind,
+  permissionQuestion,
+} from "~/lib/permission-presentation";
 
 export function LivePermissionAccessory({
   requests,
   bottomInset,
   onDecide,
+  onDenyWithMessage,
 }: {
   requests: readonly PermissionRequest[];
   bottomInset: number;
@@ -20,23 +20,47 @@ export function LivePermissionAccessory({
     request: PermissionRequest,
     decision: PermissionDecision,
   ) => void | Promise<void>;
+  /**
+   * Deny the request and hand the agent free-text guidance to try next. Empty
+   * text falls back to a plain Deny.
+   */
+  onDenyWithMessage: (
+    request: PermissionRequest,
+    message: string,
+  ) => void | Promise<void>;
 }) {
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [denyText, setDenyText] = useState("");
   const request = requests[0];
 
   if (!request) return null;
 
-  const { label, detail, mono } = describePermissionKind(request.kind);
+  const { detail, mono } = describePermissionKind(request.kind);
+  const question = permissionQuestion(request.kind);
   const countLabel = requests.length > 1 ? ` +${requests.length - 1}` : "";
+  const busy = decidingId !== null;
 
-  const decide = async (decision: PermissionDecision) => {
-    if (decidingId !== null) return;
+  const run = async (task: () => void | Promise<void>) => {
+    if (busy) return;
     setDecidingId(request.id);
     try {
-      await onDecide(request, decision);
+      await task();
     } finally {
       setDecidingId(null);
+      setDenyText("");
     }
+  };
+
+  const decide = (decision: PermissionDecision) =>
+    void run(() => onDecide(request, decision));
+
+  const deny = () => {
+    const message = denyText.trim();
+    void run(() =>
+      message.length > 0
+        ? onDenyWithMessage(request, message)
+        : onDecide(request, { _tag: "Deny" }),
+    );
   };
 
   return (
@@ -47,68 +71,82 @@ export function LivePermissionAccessory({
     >
       <GlassSurface
         style={{
-          minHeight: 104,
-          paddingHorizontal: 12,
-          paddingVertical: 12,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+          gap: 12,
         }}
       >
-        <View className="flex-row gap-3">
-          <View className="mt-0.5 h-9 w-9 items-center justify-center rounded-full bg-primary/15">
-            <ShieldCheck size={18} color={ACCENT} />
-          </View>
-          <View className="min-w-0 flex-1">
-            <View className="flex-row items-center gap-2">
-              <Text className="font-sans-medium text-[12px] uppercase text-primary">
-                Permission{countLabel}
-              </Text>
-              <Text className="font-sans text-[12px] text-muted-foreground">
-                live
-              </Text>
-            </View>
+        <Text className="font-sans-medium text-[12px] uppercase text-primary">
+          Permission{countLabel}
+        </Text>
+        <Text className="font-sans-bold text-[16px] leading-5 text-foreground">
+          {question}
+        </Text>
+        {mono ? (
+          <View
+            className="rounded-xl border border-border bg-card px-3 py-2"
+            style={{ borderCurve: "continuous" }}
+          >
             <Text
-              className="mt-0.5 font-sans-medium text-[15px] text-foreground"
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-            <Text
-              className={
-                mono
-                  ? "mt-0.5 font-mono text-[12px] leading-5 text-muted-foreground"
-                  : "mt-0.5 font-sans text-[13px] leading-5 text-muted-foreground"
-              }
-              numberOfLines={2}
+              selectable
+              className="font-mono text-[12px] leading-5 text-foreground"
+              numberOfLines={4}
             >
               {detail}
             </Text>
           </View>
-        </View>
-        <View className="mt-3 flex-row flex-wrap gap-2 pl-12">
-          <Button
-            size="sm"
-            disabled={decidingId !== null}
-            onPress={() => void decide({ _tag: "AllowOnce" })}
+        ) : (
+          <Text
+            className="font-sans text-[13px] leading-5 text-muted-foreground"
+            numberOfLines={3}
           >
-            Allow once
-          </Button>
-          {request.forcePrompt ? null : (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={decidingId !== null}
-              onPress={() => void decide({ _tag: "AllowForSession" })}
-            >
-              Allow session
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={decidingId !== null}
-            onPress={() => void decide({ _tag: "Deny" })}
+            {detail}
+          </Text>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => decide({ _tag: "AllowOnce" })}
+          className="h-12 items-center justify-center rounded-full bg-foreground active:opacity-80"
+          style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
+        >
+          <Text className="font-sans-medium text-[16px] text-background">
+            Approve
+          </Text>
+        </Pressable>
+        {request.forcePrompt ? null : (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => decide({ _tag: "AllowForSession" })}
+            className="h-11 items-center justify-center rounded-full active:opacity-70"
           >
-            Decline
-          </Button>
+            <Text className="font-sans-medium text-[15px] text-muted-foreground">
+              Always approve
+            </Text>
+          </Pressable>
+        )}
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            className="h-11 min-w-0 flex-1 rounded-full bg-card px-4 font-sans text-[15px] text-foreground"
+            placeholder="Tell the agent what to do"
+            placeholderTextColor="hsl(72 4% 56%)"
+            value={denyText}
+            onChangeText={setDenyText}
+            editable={!busy}
+            style={{ borderCurve: "continuous" }}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={deny}
+            hitSlop={8}
+            className="px-3 py-2 active:opacity-70"
+          >
+            <Text className="font-sans-medium text-[15px] text-danger">
+              Deny
+            </Text>
+          </Pressable>
         </View>
       </GlassSurface>
     </View>

@@ -1,10 +1,13 @@
 import type { Folder, GitBranchInfo, GitPrSummary, Worktree } from "@zuse/wire";
 import {
+  Add01Icon,
   ArrowUp01Icon,
   CloudOffIcon,
   CancelCircleIcon,
+  ComputerIcon,
   Folder01Icon,
   GitBranchIcon,
+  LaptopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { router, Stack } from "expo-router";
@@ -30,23 +33,27 @@ import { optionsForConnection } from "~/lib/connection-params";
 import {
   buildNewChatCreatePayload,
   MAIN_SOURCE,
+  sourceOptionsForKind,
+  workModeLabel,
+  WORK_MODE_OPTIONS,
   type NewChatSource,
+  type NewChatSourceKind,
 } from "~/lib/new-chat";
 import {
+  availableProviderIds,
   defaultModelForProvider,
-  reasoningDescriptorForModel,
+  defaultModelOptions,
 } from "~/lib/model-options";
+import { useAvailabilityStore } from "~/store/availability";
 import { useConnectionsStore } from "~/store/connections";
 import { useSessionsStore } from "~/store/sessions";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
+import { SelectorRow } from "~/components/selector-row";
 import {
   ComposerModelMenu,
   ComposerSettingsMenu,
-  NativeButton,
-  ProjectPill,
-  SourcePill,
   type ModelModeValue,
 } from "~/components/model-mode-menu";
 
@@ -110,20 +117,6 @@ export default function NewChatScreen() {
     );
   }, [bundlesByConnection, effectiveConnectionKey]);
 
-  const projectMenuGroups = useMemo(
-    () =>
-      connections.map((connection) => ({
-        connectionKey: connection.key,
-        connectionLabel: connection.label,
-        projects: (bundlesByConnection[connection.key] ?? []).map((bundle) => ({
-          id: bundle.project.id,
-          name: bundle.project.name,
-          path: bundle.project.path,
-        })),
-      })),
-    [bundlesByConnection, connections],
-  );
-
   const effectiveProjectId =
     selectedProjectId !== null &&
     projectChoices.some((item) => item.project.id === selectedProjectId)
@@ -137,6 +130,44 @@ export default function NewChatScreen() {
         : optionsForConnection(effectiveConnectionKey, connections),
     [connections, effectiveConnectionKey],
   );
+
+  const hydrateAvailability = useAvailabilityStore((state) => state.hydrate);
+  const availability = useAvailabilityStore((state) =>
+    effectiveConnectionKey === null
+      ? undefined
+      : state.availabilityByConnection[effectiveConnectionKey],
+  );
+  useEffect(() => {
+    if (effectiveConnectionKey === null || selectedOptions === null) return;
+    void hydrateAvailability(effectiveConnectionKey, selectedOptions);
+  }, [effectiveConnectionKey, selectedOptions, hydrateAvailability]);
+  const availableProviders = useMemo(
+    () => availableProviderIds(availability),
+    [availability],
+  );
+
+  // Codex is the hardcoded default provider; if the selected machine doesn't
+  // have it installed, derive a fallback to the first available provider so the
+  // menu and the create payload start on something the server can actually run.
+  // Derived (not stored) to avoid a setState-in-effect cascade — the user's own
+  // picks always come from the filtered menu, so they pass through unchanged.
+  const effectiveModelMode = useMemo<ModelModeValue>(() => {
+    if (
+      availableProviders === null ||
+      availableProviders.length === 0 ||
+      availableProviders.includes(modelMode.providerId)
+    ) {
+      return modelMode;
+    }
+    const providerId = availableProviders[0]!;
+    const model = defaultModelForProvider(providerId);
+    return {
+      ...modelMode,
+      providerId,
+      model,
+      modelOptions: defaultModelOptions(providerId, model),
+    };
+  }, [availableProviders, modelMode]);
 
   useEffect(() => {
     if (selectedOptions === null || effectiveProjectId === null) return;
@@ -175,7 +206,60 @@ export default function NewChatScreen() {
   const selectedProject = projectChoices.find(
     (item) => item.project.id === effectiveProjectId,
   )?.project;
-  const sourceLabel = source.kind === "main" ? "Main" : source.label;
+
+  // Selector-stack derived values (machine → project → work-mode → branch).
+  const machineOptions = connections.map((connection) => ({
+    key: connection.key,
+    label: connection.label,
+    selected: connection.key === effectiveConnectionKey,
+    onSelect: () => {
+      setSelectedConnectionKey(connection.key);
+      setSelectedProjectId(null);
+      setSource(MAIN_SOURCE);
+    },
+  }));
+  const machineLabel =
+    connections.find((connection) => connection.key === effectiveConnectionKey)
+      ?.label ?? (connections.length === 0 ? "No machines" : "Machine");
+
+  const projectOptions = projectChoices.map((item) => ({
+    key: item.project.id,
+    label: item.project.name,
+    selected: item.project.id === effectiveProjectId,
+    onSelect: () => {
+      setSelectedProjectId(item.project.id);
+      setSource(MAIN_SOURCE);
+    },
+  }));
+  const projectLabel =
+    selectedProject?.name ?? (loading ? "Loading projects" : "Project");
+
+  const firstSourceForKind = (kind: NewChatSourceKind): NewChatSource =>
+    sourceOptionsForKind(kind, worktrees, branches, prs)[0]?.source ??
+    MAIN_SOURCE;
+  const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
+    key: option.kind,
+    label: option.label,
+    selected: source.kind === option.kind,
+    onSelect: () => setSource(firstSourceForKind(option.kind)),
+  }));
+
+  const defaultBranchLabel =
+    branches.find((branch) => branch.current)?.name ?? "main";
+  const branchOptions = sourceOptionsForKind(
+    source.kind,
+    worktrees,
+    branches,
+    prs,
+  ).map((option) => ({
+    key: option.key,
+    label: option.label,
+    selected:
+      option.source.kind === source.kind && option.source.label === source.label,
+    onSelect: () => setSource(option.source),
+  }));
+  const branchLabel = source.kind === "main" ? defaultBranchLabel : source.label;
+
   const canSubmit =
     effectiveConnectionKey !== null &&
     selectedOptions !== null &&
@@ -187,11 +271,11 @@ export default function NewChatScreen() {
     const payload = buildNewChatCreatePayload({
       connectionKey: effectiveConnectionKey,
       projectId: effectiveProjectId,
-      providerId: modelMode.providerId,
-      model: modelMode.model,
-      runtimeMode: modelMode.runtimeMode,
-      permissionMode: modelMode.permissionMode,
-      modelOptions: modelMode.modelOptions,
+      providerId: effectiveModelMode.providerId,
+      model: effectiveModelMode.model,
+      runtimeMode: effectiveModelMode.runtimeMode,
+      permissionMode: effectiveModelMode.permissionMode,
+      modelOptions: effectiveModelMode.modelOptions,
       source,
       text,
     });
@@ -239,7 +323,7 @@ export default function NewChatScreen() {
     }
   }, [
     createChat,
-    modelMode,
+    effectiveModelMode,
     effectiveConnectionKey,
     selectedOptions,
     effectiveProjectId,
@@ -261,6 +345,47 @@ export default function NewChatScreen() {
           flexGrow: 1,
         }}
       >
+        <View className="self-start">
+          <SelectorRow
+            leading={
+              <HugeIcon icon={LaptopIcon} size={16} color="hsl(72 4% 76%)" />
+            }
+            label={machineLabel}
+            options={machineOptions}
+            emptyLabel="No machines"
+          />
+          <SelectorRow
+            leading={
+              <HugeIcon icon={Folder01Icon} size={16} color="hsl(72 4% 76%)" />
+            }
+            label={projectLabel}
+            options={projectOptions}
+            emptyLabel={loading ? "Loading projects" : "No projects"}
+          />
+          <SelectorRow
+            leading={
+              <HugeIcon icon={ComputerIcon} size={16} color="hsl(72 4% 76%)" />
+            }
+            label={workModeLabel(source.kind)}
+            options={workModeOptions}
+          />
+          <SelectorRow
+            leading={
+              <HugeIcon icon={GitBranchIcon} size={16} color="hsl(72 4% 76%)" />
+            }
+            label={branchLabel}
+            options={branchOptions}
+            disabled={source.kind === "main"}
+            emptyLabel={
+              source.kind === "worktree"
+                ? "No worktrees"
+                : source.kind === "pr"
+                  ? "No pull requests"
+                  : "No branches"
+            }
+          />
+        </View>
+
         <View className="flex-1" />
 
         {error === null ? null : (
@@ -277,111 +402,13 @@ export default function NewChatScreen() {
         className="px-3 pt-2"
         style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
       >
-        <View className="mb-2 flex-row items-center gap-2 px-1">
-          <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
-            <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
-            <ProjectPill
-              label={
-                selectedProject === undefined
-                  ? loading
-                    ? "Loading projects"
-                    : "Project"
-                  : selectedProject.name
-              }
-              options={projectMenuGroups}
-              onSelect={(connectionKey, projectId) => {
-                setSelectedConnectionKey(connectionKey);
-                setSelectedProjectId(projectId as Folder["id"]);
-                setSource(MAIN_SOURCE);
-              }}
-            />
-          </View>
-          <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
-            <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
-            <SourcePill label={sourceLabel}>
-              <NativeButton
-                label="Main"
-                systemImage={source.kind === "main" ? "checkmark" : "folder"}
-                onPress={() => setSource(MAIN_SOURCE)}
-              />
-              {worktrees.slice(0, 8).map((worktree) => (
-                <NativeButton
-                  key={worktree.id}
-                  label={worktree.branch}
-                  systemImage={
-                    source.kind === "worktree" &&
-                    source.worktreeId === worktree.id
-                      ? "checkmark"
-                      : "point.topleft.down.curvedto.point.bottomright.up"
-                  }
-                  onPress={() =>
-                    setSource({
-                      kind: "worktree",
-                      label: worktree.branch,
-                      worktreeId: worktree.id,
-                    })
-                  }
-                />
-              ))}
-              {branches
-                .filter((branch) => !branch.current)
-                .slice(0, 8)
-                .map((branch) => (
-                  <NativeButton
-                    key={`${branch.kind}:${branch.name}`}
-                    label={branch.name}
-                    systemImage={
-                      source.kind === "branch" && source.label === branch.name
-                        ? "checkmark"
-                        : "arrow.branch"
-                    }
-                    onPress={() =>
-                      setSource({
-                        kind: "branch",
-                        label: branch.name,
-                        worktreeId: null,
-                        createSource: {
-                          _tag: "branch",
-                          branch: branch.name,
-                          remote: branch.remote,
-                        },
-                      })
-                    }
-                  />
-                ))}
-              {prs.slice(0, 8).map((pr) => (
-                <NativeButton
-                  key={`pr:${pr.number}`}
-                  label={`#${pr.number} ${pr.title}`}
-                  systemImage={
-                    source.kind === "pr" && source.label === `#${pr.number}`
-                      ? "checkmark"
-                      : "arrow.triangle.pull"
-                  }
-                  onPress={() =>
-                    setSource({
-                      kind: "pr",
-                      label: `#${pr.number}`,
-                      worktreeId: null,
-                      createSource: {
-                        _tag: "pr",
-                        number: pr.number,
-                        headRefName: pr.headRefName,
-                      },
-                    })
-                  }
-                />
-              ))}
-            </SourcePill>
-          </View>
-        </View>
         <GlassSurface
           style={{
             gap: 8,
             padding: 10,
           }}
         >
-          {modelMode.permissionMode === "plan" ? (
+          {effectiveModelMode.permissionMode === "plan" ? (
             <PlanPill
               onClear={() =>
                 setModelMode((value) => ({
@@ -400,18 +427,26 @@ export default function NewChatScreen() {
             onChangeText={setText}
           />
           <View className="flex-row items-center gap-2">
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add attachment"
+              disabled
+              className="h-9 w-9 items-center justify-center rounded-full opacity-40"
+            >
+              <HugeIcon icon={Add01Icon} size={18} color="hsl(72 4% 76%)" />
+            </Pressable>
             <ComposerSettingsMenu
-              value={modelMode}
+              value={effectiveModelMode}
               editable
               onChange={setModelMode}
             />
-            <View className="min-w-0 flex-1 items-center">
-              <ComposerModelMenu
-                value={modelMode}
-                editable
-                onChange={setModelMode}
-              />
-            </View>
+            <View className="flex-1" />
+            <ComposerModelMenu
+              value={effectiveModelMode}
+              editable
+              onChange={setModelMode}
+              availableProviders={availableProviders}
+            />
             <Button
               size="sm"
               variant="primary"
@@ -446,14 +481,3 @@ const PlanPill = ({ onClear }: { onClear: () => void }) => (
     </Pressable>
   </View>
 );
-
-const defaultModelOptions = (
-  providerId: ModelModeValue["providerId"],
-  model: string,
-): Record<string, string> | undefined => {
-  const descriptor = reasoningDescriptorForModel(providerId, model);
-  const value = descriptor?.defaultId ?? descriptor?.options[0]?.id;
-  return descriptor !== null && value !== undefined
-    ? { [descriptor.id]: value }
-    : undefined;
-};

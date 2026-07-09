@@ -10,13 +10,11 @@ import {
   ArrowUp01Icon,
   CloudOffIcon,
   CancelCircleIcon,
-  Folder01Icon,
-  GitBranchIcon,
   Square01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -36,9 +34,14 @@ import {
   setSessionProvider,
   setSessionRuntimeMode,
 } from "~/rpc/actions";
-import { isInterruptVisible } from "~/lib/composer-state";
+import {
+  isInterruptVisible,
+  nextModelChangeActions,
+} from "~/lib/composer-state";
+import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { useAvailabilityStore } from "~/store/availability";
 import {
   addOptimisticMessage,
   removeOptimisticMessage,
@@ -60,8 +63,6 @@ export const Composer = ({
   session,
   status,
   fresh,
-  projectLabel,
-  sourceLabel,
   online,
   bottomInset = 0,
 }: {
@@ -71,8 +72,6 @@ export const Composer = ({
   session: Session | null;
   status?: SessionStatus;
   fresh: boolean;
-  projectLabel?: string;
-  sourceLabel?: string;
   online: boolean;
   bottomInset?: number;
 }) => {
@@ -90,6 +89,18 @@ export const Composer = ({
     (state) => state.errorBySession[stateKey],
   );
   const enqueue = useOutboxStore((state) => state.enqueue);
+
+  const hydrateAvailability = useAvailabilityStore((state) => state.hydrate);
+  const availability = useAvailabilityStore(
+    (state) => state.availabilityByConnection[connKey],
+  );
+  useEffect(() => {
+    void hydrateAvailability(connKey, connection);
+  }, [connKey, connection, hydrateAvailability]);
+  const availableProviders = useMemo(
+    () => availableProviderIds(availability),
+    [availability],
+  );
 
   const canSend = text.trim().length > 0 && !busy;
   const showInterrupt = isInterruptVisible(status);
@@ -186,39 +197,45 @@ export const Composer = ({
   };
 
   const changeModelMode = async (next: ModelModeValue) => {
-    if (session === null || !fresh) return;
+    if (session === null) return;
+    const actions = nextModelChangeActions(session, next, fresh);
     try {
-      if (next.providerId !== session.providerId) {
-        await Effect.runPromise(
-          setSessionProvider({
-            connection,
-            sessionId,
-            providerId: next.providerId,
-            model: next.model,
-          }),
-        );
-      } else if (next.model !== session.model) {
-        await Effect.runPromise(
-          setSessionModel({ connection, sessionId, model: next.model }),
-        );
-      }
-      if (next.runtimeMode !== session.runtimeMode) {
-        await Effect.runPromise(
-          setSessionRuntimeMode({
-            connection,
-            sessionId,
-            runtimeMode: next.runtimeMode,
-          }),
-        );
-      }
-      if (next.permissionMode !== session.permissionMode) {
-        await Effect.runPromise(
-          setSessionPermissionMode({
-            connection,
-            sessionId,
-            mode: next.permissionMode,
-          }),
-        );
+      for (const action of actions) {
+        switch (action.type) {
+          case "setProvider":
+            await Effect.runPromise(
+              setSessionProvider({
+                connection,
+                sessionId,
+                providerId: action.providerId,
+                model: action.model,
+              }),
+            );
+            break;
+          case "setModel":
+            await Effect.runPromise(
+              setSessionModel({ connection, sessionId, model: action.model }),
+            );
+            break;
+          case "setRuntimeMode":
+            await Effect.runPromise(
+              setSessionRuntimeMode({
+                connection,
+                sessionId,
+                runtimeMode: action.runtimeMode,
+              }),
+            );
+            break;
+          case "setPermissionMode":
+            await Effect.runPromise(
+              setSessionPermissionMode({
+                connection,
+                sessionId,
+                mode: action.permissionMode,
+              }),
+            );
+            break;
+        }
       }
     } catch {
       // Started sessions can reject some changes. Keep this quiet on mobile.
@@ -243,16 +260,6 @@ export const Composer = ({
           </Text>
         </View>
       ) : null}
-      {projectLabel !== undefined || sourceLabel !== undefined ? (
-        <View className="mb-2 flex-row items-center gap-2 px-1">
-          {projectLabel !== undefined ? (
-            <ChromeLabel icon="project" label={projectLabel} />
-          ) : null}
-          {sourceLabel !== undefined ? (
-            <ChromeLabel icon="branch" label={sourceLabel} />
-          ) : null}
-        </View>
-      ) : null}
       <GlassSurface
         style={{
           gap: 8,
@@ -261,7 +268,7 @@ export const Composer = ({
       >
         {modelValue?.permissionMode === "plan" ? (
           <PlanPill
-            editable={fresh}
+            editable
             onClear={() =>
               void changeModelMode({ ...modelValue, permissionMode: "default" })
             }
@@ -280,14 +287,17 @@ export const Composer = ({
             <>
               <ComposerSettingsMenu
                 value={modelValue}
-                editable={fresh}
+                editable
                 onChange={(next) => void changeModelMode(next)}
               />
               <View className="min-w-0 flex-1 items-center">
                 <ComposerModelMenu
                   value={modelValue}
-                  editable={fresh}
+                  editable
                   onChange={(next) => void changeModelMode(next)}
+                  availableProviders={availableProviders}
+                  canChangeProvider={fresh}
+                  canChangeReasoning={fresh}
                 />
               </View>
             </>
@@ -326,28 +336,6 @@ export const Composer = ({
 
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
-
-const ChromeLabel = ({
-  icon,
-  label,
-}: {
-  icon: "project" | "branch";
-  label: string;
-}) => (
-  <View className="min-w-0 flex-1 flex-row items-center gap-1.5 rounded-full bg-card-elevated/70 px-2.5 py-1.5">
-    {icon === "project" ? (
-      <HugeIcon icon={Folder01Icon} size={13} color="hsl(72 4% 76%)" />
-    ) : (
-      <HugeIcon icon={GitBranchIcon} size={13} color="hsl(72 4% 76%)" />
-    )}
-    <Text
-      className="min-w-0 flex-1 font-sans-medium text-[12px] text-muted-foreground"
-      numberOfLines={1}
-    >
-      {label}
-    </Text>
-  </View>
-);
 
 const PlanPill = ({
   editable,

@@ -31,6 +31,10 @@ export function ComposerModelMenu({
   value: ModelModeValue;
   editable: boolean;
   onChange: (value: ModelModeValue) => void;
+  // Inert on non-iOS; kept to mirror the native twin's signature.
+  availableProviders?: readonly ProviderId[] | null;
+  canChangeProvider?: boolean;
+  canChangeReasoning?: boolean;
 }) {
   const modelLabel =
     modelOptionsForProvider(value.providerId).find(

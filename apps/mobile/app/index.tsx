@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, router, Stack } from "expo-router";
 import {
-  AlertTriangle,
   Archive,
   ChevronDown,
   ChevronRight,
-  CircleCheck,
-  CircleX,
-  LoaderCircle,
   Loader2,
-  MessageCircle,
   MessageSquare,
   Search,
   Settings,
@@ -27,7 +22,6 @@ import {
   View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
-import type { SessionStatus } from "@zuse/wire";
 
 import {
   buildInboxGroups,
@@ -58,7 +52,7 @@ import {
 import { EmptyState } from "~/components/ui/empty-state";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
-import { UnreadBadge } from "~/components/unread-badge";
+import { PresenceDot } from "~/components/ui/presence-dot";
 
 const ACCENT = "hsl(72 98% 54%)";
 const LOGO = require("../assets/icon.png");
@@ -76,6 +70,7 @@ export default function HomeScreen() {
     connections,
     hydrated: connectionsHydrated,
     hydrate: hydrateConnections,
+    refreshLabel,
   } = useConnectionsStore();
   const {
     environments,
@@ -146,8 +141,9 @@ export default function HomeScreen() {
       const options = optionsForConnection(connection.key, connections);
       if (options === null) continue;
       void hydrateSessions(connection.key, options);
+      void refreshLabel(connection.key, options);
     }
-  }, [account, connections, hydrateSessions]);
+  }, [account, connections, hydrateSessions, refreshLabel]);
 
   const groups = useMemo(
     () =>
@@ -508,7 +504,8 @@ function InboxItem({
     );
   }
 
-  const statusLabel = item.row.status;
+  const isActive =
+    item.row.status === "running" || item.row.status === "booting";
   const href =
     `/c/${encodeURIComponent(item.row.connectionKey)}/session/${encodeURIComponent(
       item.row.session.id,
@@ -544,35 +541,38 @@ function InboxItem({
         <Link.Trigger>
           <Pressable
             className={cn(
-              "min-h-[72px] flex-row items-center gap-3 border-x border-t border-border bg-card px-3 py-3 active:bg-card-elevated",
+              "min-h-[64px] flex-row items-center gap-2.5 border-x border-t border-border bg-card px-3 py-3 active:bg-card-elevated",
               item.isLast && "rounded-b-2xl border-b",
             )}
             style={item.isLast ? { borderCurve: "continuous" } : undefined}
           >
-            <Link.AppleZoom>
-              <View
-                collapsable={false}
-                className="h-10 w-10 items-center justify-center rounded-full bg-muted"
-              >
-                <ChatStateIcon status={item.row.status} />
-              </View>
-            </Link.AppleZoom>
+            <View
+              collapsable={false}
+              className="w-4 items-center justify-center"
+            >
+              {isActive ? (
+                <PresenceDot tone="online" pulse size={7} />
+              ) : item.row.unread ? (
+                <View className="h-[7px] w-[7px] rounded-full bg-primary" />
+              ) : null}
+            </View>
             <View className="min-w-0 flex-1">
-              <View className="flex-row items-center gap-2">
-                <Text
-                  className="min-w-0 flex-1 font-sans-medium text-[16px] text-foreground"
-                  numberOfLines={1}
-                >
-                  {item.row.title}
-                </Text>
-                <UnreadBadge visible={item.row.unread} />
-              </View>
+              <Text
+                className={cn(
+                  "font-sans-medium text-[15px]",
+                  item.row.unread ? "text-foreground" : "text-muted-foreground",
+                )}
+                numberOfLines={1}
+              >
+                {item.row.title}
+              </Text>
               <View className="mt-0.5 flex-row items-center gap-2">
                 <Text
-                  className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground"
+                  className="min-w-0 flex-1 font-sans text-[12px] text-muted-foreground"
                   numberOfLines={1}
                 >
-                  {item.row.subtitle} · {statusLabel}
+                  {item.row.subtitle}
+                  {isActive ? " · Running" : ""}
                 </Text>
                 <BranchStateBadge state={branchState} />
               </View>
@@ -591,18 +591,6 @@ function BrandTitle() {
       <Image source={LOGO} className="h-7 w-7 rounded-lg" resizeMode="cover" />
       <Text className="font-sans-bold text-[18px] text-foreground">Zuse</Text>
     </View>
-  );
-}
-
-function ChatStateIcon({ status }: { status: SessionStatus }) {
-  const meta = iconForStatus(status);
-  const Icon = meta.icon;
-  return (
-    <Icon
-      size={21}
-      color={meta.color}
-      strokeWidth={2.1}
-    />
   );
 }
 
@@ -724,23 +712,6 @@ function branchToneColor(tone: "brand" | "neutral" | "danger" | "success" | "war
       return "hsl(42 93% 48%)";
     case "neutral":
       return "hsl(72 3% 64%)";
-  }
-}
-
-function iconForStatus(status: SessionStatus) {
-  switch (status) {
-    case "running":
-      return { icon: LoaderCircle, color: "hsl(72 98% 54%)" };
-    case "error":
-      return { icon: AlertTriangle, color: "hsl(0 84% 62%)" };
-    case "closed":
-      return { icon: CircleX, color: "hsl(72 3% 64%)" };
-    case "idle":
-      return { icon: CircleCheck, color: "hsl(142 70% 45%)" };
-    case "booting":
-      return { icon: LoaderCircle, color: "hsl(42 93% 48%)" };
-    default:
-      return { icon: MessageCircle, color: "hsl(72 4% 70%)" };
   }
 }
 

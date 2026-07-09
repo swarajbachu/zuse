@@ -5,6 +5,7 @@ import {
   buildInboxListItems,
   DEFAULT_INBOX_GROUP_DISPLAY,
   nextInboxGroupDisplay,
+  relativeTimeLabel,
 } from "./inbox";
 
 const connection = {
@@ -101,6 +102,50 @@ describe("mobile inbox helpers", () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0]?.rows[0]?.title).toBe("Release checklist");
+  });
+
+  test("keeps provider/model searchable but off the visible subtitle", () => {
+    const build = (query: string) =>
+      buildInboxGroups({
+        connections: [connection],
+        bundlesByConnection: {
+          "env-1": [
+            {
+              project,
+              chats: [chat({ title: "Release checklist" })] as never,
+              sessions: [session({ providerId: "codex", model: "gpt-5" })] as never,
+            },
+          ],
+        },
+        statusBySession: {},
+        query,
+      });
+
+    // Search still matches provider/model even though the subtitle now shows time.
+    expect(build("codex")).toHaveLength(1);
+    const row = build("")[0]?.rows[0];
+    expect(row?.providerModel).toBe("codex / gpt-5");
+    expect(row?.subtitle).not.toContain("/");
+    expect(row?.subtitle).not.toContain("codex");
+  });
+
+  test("relativeTimeLabel formats across boundaries", () => {
+    const now = new Date("2026-07-09T12:00:00.000Z").getTime();
+    const minute = 60_000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    expect(relativeTimeLabel(0, now)).toBe("");
+    expect(relativeTimeLabel(now - 30 * 1000, now)).toBe("now");
+    expect(relativeTimeLabel(now - 2 * minute, now)).toBe("2m");
+    expect(relativeTimeLabel(now - 3 * hour, now)).toBe("3h");
+    // 2 days ago is within the week → a weekday label.
+    expect(relativeTimeLabel(now - 2 * day, now)).toMatch(
+      /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/,
+    );
+    // Older than a week → a short date.
+    expect(relativeTimeLabel(now - 40 * day, now)).toMatch(
+      /^[A-Z][a-z]{2} \d{1,2}$/,
+    );
   });
 
   test("builds collapsible show-more list items", () => {

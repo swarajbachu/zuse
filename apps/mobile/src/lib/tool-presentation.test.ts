@@ -56,4 +56,50 @@ describe("mobile tool presentation", () => {
     expect(toResultText([{ type: "text", text: "hello" }])).toBe("hello");
     expect(lineCountOf("a\nb\nc")).toBe(3);
   });
+
+  test("builds compact inline labels per tool", () => {
+    expect(
+      buildToolPresentation(toolUse("Bash", { command: "pwd && ls\nmore" }))
+        .inlineLabel,
+    ).toBe("Ran pwd && ls");
+    expect(
+      buildToolPresentation(toolUse("Read", { file_path: "src/app.ts" }))
+        .inlineLabel,
+    ).toBe("Read app.ts");
+    expect(
+      buildToolPresentation(
+        toolUse("Write", { file_path: "a/b/new.ts", content: "x" }),
+      ).inlineLabel,
+    ).toBe("Created new.ts");
+    expect(
+      buildToolPresentation(
+        toolUse("Edit", {
+          file_path: "src/app.ts",
+          old_string: "a",
+          new_string: "b",
+        }),
+      ).inlineLabel,
+    ).toBe("Edited app.ts");
+    // Falls back to the tool label when the natural argument is missing.
+    expect(buildToolPresentation(toolUse("Bash", {})).inlineLabel).toBe("Bash");
+    expect(
+      buildToolPresentation(toolUse("Grep", { pattern: "foo", path: "src" }))
+        .inlineLabel,
+    ).toBe("Grep");
+  });
+
+  test("summarizes file changes across edits", () => {
+    expect(
+      buildToolPresentation(
+        toolUse("Edit", {
+          file_path: "src/app.ts",
+          old_string: "a",
+          new_string: "a\nb\nc",
+        }),
+      ).fileChangeSummary,
+    ).toBe("1 file changed +3 −1");
+    expect(
+      buildToolPresentation(toolUse("Bash", { command: "ls" })).fileChangeSummary,
+    ).toBeNull();
+  });
 });

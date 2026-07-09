@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { Effect } from "effect";
 
 import { getConnectionClient } from "~/rpc/connection";
-import { connectionKey } from "~/rpc/ws-protocol";
+import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 import { visibleConnectionLabel } from "~/lib/display-names";
 
 export type ConnectionRecord = {
@@ -34,6 +34,14 @@ type ConnectionsState = {
     wsBaseUrl: string;
     token: string;
   }) => Promise<ConnectionRecord>;
+  /** Persist a new human label for an already-stored connection. */
+  updateLabel: (key: string, label: string) => Promise<void>;
+  /**
+   * Re-describe an already-paired environment and adopt its human label if the
+   * server now reports a nicer one (e.g. after the Phase 1 machine-naming
+   * change lands on desktop). No-op when the label is unchanged.
+   */
+  refreshLabel: (key: string, options: WsProtocolOptions) => Promise<void>;
   remove: (key: string) => Promise<void>;
 };
 
@@ -120,6 +128,21 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
     await Effect.runPromise(saveConnections(next));
     return record;
   },
+  updateLabel: async (key, label) => {
+    const next = get().connections.map((c) =>
+      c.key === key ? { ...c, label } : c,
+    );
+    set({ connections: next });
+    await Effect.runPromise(saveConnections(next));
+  },
+  refreshLabel: async (key, options) => {
+    const descriptor = await describeEnvironment(options);
+    if (descriptor === null) return;
+    const nextLabel = visibleConnectionLabel(descriptor.label, key);
+    const current = get().connections.find((c) => c.key === key);
+    if (current === undefined || current.label === nextLabel) return;
+    await get().updateLabel(key, nextLabel);
+  },
   remove: async (key) => {
     const next = get().connections.filter((c) => c.key !== key);
     set({ connections: next });
@@ -155,11 +178,7 @@ const redeemPairingCodeIfNeeded = async ({
   return body.token;
 };
 
-const describeEnvironment = async (options: {
-  host: string;
-  port: number;
-  token: string | null;
-}) => {
+const describeEnvironment = async (options: WsProtocolOptions) => {
   try {
     const client = await Effect.runPromise(getConnectionClient(options));
     return await Effect.runPromise(client.connect.describe());
