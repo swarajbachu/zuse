@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3]
+
+### Changed
+- Fix merge action render loop
+- Fix Jump to latest threshold and chat scroll lifecycle (#304)
+- Fix permission card mislabeling plan-mode prompts as sensitive paths (#302)
+
 ## [0.12.2]
 
 ### Changed

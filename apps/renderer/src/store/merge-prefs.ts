@@ -9,6 +9,16 @@ type MergePrefsState = {
   readonly setDeleteBranch: (deleteBranch: boolean) => void;
 };
 
+const setMethod = (method: GitMergeMethod): void => {
+  const settings = useSettingsStore.getState();
+  settings.setMergePrefs({ ...settings.mergePrefs, method });
+};
+
+const setDeleteBranch = (deleteBranch: boolean): void => {
+  const settings = useSettingsStore.getState();
+  settings.setMergePrefs({ ...settings.mergePrefs, deleteBranch });
+};
+
 /**
  * Compatibility hook for the top-bar merge menu. Preferences now persist in
  * `settings.json` through `useSettingsStore`.
@@ -18,10 +28,8 @@ export function useMergePrefs<T>(selector: (state: MergePrefsState) => T): T {
     selector({
       method: settings.mergePrefs.method,
       deleteBranch: settings.mergePrefs.deleteBranch,
-      setMethod: (method) =>
-        settings.setMergePrefs({ ...settings.mergePrefs, method }),
-      setDeleteBranch: (deleteBranch) =>
-        settings.setMergePrefs({ ...settings.mergePrefs, deleteBranch }),
+      setMethod,
+      setDeleteBranch,
     }),
   );
 }
