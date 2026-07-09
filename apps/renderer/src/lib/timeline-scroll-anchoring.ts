@@ -67,9 +67,14 @@ export function shouldRestoreAnchorScrollOffset({
   );
 }
 
+// How far from the true bottom still counts as "at the live edge." Kept
+// intentionally larger than a trackpad tick so Jump to latest only appears
+// after a deliberate scroll-up (tiny motion used to flash the pill).
+const NEAR_LIVE_EDGE_PX = 200;
+
 export function resolveScrollableNodeIsAtEnd(
   node: TimelineScrollableNodeState | null | undefined,
-  threshold = 24,
+  threshold = NEAR_LIVE_EDGE_PX,
 ): boolean | undefined {
   if (node === null || node === undefined) return undefined;
   const { scrollTop, scrollHeight, clientHeight } = node;

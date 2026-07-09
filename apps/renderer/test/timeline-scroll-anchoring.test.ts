@@ -192,6 +192,7 @@ describe("timeline scroll anchoring", () => {
   });
 
   it("detects whether the actual scroll node has left the live edge", () => {
+    // 20px from bottom — still at the live edge.
     expect(
       resolveScrollableNodeIsAtEnd({
         scrollTop: 960,
@@ -200,9 +201,19 @@ describe("timeline scroll anchoring", () => {
       }),
     ).toBe(true);
 
+    // 160px from bottom — within the near-edge band, still at end.
     expect(
       resolveScrollableNodeIsAtEnd({
         scrollTop: 820,
+        scrollHeight: 1400,
+        clientHeight: 420,
+      }),
+    ).toBe(true);
+
+    // 280px from bottom — meaningfully scrolled away.
+    expect(
+      resolveScrollableNodeIsAtEnd({
+        scrollTop: 700,
         scrollHeight: 1400,
         clientHeight: 420,
       }),
