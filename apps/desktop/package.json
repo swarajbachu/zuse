@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "productName": "Zuse Alpha",
-  "version": "0.12.3",
+  "version": "0.12.4",
   "description": "Zuse Alpha desktop app",
   "private": true,
   "author": {
