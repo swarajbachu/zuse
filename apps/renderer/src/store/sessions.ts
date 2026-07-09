@@ -19,10 +19,6 @@ import type {
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
-import {
-  buildAgentsForNewSession,
-  useSubagentsStore,
-} from "./subagents.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
@@ -244,13 +240,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }));
     try {
       const client = await getRpcClient();
-      // Sub-agent presets are Claude-only this PR — Codex sessions ship
-      // empty `agents` so the wire stays uniform.
-      const agents =
-        providerId === "claude" ? buildAgentsForNewSession() : {};
-      const enableSubagents =
-        providerId === "claude" &&
-        useSubagentsStore.getState().enableForNewSessions;
       const session = await Effect.runPromise(
         client.session.create({
           chatId,
@@ -258,8 +247,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           model,
           initialPrompt: opts?.initialPrompt,
           runtimeMode: opts?.runtimeMode,
-          agents,
-          enableSubagents,
           permissionMode: opts?.permissionMode,
           toolSearch: opts?.toolSearch,
         }),

@@ -2,7 +2,6 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import type {
-  AgentDefinition,
   Chat,
   ChatId,
   FolderId,
@@ -86,8 +85,6 @@ type ChatsState = {
       readonly initialPrompt?: string;
       readonly runtimeMode?: RuntimeMode;
       readonly worktreeId?: WorktreeId | null;
-      readonly agents?: Readonly<Record<string, AgentDefinition>>;
-      readonly enableSubagents?: boolean;
       readonly permissionMode?: PermissionMode;
       readonly toolSearch?: boolean;
     },
@@ -288,8 +285,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
           initialPrompt: opts?.initialPrompt,
           runtimeMode: opts?.runtimeMode,
           worktreeId: opts?.worktreeId ?? null,
-          agents: opts?.agents,
-          enableSubagents: opts?.enableSubagents,
           permissionMode: opts?.permissionMode,
           toolSearch: opts?.toolSearch,
         }),

@@ -49,11 +49,9 @@ import {
   playCompletionSound,
   prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
-import { DEFAULT_SUBAGENT_PRESETS } from "../lib/subagent-presets.ts";
 import { useAuth } from "../hooks/use-auth.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
-import { useSubagentsStore } from "../store/subagents.ts";
 import { useUiStore, type SettingsSection } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { ProviderCard } from "./provider-card.tsx";
@@ -315,7 +313,7 @@ function SectionTitle({
     if (section.kind === "general") {
       return {
         title: "General",
-        subtitle: "Defaults for new chats and sub-agents.",
+        subtitle: "Defaults for new chats.",
       };
     }
     if (section.kind === "providers") {
@@ -1195,8 +1193,6 @@ function GeneralPane() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SubagentsSection />
-
       <SettingsGroup title="Setup">
         <SettingsRow
           title="Onboarding"
@@ -1417,134 +1413,6 @@ function WorkspacePane() {
       }
       description="When on, each new chat runs in its own git worktree under ~/.zuse/<repo>/<name>/, branched off the project's HEAD. Per-repo settings can override this default."
     />
-  );
-}
-
-/**
- * Sub-agents settings. Master toggle + per-preset toggle. Model dropdowns
- * read the user's overlay; a future "Edit" sheet will surface the prompt
- * + tool subset.
- */
-function SubagentsSection() {
-  const enableForNewSessions = useSubagentsStore((s) => s.enableForNewSessions);
-  const setEnableForNewSessions = useSubagentsStore(
-    (s) => s.setEnableForNewSessions,
-  );
-  const presets = useSubagentsStore((s) => s.presets);
-  const setPresetEnabled = useSubagentsStore((s) => s.setPresetEnabled);
-  const setPresetOverride = useSubagentsStore((s) => s.setPresetOverride);
-  const modelEnabledByProvider = useSettingsStore(
-    (s) => s.modelEnabledByProvider,
-  );
-
-  const claudeModels = visibleModelsForProvider(
-    "claude",
-    modelEnabledByProvider,
-  );
-
-  return (
-    <Frame>
-      <FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
-        <p className="text-sm font-semibold text-foreground">Sub-agents</p>
-        <Switch
-          checked={enableForNewSessions}
-          onCheckedChange={setEnableForNewSessions}
-        />
-      </FrameHeader>
-
-      <Card
-        className={cn(
-          enableForNewSessions ? "" : "pointer-events-none opacity-50",
-        )}
-      >
-        <div className="flex flex-col divide-y divide-border/40 overflow-hidden">
-          {DEFAULT_SUBAGENT_PRESETS.map((preset) => {
-            const ps = presets[preset.name] ?? {
-              enabled: true,
-              overrides: {},
-            };
-            const currentModel =
-              ps.overrides.model ?? preset.definition.model ?? "";
-            const rowDisabled = !enableForNewSessions || !ps.enabled;
-            return (
-              <div
-                key={preset.name}
-                className="flex flex-col gap-3 px-4 py-3.5"
-              >
-                <label className="group flex cursor-pointer items-start gap-3">
-                  <Switch
-                    checked={ps.enabled && enableForNewSessions}
-                    disabled={!enableForNewSessions}
-                    onCheckedChange={(v) => setPresetEnabled(preset.name, v)}
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-sm font-semibold leading-none text-foreground">
-                      {preset.displayName}
-                    </span>
-                    <span className="text-xs leading-snug text-muted-foreground">
-                      {preset.summary}
-                    </span>
-                  </span>
-                </label>
-
-                <div
-                  className={cn(
-                    "ml-[calc(--spacing(9)+--spacing(3))] flex flex-col gap-2",
-                    rowDisabled && "pointer-events-none opacity-50",
-                  )}
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold leading-none text-foreground">
-                      Model
-                    </span>
-                    <span className="text-xs leading-snug text-muted-foreground">
-                      Pick which model handles this sub-agent's turns.
-                    </span>
-                  </div>
-                  <div
-                    role="radiogroup"
-                    aria-label={`Model for ${preset.displayName}`}
-                    className="flex flex-col"
-                  >
-                    {claudeModels.map((m) => {
-                      const selected = currentModel === m.id;
-                      return (
-                        <label
-                          key={m.id}
-                          className="group flex cursor-pointer items-center gap-3 py-1.5"
-                        >
-                          <input
-                            type="radio"
-                            name={`subagent-model-${preset.name}`}
-                            value={m.id}
-                            checked={selected}
-                            onChange={() =>
-                              setPresetOverride(preset.name, { model: m.id })
-                            }
-                            className="sr-only"
-                          />
-                          <RadioCheck active={selected} />
-                          <span className="text-sm text-foreground">
-                            {m.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-      <FrameFooter className="px-2 py-1 w-full">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Let your main agent delegate scoped tasks to cheaper models. Saves
-          tokens on long sessions.
-        </p>
-      </FrameFooter>
-    </Frame>
   );
 }
 
