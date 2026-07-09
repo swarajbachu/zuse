@@ -806,6 +806,12 @@ export const MessageStoreLive = Layer.scoped(
       `.pipe(Effect.orDie);
     }
 
+    yield* sql`
+      UPDATE sessions
+      SET status = 'idle', updated_at = ${new Date().toISOString()}
+      WHERE status IN ('running', 'booting') AND archived_at IS NULL
+    `.pipe(Effect.asVoid, Effect.orDie);
+
     /**
      * Resolve the cwd a session should run in. NULL `worktreeId` falls
      * through to the project's main checkout (handled by `provider.start`
@@ -1152,6 +1158,64 @@ export const MessageStoreLive = Layer.scoped(
 
     const agentsFor = (sessionId: SessionId) => agentsBySession.get(sessionId);
 
+    const canonicalizeToolInput = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(canonicalizeToolInput);
+      if (value === null || typeof value !== "object") return value;
+      const input = value as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const [key, raw] of Object.entries(input)) {
+        const canonicalKey =
+          key === "target_file" || key === "filePath" ? "file_path" : key;
+        out[canonicalKey] = canonicalizeToolInput(raw);
+      }
+      return Object.fromEntries(
+        Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
+      );
+    };
+
+    const toolUseFingerprint = (
+      content: Extract<MessageContent, { readonly _tag: "tool_use" }>,
+    ): string => {
+      try {
+        return JSON.stringify({
+          itemId: content.itemId,
+          tool: content.tool,
+          input: canonicalizeToolInput(content.input),
+          parentItemId: content.parentItemId ?? null,
+        });
+      } catch {
+        return `${content.itemId}:${content.tool}:${String(content.input)}:${content.parentItemId ?? ""}`;
+      }
+    };
+
+    const isDuplicateToolUse = (
+      sessionId: SessionId,
+      content: Extract<MessageContent, { readonly _tag: "tool_use" }>,
+    ): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        const rows = yield* sql<{ readonly content_json: string }>`
+          SELECT content_json FROM messages
+          WHERE session_id = ${sessionId} AND kind = 'tool_use'
+          ORDER BY sequence DESC
+        `.pipe(Effect.orDie);
+        const nextFingerprint = toolUseFingerprint(content);
+        for (const row of rows) {
+          try {
+            const existing = JSON.parse(row.content_json) as MessageContent;
+            if (
+              existing._tag === "tool_use" &&
+              existing.itemId === content.itemId &&
+              toolUseFingerprint(existing) === nextFingerprint
+            ) {
+              return true;
+            }
+          } catch {
+            // Ignore malformed legacy rows; the normal schema path keeps JSON valid.
+          }
+        }
+        return false;
+      });
+
     const persistMessage = (
       sessionId: SessionId,
       content: MessageContent,
@@ -1434,6 +1498,12 @@ export const MessageStoreLive = Layer.scoped(
               }
               const content = eventToContent(event);
               if (content === null) return;
+              if (
+                content._tag === "tool_use" &&
+                (yield* isDuplicateToolUse(sessionId, content))
+              ) {
+                return;
+              }
               const persisted = yield* persistMessage(sessionId, content);
               yield* broadcastMessage(sessionId, persisted);
               yield* ndjsonAppend(sessionId, persisted);

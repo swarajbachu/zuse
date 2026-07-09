@@ -342,6 +342,28 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
     expect(second).toEqual([]);
   });
 
+  it("dedupes equivalent file path aliases for the same tool call", () => {
+    const t = createAcpTranslator("grok");
+    const first = t.translate({
+      sessionUpdate: "tool_call",
+      kind: "read",
+      toolCallId: "read-1",
+      rawInput: { target_file: "/repo/a.ts" },
+    });
+    expect(tags(first)).toEqual(["ToolUse"]);
+    expect(only(first, "ToolUse").input).toEqual({
+      file_path: "/repo/a.ts",
+    });
+
+    const second = t.translate({
+      sessionUpdate: "tool_call_update",
+      kind: "read",
+      toolCallId: "read-1",
+      rawInput: { file_path: "/repo/a.ts" },
+    });
+    expect(second).toEqual([]);
+  });
+
   it("re-emits ToolUse when a diff first appears on an Edit update", () => {
     const t = createAcpTranslator("cursor");
     t.translate({

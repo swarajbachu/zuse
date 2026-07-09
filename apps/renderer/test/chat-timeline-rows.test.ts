@@ -4,6 +4,7 @@ import type { Message, SessionId } from "@zuse/wire";
 
 import {
   deriveChatTimelineRows,
+  normalizeTimelineMessages,
   resolveLatestUserMessageId,
   rowAnchorMessageId,
 } from "../src/lib/chat-timeline-rows.ts";
@@ -101,5 +102,54 @@ describe("chat timeline rows", () => {
     });
 
     expect(second.map((row) => row.id)).toEqual(first.map((row) => row.id));
+  });
+
+  it("collapses duplicate tool_use rows with the same provider item id", () => {
+    const messages = [
+      message("u1", { _tag: "user", text: "inspect", goal: null }),
+      message("t1", {
+        _tag: "tool_use",
+        itemId: "call-1" as never,
+        tool: "Read",
+        input: { target_file: "/repo/a.ts" },
+      }),
+      message("t2", {
+        _tag: "tool_use",
+        itemId: "call-1" as never,
+        tool: "Read",
+        input: { file_path: "/repo/a.ts", limit: 80 },
+      }),
+      message("r1", {
+        _tag: "tool_result",
+        itemId: "call-1" as never,
+        output: "body",
+        isError: false,
+      }),
+      message("a1", { _tag: "assistant", text: "done" }),
+    ];
+
+    const normalized = normalizeTimelineMessages(messages);
+    expect(
+      normalized.filter((m) => m.content._tag === "tool_use"),
+    ).toHaveLength(1);
+    expect(
+      normalized.find((m) => m.content._tag === "tool_use")?.content,
+    ).toMatchObject({
+      _tag: "tool_use",
+      input: { file_path: "/repo/a.ts", limit: 80 },
+    });
+
+    const rows = deriveChatTimelineRows({
+      messages,
+      inFlight: false,
+      awaitingPlanApproval: false,
+    });
+    const summary = rows.find((row) => row.kind === "turn-summary");
+    expect(summary?.kind).toBe("turn-summary");
+    expect(
+      summary?.kind === "turn-summary"
+        ? summary.body.filter((m) => m.content._tag === "tool_use")
+        : [],
+    ).toHaveLength(1);
   });
 });

@@ -61,6 +61,70 @@ export function rowAnchorMessageId(row: ChatTimelineRow): string | null {
     : null;
 }
 
+const toolUseKey = (message: Message): string | null =>
+  message.content._tag === "tool_use"
+    ? `${message.sessionId}:${message.content.itemId}`
+    : null;
+
+const inputScore = (input: unknown): number => {
+  if (input === null || input === undefined) return 0;
+  let score = 1;
+  if (typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (typeof obj["file_path"] === "string") score += 4;
+    if (typeof obj["command"] === "string") score += 4;
+    if (typeof obj["old_string"] === "string") score += 3;
+    if (typeof obj["new_string"] === "string") score += 3;
+  }
+  try {
+    score += JSON.stringify(input)?.length ?? 0;
+  } catch {
+    score += String(input).length;
+  }
+  return score;
+};
+
+const preferToolUse = (current: Message, next: Message): Message => {
+  if (
+    current.content._tag !== "tool_use" ||
+    next.content._tag !== "tool_use"
+  ) {
+    return current;
+  }
+  return inputScore(next.content.input) > inputScore(current.content.input)
+    ? next
+    : current;
+};
+
+export function normalizeTimelineMessages(
+  messages: ReadonlyArray<Message>,
+): Message[] {
+  const normalized: Message[] = [];
+  const toolUseIndexByKey = new Map<string, number>();
+
+  for (const message of messages) {
+    const key = toolUseKey(message);
+    if (key === null) {
+      normalized.push(message);
+      continue;
+    }
+
+    const existingIndex = toolUseIndexByKey.get(key);
+    if (existingIndex === undefined) {
+      toolUseIndexByKey.set(key, normalized.length);
+      normalized.push(message);
+      continue;
+    }
+
+    normalized[existingIndex] = preferToolUse(
+      normalized[existingIndex]!,
+      message,
+    );
+  }
+
+  return normalized;
+}
+
 export function deriveChatTimelineRows({
   messages,
   inFlight,
@@ -70,13 +134,14 @@ export function deriveChatTimelineRows({
   readonly inFlight: boolean;
   readonly awaitingPlanApproval: boolean;
 }): ChatTimelineRow[] {
+  const normalizedMessages = normalizeTimelineMessages(messages);
   const turns: Array<{
     user: Message | null;
     body: Message[];
   }> = [];
   let current: { user: Message | null; body: Message[] } | null = null;
 
-  for (const message of messages) {
+  for (const message of normalizedMessages) {
     if (isUserMessage(message)) {
       if (current !== null) turns.push(current);
       current = { user: message, body: [] };
