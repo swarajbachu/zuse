@@ -2,6 +2,7 @@ import { Rpc } from "@effect/rpc";
 import { Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
+import { FolderId } from "./ids.ts";
 import { SessionId, SessionNotFoundError } from "./session.ts";
 
 /**
@@ -32,6 +33,20 @@ export const SkillListRpc = Rpc.make("skill.list", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Schema.Array(Skill),
   error: SessionNotFoundError,
+});
+
+/**
+ * One-shot fetch for a draft composer before a real session row exists.
+ * Skill discovery only needs the provider and project checkout, so the
+ * landing composer can hydrate slash-command skills without creating a
+ * temporary server session.
+ */
+export const SkillListForProjectRpc = Rpc.make("skill.listForProject", {
+  payload: Schema.Struct({
+    projectId: FolderId,
+    providerId: ProviderId,
+  }),
+  success: Schema.Array(Skill),
 });
 
 /**

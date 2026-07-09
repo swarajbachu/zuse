@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
-import type { SessionId, Skill } from "@zuse/wire";
+import type { FolderId, ProviderId, SessionId, Skill } from "@zuse/wire";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -14,6 +14,11 @@ import { getRpcClient } from "../lib/rpc-client.ts";
 type SkillsState = {
   readonly skillsBySession: Record<string, ReadonlyArray<Skill>>;
   readonly hydrate: (sessionId: SessionId) => Promise<void>;
+  readonly hydrateForDraft: (
+    sessionId: SessionId,
+    projectId: FolderId,
+    providerId: ProviderId,
+  ) => Promise<void>;
 };
 
 const EMPTY: ReadonlyArray<Skill> = [];
@@ -53,6 +58,23 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     } catch {
       // Best-effort: if the stream errors (e.g. session not found), keep
       // the empty list — the slash popover degrades to built-ins only.
+    }
+  },
+  hydrateForDraft: async (sessionId, projectId, providerId) => {
+    await stopLiveFiber();
+    set((s) => ({
+      skillsBySession: { ...s.skillsBySession, [sessionId]: EMPTY },
+    }));
+    try {
+      const client = await getRpcClient();
+      const skills = await Effect.runPromise(
+        client.skill.listForProject({ projectId, providerId }),
+      );
+      set((s) => ({
+        skillsBySession: { ...s.skillsBySession, [sessionId]: skills },
+      }));
+    } catch {
+      // Best-effort: draft slash commands still show built-ins.
     }
   },
 }));

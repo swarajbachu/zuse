@@ -1,6 +1,8 @@
 import { Context, type Effect, type Stream } from "effect";
 
 import type {
+  FolderId,
+  ProviderId,
   SessionId,
   SessionNotFoundError,
   Skill,
@@ -15,6 +17,11 @@ export interface SkillBridgeShape {
   readonly list: (
     sessionId: SessionId,
   ) => Effect.Effect<ReadonlyArray<Skill>, SessionNotFoundError>;
+
+  readonly listForProject: (
+    projectId: FolderId,
+    providerId: ProviderId,
+  ) => Effect.Effect<ReadonlyArray<Skill>>;
 
   readonly stream: (
     sessionId: SessionId,

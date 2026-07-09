@@ -37,6 +37,12 @@ import {
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
+import {
+  finalizeDraftAttachments,
+  finalizeDraftContextFiles,
+  type PendingDraftAttachment,
+  type PendingDraftContextFile,
+} from "~/composer/draft-attachments";
 import { useChatsStore } from "~/store/chats";
 import { useMessagesStore } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
@@ -45,6 +51,7 @@ import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
+import { useAttachmentsStore } from "~/store/attachments";
 import { composerDraftKeyForLanding } from "~/store/composer-drafts";
 import { useComposerBridge } from "~/store/composer-bridge";
 import { saveContextFile } from "~/lib/context-handoff";
@@ -149,6 +156,7 @@ export function ChatLanding() {
 
   const create = useChatsStore((s) => s.create);
   const send = useMessagesStore((s) => s.send);
+  const uploadOne = useAttachmentsStore((s) => s.uploadOne);
   const beginDraft = useSessionsStore((s) => s.beginDraft);
   const clearDraft = useSessionsStore((s) => s.clearDraft);
   // The synthetic draft session that drives the real ChatComposer below. Its
@@ -317,7 +325,11 @@ export function ChatLanding() {
   // there's no worktree). Identical sequencing to the old textarea submit.
   const handleDraftSubmit = async (
     input: ComposerInput,
-    opts: { asGoal: boolean },
+    opts: {
+      readonly asGoal: boolean;
+      readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
+      readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
+    },
   ): Promise<void> => {
     if (selectedFolderId === null || submitting) return;
     const draft = useSessionsStore.getState().draftSession;
@@ -372,6 +384,64 @@ export function ChatLanding() {
             { relPath: ref.relPath, absPath: ref.absPath, kind: "file" },
           ],
         };
+      }
+    }
+    const uploadRoot = (() => {
+      if (worktreeId === null) return selectedFolder?.path ?? null;
+      const wt = (
+        useWorktreesStore.getState().byProject[selectedFolderId] ??
+        EMPTY_WORKTREES
+      ).find((w) => w.id === worktreeId);
+      return wt?.path ?? selectedFolder?.path ?? null;
+    })();
+    if (opts.pendingContextFiles.length > 0) {
+      try {
+        const client = await getRpcClient();
+        finalInput = await finalizeDraftContextFiles(
+          finalInput,
+          opts.pendingContextFiles,
+          async (pending) => {
+            const res = await Effect.runPromise(
+              client.context.saveText({
+                sessionId,
+                text: pending.text,
+                ext: pending.ext,
+                ...(uploadRoot ? { rootPath: uploadRoot } : {}),
+              }),
+            );
+            return { relPath: res.relPath, absPath: res.absPath };
+          },
+        );
+      } catch (err) {
+        console.error("[chat-landing] deferred context file failed", err);
+        setSubmitError("Couldn't attach pasted text. Please try again.");
+        setPendingPrompt(null);
+        setPendingWorktreeId(null);
+        setPendingProviderId(null);
+        setSubmitting(false);
+        return;
+      }
+    }
+    if (opts.pendingAttachments.length > 0) {
+      try {
+        finalInput = await finalizeDraftAttachments(
+          finalInput,
+          opts.pendingAttachments,
+          (pending) =>
+            uploadOne(sessionId, pending.file, uploadRoot ?? undefined),
+        );
+      } catch (err) {
+        console.error("[chat-landing] deferred upload failed", err);
+        setSubmitError("Couldn't attach one of those files. Please try again.");
+        setPendingPrompt(null);
+        setPendingWorktreeId(null);
+        setPendingProviderId(null);
+        setSubmitting(false);
+        return;
+      } finally {
+        for (const pending of opts.pendingAttachments) {
+          if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+        }
       }
     }
     if (opts.asGoal && goalSupported) {

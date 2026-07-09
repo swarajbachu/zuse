@@ -151,6 +151,17 @@ export const SkillBridgeLive = Layer.scoped(
         return entry.skills;
       });
 
+    const listForProject: SkillBridge["Type"]["listForProject"] = (
+      projectId,
+      providerId,
+    ) =>
+      Effect.gen(function* () {
+        const folder = yield* workspace.findById(projectId);
+        const projectCwd = folder?.path ?? process.cwd();
+        const entry = yield* ensureEntry(providerId, projectCwd);
+        return entry.skills;
+      });
+
     const stream: SkillBridge["Type"]["stream"] = (sessionId) =>
       Stream.unwrap(
         Effect.gen(function* () {
@@ -172,6 +183,6 @@ export const SkillBridgeLive = Layer.scoped(
       }),
     );
 
-    return { list, stream };
+    return { list, listForProject, stream };
   }),
 );
