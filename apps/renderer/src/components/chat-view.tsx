@@ -170,7 +170,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
     string | null
   >(null);
-  // Mirror for sync reads in free-scroll cancel / wheel handlers.
   const timelineAnchorMessageIdRef = useRef<string | null>(null);
   timelineAnchorMessageIdRef.current = timelineAnchorMessageId;
   const anchoredEndSpace = useMemo(
@@ -226,13 +225,16 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   }, []);
 
   const showJumpPillIfScrollNodeLeftEnd = useCallback(() => {
-    const scrollNode = listRef.current?.getScrollableNode();
-    const isAtEnd = resolveScrollableNodeIsAtEnd(scrollNode);
+    const list = listRef.current;
+    const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
+    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
+    const isAtEnd = stateAtEnd ?? nodeAtEnd;
     if (isAtEnd === false) {
       isAtEndRef.current = false;
       showJumpPillSoon();
     } else if (isAtEnd === true) {
       isAtEndRef.current = true;
+      liveFollowGenerationRef.current = userNavigationGenerationRef.current;
       hideJumpPill();
     }
   }, [hideJumpPill, showJumpPillSoon]);
@@ -241,33 +243,18 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   // pill once the scroll node is meaningfully away from the live edge.
   // Never force-show on wheel/touch alone — tiny trackpad ticks used to
   // flash the pill even while still near the bottom.
-  // Keep the turn anchor + positioned/settled markers: clearing the anchor
-  // re-enables maintainScrollAtEnd and yanks to the live edge mid-stream;
-  // clearing positioned lets handleAnchorReady re-run scrollToIndex and
-  // pin the user prompt again while free-scrolling.
   const cancelTimelineLiveFollowForUserNavigation = useCallback(() => {
     userNavigationGenerationRef.current += 1;
     timelineScrollModeRef.current = "free-scrolling";
     liveFollowGenerationRef.current = null;
     pendingTimelineAnchorRef.current = null;
+    positionedTimelineAnchorRef.current = null;
+    settledTimelineAnchorRef.current = null;
+    activeTimelineAnchorIndexRef.current = null;
     pendingAnchorScrollRestoreRef.current = null;
     if (anchorScrollRestoreFrameRef.current !== null) {
       cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
       anchorScrollRestoreFrameRef.current = null;
-    }
-
-    // Lock markers so late ready/size callbacks no-op instead of re-pinning.
-    const anchorId = timelineAnchorMessageIdRef.current;
-    if (anchorId !== null) {
-      positionedTimelineAnchorRef.current = anchorId;
-      settledTimelineAnchorRef.current = anchorId;
-    }
-
-    // Interrupt any in-flight animated scrollToIndex from turn anchoring.
-    const list = listRef.current;
-    const offset = list?.getState().scroll;
-    if (list !== null && list !== undefined && typeof offset === "number") {
-      void list.scrollToOffset({ offset, animated: false });
     }
 
     requestAnimationFrame(showJumpPillIfScrollNodeLeftEnd);
@@ -280,9 +267,6 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       liveFollowGenerationRef.current = userNavigationGenerationRef.current;
       pendingTimelineAnchorRef.current = null;
       activeTimelineAnchorIndexRef.current = null;
-      // Keep the turn anchor + positioned/settled markers so Jump to latest
-      // does not re-run scrollToIndex back to the user prompt, and so
-      // maintainScrollAtEnd stays off for the rest of the session.
       pendingAnchorScrollRestoreRef.current = null;
       if (anchorScrollRestoreFrameRef.current !== null) {
         cancelAnimationFrame(anchorScrollRestoreFrameRef.current);
@@ -290,7 +274,18 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       }
       lastAnchoredUserMessageIdRef.current = latestUserMessageIdRef.current;
       hideJumpPill();
-      void listRef.current?.scrollToEnd({ animated });
+      const scrollUntilSettled = (remainingAttempts: number) => {
+        const list = listRef.current;
+        if (!list) return;
+
+        void list.scrollToEnd({ animated: remainingAttempts === 8 && animated });
+
+        if (remainingAttempts <= 0) return;
+        requestAnimationFrame(() => {
+          scrollUntilSettled(remainingAttempts - 1);
+        });
+      };
+      scrollUntilSettled(8);
     },
     [hideJumpPill],
   );
@@ -360,12 +355,12 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       ) {
         return;
       }
-      // User already free-scrolled away — lock markers without re-pinning.
       if (timelineScrollModeRef.current === "free-scrolling") {
         positionedTimelineAnchorRef.current = timelineAnchorMessageId;
         settledTimelineAnchorRef.current = timelineAnchorMessageId;
         return;
       }
+
       positionedTimelineAnchorRef.current = timelineAnchorMessageId;
       settledTimelineAnchorRef.current = null;
       const messageId = timelineAnchorMessageId;
@@ -423,8 +418,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     [timelineAnchorMessageId],
   );
 
-  const handleAnchorSizeChanged = useCallback((size: number) => {
-    void size;
+  const handleAnchorSizeChanged = useCallback(() => {
     const messageId = timelineAnchorMessageId;
     if (
       messageId === null ||
@@ -474,9 +468,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   const handleScroll = useCallback(() => {
     const list = listRef.current;
-    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
     const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
-    const isAtEnd = nodeAtEnd ?? stateAtEnd;
+    const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
+    const isAtEnd = stateAtEnd ?? nodeAtEnd;
     if (isAtEnd === undefined) return;
 
     if (
@@ -528,9 +522,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
   }, [sessionId, rows.length]);
 
-  // Session switch: always land at the live edge. Seed lastAnchored to the
-  // current latest user message so reopening an in-flight chat does not look
-  // like a brand-new send and re-pin the prompt to the top of the viewport.
+  // Session switch: always land at the live edge. The list remounts with
+  // initialScrollAtEnd; the extra frame handles hydration/layout races.
   useEffect(() => {
     timelineScrollModeRef.current = "following-end";
     activeTimelineAnchorIndexRef.current = null;
@@ -609,18 +602,12 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     };
   }, [cancelTimelineLiveFollowForUserNavigation, sessionId]);
 
-  // Anchor only when a *new* user message appears while this session is
-  // already open. Session switch seeds lastAnchored so reopening never
-  // re-triggers this path for an existing prompt.
   useEffect(() => {
     if (latestUserMessageId === null) return;
     const previousLatestUserMessageId = lastAnchoredUserMessageIdRef.current;
     if (previousLatestUserMessageId === latestUserMessageId) return;
 
     lastAnchoredUserMessageIdRef.current = latestUserMessageId;
-    // Hydrating an idle transcript into an empty seed must not pin the
-    // historical user message. A real first send sets inFlight around the
-    // optimistic row and still anchors.
     if (previousLatestUserMessageId === null && !inFlight) return;
 
     timelineScrollModeRef.current = "anchoring-new-turn";
@@ -666,7 +653,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
           const metrics = getActiveTimelineTurnMetrics(list);
           if (!metrics || metrics.scrollDeltaToRevealEnd <= 1) return;
 
-          const nextOffset = list.getState().scroll + metrics.scrollDeltaToRevealEnd;
+          const nextOffset =
+            list.getState().scroll + metrics.scrollDeltaToRevealEnd;
           void list.scrollToOffset({ offset: nextOffset, animated: false });
           return;
         }
