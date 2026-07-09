@@ -717,6 +717,18 @@ describe("model visibility helpers", () => {
     ).toBe(true);
   });
 
+  it("surfaces Grok 4.5 without changing the Grok default", () => {
+    expect(defaultModelFor("grok")).toBe("grok-build");
+    expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(
+      true,
+    );
+    expect(
+      visibleModelsForProvider("grok").some((m) => m.id === "grok-4.5"),
+    ).toBe(true);
+    expect(resolveModelSlug("grok", "grok-4.5-latest")).toBe("grok-4.5");
+    expect(resolveModelSlug("grok", "grok-build-latest")).toBe("grok-4.5");
+  });
+
   it("can include a hidden selected model without making all hidden models visible", () => {
     const models = visibleModelsForProvider("codex", undefined, {
       includeModelId: "gpt-5.3-codex",
