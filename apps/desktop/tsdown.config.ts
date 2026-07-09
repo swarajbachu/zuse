@@ -1,20 +1,30 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "tsdown";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(__dirname, "..", "..");
+
 // tsdown evaluates this config with its own loader (not the bun runtime), so
-// bun's automatic `.env` loading doesn't reach it. Read apps/desktop/.env
-// ourselves so both dev (`tsdown --watch`) and packaged builds inline the
-// public WorkOS client id. A real shell/CI env var always wins.
+// bun's automatic `.env` loading doesn't reach it. Read .env files ourselves
+// so both dev (`tsdown --watch`) and packaged builds inline the public WorkOS
+// client id. A real shell/CI env var always wins.
 const resolveWorkosClientId = (): string => {
   if (process.env.WORKOS_CLIENT_ID) return process.env.WORKOS_CLIENT_ID;
-  const envPath = resolve(process.cwd(), ".env");
-  if (!existsSync(envPath)) return "";
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const match = line.match(/^\s*WORKOS_CLIENT_ID\s*=\s*(.*?)\s*$/);
-    if (match?.[1] !== undefined) {
-      return match[1].replace(/^["']|["']$/g, "");
+  const envPaths = [
+    resolve(process.cwd(), ".env"),
+    resolve(__dirname, ".env"),
+    resolve(repoRoot, ".env"),
+  ];
+  for (const envPath of envPaths) {
+    if (!existsSync(envPath)) continue;
+    for (const line of readFileSync(envPath, "utf8").split("\n")) {
+      const match = line.match(/^\s*WORKOS_CLIENT_ID\s*=\s*(.*?)\s*$/);
+      if (match?.[1] !== undefined) {
+        return match[1].replace(/^["']|["']$/g, "");
+      }
     }
   }
   return "";

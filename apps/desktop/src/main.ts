@@ -175,8 +175,7 @@ app.setAsDefaultProtocolClient("zuse");
 // A callback can arrive before the server runtime (and thus the sink) exists —
 // buffer and flush on register (R2).
 // ---------------------------------------------------------------------------
-const AUTH_LOOPBACK_PORT = 8976;
-const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
+const AUTH_LOOPBACK_PORTS = [8976, 8977, 8978, 8979] as const;
 // Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
 // RFC 8252 native-app pattern and gives a strictly better sign-in finish:
 //   - the browser lands on a real HTML page ("Signed in, you can close this
@@ -185,8 +184,8 @@ const AUTH_LOOPBACK_URI = `http://localhost:${AUTH_LOOPBACK_PORT}/callback`;
 //     already-running app answers directly, no deep-link handoff needed.
 // The `zuse://auth/callback` scheme handler stays registered below as a
 // fallback (and the future mobile path), but is no longer the primary flow.
-// Register `http://localhost:8976/callback` in the WorkOS dashboard.
-const AUTH_REDIRECT_URI = AUTH_LOOPBACK_URI;
+// Register `http://localhost:8976/callback` through `:8979` in the WorkOS
+// dashboard so parallel worktree instances can each finish sign-in.
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
@@ -210,14 +209,39 @@ const focusMainWindow = (): void => {
 };
 
 let authLoopbackServer: http.Server | null = null;
+let boundAuthPort: number | null = null;
+let authLoopbackFailure: string | null = null;
 
-const startAuthLoopback = (): void => {
+const tryListenAuthLoopback = (
+  server: http.Server,
+  port: number,
+): Promise<boolean> =>
+  new Promise((resolve) => {
+    const onError = (err: NodeJS.ErrnoException) => {
+      server.off("listening", onListening);
+      if (err.code !== "EADDRINUSE") {
+        console.error("[zuse] auth loopback server error", err);
+      }
+      resolve(false);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve(true);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, "127.0.0.1");
+  });
+
+const startAuthLoopback = async (): Promise<void> => {
   if (authLoopbackServer !== null) return;
   const server = http.createServer((req, res) => {
     const requestUrl = req.url ?? "";
     let parsed: URL;
     try {
-      parsed = new URL(`http://localhost:${AUTH_LOOPBACK_PORT}${requestUrl}`);
+      parsed = new URL(
+        `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}${requestUrl}`,
+      );
     } catch {
       res.writeHead(400);
       res.end();
@@ -238,11 +262,17 @@ const startAuthLoopback = (): void => {
     );
     focusMainWindow();
   });
-  server.on("error", (err) => {
-    console.error("[zuse] auth loopback server error", err);
-  });
-  server.listen(AUTH_LOOPBACK_PORT, "127.0.0.1");
-  authLoopbackServer = server;
+  for (const port of AUTH_LOOPBACK_PORTS) {
+    if (await tryListenAuthLoopback(server, port)) {
+      boundAuthPort = port;
+      authLoopbackServer = server;
+      authLoopbackFailure = null;
+      return;
+    }
+  }
+  authLoopbackFailure =
+    "Sign-in port unavailable. Close other Zuse windows and retry.";
+  server.close();
 };
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
@@ -630,10 +660,18 @@ const folderPicker = {
 // module-level `deliverAuthUrl` and prime with any deep links buffered before
 // the runtime came up.
 const authShell = {
-  redirectUri: AUTH_REDIRECT_URI,
+  get redirectUri() {
+    return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/callback`;
+  },
   open: (url: string) =>
     Effect.tryPromise({
       try: async () => {
+        if (boundAuthPort === null) {
+          throw new Error(
+            authLoopbackFailure ??
+              "Sign-in port unavailable. Close other Zuse windows and retry.",
+          );
+        }
         await shell.openExternal(url);
       },
       catch: (cause) =>
@@ -1757,7 +1795,7 @@ ipcMain.handle(
     },
 );
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   // Non-primary instance is on its way out (lost the single-instance lock) —
   // don't build a window or boot the runtime.
   if (!gotSingleInstanceLock) return;
@@ -1766,7 +1804,7 @@ void app.whenReady().then(() => {
   // It's the redirect_uri for both, so the browser finishes on a real HTML
   // page and no `zuse://` deep-link handoff/prompt is needed. The scheme
   // handler stays registered below as a fallback.
-  startAuthLoopback();
+  await startAuthLoopback();
 
   // Win/Linux cold launch from a deep link: the URL is an argv entry.
   const initialDeepLink = process.argv.find(isAuthDeepLink);

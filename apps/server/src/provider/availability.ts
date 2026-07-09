@@ -1,6 +1,6 @@
 import { Command, CommandExecutor, FileSystem } from "@effect/platform";
 import { Duration, Effect, Stream } from "effect";
-import { homedir, platform } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -653,6 +653,10 @@ const CLAUDE_SUB_LABEL: Record<string, string> = {
 };
 
 interface ClaudeCredentialBlob {
+  readonly oauthAccount?: {
+    readonly emailAddress?: string;
+    readonly email?: string;
+  };
   readonly claudeAiOauth?: {
     readonly subscriptionType?: string;
     readonly emailAddress?: string;
@@ -691,48 +695,54 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
   };
 };
 
-const probeClaudeAccount: Effect.Effect<
-  AccountInfo,
-  never,
-  FileSystem.FileSystem | CommandExecutor.CommandExecutor
-> = Effect.gen(function* () {
-  if (platform() === "darwin") {
-    // macOS can prompt for Keychain permission when reading the Claude Code
-    // OAuth secret. Provider availability runs on app boot, so keep this probe
-    // to a metadata presence check and let the Claude CLI perform entitlement
-    // validation when a session starts.
-    const result = yield* runCapture(
-      Command.make(
-        "security",
-        "find-generic-password",
-        "-s",
-        "Claude Code-credentials",
-      ),
-    ).pipe(
-      Effect.timeoutOption(ACCOUNT_PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
-    );
-    if (result._tag !== "Some" || result.value.exitCode !== 0) {
-      return { authStatus: "unauthenticated" } satisfies AccountInfo;
-    }
+const parseClaudeAccountFile = (raw: string): AccountInfo | null => {
+  try {
+    const parsed = JSON.parse(raw) as ClaudeCredentialBlob;
+    const oauth = parsed.oauthAccount;
+    if (!oauth) return null;
+    const email = oauth.emailAddress ?? oauth.email;
     return {
       authStatus: "authenticated",
       authType: "oauth",
       authLabel: "Claude subscription",
-    } satisfies AccountInfo;
+      ...(email ? { authEmail: email } : {}),
+    };
+  } catch {
+    return null;
   }
-  const fs = yield* FileSystem.FileSystem;
-  const path = join(homedir(), ".claude", ".credentials.json");
-  const exists = yield* fs
-    .exists(path)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
-  if (!exists) return { authStatus: "unauthenticated" };
-  const raw = yield* fs
-    .readFileString(path)
-    .pipe(Effect.catchAll(() => Effect.succeed("")));
-  return raw.length === 0
+};
+
+const readOptionalFile = (
+  path: string,
+): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const exists = yield* fs
+      .exists(path)
+      .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    if (!exists) return null;
+    return yield* fs
+      .readFileString(path)
+      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+  });
+
+const probeClaudeAccount: Effect.Effect<
+  AccountInfo,
+  never,
+  FileSystem.FileSystem
+> = Effect.gen(function* () {
+  const accountRaw = yield* readOptionalFile(join(homedir(), ".claude.json"));
+  if (accountRaw !== null) {
+    const account = parseClaudeAccountFile(accountRaw);
+    if (account !== null) return account;
+  }
+  const credentialsRaw = yield* readOptionalFile(
+    join(homedir(), ".claude", ".credentials.json"),
+  );
+  if (credentialsRaw === null) return { authStatus: "unauthenticated" };
+  return credentialsRaw.length === 0
     ? { authStatus: "authenticated" }
-    : parseClaudeCredentials(raw);
+    : parseClaudeCredentials(credentialsRaw);
 });
 
 interface GrokAuthEntry {

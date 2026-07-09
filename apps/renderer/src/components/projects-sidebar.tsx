@@ -32,6 +32,7 @@ import {
 } from "@zuse/wire";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { BlurredEmail } from "~/components/blurred-email";
 import {
   Menu,
   MenuItem,
@@ -526,6 +527,7 @@ function SidebarAccount() {
   }
 
   const initial = (name || user?.email || "?").charAt(0).toUpperCase();
+  const nameIsEmail = Boolean(user?.email && name === user.email);
 
   return (
     <Menu>
@@ -541,7 +543,11 @@ function SidebarAccount() {
               ) : null}
               <AvatarFallback className="text-[9px]">{initial}</AvatarFallback>
             </Avatar>
-            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            {nameIsEmail && user?.email ? (
+              <BlurredEmail email={user.email} />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            )}
           </button>
         }
       />

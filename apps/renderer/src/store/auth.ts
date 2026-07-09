@@ -57,6 +57,7 @@ const writeDisplayName = (value: string): void => {
 };
 
 const SIGNED_OUT: AuthState = { _tag: "SignedOut" };
+const HYDRATE_RETRY_MS = 1_500;
 
 const signInFailureMessage = (err: unknown): string =>
   typeof err === "object" &&
@@ -133,9 +134,16 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const next = await Effect.runPromise(client.auth.getSession({}));
       set({ state: next });
     } catch {
-      // Bridge not up yet / transient — assume signed out so the UI can
-      // render. A later stream emit or re-hydrate corrects it.
-      set((prev) => ({ state: prev.state ?? SIGNED_OUT }));
+      await new Promise((resolve) => setTimeout(resolve, HYDRATE_RETRY_MS));
+      try {
+        const client = await getRpcClient();
+        const next = await Effect.runPromise(client.auth.getSession({}));
+        set({ state: next });
+      } catch {
+        // Bridge not up yet / transient — assume signed out so the UI can
+        // render. A later stream emit or re-hydrate corrects it.
+        set((prev) => ({ state: prev.state ?? SIGNED_OUT }));
+      }
     }
   },
   signIn: async () => {
