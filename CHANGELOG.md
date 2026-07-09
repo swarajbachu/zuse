@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1]
+
+### Changed
+- Fix skipped chat lineage migration
+
 ## [0.12.0]
 
 ### Added
