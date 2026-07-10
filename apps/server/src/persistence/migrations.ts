@@ -33,6 +33,7 @@ import { Migration0029ChatLineageRepair } from "./migrations/0029_chat_lineage_r
 import { Migration0030CqrsEngine } from "./migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "./migrations/0031_backfill_runs.ts";
 import { Migration0032ReactorEffectReceipts } from "./migrations/0032_reactor_effect_receipts.ts";
+import { Migration0033ReactorEffectSteps } from "./migrations/0033_reactor_effect_steps.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -84,6 +85,7 @@ export const MigrationsLive = Layer.effectDiscard(
 			"0030_cqrs_engine": Migration0030CqrsEngine,
 			"0031_backfill_runs": Migration0031BackfillRuns,
 			"0032_reactor_effect_receipts": Migration0032ReactorEffectReceipts,
+			"0033_reactor_effect_steps": Migration0033ReactorEffectSteps,
 		}),
 	}),
 );

@@ -190,6 +190,23 @@ export const ProviderServiceLive = Layer.effect(
         orchestrationTools = null,
       ) =>
         Effect.gen(function* () {
+          if (input.sessionId !== undefined) {
+            const requestedSessionId = input.sessionId;
+            const existing = (yield* Ref.get(sessions)).get(requestedSessionId);
+            if (existing?.providerId === input.providerId) {
+              return { sessionId: requestedSessionId };
+            }
+            if (existing !== undefined) {
+              yield* existing.handle
+                .close()
+                .pipe(Effect.catch(() => Effect.void));
+              yield* Ref.update(sessions, (current) => {
+                const next = new Map(current);
+                next.delete(requestedSessionId);
+                return next;
+              });
+            }
+          }
           const runtimeModeGetter =
             getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
           const folder = yield* workspace.findById(input.folderId);
@@ -219,7 +236,10 @@ export const ProviderServiceLive = Layer.effect(
             // `gemini` binary. Surface a clean install message rather than
             // letting spawn fail with ENOENT inside the driver.
             const geminiPath = yield* resolveCliPath("gemini").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (geminiPath === null) {
               return yield* Effect.fail(
@@ -231,7 +251,10 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             const geminiMcpCommand = yield* resolveCliPath("bun").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (geminiMcpCommand === null) {
               return yield* Effect.fail(
@@ -264,7 +287,10 @@ export const ProviderServiceLive = Layer.effect(
             // Surface a clean install message rather than letting spawn
             // fail with ENOENT inside the driver.
             const grokPath = yield* resolveCliPath("grok").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (grokPath === null) {
               return yield* Effect.fail(
@@ -276,7 +302,10 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             const bunPath = yield* resolveCliPath("bun").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (bunPath === null) {
               return yield* Effect.fail(
@@ -309,7 +338,10 @@ export const ProviderServiceLive = Layer.effect(
             // as the other CLI-backed drivers — surface a clean error
             // before the driver tries to spawn.
             const opencodePath = yield* resolveCliPath("opencode").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (opencodePath === null) {
               return yield* Effect.fail(
@@ -342,7 +374,10 @@ export const ProviderServiceLive = Layer.effect(
             // handshake will time out — that's a separate, also-clean
             // error path from the driver.
             const cursorPath = yield* resolveCliPath("cursor-agent").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (cursorPath === null) {
               return yield* Effect.fail(
@@ -371,7 +406,10 @@ export const ProviderServiceLive = Layer.effect(
             // found" error. Surface a clean install-Claude-Code message
             // instead.
             const claudePath = yield* resolveCliPath("claude").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (claudePath === null) {
               return yield* Effect.fail(
@@ -411,7 +449,10 @@ export const ProviderServiceLive = Layer.effect(
             // clean install message if it's missing instead of the SDK's
             // "Unable to locate Codex CLI binaries" error.
             const codexPath = yield* resolveCliPath("codex").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (codexPath === null) {
               return yield* Effect.fail(
@@ -423,7 +464,10 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             const codexMcpCommand = yield* resolveCliPath("bun").pipe(
-              Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (codexMcpCommand === null) {
               return yield* Effect.fail(

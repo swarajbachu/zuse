@@ -1,12 +1,12 @@
 import { CommandDispatcher } from "@zuse/client-runtime/command-dispatch";
-import { makeManagedClientSession } from "@zuse/client-runtime/connection";
+import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import {
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
 import { MemoizeRpcs } from "@zuse/contracts";
-import { Effect, Layer, Scope } from "effect";
+import { Effect, Layer } from "effect";
 import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import {
@@ -39,9 +39,7 @@ const makeClientSession = (options: WsProtocolOptions) => {
 		hasToken: options.token !== undefined && options.token !== null,
 	});
 	const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
-	return makeManagedClientSession(protocolLayer, (scope) =>
-		RpcClient.make(MemoizeRpcs).pipe(Effect.provideService(Scope.Scope, scope)),
-	);
+	return makeRpcClientSession(protocolLayer, MemoizeRpcs);
 };
 
 const prepareOptions = async (

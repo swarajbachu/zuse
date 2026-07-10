@@ -1,4 +1,6 @@
-import { type Effect, type Layer, ManagedRuntime, type Scope } from "effect";
+import { Effect, type Layer, ManagedRuntime, Scope } from "effect";
+import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
+import type { Rpc } from "effect/unstable/rpc";
 
 export type ConnectionOptions = {
 	readonly key: string;
@@ -39,3 +41,15 @@ export const makeManagedClientSession = async <
 		throw cause;
 	}
 };
+
+/** Build a scoped Effect RPC client without exposing runtime scope to apps. */
+export const makeRpcClientSession = <Rpcs extends Rpc.Any, LayerError>(
+	layer: Layer.Layer<
+		RpcClient.Protocol | Exclude<Rpc.MiddlewareClient<Rpcs>, Scope.Scope>,
+		LayerError
+	>,
+	group: RpcGroup.RpcGroup<Rpcs>,
+) =>
+	makeManagedClientSession(layer, (scope) =>
+		RpcClient.make(group).pipe(Effect.provideService(Scope.Scope, scope)),
+	);

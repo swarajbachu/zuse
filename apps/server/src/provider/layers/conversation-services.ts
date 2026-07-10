@@ -3313,19 +3313,70 @@ export const ConversationServicesLive = Layer.effectContext(
           null;
         const script = settings.archiveCleanupScript?.trim() ?? "";
         if (worktree !== null && script.length > 0) {
-          const rootPath = yield* projectPath(chat.projectId);
-          const result = yield* runArchiveScript({
-            chatId,
-            script: settings.archiveCleanupScript ?? "",
-            cwd: worktree.path,
-            env: {
-              ZUSE_ROOT_PATH: rootPath ?? "",
-              ZUSE_WORKSPACE_PATH: worktree.path,
-              ZUSE_CHAT_ID: chatId,
-              ZUSE_WORKTREE_ID: worktree.id,
-            },
-          });
-          cleanup = { ran: true, output: result.output };
+          const steps = yield* sql<{
+            readonly status: "started" | "completed";
+            readonly detail_json: string | null;
+          }>`
+            SELECT status, detail_json FROM reactor_effect_steps
+            WHERE effect_id = ${commandId} AND step = 'cleanup-script'
+            LIMIT 1
+          `.pipe(Effect.orDie);
+          const step = steps[0];
+          if (step?.status === "completed") {
+            const detail: unknown =
+              step.detail_json === null ? null : JSON.parse(step.detail_json);
+            cleanup = {
+              ran: true,
+              output:
+                typeof detail === "object" &&
+                detail !== null &&
+                "output" in detail &&
+                typeof detail.output === "string"
+                  ? detail.output
+                  : "",
+            };
+          } else if (step?.status === "started") {
+            cleanup = {
+              ran: true,
+              output:
+                "Archive cleanup was interrupted by a process restart and was not run twice.",
+            };
+            yield* sql`
+              UPDATE reactor_effect_steps
+              SET status = 'completed',
+                  detail_json = ${JSON.stringify({ output: cleanup.output })},
+                  updated_at = ${new Date().toISOString()}
+              WHERE effect_id = ${commandId} AND step = 'cleanup-script'
+            `.pipe(Effect.orDie);
+          } else {
+            yield* sql`
+              INSERT INTO reactor_effect_steps
+                (effect_id, step, status, detail_json, updated_at)
+              VALUES
+                (${commandId}, 'cleanup-script', 'started', NULL,
+                 ${new Date().toISOString()})
+            `.pipe(Effect.orDie);
+            const rootPath = yield* projectPath(chat.projectId);
+            const result = yield* runArchiveScript({
+              chatId,
+              script: settings.archiveCleanupScript ?? "",
+              cwd: worktree.path,
+              env: {
+                ZUSE_ROOT_PATH: rootPath ?? "",
+                ZUSE_WORKSPACE_PATH: worktree.path,
+                ZUSE_CHAT_ID: chatId,
+                ZUSE_WORKTREE_ID: worktree.id,
+              },
+            });
+            cleanup = { ran: true, output: result.output };
+            yield* sql`
+              UPDATE reactor_effect_steps
+              SET status = 'completed',
+                  detail_json = ${JSON.stringify({ output: result.output })},
+                  updated_at = ${new Date().toISOString()}
+              WHERE effect_id = ${commandId} AND step = 'cleanup-script'
+            `.pipe(Effect.orDie);
+          }
         } else if (worktree !== null) {
           cleanup = { ran: false, output: "" };
         }
