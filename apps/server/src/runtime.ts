@@ -1,4 +1,4 @@
-import { NodeServices as NodeContext } from "@effect/platform-node";
+import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
@@ -111,7 +111,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provideMerge(
       MigrationsLive.pipe(
         Layer.provide(SqliteLayer),
-        Layer.provide(NodeContext.layer),
+        Layer.provide(NodeServices.layer),
       ),
     ),
   );
@@ -120,7 +120,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // `provideMerge` keeps the SqlClient available downstream.
   const ImportShim = Layer.effectDiscard(importWorkspacesJson).pipe(
     Layer.provide(MigratedSqlite),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
     Layer.provide(AppPathsLayer),
   );
 
@@ -132,7 +132,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const WorkspaceLayer = WorkspaceServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(ImportShim),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // Per-repo settings overrides on top of the global defaults.
@@ -143,7 +143,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const PokemonLayer = PokemonServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(AppPathsLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // WorktreeService manages memoize-owned `git worktree` checkouts. Same
@@ -153,16 +153,16 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(RepositorySettingsLayer),
     Layer.provide(PokemonLayer),
     Layer.provide(MigratedSqlite),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // GitService yields WorkspaceService for folderId → path, WorktreeService
   // so `git.status` can resolve cwd to the active worktree when set, and
-  // CommandExecutor (via NodeContext) for spawning git.
+  // CommandExecutor (via NodeServices) for spawning git.
   const GitLayer = GitServiceLive.pipe(
     Layer.provide(WorkspaceLayer),
     Layer.provide(WorktreeLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   const PtyLayer = PtyServiceLive;
@@ -172,7 +172,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // Electron userData. Watched for external hand-edits.
   const ConfigStoreLayer = ConfigStoreServiceLive.pipe(
     Layer.provide(AppPathsLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // FsService walks the project tree one directory at a time. WorkspaceService
@@ -181,7 +181,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const FsLayer = FsServiceLive.pipe(
     Layer.provide(WorkspaceLayer),
     Layer.provide(WorktreeLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // FileSearchService backs the composer's `@` file picker. Same deps as
@@ -191,7 +191,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const FileSearchLayer = FileSearchServiceLive.pipe(
     Layer.provide(WorkspaceLayer),
     Layer.provide(WorktreeLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // ProjectScaffold shells out to `git`, `bunx`, and `gh` for the Clone
@@ -199,7 +199,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // no SqlClient, since persistence happens via WorkspaceService.add
   // *after* the scaffold produces a path.
   const ProjectScaffoldLayer = ProjectScaffoldLive.pipe(
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // PermissionService brokers between the SDK permission callback (driver
@@ -220,13 +220,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   // AttachmentService writes uploaded image bytes under userData and runs
   // the GC sweep that reaps orphaned blobs. Disk I/O comes from
-  // NodeContext; persistence joins MigratedSqlite. Defined before
+  // NodeServices; persistence joins MigratedSqlite. Defined before
   // ProviderLayer because the Claude driver reads attachment bytes when
   // building image content blocks for outbound user messages.
   const AttachmentLayer = AttachmentServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(AppPathsLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // ProviderService probes installed CLIs via CommandExecutor, consults
@@ -242,7 +242,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // OpenCode session-start reads `opencodeCustomProviders` from settings to
     // inject user-defined providers into `opencode serve`.
     Layer.provide(ConfigStoreLayer),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // NdjsonLogger writes a best-effort transcript audit file alongside the
@@ -304,7 +304,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(WorktreeLayer),
     Layer.provide(MessageStoreLayer),
     Layer.provide(MigratedSqlite),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
 
   // SkillBridge surfaces the user's per-provider skill library to the
@@ -312,7 +312,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // (provider, projectCwd) and re-emits on watcher fire so editing a
   // SKILL.md updates the popover within ~2 s.
   const SkillDiscoveryLayer = SkillDiscoveryServiceLive.pipe(
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
   const SkillBridgeLayer = SkillBridgeLive.pipe(
     Layer.provide(SkillDiscoveryLayer),
@@ -340,7 +340,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
     Layer.provide(
       ManagedTunnelRuntimeLive.pipe(
-        Layer.provide(NodeContext.layer),
+        Layer.provide(NodeServices.layer),
         Layer.provide(AppPathsLayer),
       ),
     ),
@@ -350,7 +350,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const HandlerSupportLayer = Layer.mergeAll(
     AppPathsLayer,
     MigratedSqlite,
-    NodeContext.layer,
+    NodeServices.layer,
     LanAuthConfigLayer,
     // AuthLayer is fully self-contained (its keychain + shell deps are already
     // provided), merged in here to satisfy the auth.* handlers without adding
@@ -389,7 +389,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     // `agent.opencodeInventory` calls `resolveCliPath("opencode")` directly
     // (it spins up a short-lived `opencode serve` to read the user's
     // connected providers + agents). That uses `CommandExecutor` from
-    // NodeContext, so the handler layer must see it.
+    // NodeServices, so the handler layer must see it.
     Layer.provide(HandlerSupportLayer),
   );
 
@@ -410,5 +410,5 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     ...serverProtocols.slice(1).map(makeServerLayer),
   );
 
-  return Layer.mergeAll(ServerLayer, NodeContext.layer);
+  return Layer.mergeAll(ServerLayer, NodeServices.layer);
 };

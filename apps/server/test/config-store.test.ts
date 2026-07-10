@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { NodeContext } from "@effect/platform-node";
+import { NodeServices } from "@effect/platform-node";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import {
   existsSync,
@@ -29,7 +29,7 @@ const makeRuntime = (userData: string, userConfig: string) => {
   process.env.ZUSE_CONFIG_DIR = userConfig;
   const TestLayer = ConfigStoreServiceLive.pipe(
     Layer.provide(Layer.succeed(AppPaths, { userData })),
-    Layer.provide(NodeContext.layer),
+    Layer.provide(NodeServices.layer),
   );
   return ManagedRuntime.make(TestLayer);
 };
