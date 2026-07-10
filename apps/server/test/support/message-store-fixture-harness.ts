@@ -1,10 +1,7 @@
-import { SqlClient } from "effect/unstable/sql";
-import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
-import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { NodeServices } from "@effect/platform-node";
 import type {
   AgentEvent,
   AgentSessionId,
@@ -13,11 +10,12 @@ import type {
   WorktreeId,
 } from "@zuse/contracts";
 import { RepositorySettings, Worktree } from "@zuse/contracts";
-
-import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitService } from "@zuse/git/git-service";
-import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
-import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
+import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../../src/persistence/migrations/0003_resume_and_export.ts";
@@ -42,13 +40,17 @@ import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_a
 import { Migration0022AttachmentAbsPath } from "../../src/persistence/migrations/0022_attachment_abs_path.ts";
 import { Migration0023ChatLineage } from "../../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
+import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_cqrs_engine.ts";
+import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
+import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
+import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
 import { MessageStoreLive } from "../../src/provider/layers/message-store.ts";
 import { MessageStore } from "../../src/provider/services/message-store.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
-import { PtyService } from "../../src/pty/services/pty-service.ts";
-import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
-import { WorktreeService } from "@zuse/git/worktree-service";
+import { PtyService } from "../../src/pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
+import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 const FIXTURE_WORKTREE_ID = "fixture-worktree" as WorktreeId;
@@ -93,6 +95,8 @@ const runAllMigrations = Effect.all(
     Migration0022AttachmentAbsPath,
     Migration0023ChatLineage,
     Migration0024RemoteConnectState,
+    Migration0030CqrsEngine,
+    Migration0031BackfillRuns,
   ],
   { discard: true },
 );
@@ -245,6 +249,10 @@ const makeRuntime = (
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
+  const DomainLive = SessionDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
   const TestLayer = MessageStoreLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
@@ -255,6 +263,7 @@ const makeRuntime = (
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
+    Layer.provide(DomainLive),
     Layer.provideMerge(Migrated),
   );
 
@@ -323,10 +332,7 @@ export const assertEventsAcceptedByMessageStore = async (
       return { providerMessages, session };
     }).pipe(
       Effect.retry(
-        Schedule.max([
-          Schedule.spaced("10 millis"),
-          Schedule.recurs(100),
-        ]),
+        Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
       ),
     );
 

@@ -13,9 +13,11 @@
 		"./engine/dispatch": "./src/engine/dispatch.ts",
 		"./engine/projector-runner": "./src/engine/projector-runner.ts",
 		"./engine/reactor-runner": "./src/engine/reactor-runner.ts",
+		"./engine/session-domain": "./src/engine/session-domain.ts",
 		"./engine/sql-consumer-storage": "./src/engine/sql-consumer-storage.ts",
 		"./engine/sql-dispatch-storage": "./src/engine/sql-dispatch-storage.ts",
 		"./projectors/read-model": "./src/projectors/read-model.ts",
+		"./projectors/sql-session-projector": "./src/projectors/sql-session-projector.ts",
 		"./queries/session-queries": "./src/queries/session-queries.ts"
 	},
 	"scripts": {

@@ -3,39 +3,10 @@ import { Effect, Exit } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
 
+import { createSessionCommand } from "../test/session.js";
+import { createDomainTestSchema } from "../test/sql-schema.js";
 import { DispatchEngine } from "./dispatch.js";
 import { makeSqlDispatchStorage } from "./sql-dispatch-storage.js";
-
-const createSchema = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
-	yield* sql`
-		CREATE TABLE events (
-			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-			event_id TEXT NOT NULL UNIQUE,
-			stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL,
-			stream_version INTEGER NOT NULL,
-			type TEXT NOT NULL,
-			occurred_at TEXT NOT NULL,
-			actor TEXT,
-			payload_json TEXT NOT NULL,
-			correlation_id TEXT,
-			causation_event_id TEXT,
-			UNIQUE (stream_kind, stream_id, stream_version)
-		)
-	`;
-	yield* sql`
-		CREATE TABLE command_receipts (
-			command_id TEXT PRIMARY KEY,
-			stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL,
-			stream_version INTEGER NOT NULL,
-			event_ids_json TEXT NOT NULL,
-			result_json TEXT,
-			created_at TEXT NOT NULL
-		)
-	`;
-});
 
 const run = <A, E>(
 	program: Effect.Effect<A, E, SqlClient.SqlClient>,
@@ -48,32 +19,24 @@ describe("SqlDispatchStorage", () => {
 	test("persists receipts so a new engine replays without appending", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				const storage = makeSqlDispatchStorage(sql);
-				const firstEngine = new DispatchEngine(storage, () => "event-1");
+				const firstEngine = new DispatchEngine(storage, () =>
+					Effect.succeed("event-1"),
+				);
 				const first = yield* firstEngine.dispatch({
 					commandId: "command-1",
 					streamId: "session-1",
-					command: {
-						_tag: "CreateSession",
-						sessionId: "session-1",
-						chatId: "chat-1",
-						projectId: "project-1",
-						createdAt: 1,
-					},
+					command: createSessionCommand,
 				});
-				const restartedEngine = new DispatchEngine(storage, () => "unexpected");
+				const restartedEngine = new DispatchEngine(storage, () =>
+					Effect.succeed("unexpected"),
+				);
 				const replay = yield* restartedEngine.dispatch({
 					commandId: "command-1",
 					streamId: "session-1",
-					command: {
-						_tag: "CreateSession",
-						sessionId: "session-1",
-						chatId: "chat-1",
-						projectId: "project-1",
-						createdAt: 1,
-					},
+					command: createSessionCommand,
 				});
 				const events = yield* storage.events("session-1");
 				return { first, replay, events };
@@ -88,7 +51,7 @@ describe("SqlDispatchStorage", () => {
 	test("rolls back events when receipt persistence cannot commit", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				const storage = makeSqlDispatchStorage(sql);
 				const appended = yield* Effect.exit(
@@ -111,7 +74,11 @@ describe("SqlDispatchStorage", () => {
 							},
 							{
 								eventId: "duplicate-event",
-								event: { _tag: "SessionTitleSet", title: "Title" },
+								event: {
+									_tag: "SessionTitleSet",
+									title: "Title",
+									updatedAt: 2,
+								},
 							},
 						],
 					}),
@@ -130,7 +97,7 @@ describe("SqlDispatchStorage", () => {
 	test("fails at the schema boundary for malformed persisted events", async () => {
 		const failure = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`
 					INSERT INTO events

@@ -1,16 +1,51 @@
 import { Schema } from "effect";
 
 import { SegmentKind, SettlementOutcome } from "./commands.js";
+import {
+	SessionConfigurationFields,
+	SessionCreatedEventFields,
+} from "./session-fields.js";
 
 export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("SessionCreated", {
-		sessionId: Schema.String,
-		chatId: Schema.String,
-		projectId: Schema.String,
-		createdAt: Schema.Number,
+		...SessionCreatedEventFields,
 	}),
-	Schema.TaggedStruct("SessionTitleSet", { title: Schema.String }),
+	Schema.TaggedStruct("SessionTitleSet", {
+		title: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionModelSet", {
+		model: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionProviderSet", {
+		providerId: Schema.String,
+		model: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionRuntimeModeSet", {
+		runtimeMode: SessionConfigurationFields.runtimeMode,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionPermissionModeSet", {
+		permissionMode: SessionConfigurationFields.permissionMode,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionWorktreeSet", {
+		worktreeId: SessionConfigurationFields.worktreeId,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionStatusSet", {
+		status: SessionConfigurationFields.status,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionResumeSet", {
+		cursor: SessionConfigurationFields.cursor,
+		resumeStrategy: SessionConfigurationFields.resumeStrategy,
+		updatedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SessionArchived", { archivedAt: Schema.Number }),
+	Schema.TaggedStruct("SessionUnarchived", { unarchivedAt: Schema.Number }),
 	Schema.TaggedStruct("SessionDeleted", { deletedAt: Schema.Number }),
 	Schema.TaggedStruct("TurnStarted", {
 		turnId: Schema.String,

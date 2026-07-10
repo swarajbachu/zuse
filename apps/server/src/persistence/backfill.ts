@@ -1,8 +1,18 @@
-import { synthesizeBackfill } from "@zuse/domain/engine/backfill";
-import { Effect } from "effect";
+import {
+	PermissionMode,
+	ResumeStrategy,
+	RuntimeMode,
+	SessionStatus,
+} from "@zuse/contracts";
+import {
+	messageEventFromSnapshot,
+	sessionCreatedEventFromSnapshot,
+	synthesizeBackfill,
+} from "@zuse/domain/engine/backfill";
+import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-const BACKFILL_NAME = "session-lifecycle-v2";
+const BACKFILL_NAME = "session-lifecycle-v3";
 const PROJECTORS = ["messages", "sessions", "chats", "activity"] as const;
 
 interface SessionRow {
@@ -10,6 +20,18 @@ interface SessionRow {
 	readonly chat_id: string;
 	readonly project_id: string;
 	readonly title: string;
+	readonly provider_id: string;
+	readonly model: string;
+	readonly status: string;
+	readonly cursor: string | null;
+	readonly resume_strategy: string;
+	readonly runtime_mode: string;
+	readonly agents_json: string | null;
+	readonly worktree_id: string | null;
+	readonly forked_from_session_id: string | null;
+	readonly forked_from_message_id: string | null;
+	readonly permission_mode: string;
+	readonly tool_search: number;
 	readonly created_at: string;
 	readonly archived_at: string | null;
 }
@@ -60,6 +82,11 @@ const requiredTimestamp = (value: string, field: string): number => {
 	return parsed;
 };
 
+const decodeSessionStatus = Schema.decodeUnknownEffect(SessionStatus);
+const decodeResumeStrategy = Schema.decodeUnknownEffect(ResumeStrategy);
+const decodeRuntimeMode = Schema.decodeUnknownEffect(RuntimeMode);
+const decodePermissionMode = Schema.decodeUnknownEffect(PermissionMode);
+
 export const runLifecycleBackfill = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	return yield* sql.withTransaction(
@@ -76,7 +103,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				} as const;
 			}
 
-			const startedAt = new Date().toISOString();
+			const startedAt = (yield* DateTime.nowAsDate).toISOString();
 			yield* sql`
 				INSERT INTO backfill_runs
 					(backfill_name, status, started_at, completed_at, event_count)
@@ -87,7 +114,10 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			`;
 
 			const sessions = yield* sql<SessionRow>`
-				SELECT id, chat_id, project_id, title, created_at, archived_at
+				SELECT id, chat_id, project_id, title, provider_id, model, status,
+					cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
+					forked_from_session_id, forked_from_message_id, permission_mode,
+					tool_search, created_at, archived_at
 				FROM sessions ORDER BY created_at, id
 			`;
 			const messages = yield* sql<MessageRow>`
@@ -103,27 +133,77 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					END AS message_id
 				FROM events
 			`;
+			const messageSnapshots = messages.map((row) => ({
+				rowId: row.row_id,
+				messageId: row.id,
+				sessionId: row.session_id,
+				role: row.role,
+				kind: row.kind,
+				contentJson: row.content_json,
+				parentItemId: row.parent_item_id,
+				createdAt: requiredTimestamp(row.created_at, "messages.created_at"),
+			}));
+			const messagesById = new Map(
+				messageSnapshots.map((message) => [message.messageId, message]),
+			);
+			for (const existing of existingEvents) {
+				if (existing.message_id === null) continue;
+				const message = messagesById.get(existing.message_id);
+				if (message === undefined) continue;
+				yield* sql`
+					UPDATE events
+					SET payload_json = ${JSON.stringify(messageEventFromSnapshot(message))}
+					WHERE event_id = ${existing.event_id}
+				`;
+			}
+
+			const sessionSnapshots = yield* Effect.forEach(sessions, (row) =>
+				Effect.gen(function* () {
+					const status = yield* decodeSessionStatus(row.status);
+					const resumeStrategy = yield* decodeResumeStrategy(
+						row.resume_strategy,
+					);
+					const runtimeMode = yield* decodeRuntimeMode(row.runtime_mode);
+					const permissionMode = yield* decodePermissionMode(
+						row.permission_mode,
+					);
+					return {
+						sessionId: row.id,
+						chatId: row.chat_id,
+						projectId: row.project_id,
+						title: row.title,
+						providerId: row.provider_id,
+						model: row.model,
+						status,
+						cursor: row.cursor,
+						resumeStrategy,
+						runtimeMode,
+						agentsJson: row.agents_json,
+						worktreeId: row.worktree_id,
+						forkedFromSessionId: row.forked_from_session_id,
+						forkedFromMessageId: row.forked_from_message_id,
+						permissionMode,
+						toolSearch: row.tool_search !== 0,
+						createdAt: requiredTimestamp(row.created_at, "sessions.created_at"),
+						archivedAt: timestamp(row.archived_at, "sessions.archived_at"),
+						deletedAt: null,
+					};
+				}),
+			);
+			for (const session of sessionSnapshots) {
+				yield* sql`
+					UPDATE events
+					SET payload_json = ${JSON.stringify(
+						sessionCreatedEventFromSnapshot(session),
+					)}
+					WHERE event_id = ${`backfill:session-created:${session.sessionId}`}
+						AND type = 'SessionCreated'
+				`;
+			}
 
 			const events = synthesizeBackfill({
-				sessions: sessions.map((row) => ({
-					sessionId: row.id,
-					chatId: row.chat_id,
-					projectId: row.project_id,
-					title: row.title,
-					createdAt: requiredTimestamp(row.created_at, "sessions.created_at"),
-					archivedAt: timestamp(row.archived_at, "sessions.archived_at"),
-					deletedAt: null,
-				})),
-				messages: messages.map((row) => ({
-					rowId: row.row_id,
-					messageId: row.id,
-					sessionId: row.session_id,
-					role: row.role,
-					kind: row.kind,
-					contentJson: row.content_json,
-					parentItemId: row.parent_item_id,
-					createdAt: requiredTimestamp(row.created_at, "messages.created_at"),
-				})),
+				sessions: sessionSnapshots,
+				messages: messageSnapshots,
 				existingEventIds: new Set(existingEvents.map((row) => row.event_id)),
 				existingMessageIds: new Set(
 					existingEvents.flatMap((row) =>
@@ -159,7 +239,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events
 			`;
 			const head = heads[0]?.sequence ?? 0;
-			const completedAt = new Date().toISOString();
+			const completedAt = (yield* DateTime.nowAsDate).toISOString();
 			for (const projector of PROJECTORS) {
 				yield* sql`
 					INSERT INTO projector_cursors

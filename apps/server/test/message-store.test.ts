@@ -1,20 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { SqlClient } from "effect/unstable/sql";
-// Exercise MessageStoreLive through the same node:sqlite client layer used by
-// the production Node runtime.
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
-import {
-  Effect,
-  Fiber,
-  Layer,
-  ManagedRuntime,
-  Schedule,
-  Stream,
-} from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { NodeServices } from "@effect/platform-node";
 import type {
   AgentEvent,
   AgentSessionId,
@@ -26,14 +13,18 @@ import type {
 } from "@zuse/contracts";
 import {
   ComposerInput,
+  defaultModelFor,
   MessageId,
   RepositorySettings,
   Worktree,
-  defaultModelFor,
 } from "@zuse/contracts";
-
-import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { GitService } from "@zuse/git/git-service";
+import { WorktreeService } from "@zuse/git/worktree-service";
+import { Effect, Fiber, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { beforeEach, describe, expect, it } from "vitest";
+import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../src/persistence/migrations/0003_resume_and_export.ts";
@@ -56,16 +47,20 @@ import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_que
 import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/0029_chat_lineage_repair.ts";
-import { WorktreeService } from "@zuse/git/worktree-service";
+import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
+import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
+import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
+// Exercise MessageStoreLive through the same node:sqlite client layer used by
+// the production Node runtime.
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
+import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
-import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
-import { PtyService } from "../src/pty/services/pty-service.ts";
-import { RepositorySettingsService } from "../src/repository-settings/services/repository-settings-service.ts";
-import { GitService } from "@zuse/git/git-service";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
-import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
-import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
+import { PtyService } from "../src/pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
+import { RepositorySettingsService } from "../src/repository-settings/services/repository-settings-service.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
@@ -300,6 +295,8 @@ const runAllMigrations = Effect.all(
     Migration0020Events,
     Migration0023ChatLineage,
     Migration0029ChatLineageRepair,
+    Migration0030CqrsEngine,
+    Migration0031BackfillRuns,
   ],
   { discard: true },
 );
@@ -309,6 +306,10 @@ const makeRuntime = (dbPath: string) => {
   // Run migrations during layer build, and re-export SqlClient downstream.
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
+  );
+  const DomainLive = SessionDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
   );
   const TestLayer = MessageStoreLive.pipe(
     Layer.provide(StubProviderLive),
@@ -320,6 +321,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
+    Layer.provide(DomainLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),
@@ -386,9 +388,7 @@ describe("MessageStore migrations", () => {
   it("0016 repairs queued_messages rows from the old position column", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
     const dbPath = join(dir, "test.sqlite");
-    const runtime = ManagedRuntime.make(
-      sqliteLayer({ filename: dbPath }),
-    );
+    const runtime = ManagedRuntime.make(sqliteLayer({ filename: dbPath }));
     try {
       await runtime.runPromise(
         Effect.gen(function* () {
@@ -455,9 +455,7 @@ describe("MessageStore migrations", () => {
   it("0029 repairs databases that skipped chat lineage", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-chat-lineage-repair-"));
     const dbPath = join(dir, "test.sqlite");
-    const runtime = ManagedRuntime.make(
-      sqliteLayer({ filename: dbPath }),
-    );
+    const runtime = ManagedRuntime.make(sqliteLayer({ filename: dbPath }));
     try {
       await runtime.runPromise(
         Effect.gen(function* () {
@@ -563,7 +561,9 @@ describe("MessageStore — chat & session lifecycle", () => {
           providerId: "claude",
         },
       });
-      expect(providerStartInputs.at(-1)?.initialPrompt).toBe("do the spawned task");
+      expect(providerStartInputs.at(-1)?.initialPrompt).toBe(
+        "do the spawned task",
+      );
     });
   });
 
@@ -1717,10 +1717,7 @@ describe("MessageStore — provider event persistence", () => {
               : Effect.fail("not yet" as const),
           ),
           Effect.retry(
-            Schedule.max([
-              Schedule.spaced("10 millis"),
-              Schedule.recurs(100),
-            ]),
+            Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
           ),
           Effect.result,
         );
@@ -1733,6 +1730,30 @@ describe("MessageStore — provider event persistence", () => {
             text: "all done",
           });
         }
+        const domainTags = await run(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const rows = yield* sql<{ readonly type: string }>`
+              SELECT type FROM events
+              WHERE stream_id = ${id}
+              ORDER BY stream_version
+            `;
+            const tags = rows.map((row) => row.type);
+            return tags.includes("TurnSettled")
+              ? tags
+              : yield* Effect.fail("turn not settled" as const);
+          }).pipe(
+            Effect.retry(
+              Schedule.max([
+                Schedule.spaced("10 millis"),
+                Schedule.recurs(100),
+              ]),
+            ),
+          ),
+        );
+        expect(domainTags).toContain("TurnStarted");
+        expect(domainTags).toContain("MessagePersisted");
+        expect(domainTags).toContain("TurnSettled");
       });
     } finally {
       scriptedEvents = [];
@@ -1779,10 +1800,7 @@ describe("MessageStore — provider event persistence", () => {
             rows.length > 0 ? Effect.succeed(rows) : Effect.fail("not yet"),
           ),
           Effect.retry(
-            Schedule.max([
-              Schedule.spaced("10 millis"),
-              Schedule.recurs(100),
-            ]),
+            Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
           ),
         );
 

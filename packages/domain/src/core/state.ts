@@ -1,3 +1,9 @@
+import type {
+	PermissionMode,
+	ResumeStrategy,
+	RuntimeMode,
+	SessionStatus,
+} from "@zuse/contracts";
 import type { SessionEvent } from "./events.js";
 
 export type OpenSegment = {
@@ -11,6 +17,13 @@ export type SessionState = {
 	readonly chatId: string | null;
 	readonly projectId: string | null;
 	readonly title: string | null;
+	readonly model: string | null;
+	readonly status: SessionStatus | null;
+	readonly cursor: string | null;
+	readonly resumeStrategy: ResumeStrategy | null;
+	readonly runtimeMode: RuntimeMode | null;
+	readonly worktreeId: string | null;
+	readonly permissionMode: PermissionMode | null;
 	readonly archived: boolean;
 	readonly deleted: boolean;
 	readonly currentTurnId: string | null;
@@ -29,6 +42,13 @@ export const initialSessionState: SessionState = {
 	chatId: null,
 	projectId: null,
 	title: null,
+	model: null,
+	status: null,
+	cursor: null,
+	resumeStrategy: null,
+	runtimeMode: null,
+	worktreeId: null,
+	permissionMode: null,
 	archived: false,
 	deleted: false,
 	currentTurnId: null,
@@ -62,12 +82,55 @@ export const evolve = (
 				sessionId: event.sessionId,
 				chatId: event.chatId,
 				projectId: event.projectId,
+				title: event.title ?? null,
+				providerId: event.providerId ?? null,
+				model: event.model ?? null,
+				status: event.status ?? null,
+				cursor: event.cursor ?? null,
+				resumeStrategy: event.resumeStrategy ?? null,
+				runtimeMode: event.runtimeMode ?? null,
+				worktreeId: event.worktreeId ?? null,
+				permissionMode: event.permissionMode ?? null,
 				version,
 			};
 		case "SessionTitleSet":
 			return { ...state, title: event.title, version };
+		case "SessionModelSet":
+			return { ...state, model: event.model, version };
+		case "SessionProviderSet":
+			return {
+				...state,
+				providerId: event.providerId,
+				model: event.model,
+				cursor: null,
+				resumeStrategy: "none",
+				version,
+			};
+		case "SessionRuntimeModeSet":
+			return { ...state, runtimeMode: event.runtimeMode, version };
+		case "SessionPermissionModeSet":
+			return { ...state, permissionMode: event.permissionMode, version };
+		case "SessionWorktreeSet":
+			return {
+				...state,
+				worktreeId: event.worktreeId,
+				cursor: null,
+				resumeStrategy: "none",
+				version,
+			};
+		case "SessionStatusSet":
+			return { ...state, status: event.status, version };
+		case "SessionResumeSet":
+			return {
+				...state,
+				cursor: event.cursor,
+				resumeStrategy: event.resumeStrategy,
+				version,
+			};
 		case "SessionArchived":
 			return { ...state, archived: true, version };
+		case "SessionUnarchived":
+			return { ...state, archived: false, version };
 		case "SessionDeleted":
 			return { ...state, deleted: true, version };
 		case "TurnStarted":

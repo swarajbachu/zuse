@@ -2,7 +2,13 @@ import { Effect } from "effect";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
 
-export type SessionStatus = "idle" | "running" | "deleted";
+export type SessionStatus =
+	| "booting"
+	| "idle"
+	| "running"
+	| "closed"
+	| "error"
+	| "deleted";
 
 export type SessionReadRecord = {
 	readonly sessionId: string;
@@ -11,6 +17,16 @@ export type SessionReadRecord = {
 	readonly title: string | null;
 	readonly status: SessionStatus;
 	readonly providerId: string | null;
+	readonly model: string | null;
+	readonly cursor: string | null;
+	readonly resumeStrategy: string | null;
+	readonly runtimeMode: string | null;
+	readonly agentsJson: string | null;
+	readonly worktreeId: string | null;
+	readonly forkedFromSessionId: string | null;
+	readonly forkedFromMessageId: string | null;
+	readonly permissionMode: string | null;
+	readonly toolSearch: boolean;
 	readonly archivedAt: number | null;
 	readonly deletedAt: number | null;
 	readonly lastMessageAt: number | null;
@@ -53,9 +69,19 @@ const eventTimestamp = (event: StoredEvent["event"]): number | undefined => {
 		case "SessionCreated":
 			return event.createdAt;
 		case "SessionTitleSet":
-			return undefined;
+			return event.updatedAt;
+		case "SessionModelSet":
+		case "SessionProviderSet":
+		case "SessionRuntimeModeSet":
+		case "SessionPermissionModeSet":
+		case "SessionWorktreeSet":
+		case "SessionStatusSet":
+		case "SessionResumeSet":
+			return event.updatedAt;
 		case "SessionArchived":
 			return event.archivedAt;
+		case "SessionUnarchived":
+			return event.unarchivedAt;
 		case "SessionDeleted":
 			return event.deletedAt;
 		case "TurnStarted":
@@ -100,9 +126,19 @@ export class InMemorySessionReadModel
 						sessionId: event.sessionId,
 						chatId: event.chatId,
 						projectId: event.projectId,
-						title: null,
-						status: "idle",
-						providerId: null,
+						title: event.title ?? null,
+						status: event.status ?? "idle",
+						providerId: event.providerId ?? null,
+						model: event.model ?? null,
+						cursor: event.cursor ?? null,
+						resumeStrategy: event.resumeStrategy ?? null,
+						runtimeMode: event.runtimeMode ?? null,
+						agentsJson: event.agentsJson ?? null,
+						worktreeId: event.worktreeId ?? null,
+						forkedFromSessionId: event.forkedFromSessionId ?? null,
+						forkedFromMessageId: event.forkedFromMessageId ?? null,
+						permissionMode: event.permissionMode ?? null,
+						toolSearch: event.toolSearch ?? false,
 						archivedAt: null,
 						deletedAt: null,
 						lastMessageAt: null,
@@ -126,8 +162,47 @@ export class InMemorySessionReadModel
 				case "SessionTitleSet":
 					next = { ...next, title: event.title };
 					break;
+				case "SessionModelSet":
+					next = { ...next, model: event.model };
+					break;
+				case "SessionProviderSet":
+					next = {
+						...next,
+						providerId: event.providerId,
+						model: event.model,
+						cursor: null,
+						resumeStrategy: "none",
+					};
+					break;
+				case "SessionRuntimeModeSet":
+					next = { ...next, runtimeMode: event.runtimeMode };
+					break;
+				case "SessionPermissionModeSet":
+					next = { ...next, permissionMode: event.permissionMode };
+					break;
+				case "SessionWorktreeSet":
+					next = {
+						...next,
+						worktreeId: event.worktreeId,
+						cursor: null,
+						resumeStrategy: "none",
+					};
+					break;
+				case "SessionStatusSet":
+					next = { ...next, status: event.status };
+					break;
+				case "SessionResumeSet":
+					next = {
+						...next,
+						cursor: event.cursor,
+						resumeStrategy: event.resumeStrategy,
+					};
+					break;
 				case "SessionArchived":
 					next = { ...next, archivedAt: event.archivedAt };
+					break;
+				case "SessionUnarchived":
+					next = { ...next, archivedAt: null };
 					break;
 				case "SessionDeleted":
 					next = {

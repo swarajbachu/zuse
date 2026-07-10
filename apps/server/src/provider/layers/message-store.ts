@@ -1,8 +1,12 @@
-import { SqlClient } from "effect/unstable/sql";
-import { Effect, Fiber, Layer, PubSub, Ref, Runtime, Stream } from "effect";
 import { spawn } from "node:child_process";
-
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
+  type AgentDefinition,
+  type AgentEvent,
+  type AgentSessionNotFoundError,
+  type AttachmentRef,
+  type AutonomyLevel,
+  type BrowserAnnotation,
   Chat,
   ChatAlreadyStartedError,
   ChatArchiveScriptError,
@@ -10,83 +14,76 @@ import {
   ChatArchiveWorktreeError,
   type ChatId,
   ChatNotFoundError,
+  type CodeAnnotation,
+  type ComposerAnnotation,
   ComposerInput,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
-  Message,
-  MessageEnvelope,
-  MessageId,
-  MODELS_BY_PROVIDER,
   defaultModelFor,
-  visibleModelsForProvider,
-  type PermissionMode,
-  SessionAlreadyStartedError,
-  type AgentDefinition,
-  type AgentEvent,
-  AgentSessionNotFoundError,
-  type AttachmentRef,
-  type BrowserAnnotation,
-  type CodeAnnotation,
-  type ComposerAnnotation,
   type FileRef,
   type FolderId,
   GoalUnsupportedError,
+  Message,
   type MessageContent,
+  MessageEnvelope,
+  MessageId,
   type MessageId as MessageIdType,
   type MessageOrigin,
   type MessageRole,
+  MODELS_BY_PROVIDER,
+  type PermissionMode,
   type ProviderId,
-  QueueState,
   QueuedMessage,
+  QueueState,
   type ResumeStrategy,
   type RuntimeMode,
   Session,
+  SessionAlreadyStartedError,
   SessionId,
   SessionNotFoundError,
   SessionStartError,
   type SkillRef,
   ThreadGoal,
   type ThreadGoalSetInput,
+  visibleModelsForProvider,
   type Worktree,
   type WorktreeCreateSource,
   WorktreeId,
-  type AutonomyLevel,
 } from "@zuse/contracts";
-
+import type { SessionCommand } from "@zuse/domain/core/commands";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { GitService } from "@zuse/git/git-service";
+import { WorktreeService } from "@zuse/git/worktree-service";
+import { DateTime, Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
+import { PtyService } from "../../pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
+import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
+import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
 import {
   buildOrchestrationTools,
   type OrchestrationSessionTools,
   type OrchestrationToolDeps,
 } from "../drivers/orchestration-tools.ts";
-
-import { WorktreeService } from "@zuse/git/worktree-service";
-
-import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
-import { GitService } from "@zuse/git/git-service";
-import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
-import { makeEventStore } from "../../persistence/event-store.ts";
-import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
-import { PtyService } from "../../pty/services/pty-service.ts";
-import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
-import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import {
-  TitleGenerator,
+  type CreateChatInput,
+  type CreateSessionInput,
+  MessageStore,
+  type MessageStoreShape,
+} from "../services/message-store.ts";
+import {
+  type GetRuntimeMode,
+  ProviderService,
+} from "../services/provider-service.ts";
+import {
   buildConversationText,
   formatBranchName,
   isTrivialUserMessage,
   shouldDeferAutoName,
+  TitleGenerator,
 } from "../title-generator.ts";
-import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
-import {
-  MessageStore,
-  type CreateChatInput,
-  type CreateSessionInput,
-  type MessageStoreShape,
-} from "../services/message-store.ts";
-import {
-  ProviderService,
-  type GetRuntimeMode,
-} from "../services/provider-service.ts";
 
 interface SessionRow {
   readonly id: string;
@@ -124,16 +121,6 @@ interface ChatRow {
   readonly created_at: string;
   readonly updated_at: string;
 }
-
-const SESSION_COLUMNS =
-  "id, project_id, title, provider_id, model, status, " +
-  "archived_at, cursor, resume_strategy, runtime_mode, " +
-  "agents_json, worktree_id, chat_id, forked_from_session_id, " +
-  "forked_from_message_id, permission_mode, tool_search, created_at, updated_at";
-
-const CHAT_COLUMNS =
-  "id, project_id, worktree_id, title, active_session_id, origin_session_id, " +
-  "archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at";
 
 const ARCHIVE_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
 const ARCHIVE_OUTPUT_LIMIT = 12_000;
@@ -776,7 +763,21 @@ export const MessageStoreLive = Layer.effect(
   MessageStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const eventStore = makeEventStore(sql);
+    const sessionDomain = yield* SessionDomain;
+    const currentTimestamp = DateTime.nowAsDate.pipe(
+      Effect.map((now) => now.getTime()),
+    );
+    const dispatchSessionCommand = (
+      sessionId: SessionId,
+      command: SessionCommand,
+    ): Effect.Effect<void> =>
+      sessionDomain
+        .dispatch({
+          commandId: crypto.randomUUID(),
+          streamId: sessionId,
+          command,
+        })
+        .pipe(Effect.asVoid, Effect.orDie);
     const provider = yield* ProviderService;
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -803,12 +804,6 @@ export const MessageStoreLive = Layer.effect(
           ADD COLUMN archived_worktree_json TEXT
       `.pipe(Effect.orDie);
     }
-
-    yield* sql`
-      UPDATE sessions
-      SET status = 'idle', updated_at = ${new Date().toISOString()}
-      WHERE status IN ('running', 'booting') AND archived_at IS NULL
-    `.pipe(Effect.asVoid, Effect.orDie);
 
     /**
      * Resolve the cwd a session should run in. NULL `worktreeId` falls
@@ -955,6 +950,41 @@ export const MessageStoreLive = Layer.effect(
         enableSubagents: boolean;
       }
     >();
+    const turnIdsBySession = new Map<SessionId, string>();
+
+    const beginTurn = (sessionId: SessionId): Effect.Effect<string> => {
+      const existing = turnIdsBySession.get(sessionId);
+      if (existing !== undefined) return Effect.succeed(existing);
+      const turnId = `turn_${crypto.randomUUID()}`;
+      return Effect.gen(function* () {
+        const startedAt = yield* currentTimestamp;
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "StartTurn",
+          turnId,
+          startedAt,
+        });
+        turnIdsBySession.set(sessionId, turnId);
+        return turnId;
+      });
+    };
+
+    const settleActiveTurn = (
+      sessionId: SessionId,
+      outcome: "completed" | "interrupted" | "error",
+    ): Effect.Effect<void> =>
+      Effect.flatMap(currentTimestamp, (settledAt) =>
+        dispatchSessionCommand(sessionId, {
+          _tag: "SettleActiveTurn",
+          outcome,
+          settledAt,
+        }),
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            turnIdsBySession.delete(sessionId);
+          }),
+        ),
+      );
 
     const ndjsonAppend = (
       sessionId: SessionId,
@@ -1212,29 +1242,32 @@ export const MessageStoreLive = Layer.effect(
         const id = idOverride ?? MessageId.make(crypto.randomUUID());
         const role = roleForContent(content);
         const now = new Date();
-        const nowIso = now.toISOString();
         const parentItemId = parentItemIdOfContent(content);
-        // All chat writes flow through the event log; the projection inside
-        // `appendEvent` performs the historical INSERT INTO messages +
-        // sessions.updated_at + chats.last_message_at writes atomically and
-        // assigns the global `sequence` clients resume from.
-        const sequence = yield* eventStore
-          .appendEvent({
-            streamKind: "session",
+        yield* sessionDomain
+          .dispatch({
+            commandId: `message:persist:${id}`,
             streamId: sessionId,
-            type: "MessagePersisted",
-            actor: null,
-            payload: {
+            command: {
+              _tag: "PersistMessage",
               messageId: id,
-              sessionId,
+              turnId: turnIdsBySession.get(sessionId) ?? null,
               role,
               kind: content._tag,
               contentJson: JSON.stringify(content),
               parentItemId,
-              createdAt: nowIso,
+              createdAt: now.getTime(),
             },
           })
           .pipe(Effect.orDie);
+        const projected = yield* sql<{ readonly sequence: number }>`
+          SELECT sequence FROM messages WHERE id = ${id} LIMIT 1
+        `.pipe(Effect.orDie);
+        const sequence = projected[0]?.sequence;
+        if (sequence === undefined) {
+          return yield* Effect.die(
+            new Error(`message projection missing after dispatch: ${id}`),
+          );
+        }
         return {
           message: Message.make({
             id,
@@ -1248,19 +1281,19 @@ export const MessageStoreLive = Layer.effect(
       });
 
     const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
-    let flushQueueAfterIdle: (
-      sessionId: SessionId,
-    ) => Effect.Effect<void> = () => Effect.void;
+    let flushQueueAfterIdle: (sessionId: SessionId) => Effect.Effect<void> =
+      () => Effect.void;
 
     const setStatus = (
       sessionId: SessionId,
       status: Session["status"],
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        yield* sql`
-          UPDATE sessions SET status = ${status}, updated_at = ${new Date().toISOString()}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetStatus",
+          status,
+          updatedAt: yield* currentTimestamp,
+        });
         const pubsub = yield* getOrMakeStatusPubsub(sessionId);
         yield* PubSub.publish(pubsub, { sessionId, status });
         if (status === "idle" || status === "closed") {
@@ -1421,6 +1454,14 @@ export const MessageStoreLive = Layer.effect(
                 return;
               }
               if (event._tag === "Completed") {
+                yield* settleActiveTurn(
+                  sessionId,
+                  event.reason === "interrupted"
+                    ? "interrupted"
+                    : event.reason === "error"
+                      ? "error"
+                      : "completed",
+                );
                 yield* setStatus(
                   sessionId,
                   event.reason === "error" ? "error" : "closed",
@@ -1435,13 +1476,12 @@ export const MessageStoreLive = Layer.effect(
                 return;
               }
               if (event._tag === "SessionCursor") {
-                yield* sql`
-                  UPDATE sessions
-                     SET cursor = ${event.cursor},
-                         resume_strategy = ${event.strategy},
-                         updated_at = ${new Date().toISOString()}
-                  WHERE id = ${sessionId}
-                `.pipe(Effect.asVoid, Effect.orDie);
+                yield* dispatchSessionCommand(sessionId, {
+                  _tag: "SetResume",
+                  cursor: event.cursor,
+                  resumeStrategy: event.strategy,
+                  updatedAt: yield* currentTimestamp,
+                });
                 return;
               }
               if (event._tag === "PermissionModeChanged") {
@@ -1449,12 +1489,11 @@ export const MessageStoreLive = Layer.effect(
                 // ExitPlanMode just ran successfully). Persist + cache
                 // so the chat-header chip auto-untoggles and a future
                 // `provider.start` resume passes the new mode through.
-                yield* sql`
-                  UPDATE sessions
-                     SET permission_mode = ${event.mode},
-                         updated_at = ${new Date().toISOString()}
-                  WHERE id = ${sessionId}
-                `.pipe(Effect.asVoid, Effect.orDie);
+                yield* dispatchSessionCommand(sessionId, {
+                  _tag: "SetPermissionMode",
+                  permissionMode: event.mode,
+                  updatedAt: yield* currentTimestamp,
+                });
                 permissionModeBySession.set(sessionId, event.mode);
                 return;
               }
@@ -1498,15 +1537,26 @@ export const MessageStoreLive = Layer.effect(
               // mid-stream Error with no trailing result message). Flip to
               // `error` so the renderer shows the error bubble + login CTA.
               if (event._tag === "Error") {
+                yield* settleActiveTurn(sessionId, "error");
                 yield* publishRelayActivity(sessionId, "error");
                 yield* setStatus(sessionId, "error");
+              }
+              if (event._tag === "Interrupted") {
+                yield* settleActiveTurn(sessionId, "interrupted");
+                yield* setStatus(sessionId, "idle");
               }
             }),
           ).pipe(
             Effect.catchCause((cause) =>
-              Effect.logDebug("[MessageStore] event stream ended").pipe(
-                Effect.andThen(Effect.logDebug(cause)),
-              ),
+              Effect.gen(function* () {
+                if (turnIdsBySession.has(sessionId)) {
+                  yield* settleActiveTurn(sessionId, "error").pipe(
+                    Effect.catchCause(() => Effect.void),
+                  );
+                }
+                yield* Effect.logDebug("[MessageStore] event stream ended");
+                yield* Effect.logDebug(cause);
+              }),
             ),
           ),
         );
@@ -1580,15 +1630,23 @@ export const MessageStoreLive = Layer.effect(
     // sidebar reflects reality, but DO NOT pollute the message timeline with
     // synthetic rows — `sendMessage` will lazily restart the provider on the
     // next user turn (see below).
-    yield* sql`
-      UPDATE sessions SET status = 'idle' WHERE status = 'running'
+    const staleSessions = yield* sql<{
+      readonly id: string;
+      readonly status: "running" | "booting";
+    }>`
+      SELECT id, status FROM sessions
+      WHERE status IN ('running', 'booting') AND archived_at IS NULL
     `.pipe(Effect.orDie);
-    // Sessions left in `booting` from a crashed daemon never finished the
-    // provider handshake — surface them as failed starts so the renderer
-    // shows a closable tab instead of a stuck spinner.
-    yield* sql`
-      UPDATE sessions SET status = 'error' WHERE status = 'booting'
-    `.pipe(Effect.orDie);
+    for (const stale of staleSessions) {
+      if (stale.status === "running") {
+        yield* settleActiveTurn(SessionId.make(stale.id), "error");
+      }
+      yield* dispatchSessionCommand(SessionId.make(stale.id), {
+        _tag: "SetStatus",
+        status: stale.status === "running" ? "idle" : "error",
+        updatedAt: yield* currentTimestamp,
+      });
+    }
 
     const listSessions: MessageStoreShape["listSessions"] = (
       projectId,
@@ -1845,7 +1903,8 @@ export const MessageStoreLive = Layer.effect(
                   };
                 }
                 if (
-                  (chat.success.projectId as string) !== (ctx.projectId as string)
+                  (chat.success.projectId as string) !==
+                  (ctx.projectId as string)
                 ) {
                   return {
                     ok: false as const,
@@ -2042,9 +2101,7 @@ export const MessageStoreLive = Layer.effect(
         // `provider.start` runs. Background-mode callers (`session.create`)
         // can then return immediately and let the slow CLI boot flip the
         // status out of `"booting"` from a daemon fiber.
-        const sessionId = SessionId.make(
-          `s_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
-        );
+        const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
         const newSessionRuntimeMode: GetRuntimeMode = () =>
           getRuntimeModeFor(sessionId);
         const effectiveEnableSubagents =
@@ -2078,7 +2135,6 @@ export const MessageStoreLive = Layer.effect(
           });
         }
         const now = new Date();
-        const nowIso = now.toISOString();
         const title =
           input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const agentsJson =
@@ -2095,7 +2151,7 @@ export const MessageStoreLive = Layer.effect(
         // sets chats.origin_session_id), stamp the initial user message with
         // the origin so the renderer can attribute + link it. Skip silently
         // if the origin session row is gone.
-        let origin: MessageOrigin | undefined = undefined;
+        let origin: MessageOrigin | undefined;
         const originSessionId =
           input.originSessionId ?? chatRow.origin_session_id;
         if (hasInitial && originSessionId !== null) {
@@ -2134,31 +2190,40 @@ export const MessageStoreLive = Layer.effect(
         const rowStatus: Session["status"] = background
           ? "booting"
           : postBootStatus;
+        const createSessionRecord = sessionDomain
+          .dispatch({
+            commandId: `session:create:${sessionId}`,
+            streamId: sessionId,
+            command: {
+              _tag: "CreateSession",
+              sessionId,
+              chatId: input.chatId,
+              projectId,
+              title,
+              providerId: input.providerId,
+              model: input.model,
+              status: rowStatus,
+              cursor: resumeCursor,
+              resumeStrategy,
+              runtimeMode: initialRuntimeMode,
+              agentsJson,
+              worktreeId,
+              forkedFromSessionId,
+              forkedFromMessageId,
+              permissionMode: initialPermissionMode,
+              toolSearch: initialToolSearch,
+              createdAt: now.getTime(),
+            },
+          })
+          .pipe(Effect.orDie);
         if (background) {
-          yield* sql`
-            INSERT INTO sessions
-              (id, project_id, title, provider_id, model, status, runtime_mode,
-               agents_json, worktree_id, chat_id, permission_mode,
-               tool_search, cursor, resume_strategy, forked_from_session_id,
-               forked_from_message_id, created_at, updated_at)
-            VALUES
-              (${sessionId}, ${projectId}, ${title}, ${input.providerId},
-               ${input.model}, ${rowStatus}, ${initialRuntimeMode},
-               ${agentsJson}, ${worktreeId}, ${input.chatId},
-               ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-               ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
-               ${forkedFromMessageId}, ${nowIso}, ${nowIso})
-          `.pipe(Effect.orDie);
-          yield* sql`
-            UPDATE chats
-            SET active_session_id = ${sessionId}, updated_at = ${nowIso}
-            WHERE id = ${input.chatId}
-          `.pipe(Effect.asVoid, Effect.orDie);
+          yield* createSessionRecord;
           yield* lookupChat(input.chatId).pipe(
             Effect.flatMap(broadcastChat),
             Effect.catch(() => Effect.void),
           );
           if (hasInitial) {
+            yield* beginTurn(sessionId);
             yield* persistMessage(sessionId, {
               _tag: "user",
               text: input.initialPrompt!,
@@ -2280,30 +2345,13 @@ export const MessageStoreLive = Layer.effect(
                   }),
             ),
           );
-        yield* sql`
-          INSERT INTO sessions
-            (id, project_id, title, provider_id, model, status, runtime_mode,
-             agents_json, worktree_id, chat_id, permission_mode,
-             tool_search, cursor, resume_strategy, forked_from_session_id,
-             forked_from_message_id, created_at, updated_at)
-          VALUES
-            (${sessionId}, ${projectId}, ${title}, ${input.providerId},
-             ${input.model}, ${rowStatus}, ${initialRuntimeMode},
-             ${agentsJson}, ${worktreeId}, ${input.chatId},
-             ${initialPermissionMode}, ${initialToolSearch ? 1 : 0},
-             ${resumeCursor}, ${resumeStrategy}, ${forkedFromSessionId},
-             ${forkedFromMessageId}, ${nowIso}, ${nowIso})
-        `.pipe(Effect.orDie);
-        yield* sql`
-          UPDATE chats
-          SET active_session_id = ${sessionId}, updated_at = ${nowIso}
-          WHERE id = ${input.chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* createSessionRecord;
         yield* lookupChat(input.chatId).pipe(
           Effect.flatMap(broadcastChat),
           Effect.catch(() => Effect.void),
         );
         if (hasInitial) {
+          yield* beginTurn(sessionId);
           yield* persistMessage(sessionId, {
             _tag: "user",
             text: input.initialPrompt!,
@@ -2340,10 +2388,11 @@ export const MessageStoreLive = Layer.effect(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        yield* sql`
-          UPDATE sessions SET title = ${title}, updated_at = ${new Date().toISOString()}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetTitle",
+          title,
+          updatedAt: yield* currentTimestamp,
+        });
       });
 
     /**
@@ -2357,11 +2406,11 @@ export const MessageStoreLive = Layer.effect(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions SET runtime_mode = ${runtimeMode}, updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetRuntimeMode",
+          runtimeMode,
+          updatedAt: yield* currentTimestamp,
+        });
         // Poke the in-memory cache so the next `canUseTool` invocation picks
         // up the new mode without restarting the SDK.
         runtimeModeBySession.set(sessionId, runtimeMode);
@@ -2379,11 +2428,11 @@ export const MessageStoreLive = Layer.effect(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions SET permission_mode = ${mode}, updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetPermissionMode",
+          permissionMode: mode,
+          updatedAt: yield* currentTimestamp,
+        });
         permissionModeBySession.set(sessionId, mode);
         yield* provider.setPermissionMode(sessionId, mode).pipe(
           // The SDK session may have been closed (idle / closed status).
@@ -2446,18 +2495,12 @@ export const MessageStoreLive = Layer.effect(
             new SessionAlreadyStartedError({ sessionId }),
           );
         }
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions
-          SET worktree_id = ${worktreeId},
-              cursor = NULL,
-              resume_strategy = 'none',
-              updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
-        yield* provider
-          .close(sessionId)
-          .pipe(Effect.catch(() => Effect.void));
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetWorktree",
+          worktreeId,
+          updatedAt: yield* currentTimestamp,
+        });
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2470,18 +2513,16 @@ export const MessageStoreLive = Layer.effect(
     const setModel: MessageStoreShape["setModel"] = (sessionId, model) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions SET model = ${model}, updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetModel",
+          model,
+          updatedAt: yield* currentTimestamp,
+        });
         // Drop the provider's in-memory session and interrupt the event pump
         // fiber; the message + status pubsubs stay alive so the renderer's
         // streams remain connected. sendMessage's "send fails → restart"
         // path reads sessions.model so the next turn picks up the new model.
-        yield* provider
-          .close(sessionId)
-          .pipe(Effect.catch(() => Effect.void));
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2510,21 +2551,15 @@ export const MessageStoreLive = Layer.effect(
             new SessionAlreadyStartedError({ sessionId }),
           );
         }
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions
-          SET provider_id = ${providerId},
-              model = ${model},
-              cursor = NULL,
-              resume_strategy = 'none',
-              updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "SetProvider",
+          providerId,
+          model,
+          updatedAt: yield* currentTimestamp,
+        });
         // See setModel: keep the pubsubs alive so the renderer's streams
         // stay connected across the provider swap.
-        yield* provider
-          .close(sessionId)
-          .pipe(Effect.catch(() => Effect.void));
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2532,11 +2567,10 @@ export const MessageStoreLive = Layer.effect(
     const archiveSession: MessageStoreShape["archiveSession"] = (sessionId) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions SET archived_at = ${nowIso}, updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "ArchiveSession",
+          archivedAt: yield* currentTimestamp,
+        });
       });
 
     const unarchiveSession: MessageStoreShape["unarchiveSession"] = (
@@ -2544,11 +2578,10 @@ export const MessageStoreLive = Layer.effect(
     ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE sessions SET archived_at = NULL, updated_at = ${nowIso}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.orDie);
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "UnarchiveSession",
+          unarchivedAt: yield* currentTimestamp,
+        });
       });
 
     const deleteSession: MessageStoreShape["deleteSession"] = (sessionId) =>
@@ -2556,14 +2589,12 @@ export const MessageStoreLive = Layer.effect(
         yield* lookupSession(sessionId);
         // Best-effort: provider may not know the id (already closed) — that's
         // not an error from the user's perspective.
-        yield* provider
-          .close(sessionId)
-          .pipe(Effect.catch(() => Effect.void));
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* teardownSubscription(sessionId);
-        yield* sql`DELETE FROM sessions WHERE id = ${sessionId}`.pipe(
-          Effect.orDie,
-        );
-        // ON DELETE CASCADE removes messages.
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "DeleteSession",
+          deletedAt: yield* currentTimestamp,
+        });
       });
 
     // -------------------------------------------------------------------------
@@ -2994,9 +3025,15 @@ export const MessageStoreLive = Layer.effect(
         // Title first — cheap, and the user sees the sidebar update even if
         // the branch rename below is skipped or fails.
         yield* renameChat(chatId, title);
-        yield* sql`
-          UPDATE sessions SET title = ${title} WHERE chat_id = ${chatId}
-        `.pipe(Effect.ignore);
+        const memberSessions = yield* sql<{ readonly id: string }>`
+          SELECT id FROM sessions WHERE chat_id = ${chatId}
+        `.pipe(Effect.orDie);
+        yield* Effect.forEach(
+          memberSessions,
+          ({ id }) =>
+            renameSession(SessionId.make(id), title).pipe(Effect.ignore),
+          { discard: true },
+        );
         autoNamedChats.add(chatId);
 
         if (chat.worktreeId === null) return;
@@ -3062,20 +3099,11 @@ export const MessageStoreLive = Layer.effect(
         if (existing.length > 0) {
           return yield* Effect.fail(new ChatAlreadyStartedError({ chatId }));
         }
-        const nowIso = new Date().toISOString();
+        const updatedAt = yield* currentTimestamp;
+        const nowIso = new Date(updatedAt).toISOString();
         yield* sql`
           UPDATE chats SET worktree_id = ${worktreeId}, updated_at = ${nowIso}
           WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
-        // Mirror onto every member session so renderer reads of
-        // session.worktreeId stay accurate without a second round-trip.
-        yield* sql`
-          UPDATE sessions
-          SET worktree_id = ${worktreeId},
-              cursor = NULL,
-              resume_strategy = 'none',
-              updated_at = ${nowIso}
-          WHERE chat_id = ${chatId}
         `.pipe(Effect.asVoid, Effect.orDie);
         // Background-booted sessions (chat.create → session.create with
         // background=true) already spawned a provider CLI in the OLD cwd
@@ -3089,7 +3117,12 @@ export const MessageStoreLive = Layer.effect(
           WHERE chat_id = ${chatId} AND archived_at IS NULL
         `.pipe(Effect.orDie);
         for (const row of memberSessions) {
-          const sid = row.id as SessionId;
+          const sid = SessionId.make(row.id);
+          yield* dispatchSessionCommand(sid, {
+            _tag: "SetWorktree",
+            worktreeId,
+            updatedAt,
+          });
           yield* provider.close(sid).pipe(Effect.catch(() => Effect.void));
           yield* interruptProviderFiber(sid);
           yield* setStatus(sid, "idle");
@@ -3197,7 +3230,8 @@ export const MessageStoreLive = Layer.effect(
           );
         }
 
-        const nowIso = new Date().toISOString();
+        const archivedAt = yield* currentTimestamp;
+        const nowIso = new Date(archivedAt).toISOString();
         yield* sql`
           UPDATE chats
           SET archived_at = ${nowIso},
@@ -3205,10 +3239,15 @@ export const MessageStoreLive = Layer.effect(
               updated_at = ${nowIso}
           WHERE id = ${chatId}
         `.pipe(Effect.asVoid, Effect.orDie);
-        yield* sql`
-          UPDATE sessions SET archived_at = ${nowIso}, updated_at = ${nowIso}
-          WHERE chat_id = ${chatId} AND archived_at IS NULL
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* Effect.forEach(
+          liveSessions,
+          ({ id }) =>
+            dispatchSessionCommand(SessionId.make(id), {
+              _tag: "ArchiveSession",
+              archivedAt,
+            }),
+          { discard: true },
+        );
         return { chat: yield* lookupChat(chatId), cleanup };
       });
 
@@ -3261,7 +3300,8 @@ export const MessageStoreLive = Layer.effect(
           }
         }
 
-        const nowIso = new Date().toISOString();
+        const unarchivedAt = yield* currentTimestamp;
+        const nowIso = new Date(unarchivedAt).toISOString();
         yield* sql`
           UPDATE chats
           SET archived_at = NULL,
@@ -3270,20 +3310,30 @@ export const MessageStoreLive = Layer.effect(
               updated_at = ${nowIso}
           WHERE id = ${chatId}
         `.pipe(Effect.asVoid, Effect.orDie);
-        if (restoredWorktreeId !== null) {
-          yield* sql`
-            UPDATE sessions
-            SET worktree_id = ${restoredWorktreeId}, updated_at = ${nowIso}
-            WHERE chat_id = ${chatId}
-          `.pipe(Effect.asVoid, Effect.orDie);
-        }
-        if (chatRow.archived_at !== null) {
-          yield* sql`
-            UPDATE sessions
-            SET archived_at = NULL, updated_at = ${nowIso}
-            WHERE chat_id = ${chatId}
-              AND archived_at = ${chatRow.archived_at}
-          `.pipe(Effect.asVoid, Effect.orDie);
+        const archivedSessions = yield* sql<{
+          readonly id: string;
+          readonly worktree_id: string | null;
+        }>`
+          SELECT id, worktree_id FROM sessions WHERE chat_id = ${chatId}
+        `.pipe(Effect.orDie);
+        for (const row of archivedSessions) {
+          const sessionId = SessionId.make(row.id);
+          if (
+            restoredWorktreeId !== null &&
+            row.worktree_id !== restoredWorktreeId
+          ) {
+            yield* dispatchSessionCommand(sessionId, {
+              _tag: "SetWorktree",
+              worktreeId: restoredWorktreeId,
+              updatedAt: unarchivedAt,
+            });
+          }
+          if (chatRow.archived_at !== null) {
+            yield* dispatchSessionCommand(sessionId, {
+              _tag: "UnarchiveSession",
+              unarchivedAt,
+            });
+          }
         }
         const sessions = yield* sql<SessionRow>`
           SELECT id, project_id, title, provider_id, model, status,
@@ -3317,6 +3367,10 @@ export const MessageStoreLive = Layer.effect(
             .close(sessionId)
             .pipe(Effect.catch(() => Effect.void));
           yield* teardownSubscription(sessionId);
+          yield* dispatchSessionCommand(sessionId, {
+            _tag: "DeleteSession",
+            deletedAt: yield* currentTimestamp,
+          });
         }
         yield* sql`DELETE FROM chats WHERE id = ${chatId}`.pipe(
           Effect.asVoid,
@@ -3658,9 +3712,7 @@ export const MessageStoreLive = Layer.effect(
         // a fresh handle attached to the same DB row. Keep the pubsubs
         // alive so renderer subscriptions stay connected across the
         // resume — only the event-pump fiber needs to restart.
-        yield* provider
-          .close(sessionId)
-          .pipe(Effect.catch(() => Effect.void));
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         runtimeModeBySession.set(session.id, session.runtimeMode);
         permissionModeBySession.set(session.id, session.permissionMode);
@@ -3738,6 +3790,7 @@ export const MessageStoreLive = Layer.effect(
             return true;
           }
         }
+        yield* beginTurn(sessionId);
         // Drop "pending-*" placeholder ids — those are renderer-side temp
         // tokens for attachments whose upload didn't finish before submit.
         // The bytes don't exist server-side, so forwarding them would just
@@ -3806,10 +3859,7 @@ export const MessageStoreLive = Layer.effect(
         const provisional = deriveProvisionalTitle(text);
         if (provisional !== "New chat") {
           if (session.title === "New chat") {
-            yield* sql`
-              UPDATE sessions SET title = ${provisional}
-              WHERE id = ${sessionId} AND title = 'New chat'
-            `.pipe(Effect.orDie);
+            yield* renameSession(sessionId, provisional);
           }
           if (chat.title === "New chat") {
             yield* renameChat(session.chatId, provisional).pipe(
@@ -3980,7 +4030,7 @@ export const MessageStoreLive = Layer.effect(
       origin,
     ) =>
       Effect.gen(function* () {
-        yield* submitUserMessage(
+        const accepted = yield* submitUserMessage(
           sessionId,
           text,
           attachments,
@@ -3991,6 +4041,7 @@ export const MessageStoreLive = Layer.effect(
           clientMessageId,
           origin,
         );
+        if (!accepted) yield* settleActiveTurn(sessionId, "error");
       });
 
     const listQueuedMessages: MessageStoreShape["listQueuedMessages"] = (
@@ -4179,6 +4230,7 @@ export const MessageStoreLive = Layer.effect(
           item.input.annotations,
         );
         if (!ok) {
+          yield* settleActiveTurn(item.sessionId, "error");
           yield* restoreQueuedMessage(item);
         }
       });
@@ -4254,6 +4306,7 @@ export const MessageStoreLive = Layer.effect(
         if (queue.length > 0) {
           yield* setQueuePaused(sessionId, true);
         }
+        yield* settleActiveTurn(sessionId, "interrupted");
         yield* setStatus(sessionId, "idle");
       });
 

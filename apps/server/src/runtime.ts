@@ -1,10 +1,10 @@
 import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
-import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
@@ -23,7 +23,7 @@ import {
   LanAuthConfig,
   type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
-import { makeEventStore } from "./persistence/event-store.ts";
+import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
@@ -123,6 +123,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
       ),
     ),
   );
+  const BackfilledSqlite = MigratedSqlite.pipe(
+    Layer.provideMerge(
+      Layer.effectDiscard(runLifecycleBackfill).pipe(
+        Layer.provide(MigratedSqlite),
+      ),
+    ),
+  );
 
   // After migrations: import any pre-existing `workspaces.json` once.
   // `provideMerge` keeps the SqlClient available downstream.
@@ -158,9 +165,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // shape as GitLayer + the SqlClient for persisting the rows.
   const WorktreePortsLayer = Layer.mergeAll(
     ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
-    RepositorySettingsReaderLive.pipe(
-      Layer.provide(RepositorySettingsLayer),
-    ),
+    RepositorySettingsReaderLive.pipe(Layer.provide(RepositorySettingsLayer)),
     WorktreeNameAllocatorLive,
     WorktreeDecorationLive,
     PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
@@ -282,16 +287,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
-  // After migrations, before MessageStore: replay any events past the
-  // projector high-water mark. In steady state this is a no-op (append and
-  // projection share a transaction); it makes the projection rebuildable —
-  // drop `messages`, reset the watermark, boot. Same shape as ImportShim.
+  const SessionDomainLayer = SessionDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
+
+  // Replay durable domain events before accepting transport traffic.
   const ProjectorCatchup = Layer.effectDiscard(
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* makeEventStore(sql).catchup;
+      const domain = yield* SessionDomain;
+      yield* domain.catchUp;
     }),
-  ).pipe(Layer.provide(MigratedSqlite));
+  ).pipe(Layer.provide(SessionDomainLayer));
 
   const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
     Layer.provide(LanAuthLayer),
@@ -309,6 +316,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(TitleGeneratorLayer),
     Layer.provide(RelayActivityPublisherLayer),
     Layer.provide(ProjectorCatchup),
+    Layer.provide(SessionDomainLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );

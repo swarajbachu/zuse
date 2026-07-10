@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import type { StoredEvent } from "../engine/dispatch.js";
+import { sessionCreation } from "../test/session.js";
 import { InMemorySessionReadModel } from "./read-model.js";
 
 const stored = (
@@ -25,14 +26,13 @@ describe("session read-model projector", () => {
 		const events: StoredEvent[] = [
 			stored(1, "session-1", {
 				_tag: "SessionCreated",
-				sessionId: "session-1",
-				chatId: "chat-1",
-				projectId: "project-1",
+				...sessionCreation,
 				createdAt: 10,
 			}),
 			stored(2, "session-1", {
 				_tag: "SessionTitleSet",
 				title: "Projected title",
+				updatedAt: 15,
 			}),
 			stored(3, "session-1", {
 				_tag: "ProviderAttached",
@@ -67,6 +67,11 @@ describe("session read-model projector", () => {
 		expect(model.session("session-1")).toMatchObject({
 			title: "Projected title",
 			providerId: "provider-1",
+			model: "model-1",
+			resumeStrategy: "none",
+			runtimeMode: "approval-required",
+			permissionMode: "default",
+			toolSearch: false,
 			status: "idle",
 			lastMessageAt: 40,
 			updatedAt: 50,

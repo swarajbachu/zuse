@@ -22,6 +22,18 @@ describe("lifecycle backfill", () => {
 				project_id TEXT NOT NULL,
 				chat_id TEXT NOT NULL,
 				title TEXT NOT NULL,
+				provider_id TEXT NOT NULL DEFAULT 'provider-1',
+				model TEXT NOT NULL DEFAULT 'model-1',
+				status TEXT NOT NULL DEFAULT 'idle',
+				cursor TEXT,
+				resume_strategy TEXT NOT NULL DEFAULT 'none',
+				runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
+				agents_json TEXT,
+				worktree_id TEXT,
+				forked_from_session_id TEXT,
+				forked_from_message_id TEXT,
+				permission_mode TEXT NOT NULL DEFAULT 'default',
+				tool_search INTEGER NOT NULL DEFAULT 0,
 				archived_at TEXT,
 				created_at TEXT NOT NULL
 			);
@@ -47,7 +59,9 @@ describe("lifecycle backfill", () => {
 				UNIQUE (stream_kind, stream_id, stream_version)
 			);
 			CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-			INSERT INTO sessions VALUES (
+			INSERT INTO sessions
+				(id, project_id, chat_id, title, archived_at, created_at)
+			VALUES (
 				'session-1', 'project-1', 'chat-1', 'Existing title',
 				'2026-01-03T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
@@ -85,7 +99,8 @@ describe("lifecycle backfill", () => {
 					const events = yield* sql<{
 						readonly type: string;
 						readonly stream_version: number;
-					}>`SELECT type, stream_version FROM events ORDER BY sequence`;
+						readonly payload_json: string;
+					}>`SELECT type, stream_version, payload_json FROM events ORDER BY sequence`;
 					const cursors = yield* sql<{
 						readonly projector_name: string;
 						readonly last_sequence: number;
@@ -95,12 +110,29 @@ describe("lifecycle backfill", () => {
 				}),
 			);
 
-			expect(snapshot.events).toEqual([
+			expect(
+				snapshot.events.map(({ type, stream_version }) => ({
+					type,
+					stream_version,
+				})),
+			).toEqual([
 				{ type: "MessagePersisted", stream_version: 1 },
 				{ type: "SessionCreated", stream_version: 2 },
 				{ type: "SessionTitleSet", stream_version: 3 },
 				{ type: "SessionArchived", stream_version: 4 },
 			]);
+			const firstPayload = snapshot.events[0]?.payload_json;
+			expect(firstPayload).toBeDefined();
+			expect(JSON.parse(firstPayload ?? "null")).toEqual({
+				_tag: "MessagePersisted",
+				messageId: "message-1",
+				turnId: null,
+				role: "user",
+				kind: "text",
+				contentJson: '{"spacing":  "preserved"}',
+				parentItemId: null,
+				createdAt: Date.parse("2026-01-02T00:00:00.000Z"),
+			});
 			expect(snapshot.cursors).toEqual([
 				{ projector_name: "activity", last_sequence: 4 },
 				{ projector_name: "chats", last_sequence: 4 },

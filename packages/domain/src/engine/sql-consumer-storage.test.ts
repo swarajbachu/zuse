@@ -4,55 +4,12 @@ import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
 
 import type { SessionCommand } from "../core/commands.js";
+import { createDomainTestSchema } from "../test/sql-schema.js";
 import { DispatchEngine } from "./dispatch.js";
 import { ProjectorRunner } from "./projector-runner.js";
 import { ReactorRunner } from "./reactor-runner.js";
 import { makeSqlConsumerStorage } from "./sql-consumer-storage.js";
 import { makeSqlDispatchStorage } from "./sql-dispatch-storage.js";
-
-const createSchema = Effect.gen(function* () {
-	const sql = yield* SqlClient.SqlClient;
-	yield* sql`
-		CREATE TABLE events (
-			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-			event_id TEXT NOT NULL UNIQUE,
-			stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL,
-			stream_version INTEGER NOT NULL,
-			type TEXT NOT NULL,
-			occurred_at TEXT NOT NULL,
-			actor TEXT,
-			payload_json TEXT NOT NULL,
-			correlation_id TEXT,
-			causation_event_id TEXT,
-			UNIQUE (stream_kind, stream_id, stream_version)
-		)
-	`;
-	yield* sql`
-		CREATE TABLE projector_cursors (
-			projector_name TEXT PRIMARY KEY,
-			last_sequence INTEGER NOT NULL CHECK (last_sequence >= 0),
-			updated_at TEXT NOT NULL
-		)
-	`;
-	yield* sql`
-		CREATE TABLE command_receipts (
-			command_id TEXT PRIMARY KEY,
-			stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL,
-			stream_version INTEGER NOT NULL,
-			event_ids_json TEXT NOT NULL,
-			result_json TEXT,
-			created_at TEXT NOT NULL
-		)
-	`;
-	yield* sql`
-		CREATE TABLE projected_messages (
-			message_id TEXT PRIMARY KEY,
-			content_json TEXT NOT NULL
-		)
-	`;
-});
 
 const run = <A, E>(
 	program: Effect.Effect<A, E, SqlClient.SqlClient>,
@@ -84,7 +41,7 @@ describe("SqlConsumerStorage", () => {
 	test("loads events after the durable cursor in global sequence order", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* insertEvent("event-1", "session-1", 1, {
 					_tag: "SessionCreated",
@@ -121,7 +78,7 @@ describe("SqlConsumerStorage", () => {
 	test("commits projector writes and cursor atomically", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* insertEvent("event-1", "session-1", 1, {
 					_tag: "MessagePersisted",
@@ -175,7 +132,7 @@ describe("SqlConsumerStorage", () => {
 	test("never moves a durable cursor backwards", async () => {
 		const cursor = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				const storage = makeSqlConsumerStorage(sql);
 				yield* storage.commitCursor("messages", 8);
@@ -190,7 +147,7 @@ describe("SqlConsumerStorage", () => {
 	test("rolls back projector writes when cursor commit fails", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				const storage = makeSqlConsumerStorage(sql);
 				const exit = yield* Effect.exit(
@@ -219,7 +176,7 @@ describe("SqlConsumerStorage", () => {
 	test("rolls back cursor advancement when projector apply fails", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				const storage = makeSqlConsumerStorage(sql);
 				const exit = yield* Effect.exit(
@@ -256,7 +213,7 @@ describe("SqlConsumerStorage", () => {
 	test("replays a reactor dispatch with the same receipt after cursor commit fails", async () => {
 		const result = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* insertEvent("event-1", "session-1", 1, {
 					_tag: "SessionCreated",
@@ -268,9 +225,8 @@ describe("SqlConsumerStorage", () => {
 
 				const consumerStorage = makeSqlConsumerStorage(sql);
 				const dispatchStorage = makeSqlDispatchStorage(sql);
-				const engine = new DispatchEngine(
-					dispatchStorage,
-					() => "event-from-reactor",
+				const engine = new DispatchEngine(dispatchStorage, () =>
+					Effect.succeed("event-from-reactor"),
 				);
 				const dispatchedCommandIds: string[] = [];
 				const dispatch = (input: {
@@ -295,6 +251,7 @@ describe("SqlConsumerStorage", () => {
 										command: {
 											_tag: "SetTitle",
 											title: "Generated title",
+											updatedAt: 2,
 										} satisfies SessionCommand,
 									},
 								])
@@ -373,7 +330,7 @@ describe("SqlConsumerStorage", () => {
 	test("fails at the schema boundary for malformed persisted events", async () => {
 		const failure = await run(
 			Effect.gen(function* () {
-				yield* createSchema;
+				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* insertEvent("bad-event", "session-1", 1, {});
 				return yield* makeSqlConsumerStorage(sql)

@@ -61,22 +61,34 @@ export class ConcurrencyConflict extends Schema.TaggedErrorClass<ConcurrencyConf
 	},
 ) {}
 
-export class DispatchEngine<StorageError = never> {
+export class DispatchEngine<
+	StorageError = never,
+	EventIdError = never,
+	EventIdRequirements = never,
+> {
 	private readonly worker = new KeyedEffectSerialWorker<string>();
 
 	constructor(
 		private readonly storage: DispatchStorage<StorageError>,
-		private readonly makeEventId: () => string,
+		private readonly makeEventId: () => Effect.Effect<
+			string,
+			EventIdError,
+			EventIdRequirements
+		>,
 	) {}
 
 	dispatch(
 		input: DispatchInput,
-	): Effect.Effect<CommandReceipt, DispatchFailure<StorageError>> {
+	): Effect.Effect<
+		CommandReceipt,
+		DispatchFailure<StorageError> | EventIdError,
+		EventIdRequirements
+	> {
 		return this.worker.run(input.streamId, this.run(input));
 	}
 
 	private readonly run = Effect.fn("DispatchEngine.run")(function* (
-		this: DispatchEngine<StorageError>,
+		this: DispatchEngine<StorageError, EventIdError, EventIdRequirements>,
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
@@ -90,16 +102,17 @@ export class DispatchEngine<StorageError = never> {
 		const decision = decide(state, input.command);
 		if (Result.isFailure(decision)) return yield* decision.failure;
 
+		const events = yield* Effect.forEach(decision.success, (event) =>
+			this.makeEventId().pipe(Effect.map((eventId) => ({ eventId, event }))),
+		);
+
 		return yield* this.storage.append({
 			commandId: input.commandId,
 			streamId: input.streamId,
 			correlationId: input.correlationId ?? input.commandId,
 			causationEventId: input.causationEventId ?? null,
 			expectedVersion: state.version,
-			events: decision.success.map((event) => ({
-				eventId: this.makeEventId(),
-				event,
-			})),
+			events,
 		});
 	});
 }

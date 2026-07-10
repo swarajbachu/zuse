@@ -1,3 +1,9 @@
+import type {
+	PermissionMode,
+	ResumeStrategy,
+	RuntimeMode,
+	SessionStatus,
+} from "@zuse/contracts";
 import type { SessionEvent } from "../core/events.js";
 
 export type LegacySessionSnapshot = {
@@ -5,6 +11,18 @@ export type LegacySessionSnapshot = {
 	readonly chatId: string;
 	readonly projectId: string;
 	readonly title: string;
+	readonly providerId: string;
+	readonly model: string;
+	readonly status: SessionStatus;
+	readonly cursor: string | null;
+	readonly resumeStrategy: ResumeStrategy;
+	readonly runtimeMode: RuntimeMode;
+	readonly agentsJson: string | null;
+	readonly worktreeId: string | null;
+	readonly forkedFromSessionId: string | null;
+	readonly forkedFromMessageId: string | null;
+	readonly permissionMode: PermissionMode;
+	readonly toolSearch: boolean;
 	readonly createdAt: number;
 	readonly archivedAt: number | null;
 	readonly deletedAt: number | null;
@@ -36,6 +54,42 @@ export type BackfillEvent = {
 	readonly actor: "backfill";
 	readonly event: SessionEvent;
 };
+
+export const sessionCreatedEventFromSnapshot = (
+	session: LegacySessionSnapshot,
+): SessionEvent => ({
+	_tag: "SessionCreated",
+	sessionId: session.sessionId,
+	chatId: session.chatId,
+	projectId: session.projectId,
+	title: session.title,
+	providerId: session.providerId,
+	model: session.model,
+	status: session.status,
+	cursor: session.cursor,
+	resumeStrategy: session.resumeStrategy,
+	runtimeMode: session.runtimeMode,
+	agentsJson: session.agentsJson,
+	worktreeId: session.worktreeId,
+	forkedFromSessionId: session.forkedFromSessionId,
+	forkedFromMessageId: session.forkedFromMessageId,
+	permissionMode: session.permissionMode,
+	toolSearch: session.toolSearch,
+	createdAt: session.createdAt,
+});
+
+export const messageEventFromSnapshot = (
+	message: LegacyMessageSnapshot,
+): SessionEvent => ({
+	_tag: "MessagePersisted",
+	messageId: message.messageId,
+	turnId: null,
+	role: message.role,
+	kind: message.kind,
+	contentJson: message.contentJson,
+	parentItemId: message.parentItemId,
+	createdAt: message.createdAt,
+});
 
 const id = (kind: string, entityId: string): string =>
 	`backfill:${kind}:${entityId}`;
@@ -81,19 +135,17 @@ export const synthesizeBackfill = (
 			session.sessionId,
 			id("session-created", session.sessionId),
 			session.createdAt,
-			{
-				_tag: "SessionCreated",
-				sessionId: session.sessionId,
-				chatId: session.chatId,
-				projectId: session.projectId,
-				createdAt: session.createdAt,
-			},
+			sessionCreatedEventFromSnapshot(session),
 		);
 		append(
 			session.sessionId,
 			id("session-title", session.sessionId),
 			session.createdAt,
-			{ _tag: "SessionTitleSet", title: session.title },
+			{
+				_tag: "SessionTitleSet",
+				title: session.title,
+				updatedAt: session.createdAt,
+			},
 		);
 
 		const messages = [...(messagesBySession.get(session.sessionId) ?? [])].sort(
@@ -106,16 +158,7 @@ export const synthesizeBackfill = (
 				session.sessionId,
 				id("message", message.messageId),
 				message.createdAt,
-				{
-					_tag: "MessagePersisted",
-					messageId: message.messageId,
-					turnId: null,
-					role: message.role,
-					kind: message.kind,
-					contentJson: message.contentJson,
-					parentItemId: message.parentItemId,
-					createdAt: message.createdAt,
-				},
+				messageEventFromSnapshot(message),
 			);
 		}
 
