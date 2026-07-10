@@ -1,9 +1,9 @@
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
-  isRedundantShellDescription,
   type AgentEvent,
   type AgentItemId,
+  isRedundantShellDescription,
 } from "@zuse/contracts";
-import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -1465,11 +1465,30 @@ export const createAcpTranslator = (
         case "agent_reasoning_chunk":
         case "thinking_chunk":
         case "reasoning": {
-          const text = asText(u["content"]);
+          const item = wrappedItem ?? u;
+          const parentItemId = parentItemIdForThread(u["threadId"]);
+          const summary = Array.isArray(item["summary"])
+            ? (item["summary"] as unknown[]).filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [];
+          const content = Array.isArray(item["content"])
+            ? (item["content"] as unknown[]).filter(
+                (value): value is string => typeof value === "string",
+              )
+            : [];
+          const nestedText = [...summary, ...content].join("\n").trim();
+          const text = nestedText || asText(u["content"]);
           if (text === null || text.length === 0) return [];
           trace(provider, `emit Thinking len=${text.length}`);
           return [
-            { _tag: "Thinking", itemId: nextItemId(), text, redacted: false },
+            {
+              _tag: "Thinking",
+              itemId: extractCallId(item),
+              text,
+              redacted: false,
+              parentItemId,
+            },
           ];
         }
 
@@ -1750,33 +1769,6 @@ export const createAcpTranslator = (
               _tag: "AssistantMessage",
               itemId,
               text,
-              parentItemId,
-            },
-          ];
-        }
-
-        case "reasoning": {
-          const item = wrappedItem ?? u;
-          const parentItemId = parentItemIdForThread(u["threadId"]);
-          if (parentItemId === undefined) return [];
-          const summary = Array.isArray(item["summary"])
-            ? (item["summary"] as unknown[]).filter(
-                (v): v is string => typeof v === "string",
-              )
-            : [];
-          const content = Array.isArray(item["content"])
-            ? (item["content"] as unknown[]).filter(
-                (v): v is string => typeof v === "string",
-              )
-            : [];
-          const text = [...summary, ...content].join("\n").trim();
-          if (text.length === 0) return [];
-          return [
-            {
-              _tag: "Thinking",
-              itemId: extractCallId(item),
-              text,
-              redacted: false,
               parentItemId,
             },
           ];

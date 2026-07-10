@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
@@ -296,6 +297,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(BackfilledSqlite),
     Layer.provide(NodeServices.layer),
   );
+  const SessionQueriesLayer = SqlSessionQueries.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+  );
 
   // Replay durable domain events before accepting transport traffic.
   const ProjectorCatchup = Layer.effectDiscard(
@@ -308,6 +312,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   ).pipe(
     Layer.provide(SessionDomainLayer),
     Layer.provide(ChatDomainLayer),
+    Layer.provide(SessionQueriesLayer),
   );
 
   const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(

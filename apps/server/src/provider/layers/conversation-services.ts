@@ -54,6 +54,11 @@ import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
+import {
+  SqlSessionQueries,
+  type SqlSessionReadRecord,
+} from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import {
@@ -288,6 +293,38 @@ const sessionFromRow = (row: SessionRow): Session =>
     updatedAt: new Date(row.updated_at),
   });
 
+const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
+  Session.make({
+    id: SessionId.make(record.sessionId),
+    projectId: record.projectId as FolderId,
+    title: record.title,
+    providerId: record.providerId as ProviderId,
+    model: record.model,
+    status: record.status,
+    archivedAt:
+      record.archivedAt === null ? null : new Date(record.archivedAt),
+    cursor: record.cursor,
+    resumeStrategy: resumeStrategyFromRow(record.resumeStrategy),
+    runtimeMode: runtimeModeFromRow(record.runtimeMode),
+    worktreeId:
+      record.worktreeId === null
+        ? null
+        : (record.worktreeId as unknown as WorktreeId),
+    chatId: record.chatId as unknown as ChatId,
+    forkedFromSessionId:
+      record.forkedFromSessionId === null
+        ? null
+        : SessionId.make(record.forkedFromSessionId),
+    forkedFromMessageId:
+      record.forkedFromMessageId === null
+        ? null
+        : (record.forkedFromMessageId as MessageIdType),
+    permissionMode: permissionModeFromRow(record.permissionMode),
+    toolSearch: record.toolSearch,
+    createdAt: new Date(record.createdAt),
+    updatedAt: new Date(record.updatedAt),
+  });
+
 const chatFromRow = (row: ChatRow): Chat =>
   Chat.make({
     id: row.id as unknown as ChatId,
@@ -332,6 +369,17 @@ const messageFromRow = (row: MessageRow): Message => {
     createdAt: new Date(row.created_at),
   });
 };
+
+const messageFromRecord = (record: MessageReadRecord): Message =>
+  Message.make({
+    id: MessageId.make(record.messageId),
+    sessionId: SessionId.make(record.sessionId),
+    role: record.role as MessageRole,
+    content: normalizeMessageContent(
+      JSON.parse(record.contentJson) as MessageContent,
+    ),
+    createdAt: new Date(record.createdAt),
+  });
 
 /**
  * Best-effort human string for a failed orchestration tool call. The control
@@ -780,6 +828,7 @@ interface PersistedMessage {
 export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const sessionQueries = yield* SqlSessionQueries;
     const sessionDomain = yield* SessionDomain;
     const chatDomain = yield* ChatDomain;
     const currentTimestamp = DateTime.nowAsDate.pipe(
@@ -1182,23 +1231,18 @@ export const ConversationServicesLive = Layer.effectContext(
       sessionId: SessionId,
     ): Effect.Effect<Session, SessionNotFoundError> =>
       Effect.gen(function* () {
-        const rows = yield* sql<SessionRow>`
-          SELECT id, project_id, title, provider_id, model, status,
-                 archived_at, cursor, resume_strategy, runtime_mode,
-                 agents_json, worktree_id, chat_id, forked_from_session_id,
-                 forked_from_message_id, permission_mode, tool_search,
-                 created_at, updated_at
-          FROM sessions WHERE id = ${sessionId} LIMIT 1
-        `.pipe(Effect.orDie);
-        if (rows.length === 0) {
-          return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
-        }
-        const row = rows[0]!;
+        const record = yield* sessionQueries.get(sessionId).pipe(
+          Effect.catch((error) =>
+            error._tag === "SessionQueryNotFound"
+              ? Effect.fail(new SessionNotFoundError({ sessionId }))
+              : Effect.die(error),
+          ),
+        );
         // Hydrate the agents cache from the row on first sight after boot
         // so resume / lazy-restart pick up the same roster the session was
         // created with.
         if (!agentsBySession.has(sessionId)) {
-          const parsed = parseAgents(row.agents_json);
+          const parsed = parseAgents(record.agentsJson);
           if (parsed !== null && "agents" in parsed) {
             const hydrated = parsed as unknown as {
               agents: Record<string, AgentDefinition>;
@@ -1210,7 +1254,7 @@ export const ConversationServicesLive = Layer.effectContext(
             });
           }
         }
-        return sessionFromRow(row);
+        return sessionFromRecord(record);
       });
 
     const agentsFor = (sessionId: SessionId) => agentsBySession.get(sessionId);
@@ -1681,47 +1725,9 @@ export const ConversationServicesLive = Layer.effectContext(
       projectId,
       includeArchived,
     ) =>
-      Effect.gen(function* () {
-        const rows = includeArchived
-          ? yield* sql<SessionRow>`
-              SELECT id, project_id, title, provider_id, model, status,
-                     archived_at, cursor, resume_strategy, runtime_mode,
-                     agents_json, worktree_id, chat_id, forked_from_session_id,
-                     forked_from_message_id, permission_mode, tool_search,
-                     created_at, updated_at
-              FROM sessions WHERE project_id = ${projectId}
-              ORDER BY updated_at DESC
-            `.pipe(Effect.orDie)
-          : yield* sql<SessionRow>`
-              SELECT id, project_id, title, provider_id, model, status,
-                     archived_at, cursor, resume_strategy, runtime_mode,
-                     agents_json, worktree_id, chat_id, forked_from_session_id,
-                     forked_from_message_id, permission_mode, tool_search,
-                     created_at, updated_at
-              FROM sessions
-              WHERE project_id = ${projectId} AND archived_at IS NULL
-              ORDER BY updated_at DESC
-            `.pipe(Effect.orDie);
-        // Defensive filter — `chat_id` is NOT NULL since migration 0012, but
-        // any row that somehow slips through with NULL would crash the
-        // Session schema decode and take the entire sidebar / fs / terminal
-        // down with it. Drop and log instead.
-        const usable: SessionRow[] = [];
-        let dropped = 0;
-        for (const row of rows) {
-          if (row.chat_id === null) {
-            dropped += 1;
-            continue;
-          }
-          usable.push(row);
-        }
-        if (dropped > 0) {
-          yield* Effect.logWarning(
-            `[ConversationServices] listSessions: dropped ${dropped} row(s) with NULL chat_id (project ${projectId})`,
-          );
-        }
-        return usable.map(sessionFromRow);
-      });
+      sessionQueries
+        .list({ projectId, includeArchived })
+        .pipe(Effect.map((records) => records.map(sessionFromRecord)), Effect.orDie);
 
     /**
      * Resolve a chat row for createSession. Failures surface as
@@ -3401,15 +3407,14 @@ export const ConversationServicesLive = Layer.effectContext(
       });
 
     const listMessages: ConversationOperations["listMessages"] = (sessionId) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        const rows = yield* sql<MessageRow>`
-          SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-          FROM messages WHERE session_id = ${sessionId}
-          ORDER BY created_at ASC
-        `.pipe(Effect.orDie);
-        return rows.map(messageFromRow);
-      });
+      sessionQueries.messages(sessionId).pipe(
+        Effect.map((records) => records.map(messageFromRecord)),
+        Effect.catch((error) =>
+          error._tag === "SessionQueryNotFound"
+            ? Effect.fail(new SessionNotFoundError({ sessionId }))
+            : Effect.die(error),
+        ),
+      );
 
     const streamMessages: ConversationOperations["streamMessages"] = (
       sessionId,

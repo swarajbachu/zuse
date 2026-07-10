@@ -20,6 +20,7 @@ import {
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import {
@@ -346,6 +347,9 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(Migrated),
     Layer.provide(NodeServices.layer),
   );
+  const SessionQueriesLive = SqlSessionQueries.layer.pipe(
+    Layer.provide(Migrated),
+  );
   const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
@@ -358,6 +362,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubRelayActivityPublisherLive),
     Layer.provide(DomainLive),
     Layer.provide(ChatDomainLive),
+    Layer.provide(SessionQueriesLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),
