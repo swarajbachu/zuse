@@ -1,3 +1,15 @@
+import { execFile, spawn } from "node:child_process";
+import * as fsSync from "node:fs";
+import * as fs from "node:fs/promises";
+import * as http from "node:http";
+import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import * as Path from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
+import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/contracts";
+import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
+import { Cause, Effect, Fiber, Layer } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import {
   app,
@@ -9,23 +21,10 @@ import {
   net,
   protocol,
   shell,
-  webContents as webContentsModule,
   type WebContents,
+  webContents as webContentsModule,
 } from "electron";
-import { Effect, Fiber, Layer } from "effect";
 import fixPath from "fix-path";
-import { execFile, spawn } from "node:child_process";
-import * as http from "node:http";
-import * as fsSync from "node:fs";
-import * as fs from "node:fs/promises";
-import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import * as Path from "node:path";
-import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
-
-import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
-import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/contracts";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -40,16 +39,20 @@ if (process.platform === "darwin" && app.isPackaged) {
 
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import {
-  ensureSshEnvironment,
-  listSshHosts,
-  type SshEnvironmentHandle,
-} from "./ssh/environment-service.ts";
-import {
   DEFAULT_MENU_ACCELERATORS,
   installAppMenu,
   type MenuAccelerators,
   type MenuCommand,
 } from "./menu.ts";
+import {
+  NotchTrayController,
+  type NotchTrayItem,
+} from "./notch-tray-controller.ts";
+import {
+  ensureSshEnvironment,
+  listSshHosts,
+  type SshEnvironmentHandle,
+} from "./ssh/environment-service.ts";
 import {
   getIsInstallingUpdate,
   getLastStatus,
@@ -57,10 +60,6 @@ import {
   registerUpdaterDemo,
   startAutoUpdater,
 } from "./updater.ts";
-import {
-  NotchTrayController,
-  type NotchTrayItem,
-} from "./notch-tray-controller.ts";
 
 type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -1433,10 +1432,9 @@ function createMainWindow() {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet
           // success-after-restart is preferable to a half-running app.
-          appendRemoteConnectionLog("desktop.runtime.fatal", {
-            cause: String(cause),
-          });
-          console.error("[zuse] fatal boot error", cause);
+          const detail = Cause.pretty(cause);
+          appendRemoteConnectionLog("desktop.runtime.fatal", { cause: detail });
+          console.error("[zuse] fatal boot error\n", detail);
           app.exit(1);
         }),
       ),

@@ -1,9 +1,9 @@
+import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { FromServerEncoded } from "effect/unstable/rpc/RpcMessage";
-import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 
-import { type RpcBridge } from "./bridge.ts";
+import type { RpcBridge } from "./bridge.ts";
 
 /**
  * RpcClient.Protocol implementation for Electron IPC. Mirror of the server
@@ -15,7 +15,7 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
   RpcClient.Protocol.make(
     Effect.fnUntraced(function* (writeResponse) {
       const serialization = yield* RpcSerialization.RpcSerialization;
-      const parser = serialization.unsafeMake();
+      const parser = serialization.makeUnsafe();
 
       const inbound = yield* Mailbox.make<unknown>();
       const unsubscribe = bridge.onMessage((frame) => {

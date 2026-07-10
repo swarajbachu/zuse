@@ -1,4 +1,11 @@
 import {
+  AuthCancelledError,
+  AuthFlowError,
+  AuthSession,
+  type AuthState,
+  AuthUser,
+} from "@zuse/contracts";
+import {
   Deferred,
   Effect,
   Layer,
@@ -9,16 +16,8 @@ import {
   Stream,
 } from "effect";
 
-import {
-  AuthCancelledError,
-  AuthFlowError,
-  AuthSession,
-  AuthState,
-  AuthUser,
-} from "@zuse/contracts";
-
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
-import { AuthTokenError, SessionStoreError } from "../errors.ts";
+import { AuthTokenError, type SessionStoreError } from "../errors.ts";
 import { AuthService } from "../services/auth-service.ts";
 import { AuthShell } from "../services/auth-shell.ts";
 import { SessionStore } from "../services/session-store.ts";
@@ -26,8 +25,8 @@ import {
   authorizationUrl,
   exchangeCode,
   makePkce,
-  parseSessionBundle,
   parseCallbackUrl,
+  parseSessionBundle,
   refreshSession,
   type SessionBundle,
 } from "./workos.ts";
@@ -318,9 +317,9 @@ export const AuthServiceLive = Layer.effect(
           ),
         );
         const bundle = yield* Deferred.await(deferred).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: SIGN_IN_TIMEOUT,
-            onTimeout: () => new AuthCancelledError(),
+            orElse: () => Effect.fail(new AuthCancelledError()),
           }),
           Effect.ensuring(Ref.set(pending, null)),
         );

@@ -1,6 +1,6 @@
-import { SqlClient } from "effect/unstable/sql";
-import { SqlError } from "effect/unstable/sql/SqlError";
 import { Effect, Schema } from "effect";
+import type { SqlClient } from "effect/unstable/sql";
+import { SqlError } from "effect/unstable/sql/SqlError";
 
 /**
  * Append-only event store in front of the chat tables (spec: remote
@@ -31,8 +31,8 @@ export const MessagePersistedPayload = Schema.Struct({
 });
 export type MessagePersistedPayload = typeof MessagePersistedPayload.Type;
 
-const decodePayload = Schema.decodeUnknown(
-  Schema.parseJson(MessagePersistedPayload),
+const decodePayload = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(MessagePersistedPayload),
 );
 
 export interface AppendEventInput {

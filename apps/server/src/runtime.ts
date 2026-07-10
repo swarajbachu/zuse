@@ -1,15 +1,14 @@
-import { NodeContext } from "@effect/platform-node";
+import { NodeServices as NodeContext } from "@effect/platform-node";
+import { MemoizeRpcs } from "@zuse/contracts";
+import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 import { SqlClient } from "effect/unstable/sql";
-import { Effect, Layer } from "effect";
-
-import { MemoizeRpcs } from "@zuse/contracts";
 
 import { AppPaths } from "./app-paths.ts";
+import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { SessionStoreLive } from "./auth/layers/session-store.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
-import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
@@ -17,13 +16,10 @@ import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { GitServiceLive } from "./git/layers/git-service.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
-import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
-import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
-import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
   LanAuthConfig,
-  LanAuthService,
+  type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
 import { makeEventStore } from "./persistence/event-store.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
@@ -38,9 +34,12 @@ import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
+import { RelayActivityPublisherLive } from "./relay/activity-publisher.ts";
+import { ManagedTunnelRuntimeLive } from "./relay/managed-tunnel-runtime.ts";
+import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
+import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
-import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { FileSearchServiceLive } from "./workspace/layers/file-search.ts";
 import { ProjectScaffoldLive } from "./workspace/layers/project-scaffold-live.ts";
 import { WorkspaceServiceLive } from "./workspace/layers/workspace-service.ts";

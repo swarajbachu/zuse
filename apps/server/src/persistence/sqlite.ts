@@ -1,9 +1,8 @@
-import type { SqlClient } from "effect/unstable/sql";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { ConfigError } from "effect";
-import { Effect, Layer } from "effect";
 import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { Effect, Layer } from "effect";
+import type { SqlClient } from "effect/unstable/sql";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { AppPaths } from "../app-paths.ts";
 import { ensureSqliteRenameCompatibility, sqliteDbPath } from "./db-path.ts";
@@ -26,7 +25,7 @@ const require = createRequire(import.meta.url);
  * loaded lazily — a top-level import of either would crash the runtime that
  * lacks it. Delete the fallback branch when desktop Electron reaches ≥35.
  */
-export const SqliteLive = Layer.unwrapEffect(
+export const SqliteLive = Layer.unwrap(
   Effect.gen(function* () {
     const paths = yield* AppPaths;
     const inMemory =
@@ -60,13 +59,13 @@ export const SqliteLive = Layer.unwrapEffect(
       ).pipe(Effect.orDie);
       return modern.layer({ filename }) as Layer.Layer<
         SqlClient.SqlClient,
-        SqlError | ConfigError.ConfigError
+        SqlError
       >;
     }
 
     const legacy = yield* Effect.tryPromise(
-      () => import("@effect/sql-sqlite-node"),
+      () => import("./better-sqlite3-client.ts"),
     ).pipe(Effect.orDie);
-    return legacy.SqliteClient.layer({ filename });
+    return legacy.layer({ filename });
   }),
 );

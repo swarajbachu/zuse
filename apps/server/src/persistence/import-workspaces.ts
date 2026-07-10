@@ -1,18 +1,16 @@
-import { FileSystem } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Effect, Schema } from "effect";
 import * as Path from "node:path";
-
 import { Folder, FolderId } from "@zuse/contracts";
+import { Effect, FileSystem, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../app-paths.ts";
 
-const WorkspaceFile = Schema.parseJson(
+const WorkspaceFile = Schema.fromJsonString(
   Schema.Struct({
     folders: Schema.Array(Folder),
-    selectedFolderId: Schema.optionalWith(Schema.NullOr(FolderId), {
-      default: () => null,
-    }),
+    selectedFolderId: Schema.NullOr(FolderId).pipe(
+      Schema.withDecodingDefaultType(Effect.succeed(null)),
+    ),
   }),
 );
 
@@ -46,7 +44,7 @@ export const importWorkspacesJson = Effect.gen(function* () {
   if ((existingProjects[0]?.count ?? 0) > 0) return;
 
   const decoded = yield* fs.readFileString(filePath).pipe(
-    Effect.flatMap(Schema.decode(WorkspaceFile)),
+    Effect.flatMap(Schema.decodeUnknownEffect(WorkspaceFile)),
     Effect.catchCause((cause) =>
       Effect.logWarning(
         "[zuse] workspaces.json present but unreadable; skipping import",

@@ -1,17 +1,16 @@
-import { SqlClient } from "effect/unstable/sql";
-import { Deferred, Effect, Layer, PubSub, Ref, Schema, Stream } from "effect";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-
 import {
-  PermissionKind,
+  type FolderId,
+  type PermissionDecision,
+  type PermissionKind,
   PermissionRequest,
   PermissionRequestNotFoundError,
   SavedDecision,
-  type FolderId,
-  type PermissionDecision,
   type SessionId,
 } from "@zuse/contracts";
+import { Deferred, Effect, Layer, PubSub, Ref, Schema, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -41,10 +40,12 @@ interface DecisionRow {
  * folder-scoped today; everything else stays session-scoped (even denials,
  * which we keep for inspector visibility).
  */
-const scopeForDecision = (decision: PermissionDecision): "session" | "folder" =>
+const scopeForDecision = (
+  decision: PermissionDecision,
+): "session" | "folder" =>
   decision._tag === "AlwaysAllow" ? "folder" : "session";
 
-const decodeSavedDecision = Schema.decodeUnknown(SavedDecision);
+const decodeSavedDecision = Schema.decodeUnknownEffect(SavedDecision);
 
 const rowToSavedDecision = (
   row: DecisionRow,
@@ -97,8 +98,7 @@ const decisionTag = (
 ): "AllowOnce" | "AllowForSession" | "Deny" | "AlwaysAllow" => decision._tag;
 
 let requestCounter = 0;
-const nextRequestId = (): string =>
-  `pr_${Date.now()}_${++requestCounter}`;
+const nextRequestId = (): string => `pr_${Date.now()}_${++requestCounter}`;
 
 export const PermissionServiceLive = Layer.effect(
   PermissionService,
@@ -323,15 +323,16 @@ export const PermissionServiceLive = Layer.effect(
 
     const listDecisions: PermissionServiceShape["listDecisions"] = (filter) =>
       Effect.gen(function* () {
-        const rows = yield* (filter.projectId !== undefined
-          ? sql<DecisionRow>`
+        const rows = yield* (
+          filter.projectId !== undefined
+            ? sql<DecisionRow>`
               SELECT request_id, session_id, project_id, kind_tag, kind_key,
                      kind_json, decision, scope, decided_at
               FROM permission_decisions
               WHERE project_id = ${filter.projectId}
               ORDER BY decided_at DESC
             `
-          : sql<DecisionRow>`
+            : sql<DecisionRow>`
               SELECT request_id, session_id, project_id, kind_tag, kind_key,
                      kind_json, decision, scope, decided_at
               FROM permission_decisions

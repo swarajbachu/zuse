@@ -215,6 +215,7 @@
         "@effect/sql-sqlite-bun": "catalog:",
         "@effect/vitest": "catalog:",
         "@repo/typescript-config": "*",
+        "@types/better-sqlite3": "^7.6.13",
         "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",

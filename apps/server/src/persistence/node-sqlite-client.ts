@@ -127,7 +127,7 @@ export const make = (
 					return transformRows ? Effect.map(result, transformRows) : result;
 				},
 				executeStream(_sql, _params) {
-					return Stream.dieMessage("executeStream not implemented");
+					return Stream.die(new Error("executeStream not implemented"));
 				},
 			} satisfies Connection;
 		});
