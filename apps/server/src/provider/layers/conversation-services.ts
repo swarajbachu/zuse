@@ -16,7 +16,6 @@ import {
   ChatNotFoundError,
   type CodeAnnotation,
   type ComposerAnnotation,
-  ComposerInput,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
   defaultModelFor,
@@ -33,8 +32,6 @@ import {
   MODELS_BY_PROVIDER,
   type PermissionMode,
   type ProviderId,
-  QueuedMessage,
-  QueueState,
   type ResumeStrategy,
   type RuntimeMode,
   Session,
@@ -98,7 +95,6 @@ import {
   MessageService,
   type MessageServiceShape,
   QueueService,
-  type QueueServiceShape,
   SessionService,
   type SessionServiceShape,
   TranscriptService,
@@ -115,6 +111,7 @@ import {
   shouldDeferAutoName,
   TitleGenerator,
 } from "../title-generator.ts";
+import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
 
 interface SessionRow {
   readonly id: string;
@@ -259,15 +256,6 @@ interface MessageRow {
   readonly content_json: string;
   readonly parent_item_id: string | null;
   readonly created_at: string;
-}
-
-interface QueuedMessageRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly queue_order: number;
-  readonly input_json: string;
-  readonly created_at: string;
-  readonly updated_at: string;
 }
 
 const sessionFromRow = (row: SessionRow): Session =>
@@ -524,16 +512,6 @@ const transcriptToMarkdown = (
       .trimEnd() + "\n"
   );
 };
-
-const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
-  QueuedMessage.make({
-    id: row.id,
-    sessionId: SessionId.make(row.session_id),
-    input: ComposerInput.make(JSON.parse(row.input_json)),
-    position: row.queue_order,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  });
 
 /**
  * Pull `parentItemId` off a content payload for the dedicated SQL column.
@@ -1134,9 +1112,6 @@ export const ConversationServicesLive = Layer.effectContext(
     const statusPubsubs = yield* Ref.make<
       ReadonlyMap<SessionId, PubSub.PubSub<StatusEvent>>
     >(new Map());
-    const queuePubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<QueueState>>
-    >(new Map());
     const goalPubsubs = yield* Ref.make<
       ReadonlyMap<
         SessionId,
@@ -1182,20 +1157,6 @@ export const ConversationServicesLive = Layer.effectContext(
         if (existing !== undefined) return existing;
         const pubsub = yield* PubSub.unbounded<StatusEvent>();
         yield* Ref.update(statusPubsubs, (m) => {
-          const next = new Map(m);
-          next.set(sessionId, pubsub);
-          return next;
-        });
-        return pubsub;
-      });
-
-    const getOrMakeQueuePubsub = (sessionId: SessionId) =>
-      Effect.gen(function* () {
-        const map = yield* Ref.get(queuePubsubs);
-        const existing = map.get(sessionId);
-        if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<QueueState>();
-        yield* Ref.update(queuePubsubs, (m) => {
           const next = new Map(m);
           next.set(sessionId, pubsub);
           return next;
@@ -1382,8 +1343,10 @@ export const ConversationServicesLive = Layer.effectContext(
         };
       });
 
-    const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
     let flushQueueAfterIdle: (
+      sessionId: SessionId,
+    ) => Effect.Effect<void> = () => Effect.void;
+    let shutdownQueueSession: (
       sessionId: SessionId,
     ) => Effect.Effect<void> = () => Effect.void;
 
@@ -1440,89 +1403,6 @@ export const ConversationServicesLive = Layer.effectContext(
             message: persisted.message,
           }),
         );
-      });
-
-    // The queued_messages schema (and sessions.queue_paused) are owned by
-    // migrations 0015/0016/0019 — the migrator runs upstream of this layer,
-    // so the lazy re-creation this file used to do is gone.
-    const listQueuedRows = (
-      sessionId: SessionId,
-    ): Effect.Effect<ReadonlyArray<QueuedMessage>> =>
-      Effect.gen(function* () {
-        const rows = yield* sql<QueuedMessageRow>`
-          SELECT id, session_id, queue_order, input_json, created_at, updated_at
-          FROM queued_messages
-          WHERE session_id = ${sessionId}
-          ORDER BY queue_order ASC, created_at ASC
-        `.pipe(Effect.orDie);
-        return rows.map(queuedMessageFromRow);
-      });
-
-    const isQueuePaused = (sessionId: SessionId): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
-        const rows = yield* sql<{ readonly queue_paused: number }>`
-          SELECT queue_paused
-          FROM sessions
-          WHERE id = ${sessionId}
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        return (rows[0]?.queue_paused ?? 0) !== 0;
-      });
-
-    const queueState = (sessionId: SessionId): Effect.Effect<QueueState> =>
-      Effect.gen(function* () {
-        const [items, paused] = yield* Effect.all([
-          listQueuedRows(sessionId),
-          isQueuePaused(sessionId),
-        ]);
-        return QueueState.make({ items, paused });
-      });
-
-    const broadcastQueue = (sessionId: SessionId): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const state = yield* queueState(sessionId);
-        const pubsub = yield* getOrMakeQueuePubsub(sessionId);
-        yield* PubSub.publish(pubsub, state);
-      });
-
-    const setQueuePaused = (
-      sessionId: SessionId,
-      paused: boolean,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        yield* sql`
-          UPDATE sessions
-          SET queue_paused = ${paused ? 1 : 0},
-              updated_at = ${new Date().toISOString()}
-          WHERE id = ${sessionId}
-        `.pipe(Effect.asVoid, Effect.orDie);
-        yield* broadcastQueue(sessionId);
-      });
-
-    const clearQueuePauseIfEmpty = (
-      sessionId: SessionId,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const queue = yield* listQueuedRows(sessionId);
-        if (queue.length > 0 || !(yield* isQueuePaused(sessionId))) return;
-        yield* setQueuePaused(sessionId, false);
-      });
-
-    const normalizeQueuePositions = (
-      sessionId: SessionId,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const rows = yield* sql<{ readonly id: string }>`
-          SELECT id FROM queued_messages
-          WHERE session_id = ${sessionId}
-          ORDER BY queue_order ASC, created_at ASC
-        `.pipe(Effect.orDie);
-        for (let i = 0; i < rows.length; i += 1) {
-          yield* sql`
-            UPDATE queued_messages SET queue_order = ${i}
-            WHERE id = ${rows[i]!.id} AND session_id = ${sessionId}
-          `.pipe(Effect.orDie);
-        }
       });
 
     /**
@@ -1712,16 +1592,7 @@ export const ConversationServicesLive = Layer.effectContext(
             return next;
           });
         }
-        const queueMap = yield* Ref.get(queuePubsubs);
-        const queuePubsub = queueMap.get(sessionId);
-        if (queuePubsub !== undefined) {
-          yield* PubSub.shutdown(queuePubsub);
-          yield* Ref.update(queuePubsubs, (m) => {
-            const next = new Map(m);
-            next.delete(sessionId);
-            return next;
-          });
-        }
+        yield* shutdownQueueSession(sessionId);
       });
 
     // Boot recovery: any session left in `running` is stale (the previous
@@ -4152,249 +4023,22 @@ export const ConversationServicesLive = Layer.effectContext(
         if (!accepted) yield* settleActiveTurn(sessionId, "error");
       });
 
-    const listQueuedMessages: ConversationOperations["listQueuedMessages"] = (
-      sessionId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        return yield* queueState(sessionId);
-      });
-
-    const streamQueuedMessages: ConversationOperations["streamQueuedMessages"] =
-      (sessionId) =>
-        Stream.unwrap(
-          Effect.gen(function* () {
-            yield* lookupSession(sessionId);
-            const pubsub = yield* getOrMakeQueuePubsub(sessionId);
-            const dequeue = yield* PubSub.subscribe(pubsub);
-            const initial = yield* queueState(sessionId);
-            return Stream.concat(
-              Stream.succeed(initial),
-              Stream.fromSubscription(dequeue),
-            );
-          }),
-        );
-
-    const addQueuedMessage: ConversationOperations["addQueuedMessage"] = (
-      sessionId,
-      input,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        const maxRows = yield* sql<{ readonly max_position: number | null }>`
-          SELECT MAX(queue_order) AS max_position
-          FROM queued_messages
-          WHERE session_id = ${sessionId}
-        `.pipe(Effect.orDie);
-        const position = (maxRows[0]?.max_position ?? -1) + 1;
-        const now = new Date();
-        const nowIso = now.toISOString();
-        const id = `q_${crypto.randomUUID()}`;
-        yield* sql`
-          INSERT INTO queued_messages
-            (id, session_id, queue_order, input_json, created_at, updated_at)
-          VALUES
-            (${id}, ${sessionId}, ${position}, ${JSON.stringify(input)},
-             ${nowIso}, ${nowIso})
-        `.pipe(Effect.orDie);
-        const item = QueuedMessage.make({
-          id,
+    const queueRuntime = yield* makeQueueServiceRuntime({
+      sql,
+      lookupSession,
+      submitUserMessage: (sessionId, input) =>
+        submitUserMessage(
           sessionId,
-          input,
-          position,
-          createdAt: now,
-          updatedAt: now,
-        });
-        yield* broadcastQueue(sessionId);
-        return item;
-      });
-
-    const updateQueuedMessage: ConversationOperations["updateQueuedMessage"] = (
-      sessionId,
-      queueId,
-      input,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE queued_messages
-          SET input_json = ${JSON.stringify(input)}, updated_at = ${nowIso}
-          WHERE session_id = ${sessionId} AND id = ${queueId}
-        `.pipe(Effect.orDie);
-        const rows = yield* sql<QueuedMessageRow>`
-          SELECT id, session_id, queue_order, input_json, created_at, updated_at
-          FROM queued_messages
-          WHERE session_id = ${sessionId} AND id = ${queueId}
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        const item =
-          rows[0] === undefined
-            ? yield* addQueuedMessage(sessionId, input)
-            : queuedMessageFromRow(rows[0]);
-        yield* broadcastQueue(sessionId);
-        return item;
-      });
-
-    const deleteQueuedMessage: ConversationOperations["deleteQueuedMessage"] = (
-      sessionId,
-      queueId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        yield* sql`
-          DELETE FROM queued_messages
-          WHERE session_id = ${sessionId} AND id = ${queueId}
-        `.pipe(Effect.orDie);
-        yield* normalizeQueuePositions(sessionId);
-        yield* clearQueuePauseIfEmpty(sessionId);
-        yield* broadcastQueue(sessionId);
-      });
-
-    const reorderQueuedMessages: ConversationOperations["reorderQueuedMessages"] =
-      (sessionId, queueIds) =>
-        Effect.gen(function* () {
-          yield* lookupSession(sessionId);
-          const existing = yield* listQueuedRows(sessionId);
-          const byId = new Map(existing.map((item) => [item.id, item]));
-          const ordered = [
-            ...queueIds.flatMap((id) => {
-              const item = byId.get(id);
-              if (item === undefined) return [];
-              byId.delete(id);
-              return [item];
-            }),
-            ...existing.filter((item) => byId.has(item.id)),
-          ];
-          const nowIso = new Date().toISOString();
-          for (let i = 0; i < ordered.length; i += 1) {
-            yield* sql`
-            UPDATE queued_messages
-            SET queue_order = ${i}, updated_at = ${nowIso}
-            WHERE session_id = ${sessionId} AND id = ${ordered[i]!.id}
-          `.pipe(Effect.orDie);
-          }
-          const next = yield* listQueuedRows(sessionId);
-          yield* broadcastQueue(sessionId);
-          return next;
-        });
-
-    const claimQueuedMessage = (
-      sessionId: SessionId,
-      queueId: string,
-    ): Effect.Effect<QueuedMessage | null> =>
-      Effect.gen(function* () {
-        const rows = yield* sql<QueuedMessageRow>`
-          SELECT id, session_id, queue_order, input_json, created_at, updated_at
-          FROM queued_messages
-          WHERE session_id = ${sessionId} AND id = ${queueId}
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        const row = rows[0];
-        if (row === undefined) return null;
-        const item = queuedMessageFromRow(row);
-        yield* sql`
-          DELETE FROM queued_messages
-          WHERE session_id = ${sessionId} AND id = ${queueId}
-        `.pipe(Effect.orDie);
-        yield* normalizeQueuePositions(sessionId);
-        yield* broadcastQueue(sessionId);
-        return item;
-      });
-
-    const restoreQueuedMessage = (item: QueuedMessage): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const existing = yield* sql<{ readonly count: number }>`
-          SELECT COUNT(*) AS count
-          FROM queued_messages
-          WHERE session_id = ${item.sessionId} AND id = ${item.id}
-        `.pipe(Effect.orDie);
-        if ((existing[0]?.count ?? 0) > 0) return;
-        yield* sql`
-          INSERT INTO queued_messages
-            (id, session_id, queue_order, input_json, created_at, updated_at)
-          VALUES
-            (${item.id}, ${item.sessionId}, ${item.position},
-             ${JSON.stringify(item.input)}, ${item.createdAt.toISOString()},
-             ${new Date().toISOString()})
-        `.pipe(Effect.orDie);
-        yield* normalizeQueuePositions(item.sessionId);
-        yield* broadcastQueue(item.sessionId);
-      });
-
-    const sendClaimedQueuedMessage = (
-      item: QueuedMessage,
-    ): Effect.Effect<void, SessionNotFoundError> =>
-      Effect.gen(function* () {
-        const ok = yield* submitUserMessage(
-          item.sessionId,
-          item.input.text,
-          item.input.attachments,
-          item.input.fileRefs,
-          item.input.skillRefs,
-          item.input.annotations,
-        );
-        if (!ok) {
-          yield* settleActiveTurn(item.sessionId, "error");
-          yield* restoreQueuedMessage(item);
-        }
-      });
-
-    const sendQueuedMessageNow: ConversationOperations["sendQueuedMessageNow"] =
-      (sessionId, queueId) =>
-        Effect.gen(function* () {
-          yield* lookupSession(sessionId);
-          yield* setQueuePaused(sessionId, false);
-          const item = yield* claimQueuedMessage(sessionId, queueId);
-          if (item === null) return;
-          yield* sendClaimedQueuedMessage(item);
-        });
-
-    const flushQueuedMessages: ConversationOperations["flushQueuedMessages"] = (
-      sessionId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        const current = yield* Ref.get(flushingQueues);
-        if (current.has(sessionId)) return;
-        yield* Ref.update(flushingQueues, (set) => {
-          const next = new Set(set);
-          next.add(sessionId);
-          return next;
-        });
-        try {
-          const session = yield* lookupSession(sessionId);
-          if (session.status === "running" || session.status === "booting") {
-            return;
-          }
-          if (yield* isQueuePaused(sessionId)) {
-            return;
-          }
-          const queue = yield* listQueuedRows(sessionId);
-          const head = queue[0];
-          if (head === undefined) return;
-          const claimed = yield* claimQueuedMessage(sessionId, head.id);
-          if (claimed === null) return;
-          yield* sendClaimedQueuedMessage(claimed);
-        } finally {
-          yield* Ref.update(flushingQueues, (set) => {
-            const next = new Set(set);
-            next.delete(sessionId);
-            return next;
-          });
-        }
-      });
-
-    flushQueueAfterIdle = (sessionId) =>
-      flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void));
-
-    const resumeQueuedMessages: ConversationOperations["resumeQueuedMessages"] =
-      (sessionId) =>
-        Effect.gen(function* () {
-          yield* lookupSession(sessionId);
-          yield* setQueuePaused(sessionId, false);
-          yield* flushQueuedMessages(sessionId);
-        });
+          input.text,
+          input.attachments,
+          input.fileRefs,
+          input.skillRefs,
+          input.annotations,
+        ),
+      settleActiveTurn,
+    });
+    flushQueueAfterIdle = queueRuntime.flushAfterIdle;
+    shutdownQueueSession = queueRuntime.shutdown;
 
     const interruptSession: ConversationOperations["interruptSession"] = (
       sessionId,
@@ -4404,10 +4048,7 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* provider
           .interrupt(sessionId)
           .pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
-        const queue = yield* listQueuedRows(sessionId);
-        if (queue.length > 0) {
-          yield* setQueuePaused(sessionId, true);
-        }
+        yield* queueRuntime.pauseAfterInterrupt(sessionId);
         yield* settleActiveTurn(sessionId, "interrupted");
         yield* setStatus(sessionId, "idle");
       });
@@ -4462,17 +4103,7 @@ export const ConversationServicesLive = Layer.effectContext(
       sendMessage,
       interruptSession,
     } satisfies MessageServiceShape;
-    const queueService = {
-      listQueuedMessages,
-      streamQueuedMessages,
-      addQueuedMessage,
-      updateQueuedMessage,
-      deleteQueuedMessage,
-      sendQueuedMessageNow,
-      reorderQueuedMessages,
-      flushQueuedMessages,
-      resumeQueuedMessages,
-    } satisfies QueueServiceShape;
+    const queueService = queueRuntime.service;
     return Context.make(SessionService, sessionService).pipe(
       Context.add(ChatService, chatService),
       Context.add(TranscriptService, transcriptService),
