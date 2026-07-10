@@ -1,3 +1,4 @@
+import type { AutoAnimationPlugin } from "@formkit/auto-animate";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Analytics01Icon,
@@ -54,6 +55,7 @@ import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import {
   archiveChatWithConfirm,
   chatArchiveProgressLabel,
@@ -80,6 +82,50 @@ const sidebarErrorToastCache = {
   chats: null as string | null,
   sessions: null as string | null,
   workspace: null as string | null,
+};
+
+/**
+ * Keep archive feedback spatial and restrained: the archived row leaves
+ * quickly while the rows below it close the gap. New rows do not animate, so
+ * expanding a project or hydrating its chats remains instant.
+ */
+const archiveListAnimation: AutoAnimationPlugin = (
+  element,
+  action,
+  before,
+  after,
+) => {
+  if (action === "remain" && before !== undefined && after !== undefined) {
+    const x = before.left - after.left;
+    const y = before.top - after.top;
+    return new KeyframeEffect(
+      element,
+      [
+        { transform: `translate3d(${x}px, ${y}px, 0)` },
+        { transform: "translate3d(0, 0, 0)" },
+      ],
+      {
+        duration: 140,
+        easing: "cubic-bezier(0.455, 0.03, 0.515, 0.955)",
+      },
+    );
+  }
+
+  if (action === "remove") {
+    return new KeyframeEffect(
+      element,
+      [
+        { opacity: 1, transform: "translate3d(0, 0, 0)" },
+        { opacity: 0, transform: "translate3d(-4px, 0, 0)" },
+      ],
+      { duration: 100, easing: "cubic-bezier(0.215, 0.61, 0.355, 1)" },
+    );
+  }
+
+  // Project expansion and initial hydration should never animate chat rows.
+  return new KeyframeEffect(element, [{ opacity: 1 }, { opacity: 1 }], {
+    duration: 1,
+  });
 };
 
 const initialsOf = (name: string): string => {
@@ -609,6 +655,7 @@ function ProjectGroup({
   const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
     null,
   );
+  const chatListRef = useAutoAnimate<HTMLUListElement>(archiveListAnimation);
 
   const openRepositorySettings = () => {
     setSettingsSection({ kind: "repository", projectId: id });
@@ -766,8 +813,8 @@ function ProjectGroup({
         />
       </li>
 
-      {isExpanded && (
-        <>
+      <li className="list-none" hidden={!isExpanded}>
+        <ul ref={chatListRef} className="flex flex-col gap-0.5">
           {visibleChats.length === 0 && (
             <li className="px-12 py-1 text-[11px] text-muted-foreground">
               No chats yet.
@@ -776,8 +823,8 @@ function ProjectGroup({
           {visibleChats.map((chat) => (
             <ChatRow key={chat.id} chat={chat} />
           ))}
-        </>
-      )}
+        </ul>
+      </li>
     </Fragment>
   );
 }

@@ -847,11 +847,6 @@ function TimelineRow({
     case "message":
       return (
         <div
-          className={
-            row.enterUser
-              ? "chat-row-enter chat-row-enter-user"
-              : "chat-row-enter"
-          }
           onContextMenu={
             row.message.content._tag === "user" ||
             row.message.content._tag === "user_rich" ||
@@ -865,7 +860,7 @@ function TimelineRow({
       );
     case "subagent":
       return (
-        <div className="chat-row-enter">
+        <div>
           <SubagentRow
             agentToolUseId={row.parentItemId}
             agentName={row.agentName}
@@ -878,7 +873,7 @@ function TimelineRow({
       );
     case "turn-summary":
       return (
-        <div className="chat-row-enter">
+        <div>
           <TurnSummary body={row.body} />
         </div>
       );
