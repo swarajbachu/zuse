@@ -111,7 +111,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     // Self-healing: re-establish after any completion/error with bounded
     // backoff so a server restart / dev HMR doesn't kill live delivery.
     const program = subscribeOnce.pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
       Effect.repeat(Schedule.spaced("2 seconds")),
       Effect.ensuring(
         Effect.sync(() => {

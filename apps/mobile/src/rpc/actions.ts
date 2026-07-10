@@ -238,7 +238,7 @@ export const fetchAgentAvailability = (options: {
     return yield* client.agent.availability({});
   });
   return program.pipe(
-    Effect.catchAll((cause) =>
+    Effect.catch((cause) =>
       Effect.sync(() => {
         reportConnectionFailure(options.connection, cause);
         return null;
@@ -365,7 +365,7 @@ export const listBranches = (options: {
       const client = yield* getConnectionClient(options.connection);
       return yield* client.git.branches({ folderId: options.projectId });
     });
-  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
+  return program.pipe(Effect.catch(() => Effect.succeed([])));
 };
 
 export const listPullRequests = (options: {
@@ -377,5 +377,5 @@ export const listPullRequests = (options: {
       const client = yield* getConnectionClient(options.connection);
       return yield* client.git.listPrs({ folderId: options.projectId });
     });
-  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
+  return program.pipe(Effect.catch(() => Effect.succeed([])));
 };

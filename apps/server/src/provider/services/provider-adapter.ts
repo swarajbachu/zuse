@@ -43,7 +43,7 @@ export interface ProviderAdapterShape {
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 
-export class ProviderAdapter extends Context.Tag("memoize/ProviderAdapter")<
+export class ProviderAdapter extends Context.Service<
   ProviderAdapter,
   ProviderAdapterShape
->() {}
+>()("memoize/ProviderAdapter") {}

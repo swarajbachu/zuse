@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 import * as fsSync from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -609,7 +609,7 @@ export const RepositorySettingsServiceLive = Layer.effect(
         return toml;
       });
 
-    const get: RepositorySettingsService["Type"]["get"] = (projectId) =>
+    const get: RepositorySettingsService["Service"]["get"] = (projectId) =>
       Effect.gen(function* () {
         const repoPath = yield* projectPath(projectId);
         const file =
@@ -619,7 +619,7 @@ export const RepositorySettingsServiceLive = Layer.effect(
         return fileToSettings(projectId, file);
       });
 
-    const update: RepositorySettingsService["Type"]["update"] = (
+    const update: RepositorySettingsService["Service"]["update"] = (
       projectId,
       patch,
     ) =>

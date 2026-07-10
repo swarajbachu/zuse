@@ -69,6 +69,6 @@ export interface PermissionServiceShape {
   readonly revokeDecision: (requestId: string) => Effect.Effect<void>;
 }
 
-export class PermissionService extends Context.Tag(
+export class PermissionService extends Context.Service<PermissionService, PermissionServiceShape>()(
   "memoize/PermissionService",
-)<PermissionService, PermissionServiceShape>() {}
+) {}

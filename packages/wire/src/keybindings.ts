@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 /**
@@ -13,7 +13,7 @@ import { Schema } from "effect";
  *   - `composer.*` commands fire inside the chat composer (CodeMirror).
  *   - `editor.*` commands fire inside the file editor (CodeMirror).
  */
-export const Command = Schema.Literal(
+export const Command = Schema.Literals([
   // menu / global
   "new-chat",
   "open-project",
@@ -51,7 +51,7 @@ export const Command = Schema.Literal(
   // file editor
   "editor.save",
   "editor.annotate",
-);
+]);
 export type Command = typeof Command.Type;
 
 /**

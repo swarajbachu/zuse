@@ -17,7 +17,7 @@ export interface PokemonServiceShape {
   ) => Effect.Effect<void>;
 }
 
-export class PokemonService extends Context.Tag("memoize/PokemonService")<
+export class PokemonService extends Context.Service<
   PokemonService,
   PokemonServiceShape
->() {}
+>()("memoize/PokemonService") {}

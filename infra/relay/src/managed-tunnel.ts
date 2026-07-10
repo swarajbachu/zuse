@@ -35,9 +35,9 @@ export interface ManagedTunnelProviderApi {
   }) => Effect.Effect<void, RelayError>;
 }
 
-export class ManagedTunnelProvider extends Context.Tag(
+export class ManagedTunnelProvider extends Context.Service<ManagedTunnelProvider, ManagedTunnelProviderApi>()(
   "@zuse/relay/ManagedTunnelProvider",
-)<ManagedTunnelProvider, ManagedTunnelProviderApi>() {}
+) {}
 
 const CF_API = "https://api.cloudflare.com/client/v4";
 

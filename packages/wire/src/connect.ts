@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { EnvironmentId } from "./ids.ts";
@@ -24,7 +24,7 @@ import { EnvironmentId } from "./ids.ts";
  * - `ssh`: on a remote dev-box, launched by the desktop and tunneled back
  * - `cloud`: on a cloud container/microVM, provisioned by the control plane
  */
-export const ProviderKind = Schema.Literal("desktop", "ssh", "cloud");
+export const ProviderKind = Schema.Literals(["desktop", "ssh", "cloud"]);
 export type ProviderKind = typeof ProviderKind.Type;
 
 /** The reachable URLs for an environment's RPC surface. */
@@ -35,38 +35,38 @@ export class EnvironmentEndpoint extends Schema.Class<EnvironmentEndpoint>(
   wsBaseUrl: Schema.String,
 }) {}
 
-export const AdvertisedEndpointProviderKind = Schema.Literal(
+export const AdvertisedEndpointProviderKind = Schema.Literals([
   "core",
   "tunnel",
   "manual",
   "private-network",
-);
+]);
 export type AdvertisedEndpointProviderKind =
   typeof AdvertisedEndpointProviderKind.Type;
 
-export const AdvertisedEndpointReachability = Schema.Literal(
+export const AdvertisedEndpointReachability = Schema.Literals([
   "loopback",
   "lan",
   "public",
   "tunnel",
   "private-network",
-);
+]);
 export type AdvertisedEndpointReachability =
   typeof AdvertisedEndpointReachability.Type;
 
-export const AdvertisedEndpointHostedHttpsCompatibility = Schema.Literal(
+export const AdvertisedEndpointHostedHttpsCompatibility = Schema.Literals([
   "compatible",
   "mixed-content-blocked",
   "unknown",
-);
+]);
 export type AdvertisedEndpointHostedHttpsCompatibility =
   typeof AdvertisedEndpointHostedHttpsCompatibility.Type;
 
-export const AdvertisedEndpointStatus = Schema.Literal(
+export const AdvertisedEndpointStatus = Schema.Literals([
   "available",
   "unavailable",
   "unknown",
-);
+]);
 export type AdvertisedEndpointStatus = typeof AdvertisedEndpointStatus.Type;
 
 export const AdvertisedEndpointCompatibility = Schema.Struct({
@@ -108,7 +108,7 @@ export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
 // Errors
 // ---------------------------------------------------------------------------
 
-export class ConnectAuthError extends Schema.TaggedError<ConnectAuthError>()(
+export class ConnectAuthError extends Schema.TaggedErrorClass<ConnectAuthError>()(
   "ConnectAuthError",
   { reason: Schema.String },
 ) {}

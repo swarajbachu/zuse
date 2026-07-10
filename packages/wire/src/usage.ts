@@ -1,9 +1,9 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId } from "./ids.ts";
 
-export const UsageSourceId = Schema.Literal(
+export const UsageSourceId = Schema.Literals([
   "zuse",
   "memoize",
   "claude",
@@ -12,13 +12,13 @@ export const UsageSourceId = Schema.Literal(
   "amp",
   "pi",
   "grok",
-);
+]);
 export type UsageSourceId = typeof UsageSourceId.Type;
 
-export const UsageBucket = Schema.Literal("daily", "weekly", "monthly", "session");
+export const UsageBucket = Schema.Literals(["daily", "weekly", "monthly", "session"]);
 export type UsageBucket = typeof UsageBucket.Type;
 
-const UsageCostStatus = Schema.Literal("known", "partial", "unknown");
+const UsageCostStatus = Schema.Literals(["known", "partial", "unknown"]);
 
 export class UsageSummary extends Schema.Class<UsageSummary>("UsageSummary")({
   inputTokens: Schema.Number,
@@ -66,9 +66,9 @@ export class UsageRecord extends Schema.Class<UsageRecord>("UsageRecord")({
   cacheCreationTokens: Schema.Number,
   reasoningTokens: Schema.Number,
   costUsd: Schema.NullOr(Schema.Number),
-  costStatus: Schema.Literal("known", "unknown"),
+  costStatus: Schema.Literals(["known", "unknown"]),
   provenance: Schema.String,
-  confidence: Schema.Literal("exact", "partial", "estimated"),
+  confidence: Schema.Literals(["exact", "partial", "estimated"]),
   fingerprint: Schema.String,
   possibleDuplicate: Schema.Boolean,
 }) {}

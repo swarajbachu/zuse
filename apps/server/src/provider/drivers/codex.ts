@@ -1,4 +1,4 @@
-import { Effect, Mailbox, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -924,7 +924,7 @@ export const startCodexSession = (
 > =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent>();
     const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
     const statusLog = createCodexStatusLogger(cwd, sessionId);
     let currentMode: PermissionMode = input.permissionMode ?? "default";
@@ -951,7 +951,7 @@ export const startCodexSession = (
     const questionWaiters = new Map<string, QuestionWaiter>();
 
     const emit = (event: AgentEvent): void => {
-      if (!closed) events.unsafeOffer(event);
+      if (!closed) Queue.offerUnsafe(events, event);
     };
 
     emit({
@@ -1878,7 +1878,7 @@ export const startCodexSession = (
     }
 
     return {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs, fileRefs, skillRefs) =>
         Effect.sync(() => {
           enqueueTurn(

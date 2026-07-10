@@ -192,10 +192,10 @@ export interface TitleGeneratorShape {
   readonly generate: (input: GenerateTitleInput) => Effect.Effect<string>;
 }
 
-export class TitleGenerator extends Context.Tag("memoize/TitleGenerator")<
+export class TitleGenerator extends Context.Service<
   TitleGenerator,
   TitleGeneratorShape
->() {}
+>()("memoize/TitleGenerator") {}
 
 export const TitleGeneratorLive = Layer.effect(
   TitleGenerator,
@@ -247,11 +247,11 @@ export const TitleGeneratorLive = Layer.effect(
           // Always tear the throwaway session down — on success, timeout, or
           // failure — so we never leak a CLI/SDK process.
           Effect.ensuring(
-            provider.close(sid).pipe(Effect.catchAll(() => Effect.void)),
+            provider.close(sid).pipe(Effect.catch(() => Effect.void)),
           ),
           Effect.timeoutOption(`${TITLE_TIMEOUT_MS} millis`),
           Effect.map((maybe) => Option.getOrElse(maybe, () => "")),
-          Effect.catchAll(() => Effect.succeed("")),
+          Effect.catch(() => Effect.succeed("")),
         );
 
         const cleaned = cleanTitle(text);

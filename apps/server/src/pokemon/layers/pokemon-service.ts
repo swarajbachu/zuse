@@ -1,5 +1,5 @@
-import { FileSystem, Path } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
+import { FileSystem, Path } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 
 import {
@@ -116,7 +116,7 @@ export const PokemonServiceLive = Layer.effect(
             ),
             bytes,
           )
-          .pipe(Effect.ignoreLogged);
+          .pipe(Effect.ignore);
         cached.add(stem);
       });
 
@@ -247,8 +247,8 @@ export const PokemonServiceLive = Layer.effect(
               (${number}, ${worktreeId}, ${now})
             ON CONFLICT(pokemon_number) DO NOTHING
           `.pipe(Effect.orDie);
-          yield* Effect.forkDaemon(
-            cacheSprite(number).pipe(Effect.ignoreLogged),
+          yield* Effect.forkDetach(
+            cacheSprite(number).pipe(Effect.ignore),
           );
         }),
     });

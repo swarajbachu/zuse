@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FsFolderNotFoundError } from "./fs.ts";
@@ -11,17 +11,17 @@ export class Folder extends Schema.Class<Folder>("Folder")({
   addedAt: Schema.DateFromString,
 }) {}
 
-export class WorkspaceDuplicatePathError extends Schema.TaggedError<WorkspaceDuplicatePathError>()(
+export class WorkspaceDuplicatePathError extends Schema.TaggedErrorClass<WorkspaceDuplicatePathError>()(
   "WorkspaceDuplicatePathError",
   { path: Schema.String },
 ) {}
 
-export class WorkspaceNotFoundError extends Schema.TaggedError<WorkspaceNotFoundError>()(
+export class WorkspaceNotFoundError extends Schema.TaggedErrorClass<WorkspaceNotFoundError>()(
   "WorkspaceNotFoundError",
   { folderId: FolderId },
 ) {}
 
-export class WorkspaceInvalidPathError extends Schema.TaggedError<WorkspaceInvalidPathError>()(
+export class WorkspaceInvalidPathError extends Schema.TaggedErrorClass<WorkspaceInvalidPathError>()(
   "WorkspaceInvalidPathError",
   { path: Schema.String, reason: Schema.String },
 ) {}
@@ -32,7 +32,7 @@ export class WorkspaceInvalidPathError extends Schema.TaggedError<WorkspaceInval
  * trimmed stderr or a human-readable explanation; the renderer surfaces it
  * inline under the URL field.
  */
-export class WorkspaceCloneFailedError extends Schema.TaggedError<WorkspaceCloneFailedError>()(
+export class WorkspaceCloneFailedError extends Schema.TaggedErrorClass<WorkspaceCloneFailedError>()(
   "WorkspaceCloneFailedError",
   { url: Schema.String, reason: Schema.String },
 ) {}
@@ -42,11 +42,11 @@ export class WorkspaceCloneFailedError extends Schema.TaggedError<WorkspaceClone
  * | "template" | "install" | "gh-create" — lets the dialog point the user
  * at the right corrective action. `reason` is trimmed stderr.
  */
-export class WorkspaceCreateFailedError extends Schema.TaggedError<WorkspaceCreateFailedError>()(
+export class WorkspaceCreateFailedError extends Schema.TaggedErrorClass<WorkspaceCreateFailedError>()(
   "WorkspaceCreateFailedError",
   {
     name: Schema.String,
-    step: Schema.Literal("mkdir", "git-init", "template", "install", "gh-create"),
+    step: Schema.Literals(["mkdir", "git-init", "template", "install", "gh-create"]),
     reason: Schema.String,
   },
 ) {}
@@ -72,13 +72,13 @@ export class GithubRepoSummary extends Schema.Class<GithubRepoSummary>(
  * Identifier for the "Quick start" template grid. Adding a card later is
  * a one-line change here + a new branch in `project-scaffold-live.ts`.
  */
-export const ProjectTemplate = Schema.Literal("empty", "nextjs", "turborepo");
+export const ProjectTemplate = Schema.Literals(["empty", "nextjs", "turborepo"]);
 export type ProjectTemplate = typeof ProjectTemplate.Type;
 
 export const WorkspaceAddRpc = Rpc.make("workspace.add", {
   payload: Schema.Struct({ path: Schema.String }),
   success: Folder,
-  error: Schema.Union(WorkspaceDuplicatePathError, WorkspaceInvalidPathError),
+  error: Schema.Union([WorkspaceDuplicatePathError, WorkspaceInvalidPathError]),
 });
 
 export const WorkspaceListRpc = Rpc.make("workspace.list", {
@@ -124,11 +124,11 @@ export const WorkspaceCloneRepoRpc = Rpc.make("workspace.cloneRepo", {
     parent: Schema.String,
   }),
   success: Folder,
-  error: Schema.Union(
+  error: Schema.Union([
     WorkspaceCloneFailedError,
     WorkspaceInvalidPathError,
     WorkspaceDuplicatePathError,
-  ),
+  ]),
 });
 
 /**
@@ -148,11 +148,11 @@ export const WorkspaceCreateProjectRpc = Rpc.make("workspace.createProject", {
     alsoCreateGithubRepo: Schema.optional(Schema.Boolean),
   }),
   success: Folder,
-  error: Schema.Union(
+  error: Schema.Union([
     WorkspaceCreateFailedError,
     WorkspaceInvalidPathError,
     WorkspaceDuplicatePathError,
-  ),
+  ]),
 });
 
 /**
@@ -202,7 +202,7 @@ export const WorkspaceSearchFilesRpc = Rpc.make("workspace.searchFiles", {
     Schema.Struct({
       relPath: Schema.String,
       absPath: Schema.String,
-      kind: Schema.Literal("file", "directory"),
+      kind: Schema.Literals(["file", "directory"]),
     }),
   ),
   error: FsFolderNotFoundError,

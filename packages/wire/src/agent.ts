@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { AgentItemId, AgentSessionId, AgentTurnId, FolderId } from "./ids.ts";
@@ -8,34 +8,34 @@ import { AgentItemId, AgentSessionId, AgentTurnId, FolderId } from "./ids.ts";
  * the literal union is the contract — adding a new provider is an additive
  * change here plus a new driver in `apps/server/src/provider/drivers/`.
  */
-export const ProviderId = Schema.Literal(
+export const ProviderId = Schema.Literals([
   "claude",
   "codex",
   "grok",
   "gemini",
   "cursor",
   "opencode",
-);
+]);
 export type ProviderId = typeof ProviderId.Type;
 
 /**
  * How a session is being driven. `spawn-cli` is just a PTY launch with a known
  * argv; `sdk` runs through the in-process adapter and emits structured events.
  */
-export const SessionMode = Schema.Literal("spawn-cli", "sdk");
+export const SessionMode = Schema.Literals(["spawn-cli", "sdk"]);
 export type SessionMode = typeof SessionMode.Type;
 
 /**
  * High-level session lifecycle state. Mirrors what the side-panel chip shows.
  */
-export const AgentStatus = Schema.Literal(
+export const AgentStatus = Schema.Literals([
   "idle",
   "starting",
   "running",
   "waiting",
   "closed",
   "error",
-);
+]);
 export type AgentStatus = typeof AgentStatus.Type;
 
 /**
@@ -51,12 +51,12 @@ export type AgentStatus = typeof AgentStatus.Type;
  *   - `full-access` — auto-allow everything except sensitive paths. Plan
  *     mode (ExitPlanMode) ALWAYS prompts regardless of runtime mode.
  */
-export const RuntimeMode = Schema.Literal(
+export const RuntimeMode = Schema.Literals([
   "approval-required",
   "auto-accept-edits",
   "auto-accept-edits-and-bash",
   "full-access",
-);
+]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 
@@ -76,7 +76,7 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
  * switches `permissionMode` back to `default` and the existing `RuntimeMode`
  * resumes governing prompts.
  */
-export const PermissionMode = Schema.Literal("default", "plan", "acceptEdits");
+export const PermissionMode = Schema.Literals(["default", "plan", "acceptEdits"]);
 export type PermissionMode = typeof PermissionMode.Type;
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
 
@@ -92,7 +92,7 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
  * Providers/models that don't support thinking simply omit the descriptor
  * from `ModelDescriptor.optionDescriptors`, which hides the FE picker.
  */
-export const ReasoningLevel = Schema.Literal(
+export const ReasoningLevel = Schema.Literals([
   "low",
   "medium",
   "high",
@@ -100,7 +100,7 @@ export const ReasoningLevel = Schema.Literal(
   "max",
   "ultra",
   "ultracode",
-);
+]);
 export type ReasoningLevel = typeof ReasoningLevel.Type;
 
 /**
@@ -134,10 +134,10 @@ export const BooleanOptionDescriptor = Schema.Struct({
 });
 export type BooleanOptionDescriptor = typeof BooleanOptionDescriptor.Type;
 
-export const OptionDescriptor = Schema.Union(
+export const OptionDescriptor = Schema.Union([
   SelectOptionDescriptor,
   BooleanOptionDescriptor,
-);
+]);
 export type OptionDescriptor = typeof OptionDescriptor.Type;
 
 /**
@@ -151,7 +151,7 @@ export type OptionDescriptor = typeof OptionDescriptor.Type;
  *     for this provider. Treat as "let them try" so a parser bug doesn't
  *     block a legitimate session start.
  */
-export const CliVersionStatus = Schema.Literal("ok", "outdated", "unknown");
+export const CliVersionStatus = Schema.Literals(["ok", "outdated", "unknown"]);
 export type CliVersionStatus = typeof CliVersionStatus.Type;
 
 /**
@@ -165,7 +165,7 @@ export type CliVersionStatus = typeof CliVersionStatus.Type;
  *   - `goalMode` — `thread/goal/*` RPCs (the goal banner + `/goal`).
  *   - `fastMode` — `serviceTier: "fast"` on `turn/start` (1.5× speed tier).
  */
-export const CodexFeature = Schema.Literal("goalMode", "fastMode");
+export const CodexFeature = Schema.Literals(["goalMode", "fastMode"]);
 export type CodexFeature = typeof CodexFeature.Type;
 
 /**
@@ -179,11 +179,11 @@ export type CodexFeature = typeof CodexFeature.Type;
  *   - `unknown` — couldn't reach the registry, parse failed, or the provider
  *     isn't published to a registry we check (e.g. curl-installed CLIs)
  */
-export const LatestVersionStatus = Schema.Literal(
+export const LatestVersionStatus = Schema.Literals([
   "current",
   "behind",
   "unknown",
-);
+]);
 export type LatestVersionStatus = typeof LatestVersionStatus.Type;
 
 /**
@@ -200,12 +200,12 @@ export type LatestVersionStatus = typeof LatestVersionStatus.Type;
  *                   account/read RPC failed, etc.)
  *   - `disabled` — user toggled the provider off in settings; renderer-only
  */
-export const ProviderHealthStatus = Schema.Literal(
+export const ProviderHealthStatus = Schema.Literals([
   "ready",
   "warning",
   "error",
   "disabled",
-);
+]);
 export type ProviderHealthStatus = typeof ProviderHealthStatus.Type;
 
 /**
@@ -215,11 +215,11 @@ export type ProviderHealthStatus = typeof ProviderHealthStatus.Type;
  * spawn failed) — distinct from `unauthenticated` which is a confirmed
  * "no credentials".
  */
-export const ProviderAuthStatus = Schema.Literal(
+export const ProviderAuthStatus = Schema.Literals([
   "authenticated",
   "unauthenticated",
   "unknown",
-);
+]);
 export type ProviderAuthStatus = typeof ProviderAuthStatus.Type;
 
 /**
@@ -322,7 +322,7 @@ export type AgentAvailability = typeof AgentAvailability.Type;
  * default is `generic` — drivers only set this when they have positive
  * evidence (e.g. parsed a 401 from the SDK).
  */
-export const AgentErrorKind = Schema.Literal("auth", "network", "generic");
+export const AgentErrorKind = Schema.Literals(["auth", "network", "generic"]);
 export type AgentErrorKind = typeof AgentErrorKind.Type;
 
 // ---------------------------------------------------------------------------
@@ -464,11 +464,11 @@ const UsageDeltaEvent = Schema.TaggedStruct("UsageDelta", {
   model: Schema.String,
 });
 
-export const ContextUsagePrecision = Schema.Literal(
+export const ContextUsagePrecision = Schema.Literals([
   "exact",
   "estimated",
   "capacity-only",
-);
+]);
 export type ContextUsagePrecision = typeof ContextUsagePrecision.Type;
 
 const ContextUsageEvent = Schema.TaggedStruct("ContextUsage", {
@@ -486,7 +486,7 @@ const ContextCompactionEvent = Schema.TaggedStruct("ContextCompaction", {
   durationMs: Schema.Number,
   beforeTokens: Schema.NullOr(Schema.Number),
   afterTokens: Schema.NullOr(Schema.Number),
-  status: Schema.Literal("in_progress", "completed"),
+  status: Schema.Literals(["in_progress", "completed"]),
 });
 
 const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
@@ -501,7 +501,7 @@ const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
 });
 
 const CompletedEvent = Schema.TaggedStruct("Completed", {
-  reason: Schema.Literal("ended", "interrupted", "error"),
+  reason: Schema.Literals(["ended", "interrupted", "error"]),
 });
 
 /**
@@ -537,14 +537,14 @@ const ErrorEvent = Schema.TaggedStruct("Error", {
  */
 const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
   cursor: Schema.String,
-  strategy: Schema.Literal(
+  strategy: Schema.Literals([
     "claude-session-id",
     "codex-thread-id",
     "grok-session-id",
     "cursor-session-id",
     "gemini-session-id",
     "opencode-session-id",
-  ),
+  ]),
 });
 
 /**
@@ -581,14 +581,14 @@ const PermissionModeChangedEvent = Schema.TaggedStruct(
   { mode: PermissionMode },
 );
 
-const GoalStatus = Schema.Literal(
+const GoalStatus = Schema.Literals([
   "active",
   "paused",
   "budgetLimited",
   "usageLimited",
   "blocked",
   "complete",
-);
+]);
 
 const GoalPayload = Schema.Struct({
   threadId: Schema.String,
@@ -607,7 +607,7 @@ const GoalUpdatedEvent = Schema.TaggedStruct("GoalUpdated", {
 
 const GoalClearedEvent = Schema.TaggedStruct("GoalCleared", {});
 
-export const AgentEvent = Schema.Union(
+export const AgentEvent = Schema.Union([
   StartedEvent,
   StatusEvent,
   AuthEvent,
@@ -631,7 +631,7 @@ export const AgentEvent = Schema.Union(
   CompletedEvent,
   InterruptedEvent,
   ErrorEvent,
-);
+]);
 export type AgentEvent = typeof AgentEvent.Type;
 
 // ---------------------------------------------------------------------------
@@ -683,7 +683,7 @@ export const StartSessionInput = Schema.Struct({
   // sub-agent's prompt, tool subset, model, and permission mode. Empty /
   // omitted means no sub-agents — session behaves as before.
   agents: Schema.optional(
-    Schema.Record({ key: Schema.String, value: AgentDefinition }),
+    Schema.Record(Schema.String, AgentDefinition ),
   ),
   // Master toggle. When the renderer wants to start a Claude session with
   // sub-agents disabled even though presets exist, it sends this as false.
@@ -729,7 +729,7 @@ export const StartSessionInput = Schema.Struct({
    * can't interpret.
    */
   modelOptions: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String ),
   ),
 });
 export type StartSessionInput = typeof StartSessionInput.Type;
@@ -1448,7 +1448,7 @@ export const SendInput = Schema.Struct({
    * value supplied at session start.
    */
   modelOptions: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String ),
   ),
 });
 export type SendInput = typeof SendInput.Type;
@@ -1474,22 +1474,22 @@ export type SetCredentialInput = typeof SetCredentialInput.Type;
 // Wire errors
 // ---------------------------------------------------------------------------
 
-export class ProviderNotAvailableError extends Schema.TaggedError<ProviderNotAvailableError>()(
+export class ProviderNotAvailableError extends Schema.TaggedErrorClass<ProviderNotAvailableError>()(
   "ProviderNotAvailableError",
   { providerId: ProviderId, reason: Schema.String },
 ) {}
 
-export class AgentSessionNotFoundError extends Schema.TaggedError<AgentSessionNotFoundError>()(
+export class AgentSessionNotFoundError extends Schema.TaggedErrorClass<AgentSessionNotFoundError>()(
   "AgentSessionNotFoundError",
   { sessionId: AgentSessionId },
 ) {}
 
-export class AgentSessionStartError extends Schema.TaggedError<AgentSessionStartError>()(
+export class AgentSessionStartError extends Schema.TaggedErrorClass<AgentSessionStartError>()(
   "AgentSessionStartError",
   { providerId: ProviderId, reason: Schema.String },
 ) {}
 
-export class CredentialStoreError extends Schema.TaggedError<CredentialStoreError>()(
+export class CredentialStoreError extends Schema.TaggedErrorClass<CredentialStoreError>()(
   "CredentialStoreError",
   { providerId: ProviderId, reason: Schema.String },
 ) {}
@@ -1508,7 +1508,7 @@ export const AgentAvailabilityRpc = Rpc.make("agent.availability", {
 export const AgentStartRpc = Rpc.make("agent.start", {
   payload: StartSessionInput,
   success: Schema.Struct({ sessionId: AgentSessionId }),
-  error: Schema.Union(ProviderNotAvailableError, AgentSessionStartError),
+  error: Schema.Union([ProviderNotAvailableError, AgentSessionStartError]),
 });
 
 export const AgentSendRpc = Rpc.make("agent.send", {
@@ -1603,7 +1603,7 @@ export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 
 export const OpencodeInventoryAgent = Schema.Struct({
   name: Schema.String,
-  mode: Schema.Literal("primary", "all"),
+  mode: Schema.Literals(["primary", "all"]),
   description: Schema.optional(Schema.String),
 });
 export type OpencodeInventoryAgent = typeof OpencodeInventoryAgent.Type;
@@ -1715,14 +1715,14 @@ export const AgentOpencodeRemoveCustomProviderRpc = Rpc.make(
 // resolve to an immediate `done(ok=false)`.
 // ---------------------------------------------------------------------------
 
-export const LoginEvent = Schema.Union(
+export const LoginEvent = Schema.Union([
   Schema.TaggedStruct("url", { url: Schema.String }),
   Schema.TaggedStruct("log", { text: Schema.String }),
   Schema.TaggedStruct("done", {
     ok: Schema.Boolean,
     reason: Schema.optional(Schema.String),
   }),
-);
+]);
 export type LoginEvent = typeof LoginEvent.Type;
 
 export const AgentStartLoginRpc = Rpc.make("agent.startLogin", {
@@ -1741,13 +1741,13 @@ export const AgentStartLoginRpc = Rpc.make("agent.startLogin", {
 // version is reflected immediately.
 // ---------------------------------------------------------------------------
 
-export const ProviderUpdateEvent = Schema.Union(
+export const ProviderUpdateEvent = Schema.Union([
   Schema.TaggedStruct("log", { text: Schema.String }),
   Schema.TaggedStruct("done", {
     ok: Schema.Boolean,
     reason: Schema.optional(Schema.String),
   }),
-);
+]);
 export type ProviderUpdateEvent = typeof ProviderUpdateEvent.Type;
 
 export const AgentUpdateProviderRpc = Rpc.make("agent.updateProvider", {

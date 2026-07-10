@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId } from "./ids.ts";
@@ -10,7 +10,7 @@ import { SessionId } from "./session.ts";
  * stringly-typed addition. `detail` on the request carries kind-specific data
  * (cwd, args, etc.) that the toast renders for context.
  */
-export const PermissionKind = Schema.Union(
+export const PermissionKind = Schema.Union([
   Schema.TaggedStruct("FileWrite", { path: Schema.String }),
   Schema.TaggedStruct("Bash", { command: Schema.String }),
   Schema.TaggedStruct("Network", { url: Schema.String }),
@@ -21,7 +21,7 @@ export const PermissionKind = Schema.Union(
     tool: Schema.String,
     summary: Schema.String,
   }),
-);
+]);
 export type PermissionKind = typeof PermissionKind.Type;
 
 /**
@@ -30,14 +30,14 @@ export type PermissionKind = typeof PermissionKind.Type;
  * within the same session). `AlwaysAllow` is plumbing for a later folder /
  * global allow-list UI — Phase 4 never produces it.
  */
-export const PermissionDecision = Schema.Union(
+export const PermissionDecision = Schema.Union([
   Schema.TaggedStruct("AllowOnce", {}),
   Schema.TaggedStruct("AllowForSession", {}),
   Schema.TaggedStruct("Deny", {}),
   Schema.TaggedStruct("AlwaysAllow", {
-    scope: Schema.Literal("folder", "global"),
+    scope: Schema.Literals(["folder", "global"]),
   }),
-);
+]);
 export type PermissionDecision = typeof PermissionDecision.Type;
 
 /**
@@ -78,18 +78,18 @@ export class SavedDecision extends Schema.Class<SavedDecision>("SavedDecision")(
     sessionId: SessionId,
     projectId: Schema.NullOr(FolderId),
     kind: PermissionKind,
-    decision: Schema.Literal(
+    decision: Schema.Literals([
       "AllowOnce",
       "AllowForSession",
       "AlwaysAllow",
       "Deny",
-    ),
-    scope: Schema.Literal("session", "folder", "global"),
+    ]),
+    scope: Schema.Literals(["session", "folder", "global"]),
     decidedAt: Schema.DateFromString,
   },
 ) {}
 
-export class PermissionRequestNotFoundError extends Schema.TaggedError<PermissionRequestNotFoundError>()(
+export class PermissionRequestNotFoundError extends Schema.TaggedErrorClass<PermissionRequestNotFoundError>()(
   "PermissionRequestNotFoundError",
   { requestId: Schema.String },
 ) {}

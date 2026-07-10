@@ -1,5 +1,5 @@
-import { RpcSerialization, RpcServer } from "@effect/rpc";
-import type { FromClientEncoded } from "@effect/rpc/RpcMessage";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import type { FromClientEncoded } from "effect/unstable/rpc/RpcMessage";
 import { ipcMain, type WebContents } from "electron";
 import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 
@@ -7,7 +7,7 @@ import { IPC_CHANNEL } from "@zuse/wire";
 
 /**
  * RpcServer.Protocol implementation for Electron IPC. Modeled on
- * `RpcServer.makeProtocolStdio` in `@effect/rpc`: read incoming frames from a
+ * `RpcServer.makeProtocolStdio` in `effect/unstable/rpc`: read incoming frames from a
  * source, decode via the configured serialization, hand each decoded message
  * to `writeRequest`. For sending, encode + push out via webContents.
  *
@@ -125,4 +125,4 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
  * Compose with `RpcSerialization.layerJson` and the RpcServer + handlers.
  */
 export const electronServerProtocolLayer = (webContents: WebContents) =>
-  Layer.scoped(RpcServer.Protocol, makeElectronServerProtocol(webContents));
+  Layer.effect(RpcServer.Protocol, makeElectronServerProtocol(webContents));

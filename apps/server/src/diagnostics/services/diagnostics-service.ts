@@ -14,6 +14,6 @@ export interface DiagnosticsServiceShape {
   >;
 }
 
-export class DiagnosticsService extends Context.Tag(
+export class DiagnosticsService extends Context.Service<DiagnosticsService, DiagnosticsServiceShape>()(
   "memoize/DiagnosticsService",
-)<DiagnosticsService, DiagnosticsServiceShape>() {}
+) {}

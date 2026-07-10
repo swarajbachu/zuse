@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "bun:test";
-import { SqlClient } from "@effect/sql";
+import { beforeEach, describe, expect, it } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
 // The server ships on the built-in `node:sqlite`, which Bun does not provide.
 // `@effect/sql-sqlite-bun` produces the same generic `SqlClient` tag on top
 // of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
@@ -895,7 +895,7 @@ describe("MessageStore — chat & session lifecycle", () => {
       const exit = await run(
         Effect.flatMap(store, (s) =>
           s.getSession("does-not-exist" as SessionId),
-        ).pipe(Effect.either),
+        ).pipe(Effect.result),
       );
       expect(exit._tag).toBe("Left");
       if (exit._tag === "Left") {
@@ -1722,7 +1722,7 @@ describe("MessageStore — provider event persistence", () => {
               Schedule.intersect(Schedule.recurs(100)),
             ),
           ),
-          Effect.either,
+          Effect.result,
         );
 
         const assistant = await run(findAssistant);

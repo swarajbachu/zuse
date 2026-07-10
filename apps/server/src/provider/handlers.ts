@@ -4,7 +4,7 @@ import {
   MemoizeRpcs,
   type ProviderId,
 } from "@zuse/wire";
-import { CommandExecutor } from "@effect/platform";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
 
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
@@ -129,7 +129,7 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
 const requireOpencodePath = (): Effect.Effect<
   string,
   AgentSessionStartError,
-  CommandExecutor.CommandExecutor
+  CommandExecutor.ChildProcessSpawner
 > =>
   Effect.gen(function* () {
     const opencodePath = yield* resolveCliPath("opencode");
@@ -650,14 +650,14 @@ const BrowserSetCredential = MemoizeRpcs.toLayerHandler(
   ({ origin, username, password }) =>
     Effect.flatMap(CredentialsService, (svc) =>
       svc.setBrowser(origin, username, password),
-    ).pipe(Effect.catchAll(() => Effect.void)),
+    ).pipe(Effect.catch(() => Effect.void)),
 );
 
 const BrowserListCredentials = MemoizeRpcs.toLayerHandler(
   "browser.listCredentials",
   () =>
     Effect.flatMap(CredentialsService, (svc) => svc.listBrowser()).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
+      Effect.catch(() => Effect.succeed([])),
     ),
 );
 
@@ -665,7 +665,7 @@ const BrowserRemoveCredential = MemoizeRpcs.toLayerHandler(
   "browser.removeCredential",
   ({ origin }) =>
     Effect.flatMap(CredentialsService, (svc) => svc.removeBrowser(origin)).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     ),
 );
 
@@ -673,7 +673,7 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
   "browser.fillForOrigin",
   ({ origin }) =>
     Effect.flatMap(CredentialsService, (svc) => svc.getBrowser(origin)).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catch(() => Effect.succeed(null)),
     ),
 );
 

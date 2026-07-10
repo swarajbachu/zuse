@@ -18,11 +18,11 @@ import { Schema } from "effect";
  *                        kill switch, which ships with the loop engine, so
  *                        until then `autonomous` behaves like `approval-gated`.
  */
-export const AutonomyLevel = Schema.Literal(
+export const AutonomyLevel = Schema.Literals([
   "off",
   "approval-gated",
   "autonomous",
-);
+]);
 export type AutonomyLevel = typeof AutonomyLevel.Type;
 
 export const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "approval-gated";

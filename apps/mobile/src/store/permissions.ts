@@ -76,7 +76,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
               };
             });
           }),
-      ).pipe(Effect.catchAll(() => Effect.void));
+      ).pipe(Effect.catch(() => Effect.void));
       liveFibers.set(liveKey, Effect.runFork(program));
     } catch (cause) {
       reportConnectionFailure(options, cause);

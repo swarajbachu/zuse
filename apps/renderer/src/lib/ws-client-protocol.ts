@@ -1,5 +1,5 @@
-import { Socket } from "@effect/platform";
-import { RpcClient, RpcSerialization } from "@effect/rpc";
+import { Socket } from "effect/unstable/socket";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Layer } from "effect";
 
 export const wsClientProtocolLayer = (url: string) =>

@@ -38,11 +38,11 @@ export const RelayPaths = {
 } as const;
 
 /** DPoP access-token scopes the relay recognises. */
-export const RelayScope = Schema.Literal(
+export const RelayScope = Schema.Literals([
   "environment:status",
   "environment:connect",
   "mobile:registration",
-);
+]);
 export type RelayScope = typeof RelayScope.Type;
 
 // --- link challenge (desktop, WorkOS bearer) ---------------------------------
@@ -116,7 +116,7 @@ export class RelayAccessToken extends Schema.Class<RelayAccessToken>(
 
 // --- presence (mobile, DPoP) -------------------------------------------------
 
-export const RelayPresence = Schema.Literal("online", "offline");
+export const RelayPresence = Schema.Literals(["online", "offline"]);
 export type RelayPresence = typeof RelayPresence.Type;
 
 export class RelayEnvironmentStatus extends Schema.Class<RelayEnvironmentStatus>(
@@ -143,7 +143,7 @@ export class RelayDeviceRegistration extends Schema.Class<RelayDeviceRegistratio
   "RelayDeviceRegistration",
 )({
   deviceId: Schema.String,
-  platform: Schema.Literal("ios", "android", "web"),
+  platform: Schema.Literals(["ios", "android", "web"]),
   pushToken: Schema.optional(Schema.String),
   dpopJwk: Schema.optional(Schema.Unknown),
 }) {}

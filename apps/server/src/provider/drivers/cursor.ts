@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as readline from "node:readline";
-import { Effect, Mailbox, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -727,7 +727,7 @@ export const startCursorSession = (
 > =>
   Effect.gen(function* () {
     yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
     let acpSessionId: string | null = null;
@@ -738,7 +738,7 @@ export const startCursorSession = (
     let workspaceInstructionsPending = input.workspaceInstructions;
     let firstChunkSeenForPrompt = false;
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "Started",
       sessionId,
       providerId: "cursor",
@@ -863,14 +863,14 @@ export const startCursorSession = (
             `id=${ev.itemId} isError=${ev.isError} output=${outputPreview.slice(0, 400)}`,
           );
         }
-        events.unsafeOffer(ev);
+        Queue.offerUnsafe(events, ev);
       }
     });
     transportResult.setStderrHandler(() => {
       // Already file-tee'd inside the transport; no extra work needed.
     });
     transportResult.setSpawnErrorHandler((message) => {
-      if (!closed) events.unsafeOffer({ _tag: "Error", message });
+      if (!closed) Queue.offerUnsafe(events, { _tag: "Error", message });
     });
     transportResult.setCloseHandler((exitDetail) => {
       log(
@@ -878,8 +878,8 @@ export const startCursorSession = (
         `pending=${pending.size} detail=${exitDetail.slice(0, 200)}`,
       );
       if (!closed) {
-        events.unsafeOffer({ _tag: "Error", message: exitDetail });
-        events.unsafeOffer({ _tag: "Status", status: "idle" });
+        Queue.offerUnsafe(events, { _tag: "Error", message: exitDetail });
+        Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
       }
     });
 
@@ -963,7 +963,7 @@ export const startCursorSession = (
       ),
     );
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "SessionCursor",
       cursor: acpSessionId,
       strategy: "cursor-session-id",
@@ -1019,7 +1019,7 @@ export const startCursorSession = (
         ? startCompactSnapshot(null)
         : null;
       if (compactSnapshot !== null) {
-        events.unsafeOffer(
+        Queue.offerUnsafe(events,
           startCompactEvent({
             providerId: "cursor",
             snapshot: compactSnapshot,
@@ -1059,7 +1059,7 @@ export const startCursorSession = (
             );
             log("prompt.done", `#${n} ${Date.now() - promptStart}ms`);
             if (compactSnapshot !== null && !closed) {
-              events.unsafeOffer(
+              Queue.offerUnsafe(events,
                 finishCompactEvent({
                   itemId: compactSnapshot.itemId,
                   providerId: "cursor",
@@ -1077,13 +1077,13 @@ export const startCursorSession = (
             );
             const isCancellation = /cancel|interrupt/i.test(reason);
             if (!closed && !isCancellation) {
-              events.unsafeOffer({ _tag: "Error", message: reason });
+              Queue.offerUnsafe(events, { _tag: "Error", message: reason });
             }
           } finally {
             currentPromptRpcId = null;
             if (!closed) {
-              for (const ev of translator.flush()) events.unsafeOffer(ev);
-              events.unsafeOffer({ _tag: "Status", status: "idle" });
+              for (const ev of translator.flush()) Queue.offerUnsafe(events, ev);
+              Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
             }
           }
         })
@@ -1100,7 +1100,7 @@ export const startCursorSession = (
     void rejectCurrentPrompt;
 
     const handle: CursorSessionHandle = {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs) =>
         Effect.sync(() => {
           if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
@@ -1137,7 +1137,7 @@ export const startCursorSession = (
         Effect.sync(() => {
           if (mode === currentMode) return;
           currentMode = mode;
-          events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
+          Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
           const sid = acpSessionId;
           if (sid !== null) {
             const modeId = mode === "plan" ? "plan" : "code";

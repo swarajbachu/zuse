@@ -1,6 +1,10 @@
-import { Command, CommandExecutor, FileSystem } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
-import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
+import { FileSystem } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
+import { SqlClient } from "effect/unstable/sql";
+import { Cause, Effect, Layer, Queue, Stream } from "effect";
 import { spawn } from "node:child_process";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
@@ -275,7 +279,7 @@ export const WorktreeServiceLive = Layer.effect(
     const workspace = yield* WorkspaceService;
     const repositorySettings = yield* RepositorySettingsService;
     const pokemonService = yield* PokemonService;
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const sql = yield* SqlClient.SqlClient;
 
@@ -314,12 +318,12 @@ export const WorktreeServiceLive = Layer.effect(
     // for the worktree as setup progresses. Mirrors the pty subscriber model.
     const subscribers = new Map<
       string,
-      Set<Mailbox.Mailbox<WorktreeSetupEvent>>
+      Set<Queue.Queue<WorktreeSetupEvent, Cause.Done>>
     >();
     const emit = (worktreeId: WorktreeId, event: WorktreeSetupEvent): void => {
       const set = subscribers.get(worktreeId);
       if (set === undefined) return;
-      for (const mailbox of set) mailbox.unsafeOffer(event);
+      for (const mailbox of set) Queue.offerUnsafe(mailbox, event);
     };
     const TERMINAL_STATUSES = new Set<WorktreeSetupStatus>([
       "succeeded",
@@ -346,7 +350,7 @@ export const WorktreeServiceLive = Layer.effect(
       if (TERMINAL_STATUSES.has(status)) {
         const set = subscribers.get(worktreeId);
         if (set !== undefined) {
-          for (const mailbox of set) mailbox.unsafeDone(Exit.void);
+          for (const mailbox of set) Queue.endUnsafe(mailbox);
           subscribers.delete(worktreeId);
         }
       }
@@ -355,12 +359,12 @@ export const WorktreeServiceLive = Layer.effect(
     const collectText = (
       s: Stream.Stream<
         Uint8Array,
-        import("@effect/platform/Error").PlatformError
+        import("effect/PlatformError").PlatformError
       >,
     ) =>
       s.pipe(
-        Stream.decodeText("utf-8"),
-        Stream.runFold("", (acc, chunk) => acc + chunk),
+        Stream.decodeText({ encoding: "utf-8" }),
+        Stream.runFold(() => "", (acc, chunk) => acc + chunk),
       );
 
     /**
@@ -373,10 +377,8 @@ export const WorktreeServiceLive = Layer.effect(
     const runGit = (cwd: string, args: ReadonlyArray<string>) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const cmd = Command.make("git", ...args).pipe(
-            Command.workingDirectory(cwd),
-          );
-          const proc = yield* executor.start(cmd);
+          const cmd = Command.make("git", args, { cwd });
+          const proc = yield* executor.spawn(cmd);
           const stdout = yield* collectText(proc.stdout);
           const stderr = yield* collectText(proc.stderr);
           const exitCode = yield* proc.exitCode;
@@ -386,15 +388,13 @@ export const WorktreeServiceLive = Layer.effect(
           );
         }),
       ).pipe(
-        Effect.catchTags({
-          SystemError: (err) =>
-            Effect.fail(
-              err.reason === "NotFound"
-                ? "git is not installed"
-                : (err.message ?? String(err)),
-            ),
-          BadArgument: (err) => Effect.fail(err.message ?? String(err)),
-        }),
+        Effect.catchTag("PlatformError", (error) =>
+          Effect.fail(
+            error.reason._tag === "NotFound"
+              ? "git is not installed"
+              : error.message,
+          ),
+        ),
       );
 
     // Same shape as `runGit` but for the GitHub CLI — used when checking out a
@@ -403,10 +403,8 @@ export const WorktreeServiceLive = Layer.effect(
     const runGh = (cwd: string, args: ReadonlyArray<string>) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const cmd = Command.make("gh", ...args).pipe(
-            Command.workingDirectory(cwd),
-          );
-          const proc = yield* executor.start(cmd);
+          const cmd = Command.make("gh", args, { cwd });
+          const proc = yield* executor.spawn(cmd);
           const stdout = yield* collectText(proc.stdout);
           const stderr = yield* collectText(proc.stderr);
           const exitCode = yield* proc.exitCode;
@@ -416,18 +414,16 @@ export const WorktreeServiceLive = Layer.effect(
           );
         }),
       ).pipe(
-        Effect.catchTags({
-          SystemError: (err) =>
-            Effect.fail(
-              err.reason === "NotFound"
-                ? "the GitHub CLI (gh) is not installed"
-                : (err.message ?? String(err)),
-            ),
-          BadArgument: (err) => Effect.fail(err.message ?? String(err)),
-        }),
+        Effect.catchTag("PlatformError", (error) =>
+          Effect.fail(
+            error.reason._tag === "NotFound"
+              ? "the GitHub CLI (gh) is not installed"
+              : error.message,
+          ),
+        ),
       );
 
-    const list: WorktreeService["Type"]["list"] = (projectId) =>
+    const list: WorktreeService["Service"]["list"] = (projectId) =>
       Effect.gen(function* () {
         const rows = yield* sql<WorktreeRow>`
           SELECT id, project_id, path, name, branch, base_branch, created_at,
@@ -440,7 +436,7 @@ export const WorktreeServiceLive = Layer.effect(
         return rows.map(rowToWorktree);
       });
 
-    const get: WorktreeService["Type"]["get"] = (worktreeId) =>
+    const get: WorktreeService["Service"]["get"] = (worktreeId) =>
       Effect.gen(function* () {
         const rows = yield* sql<WorktreeRow>`
           SELECT id, project_id, path, name, branch, base_branch, created_at,
@@ -453,7 +449,7 @@ export const WorktreeServiceLive = Layer.effect(
         return rows.length > 0 ? rowToWorktree(rows[0]!) : null;
       });
 
-    const updateBranch: WorktreeService["Type"]["updateBranch"] = (
+    const updateBranch: WorktreeService["Service"]["updateBranch"] = (
       worktreeId,
       branch,
     ) =>
@@ -461,7 +457,7 @@ export const WorktreeServiceLive = Layer.effect(
         UPDATE worktrees SET branch = ${branch} WHERE id = ${worktreeId}
       `.pipe(Effect.asVoid, Effect.orDie);
 
-    const create: WorktreeService["Type"]["create"] = (projectId, source) =>
+    const create: WorktreeService["Service"]["create"] = (projectId, source) =>
       Effect.gen(function* () {
         const folder = yield* workspace.findById(projectId);
         if (folder === null) {
@@ -538,12 +534,12 @@ export const WorktreeServiceLive = Layer.effect(
             "--symref",
             "origin",
             "HEAD",
-          ]).pipe(Effect.either);
+          ]).pipe(Effect.result);
 
           let defaultBranch: string | null = null;
-          if (symrefRaw._tag === "Right") {
+          if (symrefRaw._tag === "Success") {
             const match = /^ref:\s+refs\/heads\/(\S+)\s+HEAD$/m.exec(
-              symrefRaw.right,
+              symrefRaw.success,
             );
             defaultBranch = match?.[1] ?? null;
           }
@@ -559,7 +555,7 @@ export const WorktreeServiceLive = Layer.effect(
                 `refs/remotes/origin/${candidate}`,
               ]).pipe(
                 Effect.map(() => true),
-                Effect.catchAll(() => Effect.succeed(false)),
+                Effect.catch(() => Effect.succeed(false)),
               );
               if (exists) {
                 defaultBranch = candidate;
@@ -580,13 +576,13 @@ export const WorktreeServiceLive = Layer.effect(
             "fetch",
             "origin",
             defaultBranch,
-          ]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.either);
-          if (fetched._tag === "Left") {
+          ]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.result);
+          if (fetched._tag === "Failure") {
             // runGit fails with a string; Effect.timeout adds a
             // TimeoutException — anything non-string is the timeout.
             const reason =
-              typeof fetched.left === "string"
-                ? fetched.left
+              typeof fetched.failure === "string"
+                ? fetched.failure
                 : `timed out after ${FETCH_TIMEOUT}`;
             return yield* Effect.fail(
               fail(`failed to fetch origin/${defaultBranch}: ${reason}`),
@@ -600,7 +596,7 @@ export const WorktreeServiceLive = Layer.effect(
             `refs/remotes/origin/${defaultBranch}`,
           ]).pipe(
             Effect.map(() => true),
-            Effect.catchAll(() => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(false)),
           );
           if (!remoteRefExists) {
             return yield* Effect.fail(
@@ -661,7 +657,7 @@ export const WorktreeServiceLive = Layer.effect(
 
           const targetExists = yield* fs
             .exists(target)
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
           if (targetExists) {
             unavailableNames.add(name);
             continue;
@@ -687,7 +683,7 @@ export const WorktreeServiceLive = Layer.effect(
             `refs/heads/${branch}`,
           ]).pipe(
             Effect.map(() => true),
-            Effect.catchAll(() => Effect.succeed(false)),
+            Effect.catch(() => Effect.succeed(false)),
           );
           if (branchExists) {
             unavailableNames.add(name);
@@ -722,7 +718,7 @@ export const WorktreeServiceLive = Layer.effect(
                 `refs/heads/${source.branch}`,
               ]).pipe(
                 Effect.map(() => true),
-                Effect.catchAll(() => Effect.succeed(false)),
+                Effect.catch(() => Effect.succeed(false)),
               );
               if (localExists) {
                 // Check out the existing local branch directly.
@@ -739,7 +735,7 @@ export const WorktreeServiceLive = Layer.effect(
                 "fetch",
                 remoteName,
                 source.branch,
-              ]).pipe(Effect.either);
+              ]).pipe(Effect.result);
               return yield* runGit(repoPath, [
                 "worktree",
                 "add",
@@ -763,19 +759,19 @@ export const WorktreeServiceLive = Layer.effect(
             ]);
             yield* runGh(target, ["pr", "checkout", String(source.number)]);
             return "";
-          }).pipe(Effect.either);
-          if (addResult._tag === "Left") {
+          }).pipe(Effect.result);
+          if (addResult._tag === "Failure") {
             // Clean up a half-created worktree dir so the name can be retried.
             yield* runGit(repoPath, [
               "worktree",
               "remove",
               "--force",
               target,
-            ]).pipe(Effect.either);
+            ]).pipe(Effect.result);
             return yield* Effect.fail(
               new WorktreeCreateError({
                 projectId,
-                reason: addResult.left,
+                reason: addResult.failure,
               }),
             );
           }
@@ -797,7 +793,7 @@ export const WorktreeServiceLive = Layer.effect(
           // setup live; the row starts `pending` and flips to `running` once
           // the forked setup begins.
           const created = (yield* get(id))!;
-          yield* Effect.forkDaemon(runSetupSafely(id));
+          yield* Effect.forkDetach(runSetupSafely(id));
           return created;
         }
         return yield* Effect.fail(
@@ -808,7 +804,7 @@ export const WorktreeServiceLive = Layer.effect(
         );
       });
 
-    const remove: WorktreeService["Type"]["remove"] = (worktreeId, force) =>
+    const remove: WorktreeService["Service"]["remove"] = (worktreeId, force) =>
       Effect.gen(function* () {
         const row = yield* get(worktreeId);
         if (row === null) {
@@ -826,9 +822,9 @@ export const WorktreeServiceLive = Layer.effect(
         const args = ["worktree", "remove"] as string[];
         if (force) args.push("--force");
         args.push(row.path);
-        const result = yield* runGit(folder.path, args).pipe(Effect.either);
-        if (result._tag === "Left") {
-          const lower = result.left.toLowerCase();
+        const result = yield* runGit(folder.path, args).pipe(Effect.result);
+        if (result._tag === "Failure") {
+          const lower = result.failure.toLowerCase();
           if (
             !force &&
             (lower.includes("contains modified or untracked files") ||
@@ -838,7 +834,7 @@ export const WorktreeServiceLive = Layer.effect(
             return yield* Effect.fail(new WorktreeDirtyError({ worktreeId }));
           }
           return yield* Effect.fail(
-            new WorktreeRemoveError({ worktreeId, reason: result.left }),
+            new WorktreeRemoveError({ worktreeId, reason: result.failure }),
           );
         }
 
@@ -847,7 +843,7 @@ export const WorktreeServiceLive = Layer.effect(
         );
       });
 
-    const restore: WorktreeService["Type"]["restore"] = (
+    const restore: WorktreeService["Service"]["restore"] = (
       snapshot: WorktreeRestoreSnapshot,
     ) =>
       Effect.gen(function* () {
@@ -866,7 +862,7 @@ export const WorktreeServiceLive = Layer.effect(
 
         const targetExists = yield* fs
           .exists(snapshot.path)
-          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+          .pipe(Effect.catch(() => Effect.succeed(false)));
         if (targetExists) {
           return yield* Effect.fail(
             new WorktreeRemoveError({
@@ -883,7 +879,7 @@ export const WorktreeServiceLive = Layer.effect(
           `refs/heads/${snapshot.branch}`,
         ]).pipe(
           Effect.map(() => true),
-          Effect.catchAll(() => Effect.succeed(false)),
+          Effect.catch(() => Effect.succeed(false)),
         );
         if (!branchExists) {
           return yield* Effect.fail(
@@ -899,12 +895,12 @@ export const WorktreeServiceLive = Layer.effect(
           "add",
           snapshot.path,
           snapshot.branch,
-        ]).pipe(Effect.either);
-        if (result._tag === "Left") {
+        ]).pipe(Effect.result);
+        if (result._tag === "Failure") {
           return yield* Effect.fail(
             new WorktreeRemoveError({
               worktreeId: snapshot.id,
-              reason: result.left,
+              reason: result.failure,
             }),
           );
         }
@@ -1074,7 +1070,7 @@ export const WorktreeServiceLive = Layer.effect(
     const runSetupSafely = (worktreeId: WorktreeId): Effect.Effect<void> =>
       runSetupFor(worktreeId).pipe(
         Effect.asVoid,
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.gen(function* () {
             const finishedAt = new Date();
             yield* sql`
@@ -1091,7 +1087,7 @@ export const WorktreeServiceLive = Layer.effect(
         ),
       );
 
-    const rerunSetup: WorktreeService["Type"]["rerunSetup"] = (worktreeId) =>
+    const rerunSetup: WorktreeService["Service"]["rerunSetup"] = (worktreeId) =>
       Effect.gen(function* () {
         const wt = yield* get(worktreeId);
         if (wt === null) {
@@ -1099,18 +1095,18 @@ export const WorktreeServiceLive = Layer.effect(
         }
         // Same non-blocking model as `create`: kick off setup detached and
         // return immediately; the renderer follows via `setupStream`.
-        yield* Effect.forkDaemon(runSetupSafely(worktreeId));
+        yield* Effect.forkDetach(runSetupSafely(worktreeId));
         return wt;
       });
 
-    const setupStream: WorktreeService["Type"]["setupStream"] = (worktreeId) =>
-      Stream.unwrapScoped(
+    const setupStream: WorktreeService["Service"]["setupStream"] = (worktreeId) =>
+      Stream.unwrap(
         Effect.gen(function* () {
           const wt = yield* get(worktreeId);
           if (wt === null) {
             return Stream.fail(new WorktreeNotFoundError({ worktreeId }));
           }
-          const mailbox = yield* Mailbox.make<WorktreeSetupEvent>();
+          const mailbox = yield* Queue.make<WorktreeSetupEvent, Cause.Done>();
           const set = subscribers.get(worktreeId) ?? new Set();
           set.add(mailbox);
           subscribers.set(worktreeId, set);
@@ -1124,13 +1120,13 @@ export const WorktreeServiceLive = Layer.effect(
           );
           // Seed the current snapshot so a late subscriber (after a fast setup
           // already finished) still sees the latest output + terminal status.
-          mailbox.unsafeOffer(
+          Queue.offerUnsafe(mailbox,
             WorktreeSetupChunk.make({
               worktreeId,
               output: wt.setupOutput,
             }),
           );
-          mailbox.unsafeOffer(
+          Queue.offerUnsafe(mailbox,
             WorktreeSetupStatusEvent.make({
               worktreeId,
               status: wt.setupStatus,
@@ -1141,13 +1137,13 @@ export const WorktreeServiceLive = Layer.effect(
           // If setup already finished, complete immediately — no live events
           // are coming, so don't leave the renderer's stream hanging open.
           if (TERMINAL_STATUSES.has(wt.setupStatus)) {
-            mailbox.unsafeDone(Exit.void);
+            Queue.endUnsafe(mailbox);
           }
-          return Mailbox.toStream(mailbox);
+          return Stream.fromQueue(mailbox);
         }),
       );
 
-    const startRun: WorktreeService["Type"]["startRun"] = (worktreeId) =>
+    const startRun: WorktreeService["Service"]["startRun"] = (worktreeId) =>
       Effect.gen(function* () {
         const worktree = yield* get(worktreeId);
         if (worktree === null) {

@@ -93,7 +93,7 @@ export function useProviderLogin(
             // "log" events are diagnostic-only; ignored in the UI.
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
             setState({

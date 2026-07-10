@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Mailbox, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -834,13 +834,13 @@ export const startOpencodeSession = (
 > =>
   Effect.gen(function* () {
     yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
     let closed = false;
     const deltaState = makeDeltaState();
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "Started",
       sessionId,
       providerId: "opencode",
@@ -898,7 +898,7 @@ export const startOpencodeSession = (
     const eventAbort = booted.abort;
     const opencodeSessionId = booted.sid;
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "SessionCursor",
       cursor: opencodeSessionId,
       strategy: "opencode-session-id",
@@ -965,7 +965,7 @@ export const startOpencodeSession = (
             dlog(`  (translator dropped this frame)`);
           }
           for (const out of translated) {
-            events.unsafeOffer(out);
+            Queue.offerUnsafe(events, out);
           }
         }
         dlog(`event stream ended after ${eventCount} events`);
@@ -974,7 +974,7 @@ export const startOpencodeSession = (
         const message = cause instanceof Error ? cause.message : String(cause);
         if (/abort/i.test(message)) return;
         dlog(`event stream failed after ${eventCount} events: ${message}`);
-        events.unsafeOffer({
+        Queue.offerUnsafe(events, {
           _tag: "Error",
           message: `OpenCode event stream failed: ${message}`,
           providerId: "opencode",
@@ -985,12 +985,12 @@ export const startOpencodeSession = (
     // Watch for the server process dying out from under us.
     server.child.on("exit", (code, signal) => {
       if (closed) return;
-      events.unsafeOffer({
+      Queue.offerUnsafe(events, {
         _tag: "Error",
         message: `OpenCode server exited (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
         providerId: "opencode",
       });
-      events.unsafeOffer({ _tag: "Status", status: "idle" });
+      Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
     });
 
     // === Prompt queue — serializes turns inside a single session. ===
@@ -1001,7 +1001,7 @@ export const startOpencodeSession = (
         ? startCompactSnapshot(null)
         : null;
       if (compactSnapshot !== null) {
-        events.unsafeOffer(
+        Queue.offerUnsafe(events,
           startCompactEvent({
             providerId: "opencode",
             snapshot: compactSnapshot,
@@ -1077,7 +1077,7 @@ export const startOpencodeSession = (
                 errInfo.data?.message ??
                 errInfo.name ??
                 "OpenCode reported an error on this turn.";
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "Error",
                 message,
                 providerId: "opencode",
@@ -1108,16 +1108,16 @@ export const startOpencodeSession = (
               }
               if (partId !== undefined) deltaState.flushedPartIds.add(partId);
               for (const evt of out) {
-                events.unsafeOffer(evt);
+                Queue.offerUnsafe(events, evt);
               }
             }
             // Catch-all flush in case session.idle never fired (e.g. the
             // prompt resolved before the SSE got there).
             for (const evt of flushDeltaState(deltaState)) {
-              events.unsafeOffer(evt);
+              Queue.offerUnsafe(events, evt);
             }
             if (compactSnapshot !== null && !closed) {
-              events.unsafeOffer(
+              Queue.offerUnsafe(events,
                 finishCompactEvent({
                   itemId: compactSnapshot.itemId,
                   providerId: "opencode",
@@ -1126,7 +1126,7 @@ export const startOpencodeSession = (
                 }),
               );
             }
-            events.unsafeOffer({ _tag: "Completed", reason: "ended" });
+            Queue.offerUnsafe(events, { _tag: "Completed", reason: "ended" });
           } catch (cause) {
             if (closed) return;
             const reason =
@@ -1134,12 +1134,12 @@ export const startOpencodeSession = (
             const isCancellation = /abort|cancel/i.test(reason);
             if (!isCancellation) {
               dlog(`prompt failed: ${reason}`);
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "Error",
                 message: `OpenCode prompt failed: ${reason}`,
                 providerId: "opencode",
               });
-              events.unsafeOffer({ _tag: "Completed", reason: "error" });
+              Queue.offerUnsafe(events, { _tag: "Completed", reason: "error" });
             }
           }
         })
@@ -1151,7 +1151,7 @@ export const startOpencodeSession = (
     }
 
     const handle: OpencodeSessionHandle = {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs) =>
         Effect.sync(() => {
           if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
@@ -1197,7 +1197,7 @@ export const startOpencodeSession = (
         Effect.sync(() => {
           if (mode === currentMode) return;
           currentMode = mode;
-          events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
+          Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
           // No in-band toggle on opencode — the next `enqueuePrompt`
           // swaps the agent to "plan" or back to the user's selection.
         }),

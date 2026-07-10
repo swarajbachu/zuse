@@ -31,7 +31,7 @@ export interface PtyServiceShape {
   ) => Stream.Stream<typeof PtyEvent.Type, PtyNotFoundError>;
 }
 
-export class PtyService extends Context.Tag("memoize/PtyService")<
+export class PtyService extends Context.Service<
   PtyService,
   PtyServiceShape
->() {}
+>()("memoize/PtyService") {}

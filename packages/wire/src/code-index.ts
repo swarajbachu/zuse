@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId } from "./ids.ts";
@@ -6,11 +6,11 @@ import { FolderId } from "./ids.ts";
 /**
  * Wire schemas for the Phase 0.04 code index. The engine in
  * `@zuse/index` defines a richer TS type per kind; here we keep the
- * shapes flat and primitive so they cross the @effect/rpc + MCP JSON-schema
+ * shapes flat and primitive so they cross the effect/unstable/rpc + MCP JSON-schema
  * boundaries without ceremony.
  */
 
-const IndexState = Schema.Literal("idle", "indexing", "ready", "error");
+const IndexState = Schema.Literals(["idle", "indexing", "ready", "error"]);
 export type IndexState = typeof IndexState.Type;
 
 const IndexProgress = Schema.NullOr(
@@ -33,7 +33,7 @@ export class IndexStatusInfo extends Schema.Class<IndexStatusInfo>(
   stats: IndexStats,
 }) {}
 
-const SymbolKind = Schema.Literal(
+const SymbolKind = Schema.Literals([
   "function",
   "method",
   "class",
@@ -44,11 +44,11 @@ const SymbolKind = Schema.Literal(
   "variable",
   "property",
   "export",
-);
+]);
 
 const Range = Schema.Struct({ start: Schema.Number, end: Schema.Number });
 
-const SearchKind = Schema.Literal("auto", "symbol", "text", "semantic");
+const SearchKind = Schema.Literals(["auto", "symbol", "text", "semantic"]);
 
 const SearchHit = Schema.Struct({
   chunkId: Schema.Number,
@@ -59,7 +59,7 @@ const SearchHit = Schema.Struct({
   ),
   content: Schema.String,
   score: Schema.Number,
-  source: Schema.Literal("symbol", "bm25", "vector", "fused"),
+  source: Schema.Literals(["symbol", "bm25", "vector", "fused"]),
 });
 
 const SymbolHit = Schema.Struct({

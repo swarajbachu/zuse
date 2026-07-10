@@ -1,4 +1,4 @@
-import { RpcClient, RpcGroup } from "@effect/rpc";
+import { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import { MemoizeRpcs } from "@zuse/wire";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 

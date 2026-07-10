@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { Effect, Mailbox, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -209,7 +209,7 @@ const ensureGeminiFolderTrusted = (cwd: string): Effect.Effect<void> =>
           return parsed as Record<string, string>;
         }),
       ),
-      Effect.catchAll(() => Effect.succeed({} as Record<string, string>)),
+      Effect.catch(() => Effect.succeed({} as Record<string, string>)),
     );
 
     if (current[absCwd] === "TRUST_FOLDER") return;
@@ -263,7 +263,7 @@ export const startGeminiSession = (
     // uniform with the other drivers; attachments themselves are not yet
     // wired through ACP's `prompt: [{ type: "image", ... }]` shape.
     yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -383,7 +383,7 @@ export const startGeminiSession = (
       return parts.join("\n\n");
     };
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "Started",
       sessionId,
       providerId: "gemini",
@@ -503,7 +503,7 @@ export const startGeminiSession = (
           const update = msg.params?.update;
           if (update !== undefined) {
             for (const ev of translator.translate(update)) {
-              events.unsafeOffer(ev);
+              Queue.offerUnsafe(events, ev);
             }
           }
           return;
@@ -522,7 +522,7 @@ export const startGeminiSession = (
           }
           if (msg.params !== undefined) {
             for (const ev of translator.translate(msg.params)) {
-              events.unsafeOffer(ev);
+              Queue.offerUnsafe(events, ev);
             }
           }
           return;
@@ -642,7 +642,7 @@ export const startGeminiSession = (
 
     child.on("error", (err) => {
       if (closed) return;
-      events.unsafeOffer({ _tag: "Error", message: err.message });
+      Queue.offerUnsafe(events, { _tag: "Error", message: err.message });
       void Effect.runPromise(events.end).catch(() => {});
     });
 
@@ -659,8 +659,8 @@ export const startGeminiSession = (
       }
       pending.clear();
       if (!closed) {
-        events.unsafeOffer({ _tag: "Error", message: exitDetail });
-        events.unsafeOffer({ _tag: "Status", status: "idle" });
+        Queue.offerUnsafe(events, { _tag: "Error", message: exitDetail });
+        Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
       }
       void Effect.runPromise(events.end).catch(() => {});
     });
@@ -767,7 +767,7 @@ export const startGeminiSession = (
       ),
     );
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "SessionCursor",
       cursor: acpSessionId,
       strategy: "grok-session-id",
@@ -786,7 +786,7 @@ export const startGeminiSession = (
         ? startCompactSnapshot(null)
         : null;
       if (compactSnapshot !== null) {
-        events.unsafeOffer(
+        Queue.offerUnsafe(events,
           startCompactEvent({
             providerId: "gemini",
             snapshot: compactSnapshot,
@@ -845,7 +845,7 @@ export const startGeminiSession = (
               process.stderr.write(`[gemini.prompt] completed\n`);
             }
             if (compactSnapshot !== null && !closed) {
-              events.unsafeOffer(
+              Queue.offerUnsafe(events,
                 finishCompactEvent({
                   itemId: compactSnapshot.itemId,
                   providerId: "gemini",
@@ -866,7 +866,7 @@ export const startGeminiSession = (
             // chat bubble shows them.
             const isCancellation = /cancel|interrupt/i.test(reason);
             if (!closed && !isCancellation) {
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "Error",
                 message: reason,
               });
@@ -877,8 +877,8 @@ export const startGeminiSession = (
             // final delta lands as a normal AssistantMessage instead of
             // sitting unobserved in memory.
             if (!closed) {
-              for (const ev of translator.flush()) events.unsafeOffer(ev);
-              events.unsafeOffer({ _tag: "Status", status: "idle" });
+              for (const ev of translator.flush()) Queue.offerUnsafe(events, ev);
+              Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
             }
           }
         })
@@ -890,7 +890,7 @@ export const startGeminiSession = (
     }
 
     const handle: GeminiSessionHandle = {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs) =>
         Effect.sync(() => {
           if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
@@ -949,7 +949,7 @@ export const startGeminiSession = (
         Effect.sync(() => {
           if (mode === currentMode) return;
           currentMode = mode;
-          events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
+          Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
         }),
       answerQuestion: () => Effect.void,
     };

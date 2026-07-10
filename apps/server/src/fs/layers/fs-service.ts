@@ -1,7 +1,7 @@
 import { watch } from "node:fs";
 import * as path from "node:path";
 
-import { FileSystem, Path } from "@effect/platform";
+import { FileSystem, Path } from "effect";
 import { Effect, Layer, Option, Queue, Stream } from "effect";
 
 import {
@@ -108,7 +108,7 @@ export const FsServiceLive = Layer.effect(
         return { rootAbs, requestedAbs } as const;
       });
 
-    const tree: FsService["Type"]["tree"] = (folderId, relPath, worktreeId) =>
+    const tree: FsService["Service"]["tree"] = (folderId, relPath, worktreeId) =>
       Effect.gen(function* () {
         const { requestedAbs } = yield* resolveInsideFolder(
           folderId,
@@ -160,8 +160,8 @@ export const FsServiceLive = Layer.effect(
         return entries;
       });
 
-    const watchTree: FsService["Type"]["watchTree"] = (folderId, worktreeId) =>
-      Stream.unwrapScoped(
+    const watchTree: FsService["Service"]["watchTree"] = (folderId, worktreeId) =>
+      Stream.unwrap(
         Effect.gen(function* () {
           const { rootAbs } = yield* resolveInsideFolder(
             folderId,
@@ -210,7 +210,7 @@ export const FsServiceLive = Layer.effect(
           }
 
           yield* Effect.addFinalizer(() =>
-            Effect.zipRight(
+            Effect.andThen(
               Effect.sync(() => {
                 if (timer !== null) {
                   clearTimeout(timer);
@@ -226,7 +226,7 @@ export const FsServiceLive = Layer.effect(
         }),
       );
 
-    const readFile: FsService["Type"]["readFile"] = (
+    const readFile: FsService["Service"]["readFile"] = (
       folderId,
       relPath,
       worktreeId,
@@ -288,7 +288,7 @@ export const FsServiceLive = Layer.effect(
         }
       });
 
-    const writeFile: FsService["Type"]["writeFile"] = (
+    const writeFile: FsService["Service"]["writeFile"] = (
       folderId,
       relPath,
       content,
@@ -363,7 +363,7 @@ export const FsServiceLive = Layer.effect(
         return { mtime: mtimeToString(afterStat.mtime) };
       });
 
-    const createFile: FsService["Type"]["createFile"] = (
+    const createFile: FsService["Service"]["createFile"] = (
       folderId,
       relPath,
       worktreeId,
@@ -393,7 +393,7 @@ export const FsServiceLive = Layer.effect(
         return {};
       });
 
-    const createDirectory: FsService["Type"]["createDirectory"] = (
+    const createDirectory: FsService["Service"]["createDirectory"] = (
       folderId,
       relPath,
       worktreeId,
@@ -423,7 +423,7 @@ export const FsServiceLive = Layer.effect(
         return {};
       });
 
-    const remove: FsService["Type"]["remove"] = (
+    const remove: FsService["Service"]["remove"] = (
       folderId,
       relPath,
       worktreeId,
@@ -451,7 +451,7 @@ export const FsServiceLive = Layer.effect(
     // concurrency as readFile/writeFile, but the path is absolute and there's
     // no folder containment check — deliberately so, to open files the agent
     // wrote elsewhere on disk. Errors key off `path` instead of `folderId`.
-    const readExternal: FsService["Type"]["readExternal"] = (absPath) =>
+    const readExternal: FsService["Service"]["readExternal"] = (absPath) =>
       Effect.gen(function* () {
         const target = pathSvc.resolve(absPath);
         const stat = yield* fs.stat(target).pipe(
@@ -496,7 +496,7 @@ export const FsServiceLive = Layer.effect(
         }
       });
 
-    const writeExternal: FsService["Type"]["writeExternal"] = (
+    const writeExternal: FsService["Service"]["writeExternal"] = (
       absPath,
       content,
       expectedMtime,

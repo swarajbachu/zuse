@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { SessionId } from "./session.ts";
@@ -16,7 +16,7 @@ import { SessionId } from "./session.ts";
  * stringly-typed addition. v2 members (FillForm/Network/Dialog + the Wait and
  * Screenshot extensions) ride the same request/respond round-trip as v1.
  */
-export const BrowserCommand = Schema.Union(
+export const BrowserCommand = Schema.Union([
   /** Load a URL into the shared in-app webview and wait for it to settle. */
   Schema.TaggedStruct("Navigate", { url: Schema.String }),
   /**
@@ -64,7 +64,7 @@ export const BrowserCommand = Schema.Union(
    * `ref` (when given) scrolls that element to center instead.
    */
   Schema.TaggedStruct("Scroll", {
-    direction: Schema.optional(Schema.Literal("up", "down", "top", "bottom")),
+    direction: Schema.optional(Schema.Literals(["up", "down", "top", "bottom"])),
     ref: Schema.optional(Schema.String),
   }),
   /** Hover an element by `ref` (reveal menus / tooltips). */
@@ -86,7 +86,7 @@ export const BrowserCommand = Schema.Union(
   Schema.TaggedStruct("Read", { ref: Schema.optional(Schema.String) }),
   /** Browser history / reload — back, forward, or reload the current page. */
   Schema.TaggedStruct("History", {
-    action: Schema.Literal("back", "forward", "reload"),
+    action: Schema.Literals(["back", "forward", "reload"]),
   }),
   /** Return recent console messages + page errors captured since last load. */
   Schema.TaggedStruct("Console", {}),
@@ -120,7 +120,7 @@ export const BrowserCommand = Schema.Union(
    * accepting. Fails cleanly when no dialog is open.
    */
   Schema.TaggedStruct("Dialog", {
-    action: Schema.Literal("accept", "dismiss"),
+    action: Schema.Literals(["accept", "dismiss"]),
     promptText: Schema.optional(Schema.String),
   }),
   /**
@@ -131,7 +131,7 @@ export const BrowserCommand = Schema.Union(
    * args/results or the LLM context.
    */
   Schema.TaggedStruct("Login", { origin: Schema.String }),
-);
+]);
 export type BrowserCommand = typeof BrowserCommand.Type;
 
 /**
@@ -201,7 +201,7 @@ export class BrowserCommandResult extends Schema.Class<BrowserCommandResult>(
   text: Schema.optional(Schema.String),
 }) {}
 
-export class BrowserCommandNotFoundError extends Schema.TaggedError<BrowserCommandNotFoundError>()(
+export class BrowserCommandNotFoundError extends Schema.TaggedErrorClass<BrowserCommandNotFoundError>()(
   "BrowserCommandNotFoundError",
   { id: Schema.String },
 ) {}

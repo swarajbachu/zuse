@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { MemoizeRpcs, type FolderId } from "@zuse/wire";
 import {
   buildUsageReport,
@@ -139,7 +139,7 @@ const UsageReport = MemoizeRpcs.toLayerHandler(
     Effect.gen(function* () {
       const paths = yield* AppPaths;
       const projectPaths = yield* projectPathsFor(projectId).pipe(
-        Effect.catchAll(() => Effect.succeed(undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
       );
       yield* ensureSqliteRenameCompatibility(paths.userData).pipe(Effect.orDie);
       return yield* Effect.tryPromise(async () => {

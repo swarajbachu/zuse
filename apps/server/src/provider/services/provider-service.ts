@@ -115,7 +115,7 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 
-export class ProviderService extends Context.Tag("memoize/ProviderService")<
+export class ProviderService extends Context.Service<
   ProviderService,
   ProviderServiceShape
->() {}
+>()("memoize/ProviderService") {}

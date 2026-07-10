@@ -1,15 +1,15 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { WorktreeId } from "./ids.ts";
 
-export const PokemonRarity = Schema.Literal(
+export const PokemonRarity = Schema.Literals([
   "common",
   "uncommon",
   "rare",
   "epic",
   "legendary",
-);
+]);
 export type PokemonRarity = typeof PokemonRarity.Type;
 
 export class PokemonSummary extends Schema.Class<PokemonSummary>(
@@ -62,7 +62,7 @@ export class PokemonPokedexEntry extends Schema.Class<PokemonPokedexEntry>(
   evolutionLine: Schema.Array(PokemonEvolutionStep),
 }) {}
 
-export class PokemonNotFoundError extends Schema.TaggedError<PokemonNotFoundError>()(
+export class PokemonNotFoundError extends Schema.TaggedErrorClass<PokemonNotFoundError>()(
   "PokemonNotFoundError",
   { number: Schema.Number },
 ) {}

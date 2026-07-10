@@ -1,7 +1,7 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
-const DiagnosticArtifactName = Schema.Literal(
+const DiagnosticArtifactName = Schema.Literals([
   "manifest",
   "bundle-summary",
   "trace-summary",
@@ -10,11 +10,11 @@ const DiagnosticArtifactName = Schema.Literal(
   "provider-status",
   "client-context",
   "redacted-session-events",
-);
+]);
 
 const DiagnosticsLogEntry = Schema.Struct({
   createdAt: Schema.String,
-  level: Schema.Literal("debug", "info", "warn", "error"),
+  level: Schema.Literals(["debug", "info", "warn", "error"]),
   source: Schema.String,
   message: Schema.String,
   detail: Schema.optional(Schema.String),
@@ -51,7 +51,7 @@ export class DiagnosticsExportResult extends Schema.Class<DiagnosticsExportResul
   included: Schema.Array(DiagnosticArtifactName),
 }) {}
 
-export class DiagnosticsExportError extends Schema.TaggedError<DiagnosticsExportError>()(
+export class DiagnosticsExportError extends Schema.TaggedErrorClass<DiagnosticsExportError>()(
   "DiagnosticsExportError",
   {
     reason: Schema.String,

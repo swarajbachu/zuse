@@ -1,4 +1,4 @@
-import type { RpcClient, RpcGroup } from "@effect/rpc";
+import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { MemoizeRpcs } from "@zuse/wire";
 import { Effect } from "effect";
 

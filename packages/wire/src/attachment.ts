@@ -1,9 +1,9 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { SessionId, SessionNotFoundError } from "./session.ts";
 
-export class AttachmentTooLargeError extends Schema.TaggedError<AttachmentTooLargeError>()(
+export class AttachmentTooLargeError extends Schema.TaggedErrorClass<AttachmentTooLargeError>()(
   "AttachmentTooLargeError",
   {
     sessionId: SessionId,
@@ -12,7 +12,7 @@ export class AttachmentTooLargeError extends Schema.TaggedError<AttachmentTooLar
   },
 ) {}
 
-export class AttachmentBadMimeError extends Schema.TaggedError<AttachmentBadMimeError>()(
+export class AttachmentBadMimeError extends Schema.TaggedErrorClass<AttachmentBadMimeError>()(
   "AttachmentBadMimeError",
   {
     sessionId: SessionId,
@@ -46,9 +46,9 @@ export const AttachmentUploadRpc = Rpc.make("attachments.upload", {
     mimeType: Schema.String,
     ext: Schema.String,
   }),
-  error: Schema.Union(
+  error: Schema.Union([
     AttachmentTooLargeError,
     AttachmentBadMimeError,
     SessionNotFoundError,
-  ),
+  ]),
 });

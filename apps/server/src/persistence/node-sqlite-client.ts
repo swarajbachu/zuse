@@ -1,9 +1,9 @@
-import * as Reactivity from "@effect/experimental/Reactivity";
-import * as Client from "@effect/sql/SqlClient";
-import type { Connection } from "@effect/sql/SqlConnection";
-import { SqlError } from "@effect/sql/SqlError";
-import * as Statement from "@effect/sql/Statement";
-import { Context, Effect, Layer, Scope, Stream } from "effect";
+import * as Reactivity from "effect/unstable/reactivity/Reactivity";
+import * as Client from "effect/unstable/sql/SqlClient";
+import type { Connection } from "effect/unstable/sql/SqlConnection";
+import { SqlError } from "effect/unstable/sql/SqlError";
+import * as Statement from "effect/unstable/sql/Statement";
+import { Context, Effect, Layer, Scope, Semaphore, Stream } from "effect";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 /**
@@ -132,12 +132,12 @@ export const make = (
       } satisfies Connection;
     });
 
-    const semaphore = yield* Effect.makeSemaphore(1);
+    const semaphore = yield* Semaphore.make(1);
     const connection = yield* makeConnection;
     const acquirer = semaphore.withPermits(1)(Effect.succeed(connection));
     const transactionAcquirer = Effect.uninterruptibleMask((restore) =>
       Effect.as(
-        Effect.zipRight(
+        Effect.andThen(
           restore(semaphore.take(1)),
           Effect.tap(Effect.scope, (scope) =>
             Scope.addFinalizer(scope, semaphore.release(1)),
@@ -163,7 +163,7 @@ export const make = (
 export const layer = (
   config: NodeSqliteClientConfig,
 ): Layer.Layer<Client.SqlClient, SqlError> =>
-  Layer.scopedContext(
+  Layer.effectContext(
     Effect.map(make(config), (client) =>
       Context.make(Client.SqlClient, client),
     ),

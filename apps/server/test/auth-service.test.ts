@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from "effect";
 
 import type { ProviderId } from "@zuse/wire";

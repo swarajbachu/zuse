@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId, WorktreeId } from "./ids.ts";
@@ -21,7 +21,7 @@ export class GitStatusSummary extends Schema.Class<GitStatusSummary>(
   dirtyFiles: Schema.Number,
 }) {}
 
-export const GitBranchKind = Schema.Literal("local", "remote");
+export const GitBranchKind = Schema.Literals(["local", "remote"]);
 export type GitBranchKind = typeof GitBranchKind.Type;
 
 export class GitBranchInfo extends Schema.Class<GitBranchInfo>("GitBranchInfo")(
@@ -34,32 +34,32 @@ export class GitBranchInfo extends Schema.Class<GitBranchInfo>("GitBranchInfo")(
   },
 ) {}
 
-export class GitNotARepoError extends Schema.TaggedError<GitNotARepoError>()(
+export class GitNotARepoError extends Schema.TaggedErrorClass<GitNotARepoError>()(
   "GitNotARepoError",
   { folderId: FolderId },
 ) {}
 
-export class GitNotInstalledError extends Schema.TaggedError<GitNotInstalledError>()(
+export class GitNotInstalledError extends Schema.TaggedErrorClass<GitNotInstalledError>()(
   "GitNotInstalledError",
   {},
 ) {}
 
-export class GitCommandError extends Schema.TaggedError<GitCommandError>()(
+export class GitCommandError extends Schema.TaggedErrorClass<GitCommandError>()(
   "GitCommandError",
   { folderId: FolderId, reason: Schema.String },
 ) {}
 
-export class GitFolderNotFoundError extends Schema.TaggedError<GitFolderNotFoundError>()(
+export class GitFolderNotFoundError extends Schema.TaggedErrorClass<GitFolderNotFoundError>()(
   "GitFolderNotFoundError",
   { folderId: FolderId },
 ) {}
 
-const GitErrors = Schema.Union(
+const GitErrors = Schema.Union([
   GitNotARepoError,
   GitNotInstalledError,
   GitCommandError,
   GitFolderNotFoundError,
-);
+]);
 
 export const GitLogRpc = Rpc.make("git.log", {
   payload: Schema.Struct({ folderId: FolderId, limit: Schema.Number }),
@@ -148,7 +148,7 @@ export const GitOriginRpc = Rpc.make("git.origin", {
  * the source of truth — when `gh` is missing or no PR exists, this returns
  * `{ state: "none" }` and the renderer falls back to a plain timestamp.
  */
-export const GitPrState = Schema.Literal("none", "open", "closed", "merged");
+export const GitPrState = Schema.Literals(["none", "open", "closed", "merged"]);
 export type GitPrState = typeof GitPrState.Type;
 
 /**
@@ -158,12 +158,12 @@ export type GitPrState = typeof GitPrState.Type;
  *   success — all checks passed.
  *   failure — at least one check failed (cancelled / errored counts as fail).
  */
-export const GitPrChecks = Schema.Literal(
+export const GitPrChecks = Schema.Literals([
   "none",
   "pending",
   "success",
   "failure",
-);
+]);
 export type GitPrChecks = typeof GitPrChecks.Type;
 
 /**
@@ -172,7 +172,7 @@ export type GitPrChecks = typeof GitPrChecks.Type;
  *   conflicting — at least one path in the branch conflicts with the base.
  *   unknown     — GitHub hasn't computed it yet, no PR exists, or `gh` couldn't read it.
  */
-export const GitPrMergeable = Schema.Literal("clean", "conflicting", "unknown");
+export const GitPrMergeable = Schema.Literals(["clean", "conflicting", "unknown"]);
 export type GitPrMergeable = typeof GitPrMergeable.Type;
 
 export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
@@ -224,13 +224,13 @@ export class GitPrComment extends Schema.Class<GitPrComment>("GitPrComment")({
   createdAt: Schema.DateFromString,
 }) {}
 
-export const GitPrReviewState = Schema.Literal(
+export const GitPrReviewState = Schema.Literals([
   "approved",
   "changes_requested",
   "commented",
   "dismissed",
   "pending",
-);
+]);
 export type GitPrReviewState = typeof GitPrReviewState.Type;
 
 export class GitPrReview extends Schema.Class<GitPrReview>("GitPrReview")({
@@ -247,15 +247,15 @@ export class GitPrFile extends Schema.Class<GitPrFile>("GitPrFile")({
   deletions: Schema.Number,
 }) {}
 
-export const GitPrCheckRunStatus = Schema.Literal(
+export const GitPrCheckRunStatus = Schema.Literals([
   "queued",
   "in_progress",
   "completed",
   "pending",
-);
+]);
 export type GitPrCheckRunStatus = typeof GitPrCheckRunStatus.Type;
 
-export const GitPrCheckRunConclusion = Schema.Literal(
+export const GitPrCheckRunConclusion = Schema.Literals([
   "success",
   "failure",
   "cancelled",
@@ -263,7 +263,7 @@ export const GitPrCheckRunConclusion = Schema.Literal(
   "neutral",
   "timed_out",
   "action_required",
-);
+]);
 export type GitPrCheckRunConclusion = typeof GitPrCheckRunConclusion.Type;
 
 export class GitPrCheckRun extends Schema.Class<GitPrCheckRun>("GitPrCheckRun")(
@@ -413,7 +413,7 @@ export const GitFixFailingChecksRpc = Rpc.make("git.fixFailingChecks", {
  * collapse renames/copies to a path that matches the working-tree side so the
  * Diff tab can wire a click to "open this file in the editor."
  */
-export const GitChangeKind = Schema.Literal(
+export const GitChangeKind = Schema.Literals([
   "modified",
   "added",
   "deleted",
@@ -423,7 +423,7 @@ export const GitChangeKind = Schema.Literal(
   "ignored",
   "unmerged",
   "type_changed",
-);
+]);
 export type GitChangeKind = typeof GitChangeKind.Type;
 
 export class GitChange extends Schema.Class<GitChange>("GitChange")({
@@ -453,13 +453,13 @@ export const GitChangesRpc = Rpc.make("git.changes", {
  * for new files; `deleted` means the file is gone from the working
  * tree but still in HEAD; `binary` and `unchanged` carry no patch text.
  */
-export const GitDiffMode = Schema.Literal(
+export const GitDiffMode = Schema.Literals([
   "worktree",
   "untracked",
   "deleted",
   "binary",
   "unchanged",
-);
+]);
 export type GitDiffMode = typeof GitDiffMode.Type;
 
 export class GitDiffResult extends Schema.Class<GitDiffResult>("GitDiffResult")(
@@ -512,7 +512,7 @@ export const GitPushRpc = Rpc.make("git.push", {
  * Merge method passed to `gh pr merge`. Mirrors GitHub's three merge buttons;
  * the renderer remembers the last-used value (default `merge`).
  */
-export const GitMergeMethod = Schema.Literal("merge", "squash", "rebase");
+export const GitMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
 export type GitMergeMethod = typeof GitMergeMethod.Type;
 
 /**
@@ -529,7 +529,7 @@ export const GitMergePrRpc = Rpc.make("git.mergePr", {
   payload: Schema.Struct({
     folderId: FolderId,
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    action: Schema.Literal("merge", "enable-auto", "disable-auto"),
+    action: Schema.Literals(["merge", "enable-auto", "disable-auto"]),
     method: GitMergeMethod,
     deleteBranch: Schema.Boolean,
   }),

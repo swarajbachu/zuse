@@ -1,4 +1,4 @@
-import { RpcSerialization } from "@effect/rpc";
+import { RpcSerialization } from "effect/unstable/rpc";
 import {
   app,
   BrowserWindow,
@@ -1428,7 +1428,7 @@ function createMainWindow() {
         },
       }),
     ).pipe(
-      Effect.catchAllCause((cause) =>
+      Effect.catchCause((cause) =>
         Effect.sync(() => {
           // Boot-time layer failures (sqlite open, migrator, config) are
           // unrecoverable — surface the cause and bail. Quiet

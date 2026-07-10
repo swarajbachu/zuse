@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Clock, Effect, Layer, Ref } from "effect";
 import { importJWK, jwtVerify, type JWK } from "jose";
 import { createHash, randomBytes } from "node:crypto";
@@ -224,7 +224,7 @@ export const LanAuthServiceLive = Layer.effect(
                 return verified.payload.environmentId === relay.environment_id;
               },
               catch: (cause) => cause,
-            }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+            }).pipe(Effect.catch(() => Effect.succeed(false)));
           }
           const usedAt = yield* nowIso;
           yield* sql`

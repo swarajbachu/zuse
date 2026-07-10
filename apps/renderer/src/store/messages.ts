@@ -492,7 +492,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             });
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             console.error("[messages] message stream errored", err);
             set((s) => ({

@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Context, Effect, Layer, Ref } from "effect";
 
 export type ProviderKind = "desktop" | "ssh" | "cloud";
@@ -125,10 +125,10 @@ export interface RelayStoreApi {
   readonly recordActivity: (activity: ActivityRecord) => Effect.Effect<void>;
 }
 
-export class RelayStore extends Context.Tag("@zuse/relay/RelayStore")<
+export class RelayStore extends Context.Service<
   RelayStore,
   RelayStoreApi
->() {}
+>()("@zuse/relay/RelayStore") {}
 
 // ---------------------------------------------------------------------------
 // In-memory implementation (tests + local dev).
@@ -203,7 +203,7 @@ export const RelayStoreMemory: Layer.Layer<RelayStore> = Layer.effect(
           });
         }),
       deleteEnvironment: (environmentId, accountId) =>
-        Effect.zipRight(
+        Effect.andThen(
           Ref.update(environments, (map) => {
             const found = map.get(environmentId);
             if (found === undefined || found.accountId !== accountId)

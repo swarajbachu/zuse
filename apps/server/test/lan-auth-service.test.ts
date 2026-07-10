@@ -1,5 +1,5 @@
-import { describe, expect, it } from "bun:test";
-import { SqlClient } from "@effect/sql";
+import { describe, expect, it } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import {
   Duration,
@@ -30,11 +30,11 @@ const makeRuntime = () => {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
     Migration0021AuthTokens.pipe(
-      Effect.zipRight(Migration0024RemoteConnectState),
-      Effect.zipRight(Migration0025RelayEnvironmentKeys),
-      Effect.zipRight(Migration0026RelayConnectorToken),
-      Effect.zipRight(Migration0027RelayTunnelHostname),
-      Effect.zipRight(Migration0028RelayMintPublicKey),
+      Effect.andThen(Migration0024RemoteConnectState),
+      Effect.andThen(Migration0025RelayEnvironmentKeys),
+      Effect.andThen(Migration0026RelayConnectorToken),
+      Effect.andThen(Migration0027RelayTunnelHostname),
+      Effect.andThen(Migration0028RelayMintPublicKey),
     ),
   ).pipe(Layer.provideMerge(SqlLive));
   const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -144,7 +144,7 @@ describe("LanAuthService", () => {
           const pairing = yield* auth.createPairingCode();
           const redeemed = yield* auth.redeemPairingCode(pairing.code);
           const verified = yield* auth.verifyToken(redeemed.token);
-          const second = yield* Effect.either(
+          const second = yield* Effect.result(
             auth.redeemPairingCode(pairing.code),
           );
           return { pairing, redeemed, verified, second };
@@ -169,7 +169,7 @@ describe("LanAuthService", () => {
           const auth = yield* LanAuthService;
           const pairing = yield* auth.createPairingCode();
           yield* TestClock.adjust(Duration.minutes(6));
-          return yield* Effect.either(auth.redeemPairingCode(pairing.code));
+          return yield* Effect.result(auth.redeemPairingCode(pairing.code));
         }),
       );
 
@@ -185,7 +185,7 @@ describe("LanAuthService", () => {
       const result = await run(
         Effect.gen(function* () {
           const auth = yield* LanAuthService;
-          return yield* Effect.either(auth.redeemPairingCode("zp_missing"));
+          return yield* Effect.result(auth.redeemPairingCode("zp_missing"));
         }),
       );
 

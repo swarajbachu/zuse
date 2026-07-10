@@ -1,4 +1,4 @@
-import { Effect, Mailbox, type Scope, Stream } from "effect";
+import { Effect, Queue, type Scope, Stream } from "effect";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import * as readline from "node:readline";
 import { homedir } from "node:os";
@@ -26,7 +26,7 @@ const UPDATE_TIMEOUT_MS = 5 * 60_000;
  *   2. Pipes — curl-based installers (Grok, Cursor) are full shell pipelines
  *      (`curl … | bash`), which only work through a shell.
  *
- * Cancellation mirrors `startProviderLogin`: wrapped in `Stream.unwrapScoped`,
+ * Cancellation mirrors `startProviderLogin`: wrapped in `Stream.unwrap`,
  * so unsubscribing (or an IPC drop) closes the scope and the finalizer kills
  * the child (SIGTERM → SIGKILL).
  */
@@ -42,7 +42,7 @@ export const startProviderUpdate = (
     };
     return Stream.succeed(event);
   }
-  return Stream.unwrapScoped(spawnUpdate(providerId, command));
+  return Stream.unwrap(spawnUpdate(providerId, command));
 };
 
 const spawnUpdate = (
@@ -54,7 +54,7 @@ const spawnUpdate = (
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const mailbox = yield* Mailbox.make<ProviderUpdateEvent>();
+    const mailbox = yield* Queue.make<ProviderUpdateEvent>();
 
     // stdin closed (`ignore`) so an installer never blocks waiting on input.
     let child: ChildProcessByStdio<null, Readable, Readable>;
@@ -86,7 +86,7 @@ const spawnUpdate = (
       const cleaned = raw.replace(ANSI_PATTERN, "").trim();
       if (cleaned.length === 0) return;
       lastLine = cleaned;
-      mailbox.unsafeOffer({ _tag: "log", text: cleaned });
+      Queue.offerUnsafe(mailbox, { _tag: "log", text: cleaned });
     };
 
     const rlOut = readline.createInterface({ input: child.stdout });
@@ -97,7 +97,7 @@ const spawnUpdate = (
     const finish = (ok: boolean, reason?: string): void => {
       if (exited) return;
       exited = true;
-      mailbox.unsafeOffer({
+      Queue.offerUnsafe(mailbox, {
         _tag: "done",
         ok,
         ...(reason !== undefined ? { reason } : {}),
@@ -155,5 +155,5 @@ const spawnUpdate = (
       }),
     );
 
-    return Mailbox.toStream(mailbox);
+    return Stream.fromQueue(mailbox);
   });

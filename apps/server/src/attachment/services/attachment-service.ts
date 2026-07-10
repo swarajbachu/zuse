@@ -61,7 +61,7 @@ export interface AttachmentServiceShape {
   >;
 }
 
-export class AttachmentService extends Context.Tag("memoize/AttachmentService")<
+export class AttachmentService extends Context.Service<
   AttachmentService,
   AttachmentServiceShape
->() {}
+>()("memoize/AttachmentService") {}

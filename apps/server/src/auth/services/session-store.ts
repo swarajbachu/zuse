@@ -14,7 +14,7 @@ export interface SessionStoreShape {
   ) => Effect.Effect<A, E | SessionStoreError, R>;
 }
 
-export class SessionStore extends Context.Tag("memoize/SessionStore")<
+export class SessionStore extends Context.Service<
   SessionStore,
   SessionStoreShape
->() {}
+>()("memoize/SessionStore") {}

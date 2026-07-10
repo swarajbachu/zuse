@@ -1,16 +1,16 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 import { PokemonSummary } from "./pokemon.ts";
 
-export const WorktreeSetupStatus = Schema.Literal(
+export const WorktreeSetupStatus = Schema.Literals([
   "pending",
   "running",
   "succeeded",
   "failed",
   "skipped",
-);
+]);
 export type WorktreeSetupStatus = typeof WorktreeSetupStatus.Type;
 
 /**
@@ -35,7 +35,7 @@ export class Worktree extends Schema.Class<Worktree>("Worktree")({
   pokemon: Schema.NullOr(PokemonSummary),
 }) {}
 
-export class WorktreeNotFoundError extends Schema.TaggedError<WorktreeNotFoundError>()(
+export class WorktreeNotFoundError extends Schema.TaggedErrorClass<WorktreeNotFoundError>()(
   "WorktreeNotFoundError",
   { worktreeId: WorktreeId },
 ) {}
@@ -59,39 +59,39 @@ export const WorktreeSetupStatusEvent = Schema.TaggedStruct("status", {
   setupFinishedAt: Schema.NullOr(Schema.DateFromString),
 });
 
-export const WorktreeSetupEvent = Schema.Union(
+export const WorktreeSetupEvent = Schema.Union([
   WorktreeSetupChunk,
   WorktreeSetupStatusEvent,
-);
+]);
 export type WorktreeSetupEvent = typeof WorktreeSetupEvent.Type;
 
-export class WorktreeCreateError extends Schema.TaggedError<WorktreeCreateError>()(
+export class WorktreeCreateError extends Schema.TaggedErrorClass<WorktreeCreateError>()(
   "WorktreeCreateError",
   { projectId: FolderId, reason: Schema.String },
 ) {}
 
-export class WorktreeRemoveError extends Schema.TaggedError<WorktreeRemoveError>()(
+export class WorktreeRemoveError extends Schema.TaggedErrorClass<WorktreeRemoveError>()(
   "WorktreeRemoveError",
   { worktreeId: WorktreeId, reason: Schema.String },
 ) {}
 
-export class WorktreeDirtyError extends Schema.TaggedError<WorktreeDirtyError>()(
+export class WorktreeDirtyError extends Schema.TaggedErrorClass<WorktreeDirtyError>()(
   "WorktreeDirtyError",
   { worktreeId: WorktreeId },
 ) {}
 
-export class WorktreeSetupError extends Schema.TaggedError<WorktreeSetupError>()(
+export class WorktreeSetupError extends Schema.TaggedErrorClass<WorktreeSetupError>()(
   "WorktreeSetupError",
   { worktreeId: WorktreeId, reason: Schema.String },
 ) {}
 
-const WorktreeErrors = Schema.Union(
+const WorktreeErrors = Schema.Union([
   WorktreeCreateError,
   WorktreeRemoveError,
   WorktreeNotFoundError,
   WorktreeDirtyError,
   WorktreeSetupError,
-);
+]);
 
 /**
  * Optional source for a worktree checkout. When omitted, `worktree.create`
@@ -104,7 +104,7 @@ const WorktreeErrors = Schema.Union(
  * The directory still gets a Pokémon name/mascot; only the checked-out branch
  * differs.
  */
-export const WorktreeCreateSource = Schema.Union(
+export const WorktreeCreateSource = Schema.Union([
   Schema.Struct({
     _tag: Schema.Literal("branch"),
     branch: Schema.String,
@@ -115,7 +115,7 @@ export const WorktreeCreateSource = Schema.Union(
     number: Schema.Number,
     headRefName: Schema.String,
   }),
-);
+]);
 export type WorktreeCreateSource = typeof WorktreeCreateSource.Type;
 
 export const WorktreeCreateRpc = Rpc.make("worktree.create", {
@@ -161,7 +161,7 @@ export const WorktreeStartRunRpc = Rpc.make("worktree.startRun", {
   success: Schema.Struct({
     cwd: Schema.String,
     script: Schema.String,
-    env: Schema.Record({ key: Schema.String, value: Schema.String }),
+    env: Schema.Record(Schema.String, Schema.String ),
   }),
   error: WorktreeErrors,
 });

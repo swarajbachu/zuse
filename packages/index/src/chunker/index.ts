@@ -60,5 +60,5 @@ export const chunkSource = (
         cause,
       }),
   }).pipe(
-    Effect.catchAll(() => Effect.succeed(windowChunker(source))),
+    Effect.catch(() => Effect.succeed(windowChunker(source))),
   );

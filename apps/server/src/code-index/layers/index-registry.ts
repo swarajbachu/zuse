@@ -1,7 +1,7 @@
 import {
   Effect,
   Layer,
-  Mailbox,
+  Queue,
   ManagedRuntime,
   Ref,
   Stream,
@@ -51,7 +51,7 @@ const emptyStatus = (branch: string): IndexStatus => ({
  * service calls it on `setSelected` / `add`, and the renderer subscribes
  * to `statusStream()` over RPC to drive the top-bar progress chip.
  */
-export const IndexRegistryLive = Layer.scoped(
+export const IndexRegistryLive = Layer.effect(
   IndexRegistry,
   Effect.gen(function* () {
     const entries = yield* Ref.make(new Map<string, Entry>());
@@ -80,7 +80,7 @@ export const IndexRegistryLive = Layer.scoped(
       );
 
       const callP = <A>(
-        f: (svc: IndexService["Type"]) => Effect.Effect<A, unknown>,
+        f: (svc: IndexService["Service"]) => Effect.Effect<A, unknown>,
       ): Promise<A> =>
         runtime.runPromise(
           Effect.flatMap(IndexService, f) as Effect.Effect<A, unknown, never>,
@@ -90,7 +90,7 @@ export const IndexRegistryLive = Layer.scoped(
       // Effect round-trip. Updated by the per-entry subscriber fiber below.
       let currentState: IndexStatus["state"] = "idle";
       let lastStatus: IndexStatus = emptyStatus(branch);
-      const subscribers = new Set<Mailbox.Mailbox<IndexStatus>>();
+      const subscribers = new Set<Queue.Queue<IndexStatus>>();
 
       // Subscribe to the IndexService's fan-out and shovel snapshots into
       // (a) our cached `state()`/`lastStatus` and (b) every per-subscriber
@@ -104,7 +104,7 @@ export const IndexRegistryLive = Layer.scoped(
             Effect.sync(() => {
               currentState = snapshot.state;
               lastStatus = snapshot;
-              for (const m of subscribers) m.unsafeOffer(snapshot);
+              for (const m of subscribers) Queue.offerUnsafe(m, snapshot);
             }),
         ),
       );
@@ -133,9 +133,9 @@ export const IndexRegistryLive = Layer.scoped(
       };
 
       const statusStream = (): Stream.Stream<IndexStatus> =>
-        Stream.unwrapScoped(
+        Stream.unwrap(
           Effect.gen(function* () {
-            const mailbox = yield* Mailbox.make<IndexStatus>();
+            const mailbox = yield* Queue.make<IndexStatus>();
             yield* Effect.addFinalizer(() =>
               Effect.sync(() => {
                 subscribers.delete(mailbox);
@@ -144,8 +144,8 @@ export const IndexRegistryLive = Layer.scoped(
             subscribers.add(mailbox);
             // Seed with the cached current snapshot — no race with the next
             // transition.
-            mailbox.unsafeOffer(lastStatus);
-            return Mailbox.toStream(mailbox);
+            Queue.offerUnsafe(mailbox, lastStatus);
+            return Stream.fromQueue(mailbox);
           }),
         );
 

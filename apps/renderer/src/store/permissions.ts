@@ -99,8 +99,8 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
       // backoff. Without this the stream dies once (server restart, dev HMR,
       // scope close) and live delivery never recovers. Mirrors the
       // `statusFiber` reset idiom in store/messages.ts.
-      const program = Effect.zipRight(rehydrateKnownSessions, subscribe).pipe(
-        Effect.catchAll(() => Effect.void),
+      const program = Effect.andThen(rehydrateKnownSessions, subscribe).pipe(
+        Effect.catch(() => Effect.void),
         Effect.repeat(Schedule.spaced("2 seconds")),
         Effect.ensuring(
           Effect.sync(() => {

@@ -1,6 +1,6 @@
-import { RpcClient, RpcSerialization } from "@effect/rpc";
-import { RpcClientError } from "@effect/rpc/RpcClientError";
-import type { FromServerEncoded } from "@effect/rpc/RpcMessage";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import type { FromServerEncoded } from "effect/unstable/rpc/RpcMessage";
 import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
 
 import { type RpcBridge } from "./bridge.ts";
@@ -67,4 +67,4 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
   );
 
 export const electronClientProtocolLayer = (bridge: RpcBridge) =>
-  Layer.scoped(RpcClient.Protocol, makeElectronClientProtocol(bridge));
+  Layer.effect(RpcClient.Protocol, makeElectronClientProtocol(bridge));

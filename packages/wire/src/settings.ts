@@ -1,5 +1,5 @@
-import { Rpc } from "@effect/rpc";
-import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
+import { Schema, Struct } from "effect";
 
 import {
   AgentDefinition,
@@ -18,21 +18,21 @@ import { GitMergeMethod } from "./git.ts";
  */
 export const SubagentPresetState = Schema.Struct({
   enabled: Schema.Boolean,
-  overrides: Schema.partial(AgentDefinition),
+  overrides: AgentDefinition.mapFields(Struct.map(Schema.optional)),
 });
 export type SubagentPresetState = typeof SubagentPresetState.Type;
 
-export const CompletionSoundPreset = Schema.Literal(
+export const CompletionSoundPreset = Schema.Literals([
   "chime",
   "soft",
   "pop",
   "bell",
   "rise",
   "bloom",
-);
+]);
 export type CompletionSoundPreset = typeof CompletionSoundPreset.Type;
 
-export const AppearanceMode = Schema.Literal("system", "light", "dark");
+export const AppearanceMode = Schema.Literals(["system", "light", "dark"]);
 export type AppearanceMode = typeof AppearanceMode.Type;
 
 /**
@@ -44,12 +44,12 @@ export type AppearanceMode = typeof AppearanceMode.Type;
  *   - `custom`        → `<branchNamingPrefix>/<slug>` (user-defined prefix)
  * Default is `username-slug`, mirroring the convention most teams use.
  */
-export const BranchNamingStyle = Schema.Literal(
+export const BranchNamingStyle = Schema.Literals([
   "username-slug",
   "slug",
   "feat-slug",
   "custom",
-);
+]);
 export type BranchNamingStyle = typeof BranchNamingStyle.Type;
 
 export const MergePrefs = Schema.Struct({
@@ -70,10 +70,7 @@ export type MergePrefs = typeof MergePrefs.Type;
 export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   schemaVersion: Schema.Literal(1),
   defaultProviderId: ProviderId,
-  defaultModelByProvider: Schema.Record({
-    key: ProviderId,
-    value: Schema.String,
-  }),
+  defaultModelByProvider: Schema.Record(ProviderId, Schema.String),
   defaultRuntimeMode: RuntimeMode,
   defaultAutoCreateWorktree: Schema.Boolean,
   /**
@@ -91,18 +88,15 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * to `true` for every provider; flipping it to `false` filters the
    * provider from the new-session picker without uninstalling its CLI.
    */
-  providerEnabled: Schema.Record({
-    key: ProviderId,
-    value: Schema.Boolean,
-  }),
+  providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
   /**
    * Per-model visibility toggles from provider settings. Missing entries are
    * filled from each model's catalog `defaultVisible` flag by config-store.
    */
-  modelEnabledByProvider: Schema.Record({
-    key: ProviderId,
-    value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
-  }),
+  modelEnabledByProvider: Schema.Record(
+    ProviderId,
+    Schema.Record(Schema.String, Schema.Boolean),
+  ),
   /**
    * OpenCode is a meta-harness fronting ~150 model providers. These four
    * fields drive the in-app OpenCode provider manager. They are keyed by
@@ -114,15 +108,12 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * Which connected sub-providers appear in the model picker. Missing entry ⇒
    * visible (a newly connected provider shows by default).
    */
-  opencodeProviderVisible: Schema.Record({
-    key: Schema.String,
-    value: Schema.Boolean,
-  }),
+  opencodeProviderVisible: Schema.Record(Schema.String, Schema.Boolean),
   /** Per-sub-provider model visibility. Missing entry ⇒ visible. */
-  opencodeModelVisibleByProvider: Schema.Record({
-    key: Schema.String,
-    value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
-  }),
+  opencodeModelVisibleByProvider: Schema.Record(
+    Schema.String,
+    Schema.Record(Schema.String, Schema.Boolean),
+  ),
   /**
    * User-defined OpenAI-compatible providers (no secrets — the API key lives
    * in opencode's `auth.json`). Injected into every `opencode serve` we spawn
@@ -131,10 +122,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
   opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
   subagents: Schema.Struct({
     enableForNewSessions: Schema.Boolean,
-    presets: Schema.Record({
-      key: Schema.String,
-      value: SubagentPresetState,
-    }),
+    presets: Schema.Record(Schema.String, SubagentPresetState),
   }),
   /**
    * Branch-name shape the auto-namer uses when it renames a new chat's
@@ -167,7 +155,7 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 export const SettingsPatch = Schema.Struct({
   defaultProviderId: Schema.optional(ProviderId),
   defaultModelByProvider: Schema.optional(
-    Schema.Record({ key: ProviderId, value: Schema.String }),
+    Schema.Record(ProviderId, Schema.String),
   ),
   defaultRuntimeMode: Schema.optional(RuntimeMode),
   defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
@@ -177,22 +165,19 @@ export const SettingsPatch = Schema.Struct({
   completionSoundEnabled: Schema.optional(Schema.Boolean),
   completionSoundPreset: Schema.optional(CompletionSoundPreset),
   providerEnabled: Schema.optional(
-    Schema.Record({ key: ProviderId, value: Schema.Boolean }),
+    Schema.Record(ProviderId, Schema.Boolean),
   ),
   modelEnabledByProvider: Schema.optional(
-    Schema.Record({
-      key: ProviderId,
-      value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
-    }),
+    Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
   ),
   opencodeProviderVisible: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+    Schema.Record(Schema.String, Schema.Boolean),
   ),
   opencodeModelVisibleByProvider: Schema.optional(
-    Schema.Record({
-      key: Schema.String,
-      value: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
-    }),
+    Schema.Record(
+      Schema.String,
+      Schema.Record(Schema.String, Schema.Boolean),
+    ),
   ),
   opencodeCustomProviders: Schema.optional(
     Schema.Array(OpencodeCustomProvider),
@@ -200,10 +185,7 @@ export const SettingsPatch = Schema.Struct({
   subagents: Schema.optional(
     Schema.Struct({
       enableForNewSessions: Schema.Boolean,
-      presets: Schema.Record({
-        key: Schema.String,
-        value: SubagentPresetState,
-      }),
+      presets: Schema.Record(Schema.String, SubagentPresetState),
     }),
   ),
   branchNamingStyle: Schema.optional(BranchNamingStyle),

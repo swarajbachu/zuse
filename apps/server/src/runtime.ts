@@ -1,6 +1,6 @@
 import { NodeContext } from "@effect/platform-node";
-import { RpcServer } from "@effect/rpc";
-import { SqlClient } from "@effect/sql";
+import { RpcServer } from "effect/unstable/rpc";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 
 import { MemoizeRpcs } from "@zuse/wire";

@@ -14,14 +14,14 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@effect/rpc": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

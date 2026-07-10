@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { AuthTokenId } from "./ids.ts";
@@ -22,7 +22,7 @@ export class AuthTokenSummary extends Schema.Class<AuthTokenSummary>(
   revokedAt: Schema.optional(Schema.DateFromString),
 }) {}
 
-export class PairingError extends Schema.TaggedError<PairingError>()(
+export class PairingError extends Schema.TaggedErrorClass<PairingError>()(
   "PairingError",
   { reason: Schema.String },
 ) {}

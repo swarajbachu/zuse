@@ -41,9 +41,9 @@ export interface RelayConfig {
   readonly managedTunnel?: ManagedTunnelConfig;
 }
 
-export class RelayConfiguration extends Context.Tag(
+export class RelayConfiguration extends Context.Service<RelayConfiguration, RelayConfig>()(
   "@zuse/relay/RelayConfiguration",
-)<RelayConfiguration, RelayConfig>() {}
+) {}
 
 const DEFAULTS = {
   challengeTtlMs: 5 * 60 * 1000,

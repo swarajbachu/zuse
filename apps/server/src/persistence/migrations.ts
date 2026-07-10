@@ -1,4 +1,4 @@
-import * as Migrator from "@effect/sql/Migrator";
+import * as Migrator from "effect/unstable/sql/Migrator";
 import { Layer } from "effect";
 
 import { Migration0001Initial } from "./migrations/0001_initial.ts";

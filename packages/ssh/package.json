@@ -14,7 +14,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
     "effect": "catalog:"
@@ -22,6 +22,7 @@
   "devDependencies": {
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

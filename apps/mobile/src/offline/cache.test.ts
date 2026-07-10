@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Message } from "@zuse/wire";
 import { Schema } from "effect";
 

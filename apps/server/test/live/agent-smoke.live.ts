@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -269,8 +269,8 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
           terminalTags.has(event._tag),
         );
 
-        yield* handle.close().pipe(Effect.catchAll(() => Effect.void));
-        yield* Fiber.interrupt(fiber).pipe(Effect.catchAll(() => Effect.void));
+        yield* handle.close().pipe(Effect.catch(() => Effect.void));
+        yield* Fiber.interrupt(fiber).pipe(Effect.catch(() => Effect.void));
         return sawTerminal;
       }).pipe(Effect.provide(AttachmentServiceTest)),
     );

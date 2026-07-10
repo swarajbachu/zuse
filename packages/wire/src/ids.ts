@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-const TrimmedNonEmptyString = Schema.Trim.pipe(Schema.nonEmptyString());
+const TrimmedNonEmptyString = Schema.Trim.check(Schema.isNonEmpty());
 
 const makeEntityId = <Brand extends string>(brand: Brand) =>
   TrimmedNonEmptyString.pipe(Schema.brand(brand));

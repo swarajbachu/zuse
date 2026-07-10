@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import {

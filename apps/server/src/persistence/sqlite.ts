@@ -1,5 +1,5 @@
-import type { SqlClient } from "@effect/sql";
-import type { SqlError } from "@effect/sql/SqlError";
+import type { SqlClient } from "effect/unstable/sql";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { ConfigError } from "effect";
 import { Effect, Layer } from "effect";
 import { mkdir } from "node:fs/promises";

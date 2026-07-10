@@ -1,4 +1,8 @@
-import { Command, CommandExecutor, FileSystem } from "@effect/platform";
+import { FileSystem } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 import { Duration, Effect, Stream } from "effect";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -151,17 +155,17 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 const PROBE_TIMEOUT = Duration.seconds(4);
 
 const collectText = (
-  s: Stream.Stream<Uint8Array, import("@effect/platform/Error").PlatformError>,
+  s: Stream.Stream<Uint8Array, import("effect/PlatformError").PlatformError>,
 ) =>
   s.pipe(
-    Stream.decodeText("utf-8"),
-    Stream.runFold("", (acc, chunk) => acc + chunk),
+    Stream.decodeText({ encoding: "utf-8" }),
+    Stream.runFold(() => "", (acc, chunk) => acc + chunk),
   );
 
 const runCapture = (cmd: Command.Command) =>
   Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
-    const proc = yield* executor.start(cmd);
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
+    const proc = yield* executor.spawn(cmd);
     const stdout = yield* collectText(proc.stdout);
     const exitCode = yield* proc.exitCode;
     return { stdout: stdout.trim(), exitCode };
@@ -198,13 +202,13 @@ export const selectCliPathCandidate = (
  */
 export const resolveCliPath = (
   cliBinary: string,
-): Effect.Effect<string | null, never, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<string | null, never, CommandExecutor.ChildProcessSpawner> =>
   Effect.gen(function* () {
     const result = yield* runCapture(
-      Command.make("which", "-a", cliBinary),
+      Command.make("which", ["-a", cliBinary]),
     ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
     return selectCliPathCandidate(
@@ -303,11 +307,11 @@ export const compareCliVersion = (a: CliVersion, b: CliVersion): number => {
  */
 export const probeCliVersion = (
   cliBinary: string,
-): Effect.Effect<CliVersion | null, never, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<CliVersion | null, never, CommandExecutor.ChildProcessSpawner> =>
   Effect.gen(function* () {
-    const result = yield* runCapture(Command.make(cliBinary, "--version")).pipe(
+    const result = yield* runCapture(Command.make(cliBinary, ["--version"])).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
     return parseCliVersion(result.value.stdout);
@@ -362,7 +366,7 @@ const fetchNpmLatestVersion = (
   }).pipe(
     Effect.timeoutOption(PROBE_TIMEOUT),
     Effect.map((opt) => (opt._tag === "Some" ? opt.value : null)),
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catch(() => Effect.succeed(null)),
   );
 
 /**
@@ -511,7 +515,7 @@ export const resolveUpdateCommand = (
 ): Effect.Effect<
   string | null,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const probe = PROBES.find((p) => p.providerId === providerId);
@@ -525,7 +529,7 @@ export const resolveUpdateCommand = (
     const fs = yield* FileSystem.FileSystem;
     const realPath = yield* fs
       .realPath(cliPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(cliPath)));
+      .pipe(Effect.catch(() => Effect.succeed(cliPath)));
     return buildUpdateCommand(providerId, [cliPath, realPath]);
   });
 
@@ -719,11 +723,11 @@ const readOptionalFile = (
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs
       .exists(path)
-      .pipe(Effect.catchAll(() => Effect.succeed(false)));
+      .pipe(Effect.catch(() => Effect.succeed(false)));
     if (!exists) return null;
     return yield* fs
       .readFileString(path)
-      .pipe(Effect.catchAll(() => Effect.succeed(null)));
+      .pipe(Effect.catch(() => Effect.succeed(null)));
   });
 
 const probeClaudeAccount: Effect.Effect<
@@ -938,12 +942,12 @@ const probeGrokAccount: Effect.Effect<
 
   const authExists = yield* fs
     .exists(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
 
   if (authExists) {
     const raw = yield* fs
       .readFileString(authPath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+      .pipe(Effect.catch(() => Effect.succeed("")));
     if (raw.length > 0) {
       return parseGrokAuthJson(raw);
     }
@@ -952,7 +956,7 @@ const probeGrokAccount: Effect.Effect<
   // No auth.json at all → unauthenticated (user has never run `grok login`)
   const dirExists = yield* fs
     .exists(dir)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   return dirExists
     ? ({
         authStatus: "authenticated",
@@ -976,7 +980,7 @@ const probeGeminiAccount: Effect.Effect<
   const path = join(homedir(), ".gemini");
   const exists = yield* fs
     .exists(path)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   return exists
     ? ({ authStatus: "authenticated", authType: "cli" } satisfies AccountInfo)
     : ({ authStatus: "unauthenticated" } satisfies AccountInfo);
@@ -1029,11 +1033,11 @@ const parseCursorStatusOutput = (raw: string): AccountInfo => {
 const probeCursorAccount: Effect.Effect<
   AccountInfo,
   never,
-  CommandExecutor.CommandExecutor
+  CommandExecutor.ChildProcessSpawner
 > = Effect.gen(function* () {
-  const executor = yield* CommandExecutor.CommandExecutor;
+  const executor = yield* CommandExecutor.ChildProcessSpawner;
   const result = yield* Effect.gen(function* () {
-    const proc = yield* executor.start(Command.make("cursor-agent", "status"));
+    const proc = yield* executor.spawn(Command.make("cursor-agent", ["status"]));
     const stdout = yield* collectText(proc.stdout);
     const stderr = yield* collectText(proc.stderr);
     const exitCode = yield* proc.exitCode;
@@ -1041,7 +1045,7 @@ const probeCursorAccount: Effect.Effect<
   }).pipe(
     Effect.scoped,
     Effect.timeoutOption(PROBE_TIMEOUT),
-    Effect.catchAll(() => Effect.succeedNone),
+    Effect.catch(() => Effect.succeedNone),
   );
   if (result._tag !== "Some") {
     return { authStatus: "unknown" } satisfies AccountInfo;
@@ -1097,13 +1101,13 @@ const probeOpencodeAccount: Effect.Effect<
   const authPath = join(homedir(), ".local", "share", "opencode", "auth.json");
   const exists = yield* fs
     .exists(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   if (!exists) {
     return { authStatus: "unauthenticated" } satisfies AccountInfo;
   }
   const raw = yield* fs
     .readFileString(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed("")));
+    .pipe(Effect.catch(() => Effect.succeed("")));
   return raw.length === 0
     ? { authStatus: "authenticated", authType: "cli" }
     : parseOpencodeAuth(raw);
@@ -1115,7 +1119,7 @@ const probeAccount = (
 ): Effect.Effect<
   AccountInfo,
   never,
-  FileSystem.FileSystem | CommandExecutor.CommandExecutor
+  FileSystem.FileSystem | CommandExecutor.ChildProcessSpawner
 > => {
   switch (providerId) {
     case "claude":
@@ -1155,7 +1159,7 @@ const probeOne = (
 ): Effect.Effect<
   AgentAvailability,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const lastCheckedAt = new Date();
@@ -1175,10 +1179,10 @@ const probeOne = (
     }
 
     const versionResult = yield* runCapture(
-      Command.make(cliPath, "--version"),
+      Command.make(cliPath, ["--version"]),
     ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
 
     const cliVersion =
@@ -1235,7 +1239,7 @@ const probeOne = (
     const fs = yield* FileSystem.FileSystem;
     const realPath = yield* fs
       .realPath(cliPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(cliPath)));
+      .pipe(Effect.catch(() => Effect.succeed(cliPath)));
     const updateCommand =
       buildUpdateCommand(probe.providerId, [cliPath, realPath]) ?? undefined;
 
@@ -1289,5 +1293,5 @@ const probeOne = (
 export const probeAllProviders: Effect.Effect<
   ReadonlyArray<AgentAvailability>,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > = Effect.all(PROBES.map(probeOne), { concurrency: "unbounded" });

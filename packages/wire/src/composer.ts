@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
 
@@ -25,7 +25,7 @@ export type AttachmentRef = typeof AttachmentRef.Type;
 export const FileRef = Schema.Struct({
   relPath: Schema.String,
   absPath: Schema.String,
-  kind: Schema.Literal("file", "directory"),
+  kind: Schema.Literals(["file", "directory"]),
 });
 export type FileRef = typeof FileRef.Type;
 
@@ -36,7 +36,7 @@ export type FileRef = typeof FileRef.Type;
  */
 export const SkillRef = Schema.Struct({
   name: Schema.String,
-  scope: Schema.Literal("global", "project"),
+  scope: Schema.Literals(["global", "project"]),
   args: Schema.String,
   providerId: ProviderId,
 });
@@ -123,10 +123,10 @@ export const BrowserAnnotation = Schema.Struct({
 });
 export type BrowserAnnotation = typeof BrowserAnnotation.Type;
 
-export const ComposerAnnotation = Schema.Union(
+export const ComposerAnnotation = Schema.Union([
   CodeAnnotation,
   BrowserAnnotation,
-);
+]);
 export type ComposerAnnotation = typeof ComposerAnnotation.Type;
 
 /**
@@ -140,8 +140,8 @@ export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
     attachments: Schema.Array(AttachmentRef),
     fileRefs: Schema.Array(FileRef),
     skillRefs: Schema.Array(SkillRef),
-    annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
-      default: () => [],
-    }),
+    annotations: Schema.Array(ComposerAnnotation).pipe(
+      Schema.withDecodingDefaultType(Effect.succeed([])),
+    ),
   },
 ) {}

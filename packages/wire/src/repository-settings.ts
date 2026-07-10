@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { ProviderId, RuntimeMode } from "./agent.ts";
@@ -42,10 +42,8 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
   setupScript: Schema.NullOr(Schema.String),
   runScript: Schema.NullOr(Schema.String),
   autoRunAfterSetup: Schema.Boolean,
-  environmentVariables: Schema.Record({
-    key: Schema.String,
-    value: Schema.String,
-  }),
+  environmentVariables: Schema.Record(Schema.String, Schema.String,
+  ),
   /**
    * Newline-separated gitignore-style patterns for local files that should be
    * linked into every Zuse worktree from the main checkout. Empty means "use
@@ -71,7 +69,7 @@ export const RepositorySettingsPatch = Schema.Struct({
   runScript: Schema.optional(Schema.NullOr(Schema.String)),
   autoRunAfterSetup: Schema.optional(Schema.Boolean),
   environmentVariables: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String ),
   ),
   fileIncludeGlobs: Schema.optional(Schema.String),
 });
@@ -93,10 +91,8 @@ export const RepositorySettingsFile = Schema.Struct({
   setupScript: Schema.NullOr(Schema.String),
   runScript: Schema.NullOr(Schema.String),
   autoRunAfterSetup: Schema.Boolean,
-  environmentVariables: Schema.Record({
-    key: Schema.String,
-    value: Schema.String,
-  }),
+  environmentVariables: Schema.Record(Schema.String, Schema.String,
+  ),
   fileIncludeGlobs: Schema.String,
 });
 export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { RpcGroup, RpcServer } from "@effect/rpc";
+import { RpcGroup, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { randomBytes } from "node:crypto";
 import { Socket, createServer } from "node:net";
@@ -47,8 +47,8 @@ const makeRuntime = (opts: {
   const SqlLive = SqliteClient.layer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
     Migration0021AuthTokens.pipe(
-      Effect.zipRight(Migration0024RemoteConnectState),
-      Effect.zipRight(Migration0028RelayMintPublicKey),
+      Effect.andThen(Migration0024RemoteConnectState),
+      Effect.andThen(Migration0028RelayMintPublicKey),
     ),
   ).pipe(
     Layer.provideMerge(SqlLive),

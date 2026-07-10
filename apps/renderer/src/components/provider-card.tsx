@@ -641,7 +641,7 @@ function useProviderUpdate(providerId: ProviderId) {
             }
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
             setProviderUpdateState(providerId, {

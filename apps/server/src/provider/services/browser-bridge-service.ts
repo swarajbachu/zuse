@@ -51,6 +51,6 @@ export interface BrowserBridgeServiceShape {
   readonly diagnostics: Effect.Effect<BrowserBridgeDiagnostics>;
 }
 
-export class BrowserBridgeService extends Context.Tag(
+export class BrowserBridgeService extends Context.Service<BrowserBridgeService, BrowserBridgeServiceShape>()(
   "memoize/BrowserBridgeService",
-)<BrowserBridgeService, BrowserBridgeServiceShape>() {}
+) {}

@@ -28,7 +28,7 @@ export interface SkillBridgeShape {
   ) => Stream.Stream<ReadonlyArray<Skill>, SessionNotFoundError>;
 }
 
-export class SkillBridge extends Context.Tag("memoize/SkillBridge")<
+export class SkillBridge extends Context.Service<
   SkillBridge,
   SkillBridgeShape
->() {}
+>()("memoize/SkillBridge") {}

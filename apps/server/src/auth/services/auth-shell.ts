@@ -25,7 +25,7 @@ export interface AuthShellShape {
   ) => Effect.Effect<void>;
 }
 
-export class AuthShell extends Context.Tag("memoize/AuthShell")<
+export class AuthShell extends Context.Service<
   AuthShell,
   AuthShellShape
->() {}
+>()("memoize/AuthShell") {}

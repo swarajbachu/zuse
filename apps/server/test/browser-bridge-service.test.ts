@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Effect, Stream } from "effect";
 
 import { BrowserCommandResult, type SessionId } from "@zuse/wire";

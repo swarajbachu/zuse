@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export class SshError extends Schema.TaggedError<SshError>()("SshError", {
+export class SshError extends Schema.TaggedErrorClass<SshError>()("SshError", {
   reason: Schema.String,
 }) {}
 

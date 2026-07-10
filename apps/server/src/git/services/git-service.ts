@@ -154,7 +154,7 @@ export interface GitServiceShape {
   ) => Effect.Effect<GitFailingChecksArtifact, GitFailure>;
 }
 
-export class GitService extends Context.Tag("memoize/GitService")<
+export class GitService extends Context.Service<
   GitService,
   GitServiceShape
->() {}
+>()("memoize/GitService") {}

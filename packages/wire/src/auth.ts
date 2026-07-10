@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 /**
@@ -42,20 +42,20 @@ export class AuthSession extends Schema.Class<AuthSession>("AuthSession")({
  * returns this once on cold load; `auth.sessionChanges` re-emits it on every
  * sign-in / sign-out / refresh.
  */
-export const AuthState = Schema.Union(
+export const AuthState = Schema.Union([
   Schema.TaggedStruct("SignedOut", {}),
   Schema.TaggedStruct("SignedIn", { session: AuthSession }),
-);
+]);
 export type AuthState = typeof AuthState.Type;
 
 /** The OAuth flow failed (config missing, network, token exchange, bad callback). */
-export class AuthFlowError extends Schema.TaggedError<AuthFlowError>()(
+export class AuthFlowError extends Schema.TaggedErrorClass<AuthFlowError>()(
   "AuthFlowError",
   { reason: Schema.String },
 ) {}
 
 /** The user closed the browser / never completed sign-in before the timeout. */
-export class AuthCancelledError extends Schema.TaggedError<AuthCancelledError>()(
+export class AuthCancelledError extends Schema.TaggedErrorClass<AuthCancelledError>()(
   "AuthCancelledError",
   {},
 ) {}
@@ -83,7 +83,7 @@ export const AuthGetSessionRpc = Rpc.make("auth.getSession", {
 export const AuthSignInRpc = Rpc.make("auth.signIn", {
   payload: Schema.Struct({}),
   success: AuthState,
-  error: Schema.Union(AuthFlowError, AuthCancelledError),
+  error: Schema.Union([AuthFlowError, AuthCancelledError]),
 });
 
 /** Clear the stored session and broadcast `SignedOut`. */

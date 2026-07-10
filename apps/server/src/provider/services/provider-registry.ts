@@ -18,7 +18,7 @@ export interface ProviderRegistryShape {
   readonly list: () => Effect.Effect<ReadonlyArray<ProviderAdapterShape>>;
 }
 
-export class ProviderRegistry extends Context.Tag("memoize/ProviderRegistry")<
+export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
   ProviderRegistryShape
->() {}
+>()("memoize/ProviderRegistry") {}

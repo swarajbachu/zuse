@@ -318,7 +318,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 },
               }));
             }),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(Effect.catch(() => Effect.void));
         chatFibers.set(
           `${connKey}:chat:${bundle.project.id}`,
           Effect.runFork(chatProgram),
@@ -340,7 +340,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
                 },
               }));
             }),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(Effect.catch(() => Effect.void));
         statusFibers.set(key, Effect.runFork(statusProgram));
       }
     } catch (cause) {

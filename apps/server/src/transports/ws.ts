@@ -3,9 +3,9 @@ import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from "@effect/platform";
+} from "effect/unstable/http";
 import { NodeHttpServer } from "@effect/platform-node";
-import { RpcSerialization, RpcServer } from "@effect/rpc";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, Schema } from "effect";
 import * as http from "node:http";
 
@@ -40,7 +40,7 @@ const bearerFromRequest = (
 const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
   Effect.gen(function* () {
     const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
-      Effect.catchAll(() => Effect.fail("bad_request" as const)),
+      Effect.catch(() => Effect.fail("bad_request" as const)),
     );
     yield* Effect.sync(() => log("ws.pair.redeem.start"));
     const redeemed = yield* auth.redeemPairingCode(body.code).pipe(
@@ -53,7 +53,7 @@ const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
     );
     return yield* json(redeemed, 200);
   }).pipe(
-    Effect.catchAll((error) => {
+    Effect.catch((error) => {
       log("ws.pair.redeem.fail", { reason: error });
       if (error === "expired_code") {
         return json({ error }, 410);
@@ -80,7 +80,7 @@ export const wsServerProtocolLayer = (opts: {
   readonly host?: string;
   readonly onDiagnostic?: WsDiagnostic;
 }): Layer.Layer<RpcServer.Protocol, never, LanAuthService> =>
-  Layer.scoped(
+  Layer.effect(
     RpcServer.Protocol,
     Effect.gen(function* () {
       const auth = yield* LanAuthService;

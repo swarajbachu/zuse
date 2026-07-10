@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";

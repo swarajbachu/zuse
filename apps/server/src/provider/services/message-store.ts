@@ -511,7 +511,7 @@ export interface MessageStoreShape {
   ) => Effect.Effect<void, SessionNotFoundError>;
 }
 
-export class MessageStore extends Context.Tag("memoize/MessageStore")<
+export class MessageStore extends Context.Service<
   MessageStore,
   MessageStoreShape
->() {}
+>()("memoize/MessageStore") {}

@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
@@ -12,7 +12,7 @@ import { SessionId, SessionNotFoundError } from "./session.ts";
  */
 export class Skill extends Schema.Class<Skill>("Skill")({
   name: Schema.String,
-  scope: Schema.Literal("global", "project"),
+  scope: Schema.Literals(["global", "project"]),
   description: Schema.String,
   arguments: Schema.Array(
     Schema.Struct({

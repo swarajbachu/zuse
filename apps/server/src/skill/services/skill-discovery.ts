@@ -21,6 +21,6 @@ export interface SkillDiscoveryServiceShape {
   ) => Effect.Effect<ReadonlyArray<Skill>>;
 }
 
-export class SkillDiscoveryService extends Context.Tag(
+export class SkillDiscoveryService extends Context.Service<SkillDiscoveryService, SkillDiscoveryServiceShape>()(
   "memoize/SkillDiscoveryService",
-)<SkillDiscoveryService, SkillDiscoveryServiceShape>() {}
+) {}

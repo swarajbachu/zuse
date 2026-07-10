@@ -16,19 +16,19 @@ export interface LanAuthConfigShape {
   readonly pairingBootstrap: boolean;
 }
 
-export class LanAuthConfig extends Context.Tag("zuse/LanAuthConfig")<
+export class LanAuthConfig extends Context.Service<
   LanAuthConfig,
   LanAuthConfigShape
->() {}
+>()("zuse/LanAuthConfig") {}
 
-export class LanAuthError extends Schema.TaggedError<LanAuthError>()(
+export class LanAuthError extends Schema.TaggedErrorClass<LanAuthError>()(
   "LanAuthError",
   { reason: Schema.String },
 ) {}
 
-export class PairingRedeemError extends Schema.TaggedError<PairingRedeemError>()(
+export class PairingRedeemError extends Schema.TaggedErrorClass<PairingRedeemError>()(
   "PairingRedeemError",
-  { reason: Schema.Literal("invalid_code", "expired_code") },
+  { reason: Schema.Literals(["invalid_code", "expired_code"]) },
 ) {}
 
 export interface LanAuthServiceShape {
@@ -112,7 +112,7 @@ export interface LanAuthServiceShape {
   readonly clearRelayConfig: () => Effect.Effect<void, LanAuthError>;
 }
 
-export class LanAuthService extends Context.Tag("zuse/LanAuthService")<
+export class LanAuthService extends Context.Service<
   LanAuthService,
   LanAuthServiceShape
->() {}
+>()("zuse/LanAuthService") {}

@@ -64,6 +64,6 @@ export interface CredentialsServiceShape {
   readonly removeWorkosSession: () => Effect.Effect<void, CredentialsError>;
 }
 
-export class CredentialsService extends Context.Tag(
+export class CredentialsService extends Context.Service<CredentialsService, CredentialsServiceShape>()(
   "memoize/CredentialsService",
-)<CredentialsService, CredentialsServiceShape>() {}
+) {}

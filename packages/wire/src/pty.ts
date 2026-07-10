@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { PtyId } from "./ids.ts";
@@ -16,14 +16,14 @@ export const PtyExitEvent = Schema.TaggedStruct("exit", {
   signal: Schema.NullOr(Schema.Number),
 });
 
-export const PtyEvent = Schema.Union(PtyDataEvent, PtyExitEvent);
+export const PtyEvent = Schema.Union([PtyDataEvent, PtyExitEvent]);
 
-export class PtyNotFoundError extends Schema.TaggedError<PtyNotFoundError>()(
+export class PtyNotFoundError extends Schema.TaggedErrorClass<PtyNotFoundError>()(
   "PtyNotFoundError",
   { ptyId: PtyId },
 ) {}
 
-export class PtySpawnError extends Schema.TaggedError<PtySpawnError>()(
+export class PtySpawnError extends Schema.TaggedErrorClass<PtySpawnError>()(
   "PtySpawnError",
   { reason: Schema.String },
 ) {}
@@ -38,7 +38,7 @@ export const PtyCommand = Schema.Struct({
   cmd: Schema.String,
   args: Schema.Array(Schema.String),
   env: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
+    Schema.Record(Schema.String, Schema.String ),
   ),
 });
 export type PtyCommand = typeof PtyCommand.Type;

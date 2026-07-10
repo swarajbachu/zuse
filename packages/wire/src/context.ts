@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { SessionId } from "./session.ts";
@@ -7,7 +7,7 @@ import { SessionId } from "./session.ts";
  * Raised when the server cannot figure out where to write a context file —
  * e.g. the session row is gone and no fallback workspace root was supplied.
  */
-export class ContextWriteError extends Schema.TaggedError<ContextWriteError>()(
+export class ContextWriteError extends Schema.TaggedErrorClass<ContextWriteError>()(
   "ContextWriteError",
   {
     sessionId: SessionId,

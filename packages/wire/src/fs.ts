@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 import { FolderId, WorktreeId } from "./ids.ts";
@@ -12,35 +12,35 @@ import { FolderId, WorktreeId } from "./ids.ts";
 export class FsEntry extends Schema.Class<FsEntry>("FsEntry")({
   name: Schema.String,
   path: Schema.String,
-  kind: Schema.Literal("file", "directory"),
+  kind: Schema.Literals(["file", "directory"]),
 }) {}
 
-export class FsFolderNotFoundError extends Schema.TaggedError<FsFolderNotFoundError>()(
+export class FsFolderNotFoundError extends Schema.TaggedErrorClass<FsFolderNotFoundError>()(
   "FsFolderNotFoundError",
   { folderId: FolderId },
 ) {}
 
-export class FsPathOutsideError extends Schema.TaggedError<FsPathOutsideError>()(
+export class FsPathOutsideError extends Schema.TaggedErrorClass<FsPathOutsideError>()(
   "FsPathOutsideError",
   { folderId: FolderId, path: Schema.String },
 ) {}
 
-export class FsReadError extends Schema.TaggedError<FsReadError>()(
+export class FsReadError extends Schema.TaggedErrorClass<FsReadError>()(
   "FsReadError",
   { folderId: FolderId, path: Schema.String, reason: Schema.String },
 ) {}
 
-export class FsAlreadyExistsError extends Schema.TaggedError<FsAlreadyExistsError>()(
+export class FsAlreadyExistsError extends Schema.TaggedErrorClass<FsAlreadyExistsError>()(
   "FsAlreadyExistsError",
   { folderId: FolderId, path: Schema.String },
 ) {}
 
-export class FsTooLargeError extends Schema.TaggedError<FsTooLargeError>()(
+export class FsTooLargeError extends Schema.TaggedErrorClass<FsTooLargeError>()(
   "FsTooLargeError",
   { folderId: FolderId, path: Schema.String, size: Schema.Number, limit: Schema.Number },
 ) {}
 
-export class FsConflictError extends Schema.TaggedError<FsConflictError>()(
+export class FsConflictError extends Schema.TaggedErrorClass<FsConflictError>()(
   "FsConflictError",
   {
     folderId: FolderId,
@@ -53,17 +53,17 @@ export class FsConflictError extends Schema.TaggedError<FsConflictError>()(
 // External-file errors mirror the in-folder ones but key off an absolute
 // `path` instead of a `folderId` — the `fs.*ExternalFile` RPCs operate
 // outside any project folder, so there's no folder id to carry.
-export class FsExternalReadError extends Schema.TaggedError<FsExternalReadError>()(
+export class FsExternalReadError extends Schema.TaggedErrorClass<FsExternalReadError>()(
   "FsExternalReadError",
   { path: Schema.String, reason: Schema.String },
 ) {}
 
-export class FsExternalTooLargeError extends Schema.TaggedError<FsExternalTooLargeError>()(
+export class FsExternalTooLargeError extends Schema.TaggedErrorClass<FsExternalTooLargeError>()(
   "FsExternalTooLargeError",
   { path: Schema.String, size: Schema.Number, limit: Schema.Number },
 ) {}
 
-export class FsExternalConflictError extends Schema.TaggedError<FsExternalConflictError>()(
+export class FsExternalConflictError extends Schema.TaggedErrorClass<FsExternalConflictError>()(
   "FsExternalConflictError",
   {
     path: Schema.String,
@@ -72,44 +72,44 @@ export class FsExternalConflictError extends Schema.TaggedError<FsExternalConfli
   },
 ) {}
 
-const FsErrors = Schema.Union(
+const FsErrors = Schema.Union([
   FsFolderNotFoundError,
   FsPathOutsideError,
   FsReadError,
-);
+]);
 
-const FsReadExternalFileErrors = Schema.Union(
+const FsReadExternalFileErrors = Schema.Union([
   FsExternalReadError,
   FsExternalTooLargeError,
-);
+]);
 
-const FsWriteExternalFileErrors = Schema.Union(
+const FsWriteExternalFileErrors = Schema.Union([
   FsExternalReadError,
   FsExternalTooLargeError,
   FsExternalConflictError,
-);
+]);
 
-const FsReadFileErrors = Schema.Union(
+const FsReadFileErrors = Schema.Union([
   FsFolderNotFoundError,
   FsPathOutsideError,
   FsReadError,
   FsTooLargeError,
-);
+]);
 
-const FsWriteFileErrors = Schema.Union(
+const FsWriteFileErrors = Schema.Union([
   FsFolderNotFoundError,
   FsPathOutsideError,
   FsReadError,
   FsConflictError,
   FsTooLargeError,
-);
+]);
 
-const FsCreateErrors = Schema.Union(
+const FsCreateErrors = Schema.Union([
   FsFolderNotFoundError,
   FsPathOutsideError,
   FsReadError,
   FsAlreadyExistsError,
-);
+]);
 
 /**
  * List one directory level. `path` is project-root-relative (use "" or omit
@@ -155,7 +155,7 @@ export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
  * token by `fs.writeFile`. Files that fail UTF-8 decoding return as
  * `kind: "binary"` so the editor can render a placeholder instead of mojibake.
  */
-export const FsFileContent = Schema.Union(
+export const FsFileContent = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("text"),
     content: Schema.String,
@@ -166,7 +166,7 @@ export const FsFileContent = Schema.Union(
     kind: Schema.Literal("binary"),
     size: Schema.Number,
   }),
-);
+]);
 
 /**
  * Read a single file's contents. Path is project-root-relative. Files

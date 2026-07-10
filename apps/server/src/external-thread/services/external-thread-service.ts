@@ -15,6 +15,6 @@ export interface ExternalThreadServiceShape {
   ) => Effect.Effect<ContinueExternalThreadResult>;
 }
 
-export class ExternalThreadService extends Context.Tag(
+export class ExternalThreadService extends Context.Service<ExternalThreadService, ExternalThreadServiceShape>()(
   "memoize/ExternalThreadService",
-)<ExternalThreadService, ExternalThreadServiceShape>() {}
+) {}

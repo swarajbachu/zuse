@@ -37,7 +37,7 @@ export interface RelayLinkStatusValue {
  * the returned credential, and heartbeat so the relay reports presence. The
  * renderer just calls `relay.*` RPCs.
  */
-export class RelayLinkService extends Context.Tag("zuse/RelayLinkService")<
+export class RelayLinkService extends Context.Service<
   RelayLinkService,
   {
     readonly link: (input: {
@@ -47,7 +47,7 @@ export class RelayLinkService extends Context.Tag("zuse/RelayLinkService")<
     readonly status: () => Effect.Effect<RelayLinkStatusValue, RelayLinkError>;
     readonly unlink: () => Effect.Effect<void, RelayLinkError>;
   }
->() {}
+>()("zuse/RelayLinkService") {}
 
 const failRelay = (reason: string) => new RelayLinkError({ reason });
 
@@ -112,7 +112,7 @@ export const RelayLinkServiceLive: Layer.Layer<
   RelayLinkService,
   never,
   LanAuthService | LanAuthConfig | AuthService | ManagedTunnelRuntime | AppPaths
-> = Layer.scoped(
+> = Layer.effect(
   RelayLinkService,
   Effect.gen(function* () {
     const auth = yield* LanAuthService;
@@ -120,7 +120,7 @@ export const RelayLinkServiceLive: Layer.Layer<
     const authService = yield* AuthService;
     const tunnel = yield* ManagedTunnelRuntime;
     const paths = yield* AppPaths;
-    const heartbeatRef = yield* Ref.make<Fiber.RuntimeFiber<void> | null>(null);
+    const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
     const log = (event: string, fields?: Record<string, unknown>) =>
       appendRelayDiagnostic(paths, event, fields);
 
@@ -140,7 +140,7 @@ export const RelayLinkServiceLive: Layer.Layer<
         { bearer: input.credential },
       ).pipe(
         Effect.ignore,
-        Effect.zipRight(Effect.sleep(HEARTBEAT_INTERVAL)),
+        Effect.andThen(Effect.sleep(HEARTBEAT_INTERVAL)),
         Effect.forever,
       );
 
@@ -152,7 +152,7 @@ export const RelayLinkServiceLive: Layer.Layer<
       Effect.gen(function* () {
         const existing = yield* Ref.get(heartbeatRef);
         if (existing !== null) yield* Fiber.interrupt(existing);
-        const fiber = yield* Effect.forkDaemon(heartbeatLoop(input));
+        const fiber = yield* Effect.forkDetach(heartbeatLoop(input));
         yield* Ref.set(heartbeatRef, fiber);
       });
 

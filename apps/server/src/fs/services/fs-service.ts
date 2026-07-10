@@ -70,7 +70,7 @@ export interface FsServiceShape {
   ) => Effect.Effect<{ readonly mtime: string }, WriteExternalFailure>;
 }
 
-export class FsService extends Context.Tag("memoize/FsService")<
+export class FsService extends Context.Service<
   FsService,
   FsServiceShape
->() {}
+>()("memoize/FsService") {}

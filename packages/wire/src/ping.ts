@@ -1,4 +1,4 @@
-import { Rpc } from "@effect/rpc";
+import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
 export class PingResult extends Schema.Class<PingResult>("PingResult")({
@@ -6,7 +6,7 @@ export class PingResult extends Schema.Class<PingResult>("PingResult")({
   receivedAt: Schema.DateFromString,
 }) {}
 
-export class PingError extends Schema.TaggedError<PingError>()("PingError", {
+export class PingError extends Schema.TaggedErrorClass<PingError>()("PingError", {
   message: Schema.String,
 }) {}
 

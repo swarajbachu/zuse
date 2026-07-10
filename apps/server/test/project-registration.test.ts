@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { SqlClient } from "@effect/sql";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
 import { NodeContext } from "@effect/platform-node";
 import { Effect, Layer, ManagedRuntime } from "effect";

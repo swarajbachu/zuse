@@ -1,5 +1,5 @@
-import { Rpc } from "@effect/rpc";
-import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
+import { Effect, Schema } from "effect";
 
 import {
   AgentDefinition,
@@ -54,13 +54,13 @@ export type SessionId = AgentSessionId;
  * `closed`   — turn ended normally or session was closed by the user.
  * `error`    — provider terminated the session with an error.
  */
-export const SessionStatus = Schema.Literal(
+export const SessionStatus = Schema.Literals([
   "booting",
   "idle",
   "running",
   "closed",
   "error",
-);
+]);
 export type SessionStatus = typeof SessionStatus.Type;
 
 /**
@@ -77,7 +77,7 @@ export type SessionStatus = typeof SessionStatus.Type;
  *   - `none` — no resume; sending again starts a fresh provider session
  *     under the same DB row (existing chat-MVP behavior).
  */
-export const ResumeStrategy = Schema.Literal(
+export const ResumeStrategy = Schema.Literals([
   "claude-session-id",
   "codex-thread-id",
   "grok-session-id",
@@ -85,7 +85,7 @@ export const ResumeStrategy = Schema.Literal(
   "gemini-session-id",
   "opencode-session-id",
   "none",
-);
+]);
 export type ResumeStrategy = typeof ResumeStrategy.Type;
 
 // `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
@@ -151,12 +151,12 @@ export class Session extends Schema.Class<Session>("Session")({
  * markdown renderers can pick a distinct visual treatment without sniffing
  * `content._tag`.
  */
-export const MessageRole = Schema.Literal(
+export const MessageRole = Schema.Literals([
   "user",
   "assistant",
   "system",
   "tool",
-);
+]);
 export type MessageRole = typeof MessageRole.Type;
 
 /**
@@ -190,9 +190,9 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
   skillRefs: Schema.Array(SkillRef),
   // Additive + back-compat: rows persisted before code annotations existed
   // decode with an empty list rather than failing.
-  annotations: Schema.optionalWith(Schema.Array(ComposerAnnotation), {
-    default: () => [],
-  }),
+  annotations: Schema.Array(ComposerAnnotation).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed([])),
+  ),
   origin: Schema.optional(MessageOrigin),
   goal: Schema.optional(Schema.Boolean),
 });
@@ -285,9 +285,9 @@ const ContextCompactionContent = Schema.TaggedStruct("context_compaction", {
   durationMs: Schema.Number,
   beforeTokens: Schema.NullOr(Schema.Number),
   afterTokens: Schema.NullOr(Schema.Number),
-  status: Schema.optionalWith(Schema.Literal("in_progress", "completed"), {
-    default: () => "completed" as const,
-  }),
+  status: Schema.Literals(["in_progress", "completed"]).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("completed" as const)),
+  ),
 });
 
 const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
@@ -335,7 +335,7 @@ const UserQuestionAnswerContent = Schema.TaggedStruct("user_question_answer", {
  * Keep the shape additive — new tags become new rendered variants in the
  * renderer without touching existing rows.
  */
-export const MessageContent = Schema.Union(
+export const MessageContent = Schema.Union([
   UserContent,
   UserRichContent,
   AssistantContent,
@@ -351,7 +351,7 @@ export const MessageContent = Schema.Union(
   UsageLimitContent,
   UserQuestionContent,
   UserQuestionAnswerContent,
-);
+]);
 export type UserQuestionAnswer =
   (typeof UserQuestionAnswerContent.Type)["answers"][number];
 export type MessageContent = typeof MessageContent.Type;
@@ -393,29 +393,29 @@ export class QueueState extends Schema.Class<QueueState>("QueueState")({
   paused: Schema.Boolean,
 }) {}
 
-export class SessionNotFoundError extends Schema.TaggedError<SessionNotFoundError>()(
+export class SessionNotFoundError extends Schema.TaggedErrorClass<SessionNotFoundError>()(
   "SessionNotFoundError",
   { sessionId: SessionId },
 ) {}
 
-export class SessionStartError extends Schema.TaggedError<SessionStartError>()(
+export class SessionStartError extends Schema.TaggedErrorClass<SessionStartError>()(
   "SessionStartError",
   { providerId: ProviderId, reason: Schema.String },
 ) {}
 
-export class GoalUnsupportedError extends Schema.TaggedError<GoalUnsupportedError>()(
+export class GoalUnsupportedError extends Schema.TaggedErrorClass<GoalUnsupportedError>()(
   "GoalUnsupportedError",
   { providerId: ProviderId },
 ) {}
 
-export const ThreadGoalStatus = Schema.Literal(
+export const ThreadGoalStatus = Schema.Literals([
   "active",
   "paused",
   "budgetLimited",
   "usageLimited",
   "blocked",
   "complete",
-);
+]);
 export type ThreadGoalStatus = typeof ThreadGoalStatus.Type;
 
 export class ThreadGoal extends Schema.Class<ThreadGoal>("ThreadGoal")({
@@ -441,7 +441,7 @@ export type ThreadGoalSetInput = typeof ThreadGoalSetInput.Type;
  * running turn. Both 0.03 drivers (Claude, Codex) support steer; the error
  * is reserved for future providers.
  */
-export class SteerUnsupportedError extends Schema.TaggedError<SteerUnsupportedError>()(
+export class SteerUnsupportedError extends Schema.TaggedErrorClass<SteerUnsupportedError>()(
   "SteerUnsupportedError",
   { providerId: ProviderId },
 ) {}
@@ -451,7 +451,7 @@ export class SteerUnsupportedError extends Schema.TaggedError<SteerUnsupportedEr
  * recorded user message. cwd cannot be changed mid-conversation — the
  * renderer collapses the picker to a read-only chip in this case.
  */
-export class SessionAlreadyStartedError extends Schema.TaggedError<SessionAlreadyStartedError>()(
+export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionAlreadyStartedError>()(
   "SessionAlreadyStartedError",
   { sessionId: SessionId },
 ) {}
@@ -491,7 +491,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
     // these from the user's preset settings and injects them at create
     // time so the wire stays the single source of truth.
     agents: Schema.optional(
-      Schema.Record({ key: Schema.String, value: AgentDefinition }),
+      Schema.Record(Schema.String, AgentDefinition ),
     ),
     enableSubagents: Schema.optional(Schema.Boolean),
     /**
@@ -501,7 +501,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
      */
     permissionMode: Schema.optional(PermissionMode),
     modelOptions: Schema.optional(
-      Schema.Record({ key: Schema.String, value: Schema.String }),
+      Schema.Record(Schema.String, Schema.String ),
     ),
     /**
      * Persist the deferred-tools toggle for this session. Reserved for
@@ -524,7 +524,7 @@ export const SessionSetWorktreeRpc = Rpc.make("session.setWorktree", {
     worktreeId: Schema.NullOr(WorktreeId),
   }),
   success: Schema.Void,
-  error: Schema.Union(SessionNotFoundError, SessionAlreadyStartedError),
+  error: Schema.Union([SessionNotFoundError, SessionAlreadyStartedError]),
 });
 
 export const SessionRenameRpc = Rpc.make("session.rename", {
@@ -552,7 +552,7 @@ export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
     model: Schema.String,
   }),
   success: Schema.Void,
-  error: Schema.Union(SessionNotFoundError, SessionAlreadyStartedError),
+  error: Schema.Union([SessionNotFoundError, SessionAlreadyStartedError]),
 });
 
 export const SessionArchiveRpc = Rpc.make("session.archive", {
@@ -578,7 +578,7 @@ export const SessionDeleteRpc = Rpc.make("session.delete", {
  * source chat (sharing its worktree); `chat` creates a fresh sidebar chat
  * (with its own worktree) for isolated parallel exploration.
  */
-export const ForkDestination = Schema.Literal("tab", "chat");
+export const ForkDestination = Schema.Literals(["tab", "chat"]);
 export type ForkDestination = typeof ForkDestination.Type;
 
 /**
@@ -588,7 +588,7 @@ export type ForkDestination = typeof ForkDestination.Type;
  * was replayed into the new session (no KV memory) because the fork point was
  * not the conversation tail, or the provider lacks native fork support.
  */
-export const ForkMode = Schema.Literal("resume", "copy");
+export const ForkMode = Schema.Literals(["resume", "copy"]);
 export type ForkMode = typeof ForkMode.Type;
 
 /**
@@ -656,7 +656,7 @@ export class Chat extends Schema.Class<Chat>("Chat")({
   updatedAt: Schema.DateFromString,
 }) {}
 
-export class ChatNotFoundError extends Schema.TaggedError<ChatNotFoundError>()(
+export class ChatNotFoundError extends Schema.TaggedErrorClass<ChatNotFoundError>()(
   "ChatNotFoundError",
   { chatId: ChatId },
 ) {}
@@ -666,12 +666,12 @@ export class ChatNotFoundError extends Schema.TaggedError<ChatNotFoundError>()(
  * recorded user message. Worktrees are immutable past the first message —
  * mirrors the per-session `SessionAlreadyStartedError` semantics.
  */
-export class ChatAlreadyStartedError extends Schema.TaggedError<ChatAlreadyStartedError>()(
+export class ChatAlreadyStartedError extends Schema.TaggedErrorClass<ChatAlreadyStartedError>()(
   "ChatAlreadyStartedError",
   { chatId: ChatId },
 ) {}
 
-export class ChatArchiveScriptError extends Schema.TaggedError<ChatArchiveScriptError>()(
+export class ChatArchiveScriptError extends Schema.TaggedErrorClass<ChatArchiveScriptError>()(
   "ChatArchiveScriptError",
   {
     chatId: ChatId,
@@ -681,22 +681,22 @@ export class ChatArchiveScriptError extends Schema.TaggedError<ChatArchiveScript
   },
 ) {}
 
-export class ChatArchiveTimeoutError extends Schema.TaggedError<ChatArchiveTimeoutError>()(
+export class ChatArchiveTimeoutError extends Schema.TaggedErrorClass<ChatArchiveTimeoutError>()(
   "ChatArchiveTimeoutError",
   { chatId: ChatId, timeoutMs: Schema.Number, output: Schema.String },
 ) {}
 
-export class ChatArchiveWorktreeError extends Schema.TaggedError<ChatArchiveWorktreeError>()(
+export class ChatArchiveWorktreeError extends Schema.TaggedErrorClass<ChatArchiveWorktreeError>()(
   "ChatArchiveWorktreeError",
   { chatId: ChatId, reason: Schema.String },
 ) {}
 
-const ChatArchiveErrors = Schema.Union(
+const ChatArchiveErrors = Schema.Union([
   ChatNotFoundError,
   ChatArchiveScriptError,
   ChatArchiveTimeoutError,
   ChatArchiveWorktreeError,
-);
+]);
 
 const ArchiveCleanupSummary = Schema.Struct({
   ran: Schema.Boolean,
@@ -750,7 +750,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     runtimeMode: Schema.optional(RuntimeMode),
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
     agents: Schema.optional(
-      Schema.Record({ key: Schema.String, value: AgentDefinition }),
+      Schema.Record(Schema.String, AgentDefinition ),
     ),
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
@@ -761,7 +761,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
      */
     originSessionId: Schema.optional(SessionId),
     modelOptions: Schema.optional(
-      Schema.Record({ key: Schema.String, value: Schema.String }),
+      Schema.Record(Schema.String, Schema.String ),
     ),
   }),
   success: Schema.Struct({
@@ -801,7 +801,7 @@ export const SessionForkRpc = Rpc.make("session.fork", {
     session: Session,
     forkMode: ForkMode,
   }),
-  error: Schema.Union(SessionNotFoundError, SessionStartError),
+  error: Schema.Union([SessionNotFoundError, SessionStartError]),
 });
 
 /**
@@ -839,7 +839,7 @@ export const ChatSetWorktreeRpc = Rpc.make("chat.setWorktree", {
     worktreeId: Schema.NullOr(WorktreeId),
   }),
   success: Chat,
-  error: Schema.Union(ChatNotFoundError, ChatAlreadyStartedError),
+  error: Schema.Union([ChatNotFoundError, ChatAlreadyStartedError]),
 });
 
 /**
@@ -871,7 +871,7 @@ export const ChatArchiveRpc = Rpc.make("chat.archive", {
 export const ChatUnarchiveRpc = Rpc.make("chat.unarchive", {
   payload: Schema.Struct({ chatId: ChatId }),
   success: ChatUnarchiveResult,
-  error: Schema.Union(ChatNotFoundError, ChatArchiveWorktreeError),
+  error: Schema.Union([ChatNotFoundError, ChatArchiveWorktreeError]),
 });
 
 export const ChatDeleteRpc = Rpc.make("chat.delete", {
@@ -1022,7 +1022,7 @@ export const MessagesSteerRpc = Rpc.make("messages.steer", {
     input: ComposerInput,
   }),
   success: Schema.Void,
-  error: Schema.Union(SessionNotFoundError, SteerUnsupportedError),
+  error: Schema.Union([SessionNotFoundError, SteerUnsupportedError]),
 });
 
 /**
@@ -1034,7 +1034,7 @@ export const MessagesSteerRpc = Rpc.make("messages.steer", {
 export const SessionResumeRpc = Rpc.make("session.resume", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Session,
-  error: Schema.Union(SessionNotFoundError, SessionStartError),
+  error: Schema.Union([SessionNotFoundError, SessionStartError]),
 });
 
 /**
@@ -1106,7 +1106,7 @@ export const SessionStatusStreamRpc = Rpc.make("session.streamStatus", {
 export const SessionGoalGetRpc = Rpc.make("session.goal.get", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Schema.NullOr(ThreadGoal),
-  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
+  error: Schema.Union([SessionNotFoundError, GoalUnsupportedError]),
 });
 
 export const SessionGoalSetRpc = Rpc.make("session.goal.set", {
@@ -1115,17 +1115,17 @@ export const SessionGoalSetRpc = Rpc.make("session.goal.set", {
     goal: ThreadGoalSetInput,
   }),
   success: ThreadGoal,
-  error: Schema.Union(
+  error: Schema.Union([
     SessionNotFoundError,
     SessionStartError,
     GoalUnsupportedError,
-  ),
+  ]),
 });
 
 export const SessionGoalClearRpc = Rpc.make("session.goal.clear", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Schema.Void,
-  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
+  error: Schema.Union([SessionNotFoundError, GoalUnsupportedError]),
 });
 
 export const SessionGoalStreamRpc = Rpc.make("session.goal.stream", {
@@ -1134,6 +1134,6 @@ export const SessionGoalStreamRpc = Rpc.make("session.goal.stream", {
     sessionId: SessionId,
     goal: Schema.NullOr(ThreadGoal),
   }),
-  error: Schema.Union(SessionNotFoundError, GoalUnsupportedError),
+  error: Schema.Union([SessionNotFoundError, GoalUnsupportedError]),
   stream: true,
 });

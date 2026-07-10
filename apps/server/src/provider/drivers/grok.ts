@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import * as readline from "node:readline";
-import { Effect, Mailbox, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -578,7 +578,7 @@ export const startGrokSession = (
     // uniform with the other drivers; attachments themselves are not yet
     // wired through ACP's `prompt: [{ type: "image", ... }]` shape.
     yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -715,7 +715,7 @@ export const startGrokSession = (
     // Common values: "cached_token" (from `grok login`) or "xai.api_key".
     let authMethodUsed: string | null = null;
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "Started",
       sessionId,
       providerId: "grok",
@@ -851,7 +851,7 @@ export const startGrokSession = (
                 events: translated,
               });
               for (const ev of translated) {
-                events.unsafeOffer(ev);
+                Queue.offerUnsafe(events, ev);
               }
             }
             return;
@@ -886,7 +886,7 @@ export const startGrokSession = (
                 events: translated,
               });
               for (const ev of translated) {
-                events.unsafeOffer(ev);
+                Queue.offerUnsafe(events, ev);
               }
             }
             return;
@@ -1163,7 +1163,7 @@ export const startGrokSession = (
           // the child + redo the handshake (see [[enqueuePrompt]]). Do not stop
           // the visible turn for the known Grok AuthorizationRequired noise.
           if (friendly === null) {
-            events.unsafeOffer({ _tag: "Status", status: "idle" });
+            Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
           }
           grokDiag(
             "child closed — keeping mailbox alive for transparent respawn on next send",
@@ -1306,7 +1306,7 @@ export const startGrokSession = (
       ),
     );
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "SessionCursor",
       cursor: acpSessionId,
       strategy: "grok-session-id",
@@ -1327,7 +1327,7 @@ export const startGrokSession = (
         ? startCompactSnapshot(null)
         : null;
       if (compactSnapshot !== null) {
-        events.unsafeOffer(
+        Queue.offerUnsafe(events,
           startCompactEvent({ providerId: "grok", snapshot: compactSnapshot }),
         );
       }
@@ -1356,7 +1356,7 @@ export const startGrokSession = (
             grokDiag("respawning grok child before send (previous child died)");
             try {
               await connectChild();
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "SessionCursor",
                 cursor: acpSessionId!,
                 strategy: "grok-session-id",
@@ -1371,11 +1371,11 @@ export const startGrokSession = (
                     reason,
                   });
                 } else {
-                  events.unsafeOffer({
+                  Queue.offerUnsafe(events, {
                     _tag: "Error",
                     message: `Grok respawn failed: ${reason}`,
                   });
-                  events.unsafeOffer({ _tag: "Status", status: "idle" });
+                  Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
                 }
               }
               return;
@@ -1434,7 +1434,7 @@ export const startGrokSession = (
             }
             grokDiag("session/prompt completed successfully");
             if (compactSnapshot !== null && !closed) {
-              events.unsafeOffer(
+              Queue.offerUnsafe(events,
                 finishCompactEvent({
                   itemId: compactSnapshot.itemId,
                   providerId: "grok",
@@ -1460,7 +1460,7 @@ export const startGrokSession = (
               });
             }
             if (!closed && !isCancellation && !isGrokAuthNoise) {
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "Error",
                 message: reason,
               });
@@ -1471,9 +1471,9 @@ export const startGrokSession = (
             // final delta lands as a normal AssistantMessage instead of
             // sitting unobserved in memory.
             if (!closed) {
-              for (const ev of translator.flush()) events.unsafeOffer(ev);
+              for (const ev of translator.flush()) Queue.offerUnsafe(events, ev);
               if (!keepRunningAfterIgnoredAuthNoise) {
-                events.unsafeOffer({ _tag: "Status", status: "idle" });
+                Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
                 // A Grok goal runs as a single forwarded `/goal` turn that
                 // loops internally (plan → implement → verify → summarize)
                 // and self-terminates. Grok exposes no structured goal-status
@@ -1492,7 +1492,7 @@ export const startGrokSession = (
                     createdAt: currentGoal.createdAt,
                     updatedAt: Date.now(),
                   });
-                  events.unsafeOffer({
+                  Queue.offerUnsafe(events, {
                     _tag: "GoalUpdated",
                     goal: currentGoal,
                   });
@@ -1509,7 +1509,7 @@ export const startGrokSession = (
     }
 
     const handle: GrokSessionHandle = {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs) =>
         Effect.sync(() => {
           if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
@@ -1538,7 +1538,7 @@ export const startGrokSession = (
           // Force-reject the in-flight prompt so the inflight chain
           // unblocks even if grok's ACP doesn't honour `session/cancel`.
           rejectCurrentPrompt("Interrupted by user");
-          events.unsafeOffer({ _tag: "Status", status: "idle" });
+          Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
         }),
       close: () =>
         Effect.gen(function* () {
@@ -1571,7 +1571,7 @@ export const startGrokSession = (
         Effect.sync(() => {
           if (mode === currentMode) return;
           currentMode = mode;
-          events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
+          Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
         }),
       answerQuestion: () => Effect.void,
       getGoal: () => Effect.sync(() => currentGoal),
@@ -1612,13 +1612,13 @@ export const startGrokSession = (
           ) {
             enqueuePrompt(`/goal ${objective}`);
           }
-          events.unsafeOffer({ _tag: "GoalUpdated", goal });
+          Queue.offerUnsafe(events, { _tag: "GoalUpdated", goal });
           return goal;
         }),
       clearGoal: () =>
         Effect.sync(() => {
           currentGoal = null;
-          events.unsafeOffer({ _tag: "GoalCleared" });
+          Queue.offerUnsafe(events, { _tag: "GoalCleared" });
         }),
     };
     return handle;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Effect, Stream } from "effect";
 
 import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/wire";

@@ -130,7 +130,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
               void get().flush(connKey, sessionId);
             }),
         ).pipe(
-          Effect.catchAll((cause) =>
+          Effect.catch((cause) =>
             Effect.sync(() => {
               set((state) => ({
                 reconnectingBySession: {
