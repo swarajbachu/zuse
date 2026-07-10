@@ -3,10 +3,20 @@
     "version": "0.12.5",
     "sections": [
       {
+        "title": "Added",
+        "items": [
+          "Add GPT-5.6 model support with high and extra-high reasoning effort options."
+        ]
+      },
+      {
         "title": "Changed",
         "items": [
-          "Add GPT-5.6 model support with high and extra-high reasoning effort options.",
-          "Harden local development startup and Electron reload behavior.",
+          "Harden local development startup and Electron reload behavior."
+        ]
+      },
+      {
+        "title": "Fixed",
+        "items": [
           "Fix image and context attachments failing validation when starting a new chat."
         ]
       }
