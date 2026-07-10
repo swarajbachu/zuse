@@ -24,6 +24,7 @@
 		"./projectors/read-model": "./src/projectors/read-model.ts",
 		"./projectors/sql-chat-projector": "./src/projectors/sql-chat-projector.ts",
 		"./projectors/sql-session-projector": "./src/projectors/sql-session-projector.ts",
+		"./reactors/conversation": "./src/reactors/conversation.ts",
 		"./queries/session-queries": "./src/queries/session-queries.ts",
 		"./queries/sql-session-queries": "./src/queries/sql-session-queries.ts"
 	},

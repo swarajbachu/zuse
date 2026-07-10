@@ -61,6 +61,18 @@ import {
 } from "@zuse/domain/engine/sql-consumer-storage";
 import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
 import {
+  type AutoNameCommand,
+  autoNameReactorDefinition,
+  type ChatArchiveCommand,
+  chatArchiveReactorDefinition,
+  type ChatDeleteCommand,
+  chatDeleteReactorDefinition,
+  type ProviderStartCommand,
+  providerStartReactorDefinition,
+  type ProviderStopCommand,
+  providerStopReactorDefinition,
+} from "@zuse/domain/reactors/conversation";
+import {
   SqlSessionQueries,
   type SqlSessionReadRecord,
 } from "@zuse/domain/queries/sql-session-queries";
@@ -2979,10 +2991,6 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* markComplete;
       }).pipe(Effect.catchCause(() => Effect.void));
 
-    type ProviderStartCommand = {
-      readonly _tag: "StartProvider";
-      readonly providerStartJson: string;
-    };
     const providerStartReactor = new ReactorRunner<
       StoredEvent,
       ProviderStartCommand,
@@ -3107,24 +3115,7 @@ export const ConversationServicesLive = Layer.effectContext(
             VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
           `.pipe(Effect.orDie);
         }),
-      {
-        name: "provider-start",
-        react: (record) =>
-          Effect.succeed(
-            record.event._tag === "SessionCreated" &&
-              record.event.providerStartJson !== undefined
-              ? [
-                  {
-                    streamId: record.streamId,
-                    command: {
-                      _tag: "StartProvider",
-                      providerStartJson: record.event.providerStartJson,
-                    },
-                  },
-                ]
-              : [],
-          ),
-      },
+      providerStartReactorDefinition,
     );
     runProviderStartReactor = Effect.suspend(() => {
       return providerStartReactorSemaphore.withPermits(1)(
@@ -3140,10 +3131,6 @@ export const ConversationServicesLive = Layer.effectContext(
     });
     yield* runProviderStartReactor;
 
-    type ProviderStopCommand = {
-      readonly _tag: "StopProvider";
-      readonly requestedAt: number;
-    };
     const providerStopReactor = new ReactorRunner<
       StoredEvent,
       ProviderStopCommand,
@@ -3178,23 +3165,7 @@ export const ConversationServicesLive = Layer.effectContext(
             VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
           `.pipe(Effect.orDie);
         }),
-      {
-        name: "provider-stop",
-        react: (record) =>
-          Effect.succeed(
-            record.event._tag === "ProviderStopRequested"
-              ? [
-                  {
-                    streamId: record.streamId,
-                    command: {
-                      _tag: "StopProvider",
-                      requestedAt: record.event.requestedAt,
-                    },
-                  },
-                ]
-              : [],
-          ),
-      },
+      providerStopReactorDefinition,
     );
     runProviderStopReactor = Effect.suspend(() =>
       providerStopReactorSemaphore.withPermits(1)(
@@ -3203,7 +3174,6 @@ export const ConversationServicesLive = Layer.effectContext(
     );
     yield* runProviderStopReactor;
 
-    type AutoNameCommand = { readonly _tag: "AutoNameChat" };
     const autoNameReactor = new ReactorRunner<
       StoredEvent,
       AutoNameCommand,
@@ -3216,21 +3186,7 @@ export const ConversationServicesLive = Layer.effectContext(
           const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
           yield* autoNameChat(session.chatId, sessionId, input.commandId);
         }),
-      {
-        name: "auto-name-chat",
-        react: (record) =>
-          Effect.succeed(
-            record.event._tag === "TurnSettled" &&
-              record.event.outcome === "completed"
-              ? [
-                  {
-                    streamId: record.streamId,
-                    command: { _tag: "AutoNameChat" },
-                  },
-                ]
-              : [],
-          ),
-      },
+      autoNameReactorDefinition,
     );
     runSessionReactors = Effect.suspend(() => {
       return sessionReactorSemaphore.withPermits(1)(
@@ -3420,10 +3376,6 @@ export const ConversationServicesLive = Layer.effectContext(
     const chatArchiveResults = yield* Ref.make<
       ReadonlyMap<ChatId, ChatArchiveResult>
     >(new Map());
-    type ChatArchiveCommand = {
-      readonly _tag: "ArchiveChatWorktree";
-      readonly force: boolean;
-    };
     const chatArchiveReactor = new ReactorRunner<
       StoredEvent<typeof ChatEvent.Type>,
       ChatArchiveCommand,
@@ -3457,23 +3409,7 @@ export const ConversationServicesLive = Layer.effectContext(
             return next;
           });
         }),
-      {
-        name: "chat-archive",
-        react: (record) =>
-          Effect.succeed(
-            record.event._tag === "ChatArchiveRequested"
-              ? [
-                  {
-                    streamId: record.streamId,
-                    command: {
-                      _tag: "ArchiveChatWorktree",
-                      force: record.event.force,
-                    },
-                  },
-                ]
-              : [],
-          ),
-      },
+      chatArchiveReactorDefinition,
     );
     runChatArchiveReactor = Effect.suspend(() =>
       chatArchiveReactorSemaphore.withPermits(1)(
@@ -3641,7 +3577,6 @@ export const ConversationServicesLive = Layer.effectContext(
         // ON DELETE CASCADE handles sessions + messages.
       });
 
-    type ChatDeleteCommand = { readonly _tag: "DeleteChatResources" };
     const chatDeleteReactor = new ReactorRunner<
       StoredEvent<typeof ChatEvent.Type>,
       ChatDeleteCommand,
@@ -3667,20 +3602,7 @@ export const ConversationServicesLive = Layer.effectContext(
             reactorInput.commandId,
           );
         }),
-      {
-        name: "chat-delete",
-        react: (record) =>
-          Effect.succeed(
-            record.event._tag === "ChatDeleteRequested"
-              ? [
-                  {
-                    streamId: record.streamId,
-                    command: { _tag: "DeleteChatResources" },
-                  },
-                ]
-              : [],
-          ),
-      },
+      chatDeleteReactorDefinition,
     );
     runChatDeleteReactor = Effect.suspend(() =>
       chatDeleteReactorSemaphore.withPermits(1)(
