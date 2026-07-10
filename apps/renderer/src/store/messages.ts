@@ -122,24 +122,6 @@ export const lookupSessionProvider = (
   return undefined;
 };
 
-type GoalRpcClient = {
-  readonly session: {
-    readonly "goal.stream": (payload: {
-      readonly sessionId: SessionId;
-    }) => Stream.Stream<
-      { readonly sessionId: SessionId; readonly goal: ThreadGoal | null },
-      unknown
-    >;
-    readonly "goal.set": (payload: {
-      readonly sessionId: SessionId;
-      readonly goal: ThreadGoalSetInput;
-    }) => Effect.Effect<ThreadGoal, unknown>;
-    readonly "goal.clear": (payload: {
-      readonly sessionId: SessionId;
-    }) => Effect.Effect<void, unknown>;
-  };
-};
-
 /**
  * Live view of one session's message log. Subscribes to `messages.stream`
  * (which emits backfill rows then live ones), drops them straight into
@@ -610,7 +592,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       if (goalProvider === "codex" || goalProvider === "grok") {
         goalFiber = Effect.runFork(
           Stream.runForEach(
-            (client as unknown as GoalRpcClient).session["goal.stream"]({
+            client["session.goal.stream"]({
               sessionId,
             }).pipe(
               Stream.catch((err) => {
@@ -749,7 +731,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     try {
       const client = await getMessagesRpcClient();
       const next = await Effect.runPromise(
-        (client as unknown as GoalRpcClient).session["goal.set"]({
+        client["session.goal.set"]({
           sessionId,
           goal,
         }),
@@ -770,7 +752,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     try {
       const client = await getMessagesRpcClient();
       await Effect.runPromise(
-        (client as unknown as GoalRpcClient).session["goal.clear"]({
+        client["session.goal.clear"]({
           sessionId,
         }),
       );
