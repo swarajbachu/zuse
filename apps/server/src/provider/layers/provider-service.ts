@@ -1,6 +1,6 @@
 import { FileSystem } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
-import { Effect, Layer, Ref, Runtime, Stream } from "effect";
+import { Cache, Effect, Layer, Ref, Runtime, Stream } from "effect";
 
 import {
   AgentSessionId,
@@ -134,29 +134,41 @@ export const ProviderServiceLive = Layer.effect(
           }),
         );
 
-    const availability = () =>
-      Effect.gen(function* () {
-        const list = yield* probeAllProviders.pipe(
-          Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
-          Effect.provideService(FileSystem.FileSystem, fs),
-        );
-        // listConfigured is best-effort — a keychain failure here shouldn't
-        // wipe out the CLI-logged-in picture, which is the primary auth path
-        // and works without any keychain entry of ours.
-        const configured = yield* credentials
-          .listConfigured()
-          .pipe(
-            Effect.catch(() =>
-              Effect.succeed([] as ReadonlyArray<ProviderId>),
+    const availabilityCache = yield* Cache.make({
+      capacity: 1,
+      lookup: () =>
+        Effect.gen(function* () {
+          const list = yield* probeAllProviders.pipe(
+            Effect.provideService(
+              CommandExecutor.ChildProcessSpawner,
+              executor,
             ),
+            Effect.provideService(FileSystem.FileSystem, fs),
           );
-        const configuredSet = new Set<ProviderId>(configured);
-        return list.map(
-          (a): AgentAvailability => ({
-            ...a,
-            hasApiKey: configuredSet.has(a.providerId),
-          }),
-        );
+          // listConfigured is best-effort — a keychain failure here shouldn't
+          // wipe out the CLI-logged-in picture, which is the primary auth path
+          // and works without any keychain entry of ours.
+          const configured = yield* credentials
+            .listConfigured()
+            .pipe(
+              Effect.catch(() =>
+                Effect.succeed([] as ReadonlyArray<ProviderId>),
+              ),
+            );
+          const configuredSet = new Set<ProviderId>(configured);
+          return list.map(
+            (a): AgentAvailability => ({
+              ...a,
+              hasApiKey: configuredSet.has(a.providerId),
+            }),
+          );
+        }),
+    });
+
+    const availability = (refresh = false) =>
+      Effect.gen(function* () {
+        if (refresh) yield* Cache.invalidate(availabilityCache, "providers");
+        return yield* Cache.get(availabilityCache, "providers");
       });
 
     const lookup = (
@@ -481,7 +493,9 @@ export const ProviderServiceLive = Layer.effect(
           Effect.map(lookup(sessionId), ({ handle }) => handle.events),
         ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
       setCredential: (providerId, apiKey) =>
-        credentials.set(providerId, apiKey),
+        credentials
+          .set(providerId, apiKey)
+          .pipe(Effect.andThen(Cache.invalidateAll(availabilityCache))),
       setPermissionMode: (sessionId, mode) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.setPermissionMode(mode),

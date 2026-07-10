@@ -30,8 +30,10 @@ import { ProviderService } from "./services/provider-service.ts";
  *   PR 4 — `agent.setCredential`        ← here
  *   PR 5/6 — `agent.start` / `send` / `interrupt` / `close` / `events`
  */
-const Availability = MemoizeRpcs.toLayerHandler("agent.availability", () =>
-  Effect.flatMap(ProviderService, (svc) => svc.availability()),
+const Availability = MemoizeRpcs.toLayerHandler(
+  "agent.availability",
+  ({ refresh }) =>
+    Effect.flatMap(ProviderService, (svc) => svc.availability(refresh)),
 );
 
 const SetCredential = MemoizeRpcs.toLayerHandler(

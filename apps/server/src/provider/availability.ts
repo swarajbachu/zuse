@@ -595,21 +595,13 @@ const ACCOUNT_PROBE_TIMEOUT_MS = 5_000;
 const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
   Effect.promise(async () => {
     let client: CodexAppServerClient | null = null;
-    let timer: NodeJS.Timeout | null = null;
     try {
-      const startWithTimeout = new Promise<CodexAppServerClient>(
-        (resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error("Codex auth probe timed out"));
-          }, ACCOUNT_PROBE_TIMEOUT_MS);
-          CodexAppServerClient.start({
-            codexPath,
-            onNotification: () => {},
-            onServerRequest: (_req, respond) => respond(null),
-          }).then(resolve, reject);
-        },
-      );
-      client = await startWithTimeout;
+      client = await CodexAppServerClient.start({
+        codexPath,
+        startupTimeoutMs: ACCOUNT_PROBE_TIMEOUT_MS,
+        onNotification: () => {},
+        onServerRequest: (_req, respond) => respond(null),
+      });
       const response = await client.request<GetAccountResponse>(
         "account/read",
         {},
@@ -639,7 +631,6 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
           err instanceof Error ? err.message : "Could not verify Codex auth",
       } satisfies AccountInfo;
     } finally {
-      if (timer !== null) clearTimeout(timer);
       // Kill the child process — without this the `codex app-server`
       // subprocess leaks for several minutes per probe.
       client?.close();

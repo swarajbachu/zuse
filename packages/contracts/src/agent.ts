@@ -1501,7 +1501,7 @@ export class CredentialStoreError extends Schema.TaggedErrorClass<CredentialStor
 // ---------------------------------------------------------------------------
 
 export const AgentAvailabilityRpc = Rpc.make("agent.availability", {
-  payload: Schema.Struct({}),
+  payload: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
   success: Schema.Array(AgentAvailability),
 });
 

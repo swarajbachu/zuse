@@ -65,6 +65,7 @@ export class CodexAppServerClient {
   static async start(options: {
     readonly codexPath: string | null;
     readonly env?: NodeJS.ProcessEnv;
+    readonly startupTimeoutMs?: number;
     readonly onNotification: NotificationHandler;
     readonly onServerRequest: ServerRequestHandler;
   }): Promise<CodexAppServerClient> {
@@ -117,14 +118,34 @@ export class CodexAppServerClient {
       bootstrap.pending.clear();
     });
 
-    const init = await bootstrap.request<InitializeResponse>("initialize", {
-      clientInfo: { name: "zuse", version: "0.0.0" },
-      capabilities: {
-        experimentalApi: true,
-      },
-    });
-    bootstrap.initializeResponse = init;
-    return bootstrap;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const initialize = bootstrap.request<InitializeResponse>("initialize", {
+        clientInfo: { name: "zuse", version: "0.0.0" },
+        capabilities: {
+          experimentalApi: true,
+        },
+      });
+      const init =
+        options.startupTimeoutMs === undefined
+          ? await initialize
+          : await Promise.race([
+              initialize,
+              new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error("Codex app-server startup timed out")),
+                  options.startupTimeoutMs,
+                );
+              }),
+            ]);
+      bootstrap.initializeResponse = init;
+      return bootstrap;
+    } catch (cause) {
+      bootstrap.close();
+      throw cause;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   request<T>(

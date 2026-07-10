@@ -201,10 +201,10 @@ export function App() {
   // re-probes on mount while settings is open (it no longer re-polls on window
   // focus — that read the keychain and made macOS re-prompt on every refocus
   // for unsigned/dev builds).
-  const refreshProviders = useProvidersStore((s) => s.refresh);
+  const loadProviders = useProvidersStore((s) => s.load);
   useEffect(() => {
-    void refreshProviders();
-  }, [refreshProviders]);
+    void loadProviders();
+  }, [loadProviders]);
 
   // Mirror Electron's fullscreen state into the ui store so the top bars
   // can drop the macOS traffic-light gutter.

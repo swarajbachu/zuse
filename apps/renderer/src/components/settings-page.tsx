@@ -1252,6 +1252,7 @@ function ProvidersPane() {
   const loading = useProvidersStore((s) => s.loading);
   const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
   const error = useProvidersStore((s) => s.error);
+  const load = useProvidersStore((s) => s.load);
   const refresh = useProvidersStore((s) => s.refresh);
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
@@ -1264,8 +1265,8 @@ function ProvidersPane() {
   // a keychain prompt every time the window regained focus. The manual refresh
   // button covers the occasional "re-check now" case.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load();
+  }, [load]);
 
   const now = useRelativeTimeTick(15_000);
   const lastCheckedAt = useMemo(() => {

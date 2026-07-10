@@ -38,7 +38,9 @@ export type GetRuntimeMode = () => RuntimeMode;
  * the spawn-CLI helper to satisfy these.
  */
 export interface ProviderServiceShape {
-  readonly availability: () => Effect.Effect<ReadonlyArray<AgentAvailability>>;
+  readonly availability: (
+    refresh?: boolean,
+  ) => Effect.Effect<ReadonlyArray<AgentAvailability>>;
 
   readonly start: (
     input: StartSessionInput,

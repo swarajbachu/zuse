@@ -21,6 +21,8 @@ export const IDLE_PROVIDER_UPDATE_STATE: ProviderUpdateState = {
   kind: "idle",
 };
 
+let pendingAvailabilityLoad: Promise<void> | null = null;
+
 /**
  * Renderer-side cache of provider availability + the credentials sheet
  * controller. Replaces the per-session state that used to live in
@@ -35,7 +37,8 @@ type ProvidersState = {
   readonly updateStateByProvider: Partial<
     Record<ProviderId, ProviderUpdateState>
   >;
-  readonly refresh: () => Promise<void>;
+  readonly load: () => Promise<void>;
+  readonly refresh: (force?: boolean) => Promise<void>;
   readonly setCredentialsOpen: (open: boolean) => void;
   readonly setProviderUpdateState: (
     providerId: ProviderId,
@@ -61,11 +64,27 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   error: null,
   credentialsOpen: false,
   updateStateByProvider: {},
-  refresh: async () => {
+  load: async () => {
+    if (get().availabilityLoaded) return;
+    if (pendingAvailabilityLoad !== null) {
+      await pendingAvailabilityLoad;
+      return;
+    }
+    const load = get()
+      .refresh(false)
+      .finally(() => {
+        if (pendingAvailabilityLoad === load) pendingAvailabilityLoad = null;
+      });
+    pendingAvailabilityLoad = load;
+    await load;
+  },
+  refresh: async (force = true) => {
     set({ loading: true, error: null });
     try {
       const client = await getRpcClient();
-      const list = await Effect.runPromise(client["agent.availability"]({}));
+      const list = await Effect.runPromise(
+        client["agent.availability"]({ refresh: force }),
+      );
       set({ availability: list, loading: false, availabilityLoaded: true });
     } catch (err) {
       set({ error: formatError(err), loading: false });
