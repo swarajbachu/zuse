@@ -490,9 +490,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
     // Sub-agents the new session may delegate to. The renderer reads
     // these from the user's preset settings and injects them at create
     // time so the wire stays the single source of truth.
-    agents: Schema.optional(
-      Schema.Record(Schema.String, AgentDefinition ),
-    ),
+    agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
     enableSubagents: Schema.optional(Schema.Boolean),
     /**
      * Start the session in plan mode. The agent will explore read-only
@@ -500,9 +498,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
      * `'default'` (immediate execution).
      */
     permissionMode: Schema.optional(PermissionMode),
-    modelOptions: Schema.optional(
-      Schema.Record(Schema.String, Schema.String ),
-    ),
+    modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
     /**
      * Persist the deferred-tools toggle for this session. Reserved for
      * 0.04 code-index MCP servers; no-op today.
@@ -749,9 +745,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     initialPrompt: Schema.optional(Schema.String),
     runtimeMode: Schema.optional(RuntimeMode),
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    agents: Schema.optional(
-      Schema.Record(Schema.String, AgentDefinition ),
-    ),
+    agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
@@ -760,9 +754,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
      * session id. Omitted for user-created chats.
      */
     originSessionId: Schema.optional(SessionId),
-    modelOptions: Schema.optional(
-      Schema.Record(Schema.String, Schema.String ),
-    ),
+    modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   }),
   success: Schema.Struct({
     chat: Chat,
@@ -1088,6 +1080,30 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
   }),
   success: Schema.Void,
   error: SessionNotFoundError,
+});
+
+export class SessionDomainEventEnvelope extends Schema.Class<SessionDomainEventEnvelope>(
+  "SessionDomainEventEnvelope",
+)({
+  sequence: Schema.Number,
+  eventId: Schema.String,
+  correlationId: Schema.String,
+  causationEventId: Schema.NullOr(Schema.String),
+  sessionId: SessionId,
+  streamVersion: Schema.Number,
+  type: Schema.String,
+  payloadJson: Schema.String,
+}) {}
+
+/** Ordered durable session-domain feed with cursor-based replay. */
+export const SessionEventsRpc = Rpc.make("session.events", {
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    afterSequence: Schema.optional(Schema.Number),
+  }),
+  success: SessionDomainEventEnvelope,
+  error: SessionNotFoundError,
+  stream: true,
 });
 
 /**

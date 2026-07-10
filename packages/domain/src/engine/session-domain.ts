@@ -1,4 +1,12 @@
-import { Context, Crypto, Effect, Layer, Semaphore } from "effect";
+import {
+	Context,
+	Crypto,
+	Effect,
+	Layer,
+	PubSub,
+	Semaphore,
+	Stream,
+} from "effect";
 import type { PlatformError } from "effect/PlatformError";
 import { SqlClient } from "effect/unstable/sql";
 
@@ -11,6 +19,7 @@ import {
 	DispatchEngine,
 	type DispatchFailure,
 	type DispatchInput,
+	type StoredEvent,
 } from "./dispatch.js";
 import { ProjectorRunner } from "./projector-runner.js";
 import {
@@ -33,6 +42,10 @@ export interface SessionDomainApi {
 		input: DispatchInput,
 	) => Effect.Effect<CommandReceipt, SessionDomainError>;
 	readonly catchUp: Effect.Effect<number, SessionDomainError>;
+	readonly events: (input: {
+		readonly streamId: string;
+		readonly afterSequence?: number;
+	}) => Stream.Stream<StoredEvent, SessionDomainError>;
 }
 
 export class SessionDomain extends Context.Service<
@@ -57,21 +70,58 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	sql: SqlClient.SqlClient,
 	makeEventId: () => Effect.Effect<string, PlatformError>,
 ) {
-	const dispatch = new DispatchEngine(makeSqlDispatchStorage(sql), makeEventId);
+	const dispatchStorage = makeSqlDispatchStorage(sql);
+	const dispatch = new DispatchEngine(dispatchStorage, makeEventId);
 	const projector = new ProjectorRunner(
 		makeSqlConsumerStorage(sql),
 		makeSqlSessionProjector(sql),
 	);
 	const projectorLock = yield* Semaphore.make(1);
 	const catchUp = Semaphore.withPermits(projectorLock, 1, projector.catchUp());
+	const eventHub = yield* PubSub.unbounded<StoredEvent>();
+
+	const events: SessionDomainApi["events"] = ({
+		streamId,
+		afterSequence = 0,
+	}) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				const subscription = yield* PubSub.subscribe(eventHub);
+				const replay = yield* dispatchStorage.events(streamId);
+				let cursor = afterSequence;
+				return Stream.concat(
+					Stream.fromIterable(replay),
+					Stream.fromSubscription(subscription),
+				).pipe(
+					Stream.filter((record) => {
+						if (record.streamId !== streamId || record.sequence <= cursor) {
+							return false;
+						}
+						cursor = record.sequence;
+						return true;
+					}),
+				);
+			}),
+		);
 
 	return SessionDomain.of({
 		catchUp,
+		events,
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
 			input: DispatchInput,
 		) {
+			const existing = yield* dispatchStorage.receipt(input.commandId);
 			const receipt = yield* dispatch.dispatch(input);
 			yield* catchUp;
+			if (existing === null && receipt.eventIds.length > 0) {
+				const appended = yield* dispatchStorage.events(input.streamId);
+				const eventIds = new Set(receipt.eventIds);
+				yield* Effect.forEach(
+					appended.filter((record) => eventIds.has(record.eventId)),
+					(record) => PubSub.publish(eventHub, record),
+					{ discard: true },
+				);
+			}
 			return receipt;
 		}),
 	});

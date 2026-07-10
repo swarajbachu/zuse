@@ -415,6 +415,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     FileSearchLayer,
     ProjectScaffoldLayer,
     ProviderLayer,
+    SessionDomainLayer,
     ConversationServicesLayer,
     PermissionLayer,
     AttachmentLayer,

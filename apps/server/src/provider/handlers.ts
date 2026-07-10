@@ -3,7 +3,9 @@ import {
   CredentialStoreError,
   MemoizeRpcs,
   type ProviderId,
+  SessionDomainEventEnvelope,
 } from "@zuse/contracts";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
 
@@ -337,7 +339,9 @@ const ChatDelete = MemoizeRpcs.toLayerHandler("chat.delete", ({ chatId }) =>
 const SessionRename = MemoizeRpcs.toLayerHandler(
   "session.rename",
   ({ sessionId, title }) =>
-    Effect.flatMap(SessionService, (svc) => svc.renameSession(sessionId, title)),
+    Effect.flatMap(SessionService, (svc) =>
+      svc.renameSession(sessionId, title),
+    ),
 );
 
 const SessionSetModel = MemoizeRpcs.toLayerHandler(
@@ -470,6 +474,33 @@ const SessionStreamStatus = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const SessionEvents = MemoizeRpcs.toLayerHandler(
+  "session.events",
+  ({ sessionId, afterSequence }) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const sessions = yield* SessionService;
+        yield* sessions.getSession(sessionId);
+        const domain = yield* SessionDomain;
+        return domain.events({ streamId: sessionId, afterSequence }).pipe(
+          Stream.map((record) =>
+            SessionDomainEventEnvelope.make({
+              sequence: record.sequence,
+              eventId: record.eventId,
+              correlationId: record.correlationId,
+              causationEventId: record.causationEventId,
+              sessionId,
+              streamVersion: record.streamVersion,
+              type: record.event._tag,
+              payloadJson: JSON.stringify(record.event),
+            }),
+          ),
+          Stream.orDie,
+        );
+      }),
+    ),
+);
+
 const SessionGoalGet = MemoizeRpcs.toLayerHandler(
   "session.goal.get",
   ({ sessionId }) =>
@@ -491,7 +522,9 @@ const SessionGoalClear = MemoizeRpcs.toLayerHandler(
 const SessionGoalStream = MemoizeRpcs.toLayerHandler(
   "session.goal.stream",
   ({ sessionId }) =>
-    Stream.unwrap(Effect.map(SessionService, (svc) => svc.streamGoal(sessionId))),
+    Stream.unwrap(
+      Effect.map(SessionService, (svc) => svc.streamGoal(sessionId)),
+    ),
 );
 
 const MessagesSend = MemoizeRpcs.toLayerHandler(
@@ -729,6 +762,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionAnswerQuestion,
   SessionSetWorktree,
   SessionStreamStatus,
+  SessionEvents,
   SessionGoalGet,
   SessionGoalSet,
   SessionGoalClear,
