@@ -1,4 +1,4 @@
-import { Effect, Queue, type Scope, Stream } from "effect";
+import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import * as readline from "node:readline";
 import { homedir } from "node:os";
@@ -54,7 +54,7 @@ const spawnUpdate = (
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const mailbox = yield* Queue.make<ProviderUpdateEvent>();
+    const events = yield* Queue.make<ProviderUpdateEvent, Cause.Done>();
 
     // stdin closed (`ignore`) so an installer never blocks waiting on input.
     let child: ChildProcessByStdio<null, Readable, Readable>;
@@ -67,7 +67,7 @@ const spawnUpdate = (
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (cause) {
-      yield* mailbox.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId,
@@ -86,7 +86,7 @@ const spawnUpdate = (
       const cleaned = raw.replace(ANSI_PATTERN, "").trim();
       if (cleaned.length === 0) return;
       lastLine = cleaned;
-      Queue.offerUnsafe(mailbox, { _tag: "log", text: cleaned });
+      Queue.offerUnsafe(events, { _tag: "log", text: cleaned });
     };
 
     const rlOut = readline.createInterface({ input: child.stdout });
@@ -97,12 +97,12 @@ const spawnUpdate = (
     const finish = (ok: boolean, reason?: string): void => {
       if (exited) return;
       exited = true;
-      Queue.offerUnsafe(mailbox, {
+      Queue.offerUnsafe(events, {
         _tag: "done",
         ok,
         ...(reason !== undefined ? { reason } : {}),
       });
-      void mailbox.end.pipe(Effect.runPromise);
+      Queue.endUnsafe(events);
     };
 
     const timer = setTimeout(() => {
@@ -155,5 +155,5 @@ const spawnUpdate = (
       }),
     );
 
-    return Stream.fromQueue(mailbox);
+    return Stream.fromQueue(events);
   });

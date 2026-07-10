@@ -220,7 +220,7 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
   // subscribe time) would clobber the live `true` flag with whatever's
   // persisted, making the previous session's loader disappear.
   const fibersRef = useRef<
-    Map<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
+    Map<SessionId, Fiber.Fiber<unknown, unknown>>
   >(new Map());
   const idsKey = sessionIds.join(",");
 

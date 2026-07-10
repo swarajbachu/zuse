@@ -1,5 +1,5 @@
 import * as pty from "node-pty";
-import { Effect, Exit, Layer, Queue, Ref, Stream } from "effect";
+import { type Cause, Effect, Exit, Layer, Queue, Ref, Stream } from "effect";
 
 import {
   PtyDataEvent,
@@ -15,7 +15,10 @@ import { PtyService } from "../services/pty-service.ts";
 interface ActivePty {
   readonly pty: pty.IPty;
   readonly cwd: string;
-  readonly mailbox: Queue.Queue<typeof PtyEvent.Type, PtyNotFoundError>;
+  readonly events: Queue.Queue<
+    typeof PtyEvent.Type,
+    PtyNotFoundError | Cause.Done
+  >;
 }
 
 const defaultShell = (): string => {
@@ -34,9 +37,9 @@ export const PtyServiceLive = Layer.effect(
       Effect.gen(function* () {
         const id = PtyId.make(crypto.randomUUID());
 
-        const mailbox = yield* Queue.make<
+        const events = yield* Queue.make<
           typeof PtyEvent.Type,
-          PtyNotFoundError
+          PtyNotFoundError | Cause.Done
         >();
 
         const cmd = command?.cmd ?? defaultShell();
@@ -62,17 +65,17 @@ export const PtyServiceLive = Layer.effect(
         });
 
         child.onData((bytes) => {
-          Queue.offerUnsafe(mailbox, PtyDataEvent.make({ bytes }));
+          Queue.offerUnsafe(events, PtyDataEvent.make({ bytes }));
         });
 
         child.onExit(({ exitCode, signal }) => {
-          Queue.offerUnsafe(mailbox,
+          Queue.offerUnsafe(events,
             PtyExitEvent.make({
               exitCode: exitCode ?? null,
               signal: signal ?? null,
             }),
           );
-          Queue.endUnsafe(mailbox);
+          Queue.endUnsafe(events);
           Effect.runSync(
             Ref.update(ref, (m) => {
               const next = new Map(m);
@@ -84,7 +87,7 @@ export const PtyServiceLive = Layer.effect(
 
         yield* Ref.update(ref, (m) => {
           const next = new Map(m);
-          next.set(id, { pty: child, cwd, mailbox });
+          next.set(id, { pty: child, cwd, events });
           return next;
         });
 
@@ -152,8 +155,8 @@ export const PtyServiceLive = Layer.effect(
 
     const subscribe: PtyService["Service"]["subscribe"] = (ptyId) =>
       Stream.unwrap(
-        Effect.map(getActive(ptyId), ({ mailbox }) =>
-          Stream.fromQueue(mailbox),
+        Effect.map(getActive(ptyId), ({ events }) =>
+          Stream.fromQueue(events),
         ),
       );
 

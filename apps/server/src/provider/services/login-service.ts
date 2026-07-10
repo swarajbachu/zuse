@@ -1,4 +1,4 @@
-import { Effect, Queue, type Scope, Stream } from "effect";
+import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 import {
   spawn,
   type ChildProcessWithoutNullStreams,
@@ -82,7 +82,7 @@ const spawnLoginProcess = (
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const mailbox = yield* Queue.make<LoginEvent>();
+    const events = yield* Queue.make<LoginEvent, Cause.Done>();
 
     // Spawn into the user's home dir — login doesn't touch the project tree
     // and we don't want a project-local stale state to interfere.
@@ -94,7 +94,7 @@ const spawnLoginProcess = (
         stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (cause) {
-      yield* mailbox.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId: spec.providerId,
@@ -112,12 +112,12 @@ const spawnLoginProcess = (
     const handleLine = (raw: string): void => {
       const cleaned = raw.replace(ANSI_PATTERN, "").trim();
       if (cleaned.length === 0) return;
-      Queue.offerUnsafe(mailbox, { _tag: "log", text: cleaned });
+      Queue.offerUnsafe(events, { _tag: "log", text: cleaned });
       if (!urlEmitted) {
         const m = cleaned.match(spec.urlPattern);
         if (m !== null) {
           urlEmitted = true;
-          Queue.offerUnsafe(mailbox, { _tag: "url", url: m[0] });
+          Queue.offerUnsafe(events, { _tag: "url", url: m[0] });
         }
       }
     };
@@ -135,22 +135,22 @@ const spawnLoginProcess = (
         : signal !== null
           ? `${spec.command} login was terminated (${signal})`
           : `${spec.command} login exited with code ${code ?? "?"}`;
-      Queue.offerUnsafe(mailbox, {
+      Queue.offerUnsafe(events, {
         _tag: "done",
         ok,
         ...(reason !== undefined ? { reason } : {}),
       });
-      void mailbox.end.pipe(Effect.runPromise);
+      Queue.endUnsafe(events);
     });
 
     child.once("error", (err) => {
       exited = true;
-      Queue.offerUnsafe(mailbox, {
+      Queue.offerUnsafe(events, {
         _tag: "done",
         ok: false,
         reason: err.message,
       });
-      void mailbox.end.pipe(Effect.runPromise);
+      Queue.endUnsafe(events);
     });
 
     yield* Effect.addFinalizer(() =>
@@ -175,5 +175,5 @@ const spawnLoginProcess = (
       }),
     );
 
-    return Stream.fromQueue(mailbox);
+    return Stream.fromQueue(events);
   });

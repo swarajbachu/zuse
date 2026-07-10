@@ -369,7 +369,7 @@ export function BrowserPane() {
   // mounted while a project is open, so this subscription lives as long as the
   // pane does.
   useEffect(() => {
-    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
     let cancelled = false;
     void (async () => {
       const client = await getRpcClient();

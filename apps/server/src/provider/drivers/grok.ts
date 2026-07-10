@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import * as readline from "node:readline";
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -578,7 +578,7 @@ export const startGrokSession = (
     // uniform with the other drivers; attachments themselves are not yet
     // wired through ACP's `prompt: [{ type: "image", ... }]` shape.
     yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -1174,7 +1174,7 @@ export const startGrokSession = (
           return;
         }
         // User-initiated close — end the mailbox so Stream consumers terminate.
-        void Effect.runPromise(events.end).catch(() => {});
+        Queue.endUnsafe(events);
       });
     }; // end attachListeners
 
@@ -1565,7 +1565,7 @@ export const startGrokSession = (
             yield* Effect.promise(() => orchestrationBridge.close());
           }
           yield* Effect.promise(() => mcpGatewaySession.close());
-          yield* events.end;
+          yield* Queue.end(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

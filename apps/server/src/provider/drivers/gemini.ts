@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as readline from "node:readline";
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -263,7 +263,7 @@ export const startGeminiSession = (
     // uniform with the other drivers; attachments themselves are not yet
     // wired through ACP's `prompt: [{ type: "image", ... }]` shape.
     yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
 
@@ -408,7 +408,7 @@ export const startGeminiSession = (
         stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (cause) {
-      yield* events.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId: "gemini",
@@ -643,7 +643,7 @@ export const startGeminiSession = (
     child.on("error", (err) => {
       if (closed) return;
       Queue.offerUnsafe(events, { _tag: "Error", message: err.message });
-      void Effect.runPromise(events.end).catch(() => {});
+      Queue.endUnsafe(events);
     });
 
     child.on("close", (code, signal) => {
@@ -662,7 +662,7 @@ export const startGeminiSession = (
         Queue.offerUnsafe(events, { _tag: "Error", message: exitDetail });
         Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
       }
-      void Effect.runPromise(events.end).catch(() => {});
+      Queue.endUnsafe(events);
     });
 
     // === ACP handshake — synchronous, fails the start() RPC on error. ===
@@ -943,7 +943,7 @@ export const startGeminiSession = (
             yield* Effect.promise(() => orchestrationBridge.close());
           }
           yield* Effect.promise(() => mcpGatewaySession.close());
-          yield* events.end;
+          yield* Queue.end(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

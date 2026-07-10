@@ -222,7 +222,7 @@ type SettingsState = SettingsSlice & {
   readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 
 const stopStream = async () => {
   if (streamFiber !== null) {

@@ -25,7 +25,7 @@ export function useSidebarMessageStatusSubscriptions(
   sessionIds: ReadonlyArray<SessionId>,
 ) {
   const fibersRef = useRef<
-    Map<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
+    Map<SessionId, Fiber.Fiber<unknown, unknown>>
   >(new Map());
   const idsKey = sessionIds.join(",");
 

@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import * as readline from "node:readline";
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -727,7 +727,7 @@ export const startCursorSession = (
 > =>
   Effect.gen(function* () {
     yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
     let acpSessionId: string | null = null;
@@ -1131,7 +1131,7 @@ export const startCursorSession = (
           }
           child.kill("SIGTERM");
           rl.close();
-          yield* events.end;
+          yield* Queue.end(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

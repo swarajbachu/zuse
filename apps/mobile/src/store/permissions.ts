@@ -34,7 +34,7 @@ type PermissionsState = {
   ) => Promise<void>;
 };
 
-const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stop = async (key: string) => {
   const fiber = liveFibers.get(key);

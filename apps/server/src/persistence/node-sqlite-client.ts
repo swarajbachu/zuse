@@ -3,10 +3,7 @@ import { Context, Effect, Layer, Scope, Semaphore, Stream } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import * as Client from "effect/unstable/sql/SqlClient";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
-import {
-	classifySqliteError,
-	SqlError,
-} from "effect/unstable/sql/SqlError";
+import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
 /**
@@ -29,6 +26,8 @@ export interface NodeSqliteClientConfig {
 	readonly disableWAL?: boolean | undefined;
 	readonly spanAttributes?: Record<string, unknown> | undefined;
 }
+
+type SqliteRow = Record<string, unknown>;
 
 const sqlError = (
 	cause: unknown,
@@ -117,7 +116,7 @@ export const make = (
 				sql: string,
 				params: ReadonlyArray<unknown> = [],
 				prepared = true,
-			): Effect.Effect<ReadonlyArray<any>, SqlError> =>
+			): Effect.Effect<ReadonlyArray<SqliteRow>, SqlError> =>
 				Effect.withFiber((fiber) => {
 					const useSafeIntegers = Context.get(
 						fiber.context,
@@ -131,7 +130,7 @@ export const make = (
 								...(normalizeParams(params) as Array<
 									null | number | bigint | string | Uint8Array
 								>),
-							),
+							) as ReadonlyArray<SqliteRow>,
 						);
 					} catch (cause) {
 						return Effect.fail(
@@ -151,6 +150,11 @@ export const make = (
 				},
 				executeValues(sql, params) {
 					return Effect.map(run(sql, params), (rows) =>
+						rows.map((row) => Object.values(row as object)),
+					);
+				},
+				executeValuesUnprepared(sql, params) {
+					return Effect.map(run(sql, params, false), (rows) =>
 						rows.map((row) => Object.values(row as object)),
 					);
 				},

@@ -182,7 +182,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
   }, [folderId, worktreeId]);
 
   useEffect(() => {
-    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
     let cancelled = false;
     void (async () => {
       const client = await getRpcClient();

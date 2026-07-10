@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Stream } from "effect";
+import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 import * as os from "node:os";
 
 import {
@@ -236,8 +236,8 @@ export const TitleGeneratorLive = Layer.effect(
             Stream.filterMap((event) =>
               event._tag === "AssistantMessage" &&
               event.text.trim().length > 0
-                ? Option.some(event.text)
-                : Option.none(),
+                ? Result.succeed(event.text)
+                : Result.fail(undefined),
             ),
             Stream.take(1),
             Stream.runHead,

@@ -20,7 +20,7 @@ type MessagesState = {
   flush: (connKey: string, sessionId: SessionId) => Promise<void>;
 };
 
-const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const highestSequenceBySession = new Map<string, number>();
 const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;

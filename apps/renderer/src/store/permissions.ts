@@ -44,7 +44,7 @@ const formatError = (err: unknown): string => {
   return String(err);
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 // Real guard against double-subscribe. `streamFiber` is only a handle —
 // it must never be used as the latch, since the previous design left it
 // non-null after the stream died and wedged `start()` into a permanent

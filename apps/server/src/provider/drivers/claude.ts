@@ -8,7 +8,7 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 import { z } from "zod";
 
 import {
@@ -1377,7 +1377,7 @@ export const startClaudeSession = (
 > =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
     const inputChannel = new UserInputChannel();
     const abort = new AbortController();
 
@@ -1760,7 +1760,7 @@ export const startClaudeSession = (
     try {
       q = query({ prompt: inputChannel, options });
     } catch (cause) {
-      yield* events.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId: "claude",
@@ -1815,7 +1815,7 @@ export const startClaudeSession = (
           });
         }),
       ),
-      Effect.ensuring(events.end),
+      Effect.ensuring(Queue.end(events)),
     );
 
     yield* Effect.forkDetach(pump);

@@ -1,4 +1,4 @@
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -924,7 +924,7 @@ export const startCodexSession = (
 > =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
     const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
     const statusLog = createCodexStatusLogger(cwd, sessionId);
     let currentMode: PermissionMode = input.permissionMode ?? "default";
@@ -1909,7 +1909,7 @@ export const startCodexSession = (
           }
           void mcpGatewaySession.close();
           app.close();
-          void Effect.runPromise(events.end);
+          Queue.endUnsafe(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

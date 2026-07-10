@@ -33,7 +33,7 @@ type LiveTerminal = {
   readonly observer: ResizeObserver;
   readonly refreshTheme: () => void;
   ptyId: PtyId | null;
-  streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
+  streamFiber: Fiber.Fiber<unknown, unknown> | null;
   disposables: { dispose: () => void } | null;
   resizeTimer: number | null;
   /** Set once `dispose()` runs so a late async PTY open closes itself. */

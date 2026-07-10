@@ -124,7 +124,7 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
  * Fibers draining each worktree's live `setupStream`, keyed by worktreeId, so
  * a subscription is started at most once and interrupted on completion/removal.
  */
-const setupFibers = new Map<WorktreeId, Fiber.RuntimeFiber<unknown, unknown>>();
+const setupFibers = new Map<WorktreeId, Fiber.Fiber<unknown, unknown>>();
 const subscribingSetup = new Set<WorktreeId>();
 
 const TERMINAL_SETUP = new Set(["succeeded", "failed", "skipped"]);

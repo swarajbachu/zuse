@@ -75,12 +75,12 @@ type SessionsState = {
   }>;
 };
 
-const statusFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
-const chatFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const statusFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const chatFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stopFiber = async (
   key: string,
-  map: Map<string, Fiber.RuntimeFiber<unknown, unknown>>,
+  map: Map<string, Fiber.Fiber<unknown, unknown>>,
 ) => {
   const fiber = map.get(key);
   if (fiber !== undefined) {

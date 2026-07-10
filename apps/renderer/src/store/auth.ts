@@ -88,7 +88,7 @@ type AuthStore = {
   readonly setDisplayName: (value: string) => void;
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 // Real double-subscribe guard — `streamFiber` is only a handle (see the same
 // note in store/permissions.ts).
 let started = false;

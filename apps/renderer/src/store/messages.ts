@@ -220,10 +220,10 @@ type MessagesState = {
   readonly retry: (sessionId: SessionId) => Promise<void>;
 };
 
-let liveFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let statusFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let queueFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let goalFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let statusFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let queueFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let goalFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
 // Monotonic token guarding `hydrate` against re-entrancy. `hydrate` mutates the
 // module-global fibers + `liveSessionId` across two `await` points, so two

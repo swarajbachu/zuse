@@ -571,7 +571,7 @@ function useProviderUpdate(providerId: ProviderId) {
   const setProviderUpdateState = useProvidersStore(
     (s) => s.setProviderUpdateState,
   );
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
+  const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
   const resetTimerRef = useRef<number | null>(null);
 
   useEffect(

@@ -172,7 +172,7 @@ const upsertChat = (
  * background auto-namer rewriting a new chat's title after its first
  * message) so the sidebar updates without a manual refetch.
  */
-const changeFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const ensureChangeStream = (projectId: FolderId): void => {
   if (changeFibers.has(projectId)) return;

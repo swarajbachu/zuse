@@ -131,7 +131,7 @@ const computeMenuAccelerators = (
   return out;
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 
 const stopStream = async (): Promise<void> => {
   if (streamFiber !== null) {

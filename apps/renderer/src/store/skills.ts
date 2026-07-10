@@ -23,7 +23,7 @@ type SkillsState = {
 
 const EMPTY: ReadonlyArray<Skill> = [];
 
-let liveFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
 
 const stopLiveFiber = async (): Promise<void> => {

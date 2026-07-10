@@ -323,7 +323,7 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
-let runtimeFiber: Fiber.RuntimeFiber<void, never> | null = null;
+let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
 
 const rendererDistDir = (): string =>

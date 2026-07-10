@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Queue, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 
 import {
   AgentSessionStartError,
@@ -834,7 +834,7 @@ export const startOpencodeSession = (
 > =>
   Effect.gen(function* () {
     yield* AttachmentService;
-    const events = yield* Queue.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
     let currentMode: PermissionMode = input.permissionMode ?? "default";
     let closed = false;
@@ -1191,7 +1191,7 @@ export const startOpencodeSession = (
           } catch {
             // ignore — child may already be gone
           }
-          yield* events.end;
+          yield* Queue.end(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

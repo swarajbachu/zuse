@@ -1,5 +1,6 @@
 import {
   Effect,
+  Fiber,
   Layer,
   Queue,
   ManagedRuntime,
@@ -180,7 +181,7 @@ export const IndexRegistryLive = Layer.effect(
       return {
         handle,
         close: async () => {
-          await Effect.runPromise(subscriberFiber.pipe(Effect.asVoid)).catch(
+          await Effect.runPromise(Fiber.interrupt(subscriberFiber)).catch(
             () => {},
           );
           await runtime.dispose();

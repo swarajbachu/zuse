@@ -36,7 +36,7 @@ describe("draft attachment finalization", () => {
         kind: "file",
       },
     ]);
-    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
+    expect(() => Schema.decodeUnknownSync(ComposerInput)(finalized)).not.toThrow();
   });
 
   it("replaces pending attachment ids with uploaded refs", async () => {
@@ -69,7 +69,7 @@ describe("draft attachment finalization", () => {
 
     expect(finalized.attachments).toEqual([uploaded]);
     expect(hasPendingAttachmentIds(finalized)).toBe(false);
-    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
+    expect(() => Schema.decodeUnknownSync(ComposerInput)(finalized)).not.toThrow();
   });
 
   it("throws instead of letting a stale pending id through", async () => {
@@ -132,6 +132,6 @@ describe("draft attachment finalization", () => {
       },
     ]);
     expect(hasPendingContextFileRefs(finalized)).toBe(false);
-    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
+    expect(() => Schema.decodeUnknownSync(ComposerInput)(finalized)).not.toThrow();
   });
 });

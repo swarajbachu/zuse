@@ -46,7 +46,7 @@ export function useProviderLogin(
   readonly cancel: () => void;
 } {
   const [state, setState] = useState<ProviderLoginState>({ kind: "idle" });
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
+  const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
   const onSuccessRef = useRef(opts?.onSuccess);
   onSuccessRef.current = opts?.onSuccess;
 
