@@ -105,6 +105,7 @@ import {
   shouldIncludeInTranscript,
   transcriptToMarkdown,
 } from "../conversation-message-mapping.ts";
+import { makeReactorEffectJournal } from "../reactor-effect-journal.ts";
 import {
   buildOrchestrationTools,
   type OrchestrationSessionTools,
@@ -574,6 +575,7 @@ export const ConversationServicesLive = Layer.effectContext(
     const sessionQueries = yield* SqlSessionQueries;
     const sessionDomain = yield* SessionDomain;
     const chatDomain = yield* ChatDomain;
+    const reactorEffects = makeReactorEffectJournal(sql);
     const currentTimestamp = DateTime.nowAsDate.pipe(
       Effect.map((now) => now.getTime()),
     );
@@ -2534,12 +2536,7 @@ export const ConversationServicesLive = Layer.effectContext(
       commandId: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
-        const completed = yield* sql<{ readonly effect_id: string }>`
-          SELECT effect_id FROM reactor_effect_receipts
-          WHERE effect_id = ${commandId}
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        if (completed.length > 0) return;
+        if (yield* reactorEffects.isCompleted(commandId)) return;
         const chat = yield* lookupChat(chatId).pipe(
           Effect.catch(() => Effect.succeed(null)),
         );
@@ -2585,11 +2582,7 @@ export const ConversationServicesLive = Layer.effectContext(
           { discard: true },
         );
 
-        const markComplete = sql`
-          INSERT OR IGNORE INTO reactor_effect_receipts
-            (effect_id, completed_at)
-          VALUES (${commandId}, ${new Date().toISOString()})
-        `.pipe(Effect.asVoid, Effect.orDie);
+        const markComplete = reactorEffects.complete(commandId);
         if (chat.worktreeId === null) {
           yield* markComplete;
           return;
@@ -2631,12 +2624,7 @@ export const ConversationServicesLive = Layer.effectContext(
       makeSqlConsumerStorage(sql),
       (reactorInput) =>
         Effect.gen(function* () {
-          const completed = yield* sql<{ readonly effect_id: string }>`
-            SELECT effect_id FROM reactor_effect_receipts
-            WHERE effect_id = ${reactorInput.commandId}
-            LIMIT 1
-          `.pipe(Effect.orDie);
-          if (completed.length > 0) return;
+          if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
 
           const sessionId = SessionId.make(reactorInput.streamId);
           const session = yield* lookupSession(sessionId).pipe(
@@ -2738,11 +2726,7 @@ export const ConversationServicesLive = Layer.effectContext(
           } else {
             yield* start;
           }
-          yield* sql`
-            INSERT OR IGNORE INTO reactor_effect_receipts
-              (effect_id, completed_at)
-            VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
-          `.pipe(Effect.orDie);
+          yield* reactorEffects.complete(reactorInput.commandId);
         }),
       providerStartReactorDefinition,
     );
@@ -2768,12 +2752,7 @@ export const ConversationServicesLive = Layer.effectContext(
       makeSqlConsumerStorage(sql),
       (reactorInput) =>
         Effect.gen(function* () {
-          const completed = yield* sql<{ readonly effect_id: string }>`
-            SELECT effect_id FROM reactor_effect_receipts
-            WHERE effect_id = ${reactorInput.commandId}
-            LIMIT 1
-          `.pipe(Effect.orDie);
-          if (completed.length > 0) return;
+          if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
           const sessionId = SessionId.make(reactorInput.streamId);
           yield* provider
             .close(sessionId)
@@ -2788,11 +2767,7 @@ export const ConversationServicesLive = Layer.effectContext(
               },
             })
             .pipe(Effect.orDie);
-          yield* sql`
-            INSERT OR IGNORE INTO reactor_effect_receipts
-              (effect_id, completed_at)
-            VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
-          `.pipe(Effect.orDie);
+          yield* reactorEffects.complete(reactorInput.commandId);
         }),
       providerStopReactorDefinition,
     );
@@ -3044,11 +3019,7 @@ export const ConversationServicesLive = Layer.effectContext(
           `${commandId}:archive`,
         );
         const result = { chat: yield* lookupChat(chatId), cleanup };
-        yield* sql`
-          INSERT OR IGNORE INTO reactor_effect_receipts
-            (effect_id, completed_at)
-          VALUES (${commandId}, ${new Date().toISOString()})
-        `.pipe(Effect.orDie);
+        yield* reactorEffects.complete(commandId);
         return result;
       });
 
@@ -3069,19 +3040,16 @@ export const ConversationServicesLive = Layer.effectContext(
       (reactorInput) =>
         Effect.gen(function* () {
           const chatId = ChatId.make(reactorInput.streamId);
-          const completed = yield* sql<{ readonly effect_id: string }>`
-            SELECT effect_id FROM reactor_effect_receipts
-            WHERE effect_id = ${reactorInput.commandId}
-            LIMIT 1
-          `.pipe(Effect.orDie);
-          const result =
-            completed.length > 0
-              ? { chat: yield* lookupChat(chatId), cleanup: null }
-              : yield* performChatArchive(
-                  chatId,
-                  reactorInput.command.force,
-                  reactorInput.commandId,
-                );
+          const completed = yield* reactorEffects.isCompleted(
+            reactorInput.commandId,
+          );
+          const result = completed
+            ? { chat: yield* lookupChat(chatId), cleanup: null }
+            : yield* performChatArchive(
+                chatId,
+                reactorInput.command.force,
+                reactorInput.commandId,
+              );
           yield* Ref.update(chatArchiveResults, (current) => {
             const next = new Map(current);
             next.set(chatId, result);
