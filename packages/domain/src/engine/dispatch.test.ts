@@ -32,7 +32,7 @@ describe("DispatchEngine", () => {
 		expect(storage.eventsFor("session-1")).toHaveLength(1);
 	});
 
-	test("serializes concurrent commands on one stream", async () => {
+	test("serializes every distinct concurrent command on one stream", async () => {
 		const storage = new InMemoryDispatchStorage();
 		let nextId = 0;
 		const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
@@ -47,13 +47,23 @@ describe("DispatchEngine", () => {
 			streamId: "session-1",
 			command: { _tag: "SetTitle", title: "Renamed" },
 		});
+		const retitled = engine.dispatch({
+			commandId: "command-retitle",
+			streamId: "session-1",
+			command: { _tag: "SetTitle", title: "Renamed again" },
+		});
 
-		const [createReceipt, titleReceipt] = await Promise.all([created, titled]);
+		const [createReceipt, titleReceipt, retitleReceipt] = await Promise.all([
+			created,
+			titled,
+			retitled,
+		]);
 		expect(createReceipt.streamVersion).toBe(1);
 		expect(titleReceipt.streamVersion).toBe(2);
+		expect(retitleReceipt.streamVersion).toBe(3);
 		expect(
 			storage.eventsFor("session-1").map((event) => event.event._tag),
-		).toEqual(["SessionCreated", "SessionTitleSet"]);
+		).toEqual(["SessionCreated", "SessionTitleSet", "SessionTitleSet"]);
 	});
 
 	test("does not append events when the decider rejects a command", async () => {

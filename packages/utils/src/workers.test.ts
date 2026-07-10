@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { DrainableWorker, WorkerClosedError } from "./drainable-worker.js";
-import { KeyedCoalescingWorker } from "./keyed-worker.js";
+import { KeyedCoalescingWorker, KeyedSerialWorker } from "./keyed-worker.js";
 
 const deferred = <A>() => {
 	let resolve!: (value: A) => void;
@@ -79,5 +79,49 @@ describe("KeyedCoalescingWorker", () => {
 		]);
 		await worker.drain();
 		expect(calls).toEqual(["a:first", "b", "a:latest"]);
+	});
+});
+
+describe("KeyedSerialWorker", () => {
+	test("runs every same-key operation in FIFO order without blocking other keys", async () => {
+		const worker = new KeyedSerialWorker<string>();
+		const gate = deferred<void>();
+		const calls: string[] = [];
+
+		const first = worker.run("a", async () => {
+			calls.push("a:first:start");
+			await gate.promise;
+			calls.push("a:first:end");
+			return "first";
+		});
+		const second = worker.run("a", () => {
+			calls.push("a:second");
+			return "second";
+		});
+		const third = worker.run("a", () => {
+			calls.push("a:third");
+			return "third";
+		});
+		const other = worker.run("b", () => {
+			calls.push("b:first");
+			return "other";
+		});
+
+		await Promise.resolve();
+		expect(calls).toEqual(["a:first:start", "b:first"]);
+		await expect(other).resolves.toBe("other");
+		gate.resolve();
+		await expect(Promise.all([first, second, third])).resolves.toEqual([
+			"first",
+			"second",
+			"third",
+		]);
+		expect(calls).toEqual([
+			"a:first:start",
+			"b:first",
+			"a:first:end",
+			"a:second",
+			"a:third",
+		]);
 	});
 });

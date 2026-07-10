@@ -1,3 +1,4 @@
+import { KeyedSerialWorker } from "@zuse/utils/keyed-worker";
 import { Result } from "effect";
 
 import type { SessionCommand } from "../core/commands.js";
@@ -62,7 +63,7 @@ export class ConcurrencyConflict extends Error {
 }
 
 export class DispatchEngine {
-	private readonly tails = new Map<string, Promise<unknown>>();
+	private readonly worker = new KeyedSerialWorker<string>();
 
 	constructor(
 		private readonly storage: DispatchStorage,
@@ -70,18 +71,7 @@ export class DispatchEngine {
 	) {}
 
 	dispatch(input: DispatchInput): Promise<CommandReceipt> {
-		const previous = this.tails.get(input.streamId) ?? Promise.resolve();
-		const dispatched = previous
-			.catch(() => undefined)
-			.then(() => this.run(input));
-		this.tails.set(input.streamId, dispatched);
-		const cleanup = () => {
-			if (this.tails.get(input.streamId) === dispatched) {
-				this.tails.delete(input.streamId);
-			}
-		};
-		void dispatched.then(cleanup, cleanup);
-		return dispatched;
+		return this.worker.run(input.streamId, () => this.run(input));
 	}
 
 	private async run(input: DispatchInput): Promise<CommandReceipt> {
