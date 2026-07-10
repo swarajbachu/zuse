@@ -67,7 +67,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await Effect.runPromise(getConnectionClient(options));
         const listed = await Effect.runPromise(
-          client.messages.list({ sessionId }),
+          client["messages.list"]({ sessionId }),
         );
         if (listed.length > 0) {
           set((state) => ({
@@ -80,7 +80,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
         }
         console.info("[mobile] messages.stream", { sessionId });
         const program = Stream.runForEach(
-          client.messages.stream({ sessionId }),
+          client["messages.stream"]({ sessionId }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;

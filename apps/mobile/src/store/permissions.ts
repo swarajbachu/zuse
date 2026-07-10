@@ -53,14 +53,14 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
       const client = await Effect.runPromise(getConnectionClient(options));
 
       const listed = await Effect.runPromise(
-        client.permission.listPending({ sessionId }),
+        client["permission.listPending"]({ sessionId }),
       );
       set((state) => ({
         pendingBySession: { ...state.pendingBySession, [liveKey]: listed },
       }));
 
       const program = Stream.runForEach(
-        client.permission.requests({}),
+        client["permission.requests"]({}),
         (request) =>
           Effect.sync(() => {
             if (request.sessionId !== sessionId) return;

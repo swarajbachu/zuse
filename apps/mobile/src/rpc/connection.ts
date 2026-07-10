@@ -1,4 +1,5 @@
 import { RpcClient, RpcGroup } from "effect/unstable/rpc";
+import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
@@ -14,7 +15,10 @@ import {
 import { connectEnvironment } from "./relay-client";
 import { wsClientProtocolLayer, type WsProtocolOptions } from "./ws-protocol";
 
-type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
+type MemoizeClient = RpcClient.RpcClient<
+  RpcGroup.Rpcs<typeof MemoizeRpcs>,
+  RpcClientError
+>;
 
 export type { ConnectionSnapshot } from "./connection-supervisor";
 
@@ -35,10 +39,9 @@ const makeRuntime = (options: WsProtocolOptions) => {
   const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
   const runtime = ManagedRuntime.make(protocolLayer);
   const client = runtime.runPromise(
-    Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      return yield* RpcClient.make(MemoizeRpcs).pipe(Scope.extend(scope));
-    })
+    RpcClient.make(MemoizeRpcs).pipe(
+      Effect.provideService(Scope.Scope, runtime.scope)
+    )
   );
   return { runtime, client };
 };

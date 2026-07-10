@@ -10,9 +10,7 @@ import type { WsProtocolOptions } from "./ws-protocol";
 
 const makeClient = (): MemoizeClient =>
   ({
-    connect: {
-      describe: () => Effect.void,
-    },
+    "connect.describe": () => Effect.void,
   }) as unknown as MemoizeClient;
 
 const makeHarness = (input?: {

@@ -104,7 +104,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }));
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
-      await Effect.runPromise(client.chat.archive({ chatId }));
+      await Effect.runPromise(client["chat.archive"]({ chatId }));
     } catch (cause) {
       reportConnectionFailure(options, cause);
       set((state) => ({
@@ -129,7 +129,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }));
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
-      await Effect.runPromise(client.session.archive({ sessionId }));
+      await Effect.runPromise(client["session.archive"]({ sessionId }));
     } catch (cause) {
       reportConnectionFailure(options, cause);
       set((state) => ({
@@ -203,7 +203,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
       const result = await Effect.runPromise(
-        client.chat.create({
+        client["chat.create"]({
           projectId: input.projectId,
           providerId: input.providerId,
           model: input.model,
@@ -274,12 +274,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
-      const projects = await Effect.runPromise(client.workspace.list({}));
+      const projects = await Effect.runPromise(client["workspace.list"]({}));
       const bundles = await Promise.all(
         projects.map(async (project) => {
           const [chats, sessions] = await Promise.all([
-            Effect.runPromise(client.chat.list({ projectId: project.id })),
-            Effect.runPromise(client.session.list({ projectId: project.id })),
+            Effect.runPromise(client["chat.list"]({ projectId: project.id })),
+            Effect.runPromise(client["session.list"]({ projectId: project.id })),
           ]);
           return { project, chats, sessions };
         }),
@@ -305,7 +305,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       for (const bundle of bundles) {
         await stopFiber(`${connKey}:chat:${bundle.project.id}`, chatFibers);
         const chatProgram = Stream.runForEach(
-          client.chat.streamChanges({ projectId: bundle.project.id }),
+          client["chat.streamChanges"]({ projectId: bundle.project.id }),
           (chat) =>
             Effect.sync(() => {
               set((state) => ({
@@ -329,7 +329,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         const key = `${connKey}:status:${session.id}`;
         await stopFiber(key, statusFibers);
         const statusProgram = Stream.runForEach(
-          client.session.streamStatus({ sessionId: session.id }),
+          client["session.streamStatus"]({ sessionId: session.id }),
           (event) =>
             Effect.sync(() => {
               set((state) => ({

@@ -314,7 +314,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
         const fiber = Effect.runFork(
           Stream.runForEach(
             client["worktree.setupStream"]({ worktreeId })
-              .pipe(Stream.catchAll(() => Stream.empty)),
+              .pipe(Stream.catch(() => Stream.empty)),
             (event) => Effect.sync(() => apply(event)),
           ).pipe(
             Effect.ensuring(

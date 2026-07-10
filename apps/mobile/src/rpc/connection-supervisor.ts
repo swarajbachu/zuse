@@ -1,4 +1,5 @@
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
+import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { MemoizeRpcs } from "@zuse/contracts";
 import { Effect } from "effect";
 
@@ -9,7 +10,10 @@ import {
 } from "./connection-diagnostics";
 import type { WsProtocolOptions } from "./ws-protocol";
 
-export type MemoizeClient = RpcClient.RpcClient<RpcGroup.Rpcs<typeof MemoizeRpcs>>;
+export type MemoizeClient = RpcClient.RpcClient<
+  RpcGroup.Rpcs<typeof MemoizeRpcs>,
+  RpcClientError
+>;
 
 export type ConnectionStatus =
   | "offline"
@@ -274,7 +278,7 @@ class SupervisorEntryImpl implements SupervisorEntry {
     this.disposeClient = session.dispose;
     try {
       logConnectionDiagnostic("supervisor.describe.start", { key: this.key });
-      await Effect.runPromise(session.client.connect.describe());
+      await Effect.runPromise(session.client["connect.describe"]());
       logConnectionDiagnostic("supervisor.describe.ok", { key: this.key });
       return session.client;
     } catch (cause) {

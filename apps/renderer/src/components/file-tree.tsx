@@ -190,7 +190,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       fiber = Effect.runFork(
         Stream.runForEach(
           client["fs.watchTree"]({ folderId, worktreeId })
-            .pipe(Stream.catchAll(() => Stream.empty)),
+            .pipe(Stream.catch(() => Stream.empty)),
           ({ paths }) =>
             Effect.sync(() => {
               const toRefresh = new Set<string>([""]);

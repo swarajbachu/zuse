@@ -181,7 +181,7 @@ const redeemPairingCodeIfNeeded = async ({
 const describeEnvironment = async (options: WsProtocolOptions) => {
   try {
     const client = await Effect.runPromise(getConnectionClient(options));
-    return await Effect.runPromise(client.connect.describe());
+    return await Effect.runPromise(client["connect.describe"]());
   } catch {
     return null;
   }

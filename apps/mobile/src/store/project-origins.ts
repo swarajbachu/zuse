@@ -31,7 +31,7 @@ export const useProjectOriginStore = create<ProjectOriginStore>((set, get) => ({
 
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
-      const origin = await Effect.runPromise(client.git.origin({ folderId }));
+      const origin = await Effect.runPromise(client["git.origin"]({ folderId }));
       set((state) => ({
         byKey: { ...state.byKey, [key]: origin },
         loadingByKey: { ...state.loadingByKey, [key]: false },

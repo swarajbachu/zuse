@@ -36,7 +36,7 @@ export const usePrStateStore = create<PrStateStore>((set, get) => ({
     try {
       const client = await Effect.runPromise(getConnectionClient(options));
       const info = await Effect.runPromise(
-        client.git.prState({ folderId, worktreeId }),
+        client["git.prState"]({ folderId, worktreeId }),
       );
       set((state) => ({
         byKey: { ...state.byKey, [key]: info },

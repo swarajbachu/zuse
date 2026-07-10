@@ -543,7 +543,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       });
       const statusProgram = Stream.runForEach(
         client["session.streamStatus"]({ sessionId }).pipe(
-          Stream.catchAll((err) => {
+          Stream.catch((err) => {
             console.error("[messages] status stream errored", err);
             return Stream.empty;
           }),
@@ -613,7 +613,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             (client as unknown as GoalRpcClient).session["goal.stream"]({
               sessionId,
             }).pipe(
-              Stream.catchAll((err) => {
+              Stream.catch((err) => {
                 console.error("[messages] goal stream errored", err);
                 return Stream.empty;
               }),
