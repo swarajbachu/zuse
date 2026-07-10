@@ -5,6 +5,7 @@ export type ChatState = {
 	readonly deleted: boolean;
 	readonly archived: boolean;
 	readonly archiveRequested: boolean;
+	readonly deleteRequested: boolean;
 	readonly chatId: string | null;
 	readonly projectId: string | null;
 	readonly worktreeId: string | null;
@@ -21,6 +22,7 @@ export const initialChatState: ChatState = {
 	deleted: false,
 	archived: false,
 	archiveRequested: false,
+	deleteRequested: false,
 	chatId: null,
 	projectId: null,
 	worktreeId: null,
@@ -74,8 +76,10 @@ export const evolveChat = (state: ChatState, event: ChatEvent): ChatState => {
 				archivedWorktreeJson: null,
 				version,
 			};
+		case "ChatDeleteRequested":
+			return { ...state, deleteRequested: true, version };
 		case "ChatDeleted":
-			return { ...state, deleted: true, version };
+			return { ...state, deleted: true, deleteRequested: false, version };
 	}
 };
 

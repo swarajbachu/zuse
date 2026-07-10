@@ -97,4 +97,20 @@ describe("chat decider", () => {
 		state = evolveChats(state, requested);
 		expect(Result.getOrThrow(decideChat(state, request))).toEqual([]);
 	});
+
+	test("emits one durable deletion request", () => {
+		const first = decideChat(initialChatState, created);
+		if (Result.isFailure(first)) throw first.failure;
+		let state = evolveChats(initialChatState, first.success);
+		const request: ChatCommand = {
+			_tag: "RequestDeleteChat",
+			requestedAt: 20,
+		};
+		const requested = Result.getOrThrow(decideChat(state, request));
+		expect(requested).toEqual([
+			{ _tag: "ChatDeleteRequested", requestedAt: 20 },
+		]);
+		state = evolveChats(state, requested);
+		expect(Result.getOrThrow(decideChat(state, request))).toEqual([]);
+	});
 });

@@ -879,10 +879,13 @@ export const ConversationServicesLive = Layer.effectContext(
     let runProviderStopReactor: Effect.Effect<void> = Effect.void;
     let runChatArchiveReactor: Effect.Effect<void, ChatArchiveError> =
       Effect.void;
+    let runChatDeleteReactor: Effect.Effect<void, ChatNotFoundError> =
+      Effect.void;
     const sessionReactorSemaphore = yield* Semaphore.make(1);
     const providerStartReactorSemaphore = yield* Semaphore.make(1);
     const providerStopReactorSemaphore = yield* Semaphore.make(1);
     const chatArchiveReactorSemaphore = yield* Semaphore.make(1);
+    const chatDeleteReactorSemaphore = yield* Semaphore.make(1);
     const provider = yield* ProviderService;
     const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
       Effect.gen(function* () {
@@ -3609,7 +3612,7 @@ export const ConversationServicesLive = Layer.effectContext(
         };
       });
 
-    const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
+    const performChatDelete = (chatId: ChatId, commandId: string) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
         // Tear down each child session's provider state before the SQL
@@ -3620,20 +3623,87 @@ export const ConversationServicesLive = Layer.effectContext(
         `.pipe(Effect.orDie);
         for (const { id } of childIds) {
           const sessionId = SessionId.make(id);
-          yield* provider
-            .close(sessionId)
-            .pipe(Effect.catch(() => Effect.void));
+          yield* closeProvider(sessionId);
           yield* teardownSubscription(sessionId);
           yield* dispatchSessionCommand(sessionId, {
             _tag: "DeleteSession",
             deletedAt: yield* currentTimestamp,
           });
         }
-        yield* dispatchChatCommand(chatId, {
-          _tag: "DeleteChat",
-          deletedAt: yield* currentTimestamp,
-        });
+        yield* dispatchChatCommand(
+          chatId,
+          {
+            _tag: "DeleteChat",
+            deletedAt: yield* currentTimestamp,
+          },
+          `${commandId}:delete`,
+        );
         // ON DELETE CASCADE handles sessions + messages.
+      });
+
+    type ChatDeleteCommand = { readonly _tag: "DeleteChatResources" };
+    const chatDeleteReactor = new ReactorRunner<
+      StoredEvent<typeof ChatEvent.Type>,
+      ChatDeleteCommand,
+      SqlConsumerStorageError,
+      never,
+      ChatNotFoundError
+    >(
+      makeSqlConsumerStorage(sql, {
+        streamKind: "chat",
+        decodeEvent: decodeChatEvent,
+      }),
+      (reactorInput) =>
+        Effect.gen(function* () {
+          const deleteCommandId = `${reactorInput.commandId}:delete`;
+          const completed = yield* sql<{ readonly command_id: string }>`
+            SELECT command_id FROM command_receipts
+            WHERE command_id = ${deleteCommandId}
+            LIMIT 1
+          `.pipe(Effect.orDie);
+          if (completed.length > 0) return;
+          yield* performChatDelete(
+            ChatId.make(reactorInput.streamId),
+            reactorInput.commandId,
+          );
+        }),
+      {
+        name: "chat-delete",
+        react: (record) =>
+          Effect.succeed(
+            record.event._tag === "ChatDeleteRequested"
+              ? [
+                  {
+                    streamId: record.streamId,
+                    command: { _tag: "DeleteChatResources" },
+                  },
+                ]
+              : [],
+          ),
+      },
+    );
+    runChatDeleteReactor = Effect.suspend(() =>
+      chatDeleteReactorSemaphore.withPermits(1)(
+        chatDeleteReactor.catchUp().pipe(
+          Effect.asVoid,
+          Effect.catch((error) =>
+            error._tag === "ChatNotFoundError"
+              ? Effect.fail(error)
+              : Effect.die(error),
+          ),
+        ),
+      ),
+    );
+    yield* runChatDeleteReactor;
+
+    const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
+      Effect.gen(function* () {
+        yield* lookupChat(chatId);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "RequestDeleteChat",
+          requestedAt: yield* currentTimestamp,
+        });
+        yield* runChatDeleteReactor;
       });
 
     const listMessages: ConversationOperations["listMessages"] = (sessionId) =>

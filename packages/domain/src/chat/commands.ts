@@ -35,6 +35,7 @@ export const ChatCommand = Schema.Union([
 		unarchivedAt: Schema.Number,
 		worktreeId: Schema.NullOr(Schema.String),
 	}),
+	Schema.TaggedStruct("RequestDeleteChat", { requestedAt: Schema.Number }),
 	Schema.TaggedStruct("DeleteChat", { deletedAt: Schema.Number }),
 ]);
 export type ChatCommand = typeof ChatCommand.Type;

@@ -95,6 +95,8 @@ export const makeSqlChatProjector = (
 				`;
 				return;
 			}
+			case "ChatDeleteRequested":
+				return;
 			case "ChatDeleted":
 				yield* sql`DELETE FROM chats WHERE id = ${record.streamId}`;
 				return;

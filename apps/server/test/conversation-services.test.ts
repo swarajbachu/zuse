@@ -682,6 +682,49 @@ describe("ConversationServices — chat & session lifecycle", () => {
     });
   });
 
+  it("deletes chats through the durable deletion reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (service) => service.deleteChat(created.chat.id)),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.chat.id}
+              AND type IN ('ChatDeleteRequested', 'ChatDeleted')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly command_id: string }>`
+            SELECT command_id FROM command_receipts
+            WHERE command_id LIKE 'reactor:chat-delete:%:delete'
+          `;
+          const chats = yield* sql<{ readonly id: string }>`
+            SELECT id FROM chats WHERE id = ${created.chat.id}
+          `;
+          return { events, receipts, chats };
+        }),
+      );
+
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ChatDeleteRequested",
+        "ChatDeleted",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+      expect(evidence.chats).toEqual([]);
+    });
+  });
+
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(

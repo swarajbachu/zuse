@@ -22,6 +22,7 @@ const PROJECTORS = [
 	"reactor:provider-start",
 	"reactor:provider-stop",
 	"reactor:chat-archive",
+	"reactor:chat-delete",
 ] as const;
 
 interface ChatRow {

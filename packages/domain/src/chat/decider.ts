@@ -83,6 +83,10 @@ export const decideChat = (
 			return state.archived
 				? success([{ ...command, _tag: "ChatUnarchived" }])
 				: success([]);
+		case "RequestDeleteChat":
+			return state.deleteRequested
+				? success([])
+				: success([{ ...command, _tag: "ChatDeleteRequested" }]);
 		case "DeleteChat":
 			return success([{ ...command, _tag: "ChatDeleted" }]);
 	}
