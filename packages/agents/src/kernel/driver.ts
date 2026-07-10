@@ -1,25 +1,23 @@
-import type { Effect, Scope, Stream } from "effect";
+import { type AgentEvent, ProviderId } from "@zuse/contracts";
+import { type Effect, Schema, type Scope, type Stream } from "effect";
 
-import type { AgentEvent, ProviderId } from "./agent-event.js";
+export const DriverFailureKind = Schema.Literals([
+	"not-installed",
+	"not-authenticated",
+	"protocol",
+	"process",
+	"network",
+]);
+export type DriverFailureKind = typeof DriverFailureKind.Type;
 
-export type DriverFailureKind =
-	| "not-installed"
-	| "not-authenticated"
-	| "protocol"
-	| "process"
-	| "network";
-
-export class DriverError extends Error {
-	readonly _tag = "DriverError";
-	constructor(
-		readonly providerId: ProviderId,
-		readonly kind: DriverFailureKind,
-		message: string,
-		options?: ErrorOptions,
-	) {
-		super(message, options);
-	}
-}
+export class DriverError extends Schema.TaggedErrorClass<DriverError>()(
+	"DriverError",
+	{
+		providerId: ProviderId,
+		kind: DriverFailureKind,
+		message: Schema.String,
+	},
+) {}
 
 export type DriverCapabilities = {
 	readonly interactivePermissions: boolean;

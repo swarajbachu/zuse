@@ -1,82 +1,74 @@
-import type { SegmentKind, SettlementOutcome } from "./commands.js";
+import { Schema } from "effect";
 
-export type SessionEvent =
-	| {
-			readonly _tag: "SessionCreated";
-			readonly sessionId: string;
-			readonly chatId: string;
-			readonly projectId: string;
-			readonly createdAt: number;
-	  }
-	| { readonly _tag: "SessionTitleSet"; readonly title: string }
-	| { readonly _tag: "SessionArchived"; readonly archivedAt: number }
-	| { readonly _tag: "SessionDeleted"; readonly deletedAt: number }
-	| {
-			readonly _tag: "TurnStarted";
-			readonly turnId: string;
-			readonly startedAt: number;
-	  }
-	| {
-			readonly _tag: "TurnSettled";
-			readonly turnId: string;
-			readonly outcome: SettlementOutcome;
-			readonly settledAt: number;
-	  }
-	| {
-			readonly _tag: "MessagePersisted";
-			readonly messageId: string;
-			readonly turnId: string | null;
-			readonly role: string;
-			readonly kind: string;
-			readonly contentJson: string;
-			readonly parentItemId: string | null;
-			readonly createdAt: number;
-	  }
-	| {
-			readonly _tag: "SegmentOpened";
-			readonly turnId: string;
-			readonly segmentId: string;
-			readonly kind: SegmentKind;
-			readonly openedAt: number;
-	  }
-	| {
-			readonly _tag: "SegmentSettled";
-			readonly turnId: string;
-			readonly segmentId: string;
-			readonly outcome: SettlementOutcome;
-			readonly settledAt: number;
-	  }
-	| {
-			readonly _tag: "PermissionRequested";
-			readonly requestId: string;
-			readonly turnId: string;
-			readonly payloadJson: string;
-			readonly requestedAt: number;
-	  }
-	| {
-			readonly _tag: "PermissionResolved";
-			readonly requestId: string;
-			readonly decision: string;
-			readonly resolvedAt: number;
-	  }
-	| {
-			readonly _tag: "ProviderAttached";
-			readonly providerId: string;
-			readonly attachedAt: number;
-	  }
-	| {
-			readonly _tag: "ProviderDetached";
-			readonly providerId: string;
-			readonly detachedAt: number;
-	  }
-	| {
-			readonly _tag: "CheckpointRecorded";
-			readonly checkpointId: string;
-			readonly payloadJson: string;
-			readonly recordedAt: number;
-	  }
-	| {
-			readonly _tag: "WorktreeArchiveRequested";
-			readonly worktreeId: string;
-			readonly requestedAt: number;
-	  };
+import { SegmentKind, SettlementOutcome } from "./commands.js";
+
+export const SessionEvent = Schema.Union([
+	Schema.TaggedStruct("SessionCreated", {
+		sessionId: Schema.String,
+		chatId: Schema.String,
+		projectId: Schema.String,
+		createdAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionTitleSet", { title: Schema.String }),
+	Schema.TaggedStruct("SessionArchived", { archivedAt: Schema.Number }),
+	Schema.TaggedStruct("SessionDeleted", { deletedAt: Schema.Number }),
+	Schema.TaggedStruct("TurnStarted", {
+		turnId: Schema.String,
+		startedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnSettled", {
+		turnId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("MessagePersisted", {
+		messageId: Schema.String,
+		turnId: Schema.NullOr(Schema.String),
+		role: Schema.String,
+		kind: Schema.String,
+		contentJson: Schema.String,
+		parentItemId: Schema.NullOr(Schema.String),
+		createdAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SegmentOpened", {
+		turnId: Schema.String,
+		segmentId: Schema.String,
+		kind: SegmentKind,
+		openedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SegmentSettled", {
+		turnId: Schema.String,
+		segmentId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("PermissionRequested", {
+		requestId: Schema.String,
+		turnId: Schema.String,
+		payloadJson: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("PermissionResolved", {
+		requestId: Schema.String,
+		decision: Schema.String,
+		resolvedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ProviderAttached", {
+		providerId: Schema.String,
+		attachedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ProviderDetached", {
+		providerId: Schema.String,
+		detachedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("CheckpointRecorded", {
+		checkpointId: Schema.String,
+		payloadJson: Schema.String,
+		recordedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("WorktreeArchiveRequested", {
+		worktreeId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+]);
+export type SessionEvent = typeof SessionEvent.Type;

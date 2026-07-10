@@ -1,3 +1,8 @@
+import {
+  decidePermission,
+  isSensitivePath,
+  type PermissionVerdict,
+} from "@zuse/agents/kernel/permission-policy";
 import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 
 /**
@@ -17,35 +22,28 @@ import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 // Sensitive paths (forcePrompt regardless of any prior allow decision)
 // ---------------------------------------------------------------------------
 
-/**
- * Path patterns that always prompt regardless of any prior `AllowForSession`
- * or `AlwaysAllow` decision. Match anywhere in the path string — agents
- * tend to use absolute paths, so anchoring to a directory boundary catches
- * `~/.ssh/...` and `/path/to/repo/.env` alike.
- */
-export const SENSITIVE_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)\.env(\.|$)/,
-  /(^|\/)credentials(\.[^/]+)?$/i,
-  /(^|\/)\.aws\//,
-  /(^|\/)\.ssh\//,
-  /(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/,
-  /\.(pem|key|p12|pfx)$/i,
-  /(^|\/)\.netrc$/,
-  /(^|\/)\.pgpass$/,
-];
-
-export const isSensitivePath = (p: string): boolean =>
-  SENSITIVE_PATTERNS.some((re) => re.test(p));
-
+// Sensitive-path matching and the runtime/permission decision table live in
+// the provider-neutral agent kernel. This module only adapts kernel verdicts
+// to the ACP handlers' historical `auto-allow | prompt` response shape.
 // ---------------------------------------------------------------------------
 // FS operation policy (used by ACP handleFsRequest)
 // ---------------------------------------------------------------------------
 
 export type FsOp = "read" | "write" | "create" | "delete" | "move";
 
-export type FsPolicy =
+type ProviderPolicy =
   | { readonly kind: "auto-allow" }
   | { readonly kind: "prompt"; readonly forcePrompt: boolean };
+
+export type FsPolicy = ProviderPolicy;
+
+const providerPolicy = (
+  verdict: PermissionVerdict,
+  forcePrompt: boolean,
+): ProviderPolicy =>
+  verdict === "allow"
+    ? { kind: "auto-allow" }
+    : { kind: "prompt", forcePrompt };
 
 /**
  * Decide whether an ACP FS mutation (or read) should prompt the user.
@@ -64,52 +62,23 @@ export const getFsPolicy = (
   runtimeMode: RuntimeMode,
   permissionMode?: PermissionMode,
 ): FsPolicy => {
-  const isMutating = op !== "read";
-
-  // 1. Sensitive path wins over every runtime/permission mode.
-  if (path.length > 0 && isSensitivePath(path)) {
-    return { kind: "prompt", forcePrompt: true };
-  }
-
-  // 2. Reads are always free (unless they hit a sensitive path above).
-  if (op === "read") {
-    return { kind: "auto-allow" };
-  }
-
-  // 3. Plan mode — caller (the ACP driver) can decide to treat this as
-  //    a hard deny or a forced prompt. We surface "prompt" so the UI can
-  //    show plan-mode context if desired.
-  if (permissionMode === "plan") {
-    return { kind: "prompt", forcePrompt: true };
-  }
-
-  // 4. auto-accept-edits modes — non-sensitive file mutations are
-  //    auto-allowed. The "-and-bash" variant widens command execution too,
-  //    but file behavior is identical.
-  if (
-    (runtimeMode === "auto-accept-edits" ||
-      runtimeMode === "auto-accept-edits-and-bash") &&
-    isMutating
-  ) {
-    return { kind: "auto-allow" };
-  }
-
-  // 5. full-access — auto-allow any surviving mutation.
-  if (runtimeMode === "full-access") {
-    return { kind: "auto-allow" };
-  }
-
-  // 6. Default (approval-required + non-sensitive mutation) → prompt.
-  return { kind: "prompt", forcePrompt: false };
+  const sensitive = path.length > 0 && isSensitivePath(path);
+  return providerPolicy(
+    decidePermission({
+      runtimeMode,
+      permissionMode: permissionMode ?? "default",
+      category: op === "read" ? "read" : "edit",
+      sensitive,
+    }),
+    sensitive || permissionMode === "plan",
+  );
 };
 
 // ---------------------------------------------------------------------------
 // Bash / terminal command policy (used by ACP handleTerminalRequest)
 // ---------------------------------------------------------------------------
 
-export type BashPolicy =
-  | { readonly kind: "auto-allow" }
-  | { readonly kind: "prompt"; readonly forcePrompt: boolean };
+export type BashPolicy = ProviderPolicy;
 
 /**
  * Decide whether an ACP terminal command should prompt the user.
@@ -139,24 +108,13 @@ export const getBashPolicy = (
   permissionMode?: PermissionMode,
 ): BashPolicy => {
   void command;
-
-  // 1. Plan mode never silently runs commands.
-  if (permissionMode === "plan") {
-    return { kind: "prompt", forcePrompt: true };
-  }
-
-  // 2. full-access — auto-allow anything.
-  if (runtimeMode === "full-access") {
-    return { kind: "auto-allow" };
-  }
-
-  // 3. auto-accept-edits-and-bash — commands are explicitly auto-allowed.
-  if (runtimeMode === "auto-accept-edits-and-bash") {
-    return { kind: "auto-allow" };
-  }
-
-  // 4. auto-accept-edits — commands still prompt (only file edits are auto-
-  //    accepted in this mode).
-  // 5. Default — prompt.
-  return { kind: "prompt", forcePrompt: false };
+  return providerPolicy(
+    decidePermission({
+      runtimeMode,
+      permissionMode: permissionMode ?? "default",
+      category: "execute",
+      sensitive: false,
+    }),
+    permissionMode === "plan",
+  );
 };

@@ -8,9 +8,10 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { type Cause, Effect, Queue, Stream } from "effect";
-import { z } from "zod";
-
+import {
+  decidePermission,
+  isSensitivePath,
+} from "@zuse/agents/kernel/permission-policy";
 import {
   AgentSessionStartError,
   type AgentEvent,
@@ -25,6 +26,8 @@ import {
   type UserQuestion,
   type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { type Cause, Effect, Queue, Stream } from "effect";
+import { z } from "zod";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import {
@@ -1058,26 +1061,6 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__whoami`,
 ]);
 
-/**
- * Path patterns that always prompt regardless of any prior `AllowForSession`
- * or `AlwaysAllow` decision. Match anywhere in the path string — agents
- * tend to use absolute paths, so anchoring to a directory boundary catches
- * `~/.ssh/...` and `/path/to/repo/.env` alike.
- */
-const SENSITIVE_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)\.env(\.|$)/,
-  /(^|\/)credentials(\.[^/]+)?$/i,
-  /(^|\/)\.aws\//,
-  /(^|\/)\.ssh\//,
-  /(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/,
-  /\.(pem|key|p12|pfx)$/i,
-  /(^|\/)\.netrc$/,
-  /(^|\/)\.pgpass$/,
-];
-
-const isSensitivePath = (p: string): boolean =>
-  SENSITIVE_PATTERNS.some((re) => re.test(p));
-
 type ToolPolicy =
   | { readonly kind: "auto-allow" }
   | { readonly kind: "prompt"; readonly forcePrompt: boolean };
@@ -1151,46 +1134,30 @@ const policyFor = (
   if (toolName.endsWith("__browser_login")) {
     return { kind: "prompt", forcePrompt: true };
   }
-  // 1. Sensitive paths — checked before any auto-allow. Even YOLO mode prompts.
-  if (toolName === "Read") {
-    const path =
-      typeof toolInput.file_path === "string" ? toolInput.file_path : "";
-    if (path.length > 0 && isSensitivePath(path)) {
-      return { kind: "prompt", forcePrompt: true };
-    }
-  }
-  if (FILE_EDIT_TOOLS.has(toolName)) {
-    const path = editPathOf(toolInput);
-    if (path.length > 0 && isSensitivePath(path)) {
-      return { kind: "prompt", forcePrompt: true };
-    }
-  }
-
-  // 2. Read-only tools — always free, regardless of mode.
-  if (READ_ONLY_TOOLS.has(toolName)) {
-    return { kind: "auto-allow" };
-  }
-
-  // 3. auto-accept-edits — file edits skip the prompt; everything else falls
-  //    through to the regular prompt flow.
-  if (runtimeMode === "auto-accept-edits" && FILE_EDIT_TOOLS.has(toolName)) {
-    return { kind: "auto-allow" };
-  }
-
-  // 3b. auto-accept-edits-and-bash — file edits AND Bash auto-allow;
-  //     WebFetch / WebSearch / MCP / Other still prompt.
-  if (runtimeMode === "auto-accept-edits-and-bash") {
-    if (FILE_EDIT_TOOLS.has(toolName)) return { kind: "auto-allow" };
-    if (toolName === "Bash") return { kind: "auto-allow" };
-  }
-
-  // 4. full-access — auto-allow anything that survived the sensitive-path
-  //    + plan-mode checks above.
-  if (runtimeMode === "full-access") {
-    return { kind: "auto-allow" };
-  }
-
-  return { kind: "prompt", forcePrompt: false };
+  const path =
+    toolName === "Read"
+      ? typeof toolInput.file_path === "string"
+        ? toolInput.file_path
+        : ""
+      : FILE_EDIT_TOOLS.has(toolName)
+        ? editPathOf(toolInput)
+        : "";
+  const sensitive = path.length > 0 && isSensitivePath(path);
+  const category = READ_ONLY_TOOLS.has(toolName)
+    ? "read"
+    : FILE_EDIT_TOOLS.has(toolName)
+      ? "edit"
+      : toolName === "Bash"
+        ? "execute"
+        : "other";
+  return decidePermission({
+    runtimeMode,
+    permissionMode: "default",
+    category,
+    sensitive,
+  }) === "allow"
+    ? { kind: "auto-allow" }
+    : { kind: "prompt", forcePrompt: sensitive };
 };
 
 /**

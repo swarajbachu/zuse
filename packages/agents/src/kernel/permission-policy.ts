@@ -17,6 +17,20 @@ export type ToolCategory =
 
 export type PermissionVerdict = "allow" | "prompt" | "deny";
 
+export const SENSITIVE_PATH_PATTERNS: ReadonlyArray<RegExp> = [
+	/(^|\/)\.env(\.|$)/,
+	/(^|\/)credentials(\.[^/]+)?$/i,
+	/(^|\/)\.aws\//,
+	/(^|\/)\.ssh\//,
+	/(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/,
+	/\.(pem|key|p12|pfx)$/i,
+	/(^|\/)\.netrc$/,
+	/(^|\/)\.pgpass$/,
+];
+
+export const isSensitivePath = (path: string): boolean =>
+	SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
+
 export type PermissionInput = {
 	readonly runtimeMode: RuntimeMode;
 	readonly permissionMode: PermissionMode;

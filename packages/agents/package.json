@@ -6,16 +6,17 @@
 	"exports": {
 		"./codex-generated": "./src/drivers/codex/generated/index.ts",
 		"./codex-generated/*": "./src/drivers/codex/generated/*.ts",
-		"./kernel/agent-event": "./src/kernel/agent-event.ts",
 		"./kernel/driver": "./src/kernel/driver.ts",
 		"./kernel/permission-policy": "./src/kernel/permission-policy.ts",
-		"./kernel/tool-classify": "./src/kernel/tool-classify.ts"
+		"./kernel/tool-classify": "./src/kernel/tool-classify.ts",
+		"./kernel/tool-input": "./src/kernel/tool-input.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@zuse/contracts": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

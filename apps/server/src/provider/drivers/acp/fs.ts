@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
+import { isSensitivePath } from "@zuse/agents/kernel/permission-policy";
 import type {
   AgentSessionId,
   FolderId,
@@ -10,7 +11,7 @@ import type {
   RuntimeMode,
 } from "@zuse/contracts";
 
-import { getFsPolicy, isSensitivePath, type FsOp } from "../../policy.ts";
+import { getFsPolicy, type FsOp } from "../../policy.ts";
 
 /**
  * ACP FS client implementation.

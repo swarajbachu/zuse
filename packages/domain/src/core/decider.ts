@@ -1,6 +1,6 @@
 import { Result, Schema } from "effect";
 
-import type { SessionCommand, SettlementOutcome } from "./commands.js";
+import type { SessionCommand } from "./commands.js";
 import type { SessionEvent } from "./events.js";
 import type { SessionState } from "./state.js";
 
@@ -48,9 +48,6 @@ export type DomainError =
 	| PermissionNotPending;
 
 const success = (events: readonly SessionEvent[]) => Result.succeed(events);
-
-const segmentOutcome = (outcome: SettlementOutcome): SettlementOutcome =>
-	outcome === "completed" ? "completed" : outcome;
 
 export const decide = (
 	state: SessionState,
@@ -107,7 +104,7 @@ export const decide = (
 					_tag: "SegmentSettled",
 					turnId: command.turnId,
 					segmentId,
-					outcome: segmentOutcome(command.outcome),
+					outcome: command.outcome,
 					settledAt: command.settledAt,
 				});
 			}

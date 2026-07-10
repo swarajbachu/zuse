@@ -3,6 +3,7 @@ import {
   type AgentEvent,
   type AgentItemId,
 } from "@zuse/contracts";
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -39,23 +40,6 @@ const safePreview = (v: unknown, max = 240): string => {
   } catch {
     return "(unserialisable)";
   }
-};
-
-const canonicalizeToolInput = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(canonicalizeToolInput);
-  if (value === null || typeof value !== "object") return value;
-
-  const input = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(input)) {
-    const canonicalKey =
-      key === "target_file" || key === "filePath" ? "file_path" : key;
-    out[canonicalKey] = canonicalizeToolInput(raw);
-  }
-
-  return Object.fromEntries(
-    Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
-  );
 };
 
 const toolInputFingerprint = (input: unknown): string =>

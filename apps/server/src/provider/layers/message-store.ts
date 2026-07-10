@@ -63,6 +63,7 @@ import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { GitService } from "@zuse/git/git-service";
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
@@ -1157,21 +1158,6 @@ export const MessageStoreLive = Layer.effect(
       });
 
     const agentsFor = (sessionId: SessionId) => agentsBySession.get(sessionId);
-
-    const canonicalizeToolInput = (value: unknown): unknown => {
-      if (Array.isArray(value)) return value.map(canonicalizeToolInput);
-      if (value === null || typeof value !== "object") return value;
-      const input = value as Record<string, unknown>;
-      const out: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(input)) {
-        const canonicalKey =
-          key === "target_file" || key === "filePath" ? "file_path" : key;
-        out[canonicalKey] = canonicalizeToolInput(raw);
-      }
-      return Object.fromEntries(
-        Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
-      );
-    };
 
     const toolUseFingerprint = (
       content: Extract<MessageContent, { readonly _tag: "tool_use" }>,

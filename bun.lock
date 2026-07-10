@@ -298,6 +298,7 @@
       "name": "@zuse/agents",
       "version": "0.0.0",
       "dependencies": {
+        "@zuse/contracts": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
