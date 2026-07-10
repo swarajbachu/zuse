@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import {
   AgentSessionStartError,
+  findModelDescriptor,
   resolveModelSlug,
   type AgentEvent,
   type AgentItemId,
@@ -74,6 +75,49 @@ export type RequestPermission = (
   kind: PermissionKind,
   options: { readonly forcePrompt: boolean },
 ) => Promise<PermissionDecision>;
+
+export type CodexReasoningEffort =
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max"
+  | "ultra";
+
+/** Keep the user-selected reasoning tier intact when Codex supports it. */
+export const codexReasoningEffort = (
+  model: string | undefined,
+  value: string | undefined,
+): CodexReasoningEffort | null => {
+  if (
+    value !== "low" &&
+    value !== "medium" &&
+    value !== "high" &&
+    value !== "xhigh" &&
+    value !== "max" &&
+    value !== "ultra"
+  ) {
+    return null;
+  }
+
+  const descriptor =
+    model === undefined
+      ? undefined
+      : findModelDescriptor("codex", resolveModelSlug("codex", model));
+  if (descriptor === undefined) {
+    return value === "low" || value === "medium" || value === "high"
+      ? value
+      : null;
+  }
+
+  const reasoning = descriptor.optionDescriptors?.find(
+    (option) => option.kind === "select" && option.id === "reasoning",
+  );
+  return reasoning?.kind === "select" &&
+    reasoning.options.some((option) => option.id === value)
+    ? value
+    : null;
+};
 
 const codexApprovalPolicy = (
   runtimeMode: RuntimeMode,
@@ -1289,14 +1333,13 @@ export const startCodexSession = (
       browserHintPending = false;
       orchestrationHintPending = false;
       // Reasoning effort: forwarded from FE picker via
-      // `input.modelOptions.reasoning`. Pass through low/medium/high
-      // directly — Codex accepts the same literal set we use in wire's
-      // `ReasoningLevel`.
-      const reasoning = input.modelOptions?.["reasoning"];
-      const effort: "low" | "medium" | "high" | null =
-        reasoning === "low" || reasoning === "medium" || reasoning === "high"
-          ? reasoning
-          : null;
+      // `input.modelOptions.reasoning`. Each model's wire descriptor limits
+      // the picker to the tiers it supports; the selected literal is then
+      // forwarded unchanged to Codex.
+      const effort = codexReasoningEffort(
+        input.model,
+        input.modelOptions?.["reasoning"],
+      );
       // Fast mode: the `fastMode` per-model boolean knob maps onto Codex's
       // `serviceTier: "fast"` (the 1.5× speed tier). The FE only shows the
       // toggle when the CLI version + static model catalog allow it; the live

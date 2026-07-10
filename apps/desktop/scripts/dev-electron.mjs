@@ -115,7 +115,7 @@ function startApp() {
   app.once("error", (error) => {
     console.error("[desktop:electron] failed to launch", error);
     if (currentApp === app) currentApp = null;
-    if (!shuttingDown) scheduleRestart();
+    if (!shuttingDown) void shutdown(1);
   });
 
   app.once("exit", (code, signal) => {
@@ -124,7 +124,9 @@ function startApp() {
     );
     if (currentApp === app) currentApp = null;
     const abnormal = signal !== null || code !== 0;
-    if (!shuttingDown && !expectedExits.has(app) && abnormal) scheduleRestart();
+    if (!shuttingDown && !expectedExits.has(app) && abnormal) {
+      void shutdown(code ?? 1);
+    }
   });
 }
 
