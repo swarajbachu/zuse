@@ -1,5 +1,6 @@
 import { Data, Effect } from "effect";
 
+import { CommandDispatcher } from "./command-dispatch.js";
 import type { ClientSession } from "./connection.js";
 
 export type ConnectionStatus =
@@ -34,6 +35,10 @@ export type ConnectionDiagnostic = {
 export type ConnectionSupervisorEntry<Client> = {
 	readonly getClient: () => Effect.Effect<Client, ClientConnectionError>;
 	readonly reportFailure: (cause: unknown) => void;
+	readonly dispatchCommand: <A>(
+		commandId: string,
+		operation: (client: Client) => Promise<A>,
+	) => Promise<A>;
 	readonly retryNow: () => void;
 	readonly remove: () => Promise<void>;
 	readonly snapshot: () => ConnectionSnapshot;
@@ -50,6 +55,7 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly isOnline: () => boolean;
 	readonly schedule: (delayMs: number, fn: () => void) => () => void;
 	readonly classifyError?: (cause: unknown) => "auth" | "transient";
+	readonly isRetryableCommandError?: (cause: unknown) => boolean;
 	readonly onDiagnostic?: (diagnostic: ConnectionDiagnostic) => void;
 };
 
@@ -112,6 +118,7 @@ class SupervisorEntryImpl<Options, Client>
 	private inFlight: Promise<Client> | null = null;
 	private closeInFlight: Promise<void> = Promise.resolve();
 	private retryCancel: (() => void) | null = null;
+	private readonly commandDispatcher = new CommandDispatcher();
 	private readonly listeners = new Set<
 		(snapshot: ConnectionSnapshot) => void
 	>();
@@ -166,6 +173,25 @@ class SupervisorEntryImpl<Options, Client>
 		this.markFailure(cause);
 	}
 
+	dispatchCommand<A>(
+		commandId: string,
+		operation: (client: Client) => Promise<A>,
+	): Promise<A> {
+		const shouldRetry = this.deps.isRetryableCommandError ?? (() => false);
+		return this.commandDispatcher.dispatch(
+			commandId,
+			async () => {
+				try {
+					return await operation(await this.ensureClient());
+				} catch (cause) {
+					if (shouldRetry(cause)) this.reportFailure(cause);
+					throw cause;
+				}
+			},
+			{ shouldRetry },
+		);
+	}
+
 	retryNow(): void {
 		if (this.removed) return;
 		this.clearRetry();
@@ -197,6 +223,7 @@ class SupervisorEntryImpl<Options, Client>
 		this.epoch += 1;
 		this.clearRetry();
 		this.inFlight = null;
+		this.commandDispatcher.failPending(new Error("connection removed"));
 		await this.closeCurrent();
 		this.listeners.clear();
 		this.onRemove();
@@ -224,12 +251,14 @@ class SupervisorEntryImpl<Options, Client>
 			const client = await pending;
 			if (this.inFlight === pending) this.inFlight = null;
 			this.client = client;
+			const reconnect = this.state.generation > 0;
 			this.emit({
 				status: "connected",
 				generation: this.state.generation + 1,
 				attempt: 0,
 				error: null,
 			});
+			if (reconnect) this.commandDispatcher.redispatchPending();
 			return client;
 		} catch (cause) {
 			if (this.inFlight === pending) this.inFlight = null;

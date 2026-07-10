@@ -6,7 +6,7 @@ import {
 import { Schema } from "effect";
 import { describe, expect, test } from "vitest";
 
-import { projectSessionEvent } from "./session-events.js";
+import { projectSessionEvent, sessionEventCursors } from "./session-events.js";
 
 const envelope = (type: string, payload: unknown) =>
 	SessionDomainEventEnvelope.make({
@@ -58,5 +58,16 @@ describe("projectSessionEvent", () => {
 		expect(projectSessionEvent(envelope("TurnStarted", {}))).toEqual({
 			_tag: "other",
 		});
+	});
+
+	test("keeps resume cursors monotonic per consumer key", () => {
+		sessionEventCursors.delete("test:a");
+		sessionEventCursors.delete("test:b");
+		sessionEventCursors.set("test:a", 5);
+		sessionEventCursors.set("test:a", 3);
+		sessionEventCursors.set("test:b", 2);
+
+		expect(sessionEventCursors.get("test:a")).toBe(5);
+		expect(sessionEventCursors.get("test:b")).toBe(2);
 	});
 });

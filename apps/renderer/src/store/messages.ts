@@ -13,7 +13,10 @@ import {
   type ThreadGoal,
   type ThreadGoalSetInput,
 } from "@zuse/contracts";
-import { projectSessionEvent } from "@zuse/client-runtime/session-events";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 
 import { formatError } from "../lib/format-error.ts";
 import {
@@ -230,7 +233,8 @@ const optimisticIds = new Set<MessageId>();
 // Passed back as `sinceSequence` on resubscribe so the server replays only
 // the delta — gap-free reconnect without a full-history backfill. In-memory
 // only: a reload starts from 0 and gets the full replay, which is correct.
-const lastSequenceBySession = new Map<SessionId, number>();
+const eventCursorKey = (sessionId: SessionId): string =>
+  `renderer:active-session:${sessionId}`;
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
 const statusWaiters = new Map<
@@ -394,7 +398,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       // cursor, so a fresh chat still gets its full replay + echo id-swap.
       const sinceSequence =
         (get().messagesBySession[sessionId]?.length ?? 0) > 0
-          ? lastSequenceBySession.get(sessionId)
+          ? sessionEventCursors.get(eventCursorKey(sessionId))
           : undefined;
       const observeStatusEvent = (status: SessionStatus): void => {
         if (liveSessionId !== sessionId) return;
@@ -446,8 +450,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             // Advance the cursor on EVERY envelope — including optimistic
             // echoes — before any dedup branch, so a reconnect can never
             // pass a cursor below an already-delivered row.
-            const prev = lastSequenceBySession.get(sessionId) ?? 0;
-            if (sequence > prev) lastSequenceBySession.set(sessionId, sequence);
+            sessionEventCursors.set(eventCursorKey(sessionId), sequence);
             const projected = projectSessionEvent(envelope);
             if (projected._tag === "status") {
               observeStatusEvent(projected.status);

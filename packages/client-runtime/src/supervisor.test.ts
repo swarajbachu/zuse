@@ -26,6 +26,7 @@ const makeHarness = (input?: {
 		readonly client: Client;
 		readonly dispose: () => Promise<void>;
 	}>;
+	isRetryableCommandError?: (cause: unknown) => boolean;
 }) => {
 	let online = input?.online ?? true;
 	let nextId = 0;
@@ -37,6 +38,7 @@ const makeHarness = (input?: {
 		keyOf: (options) => options.key,
 		isOnline: () => online,
 		prepareOptions: input?.prepareOptions,
+		isRetryableCommandError: input?.isRetryableCommandError,
 		createClient:
 			input?.createClient ??
 			(async (options) => {
@@ -191,6 +193,27 @@ describe("connection supervisor", () => {
 			"token-1",
 			"token-2",
 		]);
+	});
+
+	test("owns stable-id command redispatch across reconnects", async () => {
+		const harness = makeHarness({
+			isRetryableCommandError: (cause) =>
+				cause instanceof Error && cause.message === "socket closed",
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		const attemptedWith: number[] = [];
+		const receipt = entry.dispatchCommand("command-1", async (client) => {
+			attemptedWith.push(client.id);
+			if (client.id === 1) throw new Error("socket closed");
+			return client.id;
+		});
+
+		await waitUntil(() => harness.scheduled.length === 1);
+		harness.scheduled[0]?.fn();
+
+		await expect(receipt).resolves.toBe(2);
+		expect(attemptedWith).toEqual([1, 2]);
 	});
 
 	test("disposes a client that resolves after removal", async () => {

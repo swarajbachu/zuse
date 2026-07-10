@@ -3,7 +3,10 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
 import type { Message, SessionId } from "@zuse/contracts";
-import { projectSessionEvent } from "@zuse/client-runtime/session-events";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -20,7 +23,8 @@ export const useSidebarMessageStatusStore = create<SidebarMessageStatusState>(
 // Highest envelope `sequence` seen per session; passed as `sinceSequence`
 // when a fiber is re-forked for a session we already hold rows for, so the
 // server replays only the delta instead of the whole history.
-const lastSequenceBySession = new Map<SessionId, number>();
+const eventCursorKey = (sessionId: SessionId): string =>
+  `renderer:sidebar-message:${sessionId}`;
 
 export function useSidebarMessageStatusSubscriptions(
   sessionIds: ReadonlyArray<SessionId>,
@@ -58,7 +62,7 @@ export function useSidebarMessageStatusSubscriptions(
           const afterSequence =
             (useSidebarMessageStatusStore.getState().messagesBySession[id]
               ?.length ?? 0) > 0
-              ? lastSequenceBySession.get(id)
+              ? sessionEventCursors.get(eventCursorKey(id))
               : undefined;
           const fiber = Effect.runFork(
             Stream.runForEach(
@@ -66,8 +70,7 @@ export function useSidebarMessageStatusSubscriptions(
               (envelope) =>
                 Effect.sync(() => {
                   const { sequence } = envelope;
-                  const prev = lastSequenceBySession.get(id) ?? 0;
-                  if (sequence > prev) lastSequenceBySession.set(id, sequence);
+                  sessionEventCursors.set(eventCursorKey(id), sequence);
                   const projected = projectSessionEvent(envelope);
                   if (projected._tag !== "message") return;
                   const { message } = projected;

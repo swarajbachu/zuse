@@ -9,7 +9,10 @@ import type {
   SessionStatus,
   WorktreeId,
 } from "@zuse/contracts";
-import { projectSessionEvent } from "@zuse/client-runtime/session-events";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
@@ -77,7 +80,7 @@ type SessionsState = {
 };
 
 const statusFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const sessionEventSequences = new Map<string, number>();
+const eventCursorKey = (key: string): string => `mobile:status:${key}`;
 const chatFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stopFiber = async (
@@ -335,14 +338,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         const statusProgram = Stream.runForEach(
           client["session.events"]({
             sessionId: session.id,
-            afterSequence: sessionEventSequences.get(key),
+            afterSequence: sessionEventCursors.get(eventCursorKey(key)),
           }),
           (envelope) =>
             Effect.sync(() => {
-              const previous = sessionEventSequences.get(key) ?? 0;
-              if (envelope.sequence > previous) {
-                sessionEventSequences.set(key, envelope.sequence);
-              }
+              sessionEventCursors.set(eventCursorKey(key), envelope.sequence);
               const event = projectSessionEvent(envelope);
               if (event._tag !== "status") return;
               set((state) => ({

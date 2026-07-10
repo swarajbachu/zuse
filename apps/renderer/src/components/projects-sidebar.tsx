@@ -31,7 +31,10 @@ import {
   type ProviderId,
   type SessionId,
 } from "@zuse/contracts";
-import { projectSessionEvent } from "@zuse/client-runtime/session-events";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { BlurredEmail } from "~/components/blurred-email";
@@ -203,7 +206,8 @@ const chatIdForSession = (sessionId: SessionId): ChatId | null => {
   return null;
 };
 
-const sessionEventSequence = new Map<SessionId, number>();
+const eventCursorKey = (sessionId: SessionId): string =>
+  `renderer:sidebar-status:${sessionId}`;
 
 /**
  * Keep one durable session-event subscription per known session so the
@@ -251,14 +255,14 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
             Stream.runForEach(
               client["session.events"]({
                 sessionId: id,
-                afterSequence: sessionEventSequence.get(id),
+                afterSequence: sessionEventCursors.get(eventCursorKey(id)),
               }),
               (envelope) =>
                 Effect.sync(() => {
-                  const previousSequence = sessionEventSequence.get(id) ?? 0;
-                  if (envelope.sequence > previousSequence) {
-                    sessionEventSequence.set(id, envelope.sequence);
-                  }
+                  sessionEventCursors.set(
+                    eventCursorKey(id),
+                    envelope.sequence,
+                  );
                   const event = projectSessionEvent(envelope);
                   if (event._tag !== "status") return;
                   // Capture the prior running flag BEFORE the status update so
