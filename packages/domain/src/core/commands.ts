@@ -95,6 +95,7 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("ResolvePermission", {
 		requestId: Schema.String,
 		decision: Schema.String,
+		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("AttachProvider", {

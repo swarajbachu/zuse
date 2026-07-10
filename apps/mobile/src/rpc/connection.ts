@@ -1,9 +1,12 @@
+import { CommandDispatcher } from "@zuse/client-runtime/command-dispatch";
+import { makeManagedClientSession } from "@zuse/client-runtime/connection";
 import {
 	type ConnectionSnapshot,
+	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
 import { MemoizeRpcs } from "@zuse/contracts";
-import { Effect, Layer, ManagedRuntime, Scope } from "effect";
+import { Effect, Layer, Scope } from "effect";
 import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import {
@@ -26,7 +29,7 @@ const runtimeKey = (options: WsProtocolOptions) =>
 	options.environmentId ??
 	`${options.wsBaseUrl ?? `${options.host}:${options.port}`}`;
 
-const makeRuntime = (options: WsProtocolOptions) => {
+const makeClientSession = (options: WsProtocolOptions) => {
 	logConnectionDiagnostic("runtime.create", {
 		key: runtimeKey(options),
 		relay: options.environmentId !== undefined,
@@ -36,13 +39,9 @@ const makeRuntime = (options: WsProtocolOptions) => {
 		hasToken: options.token !== undefined && options.token !== null,
 	});
 	const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
-	const runtime = ManagedRuntime.make(protocolLayer);
-	const client = runtime.runPromise(
-		RpcClient.make(MemoizeRpcs).pipe(
-			Effect.provideService(Scope.Scope, runtime.scope),
-		),
+	return makeManagedClientSession(protocolLayer, (scope) =>
+		RpcClient.make(MemoizeRpcs).pipe(Effect.provideService(Scope.Scope, scope)),
 	);
-	return { runtime, client };
 };
 
 const prepareOptions = async (
@@ -77,13 +76,7 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
 		prepareOptions,
-		createClient: async (options) => {
-			const runtime = makeRuntime(options);
-			return {
-				client: await runtime.client,
-				dispose: () => runtime.runtime.dispose(),
-			};
-		},
+		createClient: makeClientSession,
 		validateClient: (client) =>
 			Effect.runPromise(client["connect.describe"]().pipe(Effect.asVoid)),
 		isOnline: () => currentOnline,
@@ -99,12 +92,57 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 
 let currentOnline = true;
 
+type ConnectionState = {
+	readonly entry: ConnectionSupervisorEntry<MemoizeClient>;
+	readonly dispatcher: CommandDispatcher;
+	unsubscribe: () => void;
+	generation: number;
+};
+
+const connectionStates = new Map<string, ConnectionState>();
+
+const connectionState = (options: WsProtocolOptions): ConnectionState => {
+	const key = runtimeKey(options);
+	const existing = connectionStates.get(key);
+	if (existing !== undefined) {
+		supervisor.get(options);
+		return existing;
+	}
+	const entry = supervisor.get(options);
+	const dispatcher = new CommandDispatcher();
+	const state: ConnectionState = {
+		entry,
+		dispatcher,
+		generation: 0,
+		unsubscribe: () => undefined,
+	};
+	const unsubscribe = entry.subscribe((snapshot) => {
+		if (
+			snapshot.status === "connected" &&
+			state.generation > 0 &&
+			snapshot.generation > state.generation
+		) {
+			dispatcher.redispatchPending();
+		}
+		state.generation = Math.max(state.generation, snapshot.generation);
+	});
+	state.unsubscribe = unsubscribe;
+	connectionStates.set(key, state);
+	return state;
+};
+
+const isRetryableClientError = (cause: unknown): boolean =>
+	(cause instanceof ConnectionFailed && cause.message !== "offline") ||
+	(typeof cause === "object" &&
+		cause !== null &&
+		"_tag" in cause &&
+		cause._tag === "RpcClientError");
+
 export const getConnectionClient = (
 	options: WsProtocolOptions,
 ): Effect.Effect<MemoizeClient, ConnectionFailed> =>
-	supervisor
-		.get(options)
-		.getClient()
+	connectionState(options)
+		.entry.getClient()
 		.pipe(
 			Effect.mapError(
 				(cause) => new ConnectionFailed({ message: cause.message }),
@@ -114,7 +152,13 @@ export const getConnectionClient = (
 export const disposeConnection = (
 	options: WsProtocolOptions,
 ): Promise<void> => {
-	return supervisor.get(options).remove();
+	const key = runtimeKey(options);
+	const state = connectionStates.get(key);
+	if (state === undefined) return supervisor.get(options).remove();
+	connectionStates.delete(key);
+	state.unsubscribe();
+	state.dispatcher.failPending(new Error("connection disposed"));
+	return state.entry.remove();
 };
 
 export const reportConnectionFailure = (
@@ -125,17 +169,17 @@ export const reportConnectionFailure = (
 		key: runtimeKey(options),
 		reason: cause instanceof Error ? cause.message : String(cause),
 	});
-	supervisor.get(options).reportFailure(cause);
+	connectionState(options).entry.reportFailure(cause);
 };
 
 export const retryConnectionNow = (options: WsProtocolOptions): void => {
-	supervisor.get(options).retryNow();
+	connectionState(options).entry.retryNow();
 };
 
 export const subscribeConnection = (
 	options: WsProtocolOptions,
 	listener: (snapshot: ConnectionSnapshot) => void,
-): (() => void) => supervisor.get(options).subscribe(listener);
+): (() => void) => connectionState(options).entry.subscribe(listener);
 
 export const setConnectionOnline = (online: boolean): void => {
 	logConnectionDiagnostic("runtime.online_set", { online });
@@ -145,4 +189,36 @@ export const setConnectionOnline = (online: boolean): void => {
 
 export const getConnectionSnapshot = (
 	options: WsProtocolOptions,
-): ConnectionSnapshot => supervisor.get(options).snapshot();
+): ConnectionSnapshot => connectionState(options).entry.snapshot();
+
+export const dispatchRetryableConnectionCommand = <A>(
+	options: WsProtocolOptions,
+	commandId: string,
+	operation: (client: MemoizeClient) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, ConnectionFailed> =>
+	Effect.tryPromise({
+		try: () =>
+			connectionState(options).dispatcher.dispatch(
+				commandId,
+				async () => {
+					try {
+						const client = await Effect.runPromise(
+							getConnectionClient(options),
+						);
+						return await Effect.runPromise(operation(client));
+					} catch (cause) {
+						if (isRetryableClientError(cause)) {
+							reportConnectionFailure(options, cause);
+						}
+						throw cause;
+					}
+				},
+				{ shouldRetry: isRetryableClientError },
+			),
+		catch: (cause) =>
+			cause instanceof ConnectionFailed
+				? cause
+				: new ConnectionFailed({
+						message: cause instanceof Error ? cause.message : String(cause),
+					}),
+	});

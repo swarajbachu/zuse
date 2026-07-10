@@ -86,6 +86,7 @@ export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("PermissionResolved", {
 		requestId: Schema.String,
 		decision: Schema.String,
+		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ProviderAttached", {

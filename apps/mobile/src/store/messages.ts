@@ -2,9 +2,8 @@ import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
-
-import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { connectionSessionKey } from "~/lib/session-key";
+import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -79,8 +78,9 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
           void get().flush(connKey, sessionId);
         }
         console.info("[mobile] messages.stream", { sessionId });
+        const sinceSequence = highestSequenceBySession.get(liveKey) ?? 0;
         const program = Stream.runForEach(
-          client["messages.stream"]({ sessionId }),
+          client["messages.stream"]({ sessionId, sinceSequence }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;

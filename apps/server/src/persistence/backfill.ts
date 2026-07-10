@@ -18,6 +18,7 @@ const PROJECTORS = [
 	"session-read-model",
 	"chat-read-model",
 	"reactor:auto-name-chat",
+	"reactor:permission-lifecycle",
 ] as const;
 
 interface ChatRow {

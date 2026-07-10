@@ -1,10 +1,11 @@
 import { CommandDispatcher } from "@zuse/client-runtime/command-dispatch";
+import { makeManagedClientSession } from "@zuse/client-runtime/connection";
 import {
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
 import { MemoizeRpcs } from "@zuse/contracts";
-import { Effect, Layer, ManagedRuntime, Scope } from "effect";
+import { Effect, Layer, Scope } from "effect";
 import {
 	RpcClient,
 	type RpcGroup,
@@ -76,18 +77,11 @@ const supervisor = createConnectionSupervisor<
 						Layer.provide(RpcSerialization.layerJson),
 					)
 				: wsClientProtocolLayer(options.wsUrl);
-		const runtime = ManagedRuntime.make(protocolLayer);
-		try {
-			const client = await runtime.runPromise(
-				RpcClient.make(MemoizeRpcs).pipe(
-					Effect.provideService(Scope.Scope, runtime.scope),
-				),
-			);
-			return { client, dispose: () => runtime.dispose() };
-		} catch (cause) {
-			await runtime.dispose();
-			throw cause;
-		}
+		return makeManagedClientSession(protocolLayer, (scope) =>
+			RpcClient.make(MemoizeRpcs).pipe(
+				Effect.provideService(Scope.Scope, scope),
+			),
+		);
 	},
 });
 

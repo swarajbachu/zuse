@@ -3,22 +3,26 @@ import {
   type Chat,
   ComposerInput,
   type ComposerInput as ComposerInputType,
-  Folder,
-  GitBranchInfo,
-  GitPrSummary,
-  MessageId,
-  PermissionDecision,
-  PermissionMode,
-  ProviderId,
-  RuntimeMode,
-  SessionId,
-  Worktree,
-  WorktreeCreateSource,
-  WorktreeId,
+  type Folder,
+  type GitBranchInfo,
+  type GitPrSummary,
+  type MessageId,
+  type PermissionDecision,
+  type PermissionMode,
+  type ProviderId,
+  type RuntimeMode,
+  type SessionId,
+  type Worktree,
+  type WorktreeCreateSource,
+  type WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 
-import { getConnectionClient, reportConnectionFailure } from "./connection";
+import {
+  dispatchRetryableConnectionCommand,
+  getConnectionClient,
+  reportConnectionFailure,
+} from "./connection";
 import type { WsProtocolOptions } from "./ws-protocol";
 
 export const makeTextInput = (text: string): ComposerInputType =>
@@ -37,6 +41,19 @@ export const sendMessage = (options: {
   asGoal?: boolean;
   clientMessageId?: MessageId;
 }) => {
+  if (options.clientMessageId !== undefined) {
+    const payload = {
+      sessionId: options.sessionId,
+      input: options.input,
+      ...(options.asGoal === undefined ? {} : { asGoal: options.asGoal }),
+      clientMessageId: options.clientMessageId,
+    };
+    return dispatchRetryableConnectionCommand(
+      options.connection,
+      options.clientMessageId,
+      (client) => client["messages.send"](payload),
+    );
+  }
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
     const payload = {

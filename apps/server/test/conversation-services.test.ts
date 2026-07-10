@@ -18,11 +18,14 @@ import {
   RepositorySettings,
   Worktree,
 } from "@zuse/contracts";
-import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
+// Exercise ConversationServicesLive through the same node:sqlite client layer used by
+// the production Node runtime.
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import {
   Context,
   Effect,
@@ -59,10 +62,8 @@ import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_cha
 import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/0029_chat_lineage_repair.ts";
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
+import { Migration0032ReactorEffectReceipts } from "../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-// Exercise ConversationServicesLive through the same node:sqlite client layer used by
-// the production Node runtime.
-import { layer as sqliteLayer } from "@zuse/sqlite";
 import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
 import { ConversationServicesLive } from "../src/provider/layers/conversation-services.ts";
 import {
@@ -331,6 +332,7 @@ const runAllMigrations = Effect.all(
     Migration0029ChatLineageRepair,
     Migration0030CqrsEngine,
     Migration0031BackfillRuns,
+    Migration0032ReactorEffectReceipts,
   ],
   { discard: true },
 );

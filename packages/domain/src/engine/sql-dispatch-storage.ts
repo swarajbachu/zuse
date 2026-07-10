@@ -8,8 +8,11 @@ import {
 	CommandReceipt,
 	ConcurrencyConflict,
 	type DispatchStorage,
-	type StoredEvent,
 } from "./dispatch.js";
+import {
+	decodePersistedEvent,
+	type PersistedEventRow,
+} from "./persisted-event.js";
 
 export class DispatchPersistenceDecodeError extends Schema.TaggedErrorClass<DispatchPersistenceDecodeError>()(
 	"DispatchPersistenceDecodeError",
@@ -31,16 +34,6 @@ interface ReceiptRow {
 	readonly stream_version: number;
 	readonly event_ids_json: string;
 	readonly result_json: string | null;
-}
-
-interface EventRow {
-	readonly sequence: number;
-	readonly event_id: string;
-	readonly correlation_id: string;
-	readonly causation_event_id: string | null;
-	readonly stream_id: string;
-	readonly stream_version: number;
-	readonly payload_json: string;
 }
 
 const decodeSessionEvent = Schema.decodeUnknownEffect(
@@ -111,37 +104,15 @@ export const makeSqlDispatchStorage = <
 	const events = Effect.fn("SqlDispatchStorage.events")(function* (
 		streamId: string,
 	) {
-		const rows = yield* sql<EventRow>`
+		const rows = yield* sql<PersistedEventRow>`
 			SELECT sequence, event_id, correlation_id, causation_event_id,
 			       stream_id, stream_version, payload_json
 			FROM events
 			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
 			ORDER BY stream_version ASC
 		`;
-		return yield* Effect.forEach(
-			rows,
-			(
-				row,
-			): Effect.Effect<StoredEvent<Event>, DispatchPersistenceDecodeError> =>
-				decodeEvent(row.payload_json).pipe(
-					Effect.map((event) => ({
-						eventId: row.event_id,
-						correlationId: row.correlation_id,
-						causationEventId: row.causation_event_id,
-						streamId: row.stream_id,
-						streamVersion: row.stream_version,
-						sequence: row.sequence,
-						event,
-					})),
-					Effect.mapError(
-						(cause) =>
-							new DispatchPersistenceDecodeError({
-								recordKind: "event",
-								recordId: row.event_id,
-								reason: String(cause),
-							}),
-					),
-				),
+		return yield* Effect.forEach(rows, (row) =>
+			decodePersistedEvent(row, decodeEvent),
 		);
 	});
 

@@ -132,8 +132,11 @@ export const make = (
 					const result = run(sql, params, false);
 					return transformRows ? Effect.map(result, transformRows) : result;
 				},
-				executeStream() {
-					return Stream.die(new Error("executeStream not implemented"));
+				executeStream(sql, params, transformRows) {
+					const rows = transformRows
+						? Effect.map(run(sql, params), transformRows)
+						: run(sql, params);
+					return Stream.fromIterableEffect(rows);
 				},
 			} satisfies Connection;
 		});

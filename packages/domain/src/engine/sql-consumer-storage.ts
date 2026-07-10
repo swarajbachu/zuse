@@ -4,53 +4,20 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { SessionEvent } from "../core/events.js";
 import type { StoredEvent } from "./dispatch.js";
+import {
+	decodePersistedEvent,
+	type PersistedEventRow,
+} from "./persisted-event.js";
 import type { ProjectorStorage } from "./projector-runner.js";
-import { DispatchPersistenceDecodeError } from "./sql-dispatch-storage.js";
+import type { DispatchPersistenceDecodeError } from "./sql-dispatch-storage.js";
 
 type CursorRow = {
 	readonly last_sequence: number;
 };
 
-type EventRow = {
-	readonly sequence: number;
-	readonly event_id: string;
-	readonly correlation_id: string | null;
-	readonly causation_event_id: string | null;
-	readonly stream_id: string;
-	readonly stream_version: number;
-	readonly payload_json: string;
-};
-
 const decodeSessionEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(SessionEvent),
 );
-
-const storedEventFromRow = <Event>(
-	row: EventRow,
-	decodeEvent: (json: string) => Effect.Effect<Event, unknown>,
-): Effect.Effect<StoredEvent<Event>, DispatchPersistenceDecodeError> =>
-	Effect.gen(function* () {
-		const event = yield* decodeEvent(row.payload_json).pipe(
-			Effect.mapError(
-				(cause) =>
-					new DispatchPersistenceDecodeError({
-						recordKind: "event",
-						recordId: row.event_id,
-						reason: String(cause),
-					}),
-			),
-		);
-
-		return {
-			eventId: row.event_id,
-			correlationId: row.correlation_id ?? row.event_id,
-			causationEventId: row.causation_event_id,
-			streamId: row.stream_id,
-			streamVersion: row.stream_version,
-			sequence: row.sequence,
-			event,
-		} satisfies StoredEvent<Event>;
-	});
 
 export type SqlConsumerStorageError = SqlError | DispatchPersistenceDecodeError;
 
@@ -83,7 +50,7 @@ export const makeSqlConsumerStorage = <Event = SessionEvent>(
 	const eventsAfter = Effect.fn("SqlConsumerStorage.eventsAfter")(function* (
 		sequence: number,
 	) {
-		const rows = yield* sql<EventRow>`
+		const rows = yield* sql<PersistedEventRow>`
 			SELECT sequence, event_id, correlation_id, causation_event_id,
 			       stream_id, stream_version, payload_json
 			FROM events
@@ -92,7 +59,7 @@ export const makeSqlConsumerStorage = <Event = SessionEvent>(
 		`;
 
 		return yield* Effect.forEach(rows, (row) =>
-			storedEventFromRow(row, decodeEvent),
+			decodePersistedEvent(row, decodeEvent),
 		);
 	});
 

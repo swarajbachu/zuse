@@ -1,4 +1,4 @@
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
 
@@ -22,6 +22,28 @@ describe("node sqlite client", () => {
 			);
 
 			expect(rows).toEqual([{ enabled: 1 }]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test("streams query rows through the standard SqlClient API", async () => {
+		const runtime = ManagedRuntime.make(layer({ filename: ":memory:" }));
+		try {
+			const rows = await runtime.runPromise(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TABLE values_table (value INTEGER NOT NULL)`;
+					yield* sql`INSERT INTO values_table (value) VALUES (1), (2), (3)`;
+					return yield* Stream.runCollect(
+						sql<{ readonly value: number }>`
+							SELECT value FROM values_table ORDER BY value
+						`.stream,
+					);
+				}),
+			);
+
+			expect([...rows]).toEqual([{ value: 1 }, { value: 2 }, { value: 3 }]);
 		} finally {
 			await runtime.dispose();
 		}

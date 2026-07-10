@@ -2,14 +2,20 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   type FolderId,
-  type PermissionDecision,
+  PermissionDecision,
   type PermissionKind,
   PermissionRequest,
   PermissionRequestNotFoundError,
   SavedDecision,
   type SessionId,
 } from "@zuse/contracts";
+import type { StoredEvent } from "@zuse/domain/engine/dispatch";
+import { ReactorRunner } from "@zuse/domain/engine/reactor-runner";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+  makeSqlConsumerStorage,
+  type SqlConsumerStorageError,
+} from "@zuse/domain/engine/sql-consumer-storage";
 import {
   DateTime,
   Deferred,
@@ -56,6 +62,7 @@ const scopeForDecision = (
   decision._tag === "AlwaysAllow" ? "folder" : "session";
 
 const decodeSavedDecision = Schema.decodeUnknownEffect(SavedDecision);
+const decodePermissionDecision = Schema.decodeUnknownEffect(PermissionDecision);
 
 const rowToSavedDecision = (
   row: DecisionRow,
@@ -193,6 +200,109 @@ export const PermissionServiceLive = Layer.effect(
       new Map(),
     );
 
+    type PermissionLifecycleCommand =
+      | { readonly _tag: "PublishPermission"; readonly requestId: string }
+      | {
+          readonly _tag: "CompletePermission";
+          readonly requestId: string;
+          readonly decisionJson: string;
+        };
+
+    const permissionReactor = new ReactorRunner<
+      StoredEvent,
+      PermissionLifecycleCommand,
+      SqlConsumerStorageError
+    >(
+      makeSqlConsumerStorage(sql),
+      (input) =>
+        Effect.gen(function* () {
+          const entries = yield* Ref.get(pending);
+          const entry = entries.get(input.command.requestId);
+          if (entry === undefined) return;
+          if (input.command._tag === "PublishPermission") {
+            const published = yield* PubSub.publish(pubsub, entry.request);
+            log("request.published", {
+              requestId: entry.request.id,
+              sessionId: entry.request.sessionId,
+              published,
+            });
+            return;
+          }
+
+          const decision = yield* decodePermissionDecision(
+            JSON.parse(input.command.decisionJson),
+          ).pipe(Effect.orDie);
+          const projects = yield* Ref.get(projectByRequest);
+          const projectId = projects.get(input.command.requestId);
+          if (projectId !== undefined) {
+            yield* persistDecision(entry.request, projectId, decision);
+          }
+          yield* Ref.update(pending, (current) => {
+            const next = new Map(current);
+            next.delete(input.command.requestId);
+            return next;
+          });
+          yield* Ref.update(projectByRequest, (current) => {
+            const next = new Map(current);
+            next.delete(input.command.requestId);
+            return next;
+          });
+          yield* Deferred.succeed(entry.deferred, decision);
+          log("decide.pending_removed", {
+            requestId: input.command.requestId,
+            sessionId: entry.request.sessionId,
+            decision: decision._tag,
+            projectId: projectId ?? null,
+          });
+        }),
+      {
+        name: "permission-lifecycle",
+        react: (record) => {
+          if (record.event._tag === "PermissionRequested") {
+            return Effect.succeed([
+              {
+                streamId: record.streamId,
+                command: {
+                  _tag: "PublishPermission" as const,
+                  requestId: record.event.requestId,
+                },
+              },
+            ]);
+          }
+          if (record.event._tag === "PermissionResolved") {
+            return Effect.succeed([
+              {
+                streamId: record.streamId,
+                command: {
+                  _tag: "CompletePermission" as const,
+                  requestId: record.event.requestId,
+                  decisionJson:
+                    record.event.decisionJson ??
+                    JSON.stringify({ _tag: record.event.decision }),
+                },
+              },
+            ]);
+          }
+          return Effect.succeed([]);
+        },
+      },
+    );
+    let permissionReactorActive = false;
+    const runPermissionReactor = Effect.suspend(() => {
+      if (permissionReactorActive) return Effect.void;
+      permissionReactorActive = true;
+      return permissionReactor.catchUp().pipe(
+        Effect.asVoid,
+        Effect.orDie,
+        Effect.ensuring(
+          Effect.sync(() => {
+            permissionReactorActive = false;
+          }),
+        ),
+      );
+    });
+    yield* runPermissionReactor;
+
     const request: PermissionServiceShape["request"] = (
       sessionId,
       kind,
@@ -224,19 +334,6 @@ export const PermissionServiceLive = Layer.effect(
           requestedAt: new Date(),
           forcePrompt: options.forcePrompt === true,
         });
-        yield* sessionDomain
-          .dispatch({
-            commandId: `permission:request:${id}`,
-            streamId: sessionId,
-            command: {
-              _tag: "RequestPermission",
-              requestId: id,
-              turnId: id,
-              payloadJson: JSON.stringify(req),
-              requestedAt: req.requestedAt.getTime(),
-            },
-          })
-          .pipe(Effect.orDie);
         yield* Ref.update(projectByRequest, (m) => {
           const next = new Map(m);
           next.set(id, options.projectId);
@@ -257,12 +354,20 @@ export const PermissionServiceLive = Layer.effect(
           });
           return next;
         });
-        const published = yield* PubSub.publish(pubsub, req);
-        log("request.published", {
-          requestId: id,
-          sessionId,
-          published,
-        });
+        yield* sessionDomain
+          .dispatch({
+            commandId: `permission:request:${id}`,
+            streamId: sessionId,
+            command: {
+              _tag: "RequestPermission",
+              requestId: id,
+              turnId: id,
+              payloadJson: JSON.stringify(req),
+              requestedAt: req.requestedAt.getTime(),
+            },
+          })
+          .pipe(Effect.orDie);
+        yield* runPermissionReactor;
         const decision = yield* Deferred.await(deferred);
         log("request.resolved", {
           requestId: id,
@@ -286,28 +391,6 @@ export const PermissionServiceLive = Layer.effect(
             new PermissionRequestNotFoundError({ requestId }),
           );
         }
-        const projects = yield* Ref.get(projectByRequest);
-        const projectId = projects.get(requestId);
-        yield* Ref.update(pending, (m) => {
-          const next = new Map(m);
-          next.delete(requestId);
-          log("decide.pending_removed", {
-            requestId,
-            sessionId: entry.request.sessionId,
-            decision: decision._tag,
-            projectId: projectId ?? null,
-            pendingCount: next.size,
-          });
-          return next;
-        });
-        yield* Ref.update(projectByRequest, (m) => {
-          const next = new Map(m);
-          next.delete(requestId);
-          return next;
-        });
-        if (projectId !== undefined) {
-          yield* persistDecision(entry.request, projectId, decision);
-        }
         yield* sessionDomain
           .dispatch({
             commandId: `permission:resolve:${requestId}`,
@@ -316,11 +399,12 @@ export const PermissionServiceLive = Layer.effect(
               _tag: "ResolvePermission",
               requestId,
               decision: decision._tag,
+              decisionJson: JSON.stringify(decision),
               resolvedAt: (yield* DateTime.nowAsDate).getTime(),
             },
           })
           .pipe(Effect.orDie);
-        yield* Deferred.succeed(entry.deferred, decision);
+        yield* runPermissionReactor;
       });
 
     const listPending: PermissionServiceShape["listPending"] = (sessionId) =>

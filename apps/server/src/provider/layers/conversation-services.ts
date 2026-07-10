@@ -50,8 +50,8 @@ import {
   type WorktreeCreateSource,
   WorktreeId,
 } from "@zuse/contracts";
-import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
+import type { SessionCommand } from "@zuse/domain/core/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import { ReactorRunner } from "@zuse/domain/engine/reactor-runner";
@@ -90,10 +90,11 @@ import {
   type OrchestrationToolDeps,
 } from "../drivers/orchestration-tools.ts";
 import {
-  type CreateChatInput,
-  type CreateSessionInput,
   ChatService,
   type ChatServiceShape,
+  type ConversationOperations,
+  type CreateChatInput,
+  type CreateSessionInput,
   MessageService,
   type MessageServiceShape,
   QueueService,
@@ -102,7 +103,6 @@ import {
   type SessionServiceShape,
   TranscriptService,
   type TranscriptServiceShape,
-  type ConversationOperations,
 } from "../services/conversation-services.ts";
 import {
   type GetRuntimeMode,
@@ -309,8 +309,7 @@ const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
     providerId: record.providerId as ProviderId,
     model: record.model,
     status: record.status,
-    archivedAt:
-      record.archivedAt === null ? null : new Date(record.archivedAt),
+    archivedAt: record.archivedAt === null ? null : new Date(record.archivedAt),
     cursor: record.cursor,
     resumeStrategy: resumeStrategyFromRow(record.resumeStrategy),
     runtimeMode: runtimeModeFromRow(record.runtimeMode),
@@ -1259,13 +1258,15 @@ export const ConversationServicesLive = Layer.effectContext(
       sessionId: SessionId,
     ): Effect.Effect<Session, SessionNotFoundError> =>
       Effect.gen(function* () {
-        const record = yield* sessionQueries.get(sessionId).pipe(
-          Effect.catch((error) =>
-            error._tag === "SessionQueryNotFound"
-              ? Effect.fail(new SessionNotFoundError({ sessionId }))
-              : Effect.die(error),
-          ),
-        );
+        const record = yield* sessionQueries
+          .get(sessionId)
+          .pipe(
+            Effect.catch((error) =>
+              error._tag === "SessionQueryNotFound"
+                ? Effect.fail(new SessionNotFoundError({ sessionId }))
+                : Effect.die(error),
+            ),
+          );
         // Hydrate the agents cache from the row on first sight after boot
         // so resume / lazy-restart pick up the same roster the session was
         // created with.
@@ -1382,8 +1383,9 @@ export const ConversationServicesLive = Layer.effectContext(
       });
 
     const flushingQueues = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
-    let flushQueueAfterIdle: (sessionId: SessionId) => Effect.Effect<void> =
-      () => Effect.void;
+    let flushQueueAfterIdle: (
+      sessionId: SessionId,
+    ) => Effect.Effect<void> = () => Effect.void;
 
     const setStatus = (
       sessionId: SessionId,
@@ -1649,7 +1651,9 @@ export const ConversationServicesLive = Layer.effectContext(
                     Effect.catchCause(() => Effect.void),
                   );
                 }
-                yield* Effect.logDebug("[ConversationServices] event stream ended");
+                yield* Effect.logDebug(
+                  "[ConversationServices] event stream ended",
+                );
                 yield* Effect.logDebug(cause);
               }),
             ),
@@ -1747,9 +1751,10 @@ export const ConversationServicesLive = Layer.effectContext(
       projectId,
       includeArchived,
     ) =>
-      sessionQueries
-        .list({ projectId, includeArchived })
-        .pipe(Effect.map((records) => records.map(sessionFromRecord)), Effect.orDie);
+      sessionQueries.list({ projectId, includeArchived }).pipe(
+        Effect.map((records) => records.map(sessionFromRecord)),
+        Effect.orDie,
+      );
 
     /**
      * Resolve a chat row for createSession. Failures surface as
@@ -2623,7 +2628,9 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* setStatus(sessionId, "idle");
       });
 
-    const archiveSession: ConversationOperations["archiveSession"] = (sessionId) =>
+    const archiveSession: ConversationOperations["archiveSession"] = (
+      sessionId,
+    ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         yield* dispatchSessionCommand(sessionId, {
@@ -2643,7 +2650,9 @@ export const ConversationServicesLive = Layer.effectContext(
         });
       });
 
-    const deleteSession: ConversationOperations["deleteSession"] = (sessionId) =>
+    const deleteSession: ConversationOperations["deleteSession"] = (
+      sessionId,
+    ) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         // Best-effort: provider may not know the id (already closed) — that's
@@ -2966,11 +2975,15 @@ export const ConversationServicesLive = Layer.effectContext(
     ) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
-        yield* dispatchChatCommand(chatId, {
-          _tag: "RenameChat",
-          title,
-          updatedAt: yield* currentTimestamp,
-        }, commandId);
+        yield* dispatchChatCommand(
+          chatId,
+          {
+            _tag: "RenameChat",
+            title,
+            updatedAt: yield* currentTimestamp,
+          },
+          commandId,
+        );
         // Push the new title to any renderer subscribed via
         // `chat.streamChanges` so the sidebar updates without a refetch.
         const updated = yield* lookupChat(chatId);
@@ -3061,6 +3074,12 @@ export const ConversationServicesLive = Layer.effectContext(
       commandId: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        const completed = yield* sql<{ readonly effect_id: string }>`
+          SELECT effect_id FROM reactor_effect_receipts
+          WHERE effect_id = ${commandId}
+          LIMIT 1
+        `.pipe(Effect.orDie);
+        if (completed.length > 0) return;
         const chat = yield* lookupChat(chatId).pipe(
           Effect.catch(() => Effect.succeed(null)),
         );
@@ -3096,10 +3115,21 @@ export const ConversationServicesLive = Layer.effectContext(
           { discard: true },
         );
 
-        if (chat.worktreeId === null) return;
+        const markComplete = sql`
+          INSERT OR IGNORE INTO reactor_effect_receipts
+            (effect_id, completed_at)
+          VALUES (${commandId}, ${new Date().toISOString()})
+        `.pipe(Effect.asVoid, Effect.orDie);
+        if (chat.worktreeId === null) {
+          yield* markComplete;
+          return;
+        }
         const worktreeId = chat.worktreeId;
         const wt = yield* worktrees.get(worktreeId);
-        if (wt === null) return;
+        if (wt === null) {
+          yield* markComplete;
+          return;
+        }
 
         const settings = yield* configStore.getSettings();
         const username = yield* git
@@ -3117,6 +3147,8 @@ export const ConversationServicesLive = Layer.effectContext(
           Effect.flatMap(() => worktrees.updateBranch(worktreeId, branch)),
           Effect.catch(() => Effect.void),
         );
+
+        yield* markComplete;
       }).pipe(Effect.catchCause(() => Effect.void));
 
     type AutoNameCommand = { readonly _tag: "AutoNameChat" };
@@ -3138,7 +3170,12 @@ export const ConversationServicesLive = Layer.effectContext(
           Effect.succeed(
             record.event._tag === "TurnSettled" &&
               record.event.outcome === "completed"
-              ? [{ streamId: record.streamId, command: { _tag: "AutoNameChat" } }]
+              ? [
+                  {
+                    streamId: record.streamId,
+                    command: { _tag: "AutoNameChat" },
+                  },
+                ]
               : [],
           ),
       },
@@ -3146,13 +3183,15 @@ export const ConversationServicesLive = Layer.effectContext(
     runSessionReactors = Effect.suspend(() => {
       if (sessionReactorActive) return Effect.void;
       sessionReactorActive = true;
-      return autoNameReactor
-        .catchUp()
-        .pipe(
-          Effect.asVoid,
-          Effect.orDie,
-          Effect.ensuring(Effect.sync(() => { sessionReactorActive = false; })),
-        );
+      return autoNameReactor.catchUp().pipe(
+        Effect.asVoid,
+        Effect.orDie,
+        Effect.ensuring(
+          Effect.sync(() => {
+            sessionReactorActive = false;
+          }),
+        ),
+      );
     });
     yield* runSessionReactors;
 
@@ -3207,26 +3246,27 @@ export const ConversationServicesLive = Layer.effectContext(
         return yield* lookupChat(chatId);
       });
 
-    const setChatActiveSession: ConversationOperations["setChatActiveSession"] = (
-      chatId,
-      sessionId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupChat(chatId);
-        const member = yield* sql<{ readonly id: string }>`
+    const setChatActiveSession: ConversationOperations["setChatActiveSession"] =
+      (chatId, sessionId) =>
+        Effect.gen(function* () {
+          yield* lookupChat(chatId);
+          const member = yield* sql<{ readonly id: string }>`
           SELECT id FROM sessions
           WHERE id = ${sessionId} AND chat_id = ${chatId}
           LIMIT 1
         `.pipe(Effect.orDie);
-        if (member.length === 0) return;
-        yield* dispatchChatCommand(chatId, {
-          _tag: "SetActiveSession",
-          sessionId,
-          updatedAt: yield* currentTimestamp,
+          if (member.length === 0) return;
+          yield* dispatchChatCommand(chatId, {
+            _tag: "SetActiveSession",
+            sessionId,
+            updatedAt: yield* currentTimestamp,
+          });
         });
-      });
 
-    const archiveChat: ConversationOperations["archiveChat"] = (chatId, force) =>
+    const archiveChat: ConversationOperations["archiveChat"] = (
+      chatId,
+      force,
+    ) =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId);
         if (chat.archivedAt !== null) {
@@ -3767,7 +3807,9 @@ export const ConversationServicesLive = Layer.effectContext(
       );
     };
 
-    const resumeSession: ConversationOperations["resumeSession"] = (sessionId) =>
+    const resumeSession: ConversationOperations["resumeSession"] = (
+      sessionId,
+    ) =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
         if (session.resumeStrategy === "none" || session.cursor === null) {
@@ -4118,21 +4160,20 @@ export const ConversationServicesLive = Layer.effectContext(
         return yield* queueState(sessionId);
       });
 
-    const streamQueuedMessages: ConversationOperations["streamQueuedMessages"] = (
-      sessionId,
-    ) =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          yield* lookupSession(sessionId);
-          const pubsub = yield* getOrMakeQueuePubsub(sessionId);
-          const dequeue = yield* PubSub.subscribe(pubsub);
-          const initial = yield* queueState(sessionId);
-          return Stream.concat(
-            Stream.succeed(initial),
-            Stream.fromSubscription(dequeue),
-          );
-        }),
-      );
+    const streamQueuedMessages: ConversationOperations["streamQueuedMessages"] =
+      (sessionId) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            yield* lookupSession(sessionId);
+            const pubsub = yield* getOrMakeQueuePubsub(sessionId);
+            const dequeue = yield* PubSub.subscribe(pubsub);
+            const initial = yield* queueState(sessionId);
+            return Stream.concat(
+              Stream.succeed(initial),
+              Stream.fromSubscription(dequeue),
+            );
+          }),
+        );
 
     const addQueuedMessage: ConversationOperations["addQueuedMessage"] = (
       sessionId,
@@ -4210,35 +4251,33 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* broadcastQueue(sessionId);
       });
 
-    const reorderQueuedMessages: ConversationOperations["reorderQueuedMessages"] = (
-      sessionId,
-      queueIds,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        const existing = yield* listQueuedRows(sessionId);
-        const byId = new Map(existing.map((item) => [item.id, item]));
-        const ordered = [
-          ...queueIds.flatMap((id) => {
-            const item = byId.get(id);
-            if (item === undefined) return [];
-            byId.delete(id);
-            return [item];
-          }),
-          ...existing.filter((item) => byId.has(item.id)),
-        ];
-        const nowIso = new Date().toISOString();
-        for (let i = 0; i < ordered.length; i += 1) {
-          yield* sql`
+    const reorderQueuedMessages: ConversationOperations["reorderQueuedMessages"] =
+      (sessionId, queueIds) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          const existing = yield* listQueuedRows(sessionId);
+          const byId = new Map(existing.map((item) => [item.id, item]));
+          const ordered = [
+            ...queueIds.flatMap((id) => {
+              const item = byId.get(id);
+              if (item === undefined) return [];
+              byId.delete(id);
+              return [item];
+            }),
+            ...existing.filter((item) => byId.has(item.id)),
+          ];
+          const nowIso = new Date().toISOString();
+          for (let i = 0; i < ordered.length; i += 1) {
+            yield* sql`
             UPDATE queued_messages
             SET queue_order = ${i}, updated_at = ${nowIso}
             WHERE session_id = ${sessionId} AND id = ${ordered[i]!.id}
           `.pipe(Effect.orDie);
-        }
-        const next = yield* listQueuedRows(sessionId);
-        yield* broadcastQueue(sessionId);
-        return next;
-      });
+          }
+          const next = yield* listQueuedRows(sessionId);
+          yield* broadcastQueue(sessionId);
+          return next;
+        });
 
     const claimQueuedMessage = (
       sessionId: SessionId,
@@ -4301,17 +4340,15 @@ export const ConversationServicesLive = Layer.effectContext(
         }
       });
 
-    const sendQueuedMessageNow: ConversationOperations["sendQueuedMessageNow"] = (
-      sessionId,
-      queueId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        yield* setQueuePaused(sessionId, false);
-        const item = yield* claimQueuedMessage(sessionId, queueId);
-        if (item === null) return;
-        yield* sendClaimedQueuedMessage(item);
-      });
+    const sendQueuedMessageNow: ConversationOperations["sendQueuedMessageNow"] =
+      (sessionId, queueId) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          yield* setQueuePaused(sessionId, false);
+          const item = yield* claimQueuedMessage(sessionId, queueId);
+          if (item === null) return;
+          yield* sendClaimedQueuedMessage(item);
+        });
 
     const flushQueuedMessages: ConversationOperations["flushQueuedMessages"] = (
       sessionId,
@@ -4351,14 +4388,13 @@ export const ConversationServicesLive = Layer.effectContext(
     flushQueueAfterIdle = (sessionId) =>
       flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void));
 
-    const resumeQueuedMessages: ConversationOperations["resumeQueuedMessages"] = (
-      sessionId,
-    ) =>
-      Effect.gen(function* () {
-        yield* lookupSession(sessionId);
-        yield* setQueuePaused(sessionId, false);
-        yield* flushQueuedMessages(sessionId);
-      });
+    const resumeQueuedMessages: ConversationOperations["resumeQueuedMessages"] =
+      (sessionId) =>
+        Effect.gen(function* () {
+          yield* lookupSession(sessionId);
+          yield* setQueuePaused(sessionId, false);
+          yield* flushQueuedMessages(sessionId);
+        });
 
     const interruptSession: ConversationOperations["interruptSession"] = (
       sessionId,
