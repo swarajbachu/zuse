@@ -7,6 +7,8 @@ import { evolveAll, initialSessionState } from "../core/state.js";
 
 export type StoredEvent = {
 	readonly eventId: string;
+	readonly correlationId: string;
+	readonly causationEventId: string | null;
 	readonly streamId: string;
 	readonly streamVersion: number;
 	readonly sequence: number;
@@ -23,12 +25,16 @@ export type CommandReceipt = {
 export type DispatchInput = {
 	readonly commandId: string;
 	readonly streamId: string;
+	readonly correlationId?: string;
+	readonly causationEventId?: string;
 	readonly command: SessionCommand;
 };
 
 export type AppendInput = {
 	readonly commandId: string;
 	readonly streamId: string;
+	readonly correlationId: string;
+	readonly causationEventId: string | null;
 	readonly expectedVersion: number;
 	readonly events: readonly {
 		readonly eventId: string;
@@ -93,6 +99,8 @@ export class DispatchEngine {
 		return this.storage.append({
 			commandId: input.commandId,
 			streamId: input.streamId,
+			correlationId: input.correlationId ?? input.commandId,
+			causationEventId: input.causationEventId ?? null,
 			expectedVersion: state.version,
 			events: decision.success.map((event) => ({
 				eventId: this.makeEventId(),
@@ -138,6 +146,8 @@ export class InMemoryDispatchStorage implements DispatchStorage {
 			streamVersion += 1;
 			this.eventLog.push({
 				eventId: item.eventId,
+				correlationId: input.correlationId,
+				causationEventId: input.causationEventId,
 				streamId: input.streamId,
 				streamVersion,
 				sequence: this.eventLog.length + 1,

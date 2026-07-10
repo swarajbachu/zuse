@@ -36,33 +36,19 @@ export class ProjectorRunner<Event> {
 }
 
 export class InMemoryProjectorStorage<
-	Event extends { readonly sequence: number },
-> implements ProjectorStorage<Event>
+		Event extends { readonly sequence: number },
+	>
+	extends InMemoryCursorStorage<Event>
+	implements ProjectorStorage<Event>
 {
-	private readonly cursors = new Map<string, number>();
-
-	constructor(private readonly eventLog: readonly Event[]) {}
-
-	cursor(projectorName: string): Promise<number> {
-		return Promise.resolve(this.cursorValue(projectorName));
-	}
-
-	cursorValue(projectorName: string): number {
-		return this.cursors.get(projectorName) ?? 0;
-	}
-
-	eventsAfter(sequence: number): Promise<readonly Event[]> {
-		return Promise.resolve(
-			this.eventLog.filter((event) => event.sequence > sequence),
-		);
-	}
-
 	async applyAndCommit(
 		projectorName: string,
 		sequence: number,
 		apply: () => PromiseLike<void> | void,
 	): Promise<void> {
 		await apply();
-		this.cursors.set(projectorName, sequence);
+		await this.commitCursor(projectorName, sequence);
 	}
 }
+
+import { InMemoryCursorStorage } from "./cursor-storage.js";

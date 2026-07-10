@@ -68,4 +68,22 @@ describe("DispatchEngine", () => {
 		).rejects.toMatchObject({ _tag: "SessionNotFound" });
 		expect(storage.eventsFor("missing")).toEqual([]);
 	});
+
+	test("records correlation and causation metadata on emitted events", async () => {
+		const storage = new InMemoryDispatchStorage();
+		const engine = new DispatchEngine(storage, () => "event-1");
+
+		await engine.dispatch({
+			commandId: "reactor:event-0:0",
+			streamId: "session-1",
+			correlationId: "request-1",
+			causationEventId: "event-0",
+			command: create,
+		});
+
+		expect(storage.eventsFor("session-1")[0]).toMatchObject({
+			correlationId: "request-1",
+			causationEventId: "event-0",
+		});
+	});
 });
