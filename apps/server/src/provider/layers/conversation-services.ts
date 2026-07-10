@@ -53,7 +53,13 @@ import {
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import type { StoredEvent } from "@zuse/domain/engine/dispatch";
+import { ReactorRunner } from "@zuse/domain/engine/reactor-runner";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+  makeSqlConsumerStorage,
+  type SqlConsumerStorageError,
+} from "@zuse/domain/engine/sql-consumer-storage";
 import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
 import {
   SqlSessionQueries,
@@ -840,24 +846,30 @@ export const ConversationServicesLive = Layer.effectContext(
       sessionId: SessionId,
       command: SessionCommand,
     ): Effect.Effect<void> =>
-      sessionDomain
-        .dispatch({
-          commandId: crypto.randomUUID(),
-          streamId: sessionId,
-          command,
-        })
-        .pipe(Effect.asVoid, Effect.orDie);
+      Effect.gen(function* () {
+        yield* sessionDomain
+          .dispatch({
+            commandId: crypto.randomUUID(),
+            streamId: sessionId,
+            command,
+          })
+          .pipe(Effect.orDie);
+        yield* runSessionReactors;
+      });
     const dispatchChatCommand = (
       chatId: ChatId,
       command: ChatCommand,
+      commandId: string = crypto.randomUUID(),
     ): Effect.Effect<void> =>
       chatDomain
         .dispatch({
-          commandId: crypto.randomUUID(),
+          commandId,
           streamId: chatId,
           command,
         })
         .pipe(Effect.asVoid, Effect.orDie);
+    let runSessionReactors: Effect.Effect<void> = Effect.void;
+    let sessionReactorActive = false;
     const provider = yield* ProviderService;
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -1132,9 +1144,7 @@ export const ConversationServicesLive = Layer.effectContext(
       PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);
 
     // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
-    const autoNamingInFlight = new Set<string>();
     // Chats that already received a successful LLM title this process lifetime.
-    const autoNamedChats = new Set<string>();
 
     const getOrMakePubsub = (sessionId: SessionId) =>
       Effect.gen(function* () {
@@ -1522,9 +1532,6 @@ export const ConversationServicesLive = Layer.effectContext(
                   if (event.status === "running") {
                     yield* publishRelayActivity(sessionId, "running");
                   }
-                  if (event.status === "idle") {
-                    yield* maybeForkAutoName(session.chatId, sessionId);
-                  }
                 }
                 return;
               }
@@ -1545,9 +1552,6 @@ export const ConversationServicesLive = Layer.effectContext(
                   sessionId,
                   event.reason === "error" ? "error" : "completed",
                 );
-                if (event.reason !== "error") {
-                  yield* maybeForkAutoName(session.chatId, sessionId);
-                }
                 return;
               }
               if (event._tag === "SessionCursor") {
@@ -2757,12 +2761,6 @@ export const ConversationServicesLive = Layer.effectContext(
             )
           : null;
         yield* broadcastChat(chat);
-        // Path 1: the chat was created WITH its first message (the common
-        // composer flow). Kick off the background auto-name when there is
-        // enough context (trivial-only greetings wait for a follow-up).
-        if (hasInitial && input.initialPrompt !== undefined) {
-          yield* maybeForkAutoName(chat.id, initialSession.id);
-        }
         return { chat, initialSession, initialMessage };
       });
 
@@ -2943,19 +2941,26 @@ export const ConversationServicesLive = Layer.effectContext(
         return { chat, session, forkMode };
       });
 
-    const renameChat: ConversationOperations["renameChat"] = (chatId, title) =>
+    const renameChatWithCommandId = (
+      chatId: ChatId,
+      title: string,
+      commandId: string,
+    ) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
         yield* dispatchChatCommand(chatId, {
           _tag: "RenameChat",
           title,
           updatedAt: yield* currentTimestamp,
-        });
+        }, commandId);
         // Push the new title to any renderer subscribed via
         // `chat.streamChanges` so the sidebar updates without a refetch.
         const updated = yield* lookupChat(chatId);
         yield* broadcastChat(updated);
       });
+
+    const renameChat: ConversationOperations["renameChat"] = (chatId, title) =>
+      renameChatWithCommandId(chatId, title, crypto.randomUUID());
 
     const markChatRead: ConversationOperations["markChatRead"] = (chatId) =>
       Effect.gen(function* () {
@@ -3035,6 +3040,7 @@ export const ConversationServicesLive = Layer.effectContext(
     const autoNameChat = (
       chatId: ChatId,
       sessionId: SessionId,
+      commandId: string,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId).pipe(
@@ -3061,7 +3067,7 @@ export const ConversationServicesLive = Layer.effectContext(
 
         // Title first — cheap, and the user sees the sidebar update even if
         // the branch rename below is skipped or fails.
-        yield* renameChat(chatId, title);
+        yield* renameChatWithCommandId(chatId, title, commandId);
         const memberSessions = yield* sql<{ readonly id: string }>`
           SELECT id FROM sessions WHERE chat_id = ${chatId}
         `.pipe(Effect.orDie);
@@ -3071,7 +3077,6 @@ export const ConversationServicesLive = Layer.effectContext(
             renameSession(SessionId.make(id), title).pipe(Effect.ignore),
           { discard: true },
         );
-        autoNamedChats.add(chatId);
 
         if (chat.worktreeId === null) return;
         const worktreeId = chat.worktreeId;
@@ -3096,25 +3101,42 @@ export const ConversationServicesLive = Layer.effectContext(
         );
       }).pipe(Effect.catchCause(() => Effect.void));
 
-    const maybeForkAutoName = (
-      chatId: ChatId,
-      sessionId: SessionId,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        if (autoNamedChats.has(chatId) || autoNamingInFlight.has(chatId)) {
-          return;
-        }
-        autoNamingInFlight.add(chatId);
-        yield* Effect.forkDetach(
-          autoNameChat(chatId, sessionId).pipe(
-            Effect.ensuring(
-              Effect.sync(() => {
-                autoNamingInFlight.delete(chatId);
-              }),
-            ),
+    type AutoNameCommand = { readonly _tag: "AutoNameChat" };
+    const autoNameReactor = new ReactorRunner<
+      StoredEvent,
+      AutoNameCommand,
+      SqlConsumerStorageError
+    >(
+      makeSqlConsumerStorage(sql),
+      (input) =>
+        Effect.gen(function* () {
+          const sessionId = SessionId.make(input.streamId);
+          const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
+          yield* autoNameChat(session.chatId, sessionId, input.commandId);
+        }),
+      {
+        name: "auto-name-chat",
+        react: (record) =>
+          Effect.succeed(
+            record.event._tag === "TurnSettled" &&
+              record.event.outcome === "completed"
+              ? [{ streamId: record.streamId, command: { _tag: "AutoNameChat" } }]
+              : [],
           ),
+      },
+    );
+    runSessionReactors = Effect.suspend(() => {
+      if (sessionReactorActive) return Effect.void;
+      sessionReactorActive = true;
+      return autoNameReactor
+        .catchUp()
+        .pipe(
+          Effect.asVoid,
+          Effect.orDie,
+          Effect.ensuring(Effect.sync(() => { sessionReactorActive = false; })),
         );
-      });
+    });
+    yield* runSessionReactors;
 
     /**
      * Worktrees are immutable past the first user message in any of the
@@ -3894,11 +3916,6 @@ export const ConversationServicesLive = Layer.effectContext(
               Effect.mapError(() => new SessionNotFoundError({ sessionId })),
             );
           }
-        }
-        // Try LLM auto-name when there is enough context (trivial-only
-        // greetings wait until the assistant replies or the user sends more).
-        if (text.trim().length > 0) {
-          yield* maybeForkAutoName(session.chatId, sessionId);
         }
         if (asGoal === true) {
           const objective = text.trim();

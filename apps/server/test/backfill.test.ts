@@ -155,6 +155,7 @@ describe("lifecycle backfill", () => {
 			expect(snapshot.cursors).toEqual([
 				{ projector_name: "chat-read-model", last_sequence: 5 },
 				{ projector_name: "messages", last_sequence: 1 },
+				{ projector_name: "reactor:auto-name-chat", last_sequence: 5 },
 				{ projector_name: "session-read-model", last_sequence: 5 },
 			]);
 			expect(snapshot.rerun).toEqual({

@@ -14,7 +14,11 @@ import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 const BACKFILL_NAME = "conversation-lifecycle-v4";
-const PROJECTORS = ["session-read-model", "chat-read-model"] as const;
+const PROJECTORS = [
+	"session-read-model",
+	"chat-read-model",
+	"reactor:auto-name-chat",
+] as const;
 
 interface ChatRow {
 	readonly id: string;
