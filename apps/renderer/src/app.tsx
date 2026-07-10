@@ -412,15 +412,22 @@ function MainShell() {
                 // All that progress is surfaced inline by `WorktreeSetupCard`
                 // at the top of the timeline, with the composer pinned at the
                 // bottom (no full-screen takeover).
-                <>
+                <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-3">
                   <ChatView sessionId={selectedSessionId} />
-                  <CostFooter sessionId={selectedSessionId} />
-                  <CliUpgradeBanner providerId={selectedSession.providerId} />
+                  <CostFooter
+                    sessionId={selectedSessionId}
+                    constrain={false}
+                  />
+                  <CliUpgradeBanner
+                    providerId={selectedSession.providerId}
+                    constrain={false}
+                  />
                   <ChatComposer
                     key={selectedSession.id}
                     session={selectedSession}
+                    constrain={false}
                   />
-                </>
+                </div>
               ) : (
                 <ChatLanding />
               )}

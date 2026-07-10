@@ -28,7 +28,7 @@ export function JumpToLatestPill({
         "animate-in fade-in slide-in-from-bottom-1 duration-150 motion-reduce:animate-none",
       )}
     >
-      <div className="mx-auto flex w-full max-w-4xl justify-start px-3">
+      <div className="flex w-full justify-start">
         <button
           type="button"
           onClick={onClick}

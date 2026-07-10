@@ -724,13 +724,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   const renderTimelineRow = useCallback(
     ({ item }: { item: ChatTimelineRow }) => (
-      <div className="mx-auto w-full max-w-4xl">
-        <TimelineRow
-          row={item}
-          sessionId={sessionId}
-          onFork={forkMenu.openAt}
-        />
-      </div>
+      <TimelineRow
+        row={item}
+        sessionId={sessionId}
+        onFork={forkMenu.openAt}
+      />
     ),
     [forkMenu.openAt, sessionId],
   );
@@ -741,7 +739,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       worktreeId={session?.worktreeId ?? null}
     >
       <div className="relative flex min-h-0 flex-1">
-        <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className="relative flex h-full min-h-0 flex-1 flex-col">
           {messages.length === 0 ? (
             <div
               data-pane="chat"
@@ -799,7 +797,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                 }
                 maintainVisibleContentPosition={{ data: true, size: false }}
                 onScroll={handleScroll}
-                className="h-full min-h-0 flex-1 overflow-x-hidden px-3 outline-none [overflow-anchor:none]"
+                className="h-full min-h-0 flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
                 data-pane="chat"
                 tabIndex={-1}
                 ListHeaderComponent={TIMELINE_HEADER}
@@ -814,14 +812,12 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
               onDismiss={() => clearError(sessionId)}
             />
           ) : null}
-        </div>
-        <JumpToLatestPill
-          visible={showPill}
-          streaming={inFlight && showPill}
-          onClick={() => scrollToEnd(true)}
-        />
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20">
-          <div className="mx-auto flex w-full max-w-4xl justify-end px-3">
+          <JumpToLatestPill
+            visible={showPill}
+            streaming={inFlight && showPill}
+            onClick={() => scrollToEnd(true)}
+          />
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-end">
             <NextUnreadButton />
           </div>
         </div>

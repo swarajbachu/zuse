@@ -34,7 +34,13 @@ const UPGRADE_DOCS_URL: Record<ProviderId, string> = {
  * Renders nothing for `ok` / `unknown` so it's safe to mount unconditionally
  * inside the chat shell.
  */
-export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
+export function CliUpgradeBanner({
+  providerId,
+  constrain = true,
+}: {
+  providerId: ProviderId;
+  constrain?: boolean;
+}) {
   const availability = useProvidersStore((s) => s.availability);
   const refresh = useProvidersStore((s) => s.refresh);
   const refreshing = useProvidersStore((s) => s.loading);
@@ -71,7 +77,13 @@ export function CliUpgradeBanner({ providerId }: { providerId: ProviderId }) {
   };
 
   return (
-    <div className="mx-3 mb-2 mt-1 flex flex-col gap-2 rounded-2xl bg-alert-warning-bg p-3">
+    <div
+      className={
+        constrain
+          ? "mx-3 mb-2 mt-1 flex flex-col gap-2 rounded-2xl bg-alert-warning-bg p-3"
+          : "mb-2 mt-1 flex flex-col gap-2 rounded-2xl bg-alert-warning-bg p-3"
+      }
+    >
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg text-warning">
           <HugeiconsIcon icon={CircleArrowUp01Icon} className="size-3.5" />

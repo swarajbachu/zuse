@@ -169,9 +169,11 @@ export function ChatComposer({
   onDraftSubmit,
   composerDraftKey,
   headerSlot,
+  constrain = true,
 }: {
   session: Session;
   composerDraftKey?: string;
+  constrain?: boolean;
   /**
    * Optional content rendered as a header row inside the composer frame, above
    * the editor. Used by the new-chat landing to host the "Create from…" picker
@@ -972,8 +974,13 @@ export function ChatComposer({
   return (
     <TooltipProvider delay={0}>
       {showCard ? (
-        <div className="shrink-0 px-3 pb-3 pt-2">
-          <div className="mx-auto w-full max-w-4xl">
+        <div
+          className={cn(
+            "shrink-0 pb-3 pt-2",
+            constrain ? "px-3" : undefined,
+          )}
+        >
+          <div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
             {headPermission !== undefined ? (
               <PermissionCard
                 head={headPermission}
@@ -991,11 +998,14 @@ export function ChatComposer({
       ) : null}
       <div
         data-pane="composer"
-        className="shrink-0 px-3 pb-3 pt-2"
+        className={cn(
+          "shrink-0 pb-3 pt-2",
+          constrain ? "px-3" : undefined,
+        )}
         style={showCard ? { display: "none" } : undefined}
         aria-hidden={showCard || undefined}
       >
-        <div className="mx-auto w-full max-w-4xl">
+        <div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
           {!isDraft ? (
             <AnnotationTray
               sessionId={sessionId}
