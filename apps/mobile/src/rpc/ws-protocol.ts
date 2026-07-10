@@ -1,3 +1,5 @@
+import { withWireProtocolVersion } from "@zuse/client-runtime/connection";
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Socket } from "effect/unstable/socket";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Layer } from "effect";
@@ -27,15 +29,16 @@ export const wsUrl = ({ host, port }: WsProtocolOptions): string =>
 export const authenticatedWsUrl = (options: WsProtocolOptions): string => {
   const base = options.wsBaseUrl?.trim();
   const url = new URL(base && base.length > 0 ? base : wsUrl(options));
-  if (options.token?.trim()) url.searchParams.set("token", options.token.trim());
-  return url.toString();
+  if (options.token?.trim())
+    url.searchParams.set("token", options.token.trim());
+  return withWireProtocolVersion(url.toString(), WIRE_PROTOCOL_VERSION);
 };
 
 export const wsClientProtocolLayer = (
-  options: WsProtocolOptions
+  options: WsProtocolOptions,
 ): Layer.Layer<RpcClient.Protocol> =>
   RpcClient.layerProtocolSocket().pipe(
     Layer.provide(Socket.layerWebSocket(authenticatedWsUrl(options))),
     Layer.provide(Socket.layerWebSocketConstructorGlobal),
-    Layer.provide(RpcSerialization.layerJson)
+    Layer.provide(RpcSerialization.layerJson),
   );

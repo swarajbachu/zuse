@@ -9,6 +9,7 @@ import {
 } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
   LanAuthService,
   type LanAuthServiceShape,
@@ -119,6 +120,25 @@ export const wsServerProtocolLayer = (opts: {
             }),
           );
           if (!ok) return yield* json({ error: "unauthorized" }, 401);
+        }
+        const requestUrl = new URL(request.url, "http://localhost");
+        const receivedVersion = Number(
+          requestUrl.searchParams.get("wireVersion"),
+        );
+        if (receivedVersion !== WIRE_PROTOCOL_VERSION) {
+          log("ws.protocol.reject", {
+            expectedVersion: WIRE_PROTOCOL_VERSION,
+            receivedVersion: Number.isFinite(receivedVersion)
+              ? receivedVersion
+              : null,
+          });
+          return yield* json(
+            {
+              error: "wire_protocol_mismatch",
+              expectedVersion: WIRE_PROTOCOL_VERSION,
+            },
+            426,
+          );
         }
         return yield* httpEffect;
       });

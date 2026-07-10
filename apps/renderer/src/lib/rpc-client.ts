@@ -1,10 +1,13 @@
 import { CommandDispatcher } from "@zuse/client-runtime/command-dispatch";
-import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import {
+	makeRpcClientSession,
+	withWireProtocolVersion,
+} from "@zuse/client-runtime/connection";
 import {
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
-import { MemoizeRpcs } from "@zuse/contracts";
+import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
 	RpcClient,
@@ -76,8 +79,13 @@ const supervisor = createConnectionSupervisor<
 				? electronClientProtocolLayer(options.bridge).pipe(
 						Layer.provide(RpcSerialization.layerJson),
 					)
-				: wsClientProtocolLayer(options.wsUrl);
-		return makeRpcClientSession(protocolLayer, MemoizeRpcs);
+				: wsClientProtocolLayer(
+						withWireProtocolVersion(options.wsUrl, WIRE_PROTOCOL_VERSION),
+					);
+		return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
+			protocolVersion: WIRE_PROTOCOL_VERSION,
+			perform: (client, hello) => client["connect.handshake"](hello),
+		});
 	},
 });
 

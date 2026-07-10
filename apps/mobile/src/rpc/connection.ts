@@ -5,7 +5,7 @@ import {
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
-import { MemoizeRpcs } from "@zuse/contracts";
+import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
@@ -39,7 +39,10 @@ const makeClientSession = (options: WsProtocolOptions) => {
 		hasToken: options.token !== undefined && options.token !== null,
 	});
 	const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
-	return makeRpcClientSession(protocolLayer, MemoizeRpcs);
+	return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
+		protocolVersion: WIRE_PROTOCOL_VERSION,
+		perform: (client, hello) => client["connect.handshake"](hello),
+	});
 };
 
 const prepareOptions = async (

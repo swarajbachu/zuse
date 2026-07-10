@@ -5,7 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { randomBytes } from "node:crypto";
 import { Socket, createServer } from "node:net";
 
-import { PingResult, PingRpc } from "@zuse/contracts";
+import { PingResult, PingRpc, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 
 import { LanAuthServiceLive } from "../src/lan-auth/layers/lan-auth-service.ts";
 import {
@@ -50,9 +50,7 @@ const makeRuntime = (opts: {
       Effect.andThen(Migration0024RemoteConnectState),
       Effect.andThen(Migration0028RelayMintPublicKey),
     ),
-  ).pipe(
-    Layer.provideMerge(SqlLive),
-  );
+  ).pipe(Layer.provideMerge(SqlLive));
   const ConfigLive = Layer.succeed(LanAuthConfig, {
     policy: opts.policy,
     advertisedHost: "127.0.0.1",
@@ -74,7 +72,9 @@ const makeRuntime = (opts: {
   return ManagedRuntime.make(Layer.mergeAll(LanAuthLayer, ServerLayer));
 };
 
-const disposeRuntime = async (runtime: ManagedRuntime.ManagedRuntime<any, any>) => {
+const disposeRuntime = async (
+  runtime: ManagedRuntime.ManagedRuntime<any, any>,
+) => {
   await Promise.race([
     runtime.dispose(),
     new Promise<void>((resolve) => setTimeout(resolve, 500)),
@@ -182,10 +182,16 @@ describe("WS LAN auth", () => {
       expect(second.status).toBe(401);
 
       await expect(
-        upgradeStatus(port, `/?token=${encodeURIComponent(body.token)}`),
+        upgradeStatus(
+          port,
+          `/?token=${encodeURIComponent(body.token)}&wireVersion=${WIRE_PROTOCOL_VERSION}`,
+        ),
       ).resolves.toBe(101);
       await expect(
-        upgradeStatus(port, `/rpc?token=${encodeURIComponent(body.token)}`),
+        upgradeStatus(
+          port,
+          `/rpc?token=${encodeURIComponent(body.token)}&wireVersion=${WIRE_PROTOCOL_VERSION}`,
+        ),
       ).resolves.toBe(101);
     } finally {
       await disposeRuntime(runtime);
@@ -209,7 +215,9 @@ describe("WS LAN auth", () => {
       );
 
       await expect(
-        upgradeStatus(port, "/", { Authorization: `Bearer ${token}` }),
+        upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`, {
+          Authorization: `Bearer ${token}`,
+        }),
       ).resolves.toBe(101);
     } finally {
       await disposeRuntime(runtime);
@@ -221,7 +229,10 @@ describe("WS LAN auth", () => {
     const runtime = makeRuntime({ policy: "local", port });
     try {
       await runtime.runPromise(Effect.void);
-      await expect(upgradeStatus(port, "/")).resolves.toBe(101);
+      await expect(upgradeStatus(port, "/")).resolves.toBe(426);
+      await expect(
+        upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`),
+      ).resolves.toBe(101);
     } finally {
       await disposeRuntime(runtime);
     }

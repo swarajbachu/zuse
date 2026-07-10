@@ -40,6 +40,7 @@ import {
   RelayStatusRpc,
   RelayUnlinkRpc,
 } from "./connect.ts";
+import { ConnectHandshakeRpc } from "./handshake.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -210,6 +211,7 @@ export const MemoizeRpcs = RpcGroup.make(
   PairingStartRpc,
   PairingListTokensRpc,
   PairingRevokeTokenRpc,
+  ConnectHandshakeRpc,
   ConnectDescribeRpc,
   ConnectLinkProofRpc,
   ConnectRelayConfigRpc,
