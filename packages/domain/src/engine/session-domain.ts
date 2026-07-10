@@ -112,7 +112,6 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		) {
 			const existing = yield* dispatchStorage.receipt(input.commandId);
 			const receipt = yield* dispatch.dispatch(input);
-			yield* catchUp;
 			if (existing === null && receipt.eventIds.length > 0) {
 				const appended = yield* dispatchStorage.events(input.streamId);
 				const eventIds = new Set(receipt.eventIds);
@@ -122,6 +121,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 					{ discard: true },
 				);
 			}
+			yield* catchUp;
 			return receipt;
 		}),
 	});

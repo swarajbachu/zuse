@@ -556,6 +556,9 @@ const decodeProviderStartRequest = Schema.decodeUnknownEffect(
 const decodeProviderModelOptions = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
 );
+const decodeArchiveCleanupDetail = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ output: Schema.String })),
+);
 const decodeChatEvent = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ChatEvent),
 );
@@ -2949,31 +2952,30 @@ export const ConversationServicesLive = Layer.effectContext(
           `.pipe(Effect.orDie);
           const step = steps[0];
           if (step?.status === "completed") {
-            const detail: unknown =
-              step.detail_json === null ? null : JSON.parse(step.detail_json);
+            const detail =
+              step.detail_json === null
+                ? { output: "" }
+                : yield* decodeArchiveCleanupDetail(step.detail_json).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new ChatArchiveScriptError({
+                          chatId,
+                          exitCode: null,
+                          signal: null,
+                          output: `Stored cleanup result is invalid: ${String(cause)}`,
+                        }),
+                    ),
+                  );
             cleanup = {
               ran: true,
-              output:
-                typeof detail === "object" &&
-                detail !== null &&
-                "output" in detail &&
-                typeof detail.output === "string"
-                  ? detail.output
-                  : "",
+              output: detail.output,
             };
           } else if (step?.status === "started") {
-            cleanup = {
-              ran: true,
-              output:
-                "Archive cleanup was interrupted by a process restart and was not run twice.",
-            };
-            yield* sql`
-              UPDATE reactor_effect_steps
-              SET status = 'completed',
-                  detail_json = ${JSON.stringify({ output: cleanup.output })},
-                  updated_at = ${new Date().toISOString()}
-              WHERE effect_id = ${commandId} AND step = 'cleanup-script'
-            `.pipe(Effect.orDie);
+            // The process died after claiming this non-idempotent step. We
+            // cannot know whether the script ran, so preserve `started` as an
+            // auditable indeterminate state and never fabricate completion or
+            // run the user's script twice.
+            cleanup = null;
           } else {
             yield* sql`
               INSERT INTO reactor_effect_steps

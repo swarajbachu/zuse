@@ -45,9 +45,15 @@ const sqlError = (
 const normalizeParams = (
 	params: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> =>
-	params.some((param) => typeof param === "boolean")
+	params.some((param) => typeof param === "boolean" || param instanceof Date)
 		? params.map((param) =>
-				typeof param === "boolean" ? (param ? 1 : 0) : param,
+				typeof param === "boolean"
+					? param
+						? 1
+						: 0
+					: param instanceof Date
+						? param.toISOString()
+						: param,
 			)
 		: params;
 
