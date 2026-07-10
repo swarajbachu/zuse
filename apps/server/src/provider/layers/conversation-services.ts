@@ -871,6 +871,22 @@ export const ConversationServicesLive = Layer.effectContext(
     let runSessionReactors: Effect.Effect<void> = Effect.void;
     let sessionReactorActive = false;
     const provider = yield* ProviderService;
+    const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
+      Effect.gen(function* () {
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "AttachProvider",
+          providerId,
+          attachedAt: yield* currentTimestamp,
+        });
+      });
+    const closeProvider = (sessionId: SessionId) =>
+      Effect.gen(function* () {
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* dispatchSessionCommand(sessionId, {
+          _tag: "DetachProvider",
+          detachedAt: yield* currentTimestamp,
+        });
+      });
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
     const repositorySettings = yield* RepositorySettingsService;
@@ -2301,6 +2317,7 @@ export const ConversationServicesLive = Layer.effectContext(
               .pipe(
                 Effect.flatMap(() =>
                   Effect.gen(function* () {
+                    yield* attachProvider(sessionId, input.providerId);
                     yield* setStatus(sessionId, postBootStatus);
                     yield* startSubscription(sessionId);
                   }),
@@ -2387,6 +2404,7 @@ export const ConversationServicesLive = Layer.effectContext(
             ),
           );
         yield* createSessionRecord;
+        yield* attachProvider(sessionId, input.providerId);
         yield* lookupChat(input.chatId).pipe(
           Effect.flatMap(broadcastChat),
           Effect.catch(() => Effect.void),
@@ -2541,7 +2559,7 @@ export const ConversationServicesLive = Layer.effectContext(
           worktreeId,
           updatedAt: yield* currentTimestamp,
         });
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2563,7 +2581,7 @@ export const ConversationServicesLive = Layer.effectContext(
         // fiber; the message + status pubsubs stay alive so the renderer's
         // streams remain connected. sendMessage's "send fails → restart"
         // path reads sessions.model so the next turn picks up the new model.
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2600,7 +2618,7 @@ export const ConversationServicesLive = Layer.effectContext(
         });
         // See setModel: keep the pubsubs alive so the renderer's streams
         // stay connected across the provider swap.
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2630,7 +2648,7 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* lookupSession(sessionId);
         // Best-effort: provider may not know the id (already closed) — that's
         // not an error from the user's perspective.
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* closeProvider(sessionId);
         yield* teardownSubscription(sessionId);
         yield* dispatchSessionCommand(sessionId, {
           _tag: "DeleteSession",
@@ -3182,7 +3200,7 @@ export const ConversationServicesLive = Layer.effectContext(
             worktreeId,
             updatedAt,
           });
-          yield* provider.close(sid).pipe(Effect.catch(() => Effect.void));
+          yield* closeProvider(sid);
           yield* interruptProviderFiber(sid);
           yield* setStatus(sid, "idle");
         }
@@ -3241,9 +3259,7 @@ export const ConversationServicesLive = Layer.effectContext(
         `.pipe(Effect.orDie);
         for (const row of liveSessions) {
           const sessionId = SessionId.make(row.id);
-          yield* provider
-            .close(sessionId)
-            .pipe(Effect.catch(() => Effect.void));
+          yield* closeProvider(sessionId);
           yield* interruptProviderFiber(sessionId);
         }
         if (worktree !== null) {
@@ -3552,6 +3568,7 @@ export const ConversationServicesLive = Layer.effectContext(
               () => getRuntimeModeFor(session.id),
             )
             .pipe(
+              Effect.tap(() => attachProvider(session.id, session.providerId)),
               Effect.flatMap(() => startSubscription(session.id)),
               Effect.mapError((err) =>
                 err._tag === "ProviderNotAvailableError"
@@ -3720,6 +3737,9 @@ export const ConversationServicesLive = Layer.effectContext(
                   orchestrationTools,
                 )
                 .pipe(
+                  Effect.tap(() =>
+                    attachProvider(session.id, session.providerId),
+                  ),
                   Effect.flatMap(() => startSubscription(session.id)),
                   Effect.flatMap(() =>
                     provider.send(session.id, text, attachments),
@@ -3762,7 +3782,7 @@ export const ConversationServicesLive = Layer.effectContext(
         // a fresh handle attached to the same DB row. Keep the pubsubs
         // alive so renderer subscriptions stay connected across the
         // resume — only the event-pump fiber needs to restart.
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
         runtimeModeBySession.set(session.id, session.runtimeMode);
         permissionModeBySession.set(session.id, session.permissionMode);
@@ -3809,6 +3829,7 @@ export const ConversationServicesLive = Layer.effectContext(
                   }),
             ),
           );
+        yield* attachProvider(sessionId, session.providerId);
         yield* startSubscription(sessionId);
         yield* setStatus(sessionId, "running");
         return yield* lookupSession(sessionId);

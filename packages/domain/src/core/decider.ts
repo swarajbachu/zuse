@@ -206,26 +206,26 @@ export const decide = (
 						new PermissionNotPending({ requestId: command.requestId }),
 					);
 		case "AttachProvider":
-			if (state.providerId === command.providerId) return success([]);
+			if (state.attachedProviderId === command.providerId) return success([]);
 			return success([
-				...(state.providerId === null
+				...(state.attachedProviderId === null
 					? []
 					: [
 							{
 								_tag: "ProviderDetached" as const,
-								providerId: state.providerId,
+								providerId: state.attachedProviderId,
 								detachedAt: command.attachedAt,
 							},
 						]),
 				{ ...command, _tag: "ProviderAttached" },
 			]);
 		case "DetachProvider":
-			return state.providerId === null
+			return state.attachedProviderId === null
 				? success([])
 				: success([
 						{
 							_tag: "ProviderDetached",
-							providerId: state.providerId,
+							providerId: state.attachedProviderId,
 							detachedAt: command.detachedAt,
 						},
 					]);

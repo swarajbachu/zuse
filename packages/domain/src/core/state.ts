@@ -31,6 +31,7 @@ export type SessionState = {
 	readonly messageIds: ReadonlySet<string>;
 	readonly pendingPermissionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
+	readonly attachedProviderId: string | null;
 	readonly checkpointIds: ReadonlySet<string>;
 	readonly archiveWorktreeIds: ReadonlySet<string>;
 	readonly version: number;
@@ -56,6 +57,7 @@ export const initialSessionState: SessionState = {
 	messageIds: new Set(),
 	pendingPermissionIds: new Set(),
 	providerId: null,
+	attachedProviderId: null,
 	checkpointIds: new Set(),
 	archiveWorktreeIds: new Set(),
 	version: 0,
@@ -175,9 +177,9 @@ export const evolve = (
 				version,
 			};
 		case "ProviderAttached":
-			return { ...state, providerId: event.providerId, version };
+			return { ...state, attachedProviderId: event.providerId, version };
 		case "ProviderDetached":
-			return { ...state, providerId: null, version };
+			return { ...state, attachedProviderId: null, version };
 		case "CheckpointRecorded":
 			return {
 				...state,

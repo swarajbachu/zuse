@@ -1800,6 +1800,7 @@ describe("ConversationServices — provider event persistence", () => {
         expect(domainTags).toContain("TurnStarted");
         expect(domainTags).toContain("MessagePersisted");
         expect(domainTags).toContain("TurnSettled");
+        expect(domainTags).toContain("ProviderAttached");
       });
     } finally {
       scriptedEvents = [];

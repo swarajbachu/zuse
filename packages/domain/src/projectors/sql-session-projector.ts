@@ -193,15 +193,7 @@ export const makeSqlSessionProjector = (
 				`;
 				return;
 			}
-			case "ProviderAttached": {
-				const attachedAt = new Date(event.attachedAt).toISOString();
-				yield* sql`
-					UPDATE sessions
-					SET provider_id = ${event.providerId}, updated_at = ${attachedAt}
-					WHERE id = ${record.streamId}
-				`;
-				return;
-			}
+			case "ProviderAttached":
 			case "ProviderDetached":
 			case "SegmentOpened":
 			case "SegmentSettled":
