@@ -324,6 +324,19 @@
         "vitest": "catalog:",
       },
     },
+    "packages/domain": {
+      "name": "@zuse/domain",
+      "version": "0.0.0",
+      "dependencies": {
+        "@zuse/contracts": "*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/eslint-config": {
       "name": "@repo/eslint-config",
       "version": "0.0.0",
@@ -1762,6 +1775,8 @@
     "@zuse/client-runtime": ["@zuse/client-runtime@workspace:packages/client-runtime"],
 
     "@zuse/contracts": ["@zuse/contracts@workspace:packages/contracts"],
+
+    "@zuse/domain": ["@zuse/domain@workspace:packages/domain"],
 
     "@zuse/git": ["@zuse/git@workspace:packages/git"],
 

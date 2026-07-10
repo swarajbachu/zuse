@@ -1,0 +1,27 @@
+{
+	"name": "@zuse/domain",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./core/commands": "./src/core/commands.ts",
+		"./core/decider": "./src/core/decider.ts",
+		"./core/events": "./src/core/events.ts",
+		"./core/ingestion": "./src/core/ingestion/ingestion.ts",
+		"./core/state": "./src/core/state.ts",
+		"./engine/dispatch": "./src/engine/dispatch.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@zuse/contracts": "*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}
