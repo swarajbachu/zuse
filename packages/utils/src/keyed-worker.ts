@@ -81,47 +81,6 @@ export class KeyedCoalescingWorker<K, A> {
 	}
 }
 
-/**
- * Serializes every operation for a key in submission order. Unlike the
- * coalescing worker, queued operations are never replaced or dropped.
- */
-export class KeyedSerialWorker<K> {
-	private readonly tails = new Map<K, Promise<unknown>>();
-	private accepting = true;
-
-	run<A>(key: K, operation: () => PromiseLike<A> | A): Promise<A> {
-		if (!this.accepting) return Promise.reject(new WorkerClosedError());
-		const previous = this.tails.get(key);
-		let result: Promise<A>;
-		if (previous === undefined) {
-			try {
-				result = Promise.resolve(operation());
-			} catch (cause) {
-				result = Promise.reject(cause);
-			}
-		} else {
-			result = previous.catch(() => undefined).then(operation);
-		}
-		this.tails.set(key, result);
-		const cleanup = () => {
-			if (this.tails.get(key) === result) this.tails.delete(key);
-		};
-		void result.then(cleanup, cleanup);
-		return result;
-	}
-
-	drain(): Promise<void> {
-		return Promise.all(
-			[...this.tails.values()].map((tail) => tail.catch(() => undefined)),
-		).then(() => undefined);
-	}
-
-	async close(): Promise<void> {
-		this.accepting = false;
-		await this.drain();
-	}
-}
-
 type EffectSerialEntry = {
 	readonly semaphore: Semaphore.Semaphore;
 	users: number;

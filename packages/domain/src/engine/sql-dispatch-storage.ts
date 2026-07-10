@@ -5,7 +5,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { SessionEvent } from "../core/events.js";
 import {
 	type AppendInput,
-	type CommandReceipt,
+	CommandReceipt,
 	ConcurrencyConflict,
 	type DispatchStorage,
 	type StoredEvent,
@@ -30,6 +30,7 @@ interface ReceiptRow {
 	readonly stream_id: string;
 	readonly stream_version: number;
 	readonly event_ids_json: string;
+	readonly result_json: string | null;
 }
 
 interface EventRow {
@@ -45,33 +46,38 @@ interface EventRow {
 const decodeEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(SessionEvent),
 );
+const decodeReceipt = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(CommandReceipt),
+);
+const decodeEventIds = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(Schema.Array(Schema.String)),
+);
 
-const receiptFromRow = (
-	row: ReceiptRow,
-): Effect.Effect<CommandReceipt, DispatchPersistenceDecodeError> =>
-	Effect.try({
-		try: () => {
-			const eventIds = JSON.parse(row.event_ids_json) as unknown;
-			if (
-				!Array.isArray(eventIds) ||
-				!eventIds.every((eventId) => typeof eventId === "string")
-			) {
-				throw new Error("event_ids_json must be an array of strings");
-			}
-			return {
-				commandId: row.command_id,
-				streamId: row.stream_id,
-				streamVersion: row.stream_version,
-				eventIds,
-			};
-		},
-		catch: (cause) =>
-			new DispatchPersistenceDecodeError({
-				recordKind: "receipt",
-				recordId: row.command_id,
-				reason: cause instanceof Error ? cause.message : String(cause),
-			}),
+const receiptDecodeError = (recordId: string, cause: unknown) =>
+	new DispatchPersistenceDecodeError({
+		recordKind: "receipt",
+		recordId,
+		reason: String(cause),
 	});
+
+const receiptFromRow = Effect.fn("SqlDispatchStorage.receiptFromRow")(
+	function* (row: ReceiptRow) {
+		if (row.result_json !== null) {
+			return yield* decodeReceipt(row.result_json).pipe(
+				Effect.mapError((cause) => receiptDecodeError(row.command_id, cause)),
+			);
+		}
+		const eventIds = yield* decodeEventIds(row.event_ids_json).pipe(
+			Effect.mapError((cause) => receiptDecodeError(row.command_id, cause)),
+		);
+		return {
+			commandId: row.command_id,
+			streamId: row.stream_id,
+			streamVersion: row.stream_version,
+			eventIds,
+		};
+	},
+);
 
 export const makeSqlDispatchStorage = (
 	sql: SqlClient.SqlClient,
@@ -80,7 +86,7 @@ export const makeSqlDispatchStorage = (
 		commandId: string,
 	) {
 		const rows = yield* sql<ReceiptRow>`
-			SELECT command_id, stream_id, stream_version, event_ids_json
+			SELECT command_id, stream_id, stream_version, event_ids_json, result_json
 			FROM command_receipts
 			WHERE command_id = ${commandId}
 			LIMIT 1
@@ -174,7 +180,7 @@ export const makeSqlDispatchStorage = (
 					VALUES
 						(${result.commandId}, 'session', ${result.streamId},
 						 ${result.streamVersion}, ${JSON.stringify(result.eventIds)},
-						 NULL, ${occurredAt})
+						 ${JSON.stringify(result)}, ${occurredAt})
 				`;
 				return result;
 			}),

@@ -16,12 +16,13 @@ export type StoredEvent = {
 	readonly event: SessionEvent;
 };
 
-export type CommandReceipt = {
-	readonly commandId: string;
-	readonly streamId: string;
-	readonly streamVersion: number;
-	readonly eventIds: readonly string[];
-};
+export const CommandReceipt = Schema.Struct({
+	commandId: Schema.String,
+	streamId: Schema.String,
+	streamVersion: Schema.Number,
+	eventIds: Schema.Array(Schema.String),
+});
+export type CommandReceipt = typeof CommandReceipt.Type;
 
 export type DispatchInput = {
 	readonly commandId: string;
@@ -121,46 +122,44 @@ export class InMemoryDispatchStorage
 		return this.eventLog.filter((record) => record.streamId === streamId);
 	}
 
-	append(
+	readonly append = Effect.fn("InMemoryDispatchStorage.append")(function* (
+		this: InMemoryDispatchStorage,
 		input: AppendInput,
-	): Effect.Effect<CommandReceipt, ConcurrencyConflict> {
-		const storage = this;
-		return Effect.gen(function* () {
-			const existing = storage.receipts.get(input.commandId);
-			if (existing !== undefined) return existing;
-			const actualVersion = storage.eventsFor(input.streamId).length;
-			if (actualVersion !== input.expectedVersion) {
-				return yield* new ConcurrencyConflict({
-					streamId: input.streamId,
-					expectedVersion: input.expectedVersion,
-					actualVersion,
-				});
-			}
-			const eventIds: string[] = [];
-			let streamVersion = input.expectedVersion;
-			for (const item of input.events) {
-				eventIds.push(item.eventId);
-				streamVersion += 1;
-				storage.eventLog.push({
-					eventId: item.eventId,
-					correlationId: input.correlationId,
-					causationEventId: input.causationEventId,
-					streamId: input.streamId,
-					streamVersion,
-					sequence: storage.eventLog.length + 1,
-					event: item.event,
-				});
-			}
-			const receipt: CommandReceipt = {
-				commandId: input.commandId,
+	) {
+		const existing = this.receipts.get(input.commandId);
+		if (existing !== undefined) return existing;
+		const actualVersion = this.eventsFor(input.streamId).length;
+		if (actualVersion !== input.expectedVersion) {
+			return yield* new ConcurrencyConflict({
+				streamId: input.streamId,
+				expectedVersion: input.expectedVersion,
+				actualVersion,
+			});
+		}
+		const eventIds: string[] = [];
+		let streamVersion = input.expectedVersion;
+		for (const item of input.events) {
+			eventIds.push(item.eventId);
+			streamVersion += 1;
+			this.eventLog.push({
+				eventId: item.eventId,
+				correlationId: input.correlationId,
+				causationEventId: input.causationEventId,
 				streamId: input.streamId,
 				streamVersion,
-				eventIds,
-			};
-			storage.receipts.set(input.commandId, receipt);
-			return receipt;
-		});
-	}
+				sequence: this.eventLog.length + 1,
+				event: item.event,
+			});
+		}
+		const receipt: CommandReceipt = {
+			commandId: input.commandId,
+			streamId: input.streamId,
+			streamVersion,
+			eventIds,
+		};
+		this.receipts.set(input.commandId, receipt);
+		return receipt;
+	});
 }
 
 export type DispatchFailure<StorageError = never> =

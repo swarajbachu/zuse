@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, test } from "vitest";
 import type { SessionCommand } from "../core/commands.js";
 import { DispatchEngine, InMemoryDispatchStorage } from "./dispatch.js";
@@ -85,6 +85,50 @@ describe("DispatchEngine", () => {
 			),
 		).rejects.toMatchObject({ _tag: "SessionNotFound" });
 		expect(storage.eventsFor("missing")).toEqual([]);
+	});
+
+	test("allows different streams to dispatch concurrently", async () => {
+		const calls: string[] = [];
+		await run(
+			Effect.gen(function* () {
+				const gate = yield* Deferred.make<void>();
+				const base = new InMemoryDispatchStorage();
+				const storage = {
+					receipt: base.receipt.bind(base),
+					append: base.append.bind(base),
+					events: (streamId: string) =>
+						Effect.gen(function* () {
+							calls.push(streamId);
+							if (streamId === "session-a") yield* Deferred.await(gate);
+							return yield* base.events(streamId);
+						}),
+				};
+				let nextId = 0;
+				const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
+				const dispatched = Effect.all(
+					[
+						engine.dispatch({
+							commandId: "command-a",
+							streamId: "session-a",
+							command: { ...create, sessionId: "session-a" },
+						}),
+						engine.dispatch({
+							commandId: "command-b",
+							streamId: "session-b",
+							command: { ...create, sessionId: "session-b" },
+						}),
+					],
+					{ concurrency: "unbounded" },
+				);
+				const fiber = yield* dispatched.pipe(
+					Effect.forkChild({ startImmediately: true }),
+				);
+				yield* Effect.yieldNow;
+				expect(calls).toEqual(["session-a", "session-b"]);
+				yield* Deferred.succeed(gate, undefined);
+				yield* Fiber.join(fiber);
+			}),
+		);
 	});
 
 	test("records correlation and causation metadata on emitted events", async () => {
