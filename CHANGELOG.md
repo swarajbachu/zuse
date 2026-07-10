@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.5]
+
+### Changed
+- Add GPT-5.6 model support with high and extra-high reasoning effort options.
+- Harden local development startup and Electron reload behavior.
+- Fix image and context attachments failing validation when starting a new chat.
+
 ## [0.12.4]
 
 ### Changed
