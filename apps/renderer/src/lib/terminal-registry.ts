@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 
-import type { PtyId } from "@zuse/wire";
+import type { PtyId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client.ts";
 import type { TerminalInstance } from "../store/terminals.ts";

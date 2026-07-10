@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { exportJWK, generateKeyPair, importJWK, SignJWT } from "jose";
 
-import type { EnvironmentId } from "@zuse/wire";
+import type { EnvironmentId } from "@zuse/contracts";
 
 /**
  * The environment's asymmetric identity for relay linking. The private key never

@@ -1,7 +1,7 @@
 import { Effect, Fiber, Schedule, Stream } from "effect";
 import { create } from "zustand";
 
-import type { AuthState } from "@zuse/wire";
+import type { AuthState } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";

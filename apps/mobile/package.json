@@ -27,7 +27,7 @@
     "@hugeicons/react-native": "^1.0.15",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@zuse/wire": "*",
+    "@zuse/contracts": "*",
     "clsx": "^2.1.1",
     "effect": "catalog:",
     "expo": "^57.0.2",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
-import { ComposerInput, type AttachmentRef } from "@zuse/wire";
+import { ComposerInput, type AttachmentRef } from "@zuse/contracts";
 
 import {
   appendContextFileRef,

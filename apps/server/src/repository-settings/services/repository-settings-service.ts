@@ -4,7 +4,7 @@ import {
   type FolderId,
   type RepositorySettings,
   type RepositorySettingsPatch,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface RepositorySettingsServiceShape {
   /**

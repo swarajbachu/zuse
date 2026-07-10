@@ -33,7 +33,7 @@ import {
   type Session,
   type SessionId,
   type ThreadGoal,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { ModelPicker } from "./model-picker.tsx";
 
 import { Card, CardPanel } from "~/components/ui/card";

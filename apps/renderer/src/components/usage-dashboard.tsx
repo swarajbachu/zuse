@@ -14,7 +14,7 @@ import type {
   UsageGroup,
   UsageReport,
   UsageSourceStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import {

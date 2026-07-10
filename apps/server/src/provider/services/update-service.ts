@@ -8,7 +8,7 @@ import {
   AgentSessionStartError,
   type ProviderId,
   type ProviderUpdateEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 

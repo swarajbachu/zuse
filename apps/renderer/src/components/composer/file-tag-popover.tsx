@@ -4,7 +4,7 @@ import type { EditorView } from "@codemirror/view";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
 
-import type { FolderId, WorktreeId } from "@zuse/wire";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 
 import {
   getFileIconUrl,

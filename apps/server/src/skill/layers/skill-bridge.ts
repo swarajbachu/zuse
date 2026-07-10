@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 import { Effect, Layer, PubSub, Stream } from "effect";
 
-import type { ProviderId, Skill } from "@zuse/wire";
+import type { ProviderId, Skill } from "@zuse/contracts";
 
 import { MessageStore } from "../../provider/services/message-store.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";

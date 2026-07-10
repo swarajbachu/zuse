@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

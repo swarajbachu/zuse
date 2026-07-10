@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import type { Command } from "@zuse/wire";
+import type { Command } from "@zuse/contracts";
 
 import type { MenuAction } from "../lib/bridge";
 import { dispatchCommand } from "../lib/commands";

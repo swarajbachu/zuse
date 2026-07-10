@@ -8,7 +8,7 @@ import {
   AuthTokenSummary,
   type AuthTokenId,
   type EnvironmentId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   LanAuthConfig,

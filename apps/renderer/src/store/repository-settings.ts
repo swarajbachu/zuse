@@ -5,7 +5,7 @@ import type {
   FolderId,
   RepositorySettings,
   RepositorySettingsPatch,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

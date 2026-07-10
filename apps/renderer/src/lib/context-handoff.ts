@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import type { SessionId } from "@zuse/wire";
+import type { SessionId } from "@zuse/contracts";
 
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import { useMessagesStore } from "../store/messages.ts";

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Effect, Stream } from "effect";
 
-import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/wire";
+import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/contracts";
 
 const { setMessagesRpcClientForTest, useMessagesStore } =
   await import("../src/store/messages.ts");

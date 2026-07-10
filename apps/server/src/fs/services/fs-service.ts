@@ -14,7 +14,7 @@ import {
   type FsReadError,
   type FsTooLargeError,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 type TreeFailure = FsFolderNotFoundError | FsPathOutsideError | FsReadError;
 type ReadFileFailure = TreeFailure | FsTooLargeError;

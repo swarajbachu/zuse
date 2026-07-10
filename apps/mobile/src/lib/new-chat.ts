@@ -9,7 +9,7 @@ import type {
   Worktree,
   WorktreeCreateSource,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export type NewChatSource =
   | { kind: "main"; label: string; worktreeId: null; createSource?: undefined }

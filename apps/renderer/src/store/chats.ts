@@ -11,7 +11,7 @@ import type {
   Session,
   SessionId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";

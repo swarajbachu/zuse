@@ -1,4 +1,4 @@
-import type { Chat, Folder, Session, SessionStatus } from "@zuse/wire";
+import type { Chat, Folder, Session, SessionStatus } from "@zuse/contracts";
 
 import type { ConnectionRecord } from "~/store/connections";
 import type { ProjectBundle } from "~/store/sessions";

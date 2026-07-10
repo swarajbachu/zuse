@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentEvent } from "@zuse/wire";
+import type { AgentEvent } from "@zuse/contracts";
 
 import {
   createAcpTranslator,

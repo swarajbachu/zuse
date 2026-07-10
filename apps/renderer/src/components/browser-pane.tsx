@@ -33,7 +33,7 @@ import {
   type BrowserAnnotationStroke,
   type BrowserCommandRequest,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type {
   BrowserInputAction,

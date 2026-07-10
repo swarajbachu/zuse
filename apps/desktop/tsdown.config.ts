@@ -52,7 +52,7 @@ const shared = {
   // inline transpiles it to CJS so the main bundle can call it directly.
   deps: {
     alwaysBundle: [
-      "@zuse/wire",
+      "@zuse/contracts",
       "@zuse/server",
       "@zuse/index",
       "@zuse/ssh",
@@ -113,7 +113,7 @@ export default defineConfig([
         "../server/src/provider/drivers/acp/browser-mcp-child.ts",
     },
     deps: {
-      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+      alwaysBundle: ["@zuse/contracts", "@zuse/server", "@modelcontextprotocol/sdk"],
     },
     external: [],
   },
@@ -126,7 +126,7 @@ export default defineConfig([
         "../server/src/provider/drivers/acp/orchestration-mcp-child.ts",
     },
     deps: {
-      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+      alwaysBundle: ["@zuse/contracts", "@zuse/server", "@modelcontextprotocol/sdk"],
     },
     external: [],
   },

@@ -1,4 +1,4 @@
-import type { FolderId, GitOriginInfo } from "@zuse/wire";
+import type { FolderId, GitOriginInfo } from "@zuse/contracts";
 import { Effect } from "effect";
 import { create } from "zustand";
 

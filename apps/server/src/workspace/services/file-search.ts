@@ -4,7 +4,7 @@ import {
   type FolderId,
   type FsFolderNotFoundError,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface FileSearchHit {
   readonly relPath: string;

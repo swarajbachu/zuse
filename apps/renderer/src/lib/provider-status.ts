@@ -1,4 +1,4 @@
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the

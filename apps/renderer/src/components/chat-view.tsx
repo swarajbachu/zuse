@@ -17,7 +17,7 @@ import type {
   MessageId,
   SessionId,
   UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   CHAT_LIST_ANCHOR_OFFSET,

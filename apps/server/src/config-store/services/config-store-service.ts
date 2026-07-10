@@ -5,7 +5,7 @@ import {
   type KeybindingsFile,
   type SettingsFile,
   type SettingsPatch,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * The on-disk source of truth for global settings and user-overridden

@@ -5,7 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { randomBytes } from "node:crypto";
 import { Socket, createServer } from "node:net";
 
-import { PingResult, PingRpc } from "@zuse/wire";
+import { PingResult, PingRpc } from "@zuse/contracts";
 
 import { LanAuthServiceLive } from "../src/lan-auth/layers/lan-auth-service.ts";
 import {

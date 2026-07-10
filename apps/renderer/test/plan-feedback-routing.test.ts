@@ -4,7 +4,7 @@ import {
   PermissionRequest,
   type Message,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   chooseComposerSubmitRoute,

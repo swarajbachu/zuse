@@ -1,4 +1,4 @@
-import type { PokemonRarity, PokemonSummary } from "@zuse/wire";
+import type { PokemonRarity, PokemonSummary } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 

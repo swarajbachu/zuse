@@ -25,7 +25,7 @@ import {
   type StartSessionInput,
   type ThreadGoalSetInput,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { isIgnorableGrokAuthNoise } from "./acp/grok-auth-noise.ts";
@@ -591,7 +591,7 @@ export const startGrokSession = (
       sessionId,
       projectId: input.folderId,
       requestPermission: (
-        kind: import("@zuse/wire").PermissionKind,
+        kind: import("@zuse/contracts").PermissionKind,
         options: { readonly forcePrompt: boolean },
       ) => requestPermission(sessionId, kind, options),
       getRuntimeMode,

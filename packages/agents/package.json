@@ -1,0 +1,17 @@
+{
+	"name": "@zuse/agents",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./codex-generated": "./src/drivers/codex/generated/index.ts",
+		"./codex-generated/*": "./src/drivers/codex/generated/*.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"typescript": "catalog:"
+	}
+}

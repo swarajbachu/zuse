@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { ExternalThread } from "@zuse/wire";
+import type { ExternalThread } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";

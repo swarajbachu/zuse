@@ -34,7 +34,7 @@ files:
   # @zuse/* workspace packages are inlined into dist-electron/main.cjs by
   # tsdown (`deps.alwaysBundle`), so we don't need their source in
   # node_modules. Keep them in devDependencies only — production deps get
-  # packed and their bun symlinks (packages/ssh, apps/server, packages/wire)
+  # packed and their bun symlinks (packages/ssh, apps/server, packages/contracts)
   # trip electron-builder's "must be under apps/desktop/" check during the
   # asarUnpack walk. This exclude is a backstop if one slips into deps.
   - "!node_modules/@zuse/**"

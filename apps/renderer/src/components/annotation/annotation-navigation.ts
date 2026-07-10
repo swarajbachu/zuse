@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/wire";
+import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";

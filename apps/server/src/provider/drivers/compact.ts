@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentItemId, ProviderId } from "@zuse/wire";
+import type { AgentEvent, AgentItemId, ProviderId } from "@zuse/contracts";
 
 export interface CompactSnapshot {
   readonly itemId: AgentItemId;

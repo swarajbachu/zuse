@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { AttachmentRef, SessionId } from "@zuse/wire";
+import type { AttachmentRef, SessionId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

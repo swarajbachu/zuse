@@ -103,7 +103,7 @@ Defense in depth even so:
 
 ## Key files
 
-- Wire: `packages/wire/src/browser.ts` (commands, results, RPCs), registered in `rpc.ts`.
+- Wire: `packages/contracts/src/browser.ts` (commands, results, RPCs), registered in `rpc.ts`.
 - Server bridge: `apps/server/src/provider/{services,layers}/browser-bridge-service.ts`.
 - Tools: `apps/server/src/provider/drivers/browser-tools.ts`; registered + policy in `drivers/claude.ts`.
 - RPC handlers: `apps/server/src/provider/handlers.ts`; layer wiring in `runtime.ts`.

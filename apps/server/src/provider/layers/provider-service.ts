@@ -14,7 +14,7 @@ import {
   type PermissionKind,
   type ProviderId,
   type ThreadGoalSetInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import {

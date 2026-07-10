@@ -8,7 +8,7 @@ import {
   PokemonPokedexEntry,
   PokemonSpriteVariant,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -17,7 +17,7 @@ import {
   pokemonFamilyFor,
   pokemonSpriteSourcesFor,
   pokemonSpriteStem,
-} from "../catalog.ts";
+} from "@zuse/pokemon-data";
 import { PokemonService } from "../services/pokemon-service.ts";
 
 interface UnlockRow {

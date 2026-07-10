@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitChange, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitChange, WorktreeId } from "@zuse/contracts";
 
 import { classifyGit, type GitErrorTag } from "../lib/git-rpc.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

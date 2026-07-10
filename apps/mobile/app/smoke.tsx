@@ -1,4 +1,4 @@
-import { MessageEnvelope } from "@zuse/wire";
+import { MessageEnvelope } from "@zuse/contracts";
 import { CheckCircle2, CircleAlert } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";

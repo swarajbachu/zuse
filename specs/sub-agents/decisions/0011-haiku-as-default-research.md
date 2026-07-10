@@ -18,7 +18,7 @@ defensible without forcing users to re-tune.
 
 ## Options
 
-For Claude, the candidates today (`packages/wire/src/agent.ts:189`):
+For Claude, the candidates today (`packages/contracts/src/agent.ts:189`):
 
 - Opus 4.7
 - Sonnet 4.6

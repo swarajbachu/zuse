@@ -7,7 +7,7 @@ import {
   WorktreeDirtyError,
   WorktreeId,
   WorktreeNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { formatError } from "../src/lib/format-error.ts";
 import {

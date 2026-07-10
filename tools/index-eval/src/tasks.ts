@@ -73,7 +73,7 @@ export const TASKS: ReadonlyArray<EvalTask> = [
   {
     id: "T05-MemoizeRpcs",
     question: "Where is the RPC group built?",
-    acceptableFiles: ["packages/wire/src/rpc.ts"],
+    acceptableFiles: ["packages/contracts/src/rpc.ts"],
     symbol: "MemoizeRpcs",
     grepPattern: "MemoizeRpcs = RpcGroup",
   },
@@ -167,7 +167,7 @@ export const TASKS: ReadonlyArray<EvalTask> = [
   {
     id: "T18-PingRpc",
     question: "Where is the ping RPC declared?",
-    acceptableFiles: ["packages/wire/src/ping.ts"],
+    acceptableFiles: ["packages/contracts/src/ping.ts"],
     symbol: "PingRpc",
     grepPattern: "PingRpc",
   },

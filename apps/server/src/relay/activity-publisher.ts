@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Layer } from "effect";
 
-import { RelayPaths, type EnvironmentId, type SessionId } from "@zuse/wire";
+import { RelayPaths, type EnvironmentId, type SessionId } from "@zuse/contracts";
 
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 

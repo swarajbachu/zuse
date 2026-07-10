@@ -18,7 +18,7 @@ import type {
   GitChange,
   GitChangeKind,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";

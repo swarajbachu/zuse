@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef, useState } from "react";
 
-import { type LoginEvent, type ProviderId } from "@zuse/wire";
+import { type LoginEvent, type ProviderId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client";
 

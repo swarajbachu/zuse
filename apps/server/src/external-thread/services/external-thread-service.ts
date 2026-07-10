@@ -4,7 +4,7 @@ import type {
   ContinueExternalThreadInput,
   ContinueExternalThreadResult,
   ExternalThread,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface ExternalThreadServiceShape {
   readonly list: (

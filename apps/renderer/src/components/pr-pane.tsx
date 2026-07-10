@@ -17,8 +17,8 @@ import type {
   GitPrReview,
   GitPrReviewState,
   WorktreeId,
-} from "@zuse/wire";
-import { GitPrInfo } from "@zuse/wire";
+} from "@zuse/contracts";
+import { GitPrInfo } from "@zuse/contracts";
 
 import {
   attachFileWhenReady,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import {
   getProviderSummary,

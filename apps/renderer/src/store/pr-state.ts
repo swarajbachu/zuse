@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";

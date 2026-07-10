@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import {
   filterModelPickerRecents,

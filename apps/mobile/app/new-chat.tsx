@@ -1,4 +1,4 @@
-import type { Folder, GitBranchInfo, GitPrSummary, Worktree } from "@zuse/wire";
+import type { Folder, GitBranchInfo, GitPrSummary, Worktree } from "@zuse/contracts";
 import {
   Add01Icon,
   ArrowUpIcon,

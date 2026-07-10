@@ -7,7 +7,7 @@ import {
   type FolderId,
   type ProviderId,
   type RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ProviderService } from "./services/provider-service.ts";
 

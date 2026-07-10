@@ -12,7 +12,7 @@ import {
   type SessionId,
   type ThreadGoal,
   type ThreadGoalSetInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

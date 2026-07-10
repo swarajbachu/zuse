@@ -1,4 +1,4 @@
-import type { Message, MessageContent, UserQuestion } from "@zuse/wire";
+import type { Message, MessageContent, UserQuestion } from "@zuse/contracts";
 import { router } from "expo-router";
 import {
   AlertCircle,

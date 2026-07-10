@@ -1,4 +1,4 @@
-import type { Message, MessageId, SessionId } from "@zuse/wire";
+import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";

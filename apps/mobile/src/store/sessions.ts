@@ -8,7 +8,7 @@ import type {
   Session,
   SessionStatus,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 

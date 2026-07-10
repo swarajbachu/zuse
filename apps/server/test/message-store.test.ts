@@ -26,14 +26,14 @@ import type {
   SessionId,
   StartSessionInput,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import {
   ComposerInput,
   MessageId,
   RepositorySettings,
   Worktree,
   defaultModelFor,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
 import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";

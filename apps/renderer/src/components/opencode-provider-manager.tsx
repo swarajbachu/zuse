@@ -15,7 +15,7 @@ import {
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { OpencodeInventoryProvider } from "@zuse/wire";
+import type { OpencodeInventoryProvider } from "@zuse/contracts";
 
 import { getRpcClient } from "~/lib/rpc-client";
 import { openExternal } from "~/lib/use-provider-login";

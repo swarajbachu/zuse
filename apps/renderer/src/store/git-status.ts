@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { FolderId, GitStatusSummary, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitStatusSummary, WorktreeId } from "@zuse/contracts";
 
 import { classifyGit } from "../lib/git-rpc.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

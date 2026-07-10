@@ -1,4 +1,4 @@
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 export function isModelPickerProviderVisible({
   providerId,

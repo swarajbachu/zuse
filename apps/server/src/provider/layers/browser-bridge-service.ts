@@ -6,7 +6,7 @@ import {
   BrowserCommandResult,
   type BrowserCommand,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   type BrowserBridgeDiagnostics,

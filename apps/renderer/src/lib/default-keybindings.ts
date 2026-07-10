@@ -1,4 +1,4 @@
-import type { Command, KeybindingRule } from "@zuse/wire";
+import type { Command, KeybindingRule } from "@zuse/contracts";
 
 /**
  * Display metadata for each command. The label is shown in the settings
@@ -202,7 +202,7 @@ export const COMMANDS_IN_ORDER: ReadonlyArray<Command> = Object.keys(
  * The wire type still carries an optional `when` field for power users
  * who hand-edit `keybindings.json` — the dispatcher's evaluator is wired
  * up but the settings UI no longer exposes a builder. See
- * `packages/wire/src/keybindings-parse.ts` for the AST.
+ * `packages/contracts/src/keybindings-parse.ts` for the AST.
  */
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+n", command: "new-chat" },

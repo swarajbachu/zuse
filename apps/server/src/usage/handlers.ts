@@ -1,5 +1,5 @@
 import { SqlClient } from "effect/unstable/sql";
-import { MemoizeRpcs, type FolderId } from "@zuse/wire";
+import { MemoizeRpcs, type FolderId } from "@zuse/contracts";
 import {
   buildUsageReport,
   loadPricedUsage,

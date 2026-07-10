@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
-import { Message, MessageEnvelope } from "@zuse/wire";
+import { Message, MessageEnvelope } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 
 import { CacheCorrupt } from "~/rpc/errors";

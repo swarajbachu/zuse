@@ -5,13 +5,13 @@ import type {
   GitFolderNotFoundError,
   GitNotARepoError,
   GitNotInstalledError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { formatError } from "./format-error.ts";
 
 /**
  * The four typed failures every `git.*` RPC can return (`GitErrors` in
- * `packages/wire/src/git.ts`).
+ * `packages/contracts/src/git.ts`).
  */
 type GitFailure =
   | GitNotARepoError

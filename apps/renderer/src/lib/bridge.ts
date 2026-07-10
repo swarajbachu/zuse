@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@zuse/wire";
+import type { UpdateStatus } from "@zuse/contracts";
 
 /**
  * Shape of the preload bridge that the main process exposes onto

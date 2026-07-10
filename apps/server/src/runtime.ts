@@ -3,7 +3,7 @@ import { RpcServer } from "effect/unstable/rpc";
 import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 
 import { AppPaths } from "./app-paths.ts";
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";

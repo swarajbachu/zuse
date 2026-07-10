@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/wire";
+import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { useUiStore, type FileView } from "~/store/ui";

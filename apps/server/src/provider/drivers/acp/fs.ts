@@ -8,7 +8,7 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getFsPolicy, isSensitivePath, type FsOp } from "../../policy.ts";
 

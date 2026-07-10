@@ -2,7 +2,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CodeAnnotation, GitDiffResult } from "@zuse/wire";
+import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { ShimmerText } from "~/components/ui/shimmer-text";

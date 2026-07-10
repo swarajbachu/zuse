@@ -7,7 +7,7 @@ import {
 } from "react";
 import type { RefObject } from "react";
 
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, SessionId } from "@zuse/contracts";
 
 // The reader counts as "at the bottom" while the viewport is within this many
 // px of the true bottom. Our own pin writes land at distance 0, so following

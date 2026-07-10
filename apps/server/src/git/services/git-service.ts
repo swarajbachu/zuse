@@ -20,7 +20,7 @@ import {
   type GitPrSummary,
   type GitStatusSummary,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 type GitFailure =
   | GitNotARepoError

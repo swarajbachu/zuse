@@ -5,7 +5,7 @@ import type {
   AuthTokenSummary,
   EnvironmentEndpoint,
   EnvironmentId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { LanAuthPolicy } from "../policy.ts";
 

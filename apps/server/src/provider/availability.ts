@@ -15,11 +15,11 @@ import {
   type ProviderAuthStatus,
   type ProviderHealthStatus,
   type ProviderId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
-import type { Account } from "./codex-app-protocol/v2/Account.ts";
-import type { GetAccountResponse } from "./codex-app-protocol/v2/GetAccountResponse.ts";
-import type { PlanType } from "./codex-app-protocol/PlanType.ts";
+import type { Account } from "@zuse/agents/codex-generated/v2/Account";
+import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
+import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import { CodexAppServerClient } from "./codex-app-server-client.ts";
 
 interface ProviderProbe {

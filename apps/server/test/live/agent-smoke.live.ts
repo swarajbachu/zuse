@@ -14,7 +14,7 @@ import {
   type PermissionKind,
   type ProviderId,
   type StartSessionInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AttachmentService } from "../../src/attachment/services/attachment-service.ts";
 import { startClaudeSession } from "../../src/provider/drivers/claude.ts";

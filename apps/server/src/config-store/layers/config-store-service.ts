@@ -23,7 +23,7 @@ import {
   type MergePrefs,
   type SettingsPatch,
   type SubagentPresetState,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {

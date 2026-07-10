@@ -1,4 +1,4 @@
-import type { PermissionMode, RuntimeMode } from "@zuse/wire";
+import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 
 /**
  * Shared permission policy helpers used by both SDK drivers (Claude, Codex)

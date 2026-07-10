@@ -11,7 +11,7 @@ import {
   type RepositorySettingsFile,
   type RepositorySettingsPatch,
   type RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { RepositorySettingsService } from "../services/repository-settings-service.ts";
 

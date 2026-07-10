@@ -1,4 +1,4 @@
-import type { AgentAvailability } from "@zuse/wire";
+import type { AgentAvailability } from "@zuse/contracts";
 import { describe, expect, test } from "vitest";
 
 import { availableProviderIds, reasoningValueForModel } from "./model-options";

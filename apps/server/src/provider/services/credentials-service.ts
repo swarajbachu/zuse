@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 import type { CredentialsError } from "../errors.ts";
 

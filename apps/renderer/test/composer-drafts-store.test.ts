@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { SessionId } from "@zuse/wire";
+import type { SessionId } from "@zuse/contracts";
 
 import type { ChipRange } from "../src/lib/codemirror/composer-chips.ts";
 import {

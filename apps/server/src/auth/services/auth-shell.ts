@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { AuthFlowError } from "@zuse/wire";
+import type { AuthFlowError } from "@zuse/contracts";
 
 /**
  * The host-shell seam for the OAuth deep-link flow — the auth analogue of

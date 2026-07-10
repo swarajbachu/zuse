@@ -19,7 +19,7 @@ import {
   type PermissionMode,
   type StartSessionInput,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   createOpencodeClient,

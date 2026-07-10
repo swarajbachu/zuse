@@ -8,7 +8,7 @@ import type {
   PermissionRequestNotFoundError,
   SavedDecision,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Bridge between provider drivers (which call `request` from inside their

@@ -42,7 +42,7 @@ import {
   type GitPrCheckRunStatus,
   type GitPrReviewState,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";

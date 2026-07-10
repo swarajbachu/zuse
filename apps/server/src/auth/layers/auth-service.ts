@@ -15,7 +15,7 @@ import {
   AuthSession,
   AuthState,
   AuthUser,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
 import { AuthTokenError, SessionStoreError } from "../errors.ts";

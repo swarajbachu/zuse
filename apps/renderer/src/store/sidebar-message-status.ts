@@ -2,7 +2,7 @@ import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, SessionId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

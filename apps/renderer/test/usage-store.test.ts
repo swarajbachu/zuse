@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
-import type { UsageReport } from "@zuse/wire";
+import type { UsageReport } from "@zuse/contracts";
 
 let reportCalls: Array<{ readonly bucket?: string; readonly forceRefresh?: boolean }> = [];
 let pendingReports: Array<{

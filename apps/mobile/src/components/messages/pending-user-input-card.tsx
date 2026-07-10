@@ -1,4 +1,4 @@
-import type { UserQuestion } from "@zuse/wire";
+import type { UserQuestion } from "@zuse/contracts";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 

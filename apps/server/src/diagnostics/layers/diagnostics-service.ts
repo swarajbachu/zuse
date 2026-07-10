@@ -17,7 +17,7 @@ import {
   DiagnosticsExportError,
   DiagnosticsExportResult,
   type AgentAvailability,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import { AppPaths } from "../../app-paths.ts";

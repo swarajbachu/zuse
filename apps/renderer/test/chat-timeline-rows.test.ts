@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, SessionId } from "@zuse/contracts";
 
 import {
   deriveChatTimelineRows,

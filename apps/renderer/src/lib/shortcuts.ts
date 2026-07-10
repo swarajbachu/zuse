@@ -1,4 +1,4 @@
-import { formatKeyForDisplay } from "@zuse/wire";
+import { formatKeyForDisplay } from "@zuse/contracts";
 
 import type { MenuAction } from "./bridge";
 import { useKeybindingsStore } from "../store/keybindings";

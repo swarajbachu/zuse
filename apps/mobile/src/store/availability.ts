@@ -1,4 +1,4 @@
-import type { AgentAvailability } from "@zuse/wire";
+import type { AgentAvailability } from "@zuse/contracts";
 import { Effect } from "effect";
 import { create } from "zustand";
 

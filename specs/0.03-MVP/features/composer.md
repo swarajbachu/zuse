@@ -120,7 +120,7 @@ Mirror of the slash trigger:
 - `@` is a trigger only when preceded by start-of-input or whitespace.
 - Range: `@<query>`.
 - `FileTagPopover` shows results from `workspace.searchFiles`
-  (`packages/wire/src/workspace.ts`).
+  (`packages/contracts/src/workspace.ts`).
 - Confirming a result inserts a `file` or `directory` chip at the
   trigger range (the `@<query>` text is consumed).
 - Same keyboard model as the slash popover.
@@ -261,10 +261,10 @@ RPC and clear the editor; `/help` opens the help popover.
 
 ## RPC contracts
 
-Added to `packages/wire/`:
+Added to `packages/contracts/`:
 
 ```ts
-// packages/wire/src/composer.ts (new)
+// packages/contracts/src/composer.ts (new)
 export const AttachmentRef = Schema.Struct({
   id: Schema.String,                      // "<sessionSegment>-<uuid>"
   mimeType: Schema.String,
@@ -289,7 +289,7 @@ export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
   skillRefs: Schema.Array(SkillRef),
 }) {}
 
-// packages/wire/src/attachment.ts (new)
+// packages/contracts/src/attachment.ts (new)
 export const AttachmentUploadRpc = Rpc.make("attachments.upload", {
   payload: Schema.Struct({
     sessionId: SessionId,
@@ -315,7 +315,7 @@ export const AttachmentTouchRpc = Rpc.make("attachments.touch", {
   success: Schema.Void,
 });
 
-// packages/wire/src/workspace.ts (new)
+// packages/contracts/src/workspace.ts (new)
 export const WorkspaceSearchFilesRpc = Rpc.make("workspace.searchFiles", {
   payload: Schema.Struct({
     projectId: FolderId,
@@ -330,7 +330,7 @@ export const WorkspaceSearchFilesRpc = Rpc.make("workspace.searchFiles", {
   error: FsFolderNotFoundError,
 });
 
-// packages/wire/src/session.ts (edit)
+// packages/contracts/src/session.ts (edit)
 // MessagesSendRpc payload changes from { sessionId, text } to
 // { sessionId, input: ComposerInput }. Old callsites in
 // apps/renderer/src/store/messages.ts wrap the string in a
@@ -348,7 +348,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 
 The new RPC groups (`attachment`, `workspace`, `composer`,
 `skill` — see [skills.md](skills.md)) are registered in
-`packages/wire/src/rpc.ts`.
+`packages/contracts/src/rpc.ts`.
 
 ## Server-side attachment store
 
@@ -454,11 +454,11 @@ view; it is not lifted into Zustand.
 | `apps/server/src/provider/services/provider-service.ts`               | edit   | Accept `ComposerInput`; expand `fileRefs` (read file contents at send).   |
 | `apps/server/src/provider/drivers/claude.ts`                          | edit   | Map `attachments` to image content blocks; honor `skillRefs`.             |
 | `apps/server/src/provider/drivers/codex.ts`                           | edit   | Drop attachments with toast (Codex CLI image-input not supported); honor `skillRefs`. |
-| `packages/wire/src/composer.ts`                                       | new    | `ComposerInput`, `AttachmentRef`, `FileRef`, `SkillRef`.                  |
-| `packages/wire/src/attachment.ts`                                     | new    | Upload + Touch RPCs.                                                      |
-| `packages/wire/src/workspace.ts`                                      | new    | Search-files RPC.                                                         |
-| `packages/wire/src/session.ts`                                        | edit   | `UserRichContent` + updated `MessagesSendRpc` payload.                    |
-| `packages/wire/src/rpc.ts`                                            | edit   | Register new RPC groups.                                                  |
+| `packages/contracts/src/composer.ts`                                       | new    | `ComposerInput`, `AttachmentRef`, `FileRef`, `SkillRef`.                  |
+| `packages/contracts/src/attachment.ts`                                     | new    | Upload + Touch RPCs.                                                      |
+| `packages/contracts/src/workspace.ts`                                      | new    | Search-files RPC.                                                         |
+| `packages/contracts/src/session.ts`                                        | edit   | `UserRichContent` + updated `MessagesSendRpc` payload.                    |
+| `packages/contracts/src/rpc.ts`                                            | edit   | Register new RPC groups.                                                  |
 
 ## Acceptance criteria
 
@@ -505,7 +505,7 @@ A11. Dropping 25 images at once accepts the first 20 and shows a toast
      `"Maximum 20 attachments per turn — 5 image(s) dropped"`.
 
 A12. `bun run check-types` passes for `apps/renderer`, `apps/server`,
-     and `packages/wire`.
+     and `packages/contracts`.
 
 ## Future hooks (intentional shape, not built yet)
 

@@ -51,7 +51,7 @@ import {
   type WorktreeCreateSource,
   WorktreeId,
   type AutonomyLevel,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   buildOrchestrationTools,

@@ -8,7 +8,7 @@ import {
   type FolderId,
   type ProviderId,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { useRepositorySettingsStore } from "../store/repository-settings.ts";
 import { useSettingsStore } from "../store/settings.ts";

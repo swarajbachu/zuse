@@ -12,15 +12,15 @@ Other terminal-for-agents apps split their server into a dozen domain packages (
 
 ## Decision
 
-### One contracts package: `@zuse/wire`
+### One contracts package: `@zuse/contracts`
 
-All RPC contracts, branded IDs, and cross-process schemas live in a single workspace package: `@zuse/wire`. Inside, **one file per domain** (`ping.ts`, `workspace.ts`, `pty.ts`, `git.ts`). One `RpcGroup` (`MemoizeRpcs`) collects every `Rpc.make(...)`.
+All RPC contracts, branded IDs, and cross-process schemas live in a single workspace package: `@zuse/contracts`. Inside, **one file per domain** (`ping.ts`, `workspace.ts`, `pty.ts`, `git.ts`). One `RpcGroup` (`MemoizeRpcs`) collects every `Rpc.make(...)`.
 
 **Why one package, not many:** the wire format is the boundary. Splitting it across packages forces every new RPC to negotiate package membership. One package, one file per domain, lets us add an RPC by editing one file and re-exporting from `index.ts`.
 
 ### Internal package naming: `@zuse/*`
 
-All packages we create live under `@zuse/*` (e.g. `@zuse/wire`). Pre-existing repo-shared config packages keep their `@repo/*` namespace (`@repo/typescript-config`, `@repo/eslint-config`, `@repo/ui`) — they're scaffolding that came with the Turborepo template, not domain code.
+All packages we create live under `@zuse/*` (e.g. `@zuse/contracts`). Pre-existing repo-shared config packages keep their `@repo/*` namespace (`@repo/typescript-config`, `@repo/eslint-config`, `@repo/ui`) — they're scaffolding that came with the Turborepo template, not domain code.
 
 **Why not mix scoped and unscoped:** a single namespace makes it obvious at a glance whether a dependency is ours or third-party.
 
@@ -121,7 +121,7 @@ apps/renderer/src/
 
 ## Consequences
 
-- Adding a new RPC: edit one file in `packages/wire/src/<domain>.ts`, add a handler file in `apps/desktop/src/services/<domain>/`, register it in `ipc/handlers.ts`. No package boundaries to renegotiate.
+- Adding a new RPC: edit one file in `packages/contracts/src/<domain>.ts`, add a handler file in `apps/desktop/src/services/<domain>/`, register it in `ipc/handlers.ts`. No package boundaries to renegotiate.
 - Adding a new domain: one folder with two files. Promote to subfolders only when scale demands it.
 - New contributors find services by searching `*Service` and RPCs by searching `Rpc.make("`.
 

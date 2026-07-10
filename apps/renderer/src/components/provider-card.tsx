@@ -16,7 +16,7 @@ import {
   type ProviderId,
   type ProviderUpdateEvent,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ApiKeyRow } from "~/components/api-key-row";
 import { BlurredEmail } from "~/components/blurred-email";

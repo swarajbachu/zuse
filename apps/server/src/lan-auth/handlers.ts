@@ -6,7 +6,7 @@ import {
   EnvironmentEndpoint,
   MemoizeRpcs,
   PairingError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { buildAdvertisedEndpoints } from "./advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "./environment-label.ts";

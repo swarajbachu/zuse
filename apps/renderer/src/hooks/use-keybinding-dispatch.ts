@@ -5,7 +5,7 @@ import {
   evaluateWhen,
   matchesShortcut,
   normalizeEventKey,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { APPLICATION_COMMANDS, dispatchCommand } from "../lib/commands";
 import { useKeybindingsStore } from "../store/keybindings";

@@ -8,7 +8,7 @@ import {
   PtyNotFoundError,
   PtySpawnError,
   type PtyEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { PtyService } from "../services/pty-service.ts";
 

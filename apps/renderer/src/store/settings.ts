@@ -15,7 +15,7 @@ import {
   resolveModelSlug,
   type RuntimeMode,
   type SettingsFile,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client";
 import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";

@@ -18,13 +18,13 @@ import {
   type ProviderId,
   type Worktree,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { resolveCliPath } from "../../provider/availability.ts";
 import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
-import type { ThreadListResponse } from "../../provider/codex-app-protocol/v2/ThreadListResponse.ts";
-import type { ThreadReadResponse } from "../../provider/codex-app-protocol/v2/ThreadReadResponse.ts";
-import type { UserInput } from "../../provider/codex-app-protocol/v2/UserInput.ts";
+import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
+import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
+import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "../../provider/drivers/claude.ts";
 import { translateCodexItem } from "../../provider/drivers/codex.ts";
 import { MessageStore } from "../../provider/services/message-store.ts";

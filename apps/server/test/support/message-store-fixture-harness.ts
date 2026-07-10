@@ -11,8 +11,8 @@ import type {
   FolderId,
   StartSessionInput,
   WorktreeId,
-} from "@zuse/wire";
-import { RepositorySettings, Worktree } from "@zuse/wire";
+} from "@zuse/contracts";
+import { RepositorySettings, Worktree } from "@zuse/contracts";
 
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { GitService } from "../../src/git/services/git-service.ts";

@@ -9,7 +9,7 @@ import {
   Text,
 } from "@expo/ui/swift-ui";
 import { font, foregroundColor } from "@expo/ui/swift-ui/modifiers";
-import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/wire";
+import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
 
 import {
   defaultModelOptions,

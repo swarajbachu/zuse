@@ -59,7 +59,7 @@ function relevantHints(traceSummary) {
     hints.add(`apps/server/src/provider/drivers/${providerId}.ts`);
   }
   if ([...spans].some((span) => span.includes("message"))) {
-    hints.add("packages/wire/src/session.ts");
+    hints.add("packages/contracts/src/session.ts");
   }
   return [...hints];
 }

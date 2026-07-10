@@ -1,5 +1,5 @@
 import { RpcClient, RpcGroup } from "effect/unstable/rpc";
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
 import { ConnectionFailed } from "./errors";

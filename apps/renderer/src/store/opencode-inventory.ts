@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { OpencodeInventory } from "@zuse/wire";
+import type { OpencodeInventory } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

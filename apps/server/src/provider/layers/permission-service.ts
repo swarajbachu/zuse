@@ -11,7 +11,7 @@ import {
   type FolderId,
   type PermissionDecision,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {

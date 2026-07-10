@@ -31,7 +31,7 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getBashPolicy } from "../../policy.ts";
 import { ensureUnderCwd } from "./fs.ts";

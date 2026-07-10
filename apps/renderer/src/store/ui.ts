@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { ChatId, CodeAnnotation, FolderId, WorktreeId } from "@zuse/wire";
+import type { ChatId, CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 
 import { useChatsStore } from "./chats.ts";
 

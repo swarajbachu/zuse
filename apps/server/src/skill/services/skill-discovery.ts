@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId, Skill } from "@zuse/wire";
+import type { ProviderId, Skill } from "@zuse/contracts";
 
 /**
  * Per-provider skill discovery on disk.

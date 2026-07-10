@@ -15,7 +15,7 @@ import {
   Worktree,
   WorktreeCreateSource,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { getConnectionClient, reportConnectionFailure } from "./connection";

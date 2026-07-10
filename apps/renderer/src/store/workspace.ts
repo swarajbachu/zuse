@@ -6,7 +6,7 @@ import type {
   FolderId,
   GithubRepoSummary,
   ProjectTemplate,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

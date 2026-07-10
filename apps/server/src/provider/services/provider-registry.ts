@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 import type { ProviderRegistryError } from "../errors.ts";
 import type { ProviderAdapterShape } from "./provider-adapter.ts";

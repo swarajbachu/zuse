@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

@@ -6,7 +6,7 @@ import {
   type WorkspaceDuplicatePathError,
   type WorkspaceInvalidPathError,
   type WorkspaceNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface WorkspaceServiceShape {
   readonly add: (

@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { FileSystem } from "effect";
 import { Effect, Layer } from "effect";
 
-import { Skill, type ProviderId } from "@zuse/wire";
+import { Skill, type ProviderId } from "@zuse/contracts";
 
 import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";

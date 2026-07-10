@@ -1,6 +1,6 @@
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
-import { RelayPaths, type EnvironmentId } from "@zuse/wire";
+import { RelayPaths, type EnvironmentId } from "@zuse/contracts";
 
 import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";

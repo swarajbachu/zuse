@@ -162,7 +162,7 @@ Effect-style I/O only — wrap all I/O in `Effect.try/tryPromise`, no raw try/ca
 | **C** | Auth & pairing | LAN pairing (QR + bearer) + cloud identity (WorkOS) + device DPoP | existing WorkOS login, `credentials-service.ts` | B |
 | **D** | Relay (control plane) | link devices↔environments, issue connect tokens, push fan-out | WorkOS as IdP | C |
 | **E** | Managed tunnel | reach the desktop from anywhere (Cloudflare Tunnel) | — | B, D |
-| **F** | Mobile app (Expo) | same wire RPC; QR pairing; cloud link; offline snapshots; full interact | **`packages/wire` types directly**, WS client from B | B (LAN), C/D (cloud) |
+| **F** | Mobile app (Expo) | same wire RPC; QR pairing; cloud link; offline snapshots; full interact | **`packages/contracts` types directly**, WS client from B | B (LAN), C/D (cloud) |
 | **G** | SSH remote dev-boxes | launch headless server remotely + tunnel back | native `ssh` wrapper pattern | B (`bin.ts`) ✅ |
 | **H** | Push & notifications | notify on approval/input/turn-complete/failure; iOS Live Activities | relay APNs | D, F |
 | **I** | Cloud environments (deferred) | provisioner that boots `zuse serve` on a cloud container + volume | headless `bin.ts`, relay, `providerKind` seam | B, D |
@@ -186,7 +186,7 @@ PR0 wire-contract ✅ ── enables everything
 
 | Lane | Track | Branch | Can start | Touches (conflict surface) |
 |------|-------|--------|-----------|----------------------------|
-| 1 | **A** event sourcing + node:sqlite | `remote-multiclient-event-sourcing` | now | `apps/server/src/persistence/*`, `message-store.ts`, `packages/wire/src/session.ts` |
+| 1 | **A** event sourcing + node:sqlite | `remote-multiclient-event-sourcing` | now | `apps/server/src/persistence/*`, `message-store.ts`, `packages/contracts/src/session.ts` |
 | 2 | **B-renderer** WS client | `remote-multiclient-ws-client` | now | `apps/renderer/src/lib/rpc-client.ts` (+ new file), renderer `package.json` |
 | 3 | **F** mobile scaffold | `remote-multiclient-mobile` | now | new `apps/mobile/**` (no overlap) |
 | 4 | **G** SSH | `remote-multiclient-ssh` | now | new `packages/ssh/**`, `apps/desktop/src/ssh/**` |
@@ -286,7 +286,7 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
 
 - **2026-06-30 — PR0 (`9f46554`)**: wire contract. `MessageEnvelope`, optional
   `sinceSequence` on `messages.stream`, `ProviderKind`/`EnvironmentDescriptor`/`connect.*`
-  in `packages/wire/src/connect.ts`, `EnvironmentId`. Behavior-neutral; whole-repo
+  in `packages/contracts/src/connect.ts`, `EnvironmentId`. Behavior-neutral; whole-repo
   `check-types` passes.
 - **2026-06-30 — PR-B server (`1a2db6f`)**: `apps/server/src/transports/ws.ts`
   (`wsServerProtocolLayer`) + headless `bin.ts` (`runHeadlessServer`). Live boot verified:
@@ -327,7 +327,7 @@ Spin these into `specs/remote-multiclient/decisions/` as each workstream lands:
 Effect-style throughout (`Effect.gen`, `Stream`, `Layer`, `@effect/sql`). Anchors:
 `message-store.ts` (`persistMessage`, `startSubscription`, `streamMessages`,
 `broadcastMessage`); `apps/server/src/persistence/migrations.ts`;
-`packages/wire/src/session.ts`; `apps/server/src/runtime.ts` (`MainLayerDeps`,
+`packages/contracts/src/session.ts`; `apps/server/src/runtime.ts` (`MainLayerDeps`,
 `ServerLayer`); `apps/renderer/src/lib/rpc-client.ts`; template
 `apps/desktop/src/ipc/electron-server-protocol.ts`.
 
@@ -349,7 +349,7 @@ layer (between the migrator and `MessageStore`) replays any events past the proj
 high-water mark, giving "rebuild from `sequence=0`" for free.
 
 ### A.2 Cursor streaming
-`packages/wire/src/session.ts` already has `MessageEnvelope { sequence, message }` and an
+`packages/contracts/src/session.ts` already has `MessageEnvelope { sequence, message }` and an
 optional `sinceSequence` on `MessagesStreamRpc` (PR0). PR-A2 flips `success: Message →
 MessageEnvelope` and rewrites `streamMessages`: subscribe to the per-session
 `PubSub<MessageEnvelope>` **before** `SELECT … WHERE sequence > since ORDER BY sequence`,

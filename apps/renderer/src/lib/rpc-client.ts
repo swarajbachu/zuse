@@ -1,7 +1,7 @@
 import { RpcClient, RpcGroup, RpcSerialization } from "effect/unstable/rpc";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";

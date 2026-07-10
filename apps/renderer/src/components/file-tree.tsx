@@ -12,7 +12,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Effect, Fiber, Stream } from "effect";
 
-import type { FolderId, FsEntry } from "@zuse/wire";
+import type { FolderId, FsEntry } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {

@@ -9,7 +9,7 @@ import {
   WorkspaceDuplicatePathError,
   WorkspaceInvalidPathError,
   WorkspaceNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { prepareProjectRegistration } from "../project-registration.ts";
 import { WorkspaceService } from "../services/workspace-service.ts";

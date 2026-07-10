@@ -6,7 +6,7 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 
-import type { UpdateStatus } from "@zuse/wire";
+import type { UpdateStatus } from "@zuse/contracts";
 
 import {
   triggerUpdateCheck,
@@ -18,7 +18,7 @@ import {
  * Action ids that travel from a menu click → renderer (via
  * `webContents.send("menu:action", ...)`) → the keybinding-dispatcher
  * `commands.ts` registry in the renderer. The set mirrors the menu-relevant
- * subset of `Command` in `@zuse/wire/keybindings`.
+ * subset of `Command` in `@zuse/contracts/keybindings`.
  */
 export type MenuCommand =
   | "new-chat"

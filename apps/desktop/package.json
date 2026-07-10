@@ -40,7 +40,7 @@
     "@electron/rebuild": "^4.0.4",
     "@zuse/server": "*",
     "@zuse/ssh": "*",
-    "@zuse/wire": "*",
+    "@zuse/contracts": "*",
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
     "effect": "catalog:",

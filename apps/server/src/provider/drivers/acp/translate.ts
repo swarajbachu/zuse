@@ -2,7 +2,7 @@ import {
   isRedundantShellDescription,
   type AgentEvent,
   type AgentItemId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -11,7 +11,7 @@ import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
  * Lifted out of grok.ts / gemini.ts / cursor.ts which each carried a near-
  * identical copy. The renderer expects every provider's tool calls to look
  * like Claude's (see the "Normalized Tool-Call Contract" doc-block above
- * `ToolUseEvent` in `packages/wire/src/agent.ts`), so this translator
+ * `ToolUseEvent` in `packages/contracts/src/agent.ts`), so this translator
  * coerces ACP frames into that shape.
  *
  * Per-provider quirks (Gemini's `kind === "think"` skip, etc.) live in a

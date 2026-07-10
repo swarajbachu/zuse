@@ -25,7 +25,7 @@ import {
   WorktreeSetupError,
   WorktreeSetupStatusEvent,
   type WorktreeSetupStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
@@ -35,7 +35,7 @@ import {
   POKEMON_CATALOG,
   pokemonSpriteSourcesFor,
   pokemonSpriteStem,
-} from "../../pokemon/catalog.ts";
+} from "@zuse/pokemon-data";
 import { PokemonService } from "../../pokemon/services/pokemon-service.ts";
 import {
   WorktreeService,

@@ -3,7 +3,7 @@ import type {
   ProviderId,
   RuntimeMode,
   SessionStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export const isInterruptVisible = (status: SessionStatus | undefined): boolean =>
   status === "running" || status === "booting";

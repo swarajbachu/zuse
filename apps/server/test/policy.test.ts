@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PermissionMode, RuntimeMode } from "@zuse/wire";
+import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 
 import {
   getBashPolicy,

@@ -11,7 +11,7 @@ import {
   type WorktreeRemoveError,
   type WorktreeSetupError,
   type WorktreeSetupEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface WorktreeRestoreSnapshot {
   readonly id: WorktreeId;

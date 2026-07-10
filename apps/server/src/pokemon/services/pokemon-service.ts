@@ -4,7 +4,7 @@ import type {
   PokemonNotFoundError,
   PokemonPokedexEntry,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface PokemonServiceShape {
   readonly pokedex: () => Effect.Effect<ReadonlyArray<PokemonPokedexEntry>>;

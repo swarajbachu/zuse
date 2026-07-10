@@ -42,7 +42,7 @@ import type {
   ThreadGoalSetInput,
   UserQuestionAnswer,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Persistence-backed orchestration of chat sessions and their message log.

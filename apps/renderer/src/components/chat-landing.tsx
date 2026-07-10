@@ -17,7 +17,7 @@ import {
   type ProviderId,
   type WorktreeCreateSource,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import {

@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 
-import { ConnectAuthError, MemoizeRpcs, RelayLinkStatus } from "@zuse/wire";
+import { ConnectAuthError, MemoizeRpcs, RelayLinkStatus } from "@zuse/contracts";
 
 import {
   RelayLinkService,

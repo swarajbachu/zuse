@@ -7,7 +7,7 @@ import {
   type WorktreeCreateSource,
   type WorktreeId,
   type WorktreeSetupEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";

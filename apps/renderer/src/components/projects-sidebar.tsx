@@ -30,7 +30,7 @@ import {
   type GitOriginInfo,
   type ProviderId,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { BlurredEmail } from "~/components/blurred-email";

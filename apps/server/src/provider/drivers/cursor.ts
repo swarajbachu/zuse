@@ -19,7 +19,7 @@ import {
   type RuntimeMode,
   type StartSessionInput,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { handleFsRequest } from "./acp/fs.ts";

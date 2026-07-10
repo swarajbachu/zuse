@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { FolderId, RepositorySettingsFile } from "@zuse/wire";
+import type { FolderId, RepositorySettingsFile } from "@zuse/contracts";
 
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0008WorktreesAndRepoSettings } from "../src/persistence/migrations/0008_worktrees_and_repo_settings.ts";

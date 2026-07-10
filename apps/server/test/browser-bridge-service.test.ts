@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Stream } from "effect";
 
-import { BrowserCommandResult, type SessionId } from "@zuse/wire";
+import { BrowserCommandResult, type SessionId } from "@zuse/contracts";
 
 import { BrowserBridgeServiceLive } from "../src/provider/layers/browser-bridge-service.ts";
 import { BrowserBridgeService } from "../src/provider/services/browser-bridge-service.ts";

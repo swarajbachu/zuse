@@ -10,7 +10,7 @@ import {
   MAX_KEYBINDING_RULES,
   parseKey,
   parseWhen,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { mergeWithDefaults } from "../lib/default-keybindings";
 import { getRpcClient } from "../lib/rpc-client";

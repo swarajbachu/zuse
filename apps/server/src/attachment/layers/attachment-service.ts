@@ -4,7 +4,7 @@ import { FileSystem, Path } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 
-import { AttachmentTooLargeError, ContextWriteError } from "@zuse/wire";
+import { AttachmentTooLargeError, ContextWriteError } from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {

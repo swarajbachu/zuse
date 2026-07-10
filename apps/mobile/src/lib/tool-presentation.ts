@@ -1,4 +1,4 @@
-import type { MessageContent } from "@zuse/wire";
+import type { MessageContent } from "@zuse/contracts";
 
 import {
   extractEditSummaries,

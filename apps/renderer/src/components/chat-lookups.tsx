@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { AgentItemId, UserQuestionAnswer } from "@zuse/wire";
+import type { AgentItemId, UserQuestionAnswer } from "@zuse/contracts";
 
 export interface ToolResultRecord {
   readonly output: unknown;

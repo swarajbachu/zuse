@@ -1,10 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
 
-import type { InitializeResponse } from "./codex-app-protocol/InitializeResponse";
-import type { ClientRequest } from "./codex-app-protocol/ClientRequest";
-import type { ServerNotification } from "./codex-app-protocol/ServerNotification";
-import type { ServerRequest } from "./codex-app-protocol/ServerRequest";
+import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
+import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
+import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 
 type RequestId = number;
 

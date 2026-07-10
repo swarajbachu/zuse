@@ -1,4 +1,4 @@
-import type { Chat, Session, SessionStatus } from "@zuse/wire";
+import type { Chat, Session, SessionStatus } from "@zuse/contracts";
 import { Pressable, Text, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 

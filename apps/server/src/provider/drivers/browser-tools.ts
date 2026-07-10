@@ -1,7 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-import type { BrowserCommand, BrowserCommandResult } from "@zuse/wire";
+import type { BrowserCommand, BrowserCommandResult } from "@zuse/contracts";
 
 /**
  * Promise-returning send bound to one agent session. Provider-service closes

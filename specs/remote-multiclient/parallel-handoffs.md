@@ -22,15 +22,15 @@ NON-NEGOTIABLE conventions:
   try/catch, no bare Promises, in driver/server code.
 - apps/server imports NOTHING electron-specific (ADR 0007). Transports live under
   apps/server/src/transports/. Pure makeMainLayer(deps) factory.
-- RPC contracts live in packages/wire (already transport-agnostic). Reuse types from
-  @zuse/wire — do not redefine Message/Session/etc.
+- RPC contracts live in packages/contracts (already transport-agnostic). Reuse types from
+  @zuse/contracts — do not redefine Message/Session/etc.
 - Branch names + PR titles describe the FEATURE only. Do NOT name any external/reference
   repository anywhere — not in code, comments, commits, branch names, or PR text.
 - Gate your work on: bunx turbo build lint check-types test (scoped to your package).
-  Use the real package names: @zuse/server, @zuse/wire, renderer, desktop.
+  Use the real package names: @zuse/server, @zuse/contracts, renderer, desktop.
 
 ALREADY LANDED (do not redo; build on these):
-- packages/wire: MessageEnvelope { sequence, message }; optional `sinceSequence` on
+- packages/contracts: MessageEnvelope { sequence, message }; optional `sinceSequence` on
   MessagesStreamRpc; ProviderKind ("desktop"|"ssh"|"cloud"); EnvironmentDescriptor /
   EnvironmentEndpoint; connect.describe/linkProof/relayConfig RPC defs (in connect.ts,
   exported, NOT yet registered in MemoizeRpcs); EnvironmentId branded id.
@@ -66,7 +66,7 @@ Read first: specs/remote-multiclient/README.md sections D1, D2, Appendix A.1/A.2
 Anchor files: apps/server/src/persistence/* (db-path.ts, sqlite.ts, migrations.ts,
 migrations/*), apps/server/src/provider/layers/message-store.ts (persistMessage,
 startSubscription, streamMessages, broadcastMessage), apps/server/src/runtime.ts,
-packages/wire/src/session.ts.
+packages/contracts/src/session.ts.
 
 Step 0 (prerequisite): confirm Electron 42's bundled Node exposes `node:sqlite`
 (added Node 22.5, unflagged 22.13/23.4). If yes, proceed. If no, STOP and report —
@@ -100,7 +100,7 @@ Step 3 — write path:
   replays events past max(messages.sequence) on boot.
 
 Step 4 — cursor streaming (PR-A2):
-- Flip MessagesStreamRpc.success from Message to MessageEnvelope in packages/wire.
+- Flip MessagesStreamRpc.success from Message to MessageEnvelope in packages/contracts.
 - Rewrite streamMessages(sessionId, sinceSequence): subscribe to the per-session
   PubSub<MessageEnvelope> BEFORE selecting rows WHERE sequence > since ORDER BY sequence;
   compute lastReplayed from replayed rows; Stream.concat(replay, live.filter(e.sequence >
@@ -115,7 +115,7 @@ still boots and streams a chat end-to-end.
 
 Don't touch: apps/renderer/src/lib/rpc-client.ts transport selection (Track B), anything
 under apps/mobile, packages/ssh, infra/relay.
-Coordinate: you and Track B both edit packages/wire/src/session.ts — you flip the
+Coordinate: you and Track B both edit packages/contracts/src/session.ts — you flip the
 messages.stream success type; B only reads wire. Land the wire flip in your branch.
 ```
 
@@ -149,7 +149,7 @@ Verify: with the desktop Electron app, the IPC path is unchanged (regression che
 the layer compiles + the runtime selects WS when window.zuse is absent — e.g. a Vite
 browser build pointed at VITE_ZUSE_WS_URL).
 
-Don't touch: apps/server/*, packages/wire/* (read-only), apps/mobile, packages/ssh,
+Don't touch: apps/server/*, packages/contracts/* (read-only), apps/mobile, packages/ssh,
 infra/relay. You only read MessagesStreamRpc; Track A owns the success-type flip.
 ```
 
@@ -167,7 +167,7 @@ Use the expo-app-design skills for scaffolding.
 
 Tasks:
 - New apps/mobile (Expo Router). Add to workspaces.
-- WS RpcClient runtime importing MemoizeRpcs from @zuse/wire directly (the contract is
+- WS RpcClient runtime importing MemoizeRpcs from @zuse/contracts directly (the contract is
   transport-agnostic — reuse it, do not redefine types). Browser WebSocket via
   @effect/platform Socket layers (mirror Track B's ws-client-protocol).
 - Pairing screen: scan QR `zuse://?pairingUrl=<host>#token=<code>`; store the connection
@@ -186,7 +186,7 @@ Verify: Expo Go on a phone on the same LAN; QR-pair to a desktop WS; view a live
 airplane-mode → snapshot renders → reconnect reconciles.
 
 Don't touch: anything outside apps/mobile/** except adding the workspace entry. Treat
-packages/wire as read-only.
+packages/contracts as read-only.
 ```
 
 ---
@@ -261,7 +261,7 @@ apps/desktop for the tunnel — coordinate with Track G's desktop changes to avo
 
 ## Merge order
 
-A and B both edit `packages/wire/src/session.ts` (A flips `messages.stream` success →
+A and B both edit `packages/contracts/src/session.ts` (A flips `messages.stream` success →
 `MessageEnvelope`; B only reads it). **Land A's wire flip first**, then rebase B. F, G, D
 touch disjoint trees (`apps/mobile`, `packages/ssh`, `infra/relay`) and merge in any order.
 C/E/H come after their dependencies (auth → tunnel → push). I (cloud provisioner) is deferred.

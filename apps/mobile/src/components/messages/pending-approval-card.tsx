@@ -1,4 +1,4 @@
-import type { PermissionDecision, PermissionRequest } from "@zuse/wire";
+import type { PermissionDecision, PermissionRequest } from "@zuse/contracts";
 import { useState } from "react";
 import { Text, View } from "react-native";
 

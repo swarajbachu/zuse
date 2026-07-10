@@ -6,7 +6,7 @@ import type {
   Message,
   PermissionRequest,
   Session,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   buildNotchItems,

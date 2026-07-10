@@ -19,7 +19,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetInput,
   UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { CredentialsError } from "../errors.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";

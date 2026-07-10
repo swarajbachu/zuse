@@ -10,7 +10,7 @@ import {
   type ProviderId,
   type Session,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { useChatsStore } from "../store/chats.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -366,7 +366,7 @@ function ChatTabButton({
 function NewChatTabButton({
   chatId,
 }: {
-  chatId: import("@zuse/wire").ChatId;
+  chatId: import("@zuse/contracts").ChatId;
 }) {
   const refresh = useProvidersStore((s) => s.refresh);
   const create = useSessionsStore((s) => s.create);

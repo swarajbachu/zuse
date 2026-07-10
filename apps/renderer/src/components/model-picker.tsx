@@ -22,7 +22,7 @@ import type {
   ProviderId,
   RuntimeMode,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import {
   MODELS_BY_PROVIDER,
   findModelDescriptor,
@@ -30,7 +30,7 @@ import {
   type Message,
   type ModelOption,
   type SelectOptionDescriptor,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { useMessagesStore } from "~/store/messages";

@@ -4,7 +4,7 @@ import type {
   AuthCancelledError,
   AuthFlowError,
   AuthState,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { AuthTokenError } from "../errors.ts";
 

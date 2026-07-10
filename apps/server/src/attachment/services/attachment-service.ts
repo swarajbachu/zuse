@@ -6,7 +6,7 @@ import type {
   ContextWriteError,
   SessionId,
   SessionNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export type UploadFailure =
   | AttachmentTooLargeError

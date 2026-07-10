@@ -25,7 +25,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { makeMainLayer, wsServerProtocolLayer } from "@zuse/server";
-import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/wire";
+import { AGENTS_RUNNING_COUNT_CHANNEL, AuthFlowError } from "@zuse/contracts";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude

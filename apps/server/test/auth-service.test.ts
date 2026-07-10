@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Chunk, Effect, Layer, ManagedRuntime, Stream } from "effect";
 
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 import { AuthServiceLive } from "../src/auth/layers/auth-service.ts";
 import type { SessionBundle } from "../src/auth/layers/workos.ts";

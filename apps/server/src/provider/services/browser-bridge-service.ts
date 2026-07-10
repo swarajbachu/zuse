@@ -6,7 +6,7 @@ import type {
   BrowserCommandRequest,
   BrowserCommandResult,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface BrowserBridgeDiagnostics {
   readonly connectedRendererCount: number;

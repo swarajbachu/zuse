@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, ProviderId, SessionId, Skill } from "@zuse/wire";
+import type { FolderId, ProviderId, SessionId, Skill } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 

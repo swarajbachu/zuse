@@ -1,7 +1,7 @@
 import keytar from "keytar";
 import { Effect, Layer } from "effect";
 
-import { type ProviderId } from "@zuse/wire";
+import { type ProviderId } from "@zuse/contracts";
 
 import { CredentialsError } from "../errors.ts";
 import { CredentialsService } from "../services/credentials-service.ts";

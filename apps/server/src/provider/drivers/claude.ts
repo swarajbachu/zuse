@@ -24,7 +24,7 @@ import {
   type StartSessionInput,
   type UserQuestion,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import {

@@ -1,4 +1,4 @@
-import type { PermissionKind } from "@zuse/wire";
+import type { PermissionKind } from "@zuse/contracts";
 
 export type PermissionSummary = {
   label: string;

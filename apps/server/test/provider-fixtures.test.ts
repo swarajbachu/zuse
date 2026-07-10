@@ -3,10 +3,10 @@ import { Schema } from "effect";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/wire";
+import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/contracts";
 
-import type { ThreadItem } from "../src/provider/codex-app-protocol/v2/ThreadItem.ts";
-import type { ServerNotification } from "../src/provider/codex-app-protocol/ServerNotification.ts";
+import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import {
   translateCodexItem,
   translateCodexStatusNotification,

@@ -38,7 +38,7 @@ import {
   type GitBranchInfo,
   type GitMergeMethod,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";

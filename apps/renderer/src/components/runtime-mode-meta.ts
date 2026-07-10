@@ -6,7 +6,7 @@ import {
   TerminalIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
 
-import type { RuntimeMode } from "@zuse/wire";
+import type { RuntimeMode } from "@zuse/contracts";
 
 /**
  * Shared label/description/icon for each runtime mode. Used by the composer's

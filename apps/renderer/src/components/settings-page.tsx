@@ -35,7 +35,7 @@ import {
   type ProviderId,
   type RuntimeMode,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   formatRelativeTime,

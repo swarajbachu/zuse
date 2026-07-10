@@ -15,7 +15,7 @@ import type {
   GitIssueSummary,
   GitPrSummary,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { PopoverPrimitive } from "~/components/ui/popover";
 import { getRpcClient } from "~/lib/rpc-client.ts";
