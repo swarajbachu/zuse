@@ -43,7 +43,7 @@ interface EventRow {
 	readonly payload_json: string;
 }
 
-const decodeEvent = Schema.decodeUnknownEffect(
+const decodeSessionEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(SessionEvent),
 );
 const decodeReceipt = Schema.decodeUnknownEffect(
@@ -79,9 +79,22 @@ const receiptFromRow = Effect.fn("SqlDispatchStorage.receiptFromRow")(
 	},
 );
 
-export const makeSqlDispatchStorage = (
+export type SqlDispatchStorageOptions<Event> = {
+	readonly streamKind: string;
+	readonly decodeEvent: (json: string) => Effect.Effect<Event, unknown>;
+};
+
+export const makeSqlDispatchStorage = <
+	Event extends { readonly _tag: string } = SessionEvent,
+>(
 	sql: SqlClient.SqlClient,
-): DispatchStorage<SqlDispatchStorageError> => {
+	options?: SqlDispatchStorageOptions<Event>,
+): DispatchStorage<SqlDispatchStorageError, Event> => {
+	const streamKind = options?.streamKind ?? "session";
+	const decodeEvent =
+		options?.decodeEvent ??
+		((json: string) =>
+			decodeSessionEvent(json) as unknown as Effect.Effect<Event, unknown>);
 	const receipt = Effect.fn("SqlDispatchStorage.receipt")(function* (
 		commandId: string,
 	) {
@@ -102,12 +115,14 @@ export const makeSqlDispatchStorage = (
 			SELECT sequence, event_id, correlation_id, causation_event_id,
 			       stream_id, stream_version, payload_json
 			FROM events
-			WHERE stream_kind = 'session' AND stream_id = ${streamId}
+			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
 			ORDER BY stream_version ASC
 		`;
 		return yield* Effect.forEach(
 			rows,
-			(row): Effect.Effect<StoredEvent, DispatchPersistenceDecodeError> =>
+			(
+				row,
+			): Effect.Effect<StoredEvent<Event>, DispatchPersistenceDecodeError> =>
 				decodeEvent(row.payload_json).pipe(
 					Effect.map((event) => ({
 						eventId: row.event_id,
@@ -131,7 +146,7 @@ export const makeSqlDispatchStorage = (
 	});
 
 	const append = Effect.fn("SqlDispatchStorage.append")(function* (
-		input: AppendInput,
+		input: AppendInput<Event>,
 	) {
 		return yield* sql.withTransaction(
 			Effect.gen(function* () {
@@ -141,7 +156,7 @@ export const makeSqlDispatchStorage = (
 				const versions = yield* sql<{ readonly version: number }>`
 					SELECT COALESCE(MAX(stream_version), 0) AS version
 					FROM events
-					WHERE stream_kind = 'session' AND stream_id = ${input.streamId}
+					WHERE stream_kind = ${streamKind} AND stream_id = ${input.streamId}
 				`;
 				const actualVersion = versions[0]?.version ?? 0;
 				if (actualVersion !== input.expectedVersion) {
@@ -162,7 +177,7 @@ export const makeSqlDispatchStorage = (
 							 stream_id, stream_version, type, occurred_at, actor, payload_json)
 						VALUES
 							(${item.eventId}, ${input.correlationId}, ${input.causationEventId},
-							 'session', ${input.streamId}, ${streamVersion}, ${item.event._tag},
+							 ${streamKind}, ${input.streamId}, ${streamVersion}, ${item.event._tag},
 							 ${occurredAt}, NULL, ${JSON.stringify(item.event)})
 					`;
 				}
@@ -178,7 +193,7 @@ export const makeSqlDispatchStorage = (
 						(command_id, stream_kind, stream_id, stream_version,
 						 event_ids_json, result_json, created_at)
 					VALUES
-						(${result.commandId}, 'session', ${result.streamId},
+						(${result.commandId}, ${streamKind}, ${result.streamId},
 						 ${result.streamVersion}, ${JSON.stringify(result.eventIds)},
 						 ${JSON.stringify(result)}, ${occurredAt})
 				`;

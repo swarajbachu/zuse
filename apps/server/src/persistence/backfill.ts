@@ -4,6 +4,7 @@ import {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
+import type { ChatEvent } from "@zuse/domain/chat/events";
 import {
 	messageEventFromSnapshot,
 	sessionCreatedEventFromSnapshot,
@@ -12,8 +13,20 @@ import {
 import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-const BACKFILL_NAME = "session-lifecycle-v3";
-const PROJECTORS = ["messages", "sessions", "chats", "activity"] as const;
+const BACKFILL_NAME = "conversation-lifecycle-v4";
+const PROJECTORS = ["session-read-model", "chat-read-model"] as const;
+
+interface ChatRow {
+	readonly id: string;
+	readonly project_id: string;
+	readonly worktree_id: string | null;
+	readonly title: string;
+	readonly origin_session_id: string | null;
+	readonly archived_at: string | null;
+	readonly archived_worktree_json: string | null;
+	readonly last_read_at: string | null;
+	readonly created_at: string;
+}
 
 interface SessionRow {
 	readonly id: string;
@@ -120,6 +133,11 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					tool_search, created_at, archived_at
 				FROM sessions ORDER BY created_at, id
 			`;
+			const chats = yield* sql<ChatRow>`
+				SELECT id, project_id, worktree_id, title, origin_session_id,
+					archived_at, archived_worktree_json, last_read_at, created_at
+				FROM chats ORDER BY created_at, id
+			`;
 			const messages = yield* sql<MessageRow>`
 				SELECT rowid AS row_id, id, session_id, role, kind, content_json,
 					parent_item_id, created_at
@@ -211,6 +229,76 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					),
 				),
 			});
+			const existingEventIds = new Set(
+				existingEvents.map((row) => row.event_id),
+			);
+			const chatEvents: Array<{
+				readonly eventId: string;
+				readonly streamId: string;
+				readonly occurredAt: number;
+				readonly event: ChatEvent;
+			}> = [];
+			for (const chat of chats) {
+				const createdAt = requiredTimestamp(
+					chat.created_at,
+					"chats.created_at",
+				);
+				const createdEventId = `backfill:chat-created:${chat.id}`;
+				if (!existingEventIds.has(createdEventId)) {
+					chatEvents.push({
+						eventId: createdEventId,
+						streamId: chat.id,
+						occurredAt: createdAt,
+						event: {
+							_tag: "ChatCreated",
+							chatId: chat.id,
+							projectId: chat.project_id,
+							worktreeId: chat.worktree_id,
+							title: chat.title,
+							originSessionId: chat.origin_session_id,
+							lastReadAt: timestamp(chat.last_read_at, "chats.last_read_at"),
+							createdAt,
+						},
+					});
+				}
+				const archivedAt = timestamp(chat.archived_at, "chats.archived_at");
+				const archivedEventId = `backfill:chat-archived:${chat.id}`;
+				if (archivedAt !== null && !existingEventIds.has(archivedEventId)) {
+					chatEvents.push({
+						eventId: archivedEventId,
+						streamId: chat.id,
+						occurredAt: archivedAt,
+						event: {
+							_tag: "ChatArchived",
+							archivedAt,
+							archivedWorktreeJson: chat.archived_worktree_json,
+						},
+					});
+				}
+			}
+
+			const chatVersionRows = yield* sql<StreamVersionRow>`
+				SELECT stream_id, MAX(stream_version) AS stream_version
+				FROM events WHERE stream_kind = 'chat'
+				GROUP BY stream_id
+			`;
+			const chatVersions = new Map(
+				chatVersionRows.map((row) => [row.stream_id, row.stream_version]),
+			);
+			for (const item of chatEvents) {
+				const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
+				chatVersions.set(item.streamId, streamVersion);
+				yield* sql`
+					INSERT INTO events
+						(event_id, correlation_id, causation_event_id, stream_kind,
+						 stream_id, stream_version, type, occurred_at, actor, payload_json)
+					VALUES
+						(${item.eventId}, ${item.eventId}, NULL, 'chat', ${item.streamId},
+						 ${streamVersion}, ${item.event._tag},
+						 ${new Date(item.occurredAt).toISOString()}, 'backfill',
+						 ${JSON.stringify(item.event)})
+				`;
+			}
 
 			const versionRows = yield* sql<StreamVersionRow>`
 				SELECT stream_id, MAX(stream_version) AS stream_version
@@ -253,10 +341,13 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			yield* sql`
 				UPDATE backfill_runs SET
 					status = 'completed', completed_at = ${completedAt},
-					event_count = ${events.length}
+					event_count = ${events.length + chatEvents.length}
 				WHERE backfill_name = ${BACKFILL_NAME}
 			`;
-			return { status: "completed", eventCount: events.length } as const;
+			return {
+				status: "completed",
+				eventCount: events.length + chatEvents.length,
+			} as const;
 		}),
 	);
 });

@@ -51,6 +51,8 @@ import {
   WorktreeId,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import type { ChatCommand } from "@zuse/domain/chat/commands";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
@@ -779,6 +781,7 @@ export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const sessionDomain = yield* SessionDomain;
+    const chatDomain = yield* ChatDomain;
     const currentTimestamp = DateTime.nowAsDate.pipe(
       Effect.map((now) => now.getTime()),
     );
@@ -790,6 +793,17 @@ export const ConversationServicesLive = Layer.effectContext(
         .dispatch({
           commandId: crypto.randomUUID(),
           streamId: sessionId,
+          command,
+        })
+        .pipe(Effect.asVoid, Effect.orDie);
+    const dispatchChatCommand = (
+      chatId: ChatId,
+      command: ChatCommand,
+    ): Effect.Effect<void> =>
+      chatDomain
+        .dispatch({
+          commandId: crypto.randomUUID(),
+          streamId: chatId,
           command,
         })
         .pipe(Effect.asVoid, Effect.orDie);
@@ -2666,21 +2680,22 @@ export const ConversationServicesLive = Layer.effectContext(
       input: CreateChatInput,
     ) =>
       Effect.gen(function* () {
-        const now = new Date();
-        const nowIso = now.toISOString();
+        const createdAt = yield* currentTimestamp;
         const chatId = crypto.randomUUID() as unknown as ChatId;
         const title =
           input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
         const worktreeId = input.worktreeId ?? null;
         const originSessionId = input.originSessionId ?? null;
-        yield* sql`
-          INSERT INTO chats
-            (id, project_id, worktree_id, title, active_session_id, origin_session_id,
-             archived_at, last_message_at, last_read_at, created_at, updated_at)
-          VALUES
-            (${chatId}, ${input.projectId}, ${worktreeId}, ${title}, NULL,
-             ${originSessionId}, NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso})
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "CreateChat",
+          chatId,
+          projectId: input.projectId,
+          worktreeId,
+          title,
+          originSessionId,
+          lastReadAt: createdAt,
+          createdAt,
+        });
         const initialSession = yield* createSession({
           chatId,
           providerId: input.providerId,
@@ -2703,10 +2718,10 @@ export const ConversationServicesLive = Layer.effectContext(
             // Roll back the chat row if the provider failed to boot —
             // otherwise the sidebar would show an empty container the
             // user can't escape from.
-            sql`DELETE FROM chats WHERE id = ${chatId}`.pipe(
-              Effect.asVoid,
-              Effect.orDie,
-            ),
+            dispatchChatCommand(chatId, {
+              _tag: "DeleteChat",
+              deletedAt: createdAt,
+            }),
           ),
         );
         const chat = yield* lookupChat(chatId).pipe(Effect.orDie);
@@ -2923,11 +2938,11 @@ export const ConversationServicesLive = Layer.effectContext(
     const renameChat: ConversationOperations["renameChat"] = (chatId, title) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
-        const nowIso = new Date().toISOString();
-        yield* sql`
-          UPDATE chats SET title = ${title}, updated_at = ${nowIso}
-          WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "RenameChat",
+          title,
+          updatedAt: yield* currentTimestamp,
+        });
         // Push the new title to any renderer subscribed via
         // `chat.streamChanges` so the sidebar updates without a refetch.
         const updated = yield* lookupChat(chatId);
@@ -2937,11 +2952,10 @@ export const ConversationServicesLive = Layer.effectContext(
     const markChatRead: ConversationOperations["markChatRead"] = (chatId) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
-        const nowIso = new Date().toISOString();
-        // Read state only — leave `updated_at` (sidebar ordering) untouched.
-        yield* sql`
-          UPDATE chats SET last_read_at = ${nowIso} WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "MarkChatRead",
+          readAt: yield* currentTimestamp,
+        });
         return yield* lookupChat(chatId);
       });
 
@@ -3115,11 +3129,11 @@ export const ConversationServicesLive = Layer.effectContext(
           return yield* Effect.fail(new ChatAlreadyStartedError({ chatId }));
         }
         const updatedAt = yield* currentTimestamp;
-        const nowIso = new Date(updatedAt).toISOString();
-        yield* sql`
-          UPDATE chats SET worktree_id = ${worktreeId}, updated_at = ${nowIso}
-          WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "SetChatWorktree",
+          worktreeId,
+          updatedAt,
+        });
         // Background-booted sessions (chat.create → session.create with
         // background=true) already spawned a provider CLI in the OLD cwd
         // before the user got a chance to pick a worktree. Kill those so
@@ -3151,18 +3165,17 @@ export const ConversationServicesLive = Layer.effectContext(
     ) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
-        const nowIso = new Date().toISOString();
-        // Defensive: only update if the session belongs to this chat.
-        // Stale renderer state shouldn't be able to scramble the memo.
-        yield* sql`
-          UPDATE chats
-          SET active_session_id = ${sessionId}, updated_at = ${nowIso}
-          WHERE id = ${chatId}
-            AND EXISTS (
-              SELECT 1 FROM sessions
-              WHERE id = ${sessionId} AND chat_id = ${chatId}
-            )
-        `.pipe(Effect.asVoid, Effect.orDie);
+        const member = yield* sql<{ readonly id: string }>`
+          SELECT id FROM sessions
+          WHERE id = ${sessionId} AND chat_id = ${chatId}
+          LIMIT 1
+        `.pipe(Effect.orDie);
+        if (member.length === 0) return;
+        yield* dispatchChatCommand(chatId, {
+          _tag: "SetActiveSession",
+          sessionId,
+          updatedAt: yield* currentTimestamp,
+        });
       });
 
     const archiveChat: ConversationOperations["archiveChat"] = (chatId, force) =>
@@ -3246,14 +3259,11 @@ export const ConversationServicesLive = Layer.effectContext(
         }
 
         const archivedAt = yield* currentTimestamp;
-        const nowIso = new Date(archivedAt).toISOString();
-        yield* sql`
-          UPDATE chats
-          SET archived_at = ${nowIso},
-              archived_worktree_json = ${snapshotJson},
-              updated_at = ${nowIso}
-          WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "ArchiveChat",
+          archivedAt,
+          archivedWorktreeJson: snapshotJson,
+        });
         yield* Effect.forEach(
           liveSessions,
           ({ id }) =>
@@ -3316,15 +3326,11 @@ export const ConversationServicesLive = Layer.effectContext(
         }
 
         const unarchivedAt = yield* currentTimestamp;
-        const nowIso = new Date(unarchivedAt).toISOString();
-        yield* sql`
-          UPDATE chats
-          SET archived_at = NULL,
-              worktree_id = ${restoredWorktreeId},
-              archived_worktree_json = NULL,
-              updated_at = ${nowIso}
-          WHERE id = ${chatId}
-        `.pipe(Effect.asVoid, Effect.orDie);
+        yield* dispatchChatCommand(chatId, {
+          _tag: "UnarchiveChat",
+          unarchivedAt,
+          worktreeId: restoredWorktreeId,
+        });
         const archivedSessions = yield* sql<{
           readonly id: string;
           readonly worktree_id: string | null;
@@ -3387,10 +3393,10 @@ export const ConversationServicesLive = Layer.effectContext(
             deletedAt: yield* currentTimestamp,
           });
         }
-        yield* sql`DELETE FROM chats WHERE id = ${chatId}`.pipe(
-          Effect.asVoid,
-          Effect.orDie,
-        );
+        yield* dispatchChatCommand(chatId, {
+          _tag: "DeleteChat",
+          deletedAt: yield* currentTimestamp,
+        });
         // ON DELETE CASCADE handles sessions + messages.
       });
 

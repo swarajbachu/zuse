@@ -11,6 +11,7 @@ import type {
 } from "@zuse/contracts";
 import { RepositorySettings, Worktree } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { Context, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
@@ -275,6 +276,10 @@ const makeRuntime = (
     Layer.provide(Migrated),
     Layer.provide(NodeServices.layer),
   );
+  const ChatDomainLive = ChatDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
   const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
@@ -286,6 +291,7 @@ const makeRuntime = (
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
     Layer.provide(DomainLive),
+    Layer.provide(ChatDomainLive),
     Layer.provideMerge(Migrated),
   );
   const TestLayer = TestConversationLive.pipe(

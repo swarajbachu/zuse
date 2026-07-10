@@ -21,12 +21,15 @@ type EventRow = {
 	readonly payload_json: string;
 };
 
-const decodeEvent = Schema.decodeUnknownEffect(
+const decodeSessionEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(SessionEvent),
 );
 
-const storedEventFromRow = Effect.fn("SqlConsumerStorage.storedEventFromRow")(
-	function* (row: EventRow) {
+const storedEventFromRow = <Event>(
+	row: EventRow,
+	decodeEvent: (json: string) => Effect.Effect<Event, unknown>,
+): Effect.Effect<StoredEvent<Event>, DispatchPersistenceDecodeError> =>
+	Effect.gen(function* () {
 		const event = yield* decodeEvent(row.payload_json).pipe(
 			Effect.mapError(
 				(cause) =>
@@ -46,15 +49,25 @@ const storedEventFromRow = Effect.fn("SqlConsumerStorage.storedEventFromRow")(
 			streamVersion: row.stream_version,
 			sequence: row.sequence,
 			event,
-		} satisfies StoredEvent;
-	},
-);
+		} satisfies StoredEvent<Event>;
+	});
 
 export type SqlConsumerStorageError = SqlError | DispatchPersistenceDecodeError;
 
-export const makeSqlConsumerStorage = (
+export type SqlConsumerStorageOptions<Event> = {
+	readonly streamKind: string;
+	readonly decodeEvent: (json: string) => Effect.Effect<Event, unknown>;
+};
+
+export const makeSqlConsumerStorage = <Event = SessionEvent>(
 	sql: SqlClient.SqlClient,
-): ProjectorStorage<StoredEvent, SqlConsumerStorageError> => {
+	options?: SqlConsumerStorageOptions<Event>,
+): ProjectorStorage<StoredEvent<Event>, SqlConsumerStorageError> => {
+	const streamKind = options?.streamKind ?? "session";
+	const decodeEvent =
+		options?.decodeEvent ??
+		((json: string) =>
+			decodeSessionEvent(json) as unknown as Effect.Effect<Event, unknown>);
 	const cursor = Effect.fn("SqlConsumerStorage.cursor")(function* (
 		consumerName: string,
 	) {
@@ -74,11 +87,13 @@ export const makeSqlConsumerStorage = (
 			SELECT sequence, event_id, correlation_id, causation_event_id,
 			       stream_id, stream_version, payload_json
 			FROM events
-			WHERE stream_kind = 'session' AND sequence > ${sequence}
+			WHERE stream_kind = ${streamKind} AND sequence > ${sequence}
 			ORDER BY sequence ASC
 		`;
 
-		return yield* Effect.forEach(rows, storedEventFromRow);
+		return yield* Effect.forEach(rows, (row) =>
+			storedEventFromRow(row, decodeEvent),
+		);
 	});
 
 	const commitCursor = Effect.fn("SqlConsumerStorage.commitCursor")(function* (

@@ -1,5 +1,6 @@
 import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
@@ -291,14 +292,23 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(BackfilledSqlite),
     Layer.provide(NodeServices.layer),
   );
+  const ChatDomainLayer = ChatDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
 
   // Replay durable domain events before accepting transport traffic.
   const ProjectorCatchup = Layer.effectDiscard(
     Effect.gen(function* () {
       const domain = yield* SessionDomain;
       yield* domain.catchUp;
+      const chats = yield* ChatDomain;
+      yield* chats.catchUp;
     }),
-  ).pipe(Layer.provide(SessionDomainLayer));
+  ).pipe(
+    Layer.provide(SessionDomainLayer),
+    Layer.provide(ChatDomainLayer),
+  );
 
   const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
     Layer.provide(LanAuthLayer),
@@ -317,6 +327,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(RelayActivityPublisherLayer),
     Layer.provide(ProjectorCatchup),
     Layer.provide(SessionDomainLayer),
+    Layer.provide(ChatDomainLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );

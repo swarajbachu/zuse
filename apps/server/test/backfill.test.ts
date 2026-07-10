@@ -2,14 +2,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
-
 import { runLifecycleBackfill } from "../src/persistence/backfill.ts";
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
-import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 
 describe("lifecycle backfill", () => {
 	test("appends missing lifecycle events once and advances all cursors", async () => {
@@ -17,6 +16,17 @@ describe("lifecycle backfill", () => {
 		const filename = join(directory, "test.sqlite");
 		const seed = new DatabaseSync(filename);
 		seed.exec(`
+			CREATE TABLE chats (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL,
+				worktree_id TEXT,
+				title TEXT NOT NULL,
+				origin_session_id TEXT,
+				archived_at TEXT,
+				archived_worktree_json TEXT,
+				last_read_at TEXT,
+				created_at TEXT NOT NULL
+			);
 			CREATE TABLE sessions (
 				id TEXT PRIMARY KEY,
 				project_id TEXT NOT NULL,
@@ -59,6 +69,12 @@ describe("lifecycle backfill", () => {
 				UNIQUE (stream_kind, stream_id, stream_version)
 			);
 			CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+			INSERT INTO chats
+				(id, project_id, title, last_read_at, created_at)
+			VALUES (
+				'chat-1', 'project-1', 'Existing title',
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			);
 			INSERT INTO sessions
 				(id, project_id, chat_id, title, archived_at, created_at)
 			VALUES (
@@ -91,16 +107,17 @@ describe("lifecycle backfill", () => {
 					return yield* runLifecycleBackfill;
 				}),
 			);
-			expect(result).toEqual({ status: "completed", eventCount: 3 });
+			expect(result).toEqual({ status: "completed", eventCount: 4 });
 
 			const snapshot = await runtime.runPromise(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					const events = yield* sql<{
 						readonly type: string;
+						readonly stream_kind: string;
 						readonly stream_version: number;
 						readonly payload_json: string;
-					}>`SELECT type, stream_version, payload_json FROM events ORDER BY sequence`;
+					}>`SELECT type, stream_kind, stream_version, payload_json FROM events ORDER BY sequence`;
 					const cursors = yield* sql<{
 						readonly projector_name: string;
 						readonly last_sequence: number;
@@ -111,15 +128,17 @@ describe("lifecycle backfill", () => {
 			);
 
 			expect(
-				snapshot.events.map(({ type, stream_version }) => ({
+				snapshot.events.map(({ type, stream_kind, stream_version }) => ({
 					type,
+					stream_kind,
 					stream_version,
 				})),
 			).toEqual([
-				{ type: "MessagePersisted", stream_version: 1 },
-				{ type: "SessionCreated", stream_version: 2 },
-				{ type: "SessionTitleSet", stream_version: 3 },
-				{ type: "SessionArchived", stream_version: 4 },
+				{ type: "MessagePersisted", stream_kind: "session", stream_version: 1 },
+				{ type: "ChatCreated", stream_kind: "chat", stream_version: 1 },
+				{ type: "SessionCreated", stream_kind: "session", stream_version: 2 },
+				{ type: "SessionTitleSet", stream_kind: "session", stream_version: 3 },
+				{ type: "SessionArchived", stream_kind: "session", stream_version: 4 },
 			]);
 			const firstPayload = snapshot.events[0]?.payload_json;
 			expect(firstPayload).toBeDefined();
@@ -134,14 +153,13 @@ describe("lifecycle backfill", () => {
 				createdAt: Date.parse("2026-01-02T00:00:00.000Z"),
 			});
 			expect(snapshot.cursors).toEqual([
-				{ projector_name: "activity", last_sequence: 4 },
-				{ projector_name: "chats", last_sequence: 4 },
-				{ projector_name: "messages", last_sequence: 4 },
-				{ projector_name: "sessions", last_sequence: 4 },
+				{ projector_name: "chat-read-model", last_sequence: 5 },
+				{ projector_name: "messages", last_sequence: 1 },
+				{ projector_name: "session-read-model", last_sequence: 5 },
 			]);
 			expect(snapshot.rerun).toEqual({
 				status: "already-completed",
-				eventCount: 3,
+				eventCount: 4,
 			});
 		} finally {
 			await runtime.dispose();
