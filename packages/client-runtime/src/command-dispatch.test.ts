@@ -28,6 +28,10 @@ describe("CommandDispatcher", () => {
 		expect(calls).toBe(1);
 		gate.resolve("ok");
 		await expect(duplicate).resolves.toBe("ok");
+		await expect(
+			dispatcher.dispatch("cmd-1", () => Promise.resolve("fresh")),
+		).resolves.toBe("fresh");
+		expect(calls).toBe(1);
 	});
 
 	test("keeps one receipt promise while redispatching after reconnect", async () => {

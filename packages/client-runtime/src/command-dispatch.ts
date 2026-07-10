@@ -60,16 +60,13 @@ export class CommandDispatcher {
 		return receipts;
 	}
 
-	forget(commandId: string): void {
-		this.entries.delete(commandId);
-	}
-
 	failPending(cause: unknown): void {
 		for (const entry of this.entries.values()) {
 			if (entry.settled) continue;
 			entry.settled = true;
 			entry.reject(cause);
 		}
+		this.entries.clear();
 	}
 
 	get pendingCommandIds(): readonly string[] {
@@ -85,12 +82,14 @@ export class CommandDispatcher {
 			(value) => {
 				entry.inFlight = false;
 				entry.settled = true;
+				this.entries.delete(entry.commandId);
 				entry.resolve(value);
 			},
 			(cause) => {
 				entry.inFlight = false;
 				if (entry.shouldRetry(cause)) return;
 				entry.settled = true;
+				this.entries.delete(entry.commandId);
 				entry.reject(cause);
 			},
 		);
