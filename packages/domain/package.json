@@ -13,6 +13,7 @@
 		"./engine/dispatch": "./src/engine/dispatch.ts",
 		"./engine/projector-runner": "./src/engine/projector-runner.ts",
 		"./engine/reactor-runner": "./src/engine/reactor-runner.ts",
+		"./engine/sql-dispatch-storage": "./src/engine/sql-dispatch-storage.ts",
 		"./projectors/read-model": "./src/projectors/read-model.ts",
 		"./queries/session-queries": "./src/queries/session-queries.ts"
 	},
@@ -22,9 +23,11 @@
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@effect/sql-sqlite-node": "catalog:",
 		"@repo/typescript-config": "*",
 		"typescript": "catalog:",
 		"vitest": "catalog:"

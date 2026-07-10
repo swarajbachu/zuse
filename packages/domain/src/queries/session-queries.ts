@@ -1,3 +1,5 @@
+import { Schema } from "effect";
+
 import type {
 	MessageReadRecord,
 	SessionReadRecord,
@@ -26,12 +28,10 @@ export type SessionTranscript = {
 	readonly messages: readonly MessageReadRecord[];
 };
 
-export class SessionQueryNotFound extends Error {
-	readonly _tag = "SessionQueryNotFound";
-	constructor(readonly sessionId: string) {
-		super(`session ${sessionId} was not found`);
-	}
-}
+export class SessionQueryNotFound extends Schema.TaggedErrorClass<SessionQueryNotFound>()(
+	"SessionQueryNotFound",
+	{ sessionId: Schema.String },
+) {}
 
 export class SessionQueries {
 	constructor(private readonly repository: SessionReadRepository) {}
@@ -53,7 +53,7 @@ export class SessionQueries {
 	transcript(sessionId: string): Promise<SessionTranscript> {
 		const session = this.repository.session(sessionId);
 		if (session === null)
-			return Promise.reject(new SessionQueryNotFound(sessionId));
+			return Promise.reject(new SessionQueryNotFound({ sessionId }));
 		return Promise.resolve({
 			session,
 			messages: this.repository.messages(sessionId),

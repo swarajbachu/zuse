@@ -5,7 +5,13 @@
 	"type": "module",
 	"exports": {
 		"./check-runs": "./src/check-runs.ts",
-		"./git-service": "./src/git-service.ts"
+		"./git-service": "./src/git-service.ts",
+		"./git-service-live": "./src/git-service-live.ts",
+		"./repository-locator": "./src/repository-locator.ts",
+		"./worktree-env-files": "./src/worktree/env-files.ts",
+		"./worktree-ports": "./src/worktree/ports.ts",
+		"./worktree-service": "./src/worktree/worktree-service.ts",
+		"./worktree-service-live": "./src/worktree/worktree-service-live.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
@@ -16,7 +22,10 @@
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@effect/platform-node": "catalog:",
+		"@effect/sql-sqlite-node": "catalog:",
 		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

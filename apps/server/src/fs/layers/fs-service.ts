@@ -20,7 +20,7 @@ import {
 } from "@zuse/contracts";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
-import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 import { FsService } from "../services/fs-service.ts";
 
 // Skip directories that are large, irrelevant, or just noise in a code-tree

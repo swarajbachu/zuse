@@ -1,5 +1,7 @@
 import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
+import { GitServiceLive } from "@zuse/git/git-service-live";
+import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 import { SqlClient } from "effect/unstable/sql";
@@ -13,7 +15,7 @@ import { ConfigStoreServiceLive } from "./config-store/layers/config-store-servi
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
-import { GitServiceLive } from "./git/layers/git-service.ts";
+import { RepositoryLocatorLive } from "./git/repository-locator-live.ts";
 import { HandlersLayer } from "./handlers.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
@@ -44,7 +46,13 @@ import { FileSearchServiceLive } from "./workspace/layers/file-search.ts";
 import { ProjectScaffoldLive } from "./workspace/layers/project-scaffold-live.ts";
 import { WorkspaceServiceLive } from "./workspace/layers/workspace-service.ts";
 import { FolderPicker } from "./workspace/services/folder-picker.ts";
-import { WorktreeServiceLive } from "./worktree/layers/worktree-service.ts";
+import {
+  PokemonAssignmentLive,
+  ProjectLocatorLive,
+  RepositorySettingsReaderLive,
+  WorktreeDecorationLive,
+  WorktreeNameAllocatorLive,
+} from "./worktree/worktree-ports-live.ts";
 
 /**
  * Inputs to `makeMainLayer`. The host shell (today: Electron in
@@ -148,10 +156,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
   // WorktreeService manages memoize-owned `git worktree` checkouts. Same
   // shape as GitLayer + the SqlClient for persisting the rows.
+  const WorktreePortsLayer = Layer.mergeAll(
+    ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
+    RepositorySettingsReaderLive.pipe(
+      Layer.provide(RepositorySettingsLayer),
+    ),
+    WorktreeNameAllocatorLive,
+    WorktreeDecorationLive,
+    PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
+  );
+
   const WorktreeLayer = WorktreeServiceLive.pipe(
-    Layer.provide(WorkspaceLayer),
-    Layer.provide(RepositorySettingsLayer),
-    Layer.provide(PokemonLayer),
+    Layer.provide(WorktreePortsLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NodeServices.layer),
   );
@@ -160,8 +176,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // so `git.status` can resolve cwd to the active worktree when set, and
   // CommandExecutor (via NodeServices) for spawning git.
   const GitLayer = GitServiceLive.pipe(
-    Layer.provide(WorkspaceLayer),
-    Layer.provide(WorktreeLayer),
+    Layer.provide(
+      RepositoryLocatorLive.pipe(
+        Layer.provide(WorkspaceLayer),
+        Layer.provide(WorktreeLayer),
+      ),
+    ),
     Layer.provide(NodeServices.layer),
   );
 

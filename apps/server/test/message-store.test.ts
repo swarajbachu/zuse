@@ -56,7 +56,7 @@ import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_que
 import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/0029_chat_lineage_repair.ts";
-import { WorktreeService } from "../src/worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 import { MessageStore } from "../src/provider/services/message-store.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
 import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
