@@ -623,7 +623,7 @@ interface DeltaState {
   readonly flushedPartIds: Set<string>;
   /** Tool itemIds we've already emitted a `ToolUse` for. Opencode pushes
    *  a `message.part.updated` frame for every state transition (pending →
-   *  running → completed), but the renderer/message-store doesn't dedupe
+   *  running → completed), but the renderer/conversation-services doesn't dedupe
    *  by itemId — each event becomes a new row. So we emit ToolUse once
    *  (the first frame with real input or the completed snapshot) and
    *  only emit ToolResult on the terminal transition. */

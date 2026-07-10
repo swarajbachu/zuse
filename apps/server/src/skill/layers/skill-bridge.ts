@@ -6,7 +6,7 @@ import { Effect, Layer, PubSub, Stream } from "effect";
 
 import type { ProviderId, Skill } from "@zuse/contracts";
 
-import { MessageStore } from "../../provider/services/message-store.ts";
+import { SessionService } from "../../provider/services/conversation-services.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { SkillBridge } from "../services/skill-bridge.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
@@ -87,7 +87,7 @@ export const SkillBridgeLive = Layer.effect(
   SkillBridge,
   Effect.gen(function* () {
     const discovery = yield* SkillDiscoveryService;
-    const store = yield* MessageStore;
+    const store = yield* SessionService;
     const workspace = yield* WorkspaceService;
 
     interface CacheEntry {

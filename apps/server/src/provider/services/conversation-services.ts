@@ -48,7 +48,7 @@ import type {
  * Persistence-backed orchestration of chat sessions and their message log.
  * Wraps `ProviderService` so RPC handlers and the renderer talk to one
  * coherent surface — `agent.*` RPCs stay live for low-level access but the
- * chat UI never reaches past `MessageStore`.
+ * chat UI never reaches past `ConversationServices`.
  *
  * Invariants:
  * - `Session.id` matches the provider's in-memory `AgentSessionId`.
@@ -170,7 +170,7 @@ export interface ForkSessionResult {
   readonly forkMode: ForkMode;
 }
 
-export interface MessageStoreShape {
+export interface ConversationOperations {
   readonly listSessions: (
     projectId: FolderId,
     includeArchived: boolean,
@@ -511,7 +511,85 @@ export interface MessageStoreShape {
   ) => Effect.Effect<void, SessionNotFoundError>;
 }
 
-export class MessageStore extends Context.Service<
-  MessageStore,
-  MessageStoreShape
->()("memoize/MessageStore") {}
+export type SessionServiceShape = Pick<
+  ConversationOperations,
+  | "listSessions"
+  | "getSession"
+  | "createSession"
+  | "renameSession"
+  | "setModel"
+  | "setProvider"
+  | "setRuntimeMode"
+  | "setPermissionMode"
+  | "answerQuestion"
+  | "setWorktree"
+  | "archiveSession"
+  | "unarchiveSession"
+  | "deleteSession"
+  | "resumeSession"
+  | "streamStatus"
+  | "getGoal"
+  | "setGoal"
+  | "clearGoal"
+  | "streamGoal"
+>;
+
+export type ChatServiceShape = Pick<
+  ConversationOperations,
+  | "listChats"
+  | "getChat"
+  | "createChat"
+  | "renameChat"
+  | "markChatRead"
+  | "streamChatChanges"
+  | "setChatWorktree"
+  | "setChatActiveSession"
+  | "archiveChat"
+  | "unarchiveChat"
+  | "deleteChat"
+>;
+
+export type TranscriptServiceShape = Pick<
+  ConversationOperations,
+  | "continueExternalThread"
+  | "importExternalMessages"
+  | "forkSession"
+  | "exportTranscript"
+  | "latestPlan"
+>;
+
+export type MessageServiceShape = Pick<
+  ConversationOperations,
+  | "listMessages"
+  | "streamMessages"
+  | "sendMessage"
+  | "interruptSession"
+  | "listQueuedMessages"
+  | "streamQueuedMessages"
+  | "addQueuedMessage"
+  | "updateQueuedMessage"
+  | "deleteQueuedMessage"
+  | "sendQueuedMessageNow"
+  | "reorderQueuedMessages"
+  | "flushQueuedMessages"
+  | "resumeQueuedMessages"
+>;
+
+export class SessionService extends Context.Service<
+  SessionService,
+  SessionServiceShape
+>()("zuse/SessionService") {}
+
+export class ChatService extends Context.Service<ChatService, ChatServiceShape>()(
+  "zuse/ChatService",
+) {}
+
+export class TranscriptService extends Context.Service<
+  TranscriptService,
+  TranscriptServiceShape
+>()("zuse/TranscriptService") {}
+
+export class MessageService extends Context.Service<
+  MessageService,
+  MessageServiceShape
+>()("zuse/MessageService") {}

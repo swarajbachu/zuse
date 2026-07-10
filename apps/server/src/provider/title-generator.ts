@@ -76,7 +76,7 @@ export const buildConversationText = (
 /* ──────────────────────────── pure helpers ──────────────────────────── */
 
 /**
- * First-line truncation fallback — identical in spirit to the message-store
+ * First-line truncation fallback — identical in spirit to the conversation-services
  * helper of the same shape. Used whenever the model call is unavailable
  * (offline, provider not installed) or returns nothing usable, so a chat is
  * never left on its "New chat" placeholder.

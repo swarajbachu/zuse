@@ -13,7 +13,7 @@ import { RepositorySettings, Worktree } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
@@ -44,8 +44,14 @@ import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_c
 import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { MessageStoreLive } from "../../src/provider/layers/message-store.ts";
-import { MessageStore } from "../../src/provider/services/message-store.ts";
+import { ConversationServicesLive } from "../../src/provider/layers/conversation-services.ts";
+import {
+  ChatService,
+  type ConversationOperations,
+  MessageService,
+  SessionService,
+  TranscriptService,
+} from "../../src/provider/services/conversation-services.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";
@@ -56,6 +62,22 @@ export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 const FIXTURE_WORKTREE_ID = "fixture-worktree" as WorktreeId;
 const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
 const FIXTURE_WORKTREE_PATH = "/tmp/zuse-fixture-project/.memo/worktree";
+
+class TestConversation extends Context.Service<
+  TestConversation,
+  ConversationOperations
+>()("test/FixtureConversation") {}
+
+const TestConversationLive = Layer.effect(
+  TestConversation,
+  Effect.gen(function* () {
+    const sessions = yield* SessionService;
+    const chats = yield* ChatService;
+    const transcripts = yield* TranscriptService;
+    const messages = yield* MessageService;
+    return { ...sessions, ...chats, ...transcripts, ...messages };
+  }),
+);
 
 const renderableTags = new Set<AgentEvent["_tag"]>([
   "AssistantMessage",
@@ -253,7 +275,7 @@ const makeRuntime = (
     Layer.provide(Migrated),
     Layer.provide(NodeServices.layer),
   );
-  const TestLayer = MessageStoreLive.pipe(
+  const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
     Layer.provide(StubRepositorySettingsLive),
@@ -266,17 +288,20 @@ const makeRuntime = (
     Layer.provide(DomainLive),
     Layer.provideMerge(Migrated),
   );
+  const TestLayer = TestConversationLive.pipe(
+    Layer.provideMerge(ConversationLayer),
+  );
 
   return ManagedRuntime.make(TestLayer);
 };
 
-export const assertEventsAcceptedByMessageStore = async (
+export const assertEventsAcceptedByConversationServices = async (
   events: ReadonlyArray<AgentEvent>,
 ): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), "zuse-provider-fixture-"));
   const runtime = makeRuntime(join(dir, "fixture.sqlite"), events);
   const run = <A>(
-    effect: Effect.Effect<A, unknown, MessageStore | SqlClient.SqlClient>,
+    effect: Effect.Effect<A, unknown, TestConversation | SqlClient.SqlClient>,
   ): Promise<A> =>
     runtime.runPromise(effect as Effect.Effect<A, unknown, never>);
 
@@ -293,7 +318,7 @@ export const assertEventsAcceptedByMessageStore = async (
     );
 
     const { initialSession } = await run(
-      Effect.flatMap(MessageStore, (store) =>
+      Effect.flatMap(TestConversation, (store) =>
         store.createChat({
           projectId: FIXTURE_PROJECT_ID,
           providerId: "claude",
@@ -308,7 +333,7 @@ export const assertEventsAcceptedByMessageStore = async (
     ).length;
 
     const waitForReplay = Effect.gen(function* () {
-      const store = yield* MessageStore;
+      const store = yield* TestConversation;
       const messages = yield* store.listMessages(initialSession.id);
       const providerMessages = messages.filter(
         (message) => message.role !== "user",

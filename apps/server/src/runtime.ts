@@ -31,7 +31,7 @@ import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
 import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
-import { MessageStoreLive } from "./provider/layers/message-store.ts";
+import { ConversationServicesLive } from "./provider/layers/conversation-services.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
@@ -271,11 +271,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   );
 
   // NdjsonLogger writes a best-effort transcript audit file alongside the
-  // SQLite store. Provided to MessageStore so the same daemon that persists
+  // SQLite store. Provided to Conversation services so the same daemon that persists
   // a row also tail-writes the NDJSON line.
   const NdjsonLoggerLayer = NdjsonLoggerLive.pipe(Layer.provide(AppPathsLayer));
 
-  // MessageStore composes ProviderService with the SQLite-backed sessions /
+  // Conversation services composes ProviderService with the SQLite-backed sessions /
   // messages tables. The chat-MVP RPC surface (session.* / messages.*) talks
   // through this; legacy agent.* handlers stay bound to ProviderService for
   // low-level testing.
@@ -304,13 +304,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(LanAuthLayer),
   );
 
-  const MessageStoreLayer = MessageStoreLive.pipe(
+  const ConversationServicesLayer = ConversationServicesLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
     Layer.provide(RepositorySettingsLayer),
     Layer.provide(PtyLayer),
     // GitService + ConfigStore + TitleGenerator back the background auto-namer
-    // (rename chat + optional branch); see message-store `autoNameChat`.
+    // (rename chat + optional branch); see conversation-services `autoNameChat`.
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
@@ -330,7 +330,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
     Layer.provide(WorkspaceLayer),
     Layer.provide(WorktreeLayer),
-    Layer.provide(MessageStoreLayer),
+    Layer.provide(ConversationServicesLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NodeServices.layer),
   );
@@ -344,7 +344,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   );
   const SkillBridgeLayer = SkillBridgeLive.pipe(
     Layer.provide(SkillDiscoveryLayer),
-    Layer.provide(MessageStoreLayer),
+    Layer.provide(ConversationServicesLayer),
     Layer.provide(WorkspaceLayer),
   );
   // AuthService owns the WorkOS PKCE flow + shared file-backed session bundle.
@@ -398,7 +398,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     FileSearchLayer,
     ProjectScaffoldLayer,
     ProviderLayer,
-    MessageStoreLayer,
+    ConversationServicesLayer,
     PermissionLayer,
     AttachmentLayer,
     BrowserBridgeLayer,

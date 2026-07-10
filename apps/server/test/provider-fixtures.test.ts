@@ -16,7 +16,7 @@ import {
   createAcpTranslator,
   type AcpProviderTag,
 } from "../src/provider/drivers/acp/translate.ts";
-import { assertEventsAcceptedByMessageStore } from "./support/message-store-fixture-harness.ts";
+import { assertEventsAcceptedByConversationServices } from "./support/conversation-services-fixture-harness.ts";
 
 type AcpFixture = {
   readonly fixtureVersion: 1;
@@ -171,7 +171,7 @@ describe("provider contract fixtures", () => {
       expect(withoutUndefined(actualEvents)).toEqual(
         withoutUndefined(expectedEvents),
       );
-      await assertEventsAcceptedByMessageStore(actualEvents);
+      await assertEventsAcceptedByConversationServices(actualEvents);
     });
   }
 });

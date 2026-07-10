@@ -21,7 +21,15 @@ import {
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { Effect, Fiber, Layer, ManagedRuntime, Schedule, Stream } from "effect";
+import {
+  Context,
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Stream,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
@@ -50,12 +58,18 @@ import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/00
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-// Exercise MessageStoreLive through the same node:sqlite client layer used by
+// Exercise ConversationServicesLive through the same node:sqlite client layer used by
 // the production Node runtime.
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
-import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
-import { MessageStore } from "../src/provider/services/message-store.ts";
+import { ConversationServicesLive } from "../src/provider/layers/conversation-services.ts";
+import {
+  ChatService,
+  type ConversationOperations,
+  MessageService,
+  SessionService,
+  TranscriptService,
+} from "../src/provider/services/conversation-services.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { PtyService } from "../src/pty/services/pty-service.ts";
@@ -66,9 +80,25 @@ const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
 const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
 
+class TestConversation extends Context.Service<
+  TestConversation,
+  ConversationOperations
+>()("test/TestConversation") {}
+
+const TestConversationLive = Layer.effect(
+  TestConversation,
+  Effect.gen(function* () {
+    const sessions = yield* SessionService;
+    const chats = yield* ChatService;
+    const transcripts = yield* TranscriptService;
+    const messages = yield* MessageService;
+    return { ...sessions, ...chats, ...transcripts, ...messages };
+  }),
+);
+
 /**
  * Scripted provider events the stub replays on `events()` for the next
- * created session. The MessageStore boot path subscribes to this stream and
+ * created session. The ConversationServices boot path subscribes to this stream and
  * persists each renderable event — letting us assert the full
  * provider-event → messages-table pipeline without a real agent CLI.
  */
@@ -212,7 +242,7 @@ const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
   publish: () => Effect.void,
 });
 
-/** Chat archive cleanup is out of scope for MessageStore persistence tests. */
+/** Chat archive cleanup is out of scope for ConversationServices persistence tests. */
 const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
   get: (projectId) =>
     Effect.succeed(
@@ -311,7 +341,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(Migrated),
     Layer.provide(NodeServices.layer),
   );
-  const TestLayer = MessageStoreLive.pipe(
+  const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
     Layer.provide(StubRepositorySettingsLive),
@@ -326,13 +356,16 @@ const makeRuntime = (dbPath: string) => {
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),
   );
+  const TestLayer = TestConversationLive.pipe(
+    Layer.provideMerge(ConversationLayer),
+  );
   return ManagedRuntime.make(TestLayer);
 };
 
 const withRuntime = async <A>(
   fn: (
     run: <X>(
-      eff: Effect.Effect<X, unknown, MessageStore | SqlClient.SqlClient>,
+      eff: Effect.Effect<X, unknown, TestConversation | SqlClient.SqlClient>,
     ) => Promise<X>,
   ) => Promise<A>,
 ): Promise<A> => {
@@ -340,7 +373,7 @@ const withRuntime = async <A>(
   const dbPath = join(dir, "test.sqlite");
   const runtime = makeRuntime(dbPath);
   const run = <X>(
-    eff: Effect.Effect<X, unknown, MessageStore | SqlClient.SqlClient>,
+    eff: Effect.Effect<X, unknown, TestConversation | SqlClient.SqlClient>,
   ): Promise<X> => runtime.runPromise(eff as Effect.Effect<X, unknown, never>);
   try {
     // Seed the project row through the runtime's own SqlClient.
@@ -372,7 +405,7 @@ const withRuntime = async <A>(
   }
 };
 
-const store = MessageStore;
+const store = TestConversation;
 
 beforeEach(() => {
   providerStartInputs = [];
@@ -384,7 +417,7 @@ beforeEach(() => {
   createdWorktrees = new Map();
 });
 
-describe("MessageStore migrations", () => {
+describe("ConversationServices migrations", () => {
   it("0016 repairs queued_messages rows from the old position column", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
     const dbPath = join(dir, "test.sqlite");
@@ -503,7 +536,7 @@ describe("MessageStore migrations", () => {
   });
 });
 
-describe("MessageStore — chat & session lifecycle", () => {
+describe("ConversationServices — chat & session lifecycle", () => {
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(
@@ -1685,7 +1718,7 @@ describe("MessageStore — chat & session lifecycle", () => {
   });
 });
 
-describe("MessageStore — provider event persistence", () => {
+describe("ConversationServices — provider event persistence", () => {
   it("persists a scripted AssistantMessage event as an assistant message", async () => {
     scriptedEvents = [
       { _tag: "AssistantMessage", itemId: "i_a1" as never, text: "all done" },
@@ -1818,7 +1851,7 @@ describe("MessageStore — provider event persistence", () => {
   });
 });
 
-describe("MessageStore cursor streaming", () => {
+describe("ConversationServices cursor streaming", () => {
   const userText = (envelope: { readonly message: { content: unknown } }) =>
     (envelope.message.content as { text?: string }).text;
 
@@ -1933,7 +1966,7 @@ describe("MessageStore cursor streaming", () => {
   });
 });
 
-describe("MessageStore — fork & transcript export", () => {
+describe("ConversationServices — fork & transcript export", () => {
   it("exportTranscript renders the user prompt as Markdown", async () => {
     await withRuntime(async (run) => {
       const chat = await run(

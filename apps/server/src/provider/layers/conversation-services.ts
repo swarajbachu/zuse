@@ -54,7 +54,16 @@ import type { SessionCommand } from "@zuse/domain/core/commands";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { DateTime, Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import {
+  Context,
+  DateTime,
+  Effect,
+  Fiber,
+  Layer,
+  PubSub,
+  Ref,
+  Stream,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
@@ -70,9 +79,16 @@ import {
 import {
   type CreateChatInput,
   type CreateSessionInput,
-  MessageStore,
-  type MessageStoreShape,
-} from "../services/message-store.ts";
+  ChatService,
+  type ChatServiceShape,
+  MessageService,
+  type MessageServiceShape,
+  SessionService,
+  type SessionServiceShape,
+  TranscriptService,
+  type TranscriptServiceShape,
+  type ConversationOperations,
+} from "../services/conversation-services.ts";
 import {
   type GetRuntimeMode,
   ProviderService,
@@ -759,8 +775,7 @@ interface PersistedMessage {
   readonly sequence: number;
 }
 
-export const MessageStoreLive = Layer.effect(
-  MessageStore,
+export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const sessionDomain = yield* SessionDomain;
@@ -1315,7 +1330,7 @@ export const MessageStoreLive = Layer.effect(
         .pipe(
           Effect.catch((error) =>
             Effect.logDebug(
-              `[MessageStore] relay activity publish failed: ${error.reason}`,
+              `[ConversationServices] relay activity publish failed: ${error.reason}`,
             ),
           ),
         );
@@ -1554,7 +1569,7 @@ export const MessageStoreLive = Layer.effect(
                     Effect.catchCause(() => Effect.void),
                   );
                 }
-                yield* Effect.logDebug("[MessageStore] event stream ended");
+                yield* Effect.logDebug("[ConversationServices] event stream ended");
                 yield* Effect.logDebug(cause);
               }),
             ),
@@ -1648,7 +1663,7 @@ export const MessageStoreLive = Layer.effect(
       });
     }
 
-    const listSessions: MessageStoreShape["listSessions"] = (
+    const listSessions: ConversationOperations["listSessions"] = (
       projectId,
       includeArchived,
     ) =>
@@ -1688,7 +1703,7 @@ export const MessageStoreLive = Layer.effect(
         }
         if (dropped > 0) {
           yield* Effect.logWarning(
-            `[MessageStore] listSessions: dropped ${dropped} row(s) with NULL chat_id (project ${projectId})`,
+            `[ConversationServices] listSessions: dropped ${dropped} row(s) with NULL chat_id (project ${projectId})`,
           );
         }
         return usable.map(sessionFromRow);
@@ -2081,7 +2096,7 @@ export const MessageStoreLive = Layer.effect(
         };
       });
 
-    const createSession: MessageStoreShape["createSession"] = (
+    const createSession: ConversationOperations["createSession"] = (
       input: CreateSessionInput,
     ) =>
       Effect.gen(function* () {
@@ -2267,7 +2282,7 @@ export const MessageStoreLive = Layer.effect(
                 Effect.catch((err) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning(
-                      `[MessageStore] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
+                      `[ConversationServices] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
                     );
                     // Persist the failure as an error message so the renderer
                     // can render it (and classify auth failures into the inline
@@ -2382,7 +2397,7 @@ export const MessageStoreLive = Layer.effect(
         });
       });
 
-    const renameSession: MessageStoreShape["renameSession"] = (
+    const renameSession: ConversationOperations["renameSession"] = (
       sessionId,
       title,
     ) =>
@@ -2400,7 +2415,7 @@ export const MessageStoreLive = Layer.effect(
      * `canUseTool` callback observes the new value via `provider.start`'s
      * runtime-mode getter on the next tool call — no need to restart the SDK.
      */
-    const setRuntimeMode: MessageStoreShape["setRuntimeMode"] = (
+    const setRuntimeMode: ConversationOperations["setRuntimeMode"] = (
       sessionId,
       runtimeMode,
     ) =>
@@ -2422,7 +2437,7 @@ export const MessageStoreLive = Layer.effect(
      * `Query.setPermissionMode` on the live SDK handle and emits a
      * `PermissionModeChanged` event the renderer subscribes to.
      */
-    const setPermissionMode: MessageStoreShape["setPermissionMode"] = (
+    const setPermissionMode: ConversationOperations["setPermissionMode"] = (
       sessionId,
       mode,
     ) =>
@@ -2449,7 +2464,7 @@ export const MessageStoreLive = Layer.effect(
      * forward to the driver, which resolves the deferred Promise and
      * lets the SDK turn unwind with the answers as the tool result.
      */
-    const answerQuestion: MessageStoreShape["answerQuestion"] = (
+    const answerQuestion: ConversationOperations["answerQuestion"] = (
       sessionId,
       itemId,
       answers,
@@ -2479,7 +2494,7 @@ export const MessageStoreLive = Layer.effect(
      * agent. The renderer guards via `messagesCount > 0`, but we re-check
      * server-side so a stale client can't race past the lock.
      */
-    const setWorktree: MessageStoreShape["setWorktree"] = (
+    const setWorktree: ConversationOperations["setWorktree"] = (
       sessionId,
       worktreeId,
     ) =>
@@ -2510,7 +2525,7 @@ export const MessageStoreLive = Layer.effect(
      * provider session so the next user turn lazy-restarts the SDK with the
      * new model. Existing message history stays attached to the same row.
      */
-    const setModel: MessageStoreShape["setModel"] = (sessionId, model) =>
+    const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         yield* dispatchSessionCommand(sessionId, {
@@ -2534,7 +2549,7 @@ export const MessageStoreLive = Layer.effect(
      * `SessionAlreadyStartedError`. Resets `cursor` / `resume_strategy`
      * since both are provider-specific.
      */
-    const setProvider: MessageStoreShape["setProvider"] = (
+    const setProvider: ConversationOperations["setProvider"] = (
       sessionId,
       providerId,
       model,
@@ -2564,7 +2579,7 @@ export const MessageStoreLive = Layer.effect(
         yield* setStatus(sessionId, "idle");
       });
 
-    const archiveSession: MessageStoreShape["archiveSession"] = (sessionId) =>
+    const archiveSession: ConversationOperations["archiveSession"] = (sessionId) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         yield* dispatchSessionCommand(sessionId, {
@@ -2573,7 +2588,7 @@ export const MessageStoreLive = Layer.effect(
         });
       });
 
-    const unarchiveSession: MessageStoreShape["unarchiveSession"] = (
+    const unarchiveSession: ConversationOperations["unarchiveSession"] = (
       sessionId,
     ) =>
       Effect.gen(function* () {
@@ -2584,7 +2599,7 @@ export const MessageStoreLive = Layer.effect(
         });
       });
 
-    const deleteSession: MessageStoreShape["deleteSession"] = (sessionId) =>
+    const deleteSession: ConversationOperations["deleteSession"] = (sessionId) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         // Best-effort: provider may not know the id (already closed) — that's
@@ -2616,7 +2631,7 @@ export const MessageStoreLive = Layer.effect(
         return chatFromRow(rows[0]!);
       });
 
-    const listChats: MessageStoreShape["listChats"] = (
+    const listChats: ConversationOperations["listChats"] = (
       projectId,
       includeArchived,
     ) =>
@@ -2638,7 +2653,7 @@ export const MessageStoreLive = Layer.effect(
         return rows.map(chatFromRow);
       });
 
-    const getChat: MessageStoreShape["getChat"] = (chatId) =>
+    const getChat: ConversationOperations["getChat"] = (chatId) =>
       lookupChat(chatId);
 
     /**
@@ -2647,7 +2662,7 @@ export const MessageStoreLive = Layer.effect(
      * provider boot, and if the boot fails we DELETE the chat to leave
      * the DB clean.
      */
-    const createChat: MessageStoreShape["createChat"] = (
+    const createChat: ConversationOperations["createChat"] = (
       input: CreateChatInput,
     ) =>
       Effect.gen(function* () {
@@ -2728,7 +2743,7 @@ export const MessageStoreLive = Layer.effect(
         return { chat, initialSession, initialMessage };
       });
 
-    const continueExternalThread: MessageStoreShape["continueExternalThread"] =
+    const continueExternalThread: ConversationOperations["continueExternalThread"] =
       (input) =>
         Effect.gen(function* () {
           const result = yield* createChat({
@@ -2742,7 +2757,7 @@ export const MessageStoreLive = Layer.effect(
           };
         });
 
-    const importExternalMessages: MessageStoreShape["importExternalMessages"] =
+    const importExternalMessages: ConversationOperations["importExternalMessages"] =
       (sessionId, messages) =>
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
@@ -2754,7 +2769,7 @@ export const MessageStoreLive = Layer.effect(
           return imported;
         });
 
-    const exportTranscript: MessageStoreShape["exportTranscript"] = (
+    const exportTranscript: ConversationOperations["exportTranscript"] = (
       sessionId,
       uptoMessageId,
     ) =>
@@ -2773,7 +2788,7 @@ export const MessageStoreLive = Layer.effect(
         return transcriptToMarkdown(session.title, slice.map(messageFromRow));
       });
 
-    const latestPlan: MessageStoreShape["latestPlan"] = (sessionId) =>
+    const latestPlan: ConversationOperations["latestPlan"] = (sessionId) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         const rows = yield* sql<MessageRow>`
@@ -2799,7 +2814,7 @@ export const MessageStoreLive = Layer.effect(
         return null;
       });
 
-    const forkSession: MessageStoreShape["forkSession"] = (input) =>
+    const forkSession: ConversationOperations["forkSession"] = (input) =>
       Effect.gen(function* () {
         // Source must exist; `lookupSession` fails `SessionNotFoundError`.
         const source = yield* lookupSession(input.sourceSessionId);
@@ -2905,7 +2920,7 @@ export const MessageStoreLive = Layer.effect(
         return { chat, session, forkMode };
       });
 
-    const renameChat: MessageStoreShape["renameChat"] = (chatId, title) =>
+    const renameChat: ConversationOperations["renameChat"] = (chatId, title) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
         const nowIso = new Date().toISOString();
@@ -2919,7 +2934,7 @@ export const MessageStoreLive = Layer.effect(
         yield* broadcastChat(updated);
       });
 
-    const markChatRead: MessageStoreShape["markChatRead"] = (chatId) =>
+    const markChatRead: ConversationOperations["markChatRead"] = (chatId) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
         const nowIso = new Date().toISOString();
@@ -2930,7 +2945,7 @@ export const MessageStoreLive = Layer.effect(
         return yield* lookupChat(chatId);
       });
 
-    const streamChatChanges: MessageStoreShape["streamChatChanges"] = (
+    const streamChatChanges: ConversationOperations["streamChatChanges"] = (
       projectId,
     ) =>
       Stream.unwrap(
@@ -3084,7 +3099,7 @@ export const MessageStoreLive = Layer.effect(
      * chat's sessions. Mirrors `session.setWorktree`'s pre-message check
      * but lifted to the chat scope.
      */
-    const setChatWorktree: MessageStoreShape["setChatWorktree"] = (
+    const setChatWorktree: ConversationOperations["setChatWorktree"] = (
       chatId,
       worktreeId,
     ) =>
@@ -3130,7 +3145,7 @@ export const MessageStoreLive = Layer.effect(
         return yield* lookupChat(chatId);
       });
 
-    const setChatActiveSession: MessageStoreShape["setChatActiveSession"] = (
+    const setChatActiveSession: ConversationOperations["setChatActiveSession"] = (
       chatId,
       sessionId,
     ) =>
@@ -3150,7 +3165,7 @@ export const MessageStoreLive = Layer.effect(
         `.pipe(Effect.asVoid, Effect.orDie);
       });
 
-    const archiveChat: MessageStoreShape["archiveChat"] = (chatId, force) =>
+    const archiveChat: ConversationOperations["archiveChat"] = (chatId, force) =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId);
         if (chat.archivedAt !== null) {
@@ -3251,7 +3266,7 @@ export const MessageStoreLive = Layer.effect(
         return { chat: yield* lookupChat(chatId), cleanup };
       });
 
-    const unarchiveChat: MessageStoreShape["unarchiveChat"] = (chatId) =>
+    const unarchiveChat: ConversationOperations["unarchiveChat"] = (chatId) =>
       Effect.gen(function* () {
         const chatRows = yield* sql<ChatRow>`
           SELECT id, project_id, worktree_id, title, active_session_id, origin_session_id,
@@ -3352,7 +3367,7 @@ export const MessageStoreLive = Layer.effect(
         };
       });
 
-    const deleteChat: MessageStoreShape["deleteChat"] = (chatId) =>
+    const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
       Effect.gen(function* () {
         yield* lookupChat(chatId);
         // Tear down each child session's provider state before the SQL
@@ -3379,7 +3394,7 @@ export const MessageStoreLive = Layer.effect(
         // ON DELETE CASCADE handles sessions + messages.
       });
 
-    const listMessages: MessageStoreShape["listMessages"] = (sessionId) =>
+    const listMessages: ConversationOperations["listMessages"] = (sessionId) =>
       Effect.gen(function* () {
         yield* lookupSession(sessionId);
         const rows = yield* sql<MessageRow>`
@@ -3390,7 +3405,7 @@ export const MessageStoreLive = Layer.effect(
         return rows.map(messageFromRow);
       });
 
-    const streamMessages: MessageStoreShape["streamMessages"] = (
+    const streamMessages: ConversationOperations["streamMessages"] = (
       sessionId,
       sinceSequence,
     ) =>
@@ -3427,7 +3442,7 @@ export const MessageStoreLive = Layer.effect(
         }),
       );
 
-    const streamStatus: MessageStoreShape["streamStatus"] = (sessionId) =>
+    const streamStatus: ConversationOperations["streamStatus"] = (sessionId) =>
       Stream.unwrap(
         Effect.gen(function* () {
           const session = yield* lookupSession(sessionId);
@@ -3560,7 +3575,7 @@ export const MessageStoreLive = Layer.effect(
       );
     };
 
-    const getGoal: MessageStoreShape["getGoal"] = (sessionId) =>
+    const getGoal: ConversationOperations["getGoal"] = (sessionId) =>
       Effect.gen(function* () {
         yield* ensureGoalSession(sessionId);
         const goal = yield* provider
@@ -3575,7 +3590,7 @@ export const MessageStoreLive = Layer.effect(
         return goal;
       });
 
-    const setGoal: MessageStoreShape["setGoal"] = (sessionId, goalInput) =>
+    const setGoal: ConversationOperations["setGoal"] = (sessionId, goalInput) =>
       Effect.gen(function* () {
         const session = yield* ensureGoalSession(sessionId);
         const goal = yield* setGoalWithLiveProvider(session, goalInput);
@@ -3583,7 +3598,7 @@ export const MessageStoreLive = Layer.effect(
         return goal;
       });
 
-    const clearGoal: MessageStoreShape["clearGoal"] = (sessionId) =>
+    const clearGoal: ConversationOperations["clearGoal"] = (sessionId) =>
       Effect.gen(function* () {
         yield* ensureGoalSession(sessionId);
         yield* provider
@@ -3597,7 +3612,7 @@ export const MessageStoreLive = Layer.effect(
         yield* publishGoal(sessionId, null);
       });
 
-    const streamGoal: MessageStoreShape["streamGoal"] = (sessionId) =>
+    const streamGoal: ConversationOperations["streamGoal"] = (sessionId) =>
       Stream.unwrap(
         Effect.gen(function* () {
           yield* ensureGoalSession(sessionId);
@@ -3697,7 +3712,7 @@ export const MessageStoreLive = Layer.effect(
       );
     };
 
-    const resumeSession: MessageStoreShape["resumeSession"] = (sessionId) =>
+    const resumeSession: ConversationOperations["resumeSession"] = (sessionId) =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
         if (session.resumeStrategy === "none" || session.cursor === null) {
@@ -3921,7 +3936,7 @@ export const MessageStoreLive = Layer.effect(
         // session is gone (provider dropped it across an app restart) start
         // a fresh one under the same id, then push.
         console.log(
-          `[message-store.sendMessage] sessionId=${sessionId} cleanAttachments=${cleanAttachments.length} (orig=${
+          `[conversation-services.sendMessage] sessionId=${sessionId} cleanAttachments=${cleanAttachments.length} (orig=${
             (attachments ?? []).length
           })`,
         );
@@ -3970,7 +3985,7 @@ export const MessageStoreLive = Layer.effect(
           // Persist the error so the renderer shows the "Sign in" CTA and stop.
           if (looksLikeAuthFailure(sendResult.reason)) {
             console.log(
-              `[message-store.sendMessage] provider.send failed with auth error for ${sessionId}; skipping restart`,
+              `[conversation-services.sendMessage] provider.send failed with auth error for ${sessionId}; skipping restart`,
             );
             const persistedError = yield* persistMessage(sessionId, {
               _tag: "error",
@@ -3983,7 +3998,7 @@ export const MessageStoreLive = Layer.effect(
           }
 
           console.log(
-            `[message-store.sendMessage] provider.send failed; restarting provider session for ${sessionId}`,
+            `[conversation-services.sendMessage] provider.send failed; restarting provider session for ${sessionId}`,
           );
           const restartResult = yield* restartProviderSession(
             session,
@@ -4018,7 +4033,7 @@ export const MessageStoreLive = Layer.effect(
         return true;
       });
 
-    const sendMessage: MessageStoreShape["sendMessage"] = (
+    const sendMessage: ConversationOperations["sendMessage"] = (
       sessionId,
       text,
       attachments,
@@ -4044,7 +4059,7 @@ export const MessageStoreLive = Layer.effect(
         if (!accepted) yield* settleActiveTurn(sessionId, "error");
       });
 
-    const listQueuedMessages: MessageStoreShape["listQueuedMessages"] = (
+    const listQueuedMessages: ConversationOperations["listQueuedMessages"] = (
       sessionId,
     ) =>
       Effect.gen(function* () {
@@ -4052,7 +4067,7 @@ export const MessageStoreLive = Layer.effect(
         return yield* queueState(sessionId);
       });
 
-    const streamQueuedMessages: MessageStoreShape["streamQueuedMessages"] = (
+    const streamQueuedMessages: ConversationOperations["streamQueuedMessages"] = (
       sessionId,
     ) =>
       Stream.unwrap(
@@ -4068,7 +4083,7 @@ export const MessageStoreLive = Layer.effect(
         }),
       );
 
-    const addQueuedMessage: MessageStoreShape["addQueuedMessage"] = (
+    const addQueuedMessage: ConversationOperations["addQueuedMessage"] = (
       sessionId,
       input,
     ) =>
@@ -4102,7 +4117,7 @@ export const MessageStoreLive = Layer.effect(
         return item;
       });
 
-    const updateQueuedMessage: MessageStoreShape["updateQueuedMessage"] = (
+    const updateQueuedMessage: ConversationOperations["updateQueuedMessage"] = (
       sessionId,
       queueId,
       input,
@@ -4129,7 +4144,7 @@ export const MessageStoreLive = Layer.effect(
         return item;
       });
 
-    const deleteQueuedMessage: MessageStoreShape["deleteQueuedMessage"] = (
+    const deleteQueuedMessage: ConversationOperations["deleteQueuedMessage"] = (
       sessionId,
       queueId,
     ) =>
@@ -4144,7 +4159,7 @@ export const MessageStoreLive = Layer.effect(
         yield* broadcastQueue(sessionId);
       });
 
-    const reorderQueuedMessages: MessageStoreShape["reorderQueuedMessages"] = (
+    const reorderQueuedMessages: ConversationOperations["reorderQueuedMessages"] = (
       sessionId,
       queueIds,
     ) =>
@@ -4235,7 +4250,7 @@ export const MessageStoreLive = Layer.effect(
         }
       });
 
-    const sendQueuedMessageNow: MessageStoreShape["sendQueuedMessageNow"] = (
+    const sendQueuedMessageNow: ConversationOperations["sendQueuedMessageNow"] = (
       sessionId,
       queueId,
     ) =>
@@ -4247,7 +4262,7 @@ export const MessageStoreLive = Layer.effect(
         yield* sendClaimedQueuedMessage(item);
       });
 
-    const flushQueuedMessages: MessageStoreShape["flushQueuedMessages"] = (
+    const flushQueuedMessages: ConversationOperations["flushQueuedMessages"] = (
       sessionId,
     ) =>
       Effect.gen(function* () {
@@ -4285,7 +4300,7 @@ export const MessageStoreLive = Layer.effect(
     flushQueueAfterIdle = (sessionId) =>
       flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void));
 
-    const resumeQueuedMessages: MessageStoreShape["resumeQueuedMessages"] = (
+    const resumeQueuedMessages: ConversationOperations["resumeQueuedMessages"] = (
       sessionId,
     ) =>
       Effect.gen(function* () {
@@ -4294,7 +4309,7 @@ export const MessageStoreLive = Layer.effect(
         yield* flushQueuedMessages(sessionId);
       });
 
-    const interruptSession: MessageStoreShape["interruptSession"] = (
+    const interruptSession: ConversationOperations["interruptSession"] = (
       sessionId,
     ) =>
       Effect.gen(function* () {
@@ -4310,10 +4325,10 @@ export const MessageStoreLive = Layer.effect(
         yield* setStatus(sessionId, "idle");
       });
 
-    const getSession: MessageStoreShape["getSession"] = (sessionId) =>
+    const getSession: ConversationOperations["getSession"] = (sessionId) =>
       lookupSession(sessionId);
 
-    return {
+    const sessionService = {
       listSessions,
       getSession,
       createSession,
@@ -4327,14 +4342,17 @@ export const MessageStoreLive = Layer.effect(
       archiveSession,
       unarchiveSession,
       deleteSession,
+      resumeSession,
+      streamStatus,
+      getGoal,
+      setGoal,
+      clearGoal,
+      streamGoal,
+    } satisfies SessionServiceShape;
+    const chatService = {
       listChats,
       getChat,
       createChat,
-      continueExternalThread,
-      importExternalMessages,
-      forkSession,
-      exportTranscript,
-      latestPlan,
       renameChat,
       markChatRead,
       streamChatChanges,
@@ -4343,14 +4361,17 @@ export const MessageStoreLive = Layer.effect(
       archiveChat,
       unarchiveChat,
       deleteChat,
-      resumeSession,
+    } satisfies ChatServiceShape;
+    const transcriptService = {
+      continueExternalThread,
+      importExternalMessages,
+      forkSession,
+      exportTranscript,
+      latestPlan,
+    } satisfies TranscriptServiceShape;
+    const messageService = {
       listMessages,
       streamMessages,
-      streamStatus,
-      getGoal,
-      setGoal,
-      clearGoal,
-      streamGoal,
       sendMessage,
       interruptSession,
       listQueuedMessages,
@@ -4362,6 +4383,11 @@ export const MessageStoreLive = Layer.effect(
       reorderQueuedMessages,
       flushQueuedMessages,
       resumeQueuedMessages,
-    } as const;
+    } satisfies MessageServiceShape;
+    return Context.make(SessionService, sessionService).pipe(
+      Context.add(ChatService, chatService),
+      Context.add(TranscriptService, transcriptService),
+      Context.add(MessageService, messageService),
+    );
   }),
 );
