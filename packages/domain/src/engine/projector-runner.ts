@@ -49,28 +49,33 @@ export class ProjectorRunner<
 		>,
 	) {}
 
-	catchUp(): Effect.Effect<
+	readonly catchUp = Effect.fn("ProjectorRunner.catchUp")(function* (
+		this: ProjectorRunner<
+			Event,
+			StorageError,
+			StorageRequirements,
+			ProjectorError,
+			ProjectorRequirements
+		>,
+	): Effect.fn.Return<
 		number,
 		StorageError | ProjectorError,
 		StorageRequirements | ProjectorRequirements
 	> {
-		const self = this;
-		return Effect.gen(function* () {
-			let cursor = yield* self.storage.cursor(self.projector.name);
-			const events = yield* self.storage.eventsAfter(cursor);
-			for (const event of events) {
-				const sequence = self.projector.sequenceOf(event);
-				if (sequence <= cursor) continue;
-				yield* self.storage.applyAndCommit(
-					self.projector.name,
-					sequence,
-					self.projector.apply(event),
-				);
-				cursor = sequence;
-			}
-			return cursor;
-		});
-	}
+		let cursor = yield* this.storage.cursor(this.projector.name);
+		const events = yield* this.storage.eventsAfter(cursor);
+		for (const event of events) {
+			const sequence = this.projector.sequenceOf(event);
+			if (sequence <= cursor) continue;
+			yield* this.storage.applyAndCommit(
+				this.projector.name,
+				sequence,
+				this.projector.apply(event),
+			);
+			cursor = sequence;
+		}
+		return cursor;
+	});
 }
 
 export class InMemoryProjectorStorage<
@@ -84,10 +89,8 @@ export class InMemoryProjectorStorage<
 		sequence: number,
 		apply: Effect.Effect<void, ApplyError, ApplyRequirements>,
 	): Effect.Effect<void, ApplyError, ApplyRequirements> {
-		const self = this;
-		return Effect.gen(function* () {
-			yield* apply;
-			yield* self.commitCursor(projectorName, sequence);
-		});
+		return Effect.flatMap(apply, () =>
+			this.commitCursor(projectorName, sequence),
+		);
 	}
 }

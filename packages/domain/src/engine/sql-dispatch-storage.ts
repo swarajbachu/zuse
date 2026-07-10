@@ -1,5 +1,5 @@
-import { DateTime, Effect, Schema } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import { Context, DateTime, Effect, Layer, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { SessionEvent } from "../core/events.js";
@@ -189,3 +189,17 @@ export const makeSqlDispatchStorage = (
 
 	return { receipt, events, append };
 };
+
+export class SqlDispatchStorage extends Context.Service<
+	SqlDispatchStorage,
+	DispatchStorage<SqlDispatchStorageError>
+>()("zuse/domain/engine/SqlDispatchStorage") {
+	static readonly layer: Layer.Layer<
+		SqlDispatchStorage,
+		never,
+		SqlClient.SqlClient
+	> = Layer.effect(
+		SqlDispatchStorage,
+		Effect.map(SqlClient.SqlClient, makeSqlDispatchStorage),
+	);
+}

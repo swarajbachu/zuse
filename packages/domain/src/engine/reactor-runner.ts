@@ -75,32 +75,40 @@ export class ReactorRunner<
 		this.cursorName = `reactor:${reactor.name}`;
 	}
 
-	catchUp(): Effect.Effect<
+	readonly catchUp = Effect.fn("ReactorRunner.catchUp")(function* (
+		this: ReactorRunner<
+			Event,
+			Command,
+			StorageError,
+			StorageRequirements,
+			DispatchError,
+			DispatchRequirements,
+			ReactorError,
+			ReactorRequirements
+		>,
+	): Effect.fn.Return<
 		number,
 		StorageError | DispatchError | ReactorError,
 		StorageRequirements | DispatchRequirements | ReactorRequirements
 	> {
-		const self = this;
-		return Effect.gen(function* () {
-			let cursor = yield* self.storage.cursor(self.cursorName);
-			const events = yield* self.storage.eventsAfter(cursor);
-			for (const event of events) {
-				if (event.sequence <= cursor) continue;
-				const commands = yield* self.reactor.react(event);
-				for (const [index, command] of commands.entries()) {
-					yield* self.dispatch({
-						...command,
-						commandId: `${self.cursorName}:${event.eventId}:${index}`,
-						correlationId: event.correlationId,
-						causationEventId: event.eventId,
-					});
-				}
-				yield* self.storage.commitCursor(self.cursorName, event.sequence);
-				cursor = event.sequence;
+		let cursor = yield* this.storage.cursor(this.cursorName);
+		const events = yield* this.storage.eventsAfter(cursor);
+		for (const event of events) {
+			if (event.sequence <= cursor) continue;
+			const commands = yield* this.reactor.react(event);
+			for (const [index, command] of commands.entries()) {
+				yield* this.dispatch({
+					...command,
+					commandId: `${this.cursorName}:${event.eventId}:${index}`,
+					correlationId: event.correlationId,
+					causationEventId: event.eventId,
+				});
 			}
-			return cursor;
-		});
-	}
+			yield* this.storage.commitCursor(this.cursorName, event.sequence);
+			cursor = event.sequence;
+		}
+		return cursor;
+	});
 }
 
 export class InMemoryReactorStorage<

@@ -1,5 +1,5 @@
-import { DateTime, Effect, Schema } from "effect";
-import type { SqlClient } from "effect/unstable/sql";
+import { Context, DateTime, Effect, Layer, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import { SessionEvent } from "../core/events.js";
@@ -92,7 +92,7 @@ export const makeSqlConsumerStorage = (
 			VALUES
 				(${consumerName}, ${sequence}, ${updatedAt})
 			ON CONFLICT(projector_name) DO UPDATE SET
-				last_sequence = excluded.last_sequence,
+				last_sequence = MAX(projector_cursors.last_sequence, excluded.last_sequence),
 				updated_at = excluded.updated_at
 		`;
 	});
@@ -114,3 +114,17 @@ export const makeSqlConsumerStorage = (
 
 	return { cursor, eventsAfter, commitCursor, applyAndCommit };
 };
+
+export class SqlConsumerStorage extends Context.Service<
+	SqlConsumerStorage,
+	ProjectorStorage<StoredEvent, SqlConsumerStorageError>
+>()("zuse/domain/engine/SqlConsumerStorage") {
+	static readonly layer: Layer.Layer<
+		SqlConsumerStorage,
+		never,
+		SqlClient.SqlClient
+	> = Layer.effect(
+		SqlConsumerStorage,
+		Effect.map(SqlClient.SqlClient, makeSqlConsumerStorage),
+	);
+}

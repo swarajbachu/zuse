@@ -172,6 +172,21 @@ describe("SqlConsumerStorage", () => {
 		]);
 	});
 
+	test("never moves a durable cursor backwards", async () => {
+		const cursor = await run(
+			Effect.gen(function* () {
+				yield* createSchema;
+				const sql = yield* SqlClient.SqlClient;
+				const storage = makeSqlConsumerStorage(sql);
+				yield* storage.commitCursor("messages", 8);
+				yield* storage.commitCursor("messages", 3);
+				return yield* storage.cursor("messages");
+			}),
+		);
+
+		expect(cursor).toBe(8);
+	});
+
 	test("rolls back projector writes when cursor commit fails", async () => {
 		const result = await run(
 			Effect.gen(function* () {
