@@ -229,6 +229,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(NodeServices.layer),
   );
 
+  const SessionDomainLayer = SessionDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
+  const ChatDomainLayer = ChatDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
+  const SessionQueriesLayer = SqlSessionQueries.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+  );
+
   // PermissionService brokers between the SDK permission callback (driver
   // side) and the renderer toast (RPC side). It writes decisions to
   // SQLite so an `AllowForSession` row survives a process crash and the
@@ -236,6 +248,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const PermissionLayer = PermissionServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(AppPathsLayer),
+    Layer.provide(SessionDomainLayer),
   );
 
   // BrowserBridge brokers between the in-process browser MCP tools (driver
@@ -287,18 +300,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // forced onto Claude.
   const TitleGeneratorLayer = TitleGeneratorLive.pipe(
     Layer.provide(ProviderLayer),
-  );
-
-  const SessionDomainLayer = SessionDomain.layer.pipe(
-    Layer.provide(BackfilledSqlite),
-    Layer.provide(NodeServices.layer),
-  );
-  const ChatDomainLayer = ChatDomain.layer.pipe(
-    Layer.provide(BackfilledSqlite),
-    Layer.provide(NodeServices.layer),
-  );
-  const SessionQueriesLayer = SqlSessionQueries.layer.pipe(
-    Layer.provide(BackfilledSqlite),
   );
 
   // Replay durable domain events before accepting transport traffic.

@@ -9,7 +9,17 @@ import {
   SavedDecision,
   type SessionId,
 } from "@zuse/contracts";
-import { Deferred, Effect, Layer, PubSub, Ref, Schema, Stream } from "effect";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import {
+  DateTime,
+  Deferred,
+  Effect,
+  Layer,
+  PubSub,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../../app-paths.ts";
@@ -104,6 +114,7 @@ export const PermissionServiceLive = Layer.effect(
   PermissionService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const sessionDomain = yield* SessionDomain;
     const paths = yield* AppPaths;
     const pubsub = yield* PubSub.unbounded<PermissionRequest>();
     const pending = yield* Ref.make<ReadonlyMap<string, PendingEntry>>(
@@ -213,6 +224,19 @@ export const PermissionServiceLive = Layer.effect(
           requestedAt: new Date(),
           forcePrompt: options.forcePrompt === true,
         });
+        yield* sessionDomain
+          .dispatch({
+            commandId: `permission:request:${id}`,
+            streamId: sessionId,
+            command: {
+              _tag: "RequestPermission",
+              requestId: id,
+              turnId: id,
+              payloadJson: JSON.stringify(req),
+              requestedAt: req.requestedAt.getTime(),
+            },
+          })
+          .pipe(Effect.orDie);
         yield* Ref.update(projectByRequest, (m) => {
           const next = new Map(m);
           next.set(id, options.projectId);
@@ -284,6 +308,18 @@ export const PermissionServiceLive = Layer.effect(
         if (projectId !== undefined) {
           yield* persistDecision(entry.request, projectId, decision);
         }
+        yield* sessionDomain
+          .dispatch({
+            commandId: `permission:resolve:${requestId}`,
+            streamId: entry.request.sessionId,
+            command: {
+              _tag: "ResolvePermission",
+              requestId,
+              decision: decision._tag,
+              resolvedAt: (yield* DateTime.nowAsDate).getTime(),
+            },
+          })
+          .pipe(Effect.orDie);
         yield* Deferred.succeed(entry.deferred, decision);
       });
 
