@@ -125,12 +125,28 @@ export function installAppMenu(
   updateStatus: UpdateStatus = { kind: "idle" },
 ): void {
   const isMac = process.platform === "darwin";
-  const isDev = !app.isPackaged;
-
   const sendAction = (action: Exclude<MenuCommand, "close-tab">) => () => {
     const win = getWindow();
     if (win === null) return;
     win.webContents.send("menu:action", action);
+  };
+
+  const reloadWindow = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.reload();
+  };
+
+  const forceReloadWindow = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.reloadIgnoringCache();
+  };
+
+  const toggleDevTools = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.toggleDevTools();
   };
 
   const sendCloseTab = () => {
@@ -230,19 +246,27 @@ export function installAppMenu(
       },
       { type: "separator" },
       { role: "togglefullscreen" },
-      ...(isDev
-        ? ([
-            { type: "separator" },
-            {
-              label: "Developer",
-              submenu: [
-                { role: "reload" },
-                { role: "forceReload" },
-                { role: "toggleDevTools" },
-              ],
-            },
-          ] satisfies MenuItemConstructorOptions[])
-        : []),
+      { type: "separator" },
+      {
+        label: "Developer",
+        submenu: [
+          {
+            label: "Reload",
+            accelerator: "CmdOrCtrl+R",
+            click: reloadWindow,
+          },
+          {
+            label: "Force Reload",
+            accelerator: "CmdOrCtrl+Shift+R",
+            click: forceReloadWindow,
+          },
+          {
+            label: "Toggle Developer Tools",
+            accelerator: "CmdOrCtrl+Shift+I",
+            click: toggleDevTools,
+          },
+        ],
+      },
     ],
   };
 

@@ -2,7 +2,7 @@ import { Component, type ReactNode } from "react";
 
 type ErrorBoundaryProps = {
   readonly children: ReactNode;
-  readonly fallback: ReactNode;
+  readonly fallback: ReactNode | ((error: Error) => ReactNode);
   readonly resetKey?: string;
   readonly onError?: (error: Error, info: { componentStack?: string }) => void;
 };
@@ -21,10 +21,7 @@ export class ErrorBoundary extends Component<
     return { error };
   }
 
-  componentDidCatch(
-    error: Error,
-    info: { componentStack?: string },
-  ): void {
+  componentDidCatch(error: Error, info: { componentStack?: string }): void {
     this.props.onError?.(error, info);
   }
 
@@ -38,7 +35,11 @@ export class ErrorBoundary extends Component<
   }
 
   render(): ReactNode {
-    if (this.state.error !== null) return this.props.fallback;
+    if (this.state.error !== null) {
+      return typeof this.props.fallback === "function"
+        ? this.props.fallback(this.state.error)
+        : this.props.fallback;
+    }
     return this.props.children;
   }
 }
