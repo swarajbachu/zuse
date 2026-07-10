@@ -206,7 +206,10 @@ export const AuthServiceLive = Layer.effect(
         const bundle = yield* readBundle();
         if (bundle === null) return SIGNED_OUT;
         if (bundle.expiresAt - Date.now() <= REFRESH_SKEW_MS) {
-          yield* Effect.forkDetach(doRefresh(bundle).pipe(Effect.ignore));
+          yield* doRefresh(bundle).pipe(
+            Effect.ignore,
+            Effect.forkDetach({ startImmediately: true }),
+          );
         }
         return toState(bundle);
       });

@@ -83,7 +83,7 @@ describe("SessionStoreLive", () => {
     const dir = await makeTempAuthDir();
     await writeFile(join(dir, "auth.json"), "{", { mode: 0o600 });
     const corrupt = await withStore((svc) => svc.read().pipe(Effect.result));
-    expect(corrupt._tag).toBe("Left");
+    expect(corrupt._tag).toBe("Failure");
 
     await writeFile(join(dir, "auth.json"), JSON.stringify({ nope: true }), {
       mode: 0o600,

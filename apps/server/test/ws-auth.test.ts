@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import { RpcGroup, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { randomBytes } from "node:crypto";
@@ -44,7 +44,7 @@ const makeRuntime = (opts: {
   readonly port: number;
   readonly pairingBootstrap?: boolean;
 }) => {
-  const SqlLive = SqliteClient.layer({ filename: ":memory:" });
+  const SqlLive = sqliteLayer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
     Migration0021AuthTokens.pipe(
       Effect.andThen(Migration0024RemoteConnectState),

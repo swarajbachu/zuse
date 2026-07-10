@@ -2238,6 +2238,7 @@ export const MessageStoreLive = Layer.effect(
                   }),
                 ),
               ),
+            { startImmediately: true },
           );
           return Session.make({
             id: sessionId,

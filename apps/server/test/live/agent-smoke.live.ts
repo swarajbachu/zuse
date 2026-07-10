@@ -252,7 +252,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
           Effect.sync(() => {
             events.push(event);
           }),
-        ).pipe(Effect.fork);
+        ).pipe(Effect.forkChild);
 
         yield* handle.send(
           "Read README.md and reply with the exact marker from it. Do not modify files.",

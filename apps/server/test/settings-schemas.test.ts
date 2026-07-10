@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-const repoRoot = join(import.meta.dir, "..", "..", "..");
+const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 
 describe("public settings schemas", () => {
   it("are generated and committed", () => {

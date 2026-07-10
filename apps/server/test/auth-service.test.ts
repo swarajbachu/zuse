@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Chunk, Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 
 import type { ProviderId } from "@zuse/contracts";
 
@@ -304,7 +304,6 @@ describe("AuthService WorkOS refresh", () => {
             .pipe(
               Stream.take(1),
               Stream.runCollect,
-              Effect.map(Chunk.toReadonlyArray),
             );
         }),
       );
@@ -323,7 +322,6 @@ describe("AuthService WorkOS refresh", () => {
             .pipe(
               Stream.take(1),
               Stream.runCollect,
-              Effect.map(Chunk.toReadonlyArray),
             );
         }),
       );

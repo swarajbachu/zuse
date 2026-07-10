@@ -3,7 +3,10 @@ import { Context, Effect, Layer, Scope, Semaphore, Stream } from "effect";
 import * as Reactivity from "effect/unstable/reactivity/Reactivity";
 import * as Client from "effect/unstable/sql/SqlClient";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
-import { SqlError } from "effect/unstable/sql/SqlError";
+import {
+	classifySqliteError,
+	SqlError,
+} from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
 /**
@@ -26,6 +29,37 @@ export interface NodeSqliteClientConfig {
 	readonly disableWAL?: boolean | undefined;
 	readonly spanAttributes?: Record<string, unknown> | undefined;
 }
+
+const sqlError = (
+	cause: unknown,
+	message: string,
+	operation: string,
+): SqlError => {
+	// Node exposes SQLite's numeric extended code as `errcode`; Effect's
+	// cross-driver classifier reads `errno`. Normalize at this adapter boundary
+	// so unique and constraint violations keep their structured reason.
+	const normalizedCause =
+		typeof cause === "object" &&
+		cause !== null &&
+		"errcode" in cause &&
+		typeof cause.errcode === "number"
+			? {
+					code: "code" in cause ? cause.code : undefined,
+					errno: cause.errcode,
+					message: "message" in cause ? cause.message : undefined,
+				}
+			: cause;
+	const detail =
+		cause instanceof Error && cause.message.length > 0
+			? `${message}: ${cause.message}`
+			: message;
+	return new SqlError({
+		reason: classifySqliteError(normalizedCause, {
+			message: detail,
+			operation,
+		}),
+	});
+};
 
 /** `node:sqlite` cannot bind booleans (SQLITE bind rejects them); bun's
  * driver coerces silently. Coerce here so a bun-green test cannot hide a
@@ -56,15 +90,14 @@ export const make = (
 					new DatabaseSync(options.filename, {
 						enableForeignKeyConstraints: true,
 					}),
-				catch: (cause) =>
-					new SqlError({ cause, message: "Failed to open database" }),
+				catch: (cause) => sqlError(cause, "Failed to open database", "connect"),
 			});
 			yield* Effect.addFinalizer(() => Effect.sync(() => db.close()));
 			if (options.disableWAL !== true) {
 				yield* Effect.try({
 					try: () => db.exec("PRAGMA journal_mode = WAL"),
 					catch: (cause) =>
-						new SqlError({ cause, message: "Failed to enable WAL" }),
+						sqlError(cause, "Failed to enable WAL", "configure"),
 				});
 			}
 
@@ -102,7 +135,7 @@ export const make = (
 						);
 					} catch (cause) {
 						return Effect.fail(
-							new SqlError({ cause, message: "Failed to execute statement" }),
+							sqlError(cause, "Failed to execute statement", "execute"),
 						);
 					}
 				});

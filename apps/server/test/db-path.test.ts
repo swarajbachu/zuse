@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Database } from "bun:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { Effect } from "effect";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
@@ -15,7 +15,7 @@ const ensureSqliteRenameCompatibility = (userData: string): Promise<void> =>
   Effect.runPromise(ensureSqliteRenameCompatibilityEffect(userData));
 
 const createProjectsDb = (path: string, projectCount: number): void => {
-  const db = new Database(path);
+  const db = new DatabaseSync(path);
   try {
     db.exec(`
       CREATE TABLE projects (
@@ -106,10 +106,10 @@ describe("ensureSqliteRenameCompatibility", () => {
 
       await ensureSqliteRenameCompatibility(zuseDir);
 
-      const migrated = new Database(current, { readonly: true });
+      const migrated = new DatabaseSync(current, { readOnly: true });
       try {
         const row = migrated
-          .query("SELECT count(*) AS count FROM projects")
+          .prepare("SELECT count(*) AS count FROM projects")
           .get() as { count: number };
         expect(row.count).toBe(1);
       } finally {

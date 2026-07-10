@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SqlClient } from "effect/unstable/sql";
-// The server ships on the built-in `node:sqlite`, which Bun does not provide.
-// `@effect/sql-sqlite-bun` produces the same generic `SqlClient` tag on top
-// of the built-in `bun:sqlite`, so MessageStoreLive runs unchanged under
-// `bun test`. Test-only — the app keeps the node client.
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+// Exercise MessageStoreLive through the same node:sqlite client layer used by
+// the production Node runtime.
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import {
-  Chunk,
   Effect,
   Fiber,
   Layer,
@@ -308,7 +305,7 @@ const runAllMigrations = Effect.all(
 );
 
 const makeRuntime = (dbPath: string) => {
-  const SqlLive = SqliteClient.layer({ filename: dbPath });
+  const SqlLive = sqliteLayer({ filename: dbPath });
   // Run migrations during layer build, and re-export SqlClient downstream.
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
@@ -353,6 +350,17 @@ const withRuntime = async <A>(
           INSERT INTO projects (id, path, name, created_at, updated_at)
           VALUES (${PROJECT_ID}, ${"/tmp/project"}, ${"Test"}, ${now}, ${now})
         `;
+        yield* sql`
+          INSERT INTO worktrees
+            (id, project_id, path, name, branch, base_branch, created_at)
+          VALUES
+            (${TEST_WORKTREE_ID}, ${PROJECT_ID}, ${testWorktree.path},
+             ${testWorktree.name}, ${testWorktree.branch},
+             ${testWorktree.baseBranch}, ${now}),
+            (${"wt-created-1"}, ${PROJECT_ID},
+             ${"/tmp/project/.memo/created-1"}, ${"created-1"},
+             ${"created-1"}, ${"origin/main"}, ${now})
+        `;
       }),
     );
     return await fn(run);
@@ -379,7 +387,7 @@ describe("MessageStore migrations", () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
     const dbPath = join(dir, "test.sqlite");
     const runtime = ManagedRuntime.make(
-      SqliteClient.layer({ filename: dbPath }),
+      sqliteLayer({ filename: dbPath }),
     );
     try {
       await runtime.runPromise(
@@ -448,7 +456,7 @@ describe("MessageStore migrations", () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-chat-lineage-repair-"));
     const dbPath = join(dir, "test.sqlite");
     const runtime = ManagedRuntime.make(
-      SqliteClient.layer({ filename: dbPath }),
+      sqliteLayer({ filename: dbPath }),
     );
     try {
       await runtime.runPromise(
@@ -657,7 +665,7 @@ describe("MessageStore — chat & session lifecycle", () => {
           const s = yield* store;
           const streamFiber = yield* s
             .streamChatChanges(PROJECT_ID)
-            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+            .pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
           yield* Effect.sleep("10 millis");
           const created = yield* s.createChat({
             projectId: PROJECT_ID,
@@ -670,9 +678,9 @@ describe("MessageStore — chat & session lifecycle", () => {
         }),
       );
 
-      expect(
-        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
-      ).toEqual([result.created.chat.id]);
+      expect(result.emitted.map((chat) => chat.id)).toEqual([
+        result.created.chat.id,
+      ]);
     });
   });
 
@@ -688,7 +696,7 @@ describe("MessageStore — chat & session lifecycle", () => {
           });
           const streamFiber = yield* s
             .streamChatChanges(PROJECT_ID)
-            .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
+            .pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
           yield* Effect.sleep("10 millis");
           const session = yield* s.createSession({
             chatId: created.chat.id,
@@ -702,14 +710,12 @@ describe("MessageStore — chat & session lifecycle", () => {
         }),
       );
 
-      expect(
-        Chunk.toReadonlyArray(result.emitted).map((chat) => chat.id),
-      ).toEqual([result.session.chatId]);
-      expect(
-        Chunk.toReadonlyArray(result.emitted).map(
-          (chat) => chat.activeSessionId,
-        ),
-      ).toEqual([result.session.id]);
+      expect(result.emitted.map((chat) => chat.id)).toEqual([
+        result.session.chatId,
+      ]);
+      expect(result.emitted.map((chat) => chat.activeSessionId)).toEqual([
+        result.session.id,
+      ]);
     });
   });
 
@@ -897,9 +903,9 @@ describe("MessageStore — chat & session lifecycle", () => {
           s.getSession("does-not-exist" as SessionId),
         ).pipe(Effect.result),
       );
-      expect(exit._tag).toBe("Left");
-      if (exit._tag === "Left") {
-        expect((exit.left as { _tag: string })._tag).toBe(
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        expect((exit.failure as { _tag: string })._tag).toBe(
           "SessionNotFoundError",
         );
       }
@@ -1718,17 +1724,18 @@ describe("MessageStore — provider event persistence", () => {
               : Effect.fail("not yet" as const),
           ),
           Effect.retry(
-            Schedule.spaced("10 millis").pipe(
-              Schedule.intersect(Schedule.recurs(100)),
-            ),
+            Schedule.max([
+              Schedule.spaced("10 millis"),
+              Schedule.recurs(100),
+            ]),
           ),
           Effect.result,
         );
 
         const assistant = await run(findAssistant);
-        expect(assistant._tag).toBe("Right");
-        if (assistant._tag === "Right") {
-          expect(assistant.right.content).toMatchObject({
+        expect(assistant._tag).toBe("Success");
+        if (assistant._tag === "Success") {
+          expect(assistant.success.content).toMatchObject({
             _tag: "assistant",
             text: "all done",
           });
@@ -1779,9 +1786,10 @@ describe("MessageStore — provider event persistence", () => {
             rows.length > 0 ? Effect.succeed(rows) : Effect.fail("not yet"),
           ),
           Effect.retry(
-            Schedule.spaced("10 millis").pipe(
-              Schedule.intersect(Schedule.recurs(100)),
-            ),
+            Schedule.max([
+              Schedule.spaced("10 millis"),
+              Schedule.recurs(100),
+            ]),
           ),
         );
 
@@ -1824,7 +1832,7 @@ describe("MessageStore cursor streaming", () => {
         Effect.flatMap(store, (s) =>
           Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
         ),
-      ).then(Chunk.toReadonlyArray);
+      );
       expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
       const sequences = first.map((e) => e.sequence);
       expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
@@ -1840,7 +1848,7 @@ describe("MessageStore cursor streaming", () => {
         Effect.flatMap(store, (s) =>
           Stream.runCollect(s.streamMessages(id, cursor).pipe(Stream.take(2))),
         ),
-      ).then(Chunk.toReadonlyArray);
+      );
       expect(resumed.map(userText)).toEqual(["m4", "m5"]);
       expect(resumed.every((e) => e.sequence > cursor)).toBe(true);
     });
@@ -1865,14 +1873,12 @@ describe("MessageStore cursor streaming", () => {
       const collected = await run(
         Effect.gen(function* () {
           const s = yield* store;
-          const fiber = yield* Effect.fork(
+          const fiber = yield* Effect.forkChild(
             Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
           );
           yield* s.sendMessage(id, "m2");
           yield* s.sendMessage(id, "m3");
-          return Chunk.toReadonlyArray(
-            yield* fiber.await.pipe(Effect.flatMap((exit) => exit)),
-          );
+          return yield* Fiber.await(fiber).pipe(Effect.flatten);
         }),
       );
       expect(collected.map(userText)).toEqual(["m1", "m2", "m3"]);
@@ -1900,12 +1906,12 @@ describe("MessageStore cursor streaming", () => {
         Effect.flatMap(store, (s) =>
           Stream.runCollect(s.streamMessages(a).pipe(Stream.take(2))),
         ),
-      ).then(Chunk.toReadonlyArray);
+      );
       const forB = await run(
         Effect.flatMap(store, (s) =>
           Stream.runCollect(s.streamMessages(b).pipe(Stream.take(1))),
         ),
-      ).then(Chunk.toReadonlyArray);
+      );
 
       expect(forA.map(userText)).toEqual(["a1", "a2"]);
       expect(forB.map(userText)).toEqual(["b1"]);

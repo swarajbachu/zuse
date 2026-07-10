@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -57,8 +57,8 @@ const MIGRATIONS_THROUGH_0019 = [
 ] as const;
 
 /**
- * Run effects against a fresh temp-file DB (bun:sqlite driver — the same
- * generic SqlClient surface the node:sqlite driver provides in prod).
+ * Run effects against a fresh temp-file DB using the production node:sqlite
+ * layer and its generic SqlClient surface.
  * `throughMigration` lets the backfill test stop at 0019, seed legacy rows,
  * and then apply 0020 itself.
  */
@@ -78,7 +78,7 @@ const withSql = async <A>(
     Effect.all(migrations, { discard: true }),
   ).pipe(
     Layer.provideMerge(
-      SqliteClient.layer({ filename: join(dir, "test.sqlite") }),
+      sqliteLayer({ filename: join(dir, "test.sqlite") }),
     ),
   );
   const runtime = ManagedRuntime.make(Migrated);
@@ -422,8 +422,7 @@ describe("event store", () => {
       await run(
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
-          // bun:sqlite defaults FKs off; the prod node:sqlite driver pins
-          // them on. Enable so DELETE FROM chats cascades like production.
+          // Enable foreign keys so DELETE FROM chats cascades like production.
           yield* sql`PRAGMA foreign_keys = ON`.pipe(Effect.orDie);
         }),
       );

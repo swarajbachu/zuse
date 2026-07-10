@@ -141,6 +141,7 @@ export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
     fileRefs: Schema.Array(FileRef),
     skillRefs: Schema.Array(SkillRef),
     annotations: Schema.Array(ComposerAnnotation).pipe(
+      Schema.withConstructorDefault(Effect.succeed([])),
       Schema.withDecodingDefaultType(Effect.succeed([])),
     ),
   },

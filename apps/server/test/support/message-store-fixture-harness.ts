@@ -1,5 +1,5 @@
 import { SqlClient } from "effect/unstable/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
 import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -241,7 +241,7 @@ const makeRuntime = (
     publish: () => Effect.void,
   });
 
-  const SqlLive = SqliteClient.layer({ filename: dbPath });
+  const SqlLive = sqliteLayer({ filename: dbPath });
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
@@ -323,9 +323,10 @@ export const assertEventsAcceptedByMessageStore = async (
       return { providerMessages, session };
     }).pipe(
       Effect.retry(
-        Schedule.spaced("10 millis").pipe(
-          Schedule.intersect(Schedule.recurs(100)),
-        ),
+        Schedule.max([
+          Schedule.spaced("10 millis"),
+          Schedule.recurs(100),
+        ]),
       ),
     );
 

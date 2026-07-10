@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { SqlClient } from "effect/unstable/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import {
   Duration,
   Effect,
-  Either,
   Layer,
   ManagedRuntime,
-  TestClock,
-  TestContext,
+  Result,
 } from "effect";
+import { TestClock } from "effect/testing";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 import { LanAuthServiceLive } from "../src/lan-auth/layers/lan-auth-service.ts";
@@ -27,7 +26,7 @@ import { Migration0028RelayMintPublicKey } from "../src/persistence/migrations/0
 import { buildAdvertisedEndpoints } from "../src/lan-auth/advertised-endpoints.ts";
 
 const makeRuntime = () => {
-  const SqlLive = SqliteClient.layer({ filename: ":memory:" });
+  const SqlLive = sqliteLayer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
     Migration0021AuthTokens.pipe(
       Effect.andThen(Migration0024RemoteConnectState),
@@ -46,7 +45,7 @@ const makeRuntime = () => {
   const TestLayer = LanAuthServiceLive.pipe(
     Layer.provideMerge(Migrated),
     Layer.provide(ConfigLive),
-    Layer.provide(TestContext.TestContext),
+    Layer.provideMerge(TestClock.layer()),
   );
   return ManagedRuntime.make(TestLayer);
 };
@@ -155,9 +154,9 @@ describe("LanAuthService", () => {
       expect(result.pairing.qrText).toContain("#token=zp_");
       expect(result.redeemed.token.startsWith("zt_")).toBe(true);
       expect(result.verified).toBe(true);
-      expect(Either.isLeft(result.second)).toBe(true);
-      if (Either.isLeft(result.second)) {
-        expect(result.second.left.reason).toBe("invalid_code");
+      expect(Result.isFailure(result.second)).toBe(true);
+      if (Result.isFailure(result.second)) {
+        expect(result.second.failure.reason).toBe("invalid_code");
       }
     });
   });
@@ -173,9 +172,9 @@ describe("LanAuthService", () => {
         }),
       );
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.reason).toBe("expired_code");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toBe("expired_code");
       }
     });
   });
@@ -189,9 +188,9 @@ describe("LanAuthService", () => {
         }),
       );
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.reason).toBe("invalid_code");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toBe("invalid_code");
       }
     });
   });

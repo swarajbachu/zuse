@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/contracts";
 
@@ -61,7 +62,9 @@ type NormalizedFixture = {
 
 type ProviderFixture = AcpFixture | CodexFixture | NormalizedFixture;
 
-const fixturesRoot = join(import.meta.dir, "fixtures/providers");
+const fixturesRoot = fileURLToPath(
+  new URL("fixtures/providers/", import.meta.url),
+);
 const decodeEvent = Schema.decodeUnknownSync(AgentEvent);
 
 const loadFixtures = (): ReadonlyArray<{

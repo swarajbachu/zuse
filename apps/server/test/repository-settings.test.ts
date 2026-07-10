@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { SqlClient } from "effect/unstable/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import {
   existsSync,
@@ -28,7 +28,7 @@ const runMigrations = Effect.all(
 );
 
 const makeRuntime = (dbPath: string) => {
-  const SqlLive = SqliteClient.layer({ filename: dbPath });
+  const SqlLive = sqliteLayer({ filename: dbPath });
   const Migrated = Layer.effectDiscard(runMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
