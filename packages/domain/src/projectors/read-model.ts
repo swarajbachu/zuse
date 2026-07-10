@@ -104,10 +104,6 @@ const eventTimestamp = (event: StoredEvent["event"]): number | undefined => {
 			return event.requestedAt;
 		case "ProviderDetached":
 			return event.detachedAt;
-		case "CheckpointRecorded":
-			return event.recordedAt;
-		case "WorktreeArchiveRequested":
-			return event.requestedAt;
 	}
 };
 

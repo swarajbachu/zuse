@@ -200,8 +200,6 @@ export const makeSqlSessionProjector = (
 			case "SegmentSettled":
 			case "PermissionRequested":
 			case "PermissionResolved":
-			case "CheckpointRecorded":
-			case "WorktreeArchiveRequested":
 				return;
 		}
 	}),

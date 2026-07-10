@@ -239,13 +239,5 @@ export const decide = (
 							detachedAt: command.detachedAt,
 						},
 					]);
-		case "RecordCheckpoint":
-			return state.checkpointIds.has(command.checkpointId)
-				? success([])
-				: success([{ ...command, _tag: "CheckpointRecorded" }]);
-		case "RequestWorktreeArchive":
-			return state.archiveWorktreeIds.has(command.worktreeId)
-				? success([])
-				: success([{ ...command, _tag: "WorktreeArchiveRequested" }]);
 	}
 };

@@ -105,14 +105,5 @@ export const SessionCommand = Schema.Union([
 	}),
 	Schema.TaggedStruct("RequestProviderStop", { requestedAt: Schema.Number }),
 	Schema.TaggedStruct("DetachProvider", { detachedAt: Schema.Number }),
-	Schema.TaggedStruct("RecordCheckpoint", {
-		checkpointId: Schema.String,
-		payloadJson: Schema.String,
-		recordedAt: Schema.Number,
-	}),
-	Schema.TaggedStruct("RequestWorktreeArchive", {
-		worktreeId: Schema.String,
-		requestedAt: Schema.Number,
-	}),
 ]);
 export type SessionCommand = typeof SessionCommand.Type;

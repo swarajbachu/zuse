@@ -148,14 +148,9 @@ describe("session decider", () => {
 		).toBe("PermissionNotPending");
 	});
 
-	test("keeps provider attachment and archive requests idempotent", () => {
+	test("keeps provider attachment idempotent", () => {
 		const attached = evolveAll(created(), [
 			{ _tag: "ProviderAttached", providerId: "provider-1", attachedAt: 2 },
-			{
-				_tag: "WorktreeArchiveRequested",
-				worktreeId: "worktree-1",
-				requestedAt: 3,
-			},
 		]);
 		expect(
 			Result.getOrThrow(
@@ -163,15 +158,6 @@ describe("session decider", () => {
 					_tag: "AttachProvider",
 					providerId: "provider-1",
 					attachedAt: 4,
-				}),
-			),
-		).toEqual([]);
-		expect(
-			Result.getOrThrow(
-				decide(attached, {
-					_tag: "RequestWorktreeArchive",
-					worktreeId: "worktree-1",
-					requestedAt: 5,
 				}),
 			),
 		).toEqual([]);

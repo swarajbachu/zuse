@@ -102,14 +102,5 @@ export const SessionEvent = Schema.Union([
 		providerId: Schema.String,
 		detachedAt: Schema.Number,
 	}),
-	Schema.TaggedStruct("CheckpointRecorded", {
-		checkpointId: Schema.String,
-		payloadJson: Schema.String,
-		recordedAt: Schema.Number,
-	}),
-	Schema.TaggedStruct("WorktreeArchiveRequested", {
-		worktreeId: Schema.String,
-		requestedAt: Schema.Number,
-	}),
 ]);
 export type SessionEvent = typeof SessionEvent.Type;

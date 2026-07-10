@@ -32,8 +32,6 @@ export type SessionState = {
 	readonly pendingPermissionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
-	readonly checkpointIds: ReadonlySet<string>;
-	readonly archiveWorktreeIds: ReadonlySet<string>;
 	readonly version: number;
 };
 
@@ -58,8 +56,6 @@ export const initialSessionState: SessionState = {
 	pendingPermissionIds: new Set(),
 	providerId: null,
 	attachedProviderId: null,
-	checkpointIds: new Set(),
-	archiveWorktreeIds: new Set(),
 	version: 0,
 };
 
@@ -182,18 +178,6 @@ export const evolve = (
 			return { ...state, version };
 		case "ProviderDetached":
 			return { ...state, attachedProviderId: null, version };
-		case "CheckpointRecorded":
-			return {
-				...state,
-				checkpointIds: added(state.checkpointIds, event.checkpointId),
-				version,
-			};
-		case "WorktreeArchiveRequested":
-			return {
-				...state,
-				archiveWorktreeIds: added(state.archiveWorktreeIds, event.worktreeId),
-				version,
-			};
 	}
 };
 
