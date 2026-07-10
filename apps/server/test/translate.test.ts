@@ -113,6 +113,42 @@ describe("translateAcpSessionUpdate — tool-call normalization", () => {
     expect(ev.input).toEqual({ command: "ls -la", description: "List files" });
   });
 
+  it("omits Bash description when title echoes the command", () => {
+    const ev = only(
+      translateAcpSessionUpdate(
+        {
+          sessionUpdate: "tool_call",
+          kind: "bash",
+          toolCallId: "tc4b",
+          command: "ls -la",
+          title: "ls -la",
+        },
+        "grok",
+      ),
+      "ToolUse",
+    );
+    expect(ev.tool).toBe("Bash");
+    expect(ev.input).toEqual({ command: "ls -la" });
+  });
+
+  it("omits Bash description when title is the first line of a multiline command", () => {
+    const ev = only(
+      translateAcpSessionUpdate(
+        {
+          sessionUpdate: "tool_call",
+          kind: "bash",
+          toolCallId: "tc4c",
+          command: "echo one\necho two",
+          title: "echo one",
+        },
+        "grok",
+      ),
+      "ToolUse",
+    );
+    expect(ev.tool).toBe("Bash");
+    expect(ev.input).toEqual({ command: "echo one\necho two" });
+  });
+
   it("normalizes unknown tool kinds into a Title Case label", () => {
     const ev = only(
       translateAcpSessionUpdate(

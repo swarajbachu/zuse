@@ -41,7 +41,7 @@ const formatDuration = (ms: number): string => {
 
 /**
  * Wrapper row for a sub-agent run. Visually mirrors `tool-row.tsx`'s
- * `ExpandableIconRow` (icon → label → trailing → expandable body) so the
+ * `ExpandableIconRow` (icon → label → detail → expandable body) so the
  * sub-agent collapses into the timeline cleanly. The body renders a
  * `Prompt` summary at the top followed by nested `MessageRow`s for every
  * message tagged with this `parentItemId`. Closes with the sub-agent's

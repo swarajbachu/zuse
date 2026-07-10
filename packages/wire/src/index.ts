@@ -24,6 +24,7 @@ export * from "./repository-settings.ts";
 export * from "./rpc.ts";
 export * from "./session.ts";
 export * from "./settings.ts";
+export * from "./shell-display.ts";
 export * from "./skill.ts";
 export * from "./update.ts";
 export * from "./usage.ts";

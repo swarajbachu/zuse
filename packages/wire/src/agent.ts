@@ -389,6 +389,10 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
  *   Read          { file_path, offset?, limit? }          file slice (string
  *                                                          or [{type:"text"}])
  *   Bash          { command, description? }               stdout/stderr text
+ *                 `description` only when it's a human-written summary
+ *                 distinct from the command — drivers must not echo the
+ *                 command / first line / title into it (see
+ *                 `isRedundantShellDescription` in `shell-display.ts`).
  *   Grep          { pattern, path?, glob?, output_mode? } match listing
  *   Glob          { pattern, path? }                      file listing
  *   WebSearch     { query }                               result array (or

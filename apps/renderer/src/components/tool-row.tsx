@@ -20,11 +20,12 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useState } from "react";
 
-import type {
-  ChatId,
-  SessionId,
-  UserQuestion,
-  UserQuestionAnswer,
+import {
+  isRedundantShellDescription,
+  type ChatId,
+  type SessionId,
+  type UserQuestion,
+  type UserQuestionAnswer,
 } from "@zuse/wire";
 
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
@@ -34,7 +35,8 @@ import { useSessionsStore } from "~/store/sessions";
 
 import { Button } from "./ui/button.tsx";
 import { CodeBlock } from "./code-block.tsx";
-import { FileBadge } from "./file-badge.tsx";
+import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { FileIcon } from "./file-icon.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   diffStats,
@@ -45,6 +47,11 @@ import {
   patchStats,
   UnifiedPatchDiff,
 } from "./inline-diff.tsx";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+import { useUiStore, type FileView } from "~/store/ui";
+import { useWorkspaceStore } from "~/store/workspace";
+import { useWorktreesStore } from "~/store/worktrees";
 
 type IconHandle = Parameters<typeof HugeiconsIcon>[0]["icon"];
 
@@ -204,10 +211,10 @@ const firstSentence = (text: string, hardCap = 160): string => {
 // Visual primitives
 // ---------------------------------------------------------------------------
 
-function InlineCodeChip({ value }: { value: string }) {
+function InlineTextHint({ value }: { value: string }) {
   return (
     <span
-      className="ml-1 inline-block max-w-full truncate rounded bg-muted/60 px-1.5 py-0.5 align-bottom font-mono text-[10px] text-muted-foreground"
+      className="inline-block max-w-full truncate align-bottom text-muted-foreground italic"
       title={value}
     >
       {value}
@@ -215,14 +222,117 @@ function InlineCodeChip({ value }: { value: string }) {
   );
 }
 
-function InlineTextHint({ value }: { value: string }) {
+/** Soft +/− line counts for edit rows — muted but still readable as color. */
+function SoftDiffStats({
+  added,
+  removed,
+}: {
+  added: number;
+  removed: number;
+}) {
+  if (added <= 0 && removed <= 0) return null;
   return (
-    <span
-      className="ml-1 inline-block max-w-full truncate align-bottom text-muted-foreground italic"
-      title={value}
-    >
-      {value}
+    <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
+      {added > 0 ? (
+        <span className="text-[oklch(0.75_0.12_155)]">+{added}</span>
+      ) : null}
+      {removed > 0 ? (
+        <span className="text-[oklch(0.72_0.12_25)]">−{removed}</span>
+      ) : null}
     </span>
+  );
+}
+
+/**
+ * Chipless file reference for collapsed tool rows — file-type icon + muted
+ * mono name (+ optional count), click-to-open. Replaces the old FileBadge
+ * pill so the live feed stays quiet.
+ */
+function MutedFilePath({
+  path,
+  view,
+  suffix,
+}: {
+  path: string;
+  view?: FileView;
+  suffix?: React.ReactNode;
+}) {
+  const name = basename(path);
+  const { folderId, worktreeId } = useFileChipContext();
+  const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const folderPath = useWorkspaceStore((s) => {
+    if (folderId === null) return null;
+    return s.folders.find((f) => f.id === folderId)?.path ?? null;
+  });
+  const worktreePath = useWorktreesStore((s) => {
+    if (folderId === null || worktreeId === null) return null;
+    const list = s.byProject[folderId] ?? [];
+    return list.find((w) => w.id === worktreeId)?.path ?? null;
+  });
+  const openTarget = resolveFileOpenTarget({
+    relPath: path,
+    absPath: path,
+    kind: "file",
+    folderId,
+    worktreeId,
+    folderPath,
+    worktreePath,
+    view,
+  });
+  const canOpen = openTarget !== null;
+
+  const onClick = (e: React.MouseEvent<HTMLSpanElement>) => {
+    if (openTarget === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openFileInTab(openTarget);
+  };
+  const onKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>) => {
+    if (!canOpen) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      openFileInTab(openTarget!);
+    }
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role={canOpen ? "button" : undefined}
+            tabIndex={canOpen ? 0 : undefined}
+            onClick={canOpen ? onClick : undefined}
+            onKeyDown={canOpen ? onKeyDown : undefined}
+            className={cn(
+              "inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-muted-foreground",
+              canOpen
+                ? "cursor-pointer hover:text-foreground/80"
+                : "cursor-default",
+            )}
+            title={path}
+          >
+            <FileIcon
+              name={name}
+              kind="file"
+              className="inline-flex size-3.5 shrink-0 items-center justify-center opacity-80"
+            />
+            <span className="min-w-0 truncate font-mono">{name}</span>
+            {suffix !== undefined && suffix !== null && suffix !== "" ? (
+              <span className="inline-flex shrink-0 items-center gap-1 opacity-90">
+                {typeof suffix === "string" || typeof suffix === "number" ? (
+                  <span className="tabular-nums opacity-80">({suffix})</span>
+                ) : (
+                  suffix
+                )}
+              </span>
+            ) : null}
+          </span>
+        }
+      />
+      <TooltipPopup>{canOpen ? `Open ${path}` : path}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -331,7 +441,7 @@ function DirTreeBlock({ text }: { text: string }) {
 }
 
 /**
- * Render grep matches grouped by file: a clickable file chip header followed
+ * Render grep matches grouped by file: a muted file path header followed
  * by the matched lines. Far nicer than the raw `{ stdout: [char codes],
  * file_matches: [...] }` envelope Grok returns.
  */
@@ -344,7 +454,7 @@ function GrepGroupsBlock({
     <div className="space-y-2">
       {groups.map((g, i) => (
         <div key={i} className="space-y-0.5">
-          <FileBadge path={g.path} />
+          <MutedFilePath path={g.path} />
           {g.matches.length > 0 ? (
             <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded border border-message-rule bg-message-pre-bg px-3 py-1.5 font-mono text-[11px] text-foreground/80">
               {g.matches.join("\n")}
@@ -435,26 +545,29 @@ const countTreeFiles = (tree: string): number =>
 function ExpandableIconRow({
   icon,
   label,
-  trailing,
+  detail,
   body,
   hasContent,
+  pending = false,
 }: {
   icon: IconHandle;
-  label: React.ReactNode;
-  trailing?: React.ReactNode;
+  label: string;
+  detail?: React.ReactNode;
   body: React.ReactNode;
   hasContent: boolean;
+  /** True while the tool/thinking is still running — label shimmers. */
+  pending?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
   return (
-    <div className="px-4">
+    <div className="px-4 py-0.5">
       <button
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
         className={cn(
-          "group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
-          hasContent ? "hover:bg-muted/40 cursor-pointer" : "cursor-default",
+          "group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-1 text-left text-xs",
+          hasContent ? "cursor-pointer" : "cursor-default",
         )}
       >
         <div className="relative grid size-4 shrink-0 place-items-center">
@@ -480,14 +593,20 @@ function ExpandableIconRow({
           ) : null}
         </div>
         <span
-          className="max-w-[12rem] shrink-0 truncate font-medium text-foreground/90"
-          title={typeof label === "string" ? label : undefined}
+          className="max-w-[16rem] shrink-0 truncate text-muted-foreground"
+          title={label}
         >
-          {label}
+          {pending ? (
+            <ShimmerText tone="lime" className="text-muted-foreground">
+              {label}
+            </ShimmerText>
+          ) : (
+            label
+          )}
         </span>
-        {trailing !== undefined ? (
-          <span className="flex min-w-0 flex-1 items-center overflow-hidden whitespace-nowrap [&>*]:min-w-0 [&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis">
-            {trailing}
+        {detail !== undefined ? (
+          <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap [&>*]:min-w-0 [&>*]:max-w-full [&>*]:overflow-hidden [&>*]:text-ellipsis">
+            {detail}
           </span>
         ) : null}
       </button>
@@ -507,7 +626,7 @@ function ExpandableIconRow({
 interface ToolView {
   readonly icon: IconHandle;
   readonly label: string;
-  readonly trailing?: React.ReactNode;
+  readonly detail?: React.ReactNode;
   readonly inputPanel?: React.ReactNode;
   readonly resultPanel?: (result: ToolResult) => React.ReactNode;
   readonly fallbackBody?: React.ReactNode;
@@ -548,20 +667,24 @@ const buildToolView = (
         asString(obj.shell_command) ??
         asString(input);
       const desc = asString(obj.description);
-      const label =
-        desc ??
-        (normalizedTool === "Bash"
+      const fallbackLabel =
+        normalizedTool === "Bash"
           ? "Bash"
           : normalizedTool === "Shell"
             ? "Shell"
-            : "Execute");
+            : "Execute";
+      // Keep a genuine human summary as the label; fall back to the tool
+      // name when description is missing or just echoes the command (also
+      // covers old persisted Codex/ACP sessions that stored the echo).
+      const label =
+        desc !== null &&
+        (cmd === null || !isRedundantShellDescription(desc, cmd))
+          ? desc
+          : fallbackLabel;
+      // Command lives under the chevron — collapsed row is just the label.
       return {
         icon: TerminalIcon,
         label,
-        trailing:
-          cmd !== null ? (
-            <InlineCodeChip value={truncate(cmd, 56)} />
-          ) : undefined,
         inputPanel: cmd !== null ? <TerminalBlock command={cmd} /> : undefined,
         resultPanel: (result) => (
           <TerminalBlock
@@ -582,25 +705,20 @@ const buildToolView = (
         offset !== null || limit !== null
           ? `lines ${offset ?? 1}–${(offset ?? 1) + (limit ?? 0) - 1}`
           : null;
-      // Once the result is in we can show "N lines" — until then, a "…"
-      // placeholder so the row's geometry doesn't shift when the result
-      // arrives a frame later.
+      const pending = result === undefined;
       const lines = result !== undefined ? lineCountOf(result.output) : null;
-      const linesHint =
+      const linesSuffix =
         lines !== null
           ? lines === 0
-            ? "(empty)"
+            ? "empty"
             : `${lines} line${lines === 1 ? "" : "s"}`
-          : "…";
+          : null;
       return {
         icon: File01Icon,
-        label: "Read",
-        trailing:
+        label: pending ? "Reading" : "Read",
+        detail:
           path !== null ? (
-            <span className="flex items-center gap-2">
-              <span className="text-muted-foreground">{linesHint}</span>
-              <FileBadge path={path} />
-            </span>
+            <MutedFilePath path={path} suffix={linesSuffix} />
           ) : undefined,
         inputPanel:
           path !== null ? (
@@ -631,46 +749,41 @@ const buildToolView = (
       const edits = patches.length > 0 ? [] : extractEdits(tool, input);
       const fileCount =
         patches.length || new Set(edits.map((e) => e.path)).size;
+      const pending = result === undefined;
       const label =
         tool === "Write"
-          ? "Write"
-          : tool === "MultiEdit"
-            ? `MultiEdit (${fileCount})`
-            : "Edit";
+          ? pending
+            ? "Writing"
+            : "Wrote"
+          : pending
+            ? "Editing"
+            : "Edited";
       const stats =
         patches.length > 0
           ? patchStats(patches)
           : edits.length > 0
             ? diffStats(edits)
             : null;
+      const editCount = patches.length > 0 ? patches.length : edits.length;
+      const statsNode =
+        stats !== null && (stats.added > 0 || stats.removed > 0) ? (
+          <SoftDiffStats added={stats.added} removed={stats.removed} />
+        ) : editCount > 0 ? (
+          <span className="tabular-nums text-muted-foreground/80">
+            {editCount} edit{editCount === 1 ? "" : "s"}
+          </span>
+        ) : null;
       return {
         icon: PencilEdit01Icon,
-        label,
-        trailing:
+        label:
+          tool === "MultiEdit" && fileCount > 1
+            ? `${label} ${fileCount} files`
+            : label,
+        detail:
           path !== null ? (
-            <span className="flex items-center gap-2 tabular-nums">
-              <FileBadge
-                path={path}
-                view="diff"
-                diffStats={
-                  stats !== null
-                    ? { added: stats.added, removed: stats.removed }
-                    : undefined
-                }
-              />
-            </span>
-          ) : stats !== null && tool === "MultiEdit" ? (
-            <span className="flex items-center gap-2 text-[11px] text-muted-foreground tabular-nums">
-              <span>
-                {fileCount} file{fileCount === 1 ? "" : "s"}
-              </span>
-              {stats.added > 0 ? (
-                <span className="text-emerald-400">+{stats.added}</span>
-              ) : null}
-              {stats.removed > 0 ? (
-                <span className="text-red-400">-{stats.removed}</span>
-              ) : null}
-            </span>
+            <MutedFilePath path={path} view="diff" suffix={statsNode} />
+          ) : path === null && statsNode !== null && tool === "MultiEdit" ? (
+            statsNode
           ) : undefined,
         fallbackBody:
           patches.length > 0 ? (
@@ -711,29 +824,21 @@ const buildToolView = (
       const glob = asString(obj.glob);
       const type = asString(obj.type);
       const where = path ?? glob ?? type;
-      // Count distinct files matched (grouped or files-with-matches output).
       const files =
         result !== undefined && !result.isError
           ? parseGrepGroups(toResultText(result.output)).length
           : null;
       const matchesHint =
-        files !== null
-          ? files === 0
-            ? "no matches"
-            : `${files} file${files === 1 ? "" : "s"}`
-          : null;
+        files !== null ? (files === 0 ? "no matches" : `${files}`) : null;
       return {
         icon: SearchIcon,
         label: "Grep",
-        trailing:
-          pattern !== null ? (
-            <>
-              <InlineCodeChip value={pattern} />
-              {where !== null ? <InlineTextHint value={`in ${where}`} /> : null}
-              {matchesHint !== null ? (
-                <InlineTextHint value={`· ${matchesHint}`} />
-              ) : null}
-            </>
+        // Pattern/scope live under the chevron; count sits next to the label.
+        detail:
+          matchesHint !== null ? (
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {matchesHint}
+            </span>
           ) : undefined,
         inputPanel:
           pattern !== null ? (
@@ -757,7 +862,6 @@ const buildToolView = (
           if (groups.length === 0) {
             return <PreBlock text={text || "No matches."} />;
           }
-          // Files-with-matches mode (no per-line content) → plain file list.
           return groups.some((g) => g.matches.length > 0) ? (
             <GrepGroupsBlock groups={groups} />
           ) : (
@@ -774,22 +878,21 @@ const buildToolView = (
           ? parseFileList(toResultText(result.output)).length
           : null;
       const matchesHint =
-        matches !== null
-          ? matches === 0
-            ? "no matches"
-            : `${matches} file${matches === 1 ? "" : "s"}`
-          : null;
+        matches !== null ? (matches === 0 ? "no matches" : `${matches}`) : null;
       return {
         icon: SearchIcon,
         label: "Glob",
-        trailing:
+        detail:
+          matchesHint !== null ? (
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {matchesHint}
+            </span>
+          ) : undefined,
+        inputPanel:
           pattern !== null ? (
-            <>
-              <InlineCodeChip value={pattern} />
-              {matchesHint !== null ? (
-                <InlineTextHint value={`· ${matchesHint}`} />
-              ) : null}
-            </>
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {pattern}
+            </p>
           ) : undefined,
         resultPanel: (result) => {
           const text = toResultText(result.output);
@@ -816,22 +919,22 @@ const buildToolView = (
           ? countTreeFiles(toResultText(result.output))
           : null;
       const filesHint =
-        files !== null
-          ? files === 0
-            ? "empty"
-            : `${files} file${files === 1 ? "" : "s"}`
-          : null;
+        files !== null ? (files === 0 ? "empty" : `${files}`) : null;
       return {
         icon: Folder01Icon,
         label: "List",
-        trailing: (
-          <>
-            {path !== null ? <InlineCodeChip value={path} /> : null}
-            {filesHint !== null ? (
-              <InlineTextHint value={`· ${filesHint}`} />
-            ) : null}
-          </>
-        ),
+        detail:
+          filesHint !== null ? (
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {filesHint}
+            </span>
+          ) : undefined,
+        inputPanel:
+          path !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground break-all">
+              {path}
+            </p>
+          ) : undefined,
         resultPanel: (result) => {
           const text = toResultText(result.output);
           if (result.isError) return <PreBlock text={text} isError />;
@@ -847,14 +950,22 @@ const buildToolView = (
       return {
         icon: Robot01Icon,
         label: "Agent",
-        trailing: desc !== null ? <InlineTextHint value={desc} /> : undefined,
         inputPanel:
-          prompt !== null ? (
+          desc !== null || prompt !== null ? (
             <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                Prompt
-              </p>
-              <PreBlock text={prompt} />
+              {desc !== null ? (
+                <p className="text-[11px] text-muted-foreground italic">
+                  {desc}
+                </p>
+              ) : null}
+              {prompt !== null ? (
+                <>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Prompt
+                  </p>
+                  <PreBlock text={prompt} />
+                </>
+              ) : null}
             </div>
           ) : undefined,
         resultPanel: (result) => {
@@ -877,7 +988,12 @@ const buildToolView = (
       return {
         icon: GlobeIcon,
         label: "WebFetch",
-        trailing: url !== null ? <InlineCodeChip value={url} /> : undefined,
+        inputPanel:
+          url !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground break-all">
+              {url}
+            </p>
+          ) : undefined,
         resultPanel: (result) => (
           <PreBlock
             text={truncate(toResultText(result.output), 4000)}
@@ -892,13 +1008,11 @@ const buildToolView = (
       return {
         icon: GlobeIcon,
         label: "WebSearch",
-        trailing: q !== null ? <InlineCodeChip value={q} /> : undefined,
+        inputPanel:
+          q !== null ? (
+            <p className="text-[11px] text-muted-foreground">{q}</p>
+          ) : undefined,
         resultPanel: (result) => {
-          // ACP providers (Gemini/Grok) don't surface search results
-          // through ACP frames — only the fact that a search ran. Show a
-          // muted hint instead of an empty pre block so the row carries
-          // information even without results. Claude/Codex emit real
-          // result text and fall through to the PreBlock path.
           const text = toResultText(result.output);
           if (text.trim().length === 0 && !result.isError) {
             return (
@@ -919,9 +1033,11 @@ const buildToolView = (
       return {
         icon: CheckListIcon,
         label: "TodoWrite",
-        trailing:
+        detail:
           todos !== null ? (
-            <InlineTextHint value={`${todos.length} todos`} />
+            <span className="tabular-nums text-[11px] text-muted-foreground">
+              {todos.length}
+            </span>
           ) : undefined,
         fallbackBody:
           todos !== null ? (
@@ -960,7 +1076,6 @@ const buildToolView = (
       return {
         icon: Robot01Icon,
         label: `Spawn ${n} agent${n === 1 ? "" : "s"}`,
-        trailing: model ? <InlineTextHint value={model} /> : undefined,
         fallbackBody: (
           <div className="space-y-1.5 text-[12px]">
             {model && (
@@ -1004,9 +1119,11 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Browse",
-        trailing:
+        inputPanel:
           targetUrl !== null ? (
-            <InlineTextHint value={truncate(targetUrl, 64)} />
+            <p className="text-[11px] text-muted-foreground break-all">
+              {targetUrl}
+            </p>
           ) : undefined,
         resultPanel: (result) => (
           <PreBlock
@@ -1021,7 +1138,6 @@ const buildToolView = (
       return {
         icon: Camera01Icon,
         label: "Screenshot",
-        trailing: <InlineTextHint value="in-app browser" />,
         resultPanel: (result) =>
           result.isError ? (
             <PreBlock text={toResultText(result.output)} isError />
@@ -1037,7 +1153,6 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Read page",
-        trailing: <InlineTextHint value="elements" />,
         resultPanel: (result) => (
           <PreBlock
             text={toResultText(result.output)}
@@ -1052,7 +1167,10 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Click",
-        trailing: ref !== null ? <InlineTextHint value={ref} /> : undefined,
+        inputPanel:
+          ref !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground">{ref}</p>
+          ) : undefined,
         resultPanel: (result) => (
           <PreBlock
             text={toResultText(result.output)}
@@ -1067,9 +1185,9 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Type",
-        trailing:
+        inputPanel:
           typed !== null ? (
-            <InlineTextHint value={truncate(typed, 48)} />
+            <p className="text-[11px] text-muted-foreground">{typed}</p>
           ) : undefined,
         resultPanel: (result) => (
           <PreBlock
@@ -1083,20 +1201,22 @@ const buildToolView = (
     case "mcp__zuse__browser_wait": {
       const sel = asString(obj.selector);
       const ms = typeof obj.ms === "number" ? `${obj.ms}ms` : null;
+      const hint = sel ?? ms ?? "settle";
       return {
         icon: BrowserIcon,
         label: "Wait",
-        trailing: <InlineTextHint value={sel ?? ms ?? "settle"} />,
+        inputPanel: <p className="text-[11px] text-muted-foreground">{hint}</p>,
       };
     }
 
     case "mcp__zuse__browser_scroll": {
       const dir = asString(obj.direction);
       const ref = asString(obj.ref);
+      const hint = ref ?? dir ?? "down";
       return {
         icon: BrowserIcon,
         label: "Scroll",
-        trailing: <InlineTextHint value={ref ?? dir ?? "down"} />,
+        inputPanel: <p className="text-[11px] text-muted-foreground">{hint}</p>,
       };
     }
 
@@ -1105,7 +1225,10 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Hover",
-        trailing: ref !== null ? <InlineTextHint value={ref} /> : undefined,
+        inputPanel:
+          ref !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground">{ref}</p>
+          ) : undefined,
       };
     }
 
@@ -1114,9 +1237,9 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Select",
-        trailing:
+        inputPanel:
           value !== null ? (
-            <InlineTextHint value={truncate(value, 40)} />
+            <p className="text-[11px] text-muted-foreground">{value}</p>
           ) : undefined,
         resultPanel: (result) => (
           <PreBlock
@@ -1132,7 +1255,10 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Press",
-        trailing: key !== null ? <InlineTextHint value={key} /> : undefined,
+        inputPanel:
+          key !== null ? (
+            <p className="font-mono text-[11px] text-muted-foreground">{key}</p>
+          ) : undefined,
       };
     }
 
@@ -1180,9 +1306,11 @@ const buildToolView = (
       return {
         icon: BrowserIcon,
         label: "Log in",
-        trailing:
+        inputPanel:
           origin !== null ? (
-            <InlineTextHint value={truncate(origin, 48)} />
+            <p className="text-[11px] text-muted-foreground break-all">
+              {origin}
+            </p>
           ) : undefined,
         resultPanel: (result) => (
           <PreBlock
@@ -1304,7 +1432,7 @@ export function ExitPlanModeRow({
     <ExpandableIconRow
       icon={CheckListIcon}
       label="Plan"
-      trailing={<InlineTextHint value={teaser} />}
+      detail={<InlineTextHint value={teaser} />}
       hasContent
       body={body}
     />
@@ -1440,7 +1568,7 @@ export function UserInputRow({
   };
 
   // Collapsed teaser: first question + its answer (or "cancelled"), flattened
-  // and truncated like ThinkingRow / ToolRow trailing hints so the row reads
+  // and truncated like ThinkingRow / ToolRow detail hints so the row reads
   // as one calm line in scrollback.
   const firstQ = questions[0];
   const teaser = (() => {
@@ -1504,7 +1632,7 @@ export function UserInputRow({
     <ExpandableIconRow
       icon={BubbleChatIcon}
       label="User input"
-      trailing={<InlineTextHint value={teaser} />}
+      detail={<InlineTextHint value={teaser} />}
       hasContent
       body={body}
     />
@@ -1564,6 +1692,7 @@ export function ToolRow({
   result?: ToolResult;
 }) {
   const view = buildToolView(tool, input, result);
+  const pending = result === undefined;
 
   const sections: React.ReactNode[] = [];
   if (view.inputPanel !== undefined) {
@@ -1595,11 +1724,21 @@ export function ToolRow({
     }
   }
 
+  // Collapsed failure signal when the view didn't supply its own detail —
+  // keeps the ErrorPill behind the chevron without per-case code.
+  const detail =
+    view.detail !== undefined ? (
+      view.detail
+    ) : result?.isError === true ? (
+      <span className="text-[11px] text-destructive">error</span>
+    ) : undefined;
+
   return (
     <ExpandableIconRow
       icon={view.icon}
       label={view.label}
-      trailing={view.trailing}
+      detail={detail}
+      pending={pending}
       hasContent={sections.length > 0}
       body={sections.length > 0 ? sections : null}
     />
@@ -1609,9 +1748,12 @@ export function ToolRow({
 export function ThinkingRow({
   text,
   redacted,
+  pending = false,
 }: {
   text: string;
   redacted: boolean;
+  /** True while this thinking block is the live tip of a running turn. */
+  pending?: boolean;
 }) {
   // Three states:
   // 1. redacted — model thought but content is policy-hidden (rare;
@@ -1622,11 +1764,6 @@ export function ThinkingRow({
   //    anyway so the timeline accurately reflects what happened.
   // 3. plain text — render as markdown.
   const isEmpty = !redacted && text.length === 0;
-  const teaser = redacted
-    ? "(redacted)"
-    : isEmpty
-      ? "(content not exposed by SDK)"
-      : firstSentence(text);
   const body = redacted ? (
     <p className="whitespace-pre-wrap text-[11px] italic leading-relaxed text-muted-foreground/70">
       Thought content was redacted by the model.
@@ -1634,9 +1771,9 @@ export function ThinkingRow({
   ) : isEmpty ? (
     <p className="whitespace-pre-wrap text-[11px] italic leading-relaxed text-muted-foreground/70">
       The model produced a thinking block (the SDK forwarded its signed receipt)
-      but the underlying text was filtered out by Anthropic's agent SDK before
-      it reached us. We can&apos;t expose the actual thoughts without bypassing
-      the official SDK.
+      but the underlying text was filtered out by Anthropic&apos;s agent SDK
+      before it reached us. We can&apos;t expose the actual thoughts without
+      bypassing the official SDK.
     </p>
   ) : (
     <MarkdownBlock text={text} />
@@ -1645,7 +1782,7 @@ export function ThinkingRow({
     <ExpandableIconRow
       icon={Brain01Icon}
       label="Thinking"
-      trailing={<InlineTextHint value={teaser} />}
+      pending={pending}
       hasContent
       body={body}
     />

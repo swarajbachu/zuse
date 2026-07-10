@@ -93,10 +93,13 @@ describe("translateCodexItem", () => {
 
     const ev = only(translateCodexItem(item, "started"), "ToolUse");
     expect(ev.tool).toBe("Bash");
-    expect(ev.input).toMatchObject({
+    expect(ev.input).toEqual({
       command: "bun test apps/server/test/translate.test.ts",
       cwd: "/repo",
     });
+    expect(
+      (ev.input as Record<string, unknown>)["description"],
+    ).toBeUndefined();
   });
 
   it("renders Codex file changes as patch-backed edit rows", () => {
