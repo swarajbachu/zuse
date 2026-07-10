@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import { InMemorySessionReadModel } from "../projectors/read-model.js";
 import { synthesizeBackfill } from "./backfill.js";
@@ -118,12 +119,14 @@ describe("synthesizeBackfill", () => {
 		});
 		const model = new InMemorySessionReadModel();
 		for (const [index, event] of events.entries()) {
-			await model.apply({
-				...event,
-				causationEventId: null,
-				streamVersion: index + 1,
-				sequence: index + 1,
-			} satisfies StoredEvent);
+			await Effect.runPromise(
+				model.apply({
+					...event,
+					causationEventId: null,
+					streamVersion: index + 1,
+					sequence: index + 1,
+				} satisfies StoredEvent),
+			);
 		}
 
 		expect(model.session("session-1")).toMatchObject({ title: "Title" });

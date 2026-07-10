@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -19,23 +20,26 @@ describe("ProjectorRunner", () => {
 		const runner = new ProjectorRunner(storage, {
 			name: "messages",
 			sequenceOf: (event) => event.sequence,
-			apply: async (event) => {
-				if (event.sequence === 2 && failAtTwo)
-					throw new Error("projection failed");
-				applied.push(event.value);
-			},
+			apply: (event) =>
+				Effect.sync(() => {
+					if (event.sequence === 2 && failAtTwo)
+						throw new Error("projection failed");
+					applied.push(event.value);
+				}),
 		});
 
-		await expect(runner.catchUp()).rejects.toThrow("projection failed");
+		await expect(Effect.runPromise(runner.catchUp())).rejects.toThrow(
+			"projection failed",
+		);
 		expect(storage.cursorValue("messages")).toBe(1);
 		expect(applied).toEqual(["one"]);
 
 		failAtTwo = false;
-		await expect(runner.catchUp()).resolves.toBe(3);
+		await expect(Effect.runPromise(runner.catchUp())).resolves.toBe(3);
 		expect(storage.cursorValue("messages")).toBe(3);
 		expect(applied).toEqual(["one", "two", "three"]);
 
-		await expect(runner.catchUp()).resolves.toBe(3);
+		await expect(Effect.runPromise(runner.catchUp())).resolves.toBe(3);
 		expect(applied).toEqual(["one", "two", "three"]);
 	});
 });

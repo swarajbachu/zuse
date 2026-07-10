@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import type { StoredEvent } from "../engine/dispatch.js";
@@ -61,7 +62,7 @@ describe("SessionQueries", () => {
 				archivedAt: 50,
 			}),
 		]) {
-			await model.apply(event);
+			await Effect.runPromise(model.apply(event));
 		}
 		const queries = new SessionQueries(model);
 
@@ -97,26 +98,30 @@ describe("SessionQueries", () => {
 
 	test("returns a transcript in event order", async () => {
 		const model = new InMemorySessionReadModel();
-		await model.apply(
-			stored(1, "session-1", {
-				_tag: "SessionCreated",
-				sessionId: "session-1",
-				chatId: "chat-1",
-				projectId: "project-1",
-				createdAt: 10,
-			}),
+		await Effect.runPromise(
+			model.apply(
+				stored(1, "session-1", {
+					_tag: "SessionCreated",
+					sessionId: "session-1",
+					chatId: "chat-1",
+					projectId: "project-1",
+					createdAt: 10,
+				}),
+			),
 		);
-		await model.apply(
-			stored(2, "session-1", {
-				_tag: "MessagePersisted",
-				messageId: "message-1",
-				turnId: null,
-				role: "user",
-				kind: "text",
-				contentJson: "payload",
-				parentItemId: null,
-				createdAt: 20,
-			}),
+		await Effect.runPromise(
+			model.apply(
+				stored(2, "session-1", {
+					_tag: "MessagePersisted",
+					messageId: "message-1",
+					turnId: null,
+					role: "user",
+					kind: "text",
+					contentJson: "payload",
+					parentItemId: null,
+					createdAt: 20,
+				}),
+			),
 		);
 
 		await expect(

@@ -1,37 +1,75 @@
-export type ProjectorDefinition<Event> = {
+import { Effect } from "effect";
+import { type CursorStorage, InMemoryCursorStorage } from "./cursor-storage.js";
+
+export type ProjectorDefinition<
+	Event,
+	ProjectorError = never,
+	ProjectorRequirements = never,
+> = {
 	readonly name: string;
 	readonly sequenceOf: (event: Event) => number;
-	readonly apply: (event: Event) => PromiseLike<void> | void;
+	readonly apply: (
+		event: Event,
+	) => Effect.Effect<void, ProjectorError, ProjectorRequirements>;
 };
 
-export interface ProjectorStorage<Event> {
-	cursor(projectorName: string): Promise<number>;
-	eventsAfter(sequence: number): Promise<readonly Event[]>;
-	applyAndCommit(
+export interface ProjectorStorage<
+	Event,
+	StorageError = never,
+	Requirements = never,
+> extends CursorStorage<Event, StorageError, Requirements> {
+	applyAndCommit<ApplyError, ApplyRequirements>(
 		projectorName: string,
 		sequence: number,
-		apply: () => PromiseLike<void> | void,
-	): Promise<void>;
+		apply: Effect.Effect<void, ApplyError, ApplyRequirements>,
+	): Effect.Effect<
+		void,
+		StorageError | ApplyError,
+		Requirements | ApplyRequirements
+	>;
 }
 
-export class ProjectorRunner<Event> {
+export class ProjectorRunner<
+	Event,
+	StorageError = never,
+	StorageRequirements = never,
+	ProjectorError = never,
+	ProjectorRequirements = never,
+> {
 	constructor(
-		private readonly storage: ProjectorStorage<Event>,
-		private readonly projector: ProjectorDefinition<Event>,
+		private readonly storage: ProjectorStorage<
+			Event,
+			StorageError,
+			StorageRequirements
+		>,
+		private readonly projector: ProjectorDefinition<
+			Event,
+			ProjectorError,
+			ProjectorRequirements
+		>,
 	) {}
 
-	async catchUp(): Promise<number> {
-		let cursor = await this.storage.cursor(this.projector.name);
-		const events = await this.storage.eventsAfter(cursor);
-		for (const event of events) {
-			const sequence = this.projector.sequenceOf(event);
-			if (sequence <= cursor) continue;
-			await this.storage.applyAndCommit(this.projector.name, sequence, () =>
-				this.projector.apply(event),
-			);
-			cursor = sequence;
-		}
-		return cursor;
+	catchUp(): Effect.Effect<
+		number,
+		StorageError | ProjectorError,
+		StorageRequirements | ProjectorRequirements
+	> {
+		const self = this;
+		return Effect.gen(function* () {
+			let cursor = yield* self.storage.cursor(self.projector.name);
+			const events = yield* self.storage.eventsAfter(cursor);
+			for (const event of events) {
+				const sequence = self.projector.sequenceOf(event);
+				if (sequence <= cursor) continue;
+				yield* self.storage.applyAndCommit(
+					self.projector.name,
+					sequence,
+					self.projector.apply(event),
+				);
+				cursor = sequence;
+			}
+			return cursor;
+		});
 	}
 }
 
@@ -41,14 +79,15 @@ export class InMemoryProjectorStorage<
 	extends InMemoryCursorStorage<Event>
 	implements ProjectorStorage<Event>
 {
-	async applyAndCommit(
+	applyAndCommit<ApplyError, ApplyRequirements>(
 		projectorName: string,
 		sequence: number,
-		apply: () => PromiseLike<void> | void,
-	): Promise<void> {
-		await apply();
-		await this.commitCursor(projectorName, sequence);
+		apply: Effect.Effect<void, ApplyError, ApplyRequirements>,
+	): Effect.Effect<void, ApplyError, ApplyRequirements> {
+		const self = this;
+		return Effect.gen(function* () {
+			yield* apply;
+			yield* self.commitCursor(projectorName, sequence);
+		});
 	}
 }
-
-import { InMemoryCursorStorage } from "./cursor-storage.js";

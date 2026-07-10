@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import type { StoredEvent } from "../engine/dispatch.js";
@@ -61,7 +62,7 @@ describe("session read-model projector", () => {
 			}),
 		];
 
-		for (const event of events) await model.apply(event);
+		for (const event of events) await Effect.runPromise(model.apply(event));
 
 		expect(model.session("session-1")).toMatchObject({
 			title: "Projected title",
@@ -95,9 +96,9 @@ describe("session read-model projector", () => {
 			createdAt: 20,
 		});
 
-		await model.apply(created);
-		await model.apply(message);
-		await model.apply(message);
+		await Effect.runPromise(model.apply(created));
+		await Effect.runPromise(model.apply(message));
+		await Effect.runPromise(model.apply(message));
 
 		expect(model.messages("session-1")).toHaveLength(1);
 	});

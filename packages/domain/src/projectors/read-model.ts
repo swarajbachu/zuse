@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
 
@@ -30,7 +31,7 @@ export type MessageReadRecord = {
 };
 
 export interface SessionProjectionWriter {
-	apply(event: StoredEvent): PromiseLike<void> | void;
+	apply(event: StoredEvent): Effect.Effect<void>;
 }
 
 export interface SessionReadRepository {
@@ -89,86 +90,87 @@ export class InMemorySessionReadModel
 	private readonly messageRecords = new Map<string, MessageReadRecord>();
 	private readonly appliedEventIds = new Set<string>();
 
-	apply(record: StoredEvent): Promise<void> {
-		if (this.appliedEventIds.has(record.eventId)) return Promise.resolve();
-		const event = record.event;
-		if (event._tag === "SessionCreated") {
-			if (!this.sessionRecords.has(event.sessionId)) {
-				this.sessionRecords.set(event.sessionId, {
-					sessionId: event.sessionId,
-					chatId: event.chatId,
-					projectId: event.projectId,
-					title: null,
-					status: "idle",
-					providerId: null,
-					archivedAt: null,
-					deletedAt: null,
-					lastMessageAt: null,
-					createdAt: event.createdAt,
-					updatedAt: event.createdAt,
-				});
-			}
-			this.appliedEventIds.add(record.eventId);
-			return Promise.resolve();
-		}
-
-		const session = this.sessionRecords.get(record.streamId);
-		if (session === undefined) return Promise.resolve();
-		const timestamp = eventTimestamp(event);
-		let next =
-			timestamp === undefined
-				? session
-				: { ...session, updatedAt: Math.max(session.updatedAt, timestamp) };
-
-		switch (event._tag) {
-			case "SessionTitleSet":
-				next = { ...next, title: event.title };
-				break;
-			case "SessionArchived":
-				next = { ...next, archivedAt: event.archivedAt };
-				break;
-			case "SessionDeleted":
-				next = {
-					...next,
-					deletedAt: event.deletedAt,
-					status: "deleted",
-				};
-				break;
-			case "TurnStarted":
-				next = { ...next, status: "running" };
-				break;
-			case "TurnSettled":
-				next = { ...next, status: "idle" };
-				break;
-			case "MessagePersisted":
-				if (!this.messageRecords.has(event.messageId)) {
-					this.messageRecords.set(event.messageId, {
-						messageId: event.messageId,
-						sessionId: record.streamId,
-						turnId: event.turnId,
-						role: event.role,
-						kind: event.kind,
-						contentJson: event.contentJson,
-						parentItemId: event.parentItemId,
+	apply(record: StoredEvent): Effect.Effect<void> {
+		return Effect.sync(() => {
+			if (this.appliedEventIds.has(record.eventId)) return;
+			const event = record.event;
+			if (event._tag === "SessionCreated") {
+				if (!this.sessionRecords.has(event.sessionId)) {
+					this.sessionRecords.set(event.sessionId, {
+						sessionId: event.sessionId,
+						chatId: event.chatId,
+						projectId: event.projectId,
+						title: null,
+						status: "idle",
+						providerId: null,
+						archivedAt: null,
+						deletedAt: null,
+						lastMessageAt: null,
 						createdAt: event.createdAt,
-						sequence: record.sequence,
+						updatedAt: event.createdAt,
 					});
 				}
-				next = { ...next, lastMessageAt: event.createdAt };
-				break;
-			case "ProviderAttached":
-				next = { ...next, providerId: event.providerId };
-				break;
-			case "ProviderDetached":
-				next = { ...next, providerId: null };
-				break;
-			default:
-				break;
-		}
+				this.appliedEventIds.add(record.eventId);
+				return;
+			}
 
-		this.sessionRecords.set(record.streamId, next);
-		this.appliedEventIds.add(record.eventId);
-		return Promise.resolve();
+			const session = this.sessionRecords.get(record.streamId);
+			if (session === undefined) return;
+			const timestamp = eventTimestamp(event);
+			let next =
+				timestamp === undefined
+					? session
+					: { ...session, updatedAt: Math.max(session.updatedAt, timestamp) };
+
+			switch (event._tag) {
+				case "SessionTitleSet":
+					next = { ...next, title: event.title };
+					break;
+				case "SessionArchived":
+					next = { ...next, archivedAt: event.archivedAt };
+					break;
+				case "SessionDeleted":
+					next = {
+						...next,
+						deletedAt: event.deletedAt,
+						status: "deleted",
+					};
+					break;
+				case "TurnStarted":
+					next = { ...next, status: "running" };
+					break;
+				case "TurnSettled":
+					next = { ...next, status: "idle" };
+					break;
+				case "MessagePersisted":
+					if (!this.messageRecords.has(event.messageId)) {
+						this.messageRecords.set(event.messageId, {
+							messageId: event.messageId,
+							sessionId: record.streamId,
+							turnId: event.turnId,
+							role: event.role,
+							kind: event.kind,
+							contentJson: event.contentJson,
+							parentItemId: event.parentItemId,
+							createdAt: event.createdAt,
+							sequence: record.sequence,
+						});
+					}
+					next = { ...next, lastMessageAt: event.createdAt };
+					break;
+				case "ProviderAttached":
+					next = { ...next, providerId: event.providerId };
+					break;
+				case "ProviderDetached":
+					next = { ...next, providerId: null };
+					break;
+				default:
+					break;
+			}
+
+			this.sessionRecords.set(record.streamId, next);
+			this.appliedEventIds.add(record.eventId);
+		});
 	}
 
 	session(sessionId: string): SessionReadRecord | null {

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -26,27 +27,31 @@ describe("ReactorRunner", () => {
 		const applied: ReactorDispatchInput<string>[] = [];
 		const receipts = new Set<string>();
 		let failSecondCommand = true;
-		const dispatch = async (input: ReactorDispatchInput<string>) => {
-			if (receipts.has(input.commandId)) return;
-			if (input.command === "one:second" && failSecondCommand) {
-				throw new Error("dispatch failed");
-			}
-			receipts.add(input.commandId);
-			applied.push(input);
-		};
+		const dispatch = (input: ReactorDispatchInput<string>) =>
+			Effect.sync(() => {
+				if (receipts.has(input.commandId)) return;
+				if (input.command === "one:second" && failSecondCommand) {
+					throw new Error("dispatch failed");
+				}
+				receipts.add(input.commandId);
+				applied.push(input);
+			});
 		const runner = new ReactorRunner(storage, dispatch, {
 			name: "follow-up",
-			react: (event) => [
-				{ streamId: "target-1", command: `${event.value}:first` },
-				{ streamId: "target-1", command: `${event.value}:second` },
-			],
+			react: (event) =>
+				Effect.succeed([
+					{ streamId: "target-1", command: `${event.value}:first` },
+					{ streamId: "target-1", command: `${event.value}:second` },
+				]),
 		});
 
-		await expect(runner.catchUp()).rejects.toThrow("dispatch failed");
+		await expect(Effect.runPromise(runner.catchUp())).rejects.toThrow(
+			"dispatch failed",
+		);
 		expect(storage.cursorValue("reactor:follow-up")).toBe(0);
 
 		failSecondCommand = false;
-		await expect(runner.catchUp()).resolves.toBe(1);
+		await expect(Effect.runPromise(runner.catchUp())).resolves.toBe(1);
 		expect(storage.cursorValue("reactor:follow-up")).toBe(1);
 		expect(applied).toEqual([
 			expect.objectContaining({
@@ -63,7 +68,7 @@ describe("ReactorRunner", () => {
 			}),
 		]);
 
-		await expect(runner.catchUp()).resolves.toBe(1);
+		await expect(Effect.runPromise(runner.catchUp())).resolves.toBe(1);
 		expect(applied).toHaveLength(2);
 	});
 });
