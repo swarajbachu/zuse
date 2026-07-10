@@ -50,8 +50,8 @@ import { useWorktreesStore } from "./store/worktrees.ts";
 const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
 
-const SIDEBAR_ANIM_MS = 200;
-const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+const SIDEBAR_ANIM_MS = 150;
+const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
 
 /**
  * Animate a collapsible side panel open/closed by driving the library's own
@@ -107,6 +107,16 @@ function useAnimatedPanelCollapse(
     if (!open && startPct > 0) lastOpenPct.current = startPct;
     const targetPct = open ? lastOpenPct.current || defaultPct : 0;
 
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (open) {
+        if (panel.isCollapsed()) panel.expand();
+        panel.resize(`${targetPct}%`);
+      } else {
+        panel.collapse();
+      }
+      return;
+    }
+
     if (Math.abs(startPct - targetPct) < 0.05) {
       if (!open && !panel.isCollapsed()) panel.collapse();
       return;
@@ -119,7 +129,7 @@ function useAnimatedPanelCollapse(
     const t0 = performance.now();
     const tick = (now: number) => {
       const t = Math.min(1, (now - t0) / SIDEBAR_ANIM_MS);
-      const v = startPct + (targetPct - startPct) * easeOutCubic(t);
+      const v = startPct + (targetPct - startPct) * easeOutQuart(t);
       panel.resize(`${v}%`);
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
