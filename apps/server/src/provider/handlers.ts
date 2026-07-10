@@ -21,6 +21,7 @@ import { startProviderUpdate } from "./services/update-service.ts";
 import {
   ChatService,
   MessageService,
+  QueueService,
   SessionService,
   TranscriptService,
 } from "./services/conversation-services.ts";
@@ -532,21 +533,21 @@ const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
   "messages.queue.list",
   ({ sessionId }) =>
-    Effect.flatMap(MessageService, (svc) => svc.listQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.listQueuedMessages(sessionId)),
 );
 
 const MessagesQueueStream = MemoizeRpcs.toLayerHandler(
   "messages.queue.stream",
   ({ sessionId }) =>
     Stream.unwrap(
-      Effect.map(MessageService, (svc) => svc.streamQueuedMessages(sessionId)),
+      Effect.map(QueueService, (svc) => svc.streamQueuedMessages(sessionId)),
     ),
 );
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
   "messages.queue.add",
   ({ sessionId, input }) =>
-    Effect.flatMap(MessageService, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.addQueuedMessage(sessionId, input),
     ),
 );
@@ -554,7 +555,7 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
   "messages.queue.update",
   ({ sessionId, queueId, input }) =>
-    Effect.flatMap(MessageService, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.updateQueuedMessage(sessionId, queueId, input),
     ),
 );
@@ -562,7 +563,7 @@ const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
 const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
   "messages.queue.delete",
   ({ sessionId, queueId }) =>
-    Effect.flatMap(MessageService, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.deleteQueuedMessage(sessionId, queueId),
     ),
 );
@@ -570,7 +571,7 @@ const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
 const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
   "messages.queue.sendNow",
   ({ sessionId, queueId }) =>
-    Effect.flatMap(MessageService, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.sendQueuedMessageNow(sessionId, queueId),
     ),
 );
@@ -578,7 +579,7 @@ const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
 const MessagesQueueReorder = MemoizeRpcs.toLayerHandler(
   "messages.queue.reorder",
   ({ sessionId, queueIds }) =>
-    Effect.flatMap(MessageService, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.reorderQueuedMessages(sessionId, queueIds),
     ),
 );
@@ -586,13 +587,13 @@ const MessagesQueueReorder = MemoizeRpcs.toLayerHandler(
 const MessagesQueueFlush = MemoizeRpcs.toLayerHandler(
   "messages.queue.flush",
   ({ sessionId }) =>
-    Effect.flatMap(MessageService, (svc) => svc.flushQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.flushQueuedMessages(sessionId)),
 );
 
 const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
   "messages.queue.resume",
   ({ sessionId }) =>
-    Effect.flatMap(MessageService, (svc) => svc.resumeQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.resumeQueuedMessages(sessionId)),
 );
 
 // ---------------------------------------------------------------------------

@@ -564,6 +564,10 @@ export type MessageServiceShape = Pick<
   | "streamMessages"
   | "sendMessage"
   | "interruptSession"
+>;
+
+export type QueueServiceShape = Pick<
+  ConversationOperations,
   | "listQueuedMessages"
   | "streamQueuedMessages"
   | "addQueuedMessage"
@@ -593,3 +597,8 @@ export class MessageService extends Context.Service<
   MessageService,
   MessageServiceShape
 >()("zuse/MessageService") {}
+
+export class QueueService extends Context.Service<
+  QueueService,
+  QueueServiceShape
+>()("zuse/QueueService") {}

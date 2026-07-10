@@ -51,6 +51,7 @@ import {
   ChatService,
   type ConversationOperations,
   MessageService,
+  QueueService,
   SessionService,
   TranscriptService,
 } from "../../src/provider/services/conversation-services.ts";
@@ -77,7 +78,8 @@ const TestConversationLive = Layer.effect(
     const chats = yield* ChatService;
     const transcripts = yield* TranscriptService;
     const messages = yield* MessageService;
-    return { ...sessions, ...chats, ...transcripts, ...messages };
+    const queue = yield* QueueService;
+    return { ...sessions, ...chats, ...transcripts, ...messages, ...queue };
   }),
 );
 

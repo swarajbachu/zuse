@@ -90,6 +90,8 @@ import {
   type ChatServiceShape,
   MessageService,
   type MessageServiceShape,
+  QueueService,
+  type QueueServiceShape,
   SessionService,
   type SessionServiceShape,
   TranscriptService,
@@ -4385,6 +4387,8 @@ export const ConversationServicesLive = Layer.effectContext(
       streamMessages,
       sendMessage,
       interruptSession,
+    } satisfies MessageServiceShape;
+    const queueService = {
       listQueuedMessages,
       streamQueuedMessages,
       addQueuedMessage,
@@ -4394,11 +4398,12 @@ export const ConversationServicesLive = Layer.effectContext(
       reorderQueuedMessages,
       flushQueuedMessages,
       resumeQueuedMessages,
-    } satisfies MessageServiceShape;
+    } satisfies QueueServiceShape;
     return Context.make(SessionService, sessionService).pipe(
       Context.add(ChatService, chatService),
       Context.add(TranscriptService, transcriptService),
       Context.add(MessageService, messageService),
+      Context.add(QueueService, queueService),
     );
   }),
 );
