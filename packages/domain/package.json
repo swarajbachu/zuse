@@ -9,6 +9,7 @@
 		"./core/events": "./src/core/events.ts",
 		"./core/ingestion": "./src/core/ingestion/ingestion.ts",
 		"./core/state": "./src/core/state.ts",
+		"./engine/backfill": "./src/engine/backfill.ts",
 		"./engine/dispatch": "./src/engine/dispatch.ts",
 		"./engine/projector-runner": "./src/engine/projector-runner.ts",
 		"./engine/reactor-runner": "./src/engine/reactor-runner.ts",
