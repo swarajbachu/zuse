@@ -39,13 +39,25 @@ describe("SqlDispatchStorage", () => {
 					command: createSessionCommand,
 				});
 				const events = yield* storage.events("session-1");
-				return { first, replay, events };
+				const afterZero = yield* storage.eventsAfterSequence("session-1", 0);
+				const afterOne = yield* storage.eventsAfterSequence("session-1", 1);
+				const receiptEvents = yield* storage.eventsInVersionRange(
+					"session-1",
+					0,
+					1,
+				);
+				return { first, replay, events, afterZero, afterOne, receiptEvents };
 			}),
 		);
 
 		expect(result.replay).toEqual(result.first);
 		expect(result.first.eventIds).toEqual(["event-1"]);
 		expect(result.events).toHaveLength(1);
+		expect(result.afterZero.map((event) => event.eventId)).toEqual(["event-1"]);
+		expect(result.afterOne).toEqual([]);
+		expect(result.receiptEvents.map((event) => event.eventId)).toEqual([
+			"event-1",
+		]);
 	});
 
 	test("rolls back events when receipt persistence cannot commit", async () => {

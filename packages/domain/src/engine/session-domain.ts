@@ -87,7 +87,10 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const subscription = yield* PubSub.subscribe(eventHub);
-				const replay = yield* dispatchStorage.events(streamId);
+				const replay = yield* dispatchStorage.eventsAfterSequence(
+					streamId,
+					afterSequence,
+				);
 				let cursor = afterSequence;
 				return Stream.concat(
 					Stream.fromIterable(replay),
@@ -110,13 +113,15 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
 			input: DispatchInput,
 		) {
-			const existing = yield* dispatchStorage.receipt(input.commandId);
 			const receipt = yield* dispatch.dispatch(input);
-			if (existing === null && receipt.eventIds.length > 0) {
-				const appended = yield* dispatchStorage.events(input.streamId);
-				const eventIds = new Set(receipt.eventIds);
+			if (receipt.eventIds.length > 0) {
+				const appended = yield* dispatchStorage.eventsInVersionRange(
+					input.streamId,
+					receipt.streamVersion - receipt.eventIds.length,
+					receipt.streamVersion,
+				);
 				yield* Effect.forEach(
-					appended.filter((record) => eventIds.has(record.eventId)),
+					appended,
 					(record) => PubSub.publish(eventHub, record),
 					{ discard: true },
 				);

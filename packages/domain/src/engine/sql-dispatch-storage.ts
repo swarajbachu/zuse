@@ -8,6 +8,7 @@ import {
 	CommandReceipt,
 	ConcurrencyConflict,
 	type DispatchStorage,
+	type StoredEvent,
 } from "./dispatch.js";
 import {
 	decodePersistedEvent,
@@ -77,12 +78,27 @@ export type SqlDispatchStorageOptions<Event> = {
 	readonly decodeEvent: (json: string) => Effect.Effect<Event, unknown>;
 };
 
+export interface SqlDispatchStorageApi<
+	Event = SessionEvent,
+	StorageError = SqlDispatchStorageError,
+> extends DispatchStorage<StorageError, Event> {
+	readonly eventsAfterSequence: (
+		streamId: string,
+		sequence: number,
+	) => Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
+	readonly eventsInVersionRange: (
+		streamId: string,
+		fromExclusive: number,
+		toInclusive: number,
+	) => Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
+}
+
 export const makeSqlDispatchStorage = <
 	Event extends { readonly _tag: string } = SessionEvent,
 >(
 	sql: SqlClient.SqlClient,
 	options?: SqlDispatchStorageOptions<Event>,
-): DispatchStorage<SqlDispatchStorageError, Event> => {
+): SqlDispatchStorageApi<Event> => {
 	const streamKind = options?.streamKind ?? "session";
 	const decodeEvent =
 		options?.decodeEvent ??
@@ -101,6 +117,9 @@ export const makeSqlDispatchStorage = <
 		return row === undefined ? null : yield* receiptFromRow(row);
 	});
 
+	const decodeRows = (rows: ReadonlyArray<PersistedEventRow>) =>
+		Effect.forEach(rows, (row) => decodePersistedEvent(row, decodeEvent));
+
 	const events = Effect.fn("SqlDispatchStorage.events")(function* (
 		streamId: string,
 	) {
@@ -111,9 +130,36 @@ export const makeSqlDispatchStorage = <
 			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
 			ORDER BY stream_version ASC
 		`;
-		return yield* Effect.forEach(rows, (row) =>
-			decodePersistedEvent(row, decodeEvent),
-		);
+		return yield* decodeRows(rows);
+	});
+
+	const eventsAfterSequence = Effect.fn(
+		"SqlDispatchStorage.eventsAfterSequence",
+	)(function* (streamId: string, sequence: number) {
+		const rows = yield* sql<PersistedEventRow>`
+			SELECT sequence, event_id, correlation_id, causation_event_id,
+			       stream_id, stream_version, payload_json
+			FROM events
+			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
+			  AND sequence > ${sequence}
+			ORDER BY sequence ASC
+		`;
+		return yield* decodeRows(rows);
+	});
+
+	const eventsInVersionRange = Effect.fn(
+		"SqlDispatchStorage.eventsInVersionRange",
+	)(function* (streamId: string, fromExclusive: number, toInclusive: number) {
+		const rows = yield* sql<PersistedEventRow>`
+			SELECT sequence, event_id, correlation_id, causation_event_id,
+			       stream_id, stream_version, payload_json
+			FROM events
+			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
+			  AND stream_version > ${fromExclusive}
+			  AND stream_version <= ${toInclusive}
+			ORDER BY stream_version ASC
+		`;
+		return yield* decodeRows(rows);
 	});
 
 	const append = Effect.fn("SqlDispatchStorage.append")(function* (
@@ -173,7 +219,13 @@ export const makeSqlDispatchStorage = <
 		);
 	});
 
-	return { receipt, events, append };
+	return {
+		receipt,
+		events,
+		eventsAfterSequence,
+		eventsInVersionRange,
+		append,
+	};
 };
 
 export class SqlDispatchStorage extends Context.Service<
