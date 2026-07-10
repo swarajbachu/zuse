@@ -26,14 +26,14 @@ function git(args) {
   }).trim();
 }
 
-function run(command, args) {
+function run(command, args, cwd = root) {
   const rendered = [command, ...args].join(" ");
   if (dryRun) {
     console.log(`[dry-run] ${rendered}`);
     return "";
   }
   return execFileSync(command, args, {
-    cwd: root,
+    cwd,
     encoding: "utf8",
     stdio: "inherit",
   });
@@ -150,6 +150,7 @@ if (!changelog.includes(`## [${nextVersion}]`)) {
 }
 
 run("node", ["scripts/generate-website-changelog.mjs"]);
+run("bunx", ["fumadocs-mdx"], join(root, "apps/web"));
 run("bun", ["run", "check-types"]);
 run("git", ["add", "CHANGELOG.md", "apps/desktop/package.json", "bun.lock", "apps/web", "scripts/release-new-version.mjs", ".codex/skills/release-new-version"]);
 run("git", ["commit", "-m", `Release v${nextVersion}`]);
