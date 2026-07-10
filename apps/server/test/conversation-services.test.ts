@@ -552,6 +552,53 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
+  it("starts providers through the durable provider-start reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{
+            readonly event_id: string;
+            readonly payload_json: string;
+          }>`
+            SELECT event_id, payload_json FROM events
+            WHERE stream_id = ${created.initialSession.id}
+              AND type = 'SessionCreated'
+          `;
+          const cursor = yield* sql<{ readonly last_sequence: number }>`
+            SELECT last_sequence FROM projector_cursors
+            WHERE projector_name = 'reactor:provider-start'
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:provider-start:%'
+          `;
+          return { events, cursor, receipts };
+        }),
+      );
+
+      expect(providerStartInputs).toHaveLength(1);
+      expect(evidence.events).toHaveLength(1);
+      expect(
+        JSON.parse(evidence.events[0]?.payload_json ?? "null"),
+      ).toMatchObject({
+        _tag: "SessionCreated",
+        providerStartJson: expect.any(String),
+      });
+      expect(evidence.cursor[0]?.last_sequence).toBeGreaterThan(0);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(

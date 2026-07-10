@@ -72,6 +72,8 @@ import {
   Layer,
   PubSub,
   Ref,
+  Schema,
+  Semaphore,
   Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -810,6 +812,22 @@ interface PersistedMessage {
   readonly sequence: number;
 }
 
+const ProviderStartRequest = Schema.Struct({
+  initialPrompt: Schema.NullOr(Schema.String),
+  modelOptionsJson: Schema.NullOr(Schema.String),
+  enableSubagents: Schema.Boolean,
+  forkFromResume: Schema.Boolean,
+  background: Schema.Boolean,
+  postBootStatus: Schema.Literals(["idle", "running"]),
+});
+type ProviderStartRequest = typeof ProviderStartRequest.Type;
+const decodeProviderStartRequest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ProviderStartRequest),
+);
+const decodeProviderModelOptions = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+);
+
 export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -846,7 +864,10 @@ export const ConversationServicesLive = Layer.effectContext(
         })
         .pipe(Effect.asVoid, Effect.orDie);
     let runSessionReactors: Effect.Effect<void> = Effect.void;
-    let sessionReactorActive = false;
+    let runProviderStartReactor: Effect.Effect<void, SessionStartError> =
+      Effect.void;
+    const sessionReactorSemaphore = yield* Semaphore.make(1);
+    const providerStartReactorSemaphore = yield* Semaphore.make(1);
     const provider = yield* ProviderService;
     const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
       Effect.gen(function* () {
@@ -2035,29 +2056,15 @@ export const ConversationServicesLive = Layer.effectContext(
         // can then return immediately and let the slow CLI boot flip the
         // status out of `"booting"` from a daemon fiber.
         const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
-        const newSessionRuntimeMode: GetRuntimeMode = () =>
-          getRuntimeModeFor(sessionId);
         const effectiveEnableSubagents =
           input.enableSubagents ??
           (input.agents !== undefined && Object.keys(input.agents).length > 0);
-        const cwdOverride = yield* cwdForWorktree(worktreeId);
         const initialPermissionMode =
           input.permissionMode ?? DEFAULT_PERMISSION_MODE;
         const initialToolSearch = input.toolSearch ?? false;
         const initialRuntimeMode = input.runtimeMode ?? DEFAULT_RUNTIME_MODE;
         runtimeModeBySession.set(sessionId, initialRuntimeMode);
         permissionModeBySession.set(sessionId, initialPermissionMode);
-        // Control-plane orchestration tools — null unless the project's
-        // autonomy level opts in. Passed to `provider.start` so the agent can
-        // spawn + steer its own worktrees/threads.
-        const orchestrationTools = yield* buildOrchestrationForSession({
-          sessionId,
-          chatId: input.chatId,
-          projectId,
-          worktreeId,
-          providerId: input.providerId,
-          model: input.model,
-        });
         if (
           input.agents !== undefined &&
           Object.keys(input.agents).length > 0
@@ -2116,6 +2123,17 @@ export const ConversationServicesLive = Layer.effectContext(
         const postBootStatus: Session["status"] = hasInitial
           ? "running"
           : "idle";
+        const providerStart: ProviderStartRequest = {
+          initialPrompt: promptForProvider ?? null,
+          modelOptionsJson:
+            input.modelOptions === undefined
+              ? null
+              : JSON.stringify(input.modelOptions),
+          enableSubagents: effectiveEnableSubagents,
+          forkFromResume,
+          background,
+          postBootStatus,
+        };
         // Synchronous mode (chat.create) inserts with the final post-boot
         // status because it waits for `provider.start` below — the row is
         // never visible to the renderer in `booting`. Background mode
@@ -2145,78 +2163,38 @@ export const ConversationServicesLive = Layer.effectContext(
               forkedFromMessageId,
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
+              providerStartJson: JSON.stringify(providerStart),
               createdAt: now.getTime(),
             },
           })
           .pipe(Effect.orDie);
+        yield* createSessionRecord;
+        yield* lookupChat(input.chatId).pipe(
+          Effect.flatMap(broadcastChat),
+          Effect.catch(() => Effect.void),
+        );
+        if (hasInitial) {
+          yield* beginTurn(sessionId);
+          yield* persistMessage(sessionId, {
+            _tag: "user",
+            text: input.initialPrompt!,
+            goal: false,
+            ...(origin !== undefined ? { origin } : {}),
+          });
+        }
         if (background) {
-          yield* createSessionRecord;
-          yield* lookupChat(input.chatId).pipe(
-            Effect.flatMap(broadcastChat),
-            Effect.catch(() => Effect.void),
-          );
-          if (hasInitial) {
-            yield* beginTurn(sessionId);
-            yield* persistMessage(sessionId, {
-              _tag: "user",
-              text: input.initialPrompt!,
-              goal: false,
-              ...(origin !== undefined ? { origin } : {}),
-            });
-          }
           // Detach the boot so the RPC reply happens immediately. The status
           // pubsub fans the eventual transition out to the renderer via
           // `session.streamStatus`; on failure we mark `error` and log so
           // the user sees a closable failed tab instead of a stuck spinner.
           yield* Effect.forkDetach(
-            provider
-              .start(
-                {
-                  folderId: projectId,
-                  providerId: input.providerId,
-                  mode: "sdk",
-                  sessionId,
-                  initialPrompt: promptForProvider,
-                  model: input.model,
-                  agents: input.agents,
-                  enableSubagents: effectiveEnableSubagents,
-                  cwdOverride,
-                  permissionMode: initialPermissionMode,
-                  modelOptions: input.modelOptions,
-                  toolSearch: initialToolSearch,
-                  forkFromResume,
-                },
-                resumeCursor,
-                newSessionRuntimeMode,
-                orchestrationTools,
-              )
-              .pipe(
-                Effect.flatMap(() =>
-                  Effect.gen(function* () {
-                    yield* attachProvider(sessionId, input.providerId);
-                    yield* setStatus(sessionId, postBootStatus);
-                    yield* startSubscription(sessionId);
-                  }),
-                ),
-                Effect.catch((err) =>
-                  Effect.gen(function* () {
-                    yield* Effect.logWarning(
-                      `[ConversationServices] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
-                    );
-                    // Persist the failure as an error message so the renderer
-                    // can render it (and classify auth failures into the inline
-                    // "Sign in" CTA) instead of leaving the session stuck on the
-                    // booting spinner with no explanation.
-                    const persistedError = yield* persistMessage(sessionId, {
-                      _tag: "error",
-                      message: err.reason,
-                    });
-                    yield* broadcastMessage(sessionId, persistedError);
-                    yield* ndjsonAppend(sessionId, persistedError);
-                    yield* setStatus(sessionId, "error");
-                  }),
+            runProviderStartReactor.pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning(
+                  `[ConversationServices] provider start reactor failed: ${String(cause)}`,
                 ),
               ),
+            ),
             { startImmediately: true },
           );
           return Session.make({
@@ -2245,56 +2223,7 @@ export const ConversationServicesLive = Layer.effectContext(
         // lockstep with the actual provider handshake. Boot failures bubble
         // back as `SessionStartError`; the caller (`createChat`) rolls back
         // the chat row in that case.
-        yield* provider
-          .start(
-            {
-              folderId: projectId,
-              providerId: input.providerId,
-              mode: "sdk",
-              sessionId,
-              initialPrompt: promptForProvider,
-              model: input.model,
-              agents: input.agents,
-              enableSubagents: effectiveEnableSubagents,
-              cwdOverride,
-              permissionMode: initialPermissionMode,
-              modelOptions: input.modelOptions,
-              toolSearch: initialToolSearch,
-              forkFromResume,
-            },
-            resumeCursor,
-            newSessionRuntimeMode,
-            orchestrationTools,
-          )
-          .pipe(
-            Effect.mapError((err) =>
-              err._tag === "ProviderNotAvailableError"
-                ? new SessionStartError({
-                    providerId: input.providerId,
-                    reason: err.reason,
-                  })
-                : new SessionStartError({
-                    providerId: err.providerId,
-                    reason: err.reason,
-                  }),
-            ),
-          );
-        yield* createSessionRecord;
-        yield* attachProvider(sessionId, input.providerId);
-        yield* lookupChat(input.chatId).pipe(
-          Effect.flatMap(broadcastChat),
-          Effect.catch(() => Effect.void),
-        );
-        if (hasInitial) {
-          yield* beginTurn(sessionId);
-          yield* persistMessage(sessionId, {
-            _tag: "user",
-            text: input.initialPrompt!,
-            goal: false,
-            ...(origin !== undefined ? { origin } : {}),
-          });
-        }
-        yield* startSubscription(sessionId);
+        yield* runProviderStartReactor;
         return Session.make({
           id: sessionId,
           projectId,
@@ -2982,7 +2911,17 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* Effect.forEach(
           memberSessions,
           ({ id }) =>
-            renameSession(SessionId.make(id), title).pipe(Effect.ignore),
+            Effect.gen(function* () {
+              yield* sessionDomain.dispatch({
+                commandId: `${commandId}:session:${id}`,
+                streamId: SessionId.make(id),
+                command: {
+                  _tag: "SetTitle",
+                  title,
+                  updatedAt: yield* currentTimestamp,
+                },
+              });
+            }).pipe(Effect.ignore),
           { discard: true },
         );
 
@@ -3022,6 +2961,167 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* markComplete;
       }).pipe(Effect.catchCause(() => Effect.void));
 
+    type ProviderStartCommand = {
+      readonly _tag: "StartProvider";
+      readonly providerStartJson: string;
+    };
+    const providerStartReactor = new ReactorRunner<
+      StoredEvent,
+      ProviderStartCommand,
+      SqlConsumerStorageError,
+      never,
+      SessionStartError
+    >(
+      makeSqlConsumerStorage(sql),
+      (reactorInput) =>
+        Effect.gen(function* () {
+          const completed = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id = ${reactorInput.commandId}
+            LIMIT 1
+          `.pipe(Effect.orDie);
+          if (completed.length > 0) return;
+
+          const sessionId = SessionId.make(reactorInput.streamId);
+          const session = yield* lookupSession(sessionId).pipe(
+            Effect.catch(() => Effect.succeed(null)),
+          );
+          if (session === null) return;
+          const request = yield* decodeProviderStartRequest(
+            reactorInput.command.providerStartJson,
+          ).pipe(
+            Effect.mapError(
+              (cause) =>
+                new SessionStartError({
+                  providerId: session.providerId,
+                  reason: `Invalid provider start request: ${String(cause)}`,
+                }),
+            ),
+          );
+          const modelOptions =
+            request.modelOptionsJson === null
+              ? undefined
+              : yield* decodeProviderModelOptions(
+                  request.modelOptionsJson,
+                ).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new SessionStartError({
+                        providerId: session.providerId,
+                        reason: `Invalid provider model options: ${String(cause)}`,
+                      }),
+                  ),
+                );
+          const subagents = agentsFor(sessionId);
+          const cwdOverride = yield* cwdForWorktree(session.worktreeId);
+          const orchestrationTools = yield* buildOrchestrationForSession({
+            sessionId,
+            chatId: session.chatId,
+            projectId: session.projectId,
+            worktreeId: session.worktreeId,
+            providerId: session.providerId,
+            model: session.model,
+          });
+          const start = provider
+            .start(
+              {
+                folderId: session.projectId,
+                providerId: session.providerId,
+                mode: "sdk",
+                sessionId,
+                initialPrompt: request.initialPrompt ?? undefined,
+                model: session.model,
+                agents: subagents?.agents,
+                enableSubagents: request.enableSubagents,
+                cwdOverride,
+                permissionMode: session.permissionMode,
+                modelOptions,
+                toolSearch: session.toolSearch,
+                forkFromResume: request.forkFromResume,
+              },
+              session.cursor,
+              () => getRuntimeModeFor(sessionId),
+              orchestrationTools,
+            )
+            .pipe(
+              Effect.mapError((error) =>
+                error._tag === "ProviderNotAvailableError"
+                  ? new SessionStartError({
+                      providerId: session.providerId,
+                      reason: error.reason,
+                    })
+                  : new SessionStartError({
+                      providerId: error.providerId,
+                      reason: error.reason,
+                    }),
+              ),
+              Effect.flatMap(() =>
+                attachProvider(sessionId, session.providerId),
+              ),
+              Effect.flatMap(() =>
+                setStatus(sessionId, request.postBootStatus),
+              ),
+              Effect.flatMap(() => startSubscription(sessionId)),
+            );
+          if (request.background) {
+            yield* start.pipe(
+              Effect.catch((error) =>
+                Effect.gen(function* () {
+                  yield* Effect.logWarning(
+                    `[ConversationServices] provider.start failed for session ${sessionId} (${session.providerId}): ${error.reason}`,
+                  );
+                  const persistedError = yield* persistMessage(sessionId, {
+                    _tag: "error",
+                    message: error.reason,
+                  });
+                  yield* broadcastMessage(sessionId, persistedError);
+                  yield* ndjsonAppend(sessionId, persistedError);
+                  yield* setStatus(sessionId, "error");
+                }),
+              ),
+            );
+          } else {
+            yield* start;
+          }
+          yield* sql`
+            INSERT OR IGNORE INTO reactor_effect_receipts
+              (effect_id, completed_at)
+            VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
+          `.pipe(Effect.orDie);
+        }),
+      {
+        name: "provider-start",
+        react: (record) =>
+          Effect.succeed(
+            record.event._tag === "SessionCreated" &&
+              record.event.providerStartJson !== undefined
+              ? [
+                  {
+                    streamId: record.streamId,
+                    command: {
+                      _tag: "StartProvider",
+                      providerStartJson: record.event.providerStartJson,
+                    },
+                  },
+                ]
+              : [],
+          ),
+      },
+    );
+    runProviderStartReactor = Effect.suspend(() => {
+      return providerStartReactorSemaphore.withPermits(1)(
+        providerStartReactor.catchUp().pipe(
+          Effect.asVoid,
+          Effect.catch((error) =>
+            error._tag === "SessionStartError"
+              ? Effect.fail(error)
+              : Effect.die(error),
+          ),
+        ),
+      );
+    });
+    yield* runProviderStartReactor;
+
     type AutoNameCommand = { readonly _tag: "AutoNameChat" };
     const autoNameReactor = new ReactorRunner<
       StoredEvent,
@@ -3052,16 +3152,8 @@ export const ConversationServicesLive = Layer.effectContext(
       },
     );
     runSessionReactors = Effect.suspend(() => {
-      if (sessionReactorActive) return Effect.void;
-      sessionReactorActive = true;
-      return autoNameReactor.catchUp().pipe(
-        Effect.asVoid,
-        Effect.orDie,
-        Effect.ensuring(
-          Effect.sync(() => {
-            sessionReactorActive = false;
-          }),
-        ),
+      return sessionReactorSemaphore.withPermits(1)(
+        autoNameReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
       );
     });
     yield* runSessionReactors;

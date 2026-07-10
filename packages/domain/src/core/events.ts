@@ -9,6 +9,7 @@ import {
 export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("SessionCreated", {
 		...SessionCreatedEventFields,
+		providerStartJson: Schema.optional(Schema.String),
 	}),
 	Schema.TaggedStruct("SessionTitleSet", {
 		title: Schema.String,

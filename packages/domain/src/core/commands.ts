@@ -14,6 +14,7 @@ export type SettlementOutcome = typeof SettlementOutcome.Type;
 export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("CreateSession", {
 		...SessionCreatedFields,
+		providerStartJson: Schema.optional(Schema.String),
 	}),
 	Schema.TaggedStruct("SetTitle", {
 		title: Schema.String,

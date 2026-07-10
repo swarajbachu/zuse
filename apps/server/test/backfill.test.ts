@@ -160,6 +160,7 @@ describe("lifecycle backfill", () => {
 					projector_name: "reactor:permission-lifecycle",
 					last_sequence: 5,
 				},
+				{ projector_name: "reactor:provider-start", last_sequence: 5 },
 				{ projector_name: "session-read-model", last_sequence: 5 },
 			]);
 			expect(snapshot.rerun).toEqual({
