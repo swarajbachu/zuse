@@ -1,4 +1,4 @@
-import type { AttachmentRef, ComposerInput, FileRef } from "@zuse/wire";
+import { ComposerInput, type AttachmentRef, type FileRef } from "@zuse/wire";
 
 export interface PendingDraftAttachment {
   readonly tempId: string;
@@ -19,6 +19,15 @@ export type UploadDraftAttachment = (
 export type SaveDraftContextFile = (
   pending: PendingDraftContextFile,
 ) => Promise<Pick<FileRef, "relPath" | "absPath">>;
+
+export const appendContextFileRef = (
+  input: ComposerInput,
+  ref: Pick<FileRef, "relPath" | "absPath">,
+): ComposerInput =>
+  ComposerInput.make({
+    ...input,
+    fileRefs: [...input.fileRefs, { ...ref, kind: "file" }],
+  });
 
 export const hasPendingAttachmentIds = (input: ComposerInput): boolean =>
   input.attachments.some((attachment) => attachment.id.startsWith("pending-"));
@@ -53,7 +62,7 @@ export const finalizeDraftAttachments = async (
     attachments.push(ref);
   }
 
-  return { ...input, attachments };
+  return ComposerInput.make({ ...input, attachments });
 };
 
 const isPendingContextRelPath = (relPath: string): boolean =>
@@ -94,5 +103,5 @@ export const finalizeDraftContextFiles = async (
     });
   }
 
-  return { ...input, text, fileRefs };
+  return ComposerInput.make({ ...input, text, fileRefs });
 };

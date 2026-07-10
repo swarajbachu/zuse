@@ -38,6 +38,7 @@ import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
 import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
 import {
+  appendContextFileRef,
   finalizeDraftAttachments,
   finalizeDraftContextFiles,
   type PendingDraftAttachment,
@@ -377,13 +378,7 @@ export function ChatLanding() {
     if (createSource?.issue != null) {
       const ref = await saveContextFile(sessionId, createSource.issue.markdown);
       if (ref !== null) {
-        finalInput = {
-          ...input,
-          fileRefs: [
-            ...input.fileRefs,
-            { relPath: ref.relPath, absPath: ref.absPath, kind: "file" },
-          ],
-        };
+        finalInput = appendContextFileRef(input, ref);
       }
     }
     const uploadRoot = (() => {
