@@ -525,7 +525,7 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
-  it("createChat stamps origin + prefixes the provider prompt for spawned chats", async () => {
+  it("createChat stamps origin without changing the provider prompt for spawned chats", async () => {
     await withRuntime(async (run) => {
       const result = await run(
         Effect.gen(function* () {
@@ -555,11 +555,7 @@ describe("MessageStore — chat & session lifecycle", () => {
           providerId: "claude",
         },
       });
-      expect(
-        providerStartInputs
-          .at(-1)
-          ?.initialPrompt?.startsWith("[Zuse: this task was assigned"),
-      ).toBe(true);
+      expect(providerStartInputs.at(-1)?.initialPrompt).toBe("do the spawned task");
     });
   });
 
@@ -963,7 +959,7 @@ describe("MessageStore — chat & session lifecycle", () => {
     });
   });
 
-  it("sendMessage with origin persists origin and prefixes only the provider text", async () => {
+  it("sendMessage with origin persists origin without changing provider text", async () => {
     await withRuntime(async (run) => {
       const { initialSession, chat } = await run(
         Effect.flatMap(store, (s) =>
@@ -1005,10 +1001,7 @@ describe("MessageStore — chat & session lifecycle", () => {
         origin,
       });
       const sent = providerSentTexts.at(-1) ?? "";
-      expect(
-        sent.startsWith("[Zuse: this message was sent by another agent"),
-      ).toBe(true);
-      expect(sent.endsWith("do the thing")).toBe(true);
+      expect(sent).toBe("do the thing");
     });
   });
 

@@ -720,9 +720,6 @@ const serializeAnnotations = (
     .join("\n\n");
 };
 
-const originPromptPreamble = (origin: MessageOrigin): string =>
-  `[Zuse: this message was sent by another agent (provider "${origin.providerId}", session ${origin.sessionId}) from a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]`;
-
 const formatProviderFailure = (cause: unknown): string => {
   if (cause instanceof Error) return cause.message;
   if (cause !== null && typeof cause === "object") {
@@ -2131,10 +2128,7 @@ export const MessageStoreLive = Layer.scoped(
             };
           }
         }
-        const promptForProvider =
-          origin !== undefined && input.initialPrompt !== undefined
-            ? `[Zuse: this task was assigned by an orchestrating agent (provider "${origin.providerId}", session ${origin.sessionId}) in a different chat thread via the zuse-orchestration MCP server — it is not from the human user.]\n\n${input.initialPrompt}`
-            : input.initialPrompt;
+        const promptForProvider = input.initialPrompt;
         const background = input.background === true;
         const resumeCursor = input.resumeCursor ?? null;
         const resumeStrategy: ResumeStrategy =
@@ -3794,7 +3788,6 @@ export const MessageStoreLive = Layer.scoped(
         // persisted `text` above stays clean; the structured `annotations`
         // array drives the rendered bubble.
         const sendText = [
-          origin !== undefined ? originPromptPreamble(origin) : null,
           annotationList.length > 0
             ? serializeAnnotations(annotationList)
             : null,
