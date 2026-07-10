@@ -31,6 +31,7 @@
     "@hugeicons-pro/core-bulk-rounded": "^4.2.1",
     "@hugeicons-pro/core-solid-rounded": "^4.2.1",
     "@hugeicons/react": "^1.1.7",
+    "@zuse/client-runtime": "*",
     "@legendapp/list": "3.2.0",
     "@lezer/highlight": "^1.2.0",
     "@zuse/contracts": "*",

@@ -1,3 +1,8 @@
+import { CommandDispatcher } from "@zuse/client-runtime/command-dispatch";
+import {
+	type ConnectionSupervisorEntry,
+	createConnectionSupervisor,
+} from "@zuse/client-runtime/supervisor";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Scope } from "effect";
 import {
@@ -7,27 +12,28 @@ import {
 } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
+import type { RpcBridge } from "./bridge.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
-/**
- * Lazy-initialized renderer-side RPC. The bridge call is deferred so this
- * module is safe to import in non-Electron contexts (Vite HMR, tests).
- *
- * The client itself needs a Scope that outlives any single RPC call — it owns
- * background fibers (response demux, error reconciliation). We hand the
- * client a long-lived scope that lives until the page unloads.
- */
 type MemoizeClient = RpcClient.RpcClient<
 	RpcGroup.Rpcs<typeof MemoizeRpcs>,
 	RpcClientError
 >;
 
-let runtime: ManagedRuntime.ManagedRuntime<RpcClient.Protocol, never> | null =
-	null;
-let cachedClient: Promise<MemoizeClient> | null = null;
+type RendererConnectionOptions =
+	| {
+			readonly key: "renderer";
+			readonly kind: "electron";
+			readonly bridge: RpcBridge;
+	  }
+	| {
+			readonly key: "renderer";
+			readonly kind: "websocket";
+			readonly wsUrl: string;
+	  };
 
-function resolveWebSocketUrl() {
+function resolveWebSocketUrl(): string {
 	const env = (
 		import.meta as { readonly env?: Record<string, string | undefined> }
 	).env;
@@ -44,38 +50,116 @@ export function resolveRendererRpcTransportForTest(): {
 		: { kind: "websocket", wsUrl: resolveWebSocketUrl() };
 }
 
-function getRuntime() {
-	if (runtime === null) {
-		const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
-		const protocolLayer = bridge
-			? electronClientProtocolLayer(bridge.rpc).pipe(
-					Layer.provide(RpcSerialization.layerJson),
-				)
-			: wsClientProtocolLayer(resolveWebSocketUrl());
-		// Future reconnect policy belongs at this socket/protocol boundary. For
-		// now failures surface to stream consumers and stores resume by cursor.
-		runtime = ManagedRuntime.make(protocolLayer);
-	}
-	return runtime;
-}
+const connectionOptions = (): RendererConnectionOptions => {
+	const bridge = globalThis.window?.zuse ?? globalThis.window?.memoize;
+	return bridge
+		? { key: "renderer", kind: "electron", bridge: bridge.rpc }
+		: { key: "renderer", kind: "websocket", wsUrl: resolveWebSocketUrl() };
+};
 
-export function getRpcClient(): Promise<MemoizeClient> {
-	if (cachedClient === null) {
-		const rt = getRuntime();
-		const next = rt.runPromise(
-			RpcClient.make(MemoizeRpcs).pipe(
-				Effect.provideService(Scope.Scope, rt.scope),
-			),
-		);
-		let guarded: Promise<MemoizeClient>;
-		guarded = next.catch((err) => {
-			if (cachedClient === guarded) {
-				cachedClient = null;
-				runtime = null;
+let online = globalThis.navigator?.onLine ?? true;
+
+const supervisor = createConnectionSupervisor<
+	RendererConnectionOptions,
+	MemoizeClient
+>({
+	keyOf: (options) => options.key,
+	isOnline: () => online,
+	schedule: (delayMs, reconnect) => {
+		const timer = setTimeout(reconnect, delayMs);
+		return () => clearTimeout(timer);
+	},
+	createClient: async (options) => {
+		const protocolLayer =
+			options.kind === "electron"
+				? electronClientProtocolLayer(options.bridge).pipe(
+						Layer.provide(RpcSerialization.layerJson),
+					)
+				: wsClientProtocolLayer(options.wsUrl);
+		const runtime = ManagedRuntime.make(protocolLayer);
+		try {
+			const client = await runtime.runPromise(
+				RpcClient.make(MemoizeRpcs).pipe(
+					Effect.provideService(Scope.Scope, runtime.scope),
+				),
+			);
+			return { client, dispose: () => runtime.dispose() };
+		} catch (cause) {
+			await runtime.dispose();
+			throw cause;
+		}
+	},
+});
+
+const commandDispatcher = new CommandDispatcher();
+let rendererEntry: ConnectionSupervisorEntry<MemoizeClient> | null = null;
+let observedGeneration = 0;
+
+const getRendererEntry = (): ConnectionSupervisorEntry<MemoizeClient> => {
+	const entry = supervisor.get(connectionOptions());
+	if (rendererEntry === null) {
+		rendererEntry = entry;
+		entry.subscribe((snapshot) => {
+			if (
+				snapshot.status === "connected" &&
+				observedGeneration > 0 &&
+				snapshot.generation > observedGeneration
+			) {
+				commandDispatcher.redispatchPending();
 			}
-			throw err;
+			observedGeneration = Math.max(observedGeneration, snapshot.generation);
 		});
-		cachedClient = guarded;
 	}
-	return cachedClient;
+	return entry;
+};
+
+const isRpcClientError = (cause: unknown): boolean =>
+	typeof cause === "object" &&
+	cause !== null &&
+	"_tag" in cause &&
+	cause._tag === "RpcClientError";
+
+export const getRpcClient = (): Promise<MemoizeClient> =>
+	Effect.runPromise(getRendererEntry().getClient());
+
+export const reportRendererRpcFailure = (cause: unknown): void => {
+	getRendererEntry().reportFailure(cause);
+};
+
+export const dispatchRetryableRpcCommand = <A>(
+	commandId: string,
+	operation: () => Promise<A>,
+): Promise<A> =>
+	commandDispatcher.dispatch(
+		commandId,
+		async () => {
+			try {
+				return await operation();
+			} catch (cause) {
+				if (isRpcClientError(cause)) reportRendererRpcFailure(cause);
+				throw cause;
+			}
+		},
+		{ shouldRetry: isRpcClientError },
+	);
+
+export const disposeRpcClient = async (): Promise<void> => {
+	commandDispatcher.failPending(new Error("renderer RPC runtime disposed"));
+	rendererEntry = null;
+	observedGeneration = 0;
+	await supervisor.dispose();
+};
+
+if (typeof window !== "undefined") {
+	window.addEventListener("online", () => {
+		online = true;
+		supervisor.setOnline(true);
+	});
+	window.addEventListener("offline", () => {
+		online = false;
+		supervisor.setOnline(false);
+	});
+	window.addEventListener("pagehide", () => {
+		void disposeRpcClient();
+	});
 }

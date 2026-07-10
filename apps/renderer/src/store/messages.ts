@@ -15,7 +15,10 @@ import {
 } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+  dispatchRetryableRpcCommand,
+  getRpcClient,
+} from "../lib/rpc-client.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { usePrDetailsStore } from "./pr-details.ts";
 import { usePrStateStore } from "./pr-state.ts";
@@ -682,7 +685,6 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       },
     }));
     try {
-      const client = await getMessagesRpcClient();
       // Pick up the per-session reasoning selection the composer's
       // ReasoningPicker persists to sessionStorage. Drivers that don't
       // implement reasoning silently ignore it; only models whose
@@ -704,7 +706,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               clientMessageId: messageId,
               ...(modelOptions !== null ? { modelOptions } : {}),
             };
-      await Effect.runPromise(client["messages.send"](payload));
+      await dispatchRetryableRpcCommand(messageId, async () => {
+        const client = await getMessagesRpcClient();
+        return Effect.runPromise(client["messages.send"](payload));
+      });
       void useSessionsStore.getState().refreshOne(sessionId);
     } catch (err) {
       // Reset the optimistic running flag — otherwise a failed send leaves

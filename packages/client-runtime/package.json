@@ -13,7 +13,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@zuse/utils": "*"
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
