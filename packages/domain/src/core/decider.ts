@@ -219,6 +219,16 @@ export const decide = (
 						]),
 				{ ...command, _tag: "ProviderAttached" },
 			]);
+		case "RequestProviderStop":
+			return state.attachedProviderId === null
+				? success([])
+				: success([
+						{
+							_tag: "ProviderStopRequested",
+							providerId: state.attachedProviderId,
+							requestedAt: command.requestedAt,
+						},
+					]);
 		case "DetachProvider":
 			return state.attachedProviderId === null
 				? success([])

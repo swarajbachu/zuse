@@ -94,6 +94,10 @@ export const SessionEvent = Schema.Union([
 		providerId: Schema.String,
 		attachedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ProviderStopRequested", {
+		providerId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ProviderDetached", {
 		providerId: Schema.String,
 		detachedAt: Schema.Number,

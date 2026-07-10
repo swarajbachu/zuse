@@ -599,6 +599,47 @@ describe("ConversationServices — chat & session lifecycle", () => {
     });
   });
 
+  it("stops providers through the durable provider-stop reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (service) =>
+          service.setModel(created.initialSession.id, "claude-sonnet-4-6"),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.initialSession.id}
+              AND type IN ('ProviderStopRequested', 'ProviderDetached')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:provider-stop:%'
+          `;
+          return { events, receipts };
+        }),
+      );
+
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ProviderStopRequested",
+        "ProviderDetached",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(

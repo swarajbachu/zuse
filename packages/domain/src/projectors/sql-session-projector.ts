@@ -194,6 +194,7 @@ export const makeSqlSessionProjector = (
 				return;
 			}
 			case "ProviderAttached":
+			case "ProviderStopRequested":
 			case "ProviderDetached":
 			case "SegmentOpened":
 			case "SegmentSettled":

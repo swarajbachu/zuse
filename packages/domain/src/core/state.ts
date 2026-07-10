@@ -178,6 +178,8 @@ export const evolve = (
 			};
 		case "ProviderAttached":
 			return { ...state, attachedProviderId: event.providerId, version };
+		case "ProviderStopRequested":
+			return { ...state, version };
 		case "ProviderDetached":
 			return { ...state, attachedProviderId: null, version };
 		case "CheckpointRecorded":

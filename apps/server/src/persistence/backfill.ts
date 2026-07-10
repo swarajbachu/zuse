@@ -20,6 +20,7 @@ const PROJECTORS = [
 	"reactor:auto-name-chat",
 	"reactor:permission-lifecycle",
 	"reactor:provider-start",
+	"reactor:provider-stop",
 ] as const;
 
 interface ChatRow {

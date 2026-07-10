@@ -866,8 +866,10 @@ export const ConversationServicesLive = Layer.effectContext(
     let runSessionReactors: Effect.Effect<void> = Effect.void;
     let runProviderStartReactor: Effect.Effect<void, SessionStartError> =
       Effect.void;
+    let runProviderStopReactor: Effect.Effect<void> = Effect.void;
     const sessionReactorSemaphore = yield* Semaphore.make(1);
     const providerStartReactorSemaphore = yield* Semaphore.make(1);
+    const providerStopReactorSemaphore = yield* Semaphore.make(1);
     const provider = yield* ProviderService;
     const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
       Effect.gen(function* () {
@@ -879,11 +881,11 @@ export const ConversationServicesLive = Layer.effectContext(
       });
     const closeProvider = (sessionId: SessionId) =>
       Effect.gen(function* () {
-        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
         yield* dispatchSessionCommand(sessionId, {
-          _tag: "DetachProvider",
-          detachedAt: yield* currentTimestamp,
+          _tag: "RequestProviderStop",
+          requestedAt: yield* currentTimestamp,
         });
+        yield* runProviderStopReactor;
       });
     const ndjson = yield* NdjsonLogger;
     const worktrees = yield* WorktreeService;
@@ -3121,6 +3123,69 @@ export const ConversationServicesLive = Layer.effectContext(
       );
     });
     yield* runProviderStartReactor;
+
+    type ProviderStopCommand = {
+      readonly _tag: "StopProvider";
+      readonly requestedAt: number;
+    };
+    const providerStopReactor = new ReactorRunner<
+      StoredEvent,
+      ProviderStopCommand,
+      SqlConsumerStorageError
+    >(
+      makeSqlConsumerStorage(sql),
+      (reactorInput) =>
+        Effect.gen(function* () {
+          const completed = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id = ${reactorInput.commandId}
+            LIMIT 1
+          `.pipe(Effect.orDie);
+          if (completed.length > 0) return;
+          const sessionId = SessionId.make(reactorInput.streamId);
+          yield* provider
+            .close(sessionId)
+            .pipe(Effect.catch(() => Effect.void));
+          yield* sessionDomain
+            .dispatch({
+              commandId: `${reactorInput.commandId}:detach`,
+              streamId: sessionId,
+              command: {
+                _tag: "DetachProvider",
+                detachedAt: reactorInput.command.requestedAt,
+              },
+            })
+            .pipe(Effect.orDie);
+          yield* sql`
+            INSERT OR IGNORE INTO reactor_effect_receipts
+              (effect_id, completed_at)
+            VALUES (${reactorInput.commandId}, ${new Date().toISOString()})
+          `.pipe(Effect.orDie);
+        }),
+      {
+        name: "provider-stop",
+        react: (record) =>
+          Effect.succeed(
+            record.event._tag === "ProviderStopRequested"
+              ? [
+                  {
+                    streamId: record.streamId,
+                    command: {
+                      _tag: "StopProvider",
+                      requestedAt: record.event.requestedAt,
+                    },
+                  },
+                ]
+              : [],
+          ),
+      },
+    );
+    runProviderStopReactor = Effect.suspend(() =>
+      providerStopReactorSemaphore.withPermits(1)(
+        providerStopReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
+      ),
+    );
+    yield* runProviderStopReactor;
 
     type AutoNameCommand = { readonly _tag: "AutoNameChat" };
     const autoNameReactor = new ReactorRunner<

@@ -103,6 +103,7 @@ export const SessionCommand = Schema.Union([
 		providerId: Schema.String,
 		attachedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("RequestProviderStop", { requestedAt: Schema.Number }),
 	Schema.TaggedStruct("DetachProvider", { detachedAt: Schema.Number }),
 	Schema.TaggedStruct("RecordCheckpoint", {
 		checkpointId: Schema.String,
