@@ -1,6 +1,6 @@
 import { Data, Effect, type Layer, ManagedRuntime, Scope } from "effect";
-import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { Rpc } from "effect/unstable/rpc";
+import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 export type ConnectionOptions = {
