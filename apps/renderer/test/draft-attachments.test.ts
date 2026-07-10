@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
+import { Schema } from "effect";
 
 import { ComposerInput, type AttachmentRef } from "@zuse/wire";
 
 import {
+  appendContextFileRef,
   finalizeDraftAttachments,
   finalizeDraftContextFiles,
   hasPendingAttachmentIds,
@@ -14,6 +16,29 @@ const makeFile = (name: string): File =>
   new File([new Uint8Array([1, 2, 3])], name, { type: "image/png" });
 
 describe("draft attachment finalization", () => {
+  it("preserves ComposerInput when appending an issue context file", () => {
+    const input = ComposerInput.make({
+      text: "inspect this issue",
+      attachments: [],
+      fileRefs: [],
+      skillRefs: [],
+    });
+
+    const finalized = appendContextFileRef(input, {
+      relPath: ".context/files/issue.md",
+      absPath: "/worktree/.context/files/issue.md",
+    });
+
+    expect(finalized.fileRefs).toEqual([
+      {
+        relPath: ".context/files/issue.md",
+        absPath: "/worktree/.context/files/issue.md",
+        kind: "file",
+      },
+    ]);
+    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
+  });
+
   it("replaces pending attachment ids with uploaded refs", async () => {
     const input = ComposerInput.make({
       text: "inspect this",
@@ -44,6 +69,7 @@ describe("draft attachment finalization", () => {
 
     expect(finalized.attachments).toEqual([uploaded]);
     expect(hasPendingAttachmentIds(finalized)).toBe(false);
+    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
   });
 
   it("throws instead of letting a stale pending id through", async () => {
@@ -106,5 +132,6 @@ describe("draft attachment finalization", () => {
       },
     ]);
     expect(hasPendingContextFileRefs(finalized)).toBe(false);
+    expect(() => Schema.validateSync(ComposerInput)(finalized)).not.toThrow();
   });
 });
