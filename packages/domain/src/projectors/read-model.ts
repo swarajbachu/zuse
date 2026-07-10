@@ -21,7 +21,10 @@ export type MessageReadRecord = {
 	readonly messageId: string;
 	readonly sessionId: string;
 	readonly turnId: string | null;
+	readonly role: string;
+	readonly kind: string;
 	readonly contentJson: string;
+	readonly parentItemId: string | null;
 	readonly createdAt: number;
 	readonly sequence: number;
 };
@@ -143,7 +146,10 @@ export class InMemorySessionReadModel
 						messageId: event.messageId,
 						sessionId: record.streamId,
 						turnId: event.turnId,
+						role: event.role,
+						kind: event.kind,
 						contentJson: event.contentJson,
+						parentItemId: event.parentItemId,
 						createdAt: event.createdAt,
 						sequence: record.sequence,
 					});

@@ -27,7 +27,10 @@ export type SessionCommand =
 			readonly _tag: "PersistMessage";
 			readonly messageId: string;
 			readonly turnId: string | null;
+			readonly role: string;
+			readonly kind: string;
 			readonly contentJson: string;
+			readonly parentItemId: string | null;
 			readonly createdAt: number;
 	  }
 	| {

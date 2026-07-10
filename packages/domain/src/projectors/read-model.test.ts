@@ -47,7 +47,10 @@ describe("session read-model projector", () => {
 				_tag: "MessagePersisted",
 				messageId: "message-1",
 				turnId: "turn-1",
+				role: "user",
+				kind: "text",
 				contentJson,
+				parentItemId: null,
 				createdAt: 40,
 			}),
 			stored(6, "session-1", {
@@ -85,7 +88,10 @@ describe("session read-model projector", () => {
 			_tag: "MessagePersisted",
 			messageId: "message-1",
 			turnId: null,
+			role: "assistant",
+			kind: "text",
 			contentJson: "{}",
+			parentItemId: null,
 			createdAt: 20,
 		});
 
