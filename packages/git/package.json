@@ -19,7 +19,6 @@
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",
-		"@zuse/pokemon-data": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

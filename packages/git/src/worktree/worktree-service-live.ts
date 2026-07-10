@@ -1,11 +1,9 @@
-import { spawn } from "node:child_process";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as Path from "node:path";
 import {
 	type FolderId,
-	PokemonSummary,
 	Worktree,
 	WorktreeCreateError,
 	WorktreeDirtyError,
@@ -19,11 +17,14 @@ import {
 	WorktreeSetupStatusEvent,
 } from "@zuse/contracts";
 import {
-	POKEMON_BY_NUMBER,
-	pokemonSpriteSourcesFor,
-	pokemonSpriteStem,
-} from "@zuse/pokemon-data";
-import { type Cause, Effect, FileSystem, Layer, Queue, Stream } from "effect";
+	type Cause,
+	DateTime,
+	Effect,
+	FileSystem,
+	Layer,
+	Queue,
+	Stream,
+} from "effect";
 import {
 	ChildProcess as Command,
 	ChildProcessSpawner as CommandExecutor,
@@ -34,6 +35,7 @@ import {
 	PokemonAssignment,
 	ProjectLocator,
 	RepositorySettingsReader,
+	WorktreeDecoration,
 	WorktreeNameAllocator,
 } from "./ports.ts";
 import {
@@ -69,38 +71,10 @@ const isSetupStatus = (value: string): value is WorktreeSetupStatus =>
 	value === "failed" ||
 	value === "skipped";
 
-const variantIdForWorktreeName = (
-	pokemon: NonNullable<ReturnType<typeof POKEMON_BY_NUMBER.get>>,
-	worktreeName: string,
-): string => {
-	const match = /-v(\d+)$/.exec(worktreeName);
-	if (match === null) return "default";
-	const version = Number(match[1]);
-	if (!Number.isSafeInteger(version) || version < 2) return "default";
-	const sources = pokemonSpriteSourcesFor(pokemon);
-	return sources[(version - 1) % sources.length]?.id ?? "default";
-};
-
-const pokemonSummaryFor = (
-	number: number | null,
-	worktreeName: string,
-): PokemonSummary | null => {
-	if (number === null) return null;
-	const pokemon = POKEMON_BY_NUMBER.get(number);
-	if (pokemon === undefined) return null;
-	const variantId = variantIdForWorktreeName(pokemon, worktreeName);
-	return PokemonSummary.make({
-		number: pokemon.number,
-		slug: pokemon.slug,
-		name: pokemon.name,
-		generation: pokemon.generation,
-		rarity: pokemon.rarity,
-		points: pokemon.points,
-		spriteUrl: `zuse://pokemon/${pokemonSpriteStem(pokemon.number, variantId)}`,
-	});
-};
-
-const rowToWorktree = (row: WorktreeRow): Worktree =>
+const rowToWorktree = (
+	row: WorktreeRow,
+	pokemonSummary: WorktreeDecoration["Service"]["pokemonSummary"],
+): Worktree =>
 	Worktree.make({
 		id: WorktreeId.make(row.id),
 		projectId: row.project_id as FolderId,
@@ -115,7 +89,7 @@ const rowToWorktree = (row: WorktreeRow): Worktree =>
 			row.setup_started_at === null ? null : new Date(row.setup_started_at),
 		setupFinishedAt:
 			row.setup_finished_at === null ? null : new Date(row.setup_finished_at),
-		pokemon: pokemonSummaryFor(row.pokemon_number, row.name),
+		pokemon: pokemonSummary(row.pokemon_number, row.name),
 	});
 
 const SETUP_TIMEOUT_MS = 10 * 60 * 1000;
@@ -227,50 +201,6 @@ const prepareLocalFiles = async (
 	return output;
 };
 
-const runShellScript = ({
-	script,
-	cwd,
-	env,
-	onData,
-}: {
-	readonly script: string;
-	readonly cwd: string;
-	readonly env: Readonly<Record<string, string>>;
-	/** Fired on every stdout/stderr chunk with the full accumulated output. */
-	readonly onData?: (accumulated: string) => void;
-}): Promise<{ readonly exitCode: number | null; readonly output: string }> =>
-	new Promise((resolve, reject) => {
-		let output = "";
-		let timedOut = false;
-		const child = spawn("/bin/zsh", ["-lc", script], {
-			cwd,
-			env: { ...(process.env as Record<string, string>), ...env },
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const append = (chunk: unknown) => {
-			output = truncateOutput(output + String(chunk));
-			onData?.(output);
-		};
-		child.stdout?.on("data", append);
-		child.stderr?.on("data", append);
-		const timer = setTimeout(() => {
-			timedOut = true;
-			try {
-				child.kill("SIGKILL");
-			} catch {
-				// already exited
-			}
-		}, SETUP_TIMEOUT_MS);
-		child.on("error", reject);
-		child.on("close", (code) => {
-			clearTimeout(timer);
-			resolve({
-				exitCode: timedOut ? 124 : code,
-				output: truncateOutput(output),
-			});
-		});
-	});
-
 export const WorktreeServiceLive = Layer.effect(
 	WorktreeService,
 	Effect.gen(function* () {
@@ -278,9 +208,48 @@ export const WorktreeServiceLive = Layer.effect(
 		const repositorySettings = yield* RepositorySettingsReader;
 		const nameAllocator = yield* WorktreeNameAllocator;
 		const pokemonAssignment = yield* PokemonAssignment;
+		const decoration = yield* WorktreeDecoration;
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
 		const fs = yield* FileSystem.FileSystem;
 		const sql = yield* SqlClient.SqlClient;
+		const runShellScript = Effect.fn("WorktreeService.runShellScript")(
+			function* ({
+				script,
+				cwd,
+				env,
+				onData,
+			}: {
+				readonly script: string;
+				readonly cwd: string;
+				readonly env: Readonly<Record<string, string>>;
+				readonly onData?: (accumulated: string) => void;
+			}) {
+				return yield* Effect.scoped(
+					Effect.gen(function* () {
+						const command = Command.make("/bin/zsh", ["-lc", script], {
+							cwd,
+							env: { ...env },
+							extendEnv: true,
+							stdin: "ignore",
+						});
+						const process = yield* executor.spawn(command);
+						const output = yield* process.all.pipe(
+							Stream.decodeText({ encoding: "utf-8" }),
+							Stream.runFold(
+								() => "",
+								(accumulated, chunk) => {
+									const next = truncateOutput(accumulated + chunk);
+									onData?.(next);
+									return next;
+								},
+							),
+						);
+						const exitCode = yield* process.exitCode;
+						return { exitCode, output } as const;
+					}),
+				).pipe(Effect.timeout(SETUP_TIMEOUT_MS));
+			},
+		);
 
 		const worktreeColumns = yield* sql<{ readonly name: string }>`
       PRAGMA table_info(worktrees)
@@ -435,7 +404,7 @@ export const WorktreeServiceLive = Layer.effect(
           WHERE project_id = ${projectId}
           ORDER BY created_at DESC
         `.pipe(Effect.orDie);
-				return rows.map(rowToWorktree);
+				return rows.map((row) => rowToWorktree(row, decoration.pokemonSummary));
 			});
 
 		const get: WorktreeService["Service"]["get"] = (worktreeId) =>
@@ -449,7 +418,9 @@ export const WorktreeServiceLive = Layer.effect(
           LIMIT 1
         `.pipe(Effect.orDie);
 				const row = rows[0];
-				return row === undefined ? null : rowToWorktree(row);
+				return row === undefined
+					? null
+					: rowToWorktree(row, decoration.pokemonSummary);
 			});
 
 		const updateBranch: WorktreeService["Service"]["updateBranch"] = (
@@ -782,7 +753,7 @@ export const WorktreeServiceLive = Layer.effect(
 					}
 
 					const id = WorktreeId.make(crypto.randomUUID());
-					const now = new Date();
+					const now = yield* DateTime.nowAsDate;
 					const nowIso = now.toISOString();
 					yield* sql`
             INSERT INTO worktrees
@@ -967,25 +938,24 @@ export const WorktreeServiceLive = Layer.effect(
 				"",
 		});
 
-		function runSetupFor(
+		const runSetupFor = Effect.fn("WorktreeService.runSetupFor")(function* (
 			worktreeId: WorktreeId,
-		): Effect.Effect<Worktree, WorktreeNotFoundError | WorktreeSetupError> {
-			return Effect.gen(function* () {
-				const worktree = yield* get(worktreeId);
-				if (worktree === null) {
-					return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
-				}
-				const folder = yield* projects.find(worktree.projectId);
-				if (folder === null) {
-					return yield* Effect.fail(
-						new WorktreeSetupError({ worktreeId, reason: "project not found" }),
-					);
-				}
-				const settings = yield* repositorySettings.get(worktree.projectId);
-				const script = settings.setupScript?.trim() ?? "";
-				const startedAtDate = new Date();
-				const startedAt = startedAtDate.toISOString();
-				yield* sql`
+		) {
+			const worktree = yield* get(worktreeId);
+			if (worktree === null) {
+				return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
+			}
+			const folder = yield* projects.find(worktree.projectId);
+			if (folder === null) {
+				return yield* Effect.fail(
+					new WorktreeSetupError({ worktreeId, reason: "project not found" }),
+				);
+			}
+			const settings = yield* repositorySettings.get(worktree.projectId);
+			const script = settings.setupScript?.trim() ?? "";
+			const startedAtDate = yield* DateTime.nowAsDate;
+			const startedAt = startedAtDate.toISOString();
+			yield* sql`
           UPDATE worktrees
           SET setup_status = 'running',
               setup_output = '',
@@ -993,89 +963,39 @@ export const WorktreeServiceLive = Layer.effect(
               setup_finished_at = NULL
           WHERE id = ${worktreeId}
         `.pipe(Effect.orDie);
-				emitStatus(worktreeId, "running", startedAtDate, null);
+			emitStatus(worktreeId, "running", startedAtDate, null);
 
-				const prep = yield* Effect.tryPromise({
-					try: () =>
-						prepareLocalFiles(
-							folder.path,
-							worktree.path,
-							settings.fileIncludeGlobs,
-						),
-					catch: (err) =>
-						new WorktreeSetupError({
-							worktreeId,
-							reason: err instanceof Error ? err.message : String(err),
-						}),
-				});
-
-				// Surface the prepareLocalFiles output immediately so the card isn't
-				// blank while the (possibly long) script runs.
-				if (prep.length > 0) {
-					emit(
+			const prep = yield* Effect.tryPromise({
+				try: () =>
+					prepareLocalFiles(
+						folder.path,
+						worktree.path,
+						settings.fileIncludeGlobs,
+					),
+				catch: (err) =>
+					new WorktreeSetupError({
 						worktreeId,
-						WorktreeSetupChunk.make({ worktreeId, output: prep }),
-					);
-				}
+						reason: err instanceof Error ? err.message : String(err),
+					}),
+			});
 
-				if (script.length === 0) {
-					const finishedAtDate = new Date();
-					const finishedAt = finishedAtDate.toISOString();
-					yield* sql`
+			// Surface the prepareLocalFiles output immediately so the card isn't
+			// blank while the (possibly long) script runs.
+			if (prep.length > 0) {
+				emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output: prep }));
+			}
+
+			if (script.length === 0) {
+				const finishedAtDate = yield* DateTime.nowAsDate;
+				const finishedAt = finishedAtDate.toISOString();
+				yield* sql`
             UPDATE worktrees
             SET setup_status = 'skipped',
                 setup_output = ${prep},
                 setup_finished_at = ${finishedAt}
             WHERE id = ${worktreeId}
           `.pipe(Effect.orDie);
-					emitStatus(worktreeId, "skipped", startedAtDate, finishedAtDate);
-					const updated = yield* get(worktreeId);
-					return updated === null
-						? yield* new WorktreeSetupError({
-								worktreeId,
-								reason: "setup worktree row could not be loaded",
-							})
-						: updated;
-				}
-
-				const result = yield* Effect.tryPromise({
-					try: () =>
-						runShellScript({
-							script,
-							cwd: worktree.path,
-							env: setupEnv(
-								folder.path,
-								worktree,
-								settings.environmentVariables,
-							),
-							onData: (acc) =>
-								emit(
-									worktreeId,
-									WorktreeSetupChunk.make({
-										worktreeId,
-										output: truncateOutput(`${prep}${acc}`),
-									}),
-								),
-						}),
-					catch: (err) =>
-						new WorktreeSetupError({
-							worktreeId,
-							reason: err instanceof Error ? err.message : String(err),
-						}),
-				});
-				const finishedAtDate = new Date();
-				const finishedAt = finishedAtDate.toISOString();
-				const status = result.exitCode === 0 ? "succeeded" : "failed";
-				const output = truncateOutput(`${prep}${result.output}`);
-				yield* sql`
-          UPDATE worktrees
-          SET setup_status = ${status},
-              setup_output = ${output},
-              setup_finished_at = ${finishedAt}
-          WHERE id = ${worktreeId}
-        `.pipe(Effect.orDie);
-				emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output }));
-				emitStatus(worktreeId, status, startedAtDate, finishedAtDate);
+				emitStatus(worktreeId, "skipped", startedAtDate, finishedAtDate);
 				const updated = yield* get(worktreeId);
 				return updated === null
 					? yield* new WorktreeSetupError({
@@ -1083,8 +1003,50 @@ export const WorktreeServiceLive = Layer.effect(
 							reason: "setup worktree row could not be loaded",
 						})
 					: updated;
-			});
-		}
+			}
+
+			const result = yield* runShellScript({
+				script,
+				cwd: worktree.path,
+				env: setupEnv(folder.path, worktree, settings.environmentVariables),
+				onData: (acc) =>
+					emit(
+						worktreeId,
+						WorktreeSetupChunk.make({
+							worktreeId,
+							output: truncateOutput(`${prep}${acc}`),
+						}),
+					),
+			}).pipe(
+				Effect.mapError(
+					(err) =>
+						new WorktreeSetupError({
+							worktreeId,
+							reason: err instanceof Error ? err.message : String(err),
+						}),
+				),
+			);
+			const finishedAtDate = yield* DateTime.nowAsDate;
+			const finishedAt = finishedAtDate.toISOString();
+			const status = result.exitCode === 0 ? "succeeded" : "failed";
+			const output = truncateOutput(`${prep}${result.output}`);
+			yield* sql`
+          UPDATE worktrees
+          SET setup_status = ${status},
+              setup_output = ${output},
+              setup_finished_at = ${finishedAt}
+          WHERE id = ${worktreeId}
+        `.pipe(Effect.orDie);
+			emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output }));
+			emitStatus(worktreeId, status, startedAtDate, finishedAtDate);
+			const updated = yield* get(worktreeId);
+			return updated === null
+				? yield* new WorktreeSetupError({
+						worktreeId,
+						reason: "setup worktree row could not be loaded",
+					})
+				: updated;
+		});
 
 		/**
 		 * Run setup and guarantee a terminal status is always persisted + emitted
@@ -1095,7 +1057,7 @@ export const WorktreeServiceLive = Layer.effect(
 				Effect.asVoid,
 				Effect.catch((err) =>
 					Effect.gen(function* () {
-						const finishedAt = new Date();
+						const finishedAt = yield* DateTime.nowAsDate;
 						yield* sql`
               UPDATE worktrees
               SET setup_status = 'failed',

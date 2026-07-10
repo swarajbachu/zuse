@@ -50,6 +50,7 @@ import {
   PokemonAssignmentLive,
   ProjectLocatorLive,
   RepositorySettingsReaderLive,
+  WorktreeDecorationLive,
   WorktreeNameAllocatorLive,
 } from "./worktree/worktree-ports-live.ts";
 
@@ -161,6 +162,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
       Layer.provide(RepositorySettingsLayer),
     ),
     WorktreeNameAllocatorLive,
+    WorktreeDecorationLive,
     PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
   );
 

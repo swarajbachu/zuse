@@ -3,9 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { NodeServices } from "@effect/platform-node";
+import { NodeFileSystem, NodePath, NodeServices } from "@effect/platform-node";
 import { FolderId, GitFolderNotFoundError, WorktreeId } from "@zuse/contracts";
-import { Effect, Layer } from "effect";
+import {
+	Effect,
+	type FileSystem,
+	Layer,
+	type Path,
+	PlatformError,
+} from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { GitService } from "./git-service.ts";
@@ -41,9 +48,15 @@ describe("GitServiceLive", () => {
 	const makeLayer = ({
 		root = repositoryRoot,
 		worktreePath = null,
+		platform = NodeServices.layer,
 	}: {
 		readonly root?: string;
 		readonly worktreePath?: string | null;
+		readonly platform?: Layer.Layer<
+			| FileSystem.FileSystem
+			| Path.Path
+			| ChildProcessSpawner.ChildProcessSpawner
+		>;
 	} = {}) => {
 		const LocatorLive = Layer.succeed(RepositoryLocator, {
 			root: (requestedFolderId) =>
@@ -65,7 +78,7 @@ describe("GitServiceLive", () => {
 		});
 		return GitServiceLive.pipe(
 			Layer.provide(LocatorLive),
-			Layer.provide(NodeServices.layer),
+			Layer.provide(platform),
 		);
 	};
 
@@ -124,6 +137,41 @@ describe("GitServiceLive", () => {
 
 		expect(commit.sha).toBe(git(repositoryRoot, "rev-parse", "HEAD"));
 		expect(git(remote, "rev-parse", "refs/heads/main")).toBe(commit.sha);
+	});
+
+	test("maps push failures to GitCommandError", async () => {
+		await expect(
+			run((service) => service.push(folderId)),
+		).rejects.toMatchObject({ _tag: "GitCommandError", folderId });
+	});
+
+	test("maps a missing git executable to GitNotInstalledError", async () => {
+		const MissingSpawnerLive = Layer.succeed(
+			ChildProcessSpawner.ChildProcessSpawner,
+			ChildProcessSpawner.make(() =>
+				Effect.fail(
+					new PlatformError.PlatformError(
+						new PlatformError.SystemError({
+							_tag: "NotFound",
+							module: "test",
+							method: "spawn",
+						}),
+					),
+				),
+			),
+		);
+		const PlatformLive = Layer.mergeAll(
+			NodeFileSystem.layer,
+			NodePath.layer,
+			MissingSpawnerLive,
+		);
+
+		await expect(
+			run(
+				(service) => service.status(folderId),
+				makeLayer({ platform: PlatformLive }),
+			),
+		).rejects.toMatchObject({ _tag: "GitNotInstalledError" });
 	});
 
 	test("uses the selected worktree path", async () => {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { FolderId } from "@zuse/contracts";
+import { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -15,6 +15,7 @@ import {
 	PokemonAssignment,
 	ProjectLocator,
 	RepositorySettingsReader,
+	WorktreeDecoration,
 	WorktreeNameAllocator,
 } from "./ports.ts";
 import { WorktreeService } from "./worktree-service.ts";
@@ -29,12 +30,14 @@ describe("WorktreeServiceLive", () => {
 	let temporaryRoot = "";
 	let repositoryRoot = "";
 	let worktreeRoot = "";
+	let setupScript: string | null = null;
 	let runtime: ManagedRuntime.ManagedRuntime<WorktreeService, SqlError>;
 
 	beforeEach(async () => {
 		temporaryRoot = mkdtempSync(join(tmpdir(), "zuse-worktree-service-"));
 		repositoryRoot = join(temporaryRoot, "repository");
 		worktreeRoot = join(temporaryRoot, "worktrees");
+		setupScript = null;
 		git(temporaryRoot, "init", "--initial-branch=main", repositoryRoot);
 		git(repositoryRoot, "config", "user.name", "Test User");
 		git(repositoryRoot, "config", "user.email", "test@example.com");
@@ -91,7 +94,7 @@ describe("WorktreeServiceLive", () => {
 				get: () =>
 					Effect.succeed({
 						worktreeBaseDir: worktreeRoot,
-						setupScript: null,
+						setupScript,
 						runScript: null,
 						environmentVariables: {},
 						fileIncludeGlobs: "",
@@ -102,6 +105,9 @@ describe("WorktreeServiceLive", () => {
 			}),
 			Layer.succeed(PokemonAssignment, {
 				record: () => Effect.void,
+			}),
+			Layer.succeed(WorktreeDecoration, {
+				pokemonSummary: () => null,
 			}),
 		);
 
@@ -173,5 +179,72 @@ describe("WorktreeServiceLive", () => {
 
 		await run((service) => service.remove(created.id, true));
 		expect(await run((service) => service.get(created.id))).toBeNull();
+	});
+
+	test("runs setup commands and streams a succeeded terminal state", async () => {
+		setupScript = "printf setup-ok > setup-result.txt";
+		const created = await run((service) => service.create(projectId));
+		const events = await run((service) =>
+			service.setupStream(created.id).pipe(Stream.runCollect),
+		);
+		const persisted = await run((service) => service.get(created.id));
+
+		expect(
+			[...events]
+				.filter((event) => event._tag === "status")
+				.map((event) => event.status),
+		).toContain("succeeded");
+		expect(persisted?.setupStatus).toBe("succeeded");
+		expect(git(created.path, "status", "--short")).toContain(
+			"setup-result.txt",
+		);
+	});
+
+	test("persists and streams setup command failures", async () => {
+		setupScript = "printf setup-failed; exit 7";
+		const created = await run((service) => service.create(projectId));
+		const events = await run((service) =>
+			service.setupStream(created.id).pipe(Stream.runCollect),
+		);
+		const persisted = await run((service) => service.get(created.id));
+
+		expect(
+			[...events]
+				.filter((event) => event._tag === "status")
+				.map((event) => event.status),
+		).toContain("failed");
+		expect(persisted).toMatchObject({
+			setupStatus: "failed",
+			setupOutput: expect.stringContaining("setup-failed"),
+		});
+	});
+
+	test("truncates setup output while preserving the newest bytes", async () => {
+		setupScript =
+			"head -c 90000 /dev/zero | tr '\\0' x; printf setup-output-end";
+		const created = await run((service) => service.create(projectId));
+		await run((service) =>
+			service.setupStream(created.id).pipe(Stream.runCollect),
+		);
+		const persisted = await run((service) => service.get(created.id));
+
+		expect(persisted?.setupOutput.length).toBe(80_000);
+		expect(persisted?.setupOutput.endsWith("setup-output-end")).toBe(true);
+	});
+
+	test("reports missing worktrees and projects", async () => {
+		const missingWorktreeId = WorktreeId.make("missing-worktree");
+		await expect(
+			run((service) => service.rerunSetup(missingWorktreeId)),
+		).rejects.toMatchObject({
+			_tag: "WorktreeNotFoundError",
+			worktreeId: missingWorktreeId,
+		});
+		await expect(
+			run((service) => service.create(FolderId.make("missing-project"))),
+		).rejects.toMatchObject({
+			_tag: "WorktreeCreateError",
+			reason: "project not found",
+		});
 	});
 });

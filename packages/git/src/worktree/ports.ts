@@ -1,4 +1,4 @@
-import type { FolderId, WorktreeId } from "@zuse/contracts";
+import type { FolderId, PokemonSummary, WorktreeId } from "@zuse/contracts";
 import { Context, type Effect } from "effect";
 
 export interface ProjectLocation {
@@ -57,3 +57,13 @@ export class PokemonAssignment extends Context.Service<
 		) => Effect.Effect<void>;
 	}
 >()("zuse/git/worktree/PokemonAssignment") {}
+
+export class WorktreeDecoration extends Context.Service<
+	WorktreeDecoration,
+	{
+		readonly pokemonSummary: (
+			pokemonNumber: number | null,
+			worktreeName: string,
+		) => PokemonSummary | null;
+	}
+>()("zuse/git/worktree/WorktreeDecoration") {}

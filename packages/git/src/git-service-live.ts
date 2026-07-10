@@ -36,6 +36,7 @@ import {
 import { GitService } from "@zuse/git/git-service";
 import {
 	Cause,
+	DateTime,
 	Duration,
 	Effect,
 	FileSystem,
@@ -1780,7 +1781,7 @@ export const GitServiceLive = Layer.effect(
 
 					// Filesystem-safe ISO-ish timestamp (drop sub-second precision +
 					// colons that break some shells).
-					const ts = new Date()
+					const ts = (yield* DateTime.nowAsDate)
 						.toISOString()
 						.replace(/[:.]/g, "-")
 						.replace(/-\d{3}Z$/, "Z");
