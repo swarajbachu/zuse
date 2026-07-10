@@ -5,7 +5,7 @@ import type {
   CodeAnnotation,
   ComposerAnnotation,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 

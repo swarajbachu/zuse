@@ -1,10 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import {
   PermissionRequest,
   type Message,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   chooseComposerSubmitRoute,

@@ -33,7 +33,7 @@ import {
   type BrowserAnnotationStroke,
   type BrowserCommandRequest,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type {
   BrowserInputAction,
@@ -369,13 +369,13 @@ export function BrowserPane() {
   // mounted while a project is open, so this subscription lives as long as the
   // pane does.
   useEffect(() => {
-    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
     let cancelled = false;
     void (async () => {
       const client = await getRpcClient();
       if (cancelled) return;
       fiber = Effect.runFork(
-        Stream.runForEach(client.browser.commands({}), (req) =>
+        Stream.runForEach(client["browser.commands"]({}), (req) =>
           Effect.promise(() => executeBrowserCommand(req)),
         ),
       );
@@ -412,7 +412,7 @@ export function BrowserPane() {
       });
       try {
         const client = await getRpcClient();
-        await Effect.runPromise(client.browser.respond({ result }));
+        await Effect.runPromise(client["browser.respond"]({ result }));
       } catch {
         // A failed respond just means this command times out server-side;
         // the agent gets a clean "browser didn't respond" tool result.
@@ -1430,7 +1430,7 @@ async function runBrowserCommand(
         // only the ok/detail below, which omit it.
         const client = await getRpcClient();
         const secret = await Effect.runPromise(
-          client.browser.fillForOrigin({ origin: command.origin }),
+          client["browser.fillForOrigin"]({ origin: command.origin }),
         );
         if (secret === null) {
           return fail(

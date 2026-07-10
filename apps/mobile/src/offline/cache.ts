@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
-import { Message, MessageEnvelope } from "@zuse/wire";
+import { Message, MessageEnvelope } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 
 import { CacheCorrupt } from "~/rpc/errors";
@@ -74,7 +74,7 @@ export const outboxPath = (connKey: string, sessionId: string) =>
 export const readSessionsSnapshot = (connKey: string) =>
   readJson(sessionsPath(connKey), (u) => u as SessionsSnapshot).pipe(
     Effect.catchTag("CacheCorrupt", (error) =>
-      Effect.zipRight(deletePath(error.path), Effect.succeed(null))
+      Effect.andThen(deletePath(error.path), Effect.succeed(null))
     )
   );
 
@@ -83,7 +83,7 @@ export const writeSessionsSnapshot = (
   snapshot: SessionsSnapshot
 ) =>
   ensureDir(`${ROOT}/${slugConnectionKey(connKey)}`).pipe(
-    Effect.zipRight(writeJson(sessionsPath(connKey), snapshot))
+    Effect.andThen(writeJson(sessionsPath(connKey), snapshot))
   );
 
 const EncodedMessagesSnapshot = Schema.Struct({
@@ -96,7 +96,7 @@ export const readMessagesSnapshot = (connKey: string, sessionId: string) =>
     Schema.decodeUnknownSync(EncodedMessagesSnapshot)(u)
   ).pipe(
     Effect.catchTag("CacheCorrupt", (error) =>
-      Effect.zipRight(deletePath(error.path), Effect.succeed(null))
+      Effect.andThen(deletePath(error.path), Effect.succeed(null))
     )
   );
 
@@ -108,7 +108,7 @@ export const writeMessagesSnapshot = (
   const path = messagesPath(connKey, sessionId);
   const dir = path.slice(0, path.lastIndexOf("/"));
   return ensureDir(dir).pipe(
-    Effect.zipRight(
+    Effect.andThen(
       writeJson(path, Schema.encodeSync(EncodedMessagesSnapshot)(snapshot))
     )
   );
@@ -117,7 +117,7 @@ export const writeMessagesSnapshot = (
 export const readOutboxSnapshot = (connKey: string, sessionId: string) =>
   readJson(outboxPath(connKey, sessionId), (u) => u as OutboxSnapshot).pipe(
     Effect.catchTag("CacheCorrupt", (error) =>
-      Effect.zipRight(deletePath(error.path), Effect.succeed(null))
+      Effect.andThen(deletePath(error.path), Effect.succeed(null))
     )
   );
 
@@ -128,7 +128,7 @@ export const writeOutboxSnapshot = (
 ) => {
   const path = outboxPath(connKey, sessionId);
   const dir = path.slice(0, path.lastIndexOf("/"));
-  return ensureDir(dir).pipe(Effect.zipRight(writeJson(path, snapshot)));
+  return ensureDir(dir).pipe(Effect.andThen(writeJson(path, snapshot)));
 };
 
 export const decodeEnvelopeFixture = (value: unknown): MessageEnvelope =>

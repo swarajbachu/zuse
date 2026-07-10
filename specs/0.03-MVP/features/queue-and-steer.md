@@ -115,7 +115,7 @@ inputs sit in the queue. When the queue is empty, the tray collapses
 
 ## RPC contract
 
-Added next to `MessagesSendRpc` in `packages/wire/src/session.ts`:
+Added next to `MessagesSendRpc` in `packages/contracts/src/session.ts`:
 
 ```ts
 export class SteerUnsupportedError extends Schema.TaggedError<SteerUnsupportedError>()(
@@ -203,8 +203,8 @@ draft attachments (see [composer.md](composer.md)).
 | `apps/server/src/provider/services/provider-service.ts`    | edit   | `steer(sessionId, input)` orchestrator.                       |
 | `apps/server/src/provider/drivers/claude.ts`               | edit   | `steer` impl: interrupt → drain → send.                       |
 | `apps/server/src/provider/drivers/codex.ts`                | edit   | `steer` impl: interrupt → send.                               |
-| `packages/wire/src/session.ts`                             | edit   | `SteerUnsupportedError` + `MessagesSteerRpc`.                 |
-| `packages/wire/src/rpc.ts`                                 | edit   | Register the new RPC.                                         |
+| `packages/contracts/src/session.ts`                             | edit   | `SteerUnsupportedError` + `MessagesSteerRpc`.                 |
+| `packages/contracts/src/rpc.ts`                                 | edit   | Register the new RPC.                                         |
 
 ## Acceptance criteria
 
@@ -237,7 +237,7 @@ Q7. A queue chip carrying attachments keeps its attachments alive
     `zuse://attachments/<id>` URLs.
 
 Q8. `bun run check-types` passes for `apps/renderer`, `apps/server`,
-    and `packages/wire`.
+    and `packages/contracts`.
 
 ## Future hooks (intentional shape, not built yet)
 

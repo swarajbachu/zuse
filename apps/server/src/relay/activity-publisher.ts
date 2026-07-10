@@ -1,6 +1,6 @@
 import { Context, Data, Effect, Layer } from "effect";
 
-import { RelayPaths, type EnvironmentId, type SessionId } from "@zuse/wire";
+import { RelayPaths, type EnvironmentId, type SessionId } from "@zuse/contracts";
 
 import { LanAuthService } from "../lan-auth/services/lan-auth-service.ts";
 
@@ -24,9 +24,9 @@ export interface RelayActivityPublisherApi {
   }) => Effect.Effect<void, RelayActivityPublishError>;
 }
 
-export class RelayActivityPublisher extends Context.Tag(
+export class RelayActivityPublisher extends Context.Service<RelayActivityPublisher, RelayActivityPublisherApi>()(
   "zuse/RelayActivityPublisher",
-)<RelayActivityPublisher, RelayActivityPublisherApi>() {}
+) {}
 
 const fail = (cause: unknown) =>
   new RelayActivityPublishError({

@@ -1,9 +1,9 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 
-import type { AgentEvent } from "@zuse/wire";
+import type { AgentEvent } from "@zuse/contracts";
 
-import type { ThreadItem } from "../src/provider/codex-app-protocol/v2/ThreadItem.ts";
+import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
   codexReasoningEffort,
   codexWritableRootsForCwd,

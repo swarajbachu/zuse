@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { FolderId, WorktreeId } from "@zuse/wire";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 
 import {
   Tooltip,

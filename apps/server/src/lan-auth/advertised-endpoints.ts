@@ -3,7 +3,7 @@ import {
   type AdvertisedEndpointHostedHttpsCompatibility,
   type AdvertisedEndpointReachability,
   type AdvertisedEndpointStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { LanAuthConfigShape } from "./services/lan-auth-service.ts";
 

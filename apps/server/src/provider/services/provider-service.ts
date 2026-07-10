@@ -19,7 +19,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetInput,
   UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { CredentialsError } from "../errors.ts";
 import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
@@ -38,7 +38,9 @@ export type GetRuntimeMode = () => RuntimeMode;
  * the spawn-CLI helper to satisfy these.
  */
 export interface ProviderServiceShape {
-  readonly availability: () => Effect.Effect<ReadonlyArray<AgentAvailability>>;
+  readonly availability: (
+    refresh?: boolean,
+  ) => Effect.Effect<ReadonlyArray<AgentAvailability>>;
 
   readonly start: (
     input: StartSessionInput,
@@ -115,7 +117,7 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 
-export class ProviderService extends Context.Tag("memoize/ProviderService")<
+export class ProviderService extends Context.Service<
   ProviderService,
   ProviderServiceShape
->() {}
+>()("memoize/ProviderService") {}

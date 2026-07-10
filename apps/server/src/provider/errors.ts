@@ -2,7 +2,7 @@ import { Data } from "effect";
 
 /**
  * Server-internal errors for the provider domain. These never cross the wire
- * — wire-facing errors live in `@zuse/wire`'s `agent.ts`. Each public
+ * — wire-facing errors live in `@zuse/contracts`'s `agent.ts`. Each public
  * service method maps these to a wire error before failing.
  */
 

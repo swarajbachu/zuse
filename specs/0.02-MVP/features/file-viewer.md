@@ -88,7 +88,7 @@ minimal editor.
 
 ## RPC contracts
 
-Added to `packages/wire/src/fs.ts`:
+Added to `packages/contracts/src/fs.ts`:
 
 ```ts
 // fs.readFile
@@ -140,8 +140,8 @@ Switching projects in `useWorkspaceStore` clears `openFile`.
 | `apps/renderer/src/components/file-tree.tsx`            | edit   | clickable rows + FileIcon |
 | `apps/renderer/src/store/ui.ts`                         | edit   | tabs + openFile state |
 | `apps/renderer/src/app.tsx`                             | edit   | render MainTabs + conditional ChatView/FileEditor |
-| `packages/wire/src/fs.ts`                               | edit   | new RPCs + errors |
-| `packages/wire/src/rpc.ts`                              | edit   | register new RPCs |
+| `packages/contracts/src/fs.ts`                               | edit   | new RPCs + errors |
+| `packages/contracts/src/rpc.ts`                              | edit   | register new RPCs |
 | `apps/server/src/fs/services/*` and `handlers.ts`       | edit   | implement read/write handlers |
 
 ## Future hooks (intentional shape, not built yet)
@@ -182,4 +182,4 @@ A8. Switching projects in the left sidebar closes the file tab and
     selects the chat tab.
 
 A9. `bun run check-types` passes for `apps/renderer`, `apps/server`,
-    and `packages/wire`.
+    and `packages/contracts`.

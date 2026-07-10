@@ -1,4 +1,4 @@
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 export interface ModelPickerEvent {
   providerId: ProviderId;

@@ -2,7 +2,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CodeAnnotation, GitDiffResult } from "@zuse/wire";
+import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { ShimmerText } from "~/components/ui/shimmer-text";
@@ -313,14 +313,14 @@ function CodeMirrorBody({
       const result =
         file.kind === "external"
           ? await Effect.runPromise(
-              client.fs.writeExternalFile({
+              client["fs.writeExternalFile"]({
                 path: file.absPath,
                 content: docRef.current,
                 expectedMtime: mtimeRef.current,
               }),
             )
           : await Effect.runPromise(
-              client.fs.writeFile({
+              client["fs.writeFile"]({
                 folderId: file.folderId,
                 path: file.path,
                 content: docRef.current,
@@ -426,10 +426,10 @@ function CodeMirrorBody({
         const result =
           openFile.kind === "external"
             ? await Effect.runPromise(
-                client.fs.readExternalFile({ path: openFile.absPath }),
+                client["fs.readExternalFile"]({ path: openFile.absPath }),
               )
             : await Effect.runPromise(
-                client.fs.readFile({
+                client["fs.readFile"]({
                   folderId: openFile.folderId,
                   path: openFile.path,
                   worktreeId: openFile.worktreeId,
@@ -720,7 +720,7 @@ function DiffViewBody({
     void (async () => {
       const client = await getRpcClient();
       const result = await classifyGit(
-        client.git.diff({
+        client["git.diff"]({
           folderId: openFile.folderId,
           worktreeId: openFile.worktreeId,
           path: openFile.path,
@@ -840,10 +840,10 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
         const result =
           openFile.kind === "external"
             ? await Effect.runPromise(
-                client.fs.readExternalFile({ path: openFile.absPath }),
+                client["fs.readExternalFile"]({ path: openFile.absPath }),
               )
             : await Effect.runPromise(
-                client.fs.readFile({
+                client["fs.readFile"]({
                   folderId: openFile.folderId,
                   path: openFile.path,
                   worktreeId: openFile.worktreeId,

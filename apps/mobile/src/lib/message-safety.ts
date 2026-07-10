@@ -1,4 +1,4 @@
-import type { Message } from "@zuse/wire";
+import type { Message } from "@zuse/contracts";
 
 export const sanitizeMessages = (
   messages: readonly Message[],

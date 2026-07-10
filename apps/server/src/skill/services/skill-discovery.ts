@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId, Skill } from "@zuse/wire";
+import type { ProviderId, Skill } from "@zuse/contracts";
 
 /**
  * Per-provider skill discovery on disk.
@@ -21,6 +21,6 @@ export interface SkillDiscoveryServiceShape {
   ) => Effect.Effect<ReadonlyArray<Skill>>;
 }
 
-export class SkillDiscoveryService extends Context.Tag(
+export class SkillDiscoveryService extends Context.Service<SkillDiscoveryService, SkillDiscoveryServiceShape>()(
   "memoize/SkillDiscoveryService",
-)<SkillDiscoveryService, SkillDiscoveryServiceShape>() {}
+) {}

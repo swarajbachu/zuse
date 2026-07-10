@@ -1,11 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import type {
   PermissionDecision,
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   handleGrokNativePermissionRequest,

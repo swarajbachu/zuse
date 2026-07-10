@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
-import type { PermissionMode } from "@zuse/wire";
+import type { PermissionMode } from "@zuse/contracts";
 
 import { applyPlanModePrefix, PLAN_MODE_INSTRUCTIONS } from "../src/provider/drivers/planMode.ts";
 

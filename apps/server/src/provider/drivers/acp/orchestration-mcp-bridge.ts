@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:http";
 import { basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { PermissionDecision, PermissionKind, PermissionMode, RuntimeMode } from "@zuse/wire";
+import type { PermissionDecision, PermissionKind, PermissionMode, RuntimeMode } from "@zuse/contracts";
 
 import {
   callOrchestrationTool,

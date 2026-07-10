@@ -1,7 +1,7 @@
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 
-import { GitService } from "./services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
 
 const Log = MemoizeRpcs.toLayerHandler("git.log", ({ folderId, limit }) =>
   Effect.flatMap(GitService, (svc) => svc.log(folderId, limit)),

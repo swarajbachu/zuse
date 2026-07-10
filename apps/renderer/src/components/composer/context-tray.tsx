@@ -2,7 +2,7 @@ import { CheckListIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 
-import type { Session, SessionId } from "@zuse/wire";
+import type { Session, SessionId } from "@zuse/contracts";
 
 import {
   attachToCurrentComposer,

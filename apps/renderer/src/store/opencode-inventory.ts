@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { OpencodeInventory } from "@zuse/wire";
+import type { OpencodeInventory } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -71,7 +71,7 @@ const sameInventory = (
 
 const fetchInventory = async (): Promise<OpencodeInventory> => {
   const client = await getRpcClient();
-  return Effect.runPromise(client.agent.opencodeInventory({}));
+  return Effect.runPromise(client["agent.opencodeInventory"]({}));
 };
 
 export const useOpencodeInventory = create<State>((set, get) => ({

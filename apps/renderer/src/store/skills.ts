@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, ProviderId, SessionId, Skill } from "@zuse/wire";
+import type { FolderId, ProviderId, SessionId, Skill } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -23,7 +23,7 @@ type SkillsState = {
 
 const EMPTY: ReadonlyArray<Skill> = [];
 
-let liveFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
 
 const stopLiveFiber = async (): Promise<void> => {
@@ -47,7 +47,7 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     try {
       const client = await getRpcClient();
       liveFiber = Effect.runFork(
-        Stream.runForEach(client.skill.stream({ sessionId }), (list) =>
+        Stream.runForEach(client["skill.stream"]({ sessionId }), (list) =>
           Effect.sync(() => {
             set((s) => ({
               skillsBySession: { ...s.skillsBySession, [sessionId]: list },
@@ -68,7 +68,7 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     try {
       const client = await getRpcClient();
       const skills = await Effect.runPromise(
-        client.skill.listForProject({ projectId, providerId }),
+        client["skill.listForProject"]({ projectId, providerId }),
       );
       set((s) => ({
         skillsBySession: { ...s.skillsBySession, [sessionId]: skills },

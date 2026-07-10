@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect } from "effect";
 
 export const Migration0028RelayMintPublicKey = Effect.gen(function* () {

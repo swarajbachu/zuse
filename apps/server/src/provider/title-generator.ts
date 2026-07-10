@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Stream } from "effect";
+import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 import * as os from "node:os";
 
 import {
@@ -7,7 +7,7 @@ import {
   type FolderId,
   type ProviderId,
   type RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ProviderService } from "./services/provider-service.ts";
 
@@ -192,10 +192,10 @@ export interface TitleGeneratorShape {
   readonly generate: (input: GenerateTitleInput) => Effect.Effect<string>;
 }
 
-export class TitleGenerator extends Context.Tag("memoize/TitleGenerator")<
+export class TitleGenerator extends Context.Service<
   TitleGenerator,
   TitleGeneratorShape
->() {}
+>()("memoize/TitleGenerator") {}
 
 export const TitleGeneratorLive = Layer.effect(
   TitleGenerator,
@@ -236,8 +236,8 @@ export const TitleGeneratorLive = Layer.effect(
             Stream.filterMap((event) =>
               event._tag === "AssistantMessage" &&
               event.text.trim().length > 0
-                ? Option.some(event.text)
-                : Option.none(),
+                ? Result.succeed(event.text)
+                : Result.fail(undefined),
             ),
             Stream.take(1),
             Stream.runHead,
@@ -247,11 +247,11 @@ export const TitleGeneratorLive = Layer.effect(
           // Always tear the throwaway session down — on success, timeout, or
           // failure — so we never leak a CLI/SDK process.
           Effect.ensuring(
-            provider.close(sid).pipe(Effect.catchAll(() => Effect.void)),
+            provider.close(sid).pipe(Effect.catch(() => Effect.void)),
           ),
           Effect.timeoutOption(`${TITLE_TIMEOUT_MS} millis`),
           Effect.map((maybe) => Option.getOrElse(maybe, () => "")),
-          Effect.catchAll(() => Effect.succeed("")),
+          Effect.catch(() => Effect.succeed("")),
         );
 
         const cleaned = cleanTitle(text);

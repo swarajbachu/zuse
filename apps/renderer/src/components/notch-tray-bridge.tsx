@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { ChatId, SessionId } from "@zuse/wire";
+import type { ChatId, SessionId } from "@zuse/contracts";
 
 import {
   buildNotchItems,

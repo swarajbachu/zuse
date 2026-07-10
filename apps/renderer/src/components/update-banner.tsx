@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
-import type { UpdateStatus } from "@zuse/wire";
+import type { UpdateStatus } from "@zuse/contracts";
 
 import { Button } from "~/components/ui/button";
 import { useMessagesStore } from "~/store/messages.ts";

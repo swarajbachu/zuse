@@ -23,7 +23,7 @@ import type {
   ProviderId,
   SessionId,
   SkillRef,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
 import {

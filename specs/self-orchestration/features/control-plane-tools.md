@@ -94,17 +94,17 @@ See [decisions/0023-autonomy-via-permission-broker.md](../decisions/0023-autonom
 ## Files (Phase 1)
 
 **New**
-- `packages/wire/src/autonomy.ts` — `AutonomyLevel`, `DEFAULT_AUTONOMY_LEVEL`,
+- `packages/contracts/src/autonomy.ts` — `AutonomyLevel`, `DEFAULT_AUTONOMY_LEVEL`,
   `autonomyEnablesOrchestration()`.
 - `apps/server/src/provider/drivers/orchestration-tools.ts` — `buildOrchestrationTools`.
 - `apps/server/src/persistence/migrations/0019_chat_lineage.ts`.
 
 **Modified**
-- `packages/wire/src/settings.ts` — `defaultAutonomyLevel` on `SettingsFile` +
+- `packages/contracts/src/settings.ts` — `defaultAutonomyLevel` on `SettingsFile` +
   `SettingsPatch`.
-- `packages/wire/src/session.ts` — `Chat.originSessionId`; `chat.create`
+- `packages/contracts/src/session.ts` — `Chat.originSessionId`; `chat.create`
   payload.
-- `packages/wire/src/index.ts` — export autonomy.
+- `packages/contracts/src/index.ts` — export autonomy.
 - `apps/server/src/config-store/layers/config-store-service.ts` — default +
   `isAutonomyLevel` coercion + patch/migrate paths.
 - `apps/server/src/provider/services/provider-service.ts` +

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import type { SessionId } from "@zuse/wire";
+import type { SessionId } from "@zuse/contracts";
 
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -40,7 +40,7 @@ export const saveContextFile = async (
   try {
     const client = await getRpcClient();
     const res = await Effect.runPromise(
-      client.context.saveText({ sessionId, text, ext: "md" }),
+      client["context.saveText"]({ sessionId, text, ext: "md" }),
     );
     return { relPath: res.relPath, absPath: res.absPath };
   } catch {
@@ -58,7 +58,7 @@ export const fetchLatestPlan = async (
   try {
     const client = await getRpcClient();
     const res = await Effect.runPromise(
-      client.session.latestPlan({ sessionId }),
+      client["session.latestPlan"]({ sessionId }),
     );
     return res.plan;
   } catch {
@@ -73,7 +73,7 @@ export const fetchTranscriptMarkdown = async (
   try {
     const client = await getRpcClient();
     const res = await Effect.runPromise(
-      client.session.exportTranscript({ sessionId: sourceSessionId }),
+      client["session.exportTranscript"]({ sessionId: sourceSessionId }),
     );
     return res.markdown;
   } catch {

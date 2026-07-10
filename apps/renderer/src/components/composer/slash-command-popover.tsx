@@ -2,7 +2,7 @@ import { type EditorView } from "@codemirror/view";
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useState } from "react";
 
-import type { ProviderId, Skill } from "@zuse/wire";
+import type { ProviderId, Skill } from "@zuse/contracts";
 
 import {
   filterBuiltins,

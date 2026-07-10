@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 import { Effect, Layer, PubSub, Stream } from "effect";
 
-import type { ProviderId, Skill } from "@zuse/wire";
+import type { ProviderId, Skill } from "@zuse/contracts";
 
 import { MessageStore } from "../../provider/services/message-store.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
@@ -83,7 +83,7 @@ const watchRoots = (
   };
 };
 
-export const SkillBridgeLive = Layer.scoped(
+export const SkillBridgeLive = Layer.effect(
   SkillBridge,
   Effect.gen(function* () {
     const discovery = yield* SkillDiscoveryService;
@@ -124,7 +124,7 @@ export const SkillBridgeLive = Layer.scoped(
               const cur = cache.get(key);
               if (cur === undefined) return;
               cache.set(key, { ...cur, skills: next });
-              yield* hub.publish(next);
+              yield* PubSub.publish(hub, next);
             }),
           );
         });
@@ -133,7 +133,7 @@ export const SkillBridgeLive = Layer.scoped(
       });
 
     const resolveSession = (
-      sessionId: Parameters<SkillBridge["Type"]["list"]>[0],
+      sessionId: Parameters<SkillBridge["Service"]["list"]>[0],
     ) =>
       Effect.gen(function* () {
         const session = yield* store.getSession(sessionId);
@@ -144,14 +144,14 @@ export const SkillBridgeLive = Layer.scoped(
         return { providerId: session.providerId, projectCwd };
       });
 
-    const list: SkillBridge["Type"]["list"] = (sessionId) =>
+    const list: SkillBridge["Service"]["list"] = (sessionId) =>
       Effect.gen(function* () {
         const { providerId, projectCwd } = yield* resolveSession(sessionId);
         const entry = yield* ensureEntry(providerId, projectCwd);
         return entry.skills;
       });
 
-    const listForProject: SkillBridge["Type"]["listForProject"] = (
+    const listForProject: SkillBridge["Service"]["listForProject"] = (
       projectId,
       providerId,
     ) =>
@@ -162,7 +162,7 @@ export const SkillBridgeLive = Layer.scoped(
         return entry.skills;
       });
 
-    const stream: SkillBridge["Type"]["stream"] = (sessionId) =>
+    const stream: SkillBridge["Service"]["stream"] = (sessionId) =>
       Stream.unwrap(
         Effect.gen(function* () {
           const { providerId, projectCwd } = yield* resolveSession(sessionId);

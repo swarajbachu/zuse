@@ -7,7 +7,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useMemo, useState } from "react";
 
-import type { Message } from "@zuse/wire";
+import type { Message } from "@zuse/contracts";
 
 import { groupMessages } from "../lib/group-messages.ts";
 import { cn } from "~/lib/utils";

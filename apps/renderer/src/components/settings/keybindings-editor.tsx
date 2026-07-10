@@ -20,7 +20,7 @@ import {
   type Command,
   type KeybindingRule,
   keyStringFromEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import {

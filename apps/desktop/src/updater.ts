@@ -11,7 +11,7 @@ import {
   UPDATE_INSTALL_CHANNEL,
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 // electron-updater talks to the GitHub Releases feed configured in
 // apps/desktop/electron-builder.yml (`publish.provider: github`). It reads

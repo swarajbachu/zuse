@@ -1,7 +1,7 @@
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef, useState } from "react";
 
-import { type LoginEvent, type ProviderId } from "@zuse/wire";
+import { type LoginEvent, type ProviderId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client";
 
@@ -46,7 +46,7 @@ export function useProviderLogin(
   readonly cancel: () => void;
 } {
   const [state, setState] = useState<ProviderLoginState>({ kind: "idle" });
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
+  const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
   const onSuccessRef = useRef(opts?.onSuccess);
   onSuccessRef.current = opts?.onSuccess;
 
@@ -72,7 +72,7 @@ export function useProviderLogin(
     const client = await getRpcClient();
     const fiber = Effect.runFork(
       Stream.runForEach(
-        client.agent.startLogin({ providerId }),
+        client["agent.startLogin"]({ providerId }),
         (event: LoginEvent) =>
           Effect.sync(() => {
             if (event._tag === "url") {
@@ -93,7 +93,7 @@ export function useProviderLogin(
             // "log" events are diagnostic-only; ignored in the UI.
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
             setState({

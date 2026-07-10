@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, WorktreeId } from "@zuse/wire";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -41,7 +41,7 @@ const fetchDiffStat = async (
   try {
     const client = await getRpcClient();
     return await Effect.runPromise(
-      client.git.diffStat({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.diffStat"]({ folderId, worktreeId: worktreeId ?? null }),
     );
   } catch {
     // Not a repo, git missing, etc. — caller treats absence as "no stats".

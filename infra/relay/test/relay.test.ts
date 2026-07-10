@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import { Effect, Layer, Redacted } from "effect";
 

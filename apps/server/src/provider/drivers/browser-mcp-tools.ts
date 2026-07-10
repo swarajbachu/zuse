@@ -5,7 +5,7 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { BrowserSend } from "./browser-tools.ts";
 

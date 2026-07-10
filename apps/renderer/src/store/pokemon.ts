@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { PokemonPokedexEntry } from "@zuse/wire";
+import type { PokemonPokedexEntry } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -31,7 +31,7 @@ export const usePokemonStore = create<PokemonState>((set, get) => ({
     set({ loading: true });
     try {
       const client = await getRpcClient();
-      const entries = await Effect.runPromise(client.pokemon.pokedex({}));
+      const entries = await Effect.runPromise(client["pokemon.pokedex"]({}));
       set({ entries, loading: false, error: null });
     } catch (err) {
       set({ loading: false, error: formatError(err) });
@@ -43,7 +43,7 @@ export const usePokemonStore = create<PokemonState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const updated = await Effect.runPromise(
-        client.pokemon.ensureSpriteCached({ number }),
+        client["pokemon.ensureSpriteCached"]({ number }),
       );
       const entries = get().entries;
       set({

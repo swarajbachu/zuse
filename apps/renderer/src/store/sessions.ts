@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import { Session } from "@zuse/wire";
+import { Session } from "@zuse/contracts";
 import type {
   AgentItemId,
   ChatId,
@@ -15,7 +15,7 @@ import type {
   SessionId,
   UserQuestionAnswer,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
@@ -220,7 +220,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const includeArchived =
         get().showArchivedByProject[projectId] === true;
       const sessions = await Effect.runPromise(
-        client.session.list({ projectId, includeArchived }),
+        client["session.list"]({ projectId, includeArchived }),
       );
       set((s) => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
@@ -241,7 +241,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const session = await Effect.runPromise(
-        client.session.create({
+        client["session.create"]({
           chatId,
           providerId,
           model,
@@ -281,7 +281,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const { chat, session, forkMode } = await Effect.runPromise(
-        client.session.fork({
+        client["session.fork"]({
           sourceSessionId: input.sourceSessionId,
           fromMessageId: input.fromMessageId,
           destination: input.destination,
@@ -360,7 +360,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.rename({ sessionId, title }));
+      await Effect.runPromise(client["session.rename"]({ sessionId, title }));
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
         if (projectId === null) return {};
@@ -387,7 +387,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.setModel({ sessionId, model }));
+      await Effect.runPromise(client["session.setModel"]({ sessionId, model }));
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
         if (projectId === null) return {};
@@ -431,7 +431,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setRuntimeMode({ sessionId, runtimeMode }),
+        client["session.setRuntimeMode"]({ sessionId, runtimeMode }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -465,7 +465,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setPermissionMode({ sessionId, mode }),
+        client["session.setPermissionMode"]({ sessionId, mode }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -478,7 +478,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.answerQuestion({ sessionId, itemId, answers }),
+        client["session.answerQuestion"]({ sessionId, itemId, answers }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -494,7 +494,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setProvider({ sessionId, providerId, model }),
+        client["session.setProvider"]({ sessionId, providerId, model }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
@@ -526,7 +526,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.archive({ sessionId }));
+      await Effect.runPromise(client["session.archive"]({ sessionId }));
       // Re-hydrate the affected project so visibility honors showArchived.
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       if (projectId !== null) await get().hydrate(projectId);
@@ -551,7 +551,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.unarchive({ sessionId }));
+      await Effect.runPromise(client["session.unarchive"]({ sessionId }));
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       if (projectId !== null) await get().hydrate(projectId);
     } catch (err) {
@@ -562,7 +562,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.delete({ sessionId }));
+      await Effect.runPromise(client["session.delete"]({ sessionId }));
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       set((s) => {
         if (projectId === null) return {};
@@ -589,7 +589,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const session = await Effect.runPromise(
-        client.session.resume({ sessionId }),
+        client["session.resume"]({ sessionId }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
@@ -619,7 +619,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const session = await Effect.runPromise(
-        client.session.get({ sessionId }),
+        client["session.get"]({ sessionId }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);

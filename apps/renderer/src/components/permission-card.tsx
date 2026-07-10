@@ -4,7 +4,7 @@ import type {
   PermissionDecision,
   PermissionKind,
   PermissionRequest,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 

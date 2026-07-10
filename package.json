@@ -8,8 +8,8 @@
     "dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
     "dev:desktop": "node scripts/dev.mjs",
     "kill-port": "node scripts/kill-port.mjs",
-    "lint": "turbo run lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "lint": "biome check .",
+    "format": "biome format --write .",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "test:live-agents": "cd apps/server && bun run test:live-agents",
@@ -20,9 +20,12 @@
     "dist:mac:unsigned": "bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.3",
+    "@effect/vitest": "4.0.0-beta.97",
     "prettier": "catalog:",
     "turbo": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "4.1.10"
   },
   "engines": {
     "node": ">=18"
@@ -36,30 +39,32 @@
       "tools/*"
     ],
     "catalog": {
-      "@effect/experimental": "^0.60.0",
-      "@effect/platform": "^0.96.0",
-      "@effect/platform-node": "^0.106.0",
-      "@effect/rpc": "^0.75.0",
-      "@effect/sql": "^0.51.1",
-      "@effect/sql-sqlite-node": "^0.52.0",
+      "@effect/platform-node": "4.0.0-beta.97",
+      "@effect/sql-pg": "4.0.0-beta.97",
+      "@effect/sql-sqlite-bun": "4.0.0-beta.97",
+      "@effect/sql-sqlite-node": "4.0.0-beta.97",
+      "@effect/vitest": "4.0.0-beta.97",
       "@types/node": "^22.15.3",
       "@types/react": "19.2.2",
       "@types/react-dom": "19.2.2",
-      "effect": "^3.21.0",
+      "effect": "4.0.0-beta.97",
       "eslint": "^9.39.1",
       "fuzzysort": "^3.1.0",
       "prettier": "^3.7.4",
       "react": "^19.2.0",
       "react-dom": "^19.2.0",
       "turbo": "^2.9.7",
-      "typescript": "5.9.2"
+      "typescript": "5.9.2",
+      "vitest": "4.1.10"
     }
   },
   "overrides": {
-    "@effect/platform": "^0.96.0",
-    "@effect/platform-node": "^0.106.0",
-    "@effect/rpc": "^0.75.0",
-    "effect": "^3.21.0"
+    "@effect/platform-node": "4.0.0-beta.97",
+    "@effect/sql-pg": "4.0.0-beta.97",
+    "@effect/sql-sqlite-bun": "4.0.0-beta.97",
+    "@effect/sql-sqlite-node": "4.0.0-beta.97",
+    "@effect/vitest": "4.0.0-beta.97",
+    "effect": "4.0.0-beta.97"
   },
   "dependencies": {
     "@hugeicons-pro/core-bulk-rounded": "^4.2.1",

@@ -26,7 +26,7 @@ import {
   type SessionId,
   type UserQuestion,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
 import { cn } from "~/lib/utils";

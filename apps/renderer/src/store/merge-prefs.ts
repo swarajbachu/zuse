@@ -1,4 +1,4 @@
-import type { GitMergeMethod } from "@zuse/wire";
+import type { GitMergeMethod } from "@zuse/contracts";
 
 import { useSettingsStore } from "./settings.ts";
 

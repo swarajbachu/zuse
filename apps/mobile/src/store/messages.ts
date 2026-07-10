@@ -1,4 +1,4 @@
-import type { Message, MessageId, SessionId } from "@zuse/wire";
+import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
@@ -20,7 +20,7 @@ type MessagesState = {
   flush: (connKey: string, sessionId: SessionId) => Promise<void>;
 };
 
-const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const highestSequenceBySession = new Map<string, number>();
 const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;
@@ -67,7 +67,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await Effect.runPromise(getConnectionClient(options));
         const listed = await Effect.runPromise(
-          client.messages.list({ sessionId }),
+          client["messages.list"]({ sessionId }),
         );
         if (listed.length > 0) {
           set((state) => ({
@@ -80,7 +80,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
         }
         console.info("[mobile] messages.stream", { sessionId });
         const program = Stream.runForEach(
-          client.messages.stream({ sessionId }),
+          client["messages.stream"]({ sessionId }),
           (envelope) =>
             Effect.sync(() => {
               const previous = highestSequenceBySession.get(liveKey) ?? 0;
@@ -130,7 +130,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
               void get().flush(connKey, sessionId);
             }),
         ).pipe(
-          Effect.catchAll((cause) =>
+          Effect.catch((cause) =>
             Effect.sync(() => {
               set((state) => ({
                 reconnectingBySession: {

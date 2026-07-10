@@ -15,7 +15,7 @@ import {
   Worktree,
   WorktreeCreateSource,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { getConnectionClient, reportConnectionFailure } from "./connection";
@@ -47,7 +47,7 @@ export const sendMessage = (options: {
         ? {}
         : { clientMessageId: options.clientMessageId }),
     };
-    yield* client.messages.send(payload);
+    yield* client["messages.send"](payload);
   });
   return program.pipe(
     Effect.tapError((cause) =>
@@ -63,7 +63,7 @@ export const queueMessage = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.messages["queue.add"]({
+    yield* client["messages.queue.add"]({
       sessionId: options.sessionId,
       input: options.input,
     });
@@ -81,7 +81,7 @@ export const flushServerQueue = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.messages["queue.flush"]({ sessionId: options.sessionId });
+    yield* client["messages.queue.flush"]({ sessionId: options.sessionId });
   });
   return program.pipe(
     Effect.tapError((cause) =>
@@ -96,7 +96,7 @@ export const interruptSession = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.messages.interrupt({ sessionId: options.sessionId });
+    yield* client["messages.interrupt"]({ sessionId: options.sessionId });
   });
   return program.pipe(
     Effect.tapError((cause) =>
@@ -112,7 +112,7 @@ export const decidePermission = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.permission.decide({
+    yield* client["permission.decide"]({
       requestId: options.requestId,
       decision: options.decision,
     });
@@ -136,7 +136,7 @@ export const answerQuestion = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.session.answerQuestion({
+    yield* client["session.answerQuestion"]({
       sessionId: options.sessionId,
       itemId: options.itemId,
       answers: [...options.answers].map((answer) => ({
@@ -166,7 +166,7 @@ export const createChat = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    return yield* client.chat.create({
+    return yield* client["chat.create"]({
       projectId: options.projectId,
       providerId: options.providerId,
       model: options.model,
@@ -192,7 +192,7 @@ export const setSessionProvider = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.session.setProvider({
+    yield* client["session.setProvider"]({
       sessionId: options.sessionId,
       providerId: options.providerId,
       model: options.model,
@@ -212,7 +212,7 @@ export const setSessionModel = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.session.setModel({
+    yield* client["session.setModel"]({
       sessionId: options.sessionId,
       model: options.model,
     });
@@ -235,10 +235,10 @@ export const fetchAgentAvailability = (options: {
 }): Effect.Effect<readonly AgentAvailability[] | null, never, never> => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    return yield* client.agent.availability({});
+    return yield* client["agent.availability"]({});
   });
   return program.pipe(
-    Effect.catchAll((cause) =>
+    Effect.catch((cause) =>
       Effect.sync(() => {
         reportConnectionFailure(options.connection, cause);
         return null;
@@ -254,7 +254,7 @@ export const setSessionRuntimeMode = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.session.setRuntimeMode({
+    yield* client["session.setRuntimeMode"]({
       sessionId: options.sessionId,
       runtimeMode: options.runtimeMode,
     });
@@ -273,7 +273,7 @@ export const setSessionPermissionMode = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.session.setPermissionMode({
+    yield* client["session.setPermissionMode"]({
       sessionId: options.sessionId,
       mode: options.mode,
     });
@@ -292,7 +292,7 @@ export const renameChat = (options: {
 }) => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    yield* client.chat.rename({
+    yield* client["chat.rename"]({
       chatId: options.chatId,
       title: options.title,
     });
@@ -310,7 +310,7 @@ export const markChatRead = (options: {
 }): Effect.Effect<Chat, unknown, never> => {
   const program: Effect.Effect<Chat, unknown, never> = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    return yield* client.chat.markRead({ chatId: options.chatId });
+    return yield* client["chat.markRead"]({ chatId: options.chatId });
   });
   return program.pipe(
     Effect.tapError((cause) =>
@@ -326,7 +326,7 @@ export const listWorktrees = (options: {
   const program: Effect.Effect<readonly Worktree[], unknown, never> =
     Effect.gen(function* () {
       const client = yield* getConnectionClient(options.connection);
-      return yield* client.worktree.list({ projectId: options.projectId });
+      return yield* client["worktree.list"]({ projectId: options.projectId });
     });
   return program.pipe(
     Effect.tapError((cause) =>
@@ -343,7 +343,7 @@ export const createWorktree = (options: {
   const program: Effect.Effect<Worktree, unknown, never> = Effect.gen(
     function* () {
       const client = yield* getConnectionClient(options.connection);
-      return yield* client.worktree.create({
+      return yield* client["worktree.create"]({
         projectId: options.projectId,
         source: options.source,
       });
@@ -363,9 +363,9 @@ export const listBranches = (options: {
   const program: Effect.Effect<readonly GitBranchInfo[], unknown, never> =
     Effect.gen(function* () {
       const client = yield* getConnectionClient(options.connection);
-      return yield* client.git.branches({ folderId: options.projectId });
+      return yield* client["git.branches"]({ folderId: options.projectId });
     });
-  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
+  return program.pipe(Effect.catch(() => Effect.succeed([])));
 };
 
 export const listPullRequests = (options: {
@@ -375,7 +375,7 @@ export const listPullRequests = (options: {
   const program: Effect.Effect<readonly GitPrSummary[], unknown, never> =
     Effect.gen(function* () {
       const client = yield* getConnectionClient(options.connection);
-      return yield* client.git.listPrs({ folderId: options.projectId });
+      return yield* client["git.listPrs"]({ folderId: options.projectId });
     });
-  return program.pipe(Effect.catchAll(() => Effect.succeed([])));
+  return program.pipe(Effect.catch(() => Effect.succeed([])));
 };

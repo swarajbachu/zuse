@@ -15,14 +15,14 @@ export interface WorkosPrincipal {
  * mobile) and extracts the account identity every relay record is scoped by.
  * A service so tests can inject a fake verifier without hitting WorkOS.
  */
-export class WorkosVerifier extends Context.Tag("@zuse/relay/WorkosVerifier")<
+export class WorkosVerifier extends Context.Service<
   WorkosVerifier,
   {
     readonly verify: (
       token: string,
     ) => Effect.Effect<WorkosPrincipal, RelayError>;
   }
->() {}
+>()("@zuse/relay/WorkosVerifier") {}
 
 export const acceptedWorkosIssuers = (issuer: string): string[] => {
   const trimmed = issuer.trim();

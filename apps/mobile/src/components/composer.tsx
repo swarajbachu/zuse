@@ -5,7 +5,7 @@ import {
   type Session,
   type SessionId,
   type SessionStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import {
   ArrowUpIcon,
   CloudOffIcon,

@@ -1,12 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/wire";
+import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/contracts";
 
-import type { ThreadItem } from "../src/provider/codex-app-protocol/v2/ThreadItem.ts";
-import type { ServerNotification } from "../src/provider/codex-app-protocol/ServerNotification.ts";
+import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import {
   translateCodexItem,
   translateCodexStatusNotification,
@@ -61,7 +62,9 @@ type NormalizedFixture = {
 
 type ProviderFixture = AcpFixture | CodexFixture | NormalizedFixture;
 
-const fixturesRoot = join(import.meta.dir, "fixtures/providers");
+const fixturesRoot = fileURLToPath(
+  new URL("fixtures/providers/", import.meta.url),
+);
 const decodeEvent = Schema.decodeUnknownSync(AgentEvent);
 
 const loadFixtures = (): ReadonlyArray<{

@@ -8,7 +8,7 @@ import {
   UPDATE_INSTALL_CHANNEL,
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.

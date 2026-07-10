@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import type { Message } from "@zuse/wire";
+import { describe, expect, test } from "vitest";
+import type { Message } from "@zuse/contracts";
 
 import { messageKey, sanitizeMessages } from "./message-safety";
 

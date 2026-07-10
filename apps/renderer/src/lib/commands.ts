@@ -1,5 +1,5 @@
-import type { ChatId, Command, Session } from "@zuse/wire";
-import { defaultModelFor } from "@zuse/wire";
+import type { ChatId, Command, Session } from "@zuse/contracts";
+import { defaultModelFor } from "@zuse/contracts";
 
 import { createNewSession } from "../components/projects-sidebar";
 import { activeChatId, orderedChatTabs } from "./tab-order";

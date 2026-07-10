@@ -11,7 +11,7 @@ import {
   type WorktreeRemoveError,
   type WorktreeSetupError,
   type WorktreeSetupEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface WorktreeRestoreSnapshot {
   readonly id: WorktreeId;
@@ -79,7 +79,7 @@ export interface WorktreeServiceShape {
   ) => Effect.Effect<Worktree, WorktreeRemoveError>;
 }
 
-export class WorktreeService extends Context.Tag("memoize/WorktreeService")<
+export class WorktreeService extends Context.Service<
   WorktreeService,
   WorktreeServiceShape
->() {}
+>()("memoize/WorktreeService") {}

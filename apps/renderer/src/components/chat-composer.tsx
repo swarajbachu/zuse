@@ -33,7 +33,7 @@ import {
   type Session,
   type SessionId,
   type ThreadGoal,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { ModelPicker } from "./model-picker.tsx";
 
 import { Card, CardPanel } from "~/components/ui/card";
@@ -755,7 +755,7 @@ export function ChatComposer({
     try {
       const client = await getRpcClient();
       const res = await Effect.runPromise(
-        client.context.saveText({
+        client["context.saveText"]({
           sessionId,
           text,
           ext: "md",

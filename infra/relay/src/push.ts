@@ -18,10 +18,10 @@ export interface PushDeliveryApi {
   ) => Effect.Effect<void, unknown>;
 }
 
-export class PushDelivery extends Context.Tag("@zuse/relay/PushDelivery")<
+export class PushDelivery extends Context.Service<
   PushDelivery,
   PushDeliveryApi
->() {}
+>()("@zuse/relay/PushDelivery") {}
 
 const notificationBody = (kind: ActivityKind): string => {
   switch (kind) {

@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import type { SessionId } from "@zuse/wire";
+import type { SessionId } from "@zuse/contracts";
 
 type StorageLike = {
   getItem: (key: string) => string | null;

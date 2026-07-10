@@ -4,7 +4,7 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { z } from "zod";
 
 /**

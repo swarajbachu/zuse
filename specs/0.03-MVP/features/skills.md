@@ -90,7 +90,7 @@ interface ProviderDriver {
 ## RPC contracts
 
 ```ts
-// packages/wire/src/skill.ts (new)
+// packages/contracts/src/skill.ts (new)
 export class Skill extends Schema.Class<Skill>("Skill")({
   name: Schema.String,                              // "rate"
   scope: Schema.Literal("global", "project"),
@@ -122,7 +122,7 @@ export const SkillStreamRpc = Rpc.make("skill.stream", {
 
 `skill.list` is one-shot for the initial hydrate; `skill.stream` emits
 the new full list on every provider change notification — same pattern
-as `messages.stream` in `packages/wire/src/session.ts:243`.
+as `messages.stream` in `packages/contracts/src/session.ts:243`.
 
 ## Renderer state
 
@@ -176,8 +176,8 @@ to using the underlying CLI directly.
 
 | File                                         | Status | Purpose                                                  |
 | -------------------------------------------- | ------ | -------------------------------------------------------- |
-| `packages/wire/src/skill.ts`                 | new    | `Skill` schema + `skill.list` / `skill.stream` RPCs.     |
-| `packages/wire/src/rpc.ts`                   | edit   | Register the skill RPC group.                            |
+| `packages/contracts/src/skill.ts`                 | new    | `Skill` schema + `skill.list` / `skill.stream` RPCs.     |
+| `packages/contracts/src/rpc.ts`                   | edit   | Register the skill RPC group.                            |
 | `apps/server/src/provider/drivers/claude.ts` | edit   | Implement `listSkills` from `init.commands`; `subscribeSkills` on init re-emits. |
 | `apps/server/src/provider/drivers/codex.ts`  | edit   | Implement `listSkills` via `skills/list`; `subscribeSkills` on `SkillsChangedNotification`. |
 | `apps/server/src/skill/skill-bridge.ts`      | new    | Thin handler that wires `skill.list` / `skill.stream` to the active session's driver. |

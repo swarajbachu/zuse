@@ -1,5 +1,5 @@
-import { CommandExecutor } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { SqlClient } from "effect/unstable/sql";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Effect, Layer } from "effect";
 import { execFileSync } from "node:child_process";
@@ -18,13 +18,13 @@ import {
   type ProviderId,
   type Worktree,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { resolveCliPath } from "../../provider/availability.ts";
 import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
-import type { ThreadListResponse } from "../../provider/codex-app-protocol/v2/ThreadListResponse.ts";
-import type { ThreadReadResponse } from "../../provider/codex-app-protocol/v2/ThreadReadResponse.ts";
-import type { UserInput } from "../../provider/codex-app-protocol/v2/UserInput.ts";
+import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
+import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
+import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "../../provider/drivers/claude.ts";
 import { translateCodexItem } from "../../provider/drivers/codex.ts";
 import { MessageStore } from "../../provider/services/message-store.ts";
@@ -520,7 +520,7 @@ const codexTranscriptMessages = (cursor: string) =>
     } finally {
       app.close();
     }
-  }).pipe(Effect.catchAll(() => Effect.succeed([])));
+  }).pipe(Effect.catch(() => Effect.succeed([])));
 
 const toExternalThread = (thread: DiscoveredThread): ExternalThread =>
   ExternalThread.make({
@@ -533,8 +533,8 @@ const toExternalThread = (thread: DiscoveredThread): ExternalThread =>
   });
 
 const findOrAddProject = (
-  workspace: WorkspaceService["Type"],
-  worktrees: WorktreeService["Type"],
+  workspace: WorkspaceService["Service"],
+  worktrees: WorktreeService["Service"],
   sql: SqlClient.SqlClient,
   projectPath: string,
 ): Effect.Effect<
@@ -656,17 +656,17 @@ const registerExistingWorktree = (
 export const ExternalThreadServiceLive = Layer.effect(
   ExternalThreadService,
   Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const sql = yield* SqlClient.SqlClient;
     const workspace = yield* WorkspaceService;
     const worktrees = yield* WorktreeService;
     const messages = yield* MessageStore;
 
-    const list: ExternalThreadService["Type"]["list"] = (limit) =>
+    const list: ExternalThreadService["Service"]["list"] = (limit) =>
       Effect.gen(function* () {
         const codex = yield* discoverCodexViaAppServer(limit).pipe(
-          Effect.provideService(CommandExecutor.CommandExecutor, executor),
-          Effect.catchAll(() => Effect.succeed(discoverCodexFromIndex())),
+          Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+          Effect.catch(() => Effect.succeed(discoverCodexFromIndex())),
         );
         const codexRows = codex.length > 0 ? codex : discoverCodexFromIndex();
         const rows = [...discoverClaudeThreads(), ...codexRows]
@@ -675,7 +675,7 @@ export const ExternalThreadServiceLive = Layer.effect(
         return rows.slice(0, limit);
       });
 
-    const continueThread: ExternalThreadService["Type"]["continueThread"] = (
+    const continueThread: ExternalThreadService["Service"]["continueThread"] = (
       input,
     ) =>
       Effect.gen(function* () {
@@ -712,7 +712,7 @@ export const ExternalThreadServiceLive = Layer.effect(
           }
         } else if (providerId === "codex") {
           const imported = yield* codexTranscriptMessages(input.cursor).pipe(
-            Effect.provideService(CommandExecutor.CommandExecutor, executor),
+            Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
           );
           if (imported.length > 0) {
             importedMessages = yield* messages

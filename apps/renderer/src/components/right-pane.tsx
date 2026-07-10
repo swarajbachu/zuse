@@ -10,7 +10,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Plus, X } from "lucide-react";
 import { useRef } from "react";
 
-import type { FolderId, WorktreeId } from "@zuse/wire";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 

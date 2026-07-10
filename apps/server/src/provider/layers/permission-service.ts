@@ -1,17 +1,16 @@
-import { SqlClient } from "@effect/sql";
-import { Deferred, Effect, Layer, PubSub, Ref, Schema, Stream } from "effect";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-
 import {
-  PermissionKind,
+  type FolderId,
+  type PermissionDecision,
+  type PermissionKind,
   PermissionRequest,
   PermissionRequestNotFoundError,
   SavedDecision,
-  type FolderId,
-  type PermissionDecision,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import { Deferred, Effect, Layer, PubSub, Ref, Schema, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -41,10 +40,12 @@ interface DecisionRow {
  * folder-scoped today; everything else stays session-scoped (even denials,
  * which we keep for inspector visibility).
  */
-const scopeForDecision = (decision: PermissionDecision): "session" | "folder" =>
+const scopeForDecision = (
+  decision: PermissionDecision,
+): "session" | "folder" =>
   decision._tag === "AlwaysAllow" ? "folder" : "session";
 
-const decodeSavedDecision = Schema.decodeUnknown(SavedDecision);
+const decodeSavedDecision = Schema.decodeUnknownEffect(SavedDecision);
 
 const rowToSavedDecision = (
   row: DecisionRow,
@@ -58,7 +59,7 @@ const rowToSavedDecision = (
     scope: row.scope,
     decidedAt: row.decided_at,
   }).pipe(
-    Effect.catchAll(() =>
+    Effect.catch(() =>
       // Bad row (corrupted scope/decision string) — surface a synthetic Deny
       // so the inspector still renders. Better than crashing the whole list.
       decodeSavedDecision({
@@ -97,10 +98,9 @@ const decisionTag = (
 ): "AllowOnce" | "AllowForSession" | "Deny" | "AlwaysAllow" => decision._tag;
 
 let requestCounter = 0;
-const nextRequestId = (): string =>
-  `pr_${Date.now()}_${++requestCounter}`;
+const nextRequestId = (): string => `pr_${Date.now()}_${++requestCounter}`;
 
-export const PermissionServiceLive = Layer.scoped(
+export const PermissionServiceLive = Layer.effect(
   PermissionService,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -146,7 +146,7 @@ export const PermissionServiceLive = Layer.scoped(
         LIMIT 1
       `.pipe(
         Effect.map((rows) => rows.length > 0),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       );
 
     const persistDecision = (
@@ -166,7 +166,7 @@ export const PermissionServiceLive = Layer.scoped(
            ${new Date().toISOString()})
       `.pipe(
         Effect.asVoid,
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.logWarning(
             `[PermissionService] persist decision failed: ${String(cause)}`,
           ),
@@ -303,9 +303,9 @@ export const PermissionServiceLive = Layer.scoped(
       });
 
     const requests: PermissionServiceShape["requests"] = () =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           const map = yield* Ref.get(pending);
           const current = Array.from(map.values()).map(
             (entry) => entry.request,
@@ -316,28 +316,29 @@ export const PermissionServiceLive = Layer.scoped(
           });
           return Stream.concat(
             Stream.fromIterable(current),
-            Stream.fromQueue(dequeue),
+            Stream.fromSubscription(dequeue),
           );
         }),
       );
 
     const listDecisions: PermissionServiceShape["listDecisions"] = (filter) =>
       Effect.gen(function* () {
-        const rows = yield* (filter.projectId !== undefined
-          ? sql<DecisionRow>`
+        const rows = yield* (
+          filter.projectId !== undefined
+            ? sql<DecisionRow>`
               SELECT request_id, session_id, project_id, kind_tag, kind_key,
                      kind_json, decision, scope, decided_at
               FROM permission_decisions
               WHERE project_id = ${filter.projectId}
               ORDER BY decided_at DESC
             `
-          : sql<DecisionRow>`
+            : sql<DecisionRow>`
               SELECT request_id, session_id, project_id, kind_tag, kind_key,
                      kind_json, decision, scope, decided_at
               FROM permission_decisions
               ORDER BY decided_at DESC
             `
-        ).pipe(Effect.catchAll(() => Effect.succeed([] as DecisionRow[])));
+        ).pipe(Effect.catch(() => Effect.succeed([] as DecisionRow[])));
         const out: SavedDecision[] = [];
         for (const row of rows) {
           out.push(yield* rowToSavedDecision(row));
@@ -352,7 +353,7 @@ export const PermissionServiceLive = Layer.scoped(
         DELETE FROM permission_decisions WHERE request_id = ${requestId}
       `.pipe(
         Effect.asVoid,
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.logWarning(
             `[PermissionService] revoke failed: ${String(cause)}`,
           ),

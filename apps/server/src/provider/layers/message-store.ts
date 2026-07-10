@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Fiber, Layer, PubSub, Ref, Runtime, Stream } from "effect";
 import { spawn } from "node:child_process";
 
@@ -51,7 +51,7 @@ import {
   type WorktreeCreateSource,
   WorktreeId,
   type AutonomyLevel,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   buildOrchestrationTools,
@@ -62,7 +62,8 @@ import {
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
-import { GitService } from "../../git/services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
@@ -771,7 +772,7 @@ interface PersistedMessage {
   readonly sequence: number;
 }
 
-export const MessageStoreLive = Layer.scoped(
+export const MessageStoreLive = Layer.effect(
   MessageStore,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -788,7 +789,7 @@ export const MessageStoreLive = Layer.scoped(
     // Claude SDK invokes as plain async functions — can bridge back into
     // these Effect methods via `Runtime.runPromise`. Same shape as the
     // browser-bridge tool binding in ProviderService.
-    const runtime = yield* Effect.runtime<never>();
+    const runtime = yield* Effect.context<never>();
     const relayActivity = yield* RelayActivityPublisher;
 
     const chatColumns = yield* sql<{ readonly name: string }>`
@@ -966,7 +967,7 @@ export const MessageStoreLive = Layer.scoped(
           const rows = yield* sql<{ readonly project_id: string }>`
             SELECT project_id FROM sessions WHERE id = ${sessionId} LIMIT 1
           `.pipe(
-            Effect.catchAll(() =>
+            Effect.catch(() =>
               Effect.succeed(
                 [] as ReadonlyArray<{ readonly project_id: string }>,
               ),
@@ -986,7 +987,7 @@ export const MessageStoreLive = Layer.scoped(
       ReadonlyMap<SessionId, PubSub.PubSub<MessageEnvelope>>
     >(new Map());
     const fibers = yield* Ref.make<
-      ReadonlyMap<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
+      ReadonlyMap<SessionId, Fiber.Fiber<unknown, unknown>>
     >(new Map());
 
     type StatusEvent = {
@@ -1155,21 +1156,6 @@ export const MessageStoreLive = Layer.scoped(
 
     const agentsFor = (sessionId: SessionId) => agentsBySession.get(sessionId);
 
-    const canonicalizeToolInput = (value: unknown): unknown => {
-      if (Array.isArray(value)) return value.map(canonicalizeToolInput);
-      if (value === null || typeof value !== "object") return value;
-      const input = value as Record<string, unknown>;
-      const out: Record<string, unknown> = {};
-      for (const [key, raw] of Object.entries(input)) {
-        const canonicalKey =
-          key === "target_file" || key === "filePath" ? "file_path" : key;
-        out[canonicalKey] = canonicalizeToolInput(raw);
-      }
-      return Object.fromEntries(
-        Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
-      );
-    };
-
     const toolUseFingerprint = (
       content: Extract<MessageContent, { readonly _tag: "tool_use" }>,
     ): string => {
@@ -1278,7 +1264,7 @@ export const MessageStoreLive = Layer.scoped(
         const pubsub = yield* getOrMakeStatusPubsub(sessionId);
         yield* PubSub.publish(pubsub, { sessionId, status });
         if (status === "idle" || status === "closed") {
-          yield* Effect.forkDaemon(flushQueueAfterIdle(sessionId));
+          yield* Effect.forkDetach(flushQueueAfterIdle(sessionId));
         }
       });
 
@@ -1294,7 +1280,7 @@ export const MessageStoreLive = Layer.scoped(
       relayActivity
         .publish({ sessionId, kind })
         .pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             Effect.logDebug(
               `[MessageStore] relay activity publish failed: ${error.reason}`,
             ),
@@ -1414,7 +1400,7 @@ export const MessageStoreLive = Layer.scoped(
     const startSubscription = (sessionId: SessionId): Effect.Effect<void> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
-        const fiber = yield* Effect.forkDaemon(
+        const fiber = yield* Effect.forkDetach(
           Stream.runForEach(provider.events(sessionId), (event) =>
             Effect.gen(function* () {
               if (event._tag === "Status") {
@@ -1517,9 +1503,9 @@ export const MessageStoreLive = Layer.scoped(
               }
             }),
           ).pipe(
-            Effect.catchAllCause((cause) =>
+            Effect.catchCause((cause) =>
               Effect.logDebug("[MessageStore] event stream ended").pipe(
-                Effect.zipRight(Effect.logDebug(cause)),
+                Effect.andThen(Effect.logDebug(cause)),
               ),
             ),
           ),
@@ -1706,9 +1692,9 @@ export const MessageStoreLive = Layer.scoped(
       Effect.gen(function* () {
         const settings = yield* configStore
           .getSettings()
-          .pipe(Effect.catchAllCause(() => Effect.succeed(null)));
+          .pipe(Effect.catchCause(() => Effect.succeed(null)));
         const level: AutonomyLevel = "approval-gated";
-        const run = Runtime.runPromise(runtime);
+        const run = Effect.runPromiseWith(runtime);
         const providerModelFor = (input: {
           readonly providerId?: string;
           readonly model?: string;
@@ -1799,7 +1785,7 @@ export const MessageStoreLive = Layer.scoped(
                   path: wt.path,
                   branch: wt.branch,
                 })),
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -1819,24 +1805,24 @@ export const MessageStoreLive = Layer.scoped(
                   worktreeId: wt.id,
                   providerId: input.providerId,
                   model: input.model,
-                }).pipe(Effect.either);
-                if (chat._tag === "Left") {
+                }).pipe(Effect.result);
+                if (chat._tag === "Failure") {
                   return {
                     ok: false as const,
-                    error: `${orchestrationErrorText(chat.left)}; orphaned worktreeId: ${wt.id as string}`,
+                    error: `${orchestrationErrorText(chat.failure)}; orphaned worktreeId: ${wt.id as string}`,
                   };
                 }
                 return {
                   ok: true as const,
-                  chatId: chat.right.chatId,
-                  sessionId: chat.right.sessionId,
-                  title: chat.right.title,
+                  chatId: chat.success.chatId,
+                  sessionId: chat.success.sessionId,
+                  title: chat.success.title,
                   worktreeId: wt.id as string,
                   path: wt.path,
                   branch: wt.branch,
                 };
               }).pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -1851,22 +1837,22 @@ export const MessageStoreLive = Layer.scoped(
                   input.chatId !== undefined
                     ? (input.chatId as ChatId)
                     : ctx.chatId;
-                const chat = yield* lookupChat(chatId).pipe(Effect.either);
-                if (chat._tag === "Left") {
+                const chat = yield* lookupChat(chatId).pipe(Effect.result);
+                if (chat._tag === "Failure") {
                   return {
                     ok: false as const,
                     error: `chatId ${chatId as string} not found`,
                   };
                 }
                 if (
-                  (chat.right.projectId as string) !== (ctx.projectId as string)
+                  (chat.success.projectId as string) !== (ctx.projectId as string)
                 ) {
                   return {
                     ok: false as const,
                     error: `chatId ${chatId as string} does not belong to this project`,
                   };
                 }
-                if (chat.right.archivedAt !== null) {
+                if (chat.success.archivedAt !== null) {
                   return {
                     ok: false as const,
                     error: `chatId ${chatId as string} is archived`,
@@ -1880,7 +1866,7 @@ export const MessageStoreLive = Layer.scoped(
                   model: input.model,
                 });
               }).pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -1913,7 +1899,7 @@ export const MessageStoreLive = Layer.scoped(
                   chatId: target.chatId as string,
                 };
               }).pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -1937,7 +1923,7 @@ export const MessageStoreLive = Layer.scoped(
                   messages,
                 };
               }).pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -1972,7 +1958,7 @@ export const MessageStoreLive = Layer.scoped(
                 }));
                 return { ok: true as const, threads };
               }).pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.succeed({
                     ok: false as const,
                     error: orchestrationErrorText(err),
@@ -2170,7 +2156,7 @@ export const MessageStoreLive = Layer.scoped(
           `.pipe(Effect.asVoid, Effect.orDie);
           yield* lookupChat(input.chatId).pipe(
             Effect.flatMap(broadcastChat),
-            Effect.catchAll(() => Effect.void),
+            Effect.catch(() => Effect.void),
           );
           if (hasInitial) {
             yield* persistMessage(sessionId, {
@@ -2184,7 +2170,7 @@ export const MessageStoreLive = Layer.scoped(
           // pubsub fans the eventual transition out to the renderer via
           // `session.streamStatus`; on failure we mark `error` and log so
           // the user sees a closable failed tab instead of a stuck spinner.
-          yield* Effect.forkDaemon(
+          yield* Effect.forkDetach(
             provider
               .start(
                 {
@@ -2213,7 +2199,7 @@ export const MessageStoreLive = Layer.scoped(
                     yield* startSubscription(sessionId);
                   }),
                 ),
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning(
                       `[MessageStore] provider.start failed for session ${sessionId} (${input.providerId}): ${err.reason}`,
@@ -2232,6 +2218,7 @@ export const MessageStoreLive = Layer.scoped(
                   }),
                 ),
               ),
+            { startImmediately: true },
           );
           return Session.make({
             id: sessionId,
@@ -2314,7 +2301,7 @@ export const MessageStoreLive = Layer.scoped(
         `.pipe(Effect.asVoid, Effect.orDie);
         yield* lookupChat(input.chatId).pipe(
           Effect.flatMap(broadcastChat),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
         if (hasInitial) {
           yield* persistMessage(sessionId, {
@@ -2403,7 +2390,7 @@ export const MessageStoreLive = Layer.scoped(
           // Persisting the mode is enough — when the renderer hits Send,
           // `restartProviderSession` will pass the persisted value back
           // into `provider.start`'s Options.
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
       });
 
@@ -2434,7 +2421,7 @@ export const MessageStoreLive = Layer.scoped(
         yield* ndjsonAppend(sessionId, persisted);
         yield* provider
           .answerQuestion(sessionId, itemId, answers)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
       });
 
     /**
@@ -2470,7 +2457,7 @@ export const MessageStoreLive = Layer.scoped(
         `.pipe(Effect.orDie);
         yield* provider
           .close(sessionId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2494,7 +2481,7 @@ export const MessageStoreLive = Layer.scoped(
         // path reads sessions.model so the next turn picks up the new model.
         yield* provider
           .close(sessionId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2537,7 +2524,7 @@ export const MessageStoreLive = Layer.scoped(
         // stay connected across the provider swap.
         yield* provider
           .close(sessionId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
       });
@@ -2571,7 +2558,7 @@ export const MessageStoreLive = Layer.scoped(
         // not an error from the user's perspective.
         yield* provider
           .close(sessionId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* teardownSubscription(sessionId);
         yield* sql`DELETE FROM sessions WHERE id = ${sessionId}`.pipe(
           Effect.orDie,
@@ -2880,7 +2867,7 @@ export const MessageStoreLive = Layer.scoped(
         // non-fatal — the branch still exists and is usable.
         if (transcript.length > 0) {
           yield* importExternalMessages(session.id, transcript).pipe(
-            Effect.catchAll(() => Effect.succeed([])),
+            Effect.catch(() => Effect.succeed([])),
           );
         }
 
@@ -2915,10 +2902,10 @@ export const MessageStoreLive = Layer.scoped(
     const streamChatChanges: MessageStoreShape["streamChatChanges"] = (
       projectId,
     ) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const sub = yield* chatChangesHub.subscribe;
-          return Stream.fromQueue(sub).pipe(
+          const sub = yield* PubSub.subscribe(chatChangesHub);
+          return Stream.fromSubscription(sub).pipe(
             Stream.filter((chat) => chat.projectId === projectId),
           );
         }),
@@ -2983,7 +2970,7 @@ export const MessageStoreLive = Layer.scoped(
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catch(() => Effect.succeed(null)),
         );
         if (chat === null) return;
 
@@ -2993,7 +2980,7 @@ export const MessageStoreLive = Layer.scoped(
         }
 
         const session = yield* lookupSession(sessionId).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catch(() => Effect.succeed(null)),
         );
         if (session === null) return;
         const title = yield* titleGen.generate({
@@ -3009,7 +2996,7 @@ export const MessageStoreLive = Layer.scoped(
         yield* renameChat(chatId, title);
         yield* sql`
           UPDATE sessions SET title = ${title} WHERE chat_id = ${chatId}
-        `.pipe(Effect.ignoreLogged);
+        `.pipe(Effect.ignore);
         autoNamedChats.add(chatId);
 
         if (chat.worktreeId === null) return;
@@ -3020,7 +3007,7 @@ export const MessageStoreLive = Layer.scoped(
         const settings = yield* configStore.getSettings();
         const username = yield* git
           .getUserName(chat.projectId)
-          .pipe(Effect.catchAll(() => Effect.succeed("")));
+          .pipe(Effect.catch(() => Effect.succeed("")));
         const branch = formatBranchName(
           title,
           username,
@@ -3031,9 +3018,9 @@ export const MessageStoreLive = Layer.scoped(
         // DB and git agree. updateBranch only runs if the rename succeeded.
         yield* git.renameBranch(chat.projectId, branch, worktreeId).pipe(
           Effect.flatMap(() => worktrees.updateBranch(worktreeId, branch)),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         );
-      }).pipe(Effect.catchAllCause(() => Effect.void));
+      }).pipe(Effect.catchCause(() => Effect.void));
 
     const maybeForkAutoName = (
       chatId: ChatId,
@@ -3044,7 +3031,7 @@ export const MessageStoreLive = Layer.scoped(
           return;
         }
         autoNamingInFlight.add(chatId);
-        yield* Effect.forkDaemon(
+        yield* Effect.forkDetach(
           autoNameChat(chatId, sessionId).pipe(
             Effect.ensuring(
               Effect.sync(() => {
@@ -3103,7 +3090,7 @@ export const MessageStoreLive = Layer.scoped(
         `.pipe(Effect.orDie);
         for (const row of memberSessions) {
           const sid = row.id as SessionId;
-          yield* provider.close(sid).pipe(Effect.catchAll(() => Effect.void));
+          yield* provider.close(sid).pipe(Effect.catch(() => Effect.void));
           yield* interruptProviderFiber(sid);
           yield* setStatus(sid, "idle");
         }
@@ -3165,13 +3152,13 @@ export const MessageStoreLive = Layer.scoped(
           const sessionId = SessionId.make(row.id);
           yield* provider
             .close(sessionId)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
           yield* interruptProviderFiber(sessionId);
         }
         if (worktree !== null) {
           yield* ptys
             .closeByCwdPrefix(worktree.path)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
         }
 
         let cleanup: { readonly ran: boolean; readonly output: string } | null =
@@ -3328,7 +3315,7 @@ export const MessageStoreLive = Layer.scoped(
           const sessionId = SessionId.make(id);
           yield* provider
             .close(sessionId)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
           yield* teardownSubscription(sessionId);
         }
         yield* sql`DELETE FROM chats WHERE id = ${chatId}`.pipe(
@@ -3353,7 +3340,7 @@ export const MessageStoreLive = Layer.scoped(
       sessionId,
       sinceSequence,
     ) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
           const since = sinceSequence ?? 0;
@@ -3363,7 +3350,7 @@ export const MessageStoreLive = Layer.scoped(
           // everything ≤ lastReplayed, the live tail admits only envelopes
           // past it — no seen-Set, O(1) memory, gap-free resume.
           const pubsub = yield* getOrMakePubsub(sessionId);
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           const rows = yield* sql<MessageRow & { readonly sequence: number }>`
             SELECT id, session_id, role, kind, content_json, parent_item_id,
                    created_at, sequence
@@ -3379,7 +3366,7 @@ export const MessageStoreLive = Layer.scoped(
           );
           const lastReplayed =
             replay.length > 0 ? replay[replay.length - 1]!.sequence : since;
-          const live = Stream.fromQueue(dequeue).pipe(
+          const live = Stream.fromSubscription(dequeue).pipe(
             Stream.filter((envelope) => envelope.sequence > lastReplayed),
           );
           return Stream.concat(Stream.fromIterable(replay), live);
@@ -3387,13 +3374,13 @@ export const MessageStoreLive = Layer.scoped(
       );
 
     const streamStatus: MessageStoreShape["streamStatus"] = (sessionId) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
           const session = yield* lookupSession(sessionId);
           // Mirror streamMessages: subscribe before reading the persisted row
           // so transitions during the SELECT window are still delivered.
           const pubsub = yield* getOrMakeStatusPubsub(sessionId);
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           const initial: {
             readonly sessionId: SessionId;
             readonly status: Session["status"];
@@ -3403,7 +3390,7 @@ export const MessageStoreLive = Layer.scoped(
           };
           return Stream.concat(
             Stream.succeed(initial),
-            Stream.fromQueue(dequeue),
+            Stream.fromSubscription(dequeue),
           );
         }),
       );
@@ -3509,7 +3496,7 @@ export const MessageStoreLive = Layer.scoped(
       return retryBooting(240).pipe(
         Effect.catchTag("AgentSessionNotFoundError", () =>
           startProviderSessionOnly(session).pipe(
-            Effect.zipRight(provider.setGoal(session.id, goalInput)),
+            Effect.andThen(provider.setGoal(session.id, goalInput)),
             Effect.catchTag(
               "AgentSessionNotFoundError",
               mapProviderSessionNotFound(session.id),
@@ -3557,22 +3544,22 @@ export const MessageStoreLive = Layer.scoped(
       });
 
     const streamGoal: MessageStoreShape["streamGoal"] = (sessionId) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
           yield* ensureGoalSession(sessionId);
           const pubsub = yield* getOrMakeGoalPubsub(sessionId);
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           const cached = goalsBySession.get(sessionId);
           const initialGoal =
             cached !== undefined
               ? cached
               : yield* provider
                   .getGoal(sessionId)
-                  .pipe(Effect.catchAll(() => Effect.succeed(null)));
+                  .pipe(Effect.catch(() => Effect.succeed(null)));
           if (cached === undefined) goalsBySession.set(sessionId, initialGoal);
           return Stream.concat(
             Stream.succeed({ sessionId, goal: initialGoal }),
-            Stream.fromQueue(dequeue),
+            Stream.fromSubscription(dequeue),
           );
         }),
       );
@@ -3673,7 +3660,7 @@ export const MessageStoreLive = Layer.scoped(
         // resume — only the event-pump fiber needs to restart.
         yield* provider
           .close(sessionId)
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         yield* interruptProviderFiber(sessionId);
         runtimeModeBySession.set(session.id, session.runtimeMode);
         permissionModeBySession.set(session.id, session.permissionMode);
@@ -3808,7 +3795,7 @@ export const MessageStoreLive = Layer.scoped(
           yield* sql`
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
             VALUES (${persisted.message.id}, ${a.id})
-          `.pipe(Effect.ignoreLogged);
+          `.pipe(Effect.ignore);
         }
         yield* broadcastMessage(sessionId, persisted);
         const chat = yield* lookupChat(session.chatId).pipe(
@@ -3852,7 +3839,7 @@ export const MessageStoreLive = Layer.scoped(
             objective,
             status: "active",
           }).pipe(
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.gen(function* () {
                 const message =
                   err._tag === "SessionStartError"
@@ -3900,7 +3887,7 @@ export const MessageStoreLive = Layer.scoped(
         if (latestForSend.status === "error") {
           yield* provider
             .close(sessionId)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
           yield* interruptProviderFiber(sessionId);
         }
         const sendResult = yield* provider
@@ -4017,15 +4004,15 @@ export const MessageStoreLive = Layer.scoped(
     const streamQueuedMessages: MessageStoreShape["streamQueuedMessages"] = (
       sessionId,
     ) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
           yield* lookupSession(sessionId);
           const pubsub = yield* getOrMakeQueuePubsub(sessionId);
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           const initial = yield* queueState(sessionId);
           return Stream.concat(
             Stream.succeed(initial),
-            Stream.fromQueue(dequeue),
+            Stream.fromSubscription(dequeue),
           );
         }),
       );
@@ -4244,7 +4231,7 @@ export const MessageStoreLive = Layer.scoped(
       });
 
     flushQueueAfterIdle = (sessionId) =>
-      flushQueuedMessages(sessionId).pipe(Effect.catchAll(() => Effect.void));
+      flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void));
 
     const resumeQueuedMessages: MessageStoreShape["resumeQueuedMessages"] = (
       sessionId,

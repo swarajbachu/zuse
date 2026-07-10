@@ -1,4 +1,4 @@
-import type { SessionStatus } from "@zuse/wire";
+import type { SessionStatus } from "@zuse/contracts";
 
 import { PresenceDot, type PresenceTone } from "./presence-dot";
 

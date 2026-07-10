@@ -154,7 +154,7 @@ Everything from the v1 spec's list, plus:
   `apps/renderer/src/lib/bridge.ts`.
 - Snapshot builder + ref store + new command handlers:
   `apps/renderer/src/components/browser-pane.tsx`.
-- Wire: `packages/wire/src/browser.ts` (`FillForm`, `Network`, `Dialog`,
+- Wire: `packages/contracts/src/browser.ts` (`FillForm`, `Network`, `Dialog`,
   extended `Wait`/`Screenshot`).
 - Tools + policy: `apps/server/src/provider/drivers/browser-tools.ts`,
   `drivers/claude.ts` (`READ_ONLY_TOOLS`).

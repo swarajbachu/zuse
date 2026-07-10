@@ -1,10 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
 
-import type { InitializeResponse } from "./codex-app-protocol/InitializeResponse";
-import type { ClientRequest } from "./codex-app-protocol/ClientRequest";
-import type { ServerNotification } from "./codex-app-protocol/ServerNotification";
-import type { ServerRequest } from "./codex-app-protocol/ServerRequest";
+import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
+import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
+import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
 
 type RequestId = number;
 
@@ -65,6 +65,7 @@ export class CodexAppServerClient {
   static async start(options: {
     readonly codexPath: string | null;
     readonly env?: NodeJS.ProcessEnv;
+    readonly startupTimeoutMs?: number;
     readonly onNotification: NotificationHandler;
     readonly onServerRequest: ServerRequestHandler;
   }): Promise<CodexAppServerClient> {
@@ -117,14 +118,34 @@ export class CodexAppServerClient {
       bootstrap.pending.clear();
     });
 
-    const init = await bootstrap.request<InitializeResponse>("initialize", {
-      clientInfo: { name: "zuse", version: "0.0.0" },
-      capabilities: {
-        experimentalApi: true,
-      },
-    });
-    bootstrap.initializeResponse = init;
-    return bootstrap;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const initialize = bootstrap.request<InitializeResponse>("initialize", {
+        clientInfo: { name: "zuse", version: "0.0.0" },
+        capabilities: {
+          experimentalApi: true,
+        },
+      });
+      const init =
+        options.startupTimeoutMs === undefined
+          ? await initialize
+          : await Promise.race([
+              initialize,
+              new Promise<never>((_resolve, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error("Codex app-server startup timed out")),
+                  options.startupTimeoutMs,
+                );
+              }),
+            ]);
+      bootstrap.initializeResponse = init;
+      return bootstrap;
+    } catch (cause) {
+      bootstrap.close();
+      throw cause;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   request<T>(

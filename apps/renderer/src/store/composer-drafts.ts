@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { FolderId, SessionId } from "@zuse/wire";
+import type { FolderId, SessionId } from "@zuse/contracts";
 
 import type { ChipRange } from "../lib/codemirror/composer-chips.ts";
 

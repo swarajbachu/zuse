@@ -14,7 +14,7 @@ import {
   type FsReadError,
   type FsTooLargeError,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 type TreeFailure = FsFolderNotFoundError | FsPathOutsideError | FsReadError;
 type ReadFileFailure = TreeFailure | FsTooLargeError;
@@ -70,7 +70,7 @@ export interface FsServiceShape {
   ) => Effect.Effect<{ readonly mtime: string }, WriteExternalFailure>;
 }
 
-export class FsService extends Context.Tag("memoize/FsService")<
+export class FsService extends Context.Service<
   FsService,
   FsServiceShape
->() {}
+>()("memoize/FsService") {}

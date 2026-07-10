@@ -1,15 +1,23 @@
-import { Deferred, Effect, Layer, PubSub, Ref, Schedule, Stream } from "effect";
-
 import {
   AuthCancelledError,
   AuthFlowError,
   AuthSession,
-  AuthState,
+  type AuthState,
   AuthUser,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import {
+  Deferred,
+  Effect,
+  Layer,
+  PubSub,
+  Ref,
+  Schedule,
+  Semaphore,
+  Stream,
+} from "effect";
 
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
-import { AuthTokenError, SessionStoreError } from "../errors.ts";
+import { AuthTokenError, type SessionStoreError } from "../errors.ts";
 import { AuthService } from "../services/auth-service.ts";
 import { AuthShell } from "../services/auth-shell.ts";
 import { SessionStore } from "../services/session-store.ts";
@@ -17,8 +25,8 @@ import {
   authorizationUrl,
   exchangeCode,
   makePkce,
-  parseSessionBundle,
   parseCallbackUrl,
+  parseSessionBundle,
   refreshSession,
   type SessionBundle,
 } from "./workos.ts";
@@ -71,7 +79,7 @@ const toState = (b: SessionBundle): AuthState => ({
   }),
 });
 
-export const AuthServiceLive = Layer.scoped(
+export const AuthServiceLive = Layer.effect(
   AuthService,
   Effect.gen(function* () {
     const credentials = yield* CredentialsService;
@@ -83,12 +91,12 @@ export const AuthServiceLive = Layer.scoped(
     const lastKnown = yield* Ref.make<SessionBundle | null>(null);
     // Serializes refreshes so two concurrent `getSession`/`getAccessToken`
     // calls can't both mint a new token and clobber the keychain entry (R5).
-    const refreshLock = yield* Effect.makeSemaphore(1);
+    const refreshLock = yield* Semaphore.make(1);
 
     const readBundle = (): Effect.Effect<SessionBundle | null> =>
       store.read().pipe(
         Effect.tap((bundle) => Ref.set(lastKnown, bundle)),
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.gen(function* () {
             console.warn("[zuse] failed to read auth session", cause.reason);
             return yield* Ref.get(lastKnown);
@@ -159,9 +167,9 @@ export const AuthServiceLive = Layer.scoped(
               const refreshed = yield* refreshSession(
                 CLIENT_ID,
                 attemptedRefreshToken,
-              ).pipe(Effect.either);
-              if (refreshed._tag === "Left") {
-                if (refreshed.left.code === "invalid_grant") {
+              ).pipe(Effect.result);
+              if (refreshed._tag === "Failure") {
+                if (refreshed.failure.code === "invalid_grant") {
                   const winner = yield* store.read();
                   if (
                     winner !== null &&
@@ -171,9 +179,9 @@ export const AuthServiceLive = Layer.scoped(
                     return winner;
                   }
                 }
-                return yield* Effect.fail(refreshed.left);
+                return yield* Effect.fail(refreshed.failure);
               }
-              const written = yield* store.write(refreshed.right);
+              const written = yield* store.write(refreshed.success);
               yield* Ref.set(lastKnown, written);
               yield* PubSub.publish(pubsub, toState(written));
               return written;
@@ -190,7 +198,7 @@ export const AuthServiceLive = Layer.scoped(
       Effect.gen(function* () {
         const bundle = yield* readBundle();
         if (bundle === null) return;
-        yield* doRefresh(bundle, { force }).pipe(Effect.either);
+        yield* doRefresh(bundle, { force }).pipe(Effect.result);
       });
 
     const getSession = (): Effect.Effect<AuthState> =>
@@ -198,7 +206,10 @@ export const AuthServiceLive = Layer.scoped(
         const bundle = yield* readBundle();
         if (bundle === null) return SIGNED_OUT;
         if (bundle.expiresAt - Date.now() <= REFRESH_SKEW_MS) {
-          yield* Effect.forkDaemon(doRefresh(bundle).pipe(Effect.ignore));
+          yield* doRefresh(bundle).pipe(
+            Effect.ignore,
+            Effect.forkDetach({ startImmediately: true }),
+          );
         }
         return toState(bundle);
       });
@@ -250,21 +261,21 @@ export const AuthServiceLive = Layer.scoped(
           CLIENT_ID,
           code,
           inflight.verifier,
-        ).pipe(Effect.either);
-        if (result._tag === "Left") {
+        ).pipe(Effect.result);
+        if (result._tag === "Failure") {
           yield* Deferred.fail(
             inflight.deferred,
-            new AuthFlowError({ reason: result.left.reason }),
+            new AuthFlowError({ reason: result.failure.reason }),
           );
           return;
         }
 
-        const bundle = result.right;
-        const persisted = yield* persist(bundle).pipe(Effect.either);
-        if (persisted._tag === "Left") {
+        const bundle = result.success;
+        const persisted = yield* persist(bundle).pipe(Effect.result);
+        if (persisted._tag === "Failure") {
           yield* Deferred.fail(
             inflight.deferred,
-            new AuthFlowError({ reason: persisted.left.reason }),
+            new AuthFlowError({ reason: persisted.failure.reason }),
           );
           return;
         }
@@ -309,9 +320,9 @@ export const AuthServiceLive = Layer.scoped(
           ),
         );
         const bundle = yield* Deferred.await(deferred).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: SIGN_IN_TIMEOUT,
-            onTimeout: () => new AuthCancelledError(),
+            orElse: () => Effect.fail(new AuthCancelledError()),
           }),
           Effect.ensuring(Ref.set(pending, null)),
         );
@@ -320,19 +331,19 @@ export const AuthServiceLive = Layer.scoped(
 
     const signOut = (): Effect.Effect<void> =>
       store.clear().pipe(
-        Effect.catchAll(() => Effect.void),
-        Effect.zipRight(Ref.set(lastKnown, null)),
-        Effect.zipRight(PubSub.publish(pubsub, SIGNED_OUT)),
+        Effect.catch(() => Effect.void),
+        Effect.andThen(Ref.set(lastKnown, null)),
+        Effect.andThen(PubSub.publish(pubsub, SIGNED_OUT)),
         Effect.asVoid,
       );
 
     const sessionChanges = (): Stream.Stream<AuthState> =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           return Stream.concat(
             Stream.fromEffect(getSession()),
-            Stream.fromQueue(dequeue),
+            Stream.fromSubscription(dequeue),
           );
         }),
       );
@@ -340,34 +351,34 @@ export const AuthServiceLive = Layer.scoped(
     yield* Effect.gen(function* () {
       const fileBundle = yield* store
         .read()
-        .pipe(Effect.catchAll(() => Effect.succeed(null)));
+        .pipe(Effect.catch(() => Effect.succeed(null)));
       if (fileBundle !== null) {
         yield* Ref.set(lastKnown, fileBundle);
         return;
       }
       const legacy = yield* credentials.getWorkosSession().pipe(
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
         Effect.map(parseKeychainBundle),
       );
       if (legacy === null) return;
-      const migrated = yield* store.write(legacy).pipe(Effect.either);
-      if (migrated._tag === "Right") {
-        yield* Ref.set(lastKnown, migrated.right);
+      const migrated = yield* store.write(legacy).pipe(Effect.result);
+      if (migrated._tag === "Success") {
+        yield* Ref.set(lastKnown, migrated.success);
         yield* credentials
           .removeWorkosSession()
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
       }
     });
 
     yield* Effect.forkScoped(
       refreshIfPresent(true).pipe(
-        Effect.zipRight(
+        Effect.andThen(
           Effect.repeat(
             refreshIfPresent(true),
             Schedule.spaced("45 minutes").pipe(Schedule.jittered),
           ),
         ),
-        Effect.catchAll(() => Effect.void),
+        Effect.catch(() => Effect.void),
       ),
     );
 

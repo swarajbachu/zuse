@@ -6,7 +6,7 @@ import {
 import { Effect } from "effect";
 import { useEffect, useState } from "react";
 
-import type { UsageReport } from "@zuse/wire";
+import type { UsageReport } from "@zuse/contracts";
 
 import { formatTokens, formatUsd, totalTokens } from "~/lib/format-usage.ts";
 import { getRpcClient } from "../../../lib/rpc-client.ts";
@@ -52,7 +52,7 @@ export function MaximizeStep() {
     void getRpcClient()
       .then((client) =>
         Effect.runPromise(
-          client.usage.report({
+          client["usage.report"]({
             bucket: "monthly",
             ...currentMonthRange(),
           }),

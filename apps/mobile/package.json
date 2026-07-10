@@ -8,7 +8,7 @@
     "ios": "expo run:ios",
     "lint": "eslint .",
     "check-types": "tsc --noEmit",
-    "test": "bun test src",
+    "test": "vitest run src",
     "android": "expo run:android"
   },
   "expo": {
@@ -20,8 +20,6 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
-    "@effect/rpc": "catalog:",
     "@expo-google-fonts/geist-mono": "^0.4.1",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo/ui": "~57.0.3",
@@ -29,7 +27,7 @@
     "@hugeicons/react-native": "^1.0.15",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@zuse/wire": "*",
+    "@zuse/contracts": "*",
     "clsx": "^2.1.1",
     "effect": "catalog:",
     "expo": "^57.0.2",
@@ -68,6 +66,7 @@
     "babel-preset-expo": "~57.0.0",
     "eslint": "catalog:",
     "eslint-config-expo": "~57.0.0",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

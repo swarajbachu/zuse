@@ -11,7 +11,7 @@ import type {
   Session,
   SessionId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -172,7 +172,7 @@ const upsertChat = (
  * background auto-namer rewriting a new chat's title after its first
  * message) so the sidebar updates without a manual refetch.
  */
-const changeFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const ensureChangeStream = (projectId: FolderId): void => {
   if (changeFibers.has(projectId)) return;
@@ -184,7 +184,7 @@ const ensureChangeStream = (projectId: FolderId): void => {
       Effect.flatMap(
         Effect.promise(() => getRpcClient()),
         (client) =>
-          Stream.runForEach(client.chat.streamChanges({ projectId }), (chat) =>
+          Stream.runForEach(client["chat.streamChanges"]({ projectId }), (chat) =>
             Effect.sync(() => {
               let inserted = false;
               useChatsStore.setState((s) => {
@@ -253,7 +253,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       const client = await getRpcClient();
       const includeArchived = get().showArchivedByProject[projectId] === true;
       const chats = await Effect.runPromise(
-        client.chat.list({ projectId, includeArchived }),
+        client["chat.list"]({ projectId, includeArchived }),
       );
       set((s) => ({
         chatsByProject: { ...s.chatsByProject, [projectId]: chats },
@@ -277,7 +277,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const result = await Effect.runPromise(
-        client.chat.create({
+        client["chat.create"]({
           projectId,
           providerId,
           model,
@@ -354,7 +354,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.chat.rename({ chatId, title }));
+      await Effect.runPromise(client["chat.rename"]({ chatId, title }));
       set((s) => {
         const projectId = findChatProject(s.chatsByProject, chatId);
         if (projectId === null) return {};
@@ -381,7 +381,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const chat = await Effect.runPromise(
-        client.chat.setWorktree({ chatId, worktreeId }),
+        client["chat.setWorktree"]({ chatId, worktreeId }),
       );
       set((s) => {
         const projectId = findChatProject(s.chatsByProject, chatId);
@@ -441,7 +441,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.chat.setActiveSession({ chatId, sessionId }),
+        client["chat.setActiveSession"]({ chatId, sessionId }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -452,7 +452,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const result = await Effect.runPromise(
-        client.chat.archive({ chatId, force }),
+        client["chat.archive"]({ chatId, force }),
       );
       const projectId = findChatProject(get().chatsByProject, chatId);
       if (projectId !== null) {
@@ -542,7 +542,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client.chat.unarchive({ chatId }));
+      const result = await Effect.runPromise(client["chat.unarchive"]({ chatId }));
       const projectId = findChatProject(get().chatsByProject, chatId);
       const resolvedProjectId = projectId ?? result.chat.projectId;
       set((s) => {
@@ -597,7 +597,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.chat.delete({ chatId }));
+      await Effect.runPromise(client["chat.delete"]({ chatId }));
       const projectId = findChatProject(get().chatsByProject, chatId);
       set((s) => {
         if (projectId === null) return {};
@@ -721,7 +721,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     });
     try {
       const client = await getRpcClient();
-      const updated = await Effect.runPromise(client.chat.markRead({ chatId }));
+      const updated = await Effect.runPromise(client["chat.markRead"]({ chatId }));
       set((s) => {
         const chats = s.chatsByProject[projectId] ?? [];
         return {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
 import {
@@ -7,7 +7,7 @@ import {
   WorktreeDirtyError,
   WorktreeId,
   WorktreeNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { formatError } from "../src/lib/format-error.ts";
 import {
@@ -48,15 +48,13 @@ const setRemoveClient = (
   setWorktreesRpcClientForTest(
     async () =>
       ({
-        worktree: {
-          remove: (payload: {
+        "worktree.remove": (payload: {
             readonly worktreeId: WorktreeId;
             readonly force: boolean | undefined;
           }) => {
             removeCalls.push(payload);
             return remove(payload);
           },
-        },
       }) as Awaited<
         ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
       >,

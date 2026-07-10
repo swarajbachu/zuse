@@ -8,9 +8,10 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { Effect, Mailbox, Stream } from "effect";
-import { z } from "zod";
-
+import {
+  decidePermission,
+  isSensitivePath,
+} from "@zuse/agents/kernel/permission-policy";
 import {
   AgentSessionStartError,
   type AgentEvent,
@@ -24,7 +25,9 @@ import {
   type StartSessionInput,
   type UserQuestion,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import { type Cause, Effect, Queue, Stream } from "effect";
+import { z } from "zod";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import {
@@ -1058,26 +1061,6 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   `mcp__${ORCHESTRATION_MCP_SERVER_NAME}__whoami`,
 ]);
 
-/**
- * Path patterns that always prompt regardless of any prior `AllowForSession`
- * or `AlwaysAllow` decision. Match anywhere in the path string — agents
- * tend to use absolute paths, so anchoring to a directory boundary catches
- * `~/.ssh/...` and `/path/to/repo/.env` alike.
- */
-const SENSITIVE_PATTERNS: ReadonlyArray<RegExp> = [
-  /(^|\/)\.env(\.|$)/,
-  /(^|\/)credentials(\.[^/]+)?$/i,
-  /(^|\/)\.aws\//,
-  /(^|\/)\.ssh\//,
-  /(^|\/)id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/,
-  /\.(pem|key|p12|pfx)$/i,
-  /(^|\/)\.netrc$/,
-  /(^|\/)\.pgpass$/,
-];
-
-const isSensitivePath = (p: string): boolean =>
-  SENSITIVE_PATTERNS.some((re) => re.test(p));
-
 type ToolPolicy =
   | { readonly kind: "auto-allow" }
   | { readonly kind: "prompt"; readonly forcePrompt: boolean };
@@ -1151,46 +1134,30 @@ const policyFor = (
   if (toolName.endsWith("__browser_login")) {
     return { kind: "prompt", forcePrompt: true };
   }
-  // 1. Sensitive paths — checked before any auto-allow. Even YOLO mode prompts.
-  if (toolName === "Read") {
-    const path =
-      typeof toolInput.file_path === "string" ? toolInput.file_path : "";
-    if (path.length > 0 && isSensitivePath(path)) {
-      return { kind: "prompt", forcePrompt: true };
-    }
-  }
-  if (FILE_EDIT_TOOLS.has(toolName)) {
-    const path = editPathOf(toolInput);
-    if (path.length > 0 && isSensitivePath(path)) {
-      return { kind: "prompt", forcePrompt: true };
-    }
-  }
-
-  // 2. Read-only tools — always free, regardless of mode.
-  if (READ_ONLY_TOOLS.has(toolName)) {
-    return { kind: "auto-allow" };
-  }
-
-  // 3. auto-accept-edits — file edits skip the prompt; everything else falls
-  //    through to the regular prompt flow.
-  if (runtimeMode === "auto-accept-edits" && FILE_EDIT_TOOLS.has(toolName)) {
-    return { kind: "auto-allow" };
-  }
-
-  // 3b. auto-accept-edits-and-bash — file edits AND Bash auto-allow;
-  //     WebFetch / WebSearch / MCP / Other still prompt.
-  if (runtimeMode === "auto-accept-edits-and-bash") {
-    if (FILE_EDIT_TOOLS.has(toolName)) return { kind: "auto-allow" };
-    if (toolName === "Bash") return { kind: "auto-allow" };
-  }
-
-  // 4. full-access — auto-allow anything that survived the sensitive-path
-  //    + plan-mode checks above.
-  if (runtimeMode === "full-access") {
-    return { kind: "auto-allow" };
-  }
-
-  return { kind: "prompt", forcePrompt: false };
+  const path =
+    toolName === "Read"
+      ? typeof toolInput.file_path === "string"
+        ? toolInput.file_path
+        : ""
+      : FILE_EDIT_TOOLS.has(toolName)
+        ? editPathOf(toolInput)
+        : "";
+  const sensitive = path.length > 0 && isSensitivePath(path);
+  const category = READ_ONLY_TOOLS.has(toolName)
+    ? "read"
+    : FILE_EDIT_TOOLS.has(toolName)
+      ? "edit"
+      : toolName === "Bash"
+        ? "execute"
+        : "other";
+  return decidePermission({
+    runtimeMode,
+    permissionMode: "default",
+    category,
+    sensitive,
+  }) === "allow"
+    ? { kind: "auto-allow" }
+    : { kind: "prompt", forcePrompt: sensitive };
 };
 
 /**
@@ -1377,7 +1344,7 @@ export const startClaudeSession = (
 > =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
     const inputChannel = new UserInputChannel();
     const abort = new AbortController();
 
@@ -1519,7 +1486,7 @@ export const startClaudeSession = (
               : {}),
           }),
         );
-        events.unsafeOffer({
+        Queue.offerUnsafe(events, {
           _tag: "UserQuestion",
           itemId,
           questions: userQuestions,
@@ -1709,7 +1676,7 @@ export const startClaudeSession = (
           return { behavior: "allow", updatedInput: toolInput };
         }
         const kind = kindForTool(toolName, toolInput);
-        events.unsafeOffer({
+        Queue.offerUnsafe(events, {
           _tag: "PermissionRequest",
           itemId: nextItemId(),
           kind: toolName,
@@ -1737,7 +1704,7 @@ export const startClaudeSession = (
       },
     };
 
-    events.unsafeOffer({
+    Queue.offerUnsafe(events, {
       _tag: "Started",
       sessionId,
       providerId: "claude",
@@ -1760,7 +1727,7 @@ export const startClaudeSession = (
     try {
       q = query({ prompt: inputChannel, options });
     } catch (cause) {
-      yield* events.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId: "claude",
@@ -1782,7 +1749,7 @@ export const startClaudeSession = (
             const sid = (msg as { session_id?: unknown }).session_id;
             if (typeof sid === "string" && sid.length > 0) {
               cursorAnnounced = true;
-              events.unsafeOffer({
+              Queue.offerUnsafe(events, {
                 _tag: "SessionCursor",
                 cursor: sid,
                 strategy: "claude-session-id",
@@ -1791,13 +1758,13 @@ export const startClaudeSession = (
           }
           const translated = translate(msg, translateState);
           for (const ev of translated) {
-            events.unsafeOffer(ev);
+            Queue.offerUnsafe(events, ev);
           }
         }
       },
       catch: (cause) => cause,
     }).pipe(
-      Effect.catchAll((cause) =>
+      Effect.catch((cause) =>
         Effect.sync(() => {
           // If the SDK threw out of the `for await` because the user
           // interrupted (rather than yielding an `error_during_execution`
@@ -1805,23 +1772,23 @@ export const startClaudeSession = (
           // non-error completion too so the turn isn't left pinned at running.
           if (translateState.interrupted) {
             translateState.interrupted = false;
-            events.unsafeOffer({ _tag: "Interrupted" });
-            events.unsafeOffer({ _tag: "Completed", reason: "interrupted" });
+            Queue.offerUnsafe(events, { _tag: "Interrupted" });
+            Queue.offerUnsafe(events, { _tag: "Completed", reason: "interrupted" });
             return;
           }
-          events.unsafeOffer({
+          Queue.offerUnsafe(events, {
             _tag: "Error",
             message: cause instanceof Error ? cause.message : String(cause),
           });
         }),
       ),
-      Effect.ensuring(events.end),
+      Effect.ensuring(Queue.end(events)),
     );
 
-    yield* Effect.forkDaemon(pump);
+    yield* Effect.forkDetach(pump);
 
     const handle: ClaudeSessionHandle = {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs) =>
         Effect.promise(async () => {
           const compactCommand = isCompactCommand(text);
@@ -1829,7 +1796,7 @@ export const startClaudeSession = (
             translateState.pendingCompact = startCompactSnapshot(
               translateState.lastContextUsedTokens,
             );
-            events.unsafeOffer(
+            Queue.offerUnsafe(events,
               startCompactEvent({
                 providerId: "claude",
                 snapshot: translateState.pendingCompact,
@@ -1877,13 +1844,13 @@ export const startClaudeSession = (
           // badge instead of an error bubble.
           translateState.interrupted = true;
         }).pipe(
-          Effect.zipRight(
+          Effect.andThen(
             Effect.tryPromise({
               try: () => q.interrupt(),
               catch: (cause) => cause,
             }),
           ),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       close: () =>
         Effect.sync(() => {
@@ -1902,10 +1869,10 @@ export const startClaudeSession = (
         }).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
-              events.unsafeOffer({ _tag: "PermissionModeChanged", mode });
+              Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
             }),
           ),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       answerQuestion: (itemId, answers) =>
         Effect.sync(() => {

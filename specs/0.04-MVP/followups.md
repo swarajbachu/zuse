@@ -215,7 +215,7 @@ that calls `keytar.setPassword` + flips the active provider. Same UI
 hook used by Phase 3 of the original 0.04 ADR 0021.
 
 **Files:** `apps/renderer/src/components/settings/rerank-providers.tsx`,
-new RPCs in `packages/wire/src/keytar.ts`.
+new RPCs in `packages/contracts/src/keytar.ts`.
 
 ### 12. Path-glob default-scoping on monorepos
 

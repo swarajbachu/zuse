@@ -5,7 +5,7 @@ import {
   RelayEnvironmentList,
   RelayEnvironmentStatus,
   RelayPaths,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { relayBaseUrl } from "../auth/config.ts";
 import { devicePublicJwk, signDpopProof } from "../auth/dpop.ts";

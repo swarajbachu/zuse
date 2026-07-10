@@ -1,4 +1,4 @@
-import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/wire";
+import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
 import { Pressable, Text } from "react-native";
 
 import { modelOptionsForProvider } from "~/lib/model-options";

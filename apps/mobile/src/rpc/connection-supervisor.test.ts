@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { Effect } from "effect";
 
 import {
@@ -10,9 +10,7 @@ import type { WsProtocolOptions } from "./ws-protocol";
 
 const makeClient = (): MemoizeClient =>
   ({
-    connect: {
-      describe: () => Effect.void,
-    },
+    "connect.describe": () => Effect.void,
   }) as unknown as MemoizeClient;
 
 const makeHarness = (input?: {

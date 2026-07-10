@@ -1,15 +1,14 @@
-import { describe, expect, it } from "bun:test";
-import { SqlClient } from "@effect/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { describe, expect, it } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
 import {
   Duration,
   Effect,
-  Either,
   Layer,
   ManagedRuntime,
-  TestClock,
-  TestContext,
+  Result,
 } from "effect";
+import { TestClock } from "effect/testing";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 import { LanAuthServiceLive } from "../src/lan-auth/layers/lan-auth-service.ts";
@@ -27,14 +26,14 @@ import { Migration0028RelayMintPublicKey } from "../src/persistence/migrations/0
 import { buildAdvertisedEndpoints } from "../src/lan-auth/advertised-endpoints.ts";
 
 const makeRuntime = () => {
-  const SqlLive = SqliteClient.layer({ filename: ":memory:" });
+  const SqlLive = sqliteLayer({ filename: ":memory:" });
   const Migrated = Layer.effectDiscard(
     Migration0021AuthTokens.pipe(
-      Effect.zipRight(Migration0024RemoteConnectState),
-      Effect.zipRight(Migration0025RelayEnvironmentKeys),
-      Effect.zipRight(Migration0026RelayConnectorToken),
-      Effect.zipRight(Migration0027RelayTunnelHostname),
-      Effect.zipRight(Migration0028RelayMintPublicKey),
+      Effect.andThen(Migration0024RemoteConnectState),
+      Effect.andThen(Migration0025RelayEnvironmentKeys),
+      Effect.andThen(Migration0026RelayConnectorToken),
+      Effect.andThen(Migration0027RelayTunnelHostname),
+      Effect.andThen(Migration0028RelayMintPublicKey),
     ),
   ).pipe(Layer.provideMerge(SqlLive));
   const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -46,7 +45,7 @@ const makeRuntime = () => {
   const TestLayer = LanAuthServiceLive.pipe(
     Layer.provideMerge(Migrated),
     Layer.provide(ConfigLive),
-    Layer.provide(TestContext.TestContext),
+    Layer.provideMerge(TestClock.layer()),
   );
   return ManagedRuntime.make(TestLayer);
 };
@@ -144,7 +143,7 @@ describe("LanAuthService", () => {
           const pairing = yield* auth.createPairingCode();
           const redeemed = yield* auth.redeemPairingCode(pairing.code);
           const verified = yield* auth.verifyToken(redeemed.token);
-          const second = yield* Effect.either(
+          const second = yield* Effect.result(
             auth.redeemPairingCode(pairing.code),
           );
           return { pairing, redeemed, verified, second };
@@ -155,9 +154,9 @@ describe("LanAuthService", () => {
       expect(result.pairing.qrText).toContain("#token=zp_");
       expect(result.redeemed.token.startsWith("zt_")).toBe(true);
       expect(result.verified).toBe(true);
-      expect(Either.isLeft(result.second)).toBe(true);
-      if (Either.isLeft(result.second)) {
-        expect(result.second.left.reason).toBe("invalid_code");
+      expect(Result.isFailure(result.second)).toBe(true);
+      if (Result.isFailure(result.second)) {
+        expect(result.second.failure.reason).toBe("invalid_code");
       }
     });
   });
@@ -169,13 +168,13 @@ describe("LanAuthService", () => {
           const auth = yield* LanAuthService;
           const pairing = yield* auth.createPairingCode();
           yield* TestClock.adjust(Duration.minutes(6));
-          return yield* Effect.either(auth.redeemPairingCode(pairing.code));
+          return yield* Effect.result(auth.redeemPairingCode(pairing.code));
         }),
       );
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.reason).toBe("expired_code");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toBe("expired_code");
       }
     });
   });
@@ -185,13 +184,13 @@ describe("LanAuthService", () => {
       const result = await run(
         Effect.gen(function* () {
           const auth = yield* LanAuthService;
-          return yield* Effect.either(auth.redeemPairingCode("zp_missing"));
+          return yield* Effect.result(auth.redeemPairingCode("zp_missing"));
         }),
       );
 
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left.reason).toBe("invalid_code");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason).toBe("invalid_code");
       }
     });
   });

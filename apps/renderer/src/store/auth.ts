@@ -1,7 +1,7 @@
 import { Effect, Fiber, Schedule, Stream } from "effect";
 import { create } from "zustand";
 
-import type { AuthState } from "@zuse/wire";
+import type { AuthState } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -88,7 +88,7 @@ type AuthStore = {
   readonly setDisplayName: (value: string) => void;
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 // Real double-subscribe guard — `streamFiber` is only a handle (see the same
 // note in store/permissions.ts).
 let started = false;
@@ -103,7 +103,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     started = true;
     const subscribeOnce = Effect.tryPromise(() => getRpcClient()).pipe(
       Effect.flatMap((client) =>
-        Stream.runForEach(client.auth.sessionChanges({}), (next) =>
+        Stream.runForEach(client["auth.sessionChanges"]({}), (next) =>
           Effect.sync(() => set({ state: next })),
         ),
       ),
@@ -111,7 +111,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     // Self-healing: re-establish after any completion/error with bounded
     // backoff so a server restart / dev HMR doesn't kill live delivery.
     const program = subscribeOnce.pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
       Effect.repeat(Schedule.spaced("2 seconds")),
       Effect.ensuring(
         Effect.sync(() => {
@@ -125,13 +125,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   hydrate: async () => {
     try {
       const client = await getRpcClient();
-      const next = await Effect.runPromise(client.auth.getSession({}));
+      const next = await Effect.runPromise(client["auth.getSession"]({}));
       set({ state: next });
     } catch {
       await new Promise((resolve) => setTimeout(resolve, HYDRATE_RETRY_MS));
       try {
         const client = await getRpcClient();
-        const next = await Effect.runPromise(client.auth.getSession({}));
+        const next = await Effect.runPromise(client["auth.getSession"]({}));
         set({ state: next });
       } catch {
         // Bridge not up yet / transient. Keep the previous/loading state; the
@@ -153,7 +153,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // Match the Effect to a result object so a user-cancel (silent) and a
       // real failure (shown) are distinguishable without a throw.
       const result = await Effect.runPromise(
-        client.auth.signIn({}).pipe(
+        client["auth.signIn"]({}).pipe(
           Effect.match({
             onFailure: (err) => ({ ok: false as const, err }),
             onSuccess: (next) => ({ ok: true as const, next }),
@@ -192,7 +192,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ state: SIGNED_OUT });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.auth.signOut({}));
+      await Effect.runPromise(client["auth.signOut"]({}));
     } catch {
       // A failed sign-out leaves the keychain entry; next getSession repairs.
     }

@@ -7,7 +7,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useEffect, useMemo, useState } from "react";
 
-import type { AgentItemId, Message } from "@zuse/wire";
+import type { AgentItemId, Message } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 

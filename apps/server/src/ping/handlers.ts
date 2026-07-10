@@ -1,4 +1,4 @@
-import { MemoizeRpcs, PingResult } from "@zuse/wire";
+import { MemoizeRpcs, PingResult } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
 /**

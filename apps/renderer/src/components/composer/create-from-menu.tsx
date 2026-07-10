@@ -15,7 +15,7 @@ import type {
   GitIssueSummary,
   GitPrSummary,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { PopoverPrimitive } from "~/components/ui/popover";
 import { getRpcClient } from "~/lib/rpc-client.ts";
@@ -123,7 +123,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
         const client = await getRpcClient();
         if (!worktreesLoadedForOpen) {
           const wts = await Effect.runPromise(
-            client.worktree.list({ projectId: folderId }),
+            client["worktree.list"]({ projectId: folderId }),
           ).catch(() => []);
           if (cancelled) return;
           const map = new Map<string, WorktreeId>();
@@ -133,17 +133,17 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
         }
         if (tab === "prs" && prs === null) {
           const rows = await Effect.runPromise(
-            client.git.listPrs({ folderId }),
+            client["git.listPrs"]({ folderId }),
           ).catch(() => []);
           if (!cancelled) setPrs(rows);
         } else if (tab === "branches" && branches === null) {
           const rows = await Effect.runPromise(
-            client.git.branches({ folderId }),
+            client["git.branches"]({ folderId }),
           ).catch(() => []);
           if (!cancelled) setBranches(rows);
         } else if (tab === "issues" && issues === null) {
           const rows = await Effect.runPromise(
-            client.git.listIssues({ folderId }),
+            client["git.listIssues"]({ folderId }),
           ).catch(() => []);
           if (!cancelled) setIssues(rows);
         }

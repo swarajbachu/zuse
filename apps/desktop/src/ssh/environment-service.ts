@@ -5,7 +5,7 @@ import {
   remoteLaunchScript,
   type TunnelHandle,
 } from "@zuse/ssh";
-import type { EnvironmentDescriptor } from "@zuse/wire";
+import type { EnvironmentDescriptor } from "@zuse/contracts";
 import { Effect } from "effect";
 import { spawn } from "node:child_process";
 

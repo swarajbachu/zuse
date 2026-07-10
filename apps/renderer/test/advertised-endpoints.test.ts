@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
-import type { AdvertisedEndpoint } from "@zuse/wire";
+import type { AdvertisedEndpoint } from "@zuse/contracts";
 
 import { selectAdvertisedEndpoint } from "../src/lib/advertised-endpoints.ts";
 

@@ -1,4 +1,4 @@
-import { ComposerInput, type AttachmentRef, type FileRef } from "@zuse/wire";
+import { ComposerInput, type AttachmentRef, type FileRef } from "@zuse/contracts";
 
 export interface PendingDraftAttachment {
   readonly tempId: string;

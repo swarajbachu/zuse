@@ -7,7 +7,7 @@ import {
   type PermissionMode,
   type ProviderId,
   type RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export const PROVIDER_LABEL: Record<ProviderId, string> = {
   claude: "Claude Code",

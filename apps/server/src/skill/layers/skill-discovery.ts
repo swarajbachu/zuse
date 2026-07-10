@@ -1,10 +1,10 @@
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { FileSystem } from "@effect/platform";
+import { FileSystem } from "effect";
 import { Effect, Layer } from "effect";
 
-import { Skill, type ProviderId } from "@zuse/wire";
+import { Skill, type ProviderId } from "@zuse/contracts";
 
 import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
@@ -299,7 +299,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
             }
           },
           catch: (cause) => cause,
-        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
         if (viaAppServer !== null) return dedupeProjectFirst(viaAppServer);
 
         const projectRoot = path.join(projectCwd, ".codex", "prompts");
@@ -319,7 +319,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
         return dedupeProjectFirst(merged);
       });
 
-    const discover: SkillDiscoveryService["Type"]["discover"] = (
+    const discover: SkillDiscoveryService["Service"]["discover"] = (
       providerId,
       projectCwd,
     ) =>

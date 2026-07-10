@@ -4,7 +4,7 @@ import type {
   ContinueExternalThreadInput,
   ContinueExternalThreadResult,
   ExternalThread,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface ExternalThreadServiceShape {
   readonly list: (
@@ -15,6 +15,6 @@ export interface ExternalThreadServiceShape {
   ) => Effect.Effect<ContinueExternalThreadResult>;
 }
 
-export class ExternalThreadService extends Context.Tag(
+export class ExternalThreadService extends Context.Service<ExternalThreadService, ExternalThreadServiceShape>()(
   "memoize/ExternalThreadService",
-)<ExternalThreadService, ExternalThreadServiceShape>() {}
+) {}

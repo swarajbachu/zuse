@@ -67,19 +67,21 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
     mintPublicKey: env.RELAY_MINT_PUBLIC_JWK,
     managedTunnel: managedTunnelConfig(env),
   });
-  const dbLayer = PgClient.layerFromPool({
-    acquire: Effect.acquireRelease(
-      Effect.sync(
-        () =>
-          new Pool({
-            connectionString: env.HYPERDRIVE.connectionString,
-            max: 1,
-            maxUses: 1,
-          }),
+  const dbLayer = PgClient.layerFrom(
+    PgClient.fromPool({
+      acquire: Effect.acquireRelease(
+        Effect.sync(
+          () =>
+            new Pool({
+              connectionString: env.HYPERDRIVE.connectionString,
+              max: 1,
+              maxUses: 1,
+            }),
+        ),
+        (pool) => Effect.promise(() => pool.end()),
       ),
-      (pool) => Effect.promise(() => pool.end()),
-    ),
-  });
+    }),
+  );
   const appLayer = Layer.mergeAll(
     configLayer,
     WorkosVerifierLive.pipe(Layer.provide(configLayer)),

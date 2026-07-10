@@ -7,7 +7,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test",
+    "test": "vitest run",
     "mint-keys": "node scripts/mint-keys.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -17,9 +17,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@effect/platform": "catalog:",
-    "@effect/sql": "catalog:",
-    "@effect/sql-pg": "^0.52.1",
+    "@effect/sql-pg": "catalog:",
     "effect": "catalog:",
     "jose": "^6.2.3"
   },
@@ -32,6 +30,7 @@
     "drizzle-orm": "^0.44.3",
     "pg": "^8.22.0",
     "typescript": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "^4.107.0"
   }
 }

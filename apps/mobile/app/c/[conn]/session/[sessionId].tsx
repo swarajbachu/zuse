@@ -23,7 +23,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
-import type { SessionId, UserQuestion } from "@zuse/wire";
+import type { SessionId, UserQuestion } from "@zuse/contracts";
 import { Effect } from "effect";
 
 import { Composer } from "~/components/composer";

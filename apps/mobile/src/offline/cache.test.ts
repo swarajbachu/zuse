@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { Message } from "@zuse/wire";
+import { describe, expect, test } from "vitest";
+import { Message } from "@zuse/contracts";
 import { Schema } from "effect";
 
 import { parsePairingUrl, slugConnectionKey } from "./cache-utils";

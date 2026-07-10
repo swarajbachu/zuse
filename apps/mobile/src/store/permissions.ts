@@ -2,7 +2,7 @@ import type {
   PermissionDecision,
   PermissionRequest,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
@@ -34,7 +34,7 @@ type PermissionsState = {
   ) => Promise<void>;
 };
 
-const liveFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stop = async (key: string) => {
   const fiber = liveFibers.get(key);
@@ -53,14 +53,14 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
       const client = await Effect.runPromise(getConnectionClient(options));
 
       const listed = await Effect.runPromise(
-        client.permission.listPending({ sessionId }),
+        client["permission.listPending"]({ sessionId }),
       );
       set((state) => ({
         pendingBySession: { ...state.pendingBySession, [liveKey]: listed },
       }));
 
       const program = Stream.runForEach(
-        client.permission.requests({}),
+        client["permission.requests"]({}),
         (request) =>
           Effect.sync(() => {
             if (request.sessionId !== sessionId) return;
@@ -76,7 +76,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
               };
             });
           }),
-      ).pipe(Effect.catchAll(() => Effect.void));
+      ).pipe(Effect.catch(() => Effect.void));
       liveFibers.set(liveKey, Effect.runFork(program));
     } catch (cause) {
       reportConnectionFailure(options, cause);

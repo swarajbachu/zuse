@@ -2,7 +2,8 @@ import {
   isRedundantShellDescription,
   type AgentEvent,
   type AgentItemId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -11,7 +12,7 @@ import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
  * Lifted out of grok.ts / gemini.ts / cursor.ts which each carried a near-
  * identical copy. The renderer expects every provider's tool calls to look
  * like Claude's (see the "Normalized Tool-Call Contract" doc-block above
- * `ToolUseEvent` in `packages/wire/src/agent.ts`), so this translator
+ * `ToolUseEvent` in `packages/contracts/src/agent.ts`), so this translator
  * coerces ACP frames into that shape.
  *
  * Per-provider quirks (Gemini's `kind === "think"` skip, etc.) live in a
@@ -39,23 +40,6 @@ const safePreview = (v: unknown, max = 240): string => {
   } catch {
     return "(unserialisable)";
   }
-};
-
-const canonicalizeToolInput = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(canonicalizeToolInput);
-  if (value === null || typeof value !== "object") return value;
-
-  const input = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(input)) {
-    const canonicalKey =
-      key === "target_file" || key === "filePath" ? "file_path" : key;
-    out[canonicalKey] = canonicalizeToolInput(raw);
-  }
-
-  return Object.fromEntries(
-    Object.entries(out).sort(([a], [b]) => a.localeCompare(b)),
-  );
 };
 
 const toolInputFingerprint = (input: unknown): string =>

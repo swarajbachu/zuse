@@ -461,7 +461,7 @@ export const handleRequest = (
   request: Request,
 ): Effect.Effect<Response, never, RelayContext> =>
   route(request).pipe(
-    Effect.catchAll((error: RelayError) =>
+    Effect.catch((error: RelayError) =>
       Effect.succeed(
         json(
           error.detail === undefined
@@ -471,7 +471,7 @@ export const handleRequest = (
         ),
       ),
     ),
-    Effect.catchAllDefect(() =>
+    Effect.catchDefect(() =>
       Effect.succeed(json({ error: "internal_error" }, 500)),
     ),
   );

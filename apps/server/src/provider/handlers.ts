@@ -3,8 +3,8 @@ import {
   CredentialStoreError,
   MemoizeRpcs,
   type ProviderId,
-} from "@zuse/wire";
-import { CommandExecutor } from "@effect/platform";
+} from "@zuse/contracts";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
 
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
@@ -24,14 +24,16 @@ import { ProviderService } from "./services/provider-service.ts";
 
 /**
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
- * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/wire`):
+ * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/contracts`):
  *
  *   PR 3 — `agent.availability`         ← here
  *   PR 4 — `agent.setCredential`        ← here
  *   PR 5/6 — `agent.start` / `send` / `interrupt` / `close` / `events`
  */
-const Availability = MemoizeRpcs.toLayerHandler("agent.availability", () =>
-  Effect.flatMap(ProviderService, (svc) => svc.availability()),
+const Availability = MemoizeRpcs.toLayerHandler(
+  "agent.availability",
+  ({ refresh }) =>
+    Effect.flatMap(ProviderService, (svc) => svc.availability(refresh)),
 );
 
 const SetCredential = MemoizeRpcs.toLayerHandler(
@@ -129,7 +131,7 @@ const OpencodeInventory = MemoizeRpcs.toLayerHandler(
 const requireOpencodePath = (): Effect.Effect<
   string,
   AgentSessionStartError,
-  CommandExecutor.CommandExecutor
+  CommandExecutor.ChildProcessSpawner
 > =>
   Effect.gen(function* () {
     const opencodePath = yield* resolveCliPath("opencode");
@@ -424,7 +426,7 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageStore, (svc) =>
       svc.answerQuestion(
         sessionId,
-        itemId as import("@zuse/wire").AgentItemId,
+        itemId as import("@zuse/contracts").AgentItemId,
         answers,
       ),
     ),
@@ -650,14 +652,14 @@ const BrowserSetCredential = MemoizeRpcs.toLayerHandler(
   ({ origin, username, password }) =>
     Effect.flatMap(CredentialsService, (svc) =>
       svc.setBrowser(origin, username, password),
-    ).pipe(Effect.catchAll(() => Effect.void)),
+    ).pipe(Effect.catch(() => Effect.void)),
 );
 
 const BrowserListCredentials = MemoizeRpcs.toLayerHandler(
   "browser.listCredentials",
   () =>
     Effect.flatMap(CredentialsService, (svc) => svc.listBrowser()).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
+      Effect.catch(() => Effect.succeed([])),
     ),
 );
 
@@ -665,7 +667,7 @@ const BrowserRemoveCredential = MemoizeRpcs.toLayerHandler(
   "browser.removeCredential",
   ({ origin }) =>
     Effect.flatMap(CredentialsService, (svc) => svc.removeBrowser(origin)).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     ),
 );
 
@@ -673,7 +675,7 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
   "browser.fillForOrigin",
   ({ origin }) =>
     Effect.flatMap(CredentialsService, (svc) => svc.getBrowser(origin)).pipe(
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catch(() => Effect.succeed(null)),
     ),
 );
 

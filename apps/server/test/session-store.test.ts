@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,8 +82,8 @@ describe("SessionStoreLive", () => {
   it("fails on corrupt JSON but treats wrong-shape JSON as signed out", async () => {
     const dir = await makeTempAuthDir();
     await writeFile(join(dir, "auth.json"), "{", { mode: 0o600 });
-    const corrupt = await withStore((svc) => svc.read().pipe(Effect.either));
-    expect(corrupt._tag).toBe("Left");
+    const corrupt = await withStore((svc) => svc.read().pipe(Effect.result));
+    expect(corrupt._tag).toBe("Failure");
 
     await writeFile(join(dir, "auth.json"), JSON.stringify({ nope: true }), {
       mode: 0o600,

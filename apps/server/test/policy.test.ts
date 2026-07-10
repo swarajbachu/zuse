@@ -1,12 +1,13 @@
-import { describe, expect, it } from "bun:test";
-
-import type { PermissionMode, RuntimeMode } from "@zuse/wire";
+import {
+  isSensitivePath,
+  SENSITIVE_PATH_PATTERNS,
+} from "@zuse/agents/kernel/permission-policy";
+import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
+import { describe, expect, it } from "vitest";
 
 import {
   getBashPolicy,
   getFsPolicy,
-  isSensitivePath,
-  SENSITIVE_PATTERNS,
 } from "../src/provider/policy.ts";
 
 const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
@@ -52,9 +53,11 @@ describe("isSensitivePath", () => {
     }
   });
 
-  it("SENSITIVE_PATTERNS is non-empty and drives isSensitivePath", () => {
-    expect(SENSITIVE_PATTERNS.length).toBeGreaterThan(0);
-    expect(SENSITIVE_PATTERNS.some((re) => re.test("/repo/.env"))).toBe(true);
+  it("SENSITIVE_PATH_PATTERNS is non-empty and drives isSensitivePath", () => {
+    expect(SENSITIVE_PATH_PATTERNS.length).toBeGreaterThan(0);
+    expect(SENSITIVE_PATH_PATTERNS.some((re) => re.test("/repo/.env"))).toBe(
+      true,
+    );
   });
 });
 

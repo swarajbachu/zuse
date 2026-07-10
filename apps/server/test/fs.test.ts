@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import * as path from "node:path";
 
 import { ensureUnderCwd, isUnderCwd } from "../src/provider/drivers/acp/fs.ts";

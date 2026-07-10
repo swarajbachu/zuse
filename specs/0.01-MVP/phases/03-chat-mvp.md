@@ -93,7 +93,7 @@ The Phase 2 `AgentEvent` stream (over `agent.events` RPC) is consumed by a `Mess
 
 ## RPC additions
 
-New methods (added to `MemoizeRpcs` in `packages/wire`):
+New methods (added to `MemoizeRpcs` in `packages/contracts`):
 
 - `session.list(projectId, includeArchived)` → `Session[]`
 - `session.create(projectId, providerId, model, initialPrompt?)` → `Session` (replaces `agent.start`)
@@ -112,7 +112,7 @@ New methods (added to `MemoizeRpcs` in `packages/wire`):
 - `apps/renderer/src/components/agent-panel.tsx` — replaced by the chat surface.
 - `apps/renderer/src/components/agent-event-row.tsx` — replaced by per-role chat rows.
 - `apps/renderer/src/components/git-history-pane.tsx` — git history is no longer in the v1 UI. (Code lives in git history if we want to bring it back as a tab later.)
-- `git.log` / `git.status` / `git.headChanged` / `git.origin` RPCs — kept in `packages/wire` for now (cheap to keep) but unwired from the UI.
+- `git.log` / `git.status` / `git.headChanged` / `git.origin` RPCs — kept in `packages/contracts` for now (cheap to keep) but unwired from the UI.
 
 ## Sub-PR breakdown
 
@@ -126,7 +126,7 @@ Seven PRs. Each independently shippable.
 - No UI changes. Existing folders backfill into `projects` on boot.
 
 ### PR 2 — session RPCs + MessageStore
-- Add `session.*` and `messages.*` RPCs to `@zuse/wire`.
+- Add `session.*` and `messages.*` RPCs to `@zuse/contracts`.
 - `MessageStore` service: subscribes to `AgentEvent` stream from Phase 2, persists each event as a `messages` row, re-emits.
 - Wire `session.create` to call existing `agent.start` internally.
 - Old `agent.*` RPCs stay (still used by `MessageStore` internally).

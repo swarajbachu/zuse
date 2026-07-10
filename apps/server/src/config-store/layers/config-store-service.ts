@@ -3,8 +3,8 @@ import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import * as NodePath from "node:path";
 
-import { FileSystem, Path } from "@effect/platform";
-import { Effect, Layer, PubSub, Ref, Stream } from "effect";
+import { FileSystem, Path } from "effect";
+import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 
 import {
   type AppearanceMode,
@@ -23,7 +23,7 @@ import {
   type MergePrefs,
   type SettingsPatch,
   type SubagentPresetState,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -471,7 +471,7 @@ export const configStoreTestHelpers = {
 
 /* ────────────────────────── Service implementation ──────────────────────────── */
 
-export const ConfigStoreServiceLive = Layer.scoped(
+export const ConfigStoreServiceLive = Layer.effect(
   ConfigStoreService,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -510,12 +510,12 @@ export const ConfigStoreServiceLive = Layer.scoped(
     // back-to-back; or migrateLocalStorage racing the first updateSettings)
     // would otherwise both pick the same `<path>.tmp` and the second
     // rename ENOENTs because the first already renamed the tmp away.
-    const writeLocks = new Map<string, Effect.Semaphore>();
-    const lockFor = (absPath: string): Effect.Effect<Effect.Semaphore> =>
+    const writeLocks = new Map<string, Semaphore.Semaphore>();
+    const lockFor = (absPath: string): Effect.Effect<Semaphore.Semaphore> =>
       Effect.gen(function* () {
         const existing = writeLocks.get(absPath);
         if (existing) return existing;
-        const sem = yield* Effect.makeSemaphore(1);
+        const sem = yield* Semaphore.make(1);
         writeLocks.set(absPath, sem);
         return sem;
       });
@@ -593,14 +593,14 @@ export const ConfigStoreServiceLive = Layer.scoped(
       Effect.gen(function* () {
         lastSettingsContent = serialized;
         yield* Ref.set(settingsRef, next);
-        yield* settingsHub.publish(next);
+        yield* PubSub.publish(settingsHub, next);
       });
 
     const publishKeybindings = (next: KeybindingsFile, serialized: string) =>
       Effect.gen(function* () {
         lastKeybindingsContent = serialized;
         yield* Ref.set(keybindingsRef, next);
-        yield* keybindingsHub.publish(next);
+        yield* PubSub.publish(keybindingsHub, next);
       });
 
     /* ──────────────── fs.watch — pick up external hand-edits ──────────────── */
@@ -728,11 +728,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
       });
 
     const settingsChanges: ConfigStoreServiceShape["settingsChanges"] = () =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const sub = yield* settingsHub.subscribe;
+          const sub = yield* PubSub.subscribe(settingsHub);
           const cur = yield* Ref.get(settingsRef);
-          return Stream.concat(Stream.make(cur), Stream.fromQueue(sub));
+          return Stream.concat(Stream.make(cur), Stream.fromSubscription(sub));
         }),
       );
 
@@ -881,11 +881,11 @@ export const ConfigStoreServiceLive = Layer.scoped(
 
     const keybindingsChanges: ConfigStoreServiceShape["keybindingsChanges"] =
       () =>
-        Stream.unwrapScoped(
+        Stream.unwrap(
           Effect.gen(function* () {
-            const sub = yield* keybindingsHub.subscribe;
+            const sub = yield* PubSub.subscribe(keybindingsHub);
             const cur = yield* Ref.get(keybindingsRef);
-            return Stream.concat(Stream.make(cur), Stream.fromQueue(sub));
+            return Stream.concat(Stream.make(cur), Stream.fromSubscription(sub));
           }),
         );
 

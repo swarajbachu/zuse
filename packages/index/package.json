@@ -14,7 +14,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",
@@ -30,6 +30,7 @@
     "@repo/typescript-config": "*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

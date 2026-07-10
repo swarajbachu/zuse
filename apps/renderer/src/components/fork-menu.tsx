@@ -2,7 +2,7 @@ import { GitBranchIcon, GitForkIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useState } from "react";
 
-import type { MessageId, SessionId } from "@zuse/wire";
+import type { MessageId, SessionId } from "@zuse/contracts";
 
 import { useSessionsStore } from "../store/sessions.ts";
 import { toastManager } from "./ui/toast.tsx";

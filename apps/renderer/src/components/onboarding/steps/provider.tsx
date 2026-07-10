@@ -7,7 +7,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { useState } from "react";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import { ProviderIcon } from "~/components/provider-icons";
 import { PROVIDER_LABEL } from "~/components/settings-page";

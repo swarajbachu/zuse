@@ -9,7 +9,7 @@ failure modes, and the security tax.
 
 ## Autonomy levels
 
-`AutonomyLevel` (`packages/wire/src/autonomy.ts`), persisted as
+`AutonomyLevel` (`packages/contracts/src/autonomy.ts`), persisted as
 `SettingsFile.defaultAutonomyLevel` (default `"off"`), set via `settings.update`.
 
 - **`off`** (default) — control-plane tools not registered. memoize behaves as

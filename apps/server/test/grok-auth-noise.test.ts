@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import { isIgnorableGrokAuthNoise } from "../src/provider/drivers/acp/grok-auth-noise.ts";
 

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Check, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { AdvertisedEndpoint, RelayLinkStatus } from "@zuse/wire";
+import type { AdvertisedEndpoint, RelayLinkStatus } from "@zuse/contracts";
 
 import {
   readEndpointOverride,
@@ -103,7 +103,7 @@ export function DevicesPane() {
   const refresh = useCallback(async () => {
     try {
       const client = await getRpcClient();
-      const next = await Effect.runPromise(client.relay.status());
+      const next = await Effect.runPromise(client["relay.status"]());
       setStatus(next);
     } catch (cause) {
       if (!isStatusLoadError(cause)) {
@@ -127,7 +127,7 @@ export function DevicesPane() {
     try {
       const client = await getRpcClient();
       const next = await Effect.runPromise(
-        client.relay.link({
+        client["relay.link"]({
           relayUrl: DEFAULT_RELAY_URL.trim().replace(/\/$/, ""),
           label: label.trim().length > 0 ? label.trim() : undefined,
         }),
@@ -149,7 +149,7 @@ export function DevicesPane() {
     setBusy(true);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.relay.unlink());
+      await Effect.runPromise(client["relay.unlink"]());
       await refresh();
     } catch (cause) {
       showRelayErrorToast("Could not unlink this Mac", cause);

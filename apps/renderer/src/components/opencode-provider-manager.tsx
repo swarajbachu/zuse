@@ -15,7 +15,7 @@ import {
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { OpencodeInventoryProvider } from "@zuse/wire";
+import type { OpencodeInventoryProvider } from "@zuse/contracts";
 
 import { getRpcClient } from "~/lib/rpc-client";
 import { openExternal } from "~/lib/use-provider-login";
@@ -296,10 +296,10 @@ function ConnectedProviderRow({
       await rpc((client) =>
         provider.custom
           ? Effect.runPromise(
-              client.agent.opencodeRemoveCustomProvider({ id: provider.id }),
+              client["agent.opencodeRemoveCustomProvider"]({ id: provider.id }),
             )
           : Effect.runPromise(
-              client.agent.opencodeRemoveProviderAuth({
+              client["agent.opencodeRemoveProviderAuth"]({
                 providerId: provider.id,
               }),
             ),
@@ -610,7 +610,7 @@ function ConnectKeyForm({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client.agent.opencodeSetProviderAuth({
+          client["agent.opencodeSetProviderAuth"]({
             providerId,
             apiKey: value.trim(),
           }),
@@ -633,7 +633,7 @@ function ConnectKeyForm({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client.agent.opencodeRemoveProviderAuth({ providerId }),
+          client["agent.opencodeRemoveProviderAuth"]({ providerId }),
         ),
       );
       onChanged();
@@ -772,7 +772,7 @@ function CustomProviderDialog({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client.agent.opencodeAddCustomProvider({
+          client["agent.opencodeAddCustomProvider"]({
             id,
             name: name.trim(),
             baseURL: baseURL.trim(),

@@ -1,8 +1,8 @@
-import { MessageEnvelope } from "@zuse/wire";
+import { MessageEnvelope } from "@zuse/contracts";
 import { CheckCircle2, CircleAlert } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { Chunk, Effect, Either, Fiber, Schema, Stream } from "effect";
+import { Effect, Fiber, Result, Schema, Stream } from "effect";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -112,17 +112,17 @@ const runCapabilityProbe = (update: (name: string, patch: Partial<Probe>) => voi
 const runSchemaProbe = async (update: (name: string, patch: Partial<Probe>) => void) => {
   try {
     const valid = fixture("assistant", { _tag: "assistant", text: "hello" });
-    const decoded = Schema.decodeUnknownEither(MessageEnvelope)(valid);
-    const unknown = Schema.decodeUnknownEither(MessageEnvelope)(
+    const decoded = Schema.decodeUnknownResult(MessageEnvelope)(valid);
+    const unknown = Schema.decodeUnknownResult(MessageEnvelope)(
       fixture("mystery", { _tag: "mystery", text: "nope" })
     );
-    if (Either.isLeft(decoded)) {
-      throw new Error(String(decoded.left));
+    if (Result.isFailure(decoded)) {
+      throw new Error(String(decoded.failure));
     }
-    if (Either.isRight(unknown)) {
+    if (Result.isSuccess(unknown)) {
       throw new Error("unknown _tag decoded unexpectedly");
     }
-    Schema.encodeSync(MessageEnvelope)(decoded.right);
+    Schema.encodeSync(MessageEnvelope)(decoded.success);
     update("Schema decode", {
       status: "pass",
       detail: "MessageEnvelope decode/encode passed; unknown _tag failed closed."
@@ -137,12 +137,15 @@ const runEffectProbe = async (update: (name: string, patch: Partial<Probe>) => v
     const values = await Effect.runPromise(
       Stream.range(1, 3).pipe(
         Stream.mapEffect((n) => Effect.succeed(n * 2)),
-        Stream.runCollect,
-        Effect.map(Chunk.toArray)
+        Stream.runCollect
       )
     );
-    const fiber = await Effect.runPromise(Effect.never.pipe(Effect.fork));
-    await Effect.runPromise(Fiber.interrupt(fiber));
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.never.pipe(Effect.forkChild);
+        yield* Fiber.interrupt(fiber);
+      })
+    );
     update("Effect stream", {
       status: "pass",
       detail: `Stream values: ${values.join(", ")}; interrupt passed.`
@@ -157,20 +160,21 @@ const runLiveProbe = async (update: (name: string, patch: Partial<Probe>) => voi
     const client = await Effect.runPromise(
       getConnectionClient({ host: "127.0.0.1", port: 8787 })
     );
-    const ping = await Effect.runPromise(client.ping.ping({}));
-    const projects = await Effect.runPromise(client.workspace.list({}));
+    const ping = await Effect.runPromise(client["ping.ping"]({}));
+    const projects = await Effect.runPromise(client["workspace.list"]({}));
     const firstProject = projects[0];
     let streamDetail = "no sessions available";
     if (firstProject !== undefined) {
       const sessions = await Effect.runPromise(
-        client.session.list({ projectId: firstProject.id })
+        client["session.list"]({ projectId: firstProject.id })
       );
       const firstSession = sessions[0];
       if (firstSession !== undefined) {
         const envelopes = await Effect.runPromise(
-          client.messages
-            .stream({ sessionId: firstSession.id, sinceSequence: 0 })
-            .pipe(Stream.take(3), Stream.runCollect, Effect.map(Chunk.toArray))
+          client["messages.stream"]({
+            sessionId: firstSession.id,
+            sinceSequence: 0,
+          }).pipe(Stream.take(3), Stream.runCollect)
         );
         streamDetail = `session ${firstSession.id}; sequences ${envelopes
           .map((envelope) => envelope.sequence)

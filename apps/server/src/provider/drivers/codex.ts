@@ -1,4 +1,4 @@
-import { Effect, Mailbox, Stream } from "effect";
+import { type Cause, Effect, Queue, Stream } from "effect";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
@@ -22,7 +22,7 @@ import {
   type ThreadGoalSetInput,
   type ThreadGoalStatus,
   type UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AttachmentService } from "../../attachment/services/attachment-service.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
@@ -37,15 +37,15 @@ import {
   startCompactSnapshot,
   type CompactSnapshot,
 } from "./compact.ts";
-import type { ServerNotification } from "../codex-app-protocol/ServerNotification";
-import type { ServerRequest } from "../codex-app-protocol/ServerRequest";
-import type { SandboxPolicy } from "../codex-app-protocol/v2/SandboxPolicy";
-import type { Model } from "../codex-app-protocol/v2/Model";
-import type { ModelListResponse } from "../codex-app-protocol/v2/ModelListResponse";
-import type { AskForApproval } from "../codex-app-protocol/v2/AskForApproval";
-import type { ThreadGoal as CodexThreadGoal } from "../codex-app-protocol/v2/ThreadGoal";
-import type { ThreadItem } from "../codex-app-protocol/v2/ThreadItem";
-import type { UserInput } from "../codex-app-protocol/v2/UserInput";
+import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
+import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import type { SandboxPolicy } from "@zuse/agents/codex-generated/v2/SandboxPolicy";
+import type { Model } from "@zuse/agents/codex-generated/v2/Model";
+import type { ModelListResponse } from "@zuse/agents/codex-generated/v2/ModelListResponse";
+import type { AskForApproval } from "@zuse/agents/codex-generated/v2/AskForApproval";
+import type { ThreadGoal as CodexThreadGoal } from "@zuse/agents/codex-generated/v2/ThreadGoal";
+import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
+import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import {
   BROWSER_MCP_SERVER_NAME,
   browserMcpPromptHint,
@@ -924,7 +924,7 @@ export const startCodexSession = (
 > =>
   Effect.gen(function* () {
     const attachments = yield* AttachmentService;
-    const events = yield* Mailbox.make<AgentEvent>();
+    const events = yield* Queue.make<AgentEvent, Cause.Done>();
     const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
     const statusLog = createCodexStatusLogger(cwd, sessionId);
     let currentMode: PermissionMode = input.permissionMode ?? "default";
@@ -951,7 +951,7 @@ export const startCodexSession = (
     const questionWaiters = new Map<string, QuestionWaiter>();
 
     const emit = (event: AgentEvent): void => {
-      if (!closed) events.unsafeOffer(event);
+      if (!closed) Queue.offerUnsafe(events, event);
     };
 
     emit({
@@ -1878,7 +1878,7 @@ export const startCodexSession = (
     }
 
     return {
-      events: Mailbox.toStream(events),
+      events: Stream.fromQueue(events),
       send: (text, attachmentRefs, fileRefs, skillRefs) =>
         Effect.sync(() => {
           enqueueTurn(
@@ -1909,7 +1909,7 @@ export const startCodexSession = (
           }
           void mcpGatewaySession.close();
           app.close();
-          void Effect.runPromise(events.end);
+          Queue.endUnsafe(events);
         }),
       setPermissionMode: (mode) =>
         Effect.sync(() => {

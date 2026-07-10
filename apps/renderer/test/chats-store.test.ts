@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import type { Chat, ChatId, FolderId, Session, SessionId } from "@zuse/wire";
+import type { Chat, ChatId, FolderId, Session, SessionId } from "@zuse/contracts";
 
 import {
   archiveChatWithConfirm,

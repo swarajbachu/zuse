@@ -16,7 +16,7 @@ import {
   type ProviderId,
   type ProviderUpdateEvent,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ApiKeyRow } from "~/components/api-key-row";
 import { BlurredEmail } from "~/components/blurred-email";
@@ -571,7 +571,7 @@ function useProviderUpdate(providerId: ProviderId) {
   const setProviderUpdateState = useProvidersStore(
     (s) => s.setProviderUpdateState,
   );
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
+  const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
   const resetTimerRef = useRef<number | null>(null);
 
   useEffect(
@@ -604,7 +604,7 @@ function useProviderUpdate(providerId: ProviderId) {
     }
     const fiber = Effect.runFork(
       Stream.runForEach(
-        client.agent.updateProvider({ providerId }),
+        client["agent.updateProvider"]({ providerId }),
         (event: ProviderUpdateEvent) =>
           Effect.sync(() => {
             if (event._tag === "log") {
@@ -641,7 +641,7 @@ function useProviderUpdate(providerId: ProviderId) {
             }
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
             setProviderUpdateState(providerId, {

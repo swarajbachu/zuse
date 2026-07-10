@@ -5,7 +5,7 @@ import {
   type AgentItemId,
   type Message,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { useMessagesStore } from "../store/messages.ts";
 

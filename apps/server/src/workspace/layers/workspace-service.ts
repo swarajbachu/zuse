@@ -1,5 +1,5 @@
-import { FileSystem } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
+import { FileSystem } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 import * as Path from "node:path";
 
@@ -9,7 +9,7 @@ import {
   WorkspaceDuplicatePathError,
   WorkspaceInvalidPathError,
   WorkspaceNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { prepareProjectRegistration } from "../project-registration.ts";
 import { WorkspaceService } from "../services/workspace-service.ts";
@@ -37,7 +37,7 @@ export const WorkspaceServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const fs = yield* FileSystem.FileSystem;
 
-    const list: WorkspaceService["Type"]["list"] = () =>
+    const list: WorkspaceService["Service"]["list"] = () =>
       Effect.gen(function* () {
         const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at
@@ -47,7 +47,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return rows.map(rowToFolder);
       });
 
-    const findById: WorkspaceService["Type"]["findById"] = (folderId) =>
+    const findById: WorkspaceService["Service"]["findById"] = (folderId) =>
       Effect.gen(function* () {
         const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at
@@ -58,7 +58,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return rows.length > 0 ? rowToFolder(rows[0]!) : null;
       });
 
-    const add: WorkspaceService["Type"]["add"] = (rawPath) =>
+    const add: WorkspaceService["Service"]["add"] = (rawPath) =>
       Effect.gen(function* () {
         const resolved = Path.resolve(rawPath);
 
@@ -111,7 +111,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return Folder.make({ id, path: resolved, name, addedAt: now });
       });
 
-    const remove: WorkspaceService["Type"]["remove"] = (folderId) =>
+    const remove: WorkspaceService["Service"]["remove"] = (folderId) =>
       Effect.gen(function* () {
         const existing = yield* sql<{ id: string }>`
           SELECT id FROM projects WHERE id = ${folderId} LIMIT 1
@@ -131,7 +131,7 @@ export const WorkspaceServiceLive = Layer.effect(
         `.pipe(Effect.orDie);
       });
 
-    const getSelected: WorkspaceService["Type"]["getSelected"] = () =>
+    const getSelected: WorkspaceService["Service"]["getSelected"] = () =>
       Effect.gen(function* () {
         const rows = yield* sql<{ value: string }>`
           SELECT value FROM app_state WHERE key = ${SELECTED_KEY} LIMIT 1
@@ -145,7 +145,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return known.length > 0 ? id : null;
       });
 
-    const setSelected: WorkspaceService["Type"]["setSelected"] = (folderId) =>
+    const setSelected: WorkspaceService["Service"]["setSelected"] = (folderId) =>
       Effect.gen(function* () {
         if (folderId === null) {
           yield* sql`DELETE FROM app_state WHERE key = ${SELECTED_KEY}`.pipe(

@@ -63,7 +63,7 @@ const readBundleFile = (): Effect.Effect<
     try: async () => await readFile(authFile(), "utf8"),
     catch: (cause) => failStore("Failed to read auth session.", cause),
   }).pipe(
-    Effect.catchAll((cause) =>
+    Effect.catch((cause) =>
       isNotFound(cause.cause) ? Effect.succeed(null) : Effect.fail(cause),
     ),
     Effect.flatMap((raw) => {
@@ -126,11 +126,11 @@ const readLockRaw = (): Effect.Effect<string | null, never> =>
   Effect.tryPromise({
     try: async () => await readFile(lockFile(), "utf8"),
     catch: (cause) => cause,
-  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+  }).pipe(Effect.catch(() => Effect.succeed(null)));
 
 const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
   ensureAuthDir().pipe(
-    Effect.zipRight(
+    Effect.andThen(
       Effect.tryPromise({
         try: async () => {
           const token = randomUUID();
@@ -148,7 +148,7 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
         catch: (cause) => cause,
       }),
     ),
-    Effect.catchAll((cause) => {
+    Effect.catch((cause) => {
       if (!isExists(cause)) {
         return Effect.fail(
           failStore("Failed to acquire auth session lock.", cause),
@@ -167,7 +167,7 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
               () => null,
             );
             if (current === raw) await unlink(lockFile());
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.catch(() => Effect.void));
         } else {
           yield* Effect.sleep("150 millis");
         }

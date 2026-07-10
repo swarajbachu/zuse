@@ -17,7 +17,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
@@ -27,6 +27,7 @@
     "@repo/typescript-config": "*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

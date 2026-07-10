@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, UsageBucket, UsageReport } from "@zuse/wire";
+import type { FolderId, UsageBucket, UsageReport } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -37,7 +37,7 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     try {
       const client = await getUsageRpcClient();
       const report = await Effect.runPromise(
-        client.usage.report({
+        client["usage.report"]({
           bucket,
           projectId: projectId ?? undefined,
           forceRefresh: opts?.forceRefresh,

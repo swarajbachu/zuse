@@ -8,7 +8,7 @@ import type {
   AgentTurnId,
   ProviderId,
   StartSessionInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { ProviderAdapterError } from "../errors.ts";
 

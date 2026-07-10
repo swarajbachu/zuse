@@ -18,7 +18,7 @@
     "check-types": "tsc --noEmit",
     "dev": "bun src/bin.ts",
     "build:bin": "bun build --compile --outfile dist/zuse-mcp src/bin.ts",
-    "test": "bun test"
+    "test": "vitest run"
   },
   "dependencies": {
     "@zuse/index": "*",
@@ -29,6 +29,7 @@
   "devDependencies": {
     "@repo/typescript-config": "*",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

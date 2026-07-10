@@ -1,13 +1,12 @@
-import { RpcSerialization, RpcServer } from "@effect/rpc";
-import type { FromClientEncoded } from "@effect/rpc/RpcMessage";
+import { IPC_CHANNEL } from "@zuse/contracts";
+import { type Cause, Effect, Layer, Queue, Stream } from "effect";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import type { FromClientEncoded } from "effect/unstable/rpc/RpcMessage";
 import { ipcMain, type WebContents } from "electron";
-import { Effect, Exit, Layer, Mailbox, Stream } from "effect";
-
-import { IPC_CHANNEL } from "@zuse/wire";
 
 /**
  * RpcServer.Protocol implementation for Electron IPC. Modeled on
- * `RpcServer.makeProtocolStdio` in `@effect/rpc`: read incoming frames from a
+ * `RpcServer.makeProtocolStdio` in `effect/unstable/rpc`: read incoming frames from a
  * source, decode via the configured serialization, hand each decoded message
  * to `writeRequest`. For sending, encode + push out via webContents.
  *
@@ -21,24 +20,24 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
   RpcServer.Protocol.make(
     Effect.fnUntraced(function* (writeRequest) {
       const serialization = yield* RpcSerialization.RpcSerialization;
-      const parser = serialization.unsafeMake();
-      const disconnects = yield* Mailbox.make<number>();
+      const parser = serialization.makeUnsafe();
+      const disconnects = yield* Queue.make<number>();
 
       // ---- inbound: ipcMain → writeRequest --------------------------------
       // The renderer pushes encoded RPC frames on IPC_CHANNEL. We can't run
-      // Effects from a synchronous ipc handler, so we shovel into a Mailbox
+      // Effects from a synchronous ipc handler, so we shovel into a Queue
       // and consume that as a Stream.
-      const inbound = yield* Mailbox.make<unknown>();
+      const inbound = yield* Queue.make<unknown, Cause.Done>();
       const handler = (event: Electron.IpcMainEvent, frame: unknown) => {
         if (event.sender.id !== webContents.id) return;
-        inbound.unsafeOffer(frame);
+        Queue.offerUnsafe(inbound, frame);
       };
       yield* Effect.acquireRelease(
         Effect.sync(() => ipcMain.on(IPC_CHANNEL, handler)),
         () => Effect.sync(() => ipcMain.off(IPC_CHANNEL, handler)),
       );
 
-      yield* Mailbox.toStream(inbound).pipe(
+      yield* Stream.fromQueue(inbound).pipe(
         Stream.runForEach((frame) =>
           Effect.suspend(() => {
             const decoded = parser.decode(frame as Uint8Array | string);
@@ -78,11 +77,11 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
       // away its world" signal we want. On the very first load there is
       // no client 0 yet, so the disconnect is a no-op.
       const offerDisconnect = () => {
-        disconnects.unsafeOffer(SINGLE_WINDOW_CLIENT_ID);
+        Queue.offerUnsafe(disconnects, SINGLE_WINDOW_CLIENT_ID);
       };
       const onDestroyed = () => {
         offerDisconnect();
-        inbound.unsafeDone(Exit.void);
+        Queue.endUnsafe(inbound);
       };
       const onStartLoading = () => {
         offerDisconnect();
@@ -125,4 +124,4 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
  * Compose with `RpcSerialization.layerJson` and the RpcServer + handlers.
  */
 export const electronServerProtocolLayer = (webContents: WebContents) =>
-  Layer.scoped(RpcServer.Protocol, makeElectronServerProtocol(webContents));
+  Layer.effect(RpcServer.Protocol, makeElectronServerProtocol(webContents));

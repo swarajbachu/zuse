@@ -30,7 +30,7 @@ import {
   type GitOriginInfo,
   type ProviderId,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { BlurredEmail } from "~/components/blurred-email";
@@ -220,7 +220,7 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
   // subscribe time) would clobber the live `true` flag with whatever's
   // persisted, making the previous session's loader disappear.
   const fibersRef = useRef<
-    Map<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
+    Map<SessionId, Fiber.Fiber<unknown, unknown>>
   >(new Map());
   const idsKey = sessionIds.join(",");
 
@@ -248,7 +248,7 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
           if (tracked.has(id)) continue;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client.session.streamStatus({ sessionId: id }),
+              client["session.streamStatus"]({ sessionId: id }),
               (event) =>
                 Effect.sync(() => {
                   // Capture the prior running flag BEFORE the status update so
@@ -393,7 +393,7 @@ export function ProjectsSidebar() {
       for (const folder of missing) {
         try {
           const info = await Effect.runPromise(
-            client.git.origin({ folderId: folder.id }),
+            client["git.origin"]({ folderId: folder.id }),
           );
           if (cancelled) return;
           setOrigins((prev) => ({ ...prev, [folder.id]: info }));

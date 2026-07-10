@@ -7,7 +7,7 @@ import {
   type WorktreeCreateSource,
   type WorktreeId,
   type WorktreeSetupEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
@@ -124,7 +124,7 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
  * Fibers draining each worktree's live `setupStream`, keyed by worktreeId, so
  * a subscription is started at most once and interrupted on completion/removal.
  */
-const setupFibers = new Map<WorktreeId, Fiber.RuntimeFiber<unknown, unknown>>();
+const setupFibers = new Map<WorktreeId, Fiber.Fiber<unknown, unknown>>();
 const subscribingSetup = new Set<WorktreeId>();
 
 const TERMINAL_SETUP = new Set(["succeeded", "failed", "skipped"]);
@@ -159,7 +159,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     });
     try {
       const client = await getWorktreesRpcClient();
-      const list = await Effect.runPromise(client.worktree.list({ projectId }));
+      const list = await Effect.runPromise(client["worktree.list"]({ projectId }));
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: list },
         loading: (() => {
@@ -189,7 +189,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     try {
       const client = await getWorktreesRpcClient();
       const wt = await Effect.runPromise(
-        client.worktree.create(
+        client["worktree.create"](
           source === undefined ? { projectId } : { projectId, source },
         ),
       );
@@ -237,7 +237,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     try {
       const client = await getWorktreesRpcClient();
       const wt = await Effect.runPromise(
-        client.worktree.rerunSetup({ worktreeId }),
+        client["worktree.rerunSetup"]({ worktreeId }),
       );
       set((s) => {
         const list = s.byProject[projectId] ?? [];
@@ -271,7 +271,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   startRun: async (worktreeId) => {
     try {
       const client = await getWorktreesRpcClient();
-      return await Effect.runPromise(client.worktree.startRun({ worktreeId }));
+      return await Effect.runPromise(client["worktree.startRun"]({ worktreeId }));
     } catch (err) {
       set({ error: formatError(err) });
       return null;
@@ -313,9 +313,8 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
         };
         const fiber = Effect.runFork(
           Stream.runForEach(
-            client.worktree
-              .setupStream({ worktreeId })
-              .pipe(Stream.catchAll(() => Stream.empty)),
+            client["worktree.setupStream"]({ worktreeId })
+              .pipe(Stream.catch(() => Stream.empty)),
             (event) => Effect.sync(() => apply(event)),
           ).pipe(
             Effect.ensuring(
@@ -340,7 +339,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   remove: async (projectId, worktreeId, force) => {
     try {
       const client = await getWorktreesRpcClient();
-      await Effect.runPromise(client.worktree.remove({ worktreeId, force }));
+      await Effect.runPromise(client["worktree.remove"]({ worktreeId, force }));
       get().unsubscribeSetup(worktreeId);
       set((s) => {
         const list = s.byProject[projectId] ?? [];

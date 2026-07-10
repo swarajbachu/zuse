@@ -6,7 +6,7 @@ import {
   type WorkspaceDuplicatePathError,
   type WorkspaceInvalidPathError,
   type WorkspaceNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface WorkspaceServiceShape {
   readonly add: (
@@ -28,7 +28,7 @@ export interface WorkspaceServiceShape {
   ) => Effect.Effect<Folder | null>;
 }
 
-export class WorkspaceService extends Context.Tag("memoize/WorkspaceService")<
+export class WorkspaceService extends Context.Service<
   WorkspaceService,
   WorkspaceServiceShape
->() {}
+>()("memoize/WorkspaceService") {}

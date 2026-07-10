@@ -7,7 +7,7 @@ import type {
   PermissionRequest,
   SavedDecision,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -44,7 +44,7 @@ const formatError = (err: unknown): string => {
   return String(err);
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 // Real guard against double-subscribe. `streamFiber` is only a handle —
 // it must never be used as the latch, since the previous design left it
 // non-null after the stream died and wedged `start()` into a permanent
@@ -86,7 +86,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
         }
       });
       const subscribe = Stream.runForEach(
-        client.permission.requests({}),
+        client["permission.requests"]({}),
         (req) =>
           Effect.sync(() => {
             if (decidedRecently.has(req.id)) return;
@@ -99,8 +99,8 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
       // backoff. Without this the stream dies once (server restart, dev HMR,
       // scope close) and live delivery never recovers. Mirrors the
       // `statusFiber` reset idiom in store/messages.ts.
-      const program = Effect.zipRight(rehydrateKnownSessions, subscribe).pipe(
-        Effect.catchAll(() => Effect.void),
+      const program = Effect.andThen(rehydrateKnownSessions, subscribe).pipe(
+        Effect.catch(() => Effect.void),
         Effect.repeat(Schedule.spaced("2 seconds")),
         Effect.ensuring(
           Effect.sync(() => {
@@ -116,7 +116,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const pending = await Effect.runPromise(
-        client.permission.listPending({ sessionId }),
+        client["permission.listPending"]({ sessionId }),
       );
       set((s) => {
         const next = { ...s.requestsById };
@@ -153,7 +153,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.permission.decide({ requestId, decision }),
+        client["permission.decide"]({ requestId, decision }),
       );
     } catch {
       // The server drops the entry on success; a failed decide leaves it in
@@ -171,7 +171,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const decisions = await Effect.runPromise(
-        client.permission.listDecisions({ projectId }),
+        client["permission.listDecisions"]({ projectId }),
       );
       set((s) => ({
         decisionsByProject: {
@@ -208,7 +208,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.permission.revokeDecision({ requestId }),
+        client["permission.revokeDecision"]({ requestId }),
       );
     } catch {
       if (before !== undefined) {

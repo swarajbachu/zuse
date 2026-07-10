@@ -6,7 +6,7 @@ import type {
   ContextWriteError,
   SessionId,
   SessionNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export type UploadFailure =
   | AttachmentTooLargeError
@@ -61,7 +61,7 @@ export interface AttachmentServiceShape {
   >;
 }
 
-export class AttachmentService extends Context.Tag("memoize/AttachmentService")<
+export class AttachmentService extends Context.Service<
   AttachmentService,
   AttachmentServiceShape
->() {}
+>()("memoize/AttachmentService") {}

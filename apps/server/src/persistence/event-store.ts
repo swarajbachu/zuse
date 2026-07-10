@@ -1,6 +1,6 @@
-import { SqlClient } from "@effect/sql";
-import { SqlError } from "@effect/sql/SqlError";
 import { Effect, Schema } from "effect";
+import type { SqlClient } from "effect/unstable/sql";
+import { SqlError } from "effect/unstable/sql/SqlError";
 
 /**
  * Append-only event store in front of the chat tables (spec: remote
@@ -31,8 +31,8 @@ export const MessagePersistedPayload = Schema.Struct({
 });
 export type MessagePersistedPayload = typeof MessagePersistedPayload.Type;
 
-const decodePayload = Schema.decodeUnknown(
-  Schema.parseJson(MessagePersistedPayload),
+const decodePayload = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(MessagePersistedPayload),
 );
 
 export interface AppendEventInput {
@@ -51,26 +51,14 @@ const APPEND_RETRY_TIMES = 5;
  * (recomputing MAX+1). An `event_id` collision must NOT retry: same input
  * would collide forever.
  *
- * Error shapes differ per driver: node:sqlite throws
- * `{ code: "ERR_SQLITE_ERROR", errcode: 2067, message: "UNIQUE constraint failed: events.stream_kind, ..." }`;
- * bun:sqlite (tests) throws `{ code: "SQLITE_CONSTRAINT_UNIQUE", errno: 2067 }`.
+ * Effect 4's SQLite classifier normalizes native driver failures into a
+ * structured `UniqueViolation`, including the violated columns.
  */
 export const isStreamVersionConflict = (error: unknown): boolean => {
   if (!(error instanceof SqlError)) return false;
-  const cause = error.cause as {
-    readonly code?: string;
-    readonly errcode?: number;
-    readonly errno?: number;
-    readonly message?: string;
-  } | null;
-  if (cause === null || typeof cause !== "object") return false;
-  const isUniqueViolation =
-    cause.errcode === 2067 ||
-    cause.errno === 2067 ||
-    cause.code === "SQLITE_CONSTRAINT_UNIQUE";
   return (
-    isUniqueViolation &&
-    String(cause.message ?? "").includes("events.stream_version")
+    error.reason._tag === "UniqueViolation" &&
+    error.reason.constraint.includes("events.stream_version")
   );
 };
 

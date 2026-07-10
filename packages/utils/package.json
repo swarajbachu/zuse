@@ -1,0 +1,23 @@
+{
+	"name": "@zuse/utils",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./drainable-worker": "./src/drainable-worker.ts",
+		"./keyed-worker": "./src/keyed-worker.ts",
+		"./push-bus": "./src/push-bus.ts",
+		"./readiness": "./src/readiness.ts",
+		"./reaper": "./src/reaper.ts",
+		"./supervisor": "./src/supervisor.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -38,7 +38,7 @@ const fetchPrDetails = async (
   try {
     const client = await getRpcClient();
     return await Effect.runPromise(
-      client.git.prDetails({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.prDetails"]({ folderId, worktreeId: worktreeId ?? null }),
     );
   } catch {
     return null;

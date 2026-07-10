@@ -1,4 +1,4 @@
-import type { PermissionMode } from "@zuse/wire";
+import type { PermissionMode } from "@zuse/contracts";
 
 /**
  * Developer-instructions prefix that emulates plan mode for providers that

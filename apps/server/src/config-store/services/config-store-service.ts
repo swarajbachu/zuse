@@ -5,7 +5,7 @@ import {
   type KeybindingsFile,
   type SettingsFile,
   type SettingsPatch,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * The on-disk source of truth for global settings and user-overridden
@@ -58,6 +58,6 @@ export interface ConfigStoreServiceShape {
   readonly keybindingsChanges: () => Stream.Stream<KeybindingsFile>;
 }
 
-export class ConfigStoreService extends Context.Tag(
+export class ConfigStoreService extends Context.Service<ConfigStoreService, ConfigStoreServiceShape>()(
   "memoize/ConfigStoreService",
-)<ConfigStoreService, ConfigStoreServiceShape>() {}
+) {}

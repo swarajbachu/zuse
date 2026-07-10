@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import type {
   Chat,
@@ -6,7 +6,7 @@ import type {
   Message,
   PermissionRequest,
   Session,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   buildNotchItems,

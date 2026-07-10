@@ -1,4 +1,4 @@
-import type { GitPrInfo } from "@zuse/wire";
+import type { GitPrInfo } from "@zuse/contracts";
 
 export type BranchStateTone = "brand" | "neutral" | "danger" | "success" | "warning";
 

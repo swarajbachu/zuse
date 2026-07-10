@@ -4,7 +4,7 @@ import type {
   PermissionRequest,
   ProviderId,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Whether a provider drives plan mode through the transcript-shape heuristic

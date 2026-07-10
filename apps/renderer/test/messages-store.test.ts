@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Effect, Stream } from "effect";
 
-import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/wire";
+import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/contracts";
 
 const { setMessagesRpcClientForTest, useMessagesStore } =
   await import("../src/store/messages.ts");
@@ -36,27 +36,25 @@ let rpcClientFactory: () => Awaited<
 
 const makeQueueClient = () =>
   ({
-    messages: {
-      interrupt: () =>
+    "messages.interrupt": () =>
         Effect.sync(() => {
           interruptCalls += 1;
         }),
-      "queue.sendNow": (payload: {
+    "messages.queue.sendNow": (payload: {
         readonly sessionId: SessionId;
         readonly queueId: string;
       }) =>
         Effect.sync(() => {
           sendNowCalls.push(payload);
         }),
-      "queue.resume": (payload: { readonly sessionId: SessionId }) =>
+    "messages.queue.resume": (payload: { readonly sessionId: SessionId }) =>
         Effect.sync(() => {
           resumeCalls.push(payload);
         }),
-      "queue.flush": (payload: { readonly sessionId: SessionId }) =>
+    "messages.queue.flush": (payload: { readonly sessionId: SessionId }) =>
         Effect.sync(() => {
           flushCalls.push(payload);
         }),
-    },
   }) as Awaited<
     ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
   >;
@@ -117,16 +115,12 @@ describe("messages store queue actions", () => {
     let streamCalls = 0;
     rpcClientFactory = () =>
       ({
-        messages: {
-          stream: () => {
+        "messages.stream": () => {
             streamCalls += 1;
             return streamCalls === 1 ? Stream.never : Stream.empty;
           },
-          "queue.stream": () => Stream.empty,
-        },
-        session: {
-          streamStatus: () => Stream.empty,
-        },
+        "messages.queue.stream": () => Stream.empty,
+        "session.streamStatus": () => Stream.empty,
       }) as Awaited<
         ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
       >;

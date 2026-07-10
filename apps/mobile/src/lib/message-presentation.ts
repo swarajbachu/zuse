@@ -1,4 +1,4 @@
-import type { Message, MessageContent } from "@zuse/wire";
+import type { Message, MessageContent } from "@zuse/contracts";
 
 export type ToolResultRecord = Extract<MessageContent, { _tag: "tool_result" }>;
 

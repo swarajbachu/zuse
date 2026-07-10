@@ -1,8 +1,8 @@
-import { Effect, Option } from "effect";
 import { copyFile, rename, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, join } from "node:path";
 import type * as NodeSqlite from "node:sqlite";
+import { Effect, Option } from "effect";
 
 export const ZUSE_SQLITE_FILENAME = "zuse.sqlite";
 const LEGACY_MEMOIZE_SQLITE_FILENAME = "memoize.sqlite";
@@ -126,7 +126,7 @@ const newestNonEmptyLegacyDb = (
         if (sizeDiff !== 0) return sizeDiff;
         return b.mtimeMs - a.mtimeMs;
       });
-    return Option.fromNullable(nonEmpty[0]?.path);
+    return Option.fromNullishOr(nonEmpty[0]?.path);
   });
 
 const copyLegacyDb = (

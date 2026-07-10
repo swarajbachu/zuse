@@ -9,7 +9,7 @@ import type {
   PermissionKind,
   PermissionMode,
   RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   BROWSER_MCP_SERVER_NAME,

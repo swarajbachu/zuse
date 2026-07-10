@@ -8,7 +8,7 @@ import {
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 import { Button } from "~/components/ui/button";
 import { useProvidersStore } from "../store/providers.ts";

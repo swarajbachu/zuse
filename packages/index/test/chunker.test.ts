@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
 import { chunkSource } from "../src/chunker/index.ts";

@@ -1,10 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
 import {
   allocatePokemonName,
   type PokemonNameAllocatorInput,
 } from "../src/pokemon/allocator.ts";
-import type { PokemonCatalogEntry } from "../src/pokemon/catalog.ts";
+import type { PokemonCatalogEntry } from "@zuse/pokemon-data";
 
 const catalog = [
   {

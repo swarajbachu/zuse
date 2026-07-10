@@ -1,4 +1,4 @@
-import type { SessionId } from "@zuse/wire";
+import type { SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { create } from "zustand";
 

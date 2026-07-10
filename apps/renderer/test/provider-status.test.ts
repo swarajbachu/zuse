@@ -1,6 +1,17 @@
-import { beforeEach, describe, expect, it } from "bun:test";
+import { Effect } from "effect";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+
+const rpc = vi.hoisted(() => ({
+  availability: vi.fn(),
+}));
+
+vi.mock("../src/lib/rpc-client.ts", () => ({
+  getRpcClient: async () => ({
+    "agent.availability": rpc.availability,
+  }),
+}));
 
 import {
   getProviderSummary,
@@ -66,6 +77,37 @@ describe("provider update state", () => {
 });
 
 describe("provider availability loading", () => {
+  beforeEach(() => {
+    rpc.availability.mockReset();
+    useProvidersStore.setState({
+      availability: [],
+      loading: false,
+      availabilityLoaded: false,
+      error: null,
+    });
+  });
+
+  it("shares concurrent initial loads and reuses the loaded values", async () => {
+    const result = [availabilityFor("codex", "Codex")];
+    rpc.availability.mockReturnValue(Effect.succeed(result));
+
+    const store = useProvidersStore.getState();
+    await Promise.all([store.load(), store.load()]);
+    await useProvidersStore.getState().load();
+
+    expect(rpc.availability).toHaveBeenCalledTimes(1);
+    expect(rpc.availability).toHaveBeenCalledWith({ refresh: false });
+    expect(useProvidersStore.getState().availability).toEqual(result);
+  });
+
+  it("forces a fresh server probe for an explicit refresh", async () => {
+    rpc.availability.mockReturnValue(Effect.succeed([]));
+
+    await useProvidersStore.getState().refresh();
+
+    expect(rpc.availability).toHaveBeenCalledWith({ refresh: true });
+  });
+
   it("only treats global loading as card loading before availability has loaded", () => {
     expect(isInitialProviderAvailabilityLoading(true, false)).toBe(true);
     expect(isInitialProviderAvailabilityLoading(true, true)).toBe(false);

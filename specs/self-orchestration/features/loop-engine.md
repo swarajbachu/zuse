@@ -107,7 +107,7 @@ Reuse `git/layers/git-service.ts`, which already wraps `gh`:
 
 ## Wire / RPC additions (Phase 2)
 
-In `packages/wire/src/loop.ts` (+ handlers, registered in `MemoizeRpcs`):
+In `packages/contracts/src/loop.ts` (+ handlers, registered in `MemoizeRpcs`):
 
 - `loops.list(projectId)`, `loops.get(loopId)`, `loops.streamChanges(projectId)`
 - `loops.create(input)`, `loops.pause(loopId)`, `loops.resume(loopId)`,
@@ -125,7 +125,7 @@ the same `LoopEngineService` methods.
   logic, boot recovery.
 - `apps/server/src/loop/handlers.ts` — `loops.*` RPC handlers.
 - `apps/server/src/persistence/migrations/00NN_loops.ts`.
-- `packages/wire/src/loop.ts` — `Loop`, `LoopKind`, RPC defs.
+- `packages/contracts/src/loop.ts` — `Loop`, `LoopKind`, RPC defs.
 - Renderer: Loops/Activity panel + kill-switch control + spawned-chat badge.
 
 **Modified**

@@ -70,7 +70,7 @@ inherits those improvements without code changes.
 
 ## Consequences
 
-- A small `Skill` schema lives in `packages/wire/src/skill.ts` with
+- A small `Skill` schema lives in `packages/contracts/src/skill.ts` with
   the union of fields both providers report (name, scope, description,
   arguments, optional filePath, providerId). Each driver projects its
   native shape onto this; renderer code never sees provider-native

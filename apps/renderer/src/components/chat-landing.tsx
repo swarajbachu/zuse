@@ -17,7 +17,7 @@ import {
   type ProviderId,
   type WorktreeCreateSource,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import {
@@ -266,7 +266,7 @@ export function ChatLanding() {
       try {
         const client = await getRpcClient();
         const res = await Effect.runPromise(
-          client.git.issueMarkdown({
+          client["git.issueMarkdown"]({
             folderId: selectedFolderId,
             number: sel.number,
           }),
@@ -397,7 +397,7 @@ export function ChatLanding() {
           opts.pendingContextFiles,
           async (pending) => {
             const res = await Effect.runPromise(
-              client.context.saveText({
+              client["context.saveText"]({
                 sessionId,
                 text: pending.text,
                 ext: pending.ext,

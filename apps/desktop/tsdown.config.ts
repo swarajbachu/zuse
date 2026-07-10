@@ -52,42 +52,30 @@ const shared = {
   // inline transpiles it to CJS so the main bundle can call it directly.
   deps: {
     alwaysBundle: [
-      "@zuse/wire",
+      "@zuse/contracts",
       "@zuse/server",
       "@zuse/index",
       "@zuse/ssh",
       "fix-path",
     ],
+    // Native modules whose loader uses `__dirname` / `module.parent.filename`
+    // to locate a `.node` file at runtime — bundling their JS relocates those
+    // anchors and the lookup fails. Keep them external so each is require()'d
+    // from node_modules at runtime.
+    neverBundle: [
+      "electron",
+      "node-pty",
+      "better-sqlite3",
+      "bindings",
+      "keytar",
+      "electron-updater",
+      "tree-sitter",
+      "tree-sitter-typescript",
+      "tree-sitter-javascript",
+      "tree-sitter-json",
+      "bun:sqlite",
+    ],
   },
-  // Native modules whose loader uses `__dirname` / `module.parent.filename`
-  // to locate a `.node` file at runtime — bundling their JS relocates those
-  // anchors and the lookup fails. Keep them external so each is require()'d
-  // from node_modules at runtime. electron-updater is also kept external —
-  // it pulls in a large CommonJS dep graph (lodash, lazy-val, builder-util)
-  // that loads cleanly via Node's resolver but trips bundlers.
-  external: [
-    // `electron` MUST be external. At runtime in the main process,
-    // `require("electron")` is intercepted by Electron itself and returns
-    // app/BrowserWindow/etc. as native bindings. If the bundler instead
-    // inlines the `electron` npm package's index.js, that ships
-    // `getElectronPath()` (which reads node_modules/electron/path.txt to
-    // locate the binary) — at runtime that throws "Electron failed to
-    // install correctly, please delete node_modules/electron…".
-    "electron",
-    "node-pty",
-    "better-sqlite3",
-    "bindings",
-    "keytar",
-    "electron-updater",
-    // Tree-sitter parsers. Each uses node-gyp-build, which resolves its
-    // .node file relative to the calling package's __dirname. Bundling
-    // them inline rebinds __dirname to dist-electron/ and the lookup
-    // explodes with "No native build was found for runtime=electron".
-    "tree-sitter",
-    "tree-sitter-typescript",
-    "tree-sitter-javascript",
-    "tree-sitter-json",
-  ],
 };
 
 export default defineConfig([
@@ -113,9 +101,12 @@ export default defineConfig([
         "../server/src/provider/drivers/acp/browser-mcp-child.ts",
     },
     deps: {
-      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+      alwaysBundle: [
+        "@zuse/contracts",
+        "@zuse/server",
+        "@modelcontextprotocol/sdk",
+      ],
     },
-    external: [],
   },
   {
     ...shared,
@@ -126,8 +117,11 @@ export default defineConfig([
         "../server/src/provider/drivers/acp/orchestration-mcp-child.ts",
     },
     deps: {
-      alwaysBundle: ["@zuse/wire", "@zuse/server", "@modelcontextprotocol/sdk"],
+      alwaysBundle: [
+        "@zuse/contracts",
+        "@zuse/server",
+        "@modelcontextprotocol/sdk",
+      ],
     },
-    external: [],
   },
 ]);

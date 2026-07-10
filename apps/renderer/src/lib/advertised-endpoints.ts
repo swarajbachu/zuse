@@ -1,4 +1,4 @@
-import type { AdvertisedEndpoint } from "@zuse/wire";
+import type { AdvertisedEndpoint } from "@zuse/contracts";
 
 export const DEVICES_ENDPOINT_OVERRIDE_KEY = "zuse.devices.endpointOverride.v1";
 

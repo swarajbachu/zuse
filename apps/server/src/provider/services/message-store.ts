@@ -42,7 +42,7 @@ import type {
   ThreadGoalSetInput,
   UserQuestionAnswer,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Persistence-backed orchestration of chat sessions and their message log.
@@ -511,7 +511,7 @@ export interface MessageStoreShape {
   ) => Effect.Effect<void, SessionNotFoundError>;
 }
 
-export class MessageStore extends Context.Tag("memoize/MessageStore")<
+export class MessageStore extends Context.Service<
   MessageStore,
   MessageStoreShape
->() {}
+>()("memoize/MessageStore") {}

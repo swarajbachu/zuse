@@ -6,7 +6,7 @@ import {
   BrowserCommandResult,
   type BrowserCommand,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   type BrowserBridgeDiagnostics,
@@ -38,7 +38,7 @@ const emptyDiagnostics: BrowserBridgeDiagnostics = {
   missingResponseCount: 0,
 };
 
-export const BrowserBridgeServiceLive = Layer.scoped(
+export const BrowserBridgeServiceLive = Layer.effect(
   BrowserBridgeService,
   Effect.gen(function* () {
     const pubsub = yield* PubSub.bounded<BrowserCommandRequest>(
@@ -122,7 +122,7 @@ export const BrowserBridgeServiceLive = Layer.scoped(
           }),
           Effect.ensuring(
             forget(id).pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 updateDiagnostics((current) => ({
                   ...current,
                   pendingCommandCount: Math.max(
@@ -154,14 +154,14 @@ export const BrowserBridgeServiceLive = Layer.scoped(
       });
 
     const commands: BrowserBridgeServiceShape["commands"] = () =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const dequeue = yield* pubsub.subscribe;
+          const dequeue = yield* PubSub.subscribe(pubsub);
           yield* updateDiagnostics((current) => ({
             ...current,
             connectedRendererCount: current.connectedRendererCount + 1,
           }));
-          return Stream.fromQueue(dequeue).pipe(
+          return Stream.fromSubscription(dequeue).pipe(
             Stream.ensuring(
               updateDiagnostics((current) => ({
                 ...current,

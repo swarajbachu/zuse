@@ -35,7 +35,7 @@ import {
   type ProviderId,
   type RuntimeMode,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   formatRelativeTime,
@@ -479,7 +479,7 @@ function DiagnosticsPane() {
       recordUiAction("diagnostics.export.started");
       const clientContext = await collectDiagnosticsClientContext();
       const result = await Effect.runPromise(
-        client.diagnostics.export({ clientContext }),
+        client["diagnostics.export"]({ clientContext }),
       );
       const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
       if (jsonCopied) markCopied("json");
@@ -622,7 +622,7 @@ function BrowserSettingsPane() {
 
   const load = async () => {
     const client = await getRpcClient();
-    const list = await Effect.runPromise(client.browser.listCredentials({}));
+    const list = await Effect.runPromise(client["browser.listCredentials"]({}));
     setCreds(list.map((c) => ({ origin: c.origin, username: c.username })));
   };
 
@@ -636,7 +636,7 @@ function BrowserSettingsPane() {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.browser.setCredential({
+        client["browser.setCredential"]({
           origin: origin.trim(),
           username: username.trim(),
           password,
@@ -654,7 +654,7 @@ function BrowserSettingsPane() {
   const remove = async (target: string) => {
     const client = await getRpcClient();
     await Effect.runPromise(
-      client.browser.removeCredential({ origin: target }),
+      client["browser.removeCredential"]({ origin: target }),
     );
     await load();
   };
@@ -1252,6 +1252,7 @@ function ProvidersPane() {
   const loading = useProvidersStore((s) => s.loading);
   const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
   const error = useProvidersStore((s) => s.error);
+  const load = useProvidersStore((s) => s.load);
   const refresh = useProvidersStore((s) => s.refresh);
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
@@ -1264,8 +1265,8 @@ function ProvidersPane() {
   // a keychain prompt every time the window regained focus. The manual refresh
   // button covers the occasional "re-check now" case.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load();
+  }, [load]);
 
   const now = useRelativeTimeTick(15_000);
   const lastCheckedAt = useMemo(() => {

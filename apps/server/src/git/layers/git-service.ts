@@ -1,10 +1,15 @@
-import { Command, CommandExecutor, FileSystem, Path } from "@effect/platform";
+import { FileSystem, Path } from "effect";
 import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
+import {
+  Cause,
   Duration,
   Effect,
   Exit,
   Layer,
-  Mailbox,
+  Queue,
   Ref,
   Schedule,
   Stream,
@@ -37,7 +42,7 @@ import {
   type GitPrCheckRunStatus,
   type GitPrReviewState,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
@@ -48,8 +53,8 @@ import {
   parseActionsJobsResponse,
   type ActionsJob,
   type PrCheckRollupEntry,
-} from "../check-runs.ts";
-import { GitService } from "../services/git-service.ts";
+} from "@zuse/git/check-runs";
+import { GitService } from "@zuse/git/git-service";
 
 type GitFailure =
   | GitNotARepoError
@@ -419,7 +424,7 @@ export const GitServiceLive = Layer.effect(
   Effect.gen(function* () {
     const workspace = yield* WorkspaceService;
     const worktrees = yield* WorktreeService;
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
@@ -456,12 +461,12 @@ export const GitServiceLive = Layer.effect(
     const collectText = (
       s: Stream.Stream<
         Uint8Array,
-        import("@effect/platform/Error").PlatformError
+        import("effect/PlatformError").PlatformError
       >,
     ) =>
       s.pipe(
-        Stream.decodeText("utf-8"),
-        Stream.runFold("", (acc, chunk) => acc + chunk),
+        Stream.decodeText({ encoding: "utf-8" }),
+        Stream.runFold(() => "", (acc, chunk) => acc + chunk),
       );
 
     const run = (
@@ -471,10 +476,8 @@ export const GitServiceLive = Layer.effect(
     ) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const cmd = Command.make("git", ...args).pipe(
-            Command.workingDirectory(cwd),
-          );
-          const proc = yield* executor.start(cmd);
+          const cmd = Command.make("git", args, { cwd });
+          const proc = yield* executor.spawn(cmd);
           const stdout = yield* collectText(proc.stdout);
           const stderr = yield* collectText(proc.stderr);
           const exitCode = yield* proc.exitCode;
@@ -494,27 +497,16 @@ export const GitServiceLive = Layer.effect(
           );
         }),
       ).pipe(
-        Effect.catchTags({
-          SystemError: (err) =>
-            err.reason === "NotFound"
-              ? Effect.fail(new GitNotInstalledError({}))
-              : Effect.fail(
-                  new GitCommandError({
-                    folderId,
-                    reason: err.message ?? String(err),
-                  }),
-                ),
-          BadArgument: (err) =>
-            Effect.fail(
-              new GitCommandError({
-                folderId,
-                reason: err.message ?? String(err),
-              }),
-            ),
-        }),
+        Effect.catchTag("PlatformError", (error) =>
+          Effect.fail(
+            error.reason._tag === "NotFound"
+              ? new GitNotInstalledError({})
+              : new GitCommandError({ folderId, reason: error.message }),
+          ),
+        ),
       );
 
-    const log: GitService["Type"]["log"] = (folderId, limit) =>
+    const log: GitService["Service"]["log"] = (folderId, limit) =>
       Effect.flatMap(resolvePath(folderId), (cwd) =>
         run(folderId, cwd, [
           "log",
@@ -523,7 +515,7 @@ export const GitServiceLive = Layer.effect(
         ]).pipe(Effect.map(parseLogOutput)),
       );
 
-    const status: GitService["Type"]["status"] = (folderId, worktreeId) =>
+    const status: GitService["Service"]["status"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         run(folderId, cwd, [
           "status",
@@ -533,7 +525,7 @@ export const GitServiceLive = Layer.effect(
         ]).pipe(Effect.map(parseStatusOutput)),
       );
 
-    const branches: GitService["Type"]["branches"] = (folderId, worktreeId) =>
+    const branches: GitService["Service"]["branches"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const format = "%(refname:short)%00%(HEAD)%00%(upstream:short)";
@@ -552,7 +544,7 @@ export const GitServiceLive = Layer.effect(
         }),
       );
 
-    const switchBranch: GitService["Type"]["switchBranch"] = (
+    const switchBranch: GitService["Service"]["switchBranch"] = (
       folderId,
       branch,
       remote,
@@ -584,7 +576,7 @@ export const GitServiceLive = Layer.effect(
         }),
       );
 
-    const renameBranch: GitService["Type"]["renameBranch"] = (
+    const renameBranch: GitService["Service"]["renameBranch"] = (
       folderId,
       name,
       worktreeId,
@@ -628,7 +620,7 @@ export const GitServiceLive = Layer.effect(
     // `git config user.name` exits non-zero (code 1) when the key is unset.
     // We don't want that to read as a hard failure — an empty author name is
     // a legitimate state — so a GitCommandError collapses to "".
-    const getUserName: GitService["Type"]["getUserName"] = (folderId) =>
+    const getUserName: GitService["Service"]["getUserName"] = (folderId) =>
       Effect.flatMap(resolvePath(folderId), (cwd) =>
         run(folderId, cwd, ["config", "user.name"]).pipe(
           Effect.map((s) => s.trim()),
@@ -645,7 +637,7 @@ export const GitServiceLive = Layer.effect(
 
     // `git remote get-url origin` exits non-zero when no remote is set; we
     // treat the resulting GitCommandError as "no origin" → null.
-    const origin: GitService["Type"]["origin"] = (folderId) =>
+    const origin: GitService["Service"]["origin"] = (folderId) =>
       Effect.flatMap(resolvePath(folderId), (cwd) =>
         run(folderId, cwd, ["remote", "get-url", "origin"]).pipe(
           Effect.map((s) => parseRemoteUrl(s.trim())),
@@ -664,10 +656,8 @@ export const GitServiceLive = Layer.effect(
     ) =>
       Effect.scoped(
         Effect.gen(function* () {
-          const cmd = Command.make("gh", ...args).pipe(
-            Command.workingDirectory(cwd),
-          );
-          const proc = yield* executor.start(cmd);
+          const cmd = Command.make("gh", args, { cwd });
+          const proc = yield* executor.spawn(cmd);
           const stdout = yield* collectText(proc.stdout);
           const stderr = yield* collectText(proc.stderr);
           const exitCode = yield* proc.exitCode;
@@ -680,24 +670,13 @@ export const GitServiceLive = Layer.effect(
           );
         }),
       ).pipe(
-        Effect.catchTags({
-          SystemError: (err) =>
-            err.reason === "NotFound"
-              ? Effect.fail(new GitNotInstalledError({}))
-              : Effect.fail(
-                  new GitCommandError({
-                    folderId,
-                    reason: err.message ?? String(err),
-                  }),
-                ),
-          BadArgument: (err) =>
-            Effect.fail(
-              new GitCommandError({
-                folderId,
-                reason: err.message ?? String(err),
-              }),
-            ),
-        }),
+        Effect.catchTag("PlatformError", (error) =>
+          Effect.fail(
+            error.reason._tag === "NotFound"
+              ? new GitNotInstalledError({})
+              : new GitCommandError({ folderId, reason: error.message }),
+          ),
+        ),
       );
 
     const currentPrView = (
@@ -769,7 +748,7 @@ export const GitServiceLive = Layer.effect(
         return "";
       });
 
-    const prState: GitService["Type"]["prState"] = (folderId, worktreeId) =>
+    const prState: GitService["Service"]["prState"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const empty: GitPrInfo = GitPrInfo.make({
@@ -958,7 +937,7 @@ export const GitServiceLive = Layer.effect(
       checkRuns: [],
     });
 
-    const prDetails: GitService["Type"]["prDetails"] = (folderId, worktreeId) =>
+    const prDetails: GitService["Service"]["prDetails"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const stdout = yield* currentPrView(
@@ -1156,7 +1135,7 @@ export const GitServiceLive = Layer.effect(
         ),
       );
 
-    const listPrs: GitService["Type"]["listPrs"] = (folderId) =>
+    const listPrs: GitService["Service"]["listPrs"] = (folderId) =>
       ghJsonList<{
         number?: number;
         title?: string;
@@ -1192,7 +1171,7 @@ export const GitServiceLive = Layer.effect(
         ),
       );
 
-    const listIssues: GitService["Type"]["listIssues"] = (folderId) =>
+    const listIssues: GitService["Service"]["listIssues"] = (folderId) =>
       ghJsonList<{
         number?: number;
         title?: string;
@@ -1228,7 +1207,7 @@ export const GitServiceLive = Layer.effect(
         ),
       );
 
-    const issueMarkdown: GitService["Type"]["issueMarkdown"] = (
+    const issueMarkdown: GitService["Service"]["issueMarkdown"] = (
       folderId,
       number,
     ) =>
@@ -1301,7 +1280,7 @@ export const GitServiceLive = Layer.effect(
         }),
       );
 
-    const changes: GitService["Type"]["changes"] = (folderId, worktreeId) =>
+    const changes: GitService["Service"]["changes"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         run(folderId, cwd, [
           "status",
@@ -1322,7 +1301,7 @@ export const GitServiceLive = Layer.effect(
      * Patches over 2 MiB are sliced so the renderer never has to handle a
      * tens-of-megabytes diff string.
      */
-    const diff: GitService["Type"]["diff"] = (folderId, p, worktreeId) =>
+    const diff: GitService["Service"]["diff"] = (folderId, p, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const rel = path.isAbsolute(p) ? path.relative(cwd, p) : p;
@@ -1356,14 +1335,14 @@ export const GitServiceLive = Layer.effect(
             // renderer treats new files identically to modifications.
             const exists = yield* fs
               .exists(path.resolve(cwd, rel))
-              .pipe(Effect.catchAll(() => Effect.succeed(false)));
+              .pipe(Effect.catch(() => Effect.succeed(false)));
             if (!exists) {
               return finish("unchanged", "");
             }
             const content = yield* fs
               .readFileString(path.resolve(cwd, rel))
               .pipe(
-                Effect.catchAll((err) =>
+                Effect.catch((err) =>
                   Effect.fail(
                     new GitCommandError({
                       folderId,
@@ -1435,7 +1414,7 @@ export const GitServiceLive = Layer.effect(
           // "(deleted)" context.
           const stillExists = yield* fs
             .exists(path.resolve(cwd, rel))
-            .pipe(Effect.catchAll(() => Effect.succeed(false)));
+            .pipe(Effect.catch(() => Effect.succeed(false)));
           const mode: GitDiffMode = stillExists ? "worktree" : "deleted";
           return finish(mode, patch);
         }),
@@ -1447,7 +1426,7 @@ export const GitServiceLive = Layer.effect(
      * "commit all" UI; matches the GitHub Desktop "Commit Tracked + Untracked"
      * default. Returns the new HEAD sha so the caller can refresh status.
      */
-    const commit: GitService["Type"]["commit"] = (
+    const commit: GitService["Service"]["commit"] = (
       folderId,
       message,
       worktreeId,
@@ -1481,7 +1460,7 @@ export const GitServiceLive = Layer.effect(
      * a freshly-created branch lands on origin without an extra step. The
      * combined stdout+stderr is returned so the renderer can surface it.
      */
-    const push: GitService["Type"]["push"] = (folderId, worktreeId) =>
+    const push: GitService["Service"]["push"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const branch = (yield* run(folderId, cwd, [
@@ -1516,7 +1495,7 @@ export const GitServiceLive = Layer.effect(
      *   disable-auto → cancel a queued auto-merge (`--disable-auto`).
      * The combined stdout is returned so the renderer can surface gh's message.
      */
-    const mergePr: GitService["Type"]["mergePr"] = (
+    const mergePr: GitService["Service"]["mergePr"] = (
       folderId,
       action,
       method,
@@ -1541,7 +1520,7 @@ export const GitServiceLive = Layer.effect(
     /**
      * Flip a draft PR to ready-for-review via `gh pr ready` — no agent.
      */
-    const markReady: GitService["Type"]["markReady"] = (folderId, worktreeId) =>
+    const markReady: GitService["Service"]["markReady"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.map(ghRun(folderId, cwd, ["pr", "ready"]), (output) => ({
           output,
@@ -1554,7 +1533,7 @@ export const GitServiceLive = Layer.effect(
      * `main` so it matches the rest of the app's expectations (commit composer,
      * push). Returns the branch name for the UI to confirm.
      */
-    const init: GitService["Type"]["init"] = (folderId) =>
+    const init: GitService["Service"]["init"] = (folderId) =>
       Effect.flatMap(resolvePath(folderId), (cwd) =>
         run(folderId, cwd, ["init", "-b", "main"]).pipe(
           Effect.as({ branch: "main" }),
@@ -1568,7 +1547,7 @@ export const GitServiceLive = Layer.effect(
      * --worktree`). For renames the original path is restored too, so a
      * `foo → bar` move reverts the deletion of `foo` as well as `bar`.
      */
-    const revertFile: GitService["Type"]["revertFile"] = (
+    const revertFile: GitService["Service"]["revertFile"] = (
       folderId,
       path,
       kind,
@@ -1610,7 +1589,7 @@ export const GitServiceLive = Layer.effect(
      * then remove all untracked files and directories. Destructive and
      * unrecoverable — gated behind a confirm dialog in the renderer.
      */
-    const revertAll: GitService["Type"]["revertAll"] = (folderId, worktreeId) =>
+    const revertAll: GitService["Service"]["revertAll"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           yield* run(folderId, cwd, ["reset", "--hard", "HEAD"]);
@@ -1632,23 +1611,27 @@ export const GitServiceLive = Layer.effect(
         "refs/remotes/origin/HEAD",
       ]).pipe(
         Effect.map((s) => s.trim().replace(/^refs\/remotes\//, "")),
-        Effect.catchAll(() =>
-          Effect.reduce(
-            ["origin/main", "origin/master", "main", "master"],
-            null as string | null,
-            (found, ref) =>
-              found !== null
-                ? Effect.succeed(found)
-                : run(folderId, cwd, [
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    ref,
-                  ]).pipe(
-                    Effect.as(ref),
-                    Effect.catchAll(() => Effect.succeed(null)),
-                  ),
-          ),
+        Effect.catch(() =>
+          Effect.gen(function* () {
+            for (const ref of [
+              "origin/main",
+              "origin/master",
+              "main",
+              "master",
+            ]) {
+              const found = yield* run(folderId, cwd, [
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                ref,
+              ]).pipe(
+                Effect.as(ref as string | null),
+                Effect.catch(() => Effect.succeed(null)),
+              );
+              if (found !== null) return found;
+            }
+            return null;
+          }),
         ),
       );
 
@@ -1658,7 +1641,7 @@ export const GitServiceLive = Layer.effect(
      * numstat columns) are skipped. Any git failure degrades to zeros so the
      * sidebar never breaks on an odd repo state.
      */
-    const diffStat: GitService["Type"]["diffStat"] = (folderId, worktreeId) =>
+    const diffStat: GitService["Service"]["diffStat"] = (folderId, worktreeId) =>
       Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
         Effect.gen(function* () {
           const base = yield* detectBaseRef(folderId, cwd);
@@ -1670,7 +1653,7 @@ export const GitServiceLive = Layer.effect(
               "HEAD",
             ]).pipe(
               Effect.map((s) => s.trim()),
-              Effect.catchAll(() => Effect.succeed("")),
+              Effect.catch(() => Effect.succeed("")),
             );
             if (mergeBase.length > 0) from = mergeBase;
           }
@@ -1687,9 +1670,7 @@ export const GitServiceLive = Layer.effect(
           }
           return { additions, deletions };
         }).pipe(
-          Effect.catchTag("GitCommandError", () =>
-            Effect.succeed({ additions: 0, deletions: 0 }),
-          ),
+          Effect.catch(() => Effect.succeed({ additions: 0, deletions: 0 })),
         ),
       );
 
@@ -1705,7 +1686,7 @@ export const GitServiceLive = Layer.effect(
      * `gh run view <id> --log-failed`, concatenate with a header, and write
      * a single artifact.
      */
-    const fixFailingChecks: GitService["Type"]["fixFailingChecks"] = (
+    const fixFailingChecks: GitService["Service"]["fixFailingChecks"] = (
       folderId,
       worktreeId,
     ) =>
@@ -1787,7 +1768,7 @@ export const GitServiceLive = Layer.effect(
 
           const dir = path.join(cwd, ".zuse");
           yield* fs.makeDirectory(dir, { recursive: true }).pipe(
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.fail(
                 new GitCommandError({
                   folderId,
@@ -1808,7 +1789,7 @@ export const GitServiceLive = Layer.effect(
           const relPath = `.zuse/${fileName}`;
 
           yield* fs.writeFileString(absPath, `${header}\n${body}`).pipe(
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.fail(
                 new GitCommandError({
                   folderId,
@@ -1827,15 +1808,15 @@ export const GitServiceLive = Layer.effect(
       );
 
     // Per-subscription stream: a forked fiber polls HEAD every 2s and pushes
-    // into a Mailbox only when the SHA changes. The fiber is scoped to the
+    // into a Queue only when the SHA changes. The fiber is scoped to the
     // stream's lifetime, so interrupting the renderer's subscription stops
     // the polling.
-    const subscribeHeadChanges: GitService["Type"]["subscribeHeadChanges"] = (
+    const subscribeHeadChanges: GitService["Service"]["subscribeHeadChanges"] = (
       folderId,
     ) =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const mailbox = yield* Mailbox.make<
+          const mailbox = yield* Queue.make<
             { readonly sha: string },
             GitFailure
           >();
@@ -1846,19 +1827,21 @@ export const GitServiceLive = Layer.effect(
             const prev = yield* Ref.get(lastSha);
             if (sha !== prev) {
               yield* Ref.set(lastSha, sha);
-              mailbox.unsafeOffer({ sha });
+              Queue.offerUnsafe(mailbox, { sha });
             }
           });
 
           yield* Effect.forkScoped(
             Effect.repeat(tick, Schedule.spaced(Duration.seconds(2))).pipe(
-              Effect.catchAll((err) =>
-                Effect.sync(() => mailbox.unsafeDone(Exit.fail(err))),
+              Effect.catch((err) =>
+                Effect.sync(() =>
+                  Queue.failCauseUnsafe(mailbox, Cause.fail(err)),
+                ),
               ),
             ),
           );
 
-          return Mailbox.toStream(mailbox);
+          return Stream.fromQueue(mailbox);
         }),
       );
 

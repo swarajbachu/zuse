@@ -7,7 +7,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Effect } from "effect";
 
-import type { Chat, FolderId } from "@zuse/wire";
+import type { Chat, FolderId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -47,7 +47,7 @@ export function ArchivedChatsPage({
     try {
       const client = await getRpcClient();
       const chats = await Effect.runPromise(
-        client.chat.list({ projectId, includeArchived: true }),
+        client["chat.list"]({ projectId, includeArchived: true }),
       );
       setArchived(
         chats

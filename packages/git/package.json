@@ -1,0 +1,23 @@
+{
+	"name": "@zuse/git",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./check-runs": "./src/check-runs.ts",
+		"./git-service": "./src/git-service.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@zuse/contracts": "*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

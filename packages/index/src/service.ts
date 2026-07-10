@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Mailbox, Ref, Stream } from "effect";
+import { Context, Effect, Layer, Queue, Ref, Stream } from "effect";
 import { join } from "node:path";
 
 import { closeIndexDb, openIndexDb, type IndexDb } from "./db/sqlite.ts";
@@ -28,10 +28,10 @@ export interface IndexConfig {
   readonly dbPath?: string;
 }
 
-export class IndexConfigTag extends Context.Tag("memoize/IndexConfig")<
+export class IndexConfigTag extends Context.Service<
   IndexConfigTag,
   IndexConfig
->() {}
+>()("memoize/IndexConfig") {}
 
 interface InternalState {
   readonly state: IndexStatus["state"];
@@ -47,7 +47,7 @@ interface InternalState {
  * Phase E will add a watcher that calls `reindex` on a debounce; for
  * Phase A, callers (tests, the manual debug command) call it directly.
  */
-export const IndexServiceLive = Layer.scoped(
+export const IndexServiceLive = Layer.effect(
   IndexService,
   Effect.gen(function* () {
     const config = yield* IndexConfigTag;
@@ -71,7 +71,7 @@ export const IndexServiceLive = Layer.scoped(
     // and `unsafeOffer` into all live subscribers. A subscriber receives the
     // current value on subscribe so there's no race with the first transition.
     const subscribers = yield* Ref.make<
-      ReadonlyArray<Mailbox.Mailbox<IndexStatus>>
+      ReadonlyArray<Queue.Queue<IndexStatus>>
     >([]);
 
     const branchOr = (b?: string): string => b ?? config.branch;
@@ -94,7 +94,7 @@ export const IndexServiceLive = Layer.scoped(
           stats,
         } satisfies IndexStatus;
       }).pipe(
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.succeed<IndexStatus>({
             state: "error",
             branch: config.branch,
@@ -107,23 +107,25 @@ export const IndexServiceLive = Layer.scoped(
     const publishCurrent: Effect.Effect<void> = Effect.gen(function* () {
       const snapshot = yield* computeStatus();
       const subs = yield* Ref.get(subscribers);
-      for (const m of subs) m.unsafeOffer(snapshot);
+      yield* Effect.forEach(subs, (queue) => Queue.offer(queue, snapshot), {
+        discard: true,
+      });
     });
 
     const setState = (next: InternalState): Effect.Effect<void> =>
-      Ref.set(stateRef, next).pipe(Effect.zipRight(publishCurrent));
+      Ref.set(stateRef, next).pipe(Effect.andThen(publishCurrent));
 
-    const statusStream: Stream.Stream<IndexStatus> = Stream.unwrapScoped(
+    const statusStream: Stream.Stream<IndexStatus> = Stream.unwrap(
       Effect.gen(function* () {
-        const mailbox = yield* Mailbox.make<IndexStatus>();
+        const mailbox = yield* Queue.make<IndexStatus>();
         yield* Effect.addFinalizer(() =>
           Ref.update(subscribers, (xs) => xs.filter((m) => m !== mailbox)),
         );
         yield* Ref.update(subscribers, (xs) => [...xs, mailbox]);
         // Seed with the current snapshot so a fresh subscriber doesn't race.
         const snapshot = yield* computeStatus();
-        mailbox.unsafeOffer(snapshot);
-        return Mailbox.toStream(mailbox);
+        yield* Queue.offer(mailbox, snapshot);
+        return Stream.fromQueue(mailbox);
       }),
     );
 
@@ -144,7 +146,7 @@ export const IndexServiceLive = Layer.scoped(
         });
         return yield* computeStatus();
       }).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.gen(function* () {
             yield* Effect.logError("index reindex failed", err);
             yield* setState({ state: "error", progress: null });
@@ -169,4 +171,3 @@ export const IndexServiceLive = Layer.scoped(
     });
   }),
 );
-

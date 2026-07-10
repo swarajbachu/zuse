@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 
-import type { ChatId, Session, SessionId } from "@zuse/wire";
+import type { ChatId, Session, SessionId } from "@zuse/contracts";
 
 import { activeChatId, orderedChatTabs } from "../src/lib/tab-order.ts";
 

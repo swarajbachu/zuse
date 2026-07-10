@@ -1,5 +1,5 @@
-import { SqlClient } from "@effect/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { SqlClient } from "effect/unstable/sql";
+import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
 import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,11 +11,11 @@ import type {
   FolderId,
   StartSessionInput,
   WorktreeId,
-} from "@zuse/wire";
-import { RepositorySettings, Worktree } from "@zuse/wire";
+} from "@zuse/contracts";
+import { RepositorySettings, Worktree } from "@zuse/contracts";
 
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
-import { GitService } from "../../src/git/services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
@@ -241,7 +241,7 @@ const makeRuntime = (
     publish: () => Effect.void,
   });
 
-  const SqlLive = SqliteClient.layer({ filename: dbPath });
+  const SqlLive = sqliteLayer({ filename: dbPath });
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
@@ -323,9 +323,10 @@ export const assertEventsAcceptedByMessageStore = async (
       return { providerMessages, session };
     }).pipe(
       Effect.retry(
-        Schedule.spaced("10 millis").pipe(
-          Schedule.intersect(Schedule.recurs(100)),
-        ),
+        Schedule.max([
+          Schedule.spaced("10 millis"),
+          Schedule.recurs(100),
+        ]),
       ),
     );
 

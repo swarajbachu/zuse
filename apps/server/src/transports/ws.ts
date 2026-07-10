@@ -1,13 +1,13 @@
+import * as http from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
+import { Effect, Layer, Schema } from "effect";
 import {
   HttpRouter,
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from "@effect/platform";
-import { NodeHttpServer } from "@effect/platform-node";
-import { RpcSerialization, RpcServer } from "@effect/rpc";
-import { Effect, Layer, Schema } from "effect";
-import * as http from "node:http";
+} from "effect/unstable/http";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import {
   LanAuthService,
@@ -17,10 +17,7 @@ import {
 
 const PairRequest = Schema.Struct({ code: Schema.String });
 
-type WsDiagnostic = (
-  event: string,
-  fields?: Record<string, unknown>,
-) => void;
+type WsDiagnostic = (event: string, fields?: Record<string, unknown>) => void;
 
 const json = (body: unknown, status: number) =>
   HttpServerResponse.json(body, { status }).pipe(Effect.orDie);
@@ -40,20 +37,22 @@ const bearerFromRequest = (
 const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
   Effect.gen(function* () {
     const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
-      Effect.catchAll(() => Effect.fail("bad_request" as const)),
+      Effect.catch(() => Effect.fail("bad_request" as const)),
     );
     yield* Effect.sync(() => log("ws.pair.redeem.start"));
-    const redeemed = yield* auth.redeemPairingCode(body.code).pipe(
-      Effect.mapError((error) =>
-        error instanceof PairingRedeemError ? error.reason : "internal",
-      ),
-    );
+    const redeemed = yield* auth
+      .redeemPairingCode(body.code)
+      .pipe(
+        Effect.mapError((error) =>
+          error instanceof PairingRedeemError ? error.reason : "internal",
+        ),
+      );
     yield* Effect.sync(() =>
       log("ws.pair.redeem.ok", { environmentId: redeemed.environmentId }),
     );
     return yield* json(redeemed, 200);
   }).pipe(
-    Effect.catchAll((error) => {
+    Effect.catch((error) => {
       log("ws.pair.redeem.fail", { reason: error });
       if (error === "expired_code") {
         return json({ error }, 410);
@@ -80,7 +79,7 @@ export const wsServerProtocolLayer = (opts: {
   readonly host?: string;
   readonly onDiagnostic?: WsDiagnostic;
 }): Layer.Layer<RpcServer.Protocol, never, LanAuthService> =>
-  Layer.scoped(
+  Layer.effect(
     RpcServer.Protocol,
     Effect.gen(function* () {
       const auth = yield* LanAuthService;
@@ -94,8 +93,8 @@ export const wsServerProtocolLayer = (opts: {
         }),
       );
 
-      const { protocol, httpApp } =
-        yield* RpcServer.makeProtocolWithHttpAppWebsocket;
+      const { protocol, httpEffect } =
+        yield* RpcServer.makeProtocolWithHttpEffectWebsocket;
 
       const guarded = Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
@@ -108,7 +107,11 @@ export const wsServerProtocolLayer = (opts: {
           }),
         );
         if (auth.policy === "protected") {
-          const ok = token !== null && (yield* auth.verifyToken(token));
+          const ok =
+            token !== null &&
+            (yield* auth
+              .verifyToken(token)
+              .pipe(Effect.orElseSucceed(() => false)));
           yield* Effect.sync(() =>
             log(ok ? "ws.auth.ok" : "ws.auth.fail", {
               url: request.url,
@@ -117,18 +120,19 @@ export const wsServerProtocolLayer = (opts: {
           );
           if (!ok) return yield* json({ error: "unauthorized" }, 401);
         }
-        return yield* httpApp;
+        return yield* httpEffect;
       });
 
-      const router = HttpRouter.empty.pipe(
-        HttpRouter.get("/", guarded),
-        // Existing relay deployments and previously linked environments may
-        // still advertise `/rpc`. Keep accepting it while newer links use `/`.
-        HttpRouter.get("/rpc", guarded),
-        HttpRouter.post("/pair", pairApp(auth, log)),
-      );
+      const router = yield* HttpRouter.make;
+      yield* router.add("GET", "/", guarded);
+      // Existing relay deployments and previously linked environments may
+      // still advertise `/rpc`. Keep accepting it while newer links use `/`.
+      yield* router.add("GET", "/rpc", guarded);
+      yield* router.add("POST", "/pair", pairApp(auth, log));
 
-      yield* HttpServer.serveEffect(router).pipe(Effect.forkScoped);
+      yield* HttpServer.serveEffect(router.asHttpEffect()).pipe(
+        Effect.forkScoped,
+      );
       yield* Effect.sync(() =>
         log("ws.bind.ok", {
           host: opts.host ?? "127.0.0.1",

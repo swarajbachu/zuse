@@ -2,7 +2,7 @@ import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, SessionId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -25,7 +25,7 @@ export function useSidebarMessageStatusSubscriptions(
   sessionIds: ReadonlyArray<SessionId>,
 ) {
   const fibersRef = useRef<
-    Map<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
+    Map<SessionId, Fiber.Fiber<unknown, unknown>>
   >(new Map());
   const idsKey = sessionIds.join(",");
 
@@ -61,7 +61,7 @@ export function useSidebarMessageStatusSubscriptions(
               : undefined;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client.messages.stream({ sessionId: id, sinceSequence }),
+              client["messages.stream"]({ sessionId: id, sinceSequence }),
               (envelope) =>
                 Effect.sync(() => {
                   const { sequence, message } = envelope;

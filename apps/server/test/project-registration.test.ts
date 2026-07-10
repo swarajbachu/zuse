@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { SqlClient } from "@effect/sql";
-import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { NodeContext } from "@effect/platform-node";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
+import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { NodeServices } from "@effect/platform-node";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -115,12 +115,12 @@ describe("WorkspaceServiceLive project registration", () => {
 
   beforeEach(async () => {
     dir = await fs.mkdtemp(Path.join(os.tmpdir(), "zuse-workspace-add-"));
-    const SqlLive = SqliteClient.layer({ filename: ":memory:" });
+    const SqlLive = sqliteLayer({ filename: ":memory:" });
     const TestLayer = Layer.mergeAll(
       SqlLive,
       WorkspaceServiceLive.pipe(
         Layer.provide(SqlLive),
-        Layer.provide(NodeContext.layer),
+        Layer.provide(NodeServices.layer),
       ),
     );
     runtime = ManagedRuntime.make(TestLayer);

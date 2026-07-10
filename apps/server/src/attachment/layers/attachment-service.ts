@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { FileSystem, Path } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
+import { FileSystem, Path } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 
-import { AttachmentTooLargeError, ContextWriteError } from "@zuse/wire";
+import { AttachmentTooLargeError, ContextWriteError } from "@zuse/contracts";
 
 import { AppPaths } from "../../app-paths.ts";
 import {
@@ -40,7 +40,7 @@ const blobFilename = (id: string, ext: string): string => `${id}.${ext}`;
 const sanitizeExt = (ext: string): string =>
   ext.replace(/[^a-zA-Z0-9]+/g, "").slice(0, 12) || "txt";
 
-export const AttachmentServiceLive = Layer.scoped(
+export const AttachmentServiceLive = Layer.effect(
   AttachmentService,
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;

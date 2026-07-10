@@ -16,7 +16,7 @@ import type {
   FolderId,
   SessionId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 
