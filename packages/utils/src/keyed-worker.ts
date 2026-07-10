@@ -1,3 +1,4 @@
+import { Effect, Semaphore } from "effect";
 import { DrainableWorker, WorkerClosedError } from "./drainable-worker.js";
 
 type Waiter<A> = {
@@ -118,5 +119,38 @@ export class KeyedSerialWorker<K> {
 	async close(): Promise<void> {
 		this.accepting = false;
 		await this.drain();
+	}
+}
+
+type EffectSerialEntry = {
+	readonly semaphore: Semaphore.Semaphore;
+	users: number;
+};
+
+/** Effect-native keyed FIFO serialization with typed errors and interruption. */
+export class KeyedEffectSerialWorker<K> {
+	private readonly entries = new Map<K, EffectSerialEntry>();
+
+	run<A, E, R>(key: K, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> {
+		return Effect.acquireUseRelease(
+			Effect.sync(() => {
+				const current = this.entries.get(key);
+				if (current !== undefined) {
+					current.users += 1;
+					return current;
+				}
+				const created = { semaphore: Semaphore.makeUnsafe(1), users: 1 };
+				this.entries.set(key, created);
+				return created;
+			}),
+			(entry) => entry.semaphore.withPermits(1)(effect),
+			(entry) =>
+				Effect.sync(() => {
+					entry.users -= 1;
+					if (entry.users === 0 && this.entries.get(key) === entry) {
+						this.entries.delete(key);
+					}
+				}),
+		);
 	}
 }

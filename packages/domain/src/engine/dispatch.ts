@@ -1,5 +1,5 @@
-import { KeyedSerialWorker } from "@zuse/utils/keyed-worker";
-import { Result } from "effect";
+import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
+import { Effect, Result, Schema } from "effect";
 
 import type { SessionCommand } from "../core/commands.js";
 import { type DomainError, decide } from "../core/decider.js";
@@ -43,50 +43,53 @@ export type AppendInput = {
 	}[];
 };
 
-export interface DispatchStorage {
-	receipt(commandId: string): Promise<CommandReceipt | null>;
-	events(streamId: string): Promise<readonly StoredEvent[]>;
-	append(input: AppendInput): Promise<CommandReceipt>;
+export interface DispatchStorage<StorageError = never> {
+	receipt(
+		commandId: string,
+	): Effect.Effect<CommandReceipt | null, StorageError>;
+	events(streamId: string): Effect.Effect<readonly StoredEvent[], StorageError>;
+	append(input: AppendInput): Effect.Effect<CommandReceipt, StorageError>;
 }
 
-export class ConcurrencyConflict extends Error {
-	readonly _tag = "ConcurrencyConflict";
-	constructor(
-		readonly streamId: string,
-		readonly expectedVersion: number,
-		readonly actualVersion: number,
-	) {
-		super(
-			`stream ${streamId} expected version ${expectedVersion}, got ${actualVersion}`,
-		);
-	}
-}
+export class ConcurrencyConflict extends Schema.TaggedErrorClass<ConcurrencyConflict>()(
+	"ConcurrencyConflict",
+	{
+		streamId: Schema.String,
+		expectedVersion: Schema.Number,
+		actualVersion: Schema.Number,
+	},
+) {}
 
-export class DispatchEngine {
-	private readonly worker = new KeyedSerialWorker<string>();
+export class DispatchEngine<StorageError = never> {
+	private readonly worker = new KeyedEffectSerialWorker<string>();
 
 	constructor(
-		private readonly storage: DispatchStorage,
+		private readonly storage: DispatchStorage<StorageError>,
 		private readonly makeEventId: () => string,
 	) {}
 
-	dispatch(input: DispatchInput): Promise<CommandReceipt> {
-		return this.worker.run(input.streamId, () => this.run(input));
+	dispatch(
+		input: DispatchInput,
+	): Effect.Effect<CommandReceipt, DispatchFailure<StorageError>> {
+		return this.worker.run(input.streamId, this.run(input));
 	}
 
-	private async run(input: DispatchInput): Promise<CommandReceipt> {
-		const existing = await this.storage.receipt(input.commandId);
+	private readonly run = Effect.fn("DispatchEngine.run")(function* (
+		this: DispatchEngine<StorageError>,
+		input: DispatchInput,
+	) {
+		const existing = yield* this.storage.receipt(input.commandId);
 		if (existing !== null) return existing;
 
-		const stored = await this.storage.events(input.streamId);
+		const stored = yield* this.storage.events(input.streamId);
 		const state = evolveAll(
 			initialSessionState,
 			stored.map((record) => record.event),
 		);
 		const decision = decide(state, input.command);
-		if (Result.isFailure(decision)) throw decision.failure;
+		if (Result.isFailure(decision)) return yield* decision.failure;
 
-		return this.storage.append({
+		return yield* this.storage.append({
 			commandId: input.commandId,
 			streamId: input.streamId,
 			correlationId: input.correlationId ?? input.commandId,
@@ -97,62 +100,70 @@ export class DispatchEngine {
 				event,
 			})),
 		});
-	}
+	});
 }
 
-export class InMemoryDispatchStorage implements DispatchStorage {
+export class InMemoryDispatchStorage
+	implements DispatchStorage<ConcurrencyConflict>
+{
 	private readonly eventLog: StoredEvent[] = [];
 	private readonly receipts = new Map<string, CommandReceipt>();
 
-	receipt(commandId: string): Promise<CommandReceipt | null> {
-		return Promise.resolve(this.receipts.get(commandId) ?? null);
+	receipt(commandId: string): Effect.Effect<CommandReceipt | null> {
+		return Effect.sync(() => this.receipts.get(commandId) ?? null);
 	}
 
-	events(streamId: string): Promise<readonly StoredEvent[]> {
-		return Promise.resolve(this.eventsFor(streamId));
+	events(streamId: string): Effect.Effect<readonly StoredEvent[]> {
+		return Effect.sync(() => this.eventsFor(streamId));
 	}
 
 	eventsFor(streamId: string): readonly StoredEvent[] {
 		return this.eventLog.filter((record) => record.streamId === streamId);
 	}
 
-	append(input: AppendInput): Promise<CommandReceipt> {
-		const existing = this.receipts.get(input.commandId);
-		if (existing !== undefined) return Promise.resolve(existing);
-		const actualVersion = this.eventsFor(input.streamId).length;
-		if (actualVersion !== input.expectedVersion) {
-			return Promise.reject(
-				new ConcurrencyConflict(
-					input.streamId,
-					input.expectedVersion,
+	append(
+		input: AppendInput,
+	): Effect.Effect<CommandReceipt, ConcurrencyConflict> {
+		const storage = this;
+		return Effect.gen(function* () {
+			const existing = storage.receipts.get(input.commandId);
+			if (existing !== undefined) return existing;
+			const actualVersion = storage.eventsFor(input.streamId).length;
+			if (actualVersion !== input.expectedVersion) {
+				return yield* new ConcurrencyConflict({
+					streamId: input.streamId,
+					expectedVersion: input.expectedVersion,
 					actualVersion,
-				),
-			);
-		}
-		const eventIds: string[] = [];
-		let streamVersion = input.expectedVersion;
-		for (const item of input.events) {
-			eventIds.push(item.eventId);
-			streamVersion += 1;
-			this.eventLog.push({
-				eventId: item.eventId,
-				correlationId: input.correlationId,
-				causationEventId: input.causationEventId,
+				});
+			}
+			const eventIds: string[] = [];
+			let streamVersion = input.expectedVersion;
+			for (const item of input.events) {
+				eventIds.push(item.eventId);
+				streamVersion += 1;
+				storage.eventLog.push({
+					eventId: item.eventId,
+					correlationId: input.correlationId,
+					causationEventId: input.causationEventId,
+					streamId: input.streamId,
+					streamVersion,
+					sequence: storage.eventLog.length + 1,
+					event: item.event,
+				});
+			}
+			const receipt: CommandReceipt = {
+				commandId: input.commandId,
 				streamId: input.streamId,
 				streamVersion,
-				sequence: this.eventLog.length + 1,
-				event: item.event,
-			});
-		}
-		const receipt: CommandReceipt = {
-			commandId: input.commandId,
-			streamId: input.streamId,
-			streamVersion,
-			eventIds,
-		};
-		this.receipts.set(input.commandId, receipt);
-		return Promise.resolve(receipt);
+				eventIds,
+			};
+			storage.receipts.set(input.commandId, receipt);
+			return receipt;
+		});
 	}
 }
 
-export type DispatchFailure = DomainError | ConcurrencyConflict;
+export type DispatchFailure<StorageError = never> =
+	| DomainError
+	| ConcurrencyConflict
+	| StorageError;

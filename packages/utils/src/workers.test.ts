@@ -1,7 +1,12 @@
+import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { DrainableWorker, WorkerClosedError } from "./drainable-worker.js";
-import { KeyedCoalescingWorker, KeyedSerialWorker } from "./keyed-worker.js";
+import {
+	KeyedCoalescingWorker,
+	KeyedEffectSerialWorker,
+	KeyedSerialWorker,
+} from "./keyed-worker.js";
 
 const deferred = <A>() => {
 	let resolve!: (value: A) => void;
@@ -122,6 +127,59 @@ describe("KeyedSerialWorker", () => {
 			"a:first:end",
 			"a:second",
 			"a:third",
+		]);
+	});
+});
+
+describe("KeyedEffectSerialWorker", () => {
+	test("preserves same-key FIFO order and typed Effect failures", async () => {
+		const calls: string[] = [];
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const worker = new KeyedEffectSerialWorker<string>();
+				const gate = yield* Deferred.make<void>();
+				const first = worker.run(
+					"a",
+					Effect.gen(function* () {
+						calls.push("a:first:start");
+						yield* Deferred.await(gate);
+						calls.push("a:first:end");
+						return "first";
+					}),
+				);
+				const second = worker.run(
+					"a",
+					Effect.sync(() => {
+						calls.push("a:second");
+						return "second";
+					}),
+				);
+				const other = worker.run(
+					"b",
+					Effect.sync(() => {
+						calls.push("b:first");
+						return "other";
+					}),
+				);
+				const joined = Effect.all([first, second, other], {
+					concurrency: "unbounded",
+				});
+				const fiber = yield* joined.pipe(
+					Effect.forkChild({ startImmediately: true }),
+				);
+				yield* Effect.yieldNow;
+				expect(calls).toEqual(["a:first:start", "b:first"]);
+				yield* Deferred.succeed(gate, undefined);
+				return yield* Fiber.join(fiber);
+			}),
+		);
+
+		expect(result).toEqual(["first", "second", "other"]);
+		expect(calls).toEqual([
+			"a:first:start",
+			"b:first",
+			"a:first:end",
+			"a:second",
 		]);
 	});
 });

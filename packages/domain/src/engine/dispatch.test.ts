@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import type { SessionCommand } from "../core/commands.js";
 import { DispatchEngine, InMemoryDispatchStorage } from "./dispatch.js";
@@ -10,22 +11,29 @@ const create: SessionCommand = {
 	createdAt: 1,
 };
 
+const run = Effect.runPromise;
+
 describe("DispatchEngine", () => {
 	test("returns the original receipt when a command is re-dispatched", async () => {
 		const storage = new InMemoryDispatchStorage();
 		let nextId = 0;
 		const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
 
-		const first = await engine.dispatch({
-			commandId: "command-1",
-			streamId: "session-1",
-			command: create,
-		});
-		const replay = await engine.dispatch({
-			commandId: "command-1",
-			streamId: "session-1",
-			command: create,
-		});
+		const [first, replay] = await run(
+			Effect.gen(function* () {
+				const first = yield* engine.dispatch({
+					commandId: "command-1",
+					streamId: "session-1",
+					command: create,
+				});
+				const replay = yield* engine.dispatch({
+					commandId: "command-1",
+					streamId: "session-1",
+					command: create,
+				});
+				return [first, replay] as const;
+			}),
+		);
 
 		expect(replay).toEqual(first);
 		expect(first.eventIds).toEqual(["event-1"]);
@@ -53,11 +61,9 @@ describe("DispatchEngine", () => {
 			command: { _tag: "SetTitle", title: "Renamed again" },
 		});
 
-		const [createReceipt, titleReceipt, retitleReceipt] = await Promise.all([
-			created,
-			titled,
-			retitled,
-		]);
+		const [createReceipt, titleReceipt, retitleReceipt] = await run(
+			Effect.all([created, titled, retitled], { concurrency: "unbounded" }),
+		);
 		expect(createReceipt.streamVersion).toBe(1);
 		expect(titleReceipt.streamVersion).toBe(2);
 		expect(retitleReceipt.streamVersion).toBe(3);
@@ -70,11 +76,13 @@ describe("DispatchEngine", () => {
 		const storage = new InMemoryDispatchStorage();
 		const engine = new DispatchEngine(storage, () => "unused");
 		await expect(
-			engine.dispatch({
-				commandId: "command-title",
-				streamId: "missing",
-				command: { _tag: "SetTitle", title: "No session" },
-			}),
+			run(
+				engine.dispatch({
+					commandId: "command-title",
+					streamId: "missing",
+					command: { _tag: "SetTitle", title: "No session" },
+				}),
+			),
 		).rejects.toMatchObject({ _tag: "SessionNotFound" });
 		expect(storage.eventsFor("missing")).toEqual([]);
 	});
@@ -83,13 +91,15 @@ describe("DispatchEngine", () => {
 		const storage = new InMemoryDispatchStorage();
 		const engine = new DispatchEngine(storage, () => "event-1");
 
-		await engine.dispatch({
-			commandId: "reactor:event-0:0",
-			streamId: "session-1",
-			correlationId: "request-1",
-			causationEventId: "event-0",
-			command: create,
-		});
+		await run(
+			engine.dispatch({
+				commandId: "reactor:event-0:0",
+				streamId: "session-1",
+				correlationId: "request-1",
+				causationEventId: "event-0",
+				command: create,
+			}),
+		);
 
 		expect(storage.eventsFor("session-1")[0]).toMatchObject({
 			correlationId: "request-1",

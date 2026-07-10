@@ -340,6 +340,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/sql-sqlite-node": "catalog:",
         "@repo/typescript-config": "*",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -462,6 +463,9 @@
     "packages/utils": {
       "name": "@zuse/utils",
       "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
       "devDependencies": {
         "@repo/typescript-config": "*",
         "typescript": "catalog:",
