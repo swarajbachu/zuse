@@ -252,7 +252,7 @@ export const fetchAgentAvailability = (options: {
 }): Effect.Effect<readonly AgentAvailability[] | null, never, never> => {
   const program = Effect.gen(function* () {
     const client = yield* getConnectionClient(options.connection);
-    return yield* client["agent.availability"]({});
+    return yield* client["provider.availability"]({});
   });
   return program.pipe(
     Effect.catch((cause) =>

@@ -76,7 +76,11 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
  * switches `permissionMode` back to `default` and the existing `RuntimeMode`
  * resumes governing prompts.
  */
-export const PermissionMode = Schema.Literals(["default", "plan", "acceptEdits"]);
+export const PermissionMode = Schema.Literals([
+  "default",
+  "plan",
+  "acceptEdits",
+]);
 export type PermissionMode = typeof PermissionMode.Type;
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
 
@@ -682,9 +686,7 @@ export const StartSessionInput = Schema.Struct({
   // the SDK reports back on `Agent` tool_use blocks; values define each
   // sub-agent's prompt, tool subset, model, and permission mode. Empty /
   // omitted means no sub-agents — session behaves as before.
-  agents: Schema.optional(
-    Schema.Record(Schema.String, AgentDefinition ),
-  ),
+  agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
   // Master toggle. When the renderer wants to start a Claude session with
   // sub-agents disabled even though presets exist, it sends this as false.
   // Defaults true when `agents` is non-empty; the driver only adds `Agent`
@@ -728,9 +730,7 @@ export const StartSessionInput = Schema.Struct({
    * the current model declared, so no value should arrive that the driver
    * can't interpret.
    */
-  modelOptions: Schema.optional(
-    Schema.Record(Schema.String, Schema.String ),
-  ),
+  modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 export type StartSessionInput = typeof StartSessionInput.Type;
 
@@ -1447,9 +1447,7 @@ export const SendInput = Schema.Struct({
    * `StartSessionInput.modelOptions`). When omitted, drivers reuse the
    * value supplied at session start.
    */
-  modelOptions: Schema.optional(
-    Schema.Record(Schema.String, Schema.String ),
-  ),
+  modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 export type SendInput = typeof SendInput.Type;
 
@@ -1500,43 +1498,12 @@ export class CredentialStoreError extends Schema.TaggedErrorClass<CredentialStor
 // of those PRs adds its RPC to the group when its handler exists.
 // ---------------------------------------------------------------------------
 
-export const AgentAvailabilityRpc = Rpc.make("agent.availability", {
+export const ProviderAvailabilityRpc = Rpc.make("provider.availability", {
   payload: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
   success: Schema.Array(AgentAvailability),
 });
 
-export const AgentStartRpc = Rpc.make("agent.start", {
-  payload: StartSessionInput,
-  success: Schema.Struct({ sessionId: AgentSessionId }),
-  error: Schema.Union([ProviderNotAvailableError, AgentSessionStartError]),
-});
-
-export const AgentSendRpc = Rpc.make("agent.send", {
-  payload: SendInput,
-  success: Schema.Void,
-  error: AgentSessionNotFoundError,
-});
-
-export const AgentInterruptRpc = Rpc.make("agent.interrupt", {
-  payload: InterruptInput,
-  success: Schema.Void,
-  error: AgentSessionNotFoundError,
-});
-
-export const AgentCloseRpc = Rpc.make("agent.close", {
-  payload: CloseInput,
-  success: Schema.Void,
-  error: AgentSessionNotFoundError,
-});
-
-export const AgentEventsRpc = Rpc.make("agent.events", {
-  payload: Schema.Struct({ sessionId: AgentSessionId }),
-  success: AgentEvent,
-  error: AgentSessionNotFoundError,
-  stream: true,
-});
-
-export const AgentSetCredentialRpc = Rpc.make("agent.setCredential", {
+export const ProviderSetCredentialRpc = Rpc.make("provider.setCredential", {
   payload: SetCredentialInput,
   success: Schema.Void,
   error: CredentialStoreError,
@@ -1614,14 +1581,17 @@ export const OpencodeInventory = Schema.Struct({
 });
 export type OpencodeInventory = typeof OpencodeInventory.Type;
 
-export const AgentOpencodeInventoryRpc = Rpc.make("agent.opencodeInventory", {
-  payload: Schema.Struct({}),
-  success: OpencodeInventory,
-  // Reused — `AgentSessionStartError` already carries `providerId` + `reason`
-  // and the failure mode here ("opencode not installed", "spawn failed") is
-  // the same shape the renderer already knows how to surface.
-  error: AgentSessionStartError,
-});
+export const ProviderOpencodeInventoryRpc = Rpc.make(
+  "provider.opencode.inventory",
+  {
+    payload: Schema.Struct({}),
+    success: OpencodeInventory,
+    // Reused — `AgentSessionStartError` already carries `providerId` + `reason`
+    // and the failure mode here ("opencode not installed", "spawn failed") is
+    // the same shape the renderer already knows how to surface.
+    error: AgentSessionStartError,
+  },
+);
 
 // ---------------------------------------------------------------------------
 // OpenCode provider management. The settings UI lets the user connect any of
@@ -1661,8 +1631,8 @@ export const OpencodeCustomProvider = Schema.Struct({
 });
 export type OpencodeCustomProvider = typeof OpencodeCustomProvider.Type;
 
-export const AgentOpencodeSetProviderAuthRpc = Rpc.make(
-  "agent.opencodeSetProviderAuth",
+export const ProviderOpencodeSetAuthRpc = Rpc.make(
+  "provider.opencode.setAuth",
   {
     payload: Schema.Struct({
       providerId: Schema.String,
@@ -1673,8 +1643,8 @@ export const AgentOpencodeSetProviderAuthRpc = Rpc.make(
   },
 );
 
-export const AgentOpencodeRemoveProviderAuthRpc = Rpc.make(
-  "agent.opencodeRemoveProviderAuth",
+export const ProviderOpencodeRemoveAuthRpc = Rpc.make(
+  "provider.opencode.removeAuth",
   {
     payload: Schema.Struct({ providerId: Schema.String }),
     success: Schema.Void,
@@ -1682,8 +1652,8 @@ export const AgentOpencodeRemoveProviderAuthRpc = Rpc.make(
   },
 );
 
-export const AgentOpencodeAddCustomProviderRpc = Rpc.make(
-  "agent.opencodeAddCustomProvider",
+export const ProviderOpencodeAddCustomRpc = Rpc.make(
+  "provider.opencode.addCustom",
   {
     payload: Schema.Struct({
       id: Schema.String,
@@ -1698,8 +1668,8 @@ export const AgentOpencodeAddCustomProviderRpc = Rpc.make(
   },
 );
 
-export const AgentOpencodeRemoveCustomProviderRpc = Rpc.make(
-  "agent.opencodeRemoveCustomProvider",
+export const ProviderOpencodeRemoveCustomRpc = Rpc.make(
+  "provider.opencode.removeCustom",
   {
     payload: Schema.Struct({ id: Schema.String }),
     success: Schema.Void,
@@ -1725,7 +1695,7 @@ export const LoginEvent = Schema.Union([
 ]);
 export type LoginEvent = typeof LoginEvent.Type;
 
-export const AgentStartLoginRpc = Rpc.make("agent.startLogin", {
+export const ProviderStartLoginRpc = Rpc.make("provider.startLogin", {
   payload: Schema.Struct({ providerId: ProviderId }),
   success: LoginEvent,
   error: AgentSessionStartError,
@@ -1750,7 +1720,7 @@ export const ProviderUpdateEvent = Schema.Union([
 ]);
 export type ProviderUpdateEvent = typeof ProviderUpdateEvent.Type;
 
-export const AgentUpdateProviderRpc = Rpc.make("agent.updateProvider", {
+export const ProviderUpdateRpc = Rpc.make("provider.update", {
   payload: Schema.Struct({ providerId: ProviderId }),
   success: ProviderUpdateEvent,
   error: AgentSessionStartError,

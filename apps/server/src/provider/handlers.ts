@@ -34,18 +34,17 @@ import { ProviderService } from "./services/provider-service.ts";
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
  * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/contracts`):
  *
- *   PR 3 — `agent.availability`         ← here
- *   PR 4 — `agent.setCredential`        ← here
- *   PR 5/6 — `agent.start` / `send` / `interrupt` / `close` / `events`
+ * Provider process management stays behind this boundary while session
+ * lifecycle and event traffic use the durable session domain.
  */
 const Availability = MemoizeRpcs.toLayerHandler(
-  "agent.availability",
+  "provider.availability",
   ({ refresh }) =>
     Effect.flatMap(ProviderService, (svc) => svc.availability(refresh)),
 );
 
 const SetCredential = MemoizeRpcs.toLayerHandler(
-  "agent.setCredential",
+  "provider.setCredential",
   ({ providerId, apiKey }) =>
     Effect.flatMap(ProviderService, (svc) =>
       svc.setCredential(providerId, apiKey).pipe(
@@ -61,28 +60,6 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
     ),
 );
 
-const Start = MemoizeRpcs.toLayerHandler("agent.start", (input) =>
-  Effect.flatMap(ProviderService, (svc) => svc.start(input)),
-);
-
-const Send = MemoizeRpcs.toLayerHandler("agent.send", ({ sessionId, text }) =>
-  Effect.flatMap(ProviderService, (svc) => svc.send(sessionId, text)),
-);
-
-const Interrupt = MemoizeRpcs.toLayerHandler(
-  "agent.interrupt",
-  ({ sessionId, turnId }) =>
-    Effect.flatMap(ProviderService, (svc) => svc.interrupt(sessionId, turnId)),
-);
-
-const Close = MemoizeRpcs.toLayerHandler("agent.close", ({ sessionId }) =>
-  Effect.flatMap(ProviderService, (svc) => svc.close(sessionId)),
-);
-
-const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
-  Stream.unwrap(Effect.map(ProviderService, (svc) => svc.events(sessionId))),
-);
-
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
 // provider card or in an auth error bubble. `cursor` and `claude` have real
 // handlers — they spawn the provider's `login` subcommand, extract the OAuth
@@ -90,7 +67,7 @@ const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
 // navigate away, IPC drop), the stream's scope closes and the child process is
 // SIGTERM'd by the service's finalizer.
 const StartLogin = MemoizeRpcs.toLayerHandler(
-  "agent.startLogin",
+  "provider.startLogin",
   ({ providerId }) => startProviderLogin(providerId),
 );
 
@@ -99,7 +76,7 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 // streams output, and ends with `done`. On success the renderer re-probes
 // availability so the new version shows immediately.
 const UpdateProvider = MemoizeRpcs.toLayerHandler(
-  "agent.updateProvider",
+  "provider.update",
   ({ providerId }) =>
     Stream.unwrap(
       resolveUpdateCommand(providerId).pipe(
@@ -114,7 +91,7 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 // short-live an `opencode serve` for the SDK calls and tear it down on
 // return so we don't leave a server lingering.
 const OpencodeInventory = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeInventory",
+  "provider.opencode.inventory",
   () =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -156,7 +133,7 @@ const requireOpencodePath = (): Effect.Effect<
   });
 
 const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeSetProviderAuth",
+  "provider.opencode.setAuth",
   ({ providerId, apiKey }) =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -170,12 +147,12 @@ const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
 );
 
 const OpencodeRemoveProviderAuth = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeRemoveProviderAuth",
+  "provider.opencode.removeAuth",
   ({ providerId }) => removeOpencodeProviderAuth(providerId),
 );
 
 const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeAddCustomProvider",
+  "provider.opencode.addCustom",
   ({ id, name, baseURL, npm, apiKey, models }) =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -197,7 +174,7 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
 );
 
 const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeRemoveCustomProvider",
+  "provider.opencode.removeCustom",
   ({ id }) =>
     Effect.gen(function* () {
       const configStore = yield* ConfigStoreService;
@@ -213,8 +190,6 @@ const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
 
 // ---------------------------------------------------------------------------
 // session.* / messages.* — focused conversation service surfaces.
-// `agent.*` handlers above stay live (renderer no longer calls them, but the
-// store composes them and they're useful for low-level testing).
 // ---------------------------------------------------------------------------
 
 const SessionList = MemoizeRpcs.toLayerHandler(
@@ -721,11 +696,6 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
 export const ProviderHandlersLayer = Layer.mergeAll(
   Availability,
   SetCredential,
-  Start,
-  Send,
-  Interrupt,
-  Close,
-  Events,
   StartLogin,
   UpdateProvider,
   OpencodeInventory,

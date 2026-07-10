@@ -296,10 +296,10 @@ function ConnectedProviderRow({
       await rpc((client) =>
         provider.custom
           ? Effect.runPromise(
-              client["agent.opencodeRemoveCustomProvider"]({ id: provider.id }),
+              client["provider.opencode.removeCustom"]({ id: provider.id }),
             )
           : Effect.runPromise(
-              client["agent.opencodeRemoveProviderAuth"]({
+              client["provider.opencode.removeAuth"]({
                 providerId: provider.id,
               }),
             ),
@@ -610,7 +610,7 @@ function ConnectKeyForm({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client["agent.opencodeSetProviderAuth"]({
+          client["provider.opencode.setAuth"]({
             providerId,
             apiKey: value.trim(),
           }),
@@ -633,7 +633,7 @@ function ConnectKeyForm({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client["agent.opencodeRemoveProviderAuth"]({ providerId }),
+          client["provider.opencode.removeAuth"]({ providerId }),
         ),
       );
       onChanged();
@@ -772,7 +772,7 @@ function CustomProviderDialog({
     try {
       await rpc((client) =>
         Effect.runPromise(
-          client["agent.opencodeAddCustomProvider"]({
+          client["provider.opencode.addCustom"]({
             id,
             name: name.trim(),
             baseURL: baseURL.trim(),
