@@ -53,8 +53,8 @@ import {
   parseActionsJobsResponse,
   type ActionsJob,
   type PrCheckRollupEntry,
-} from "../check-runs.ts";
-import { GitService } from "../services/git-service.ts";
+} from "@zuse/git/check-runs";
+import { GitService } from "@zuse/git/git-service";
 
 type GitFailure =
   | GitNotARepoError

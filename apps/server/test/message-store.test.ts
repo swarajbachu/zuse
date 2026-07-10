@@ -65,7 +65,7 @@ import { ProviderService } from "../src/provider/services/provider-service.ts";
 import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
 import { PtyService } from "../src/pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../src/repository-settings/services/repository-settings-service.ts";
-import { GitService } from "../src/git/services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
 import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";

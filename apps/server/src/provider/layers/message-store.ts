@@ -62,7 +62,7 @@ import {
 import { WorktreeService } from "../../worktree/services/worktree-service.ts";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
-import { GitService } from "../../git/services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
 import { makeEventStore } from "../../persistence/event-store.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";

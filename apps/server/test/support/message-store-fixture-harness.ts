@@ -15,7 +15,7 @@ import type {
 import { RepositorySettings, Worktree } from "@zuse/contracts";
 
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
-import { GitService } from "../../src/git/services/git-service.ts";
+import { GitService } from "@zuse/git/git-service";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
