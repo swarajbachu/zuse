@@ -1,4 +1,8 @@
-import type { AgentEvent, AgentItemId } from "@zuse/wire";
+import {
+  isRedundantShellDescription,
+  type AgentEvent,
+  type AgentItemId,
+} from "@zuse/wire";
 
 import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
 
@@ -421,10 +425,10 @@ const buildCanonicalInput = (
         : typeof src["target_file"] === "string"
           ? (src["target_file"] as string)
           : typeof src["filePath"] === "string"
-          ? (src["filePath"] as string)
-          : typeof src["path"] === "string"
-            ? (src["path"] as string)
-            : null;
+            ? (src["filePath"] as string)
+            : typeof src["path"] === "string"
+              ? (src["path"] as string)
+              : null;
     return v !== null && v.length > 0 ? v : null;
   };
 
@@ -506,7 +510,9 @@ const buildCanonicalInput = (
               : null;
       if (command !== null) {
         const out: Record<string, unknown> = { command };
-        if (title !== null) out["description"] = title;
+        if (title !== null && !isRedundantShellDescription(title, command)) {
+          out["description"] = title;
+        }
         return out;
       }
       break;

@@ -177,7 +177,9 @@ function MessageRowImpl({
       );
     case "thinking":
       return (
-        <ThinkingRow
+        <ThinkingMessageRow
+          messageId={message.id}
+          sessionId={sessionId}
           text={message.content.text}
           redacted={message.content.redacted}
         />
@@ -236,6 +238,28 @@ function MessageRowImpl({
 
 export const MessageRow = memo(MessageRowImpl);
 MessageRow.displayName = "MessageRow";
+
+function ThinkingMessageRow({
+  messageId,
+  sessionId,
+  text,
+  redacted,
+}: {
+  messageId: Message["id"];
+  sessionId?: SessionId;
+  text: string;
+  redacted: boolean;
+}) {
+  // Shimmer while this thinking block is the live tip of a running turn.
+  const pending = useMessagesStore((s) => {
+    if (sessionId === undefined) return false;
+    if (s.runningBySession[sessionId] !== true) return false;
+    const msgs = s.messagesBySession[sessionId] ?? [];
+    const last = msgs[msgs.length - 1];
+    return last?.id === messageId;
+  });
+  return <ThinkingRow text={text} redacted={redacted} pending={pending} />;
+}
 
 function ToolUseMessageRow({
   content,

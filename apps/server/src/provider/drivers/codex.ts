@@ -243,8 +243,6 @@ let itemCounter = 0;
 const nextItemId = (): AgentItemId =>
   `i_${Date.now()}_${++itemCounter}` as AgentItemId;
 
-const firstLine = (text: string): string => text.split("\n", 1)[0] ?? "";
-
 const asText = (value: unknown): string =>
   typeof value === "string" ? value : JSON.stringify(value, null, 2);
 
@@ -444,7 +442,6 @@ const codexCommandToolUse = (
     input: {
       command: item.command,
       cwd: item.cwd,
-      description: firstLine(item.command),
     },
   };
 };
@@ -1097,7 +1094,10 @@ export const startCodexSession = (
         serverConfig: {
           readonly command: string;
           readonly args: ReadonlyArray<string>;
-          readonly env: ReadonlyArray<{ readonly name: string; readonly value: string }>;
+          readonly env: ReadonlyArray<{
+            readonly name: string;
+            readonly value: string;
+          }>;
         },
       ) => {
         const env = Object.fromEntries(
