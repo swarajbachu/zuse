@@ -65,7 +65,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const client = await getRpcClient();
-      const list = await Effect.runPromise(client.agent.availability({}));
+      const list = await Effect.runPromise(client["agent.availability"]({}));
       set({ availability: list, loading: false, availabilityLoaded: true });
     } catch (err) {
       set({ error: formatError(err), loading: false });
@@ -86,7 +86,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.agent.setCredential({ providerId, apiKey }),
+        client["agent.setCredential"]({ providerId, apiKey }),
       );
       await get().refresh();
     } catch (err) {

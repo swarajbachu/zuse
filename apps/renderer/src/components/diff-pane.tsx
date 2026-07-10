@@ -185,10 +185,10 @@ export function DiffPane({
     try {
       const client = await getRpcClient();
       if (request.type === "all") {
-        await Effect.runPromise(client.git.revertAll({ folderId, worktreeId }));
+        await Effect.runPromise(client["git.revertAll"]({ folderId, worktreeId }));
       } else {
         await Effect.runPromise(
-          client.git.revertFile({
+          client["git.revertFile"]({
             folderId,
             worktreeId,
             path: request.path,
@@ -787,7 +787,7 @@ function CommitComposer({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.commit({ folderId, worktreeId, message: trimmed, paths }),
+        client["git.commit"]({ folderId, worktreeId, message: trimmed, paths }),
       );
       setMessage("");
       await onAfterCommit();
@@ -804,7 +804,7 @@ function CommitComposer({
     setError(null);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.git.push({ folderId, worktreeId }));
+      await Effect.runPromise(client["git.push"]({ folderId, worktreeId }));
       await onAfterPush();
     } catch (err) {
       setError(formatErr(err));

@@ -40,7 +40,7 @@ export const useAttachmentsStore = create<AttachmentsState>(() => ({
     const bytes = await fileToBytes(file);
     const client = await getRpcClient();
     const result = await Effect.runPromise(
-      client.attachments.upload({
+      client["attachments.upload"]({
         sessionId,
         bytes,
         mimeType: file.type || "application/octet-stream",

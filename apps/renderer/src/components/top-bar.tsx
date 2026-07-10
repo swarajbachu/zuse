@@ -223,7 +223,7 @@ export function TopBarMain() {
     void (async () => {
       try {
         const client = await getRpcClient();
-        const origin = await Effect.runPromise(client.git.origin({ folderId }));
+        const origin = await Effect.runPromise(client["git.origin"]({ folderId }));
         if (cancelled) return;
         setOriginLabel(
           origin !== null ? `${origin.owner}/${origin.repo}` : null,
@@ -244,7 +244,7 @@ export function TopBarMain() {
     try {
       const client = await getRpcClient();
       const list = await Effect.runPromise(
-        client.git.branches({ folderId, worktreeId }),
+        client["git.branches"]({ folderId, worktreeId }),
       );
       setBranches(list);
     } catch (err) {
@@ -277,7 +277,7 @@ export function TopBarMain() {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.switchBranch({
+        client["git.switchBranch"]({
           folderId,
           worktreeId,
           branch: branch.name,
@@ -560,7 +560,7 @@ function RenameBranchDialog({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.renameBranch({ folderId, worktreeId, name: next }),
+        client["git.renameBranch"]({ folderId, worktreeId, name: next }),
       );
       await onRenamed();
       onOpenChange(false);
@@ -987,7 +987,7 @@ function TopBarRightContent() {
             run={async () => {
               const client = await getRpcClient();
               await Effect.runPromise(
-                client.git.push({ folderId, worktreeId }),
+                client["git.push"]({ folderId, worktreeId }),
               );
             }}
             onSuccess={() => refreshAfterAction(folderId, worktreeId)}
@@ -1056,7 +1056,7 @@ function TopBarRightContent() {
             run={async () => {
               const client = await getRpcClient();
               await Effect.runPromise(
-                client.git.markReady({ folderId, worktreeId }),
+                client["git.markReady"]({ folderId, worktreeId }),
               );
             }}
             onSuccess={() => refreshAfterAction(folderId, worktreeId)}
@@ -1249,7 +1249,7 @@ function MergeButton({
         run={async () => {
           const client = await getRpcClient();
           await Effect.runPromise(
-            client.git.mergePr({
+            client["git.mergePr"]({
               folderId,
               worktreeId,
               action: "merge",
@@ -1320,7 +1320,7 @@ function AutoMergeToggle({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.mergePr({
+        client["git.mergePr"]({
           folderId,
           worktreeId,
           action: enabled ? "disable-auto" : "enable-auto",
@@ -1414,7 +1414,7 @@ function FixActionsButton({
     try {
       const client = await getRpcClient();
       const artifact = await Effect.runPromise(
-        client.git.fixFailingChecks({ folderId, worktreeId }),
+        client["git.fixFailingChecks"]({ folderId, worktreeId }),
       );
       setActiveMainTab("chat");
       const input = new ComposerInput({

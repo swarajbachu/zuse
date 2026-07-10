@@ -755,7 +755,7 @@ export function ChatComposer({
     try {
       const client = await getRpcClient();
       const res = await Effect.runPromise(
-        client.context.saveText({
+        client["context.saveText"]({
           sessionId,
           text,
           ext: "md",

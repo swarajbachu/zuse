@@ -41,7 +41,7 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
     const key = gitStatusKey(folderId, worktreeId);
     const client = await getRpcClient();
     const result = await classifyGit(
-      client.git.status({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.status"]({ folderId, worktreeId: worktreeId ?? null }),
     );
     set((s) => ({
       byKey: result.ok ? { ...s.byKey, [key]: result.value } : s.byKey,

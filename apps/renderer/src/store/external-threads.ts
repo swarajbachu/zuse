@@ -32,7 +32,7 @@ export const useExternalThreadsStore = create<ExternalThreadsState>(
       try {
         const client = await getRpcClient();
         const threads = await Effect.runPromise(
-          client.externalThreads.list({ limit: 12 }),
+          client["externalThreads.list"]({ limit: 12 }),
         );
         set({ threads, loading: false });
       } catch (err) {
@@ -45,7 +45,7 @@ export const useExternalThreadsStore = create<ExternalThreadsState>(
       try {
         const client = await getRpcClient();
         const result = await Effect.runPromise(
-          client.externalThreads.continue({
+          client["externalThreads.continue"]({
             providerId: thread.providerId,
             cursor: thread.cursor,
             projectPath: thread.projectPath,

@@ -47,7 +47,7 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     try {
       const client = await getRpcClient();
       liveFiber = Effect.runFork(
-        Stream.runForEach(client.skill.stream({ sessionId }), (list) =>
+        Stream.runForEach(client["skill.stream"]({ sessionId }), (list) =>
           Effect.sync(() => {
             set((s) => ({
               skillsBySession: { ...s.skillsBySession, [sessionId]: list },
@@ -68,7 +68,7 @@ export const useSkillsStore = create<SkillsState>((set) => ({
     try {
       const client = await getRpcClient();
       const skills = await Effect.runPromise(
-        client.skill.listForProject({ projectId, providerId }),
+        client["skill.listForProject"]({ projectId, providerId }),
       );
       set((s) => ({
         skillsBySession: { ...s.skillsBySession, [sessionId]: skills },

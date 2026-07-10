@@ -34,7 +34,7 @@ export const useRepositorySettingsStore = create<RepoSettingsState>((set) => ({
     try {
       const client = await getRpcClient();
       const settings = await Effect.runPromise(
-        client.repositorySettings.get({ projectId }),
+        client["repositorySettings.get"]({ projectId }),
       );
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: settings },
@@ -50,7 +50,7 @@ export const useRepositorySettingsStore = create<RepoSettingsState>((set) => ({
     try {
       const client = await getRpcClient();
       const settings = await Effect.runPromise(
-        client.repositorySettings.update({ projectId, patch }),
+        client["repositorySettings.update"]({ projectId, patch }),
       );
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: settings },

@@ -38,7 +38,7 @@ const fetchPrDetails = async (
   try {
     const client = await getRpcClient();
     return await Effect.runPromise(
-      client.git.prDetails({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.prDetails"]({ folderId, worktreeId: worktreeId ?? null }),
     );
   } catch {
     return null;

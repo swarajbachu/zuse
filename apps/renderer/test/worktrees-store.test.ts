@@ -48,15 +48,13 @@ const setRemoveClient = (
   setWorktreesRpcClientForTest(
     async () =>
       ({
-        worktree: {
-          remove: (payload: {
+        "worktree.remove": (payload: {
             readonly worktreeId: WorktreeId;
             readonly force: boolean | undefined;
           }) => {
             removeCalls.push(payload);
             return remove(payload);
           },
-        },
       }) as Awaited<
         ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
       >,

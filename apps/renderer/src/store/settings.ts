@@ -247,7 +247,7 @@ const migrateLocalStorageOnce = async (): Promise<SettingsFile | null> => {
   try {
     const client = await getRpcClient();
     const file = await Effect.runPromise(
-      client.settings.migrateLocalStorage({
+      client["settings.migrateLocalStorage"]({
         settingsV1Raw: settingsV1Raw ?? undefined,
         subagentsRaw: subagentsRaw ?? undefined,
       }),
@@ -289,7 +289,7 @@ const migrateMergePrefsOnce = async (
     };
     const client = await getRpcClient();
     const next = await Effect.runPromise(
-      client.settings.update({ patch: { mergePrefs } }),
+      client["settings.update"]({ patch: { mergePrefs } }),
     );
     removeStorageKeys(
       window.localStorage,
@@ -314,13 +314,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const file = await migrateMergePrefsOnce(
-        await Effect.runPromise(client.settings.get()),
+        await Effect.runPromise(client["settings.get"]()),
       );
       set({ ...sliceFromFile(file), loaded: true });
 
       await stopStream();
       streamFiber = Effect.runFork(
-        Stream.runForEach(client.settings.stream(), (next) =>
+        Stream.runForEach(client["settings.stream"](), (next) =>
           Effect.sync(() => set(sliceFromFile(next))),
         ),
       );
@@ -334,7 +334,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultProviderId: providerId } }),
+        client["settings.update"]({ patch: { defaultProviderId: providerId } }),
       );
     })();
   },
@@ -344,7 +344,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultModelByProvider: next } }),
+        client["settings.update"]({ patch: { defaultModelByProvider: next } }),
       );
     })();
   },
@@ -354,7 +354,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: {
             defaultProviderId: providerId,
             defaultModelByProvider: next,
@@ -368,7 +368,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultRuntimeMode: mode } }),
+        client["settings.update"]({ patch: { defaultRuntimeMode: mode } }),
       );
     })();
   },
@@ -377,7 +377,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: { defaultAutoCreateWorktree: value },
         }),
       );
@@ -388,7 +388,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: { defaultAutonomyLevel: level },
         }),
       );
@@ -399,7 +399,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { completionSoundEnabled: value } }),
+        client["settings.update"]({ patch: { completionSoundEnabled: value } }),
       );
     })();
   },
@@ -408,7 +408,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { completionSoundPreset: preset } }),
+        client["settings.update"]({ patch: { completionSoundPreset: preset } }),
       );
     })();
   },
@@ -417,7 +417,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { appearanceMode: mode } }),
+        client["settings.update"]({ patch: { appearanceMode: mode } }),
       );
     })();
   },
@@ -426,7 +426,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { onboardingCompleted: value } }),
+        client["settings.update"]({ patch: { onboardingCompleted: value } }),
       );
     })();
   },
@@ -436,7 +436,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { providerEnabled: next } }),
+        client["settings.update"]({ patch: { providerEnabled: next } }),
       );
     })();
   },
@@ -453,7 +453,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { modelEnabledByProvider: next } }),
+        client["settings.update"]({ patch: { modelEnabledByProvider: next } }),
       );
     })();
   },
@@ -463,7 +463,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { opencodeProviderVisible: next } }),
+        client["settings.update"]({ patch: { opencodeProviderVisible: next } }),
       );
     })();
   },
@@ -477,7 +477,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: { opencodeModelVisibleByProvider: next },
         }),
       );
@@ -488,7 +488,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { branchNamingStyle: style } }),
+        client["settings.update"]({ patch: { branchNamingStyle: style } }),
       );
     })();
   },
@@ -497,7 +497,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { branchNamingPrefix: prefix } }),
+        client["settings.update"]({ patch: { branchNamingPrefix: prefix } }),
       );
     })();
   },
@@ -506,7 +506,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { mergePrefs } }),
+        client["settings.update"]({ patch: { mergePrefs } }),
       );
     })();
   },
@@ -515,7 +515,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { notchTrayEnabled: value } }),
+        client["settings.update"]({ patch: { notchTrayEnabled: value } }),
       );
     })();
   },
@@ -524,7 +524,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { notchTrayPinned: value } }),
+        client["settings.update"]({ patch: { notchTrayPinned: value } }),
       );
     })();
   },

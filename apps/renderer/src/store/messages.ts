@@ -416,7 +416,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           ? lastSequenceBySession.get(sessionId)
           : undefined;
       const messageProgram = Stream.runForEach(
-        client.messages.stream({ sessionId, sinceSequence }),
+        client["messages.stream"]({ sessionId, sinceSequence }),
         (envelope) =>
           Effect.sync(() => {
             const { sequence, message } = envelope;
@@ -542,7 +542,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         });
       });
       const statusProgram = Stream.runForEach(
-        client.session.streamStatus({ sessionId }).pipe(
+        client["session.streamStatus"]({ sessionId }).pipe(
           Stream.catchAll((err) => {
             console.error("[messages] status stream errored", err);
             return Stream.empty;
@@ -590,7 +590,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       statusFiber = Effect.runFork(statusProgram);
       queueFiber = Effect.runFork(
         Stream.runForEach(
-          client.messages["queue.stream"]({ sessionId }),
+          client["messages.queue.stream"]({ sessionId }),
           (state) =>
             Effect.sync(() => {
               set((s) => ({
@@ -722,7 +722,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               clientMessageId: messageId,
               ...(modelOptions !== null ? { modelOptions } : {}),
             };
-      await Effect.runPromise(client.messages.send(payload));
+      await Effect.runPromise(client["messages.send"](payload));
       void useSessionsStore.getState().refreshOne(sessionId);
     } catch (err) {
       // Reset the optimistic running flag — otherwise a failed send leaves
@@ -789,7 +789,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   interrupt: async (sessionId) => {
     try {
       const client = await getMessagesRpcClient();
-      await Effect.runPromise(client.messages.interrupt({ sessionId }));
+      await Effect.runPromise(client["messages.interrupt"]({ sessionId }));
     } catch (err) {
       set((s) => ({
         errorBySession: {
@@ -804,7 +804,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         const item = await Effect.runPromise(
-          client.messages["queue.add"]({ sessionId, input }),
+          client["messages.queue.add"]({ sessionId, input }),
         );
         set((s) => {
           const existing = s.queueBySession[sessionId] ?? [];
@@ -841,7 +841,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.update"]({ sessionId, queueId, input }),
+          client["messages.queue.update"]({ sessionId, queueId, input }),
         );
       } catch (err) {
         set((s) => ({
@@ -874,7 +874,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.reorder"]({ sessionId, queueIds }),
+          client["messages.queue.reorder"]({ sessionId, queueIds }),
         );
       } catch (err) {
         set((s) => ({
@@ -890,7 +890,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     void (async () => {
       try {
         const client = await getMessagesRpcClient();
-        await Effect.runPromise(client.messages["queue.flush"]({ sessionId }));
+        await Effect.runPromise(client["messages.queue.flush"]({ sessionId }));
       } catch (err) {
         handoffRunningSessions.delete(sessionId);
         set((s) => ({
@@ -915,7 +915,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         },
       }));
       const client = await getMessagesRpcClient();
-      await Effect.runPromise(client.messages["queue.resume"]({ sessionId }));
+      await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
     } catch (err) {
       handoffRunningSessions.delete(sessionId);
       set((s) => ({
@@ -940,7 +940,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.delete"]({ sessionId, queueId }),
+          client["messages.queue.delete"]({ sessionId, queueId }),
         );
       } catch (err) {
         set((s) => ({
@@ -980,7 +980,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }
       const client = await getMessagesRpcClient();
       await Effect.runPromise(
-        client.messages["queue.sendNow"]({ sessionId, queueId }),
+        client["messages.queue.sendNow"]({ sessionId, queueId }),
       );
     } catch (err) {
       handoffRunningSessions.delete(sessionId);

@@ -37,7 +37,7 @@ export const useUsageStore = create<UsageState>((set, get) => ({
     try {
       const client = await getUsageRpcClient();
       const report = await Effect.runPromise(
-        client.usage.report({
+        client["usage.report"]({
           bucket,
           projectId: projectId ?? undefined,
           forceRefresh: opts?.forceRefresh,

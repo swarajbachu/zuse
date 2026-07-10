@@ -222,7 +222,7 @@ export function App() {
     void (async () => {
       try {
         const client = await getRpcClient();
-        await Effect.runPromise(client.ping.ping({}));
+        await Effect.runPromise(client["ping.ping"]({}));
       } catch (error) {
         if (cancelled) return;
         // eslint-disable-next-line no-console

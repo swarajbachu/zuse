@@ -86,7 +86,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
         }
       });
       const subscribe = Stream.runForEach(
-        client.permission.requests({}),
+        client["permission.requests"]({}),
         (req) =>
           Effect.sync(() => {
             if (decidedRecently.has(req.id)) return;
@@ -116,7 +116,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const pending = await Effect.runPromise(
-        client.permission.listPending({ sessionId }),
+        client["permission.listPending"]({ sessionId }),
       );
       set((s) => {
         const next = { ...s.requestsById };
@@ -153,7 +153,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.permission.decide({ requestId, decision }),
+        client["permission.decide"]({ requestId, decision }),
       );
     } catch {
       // The server drops the entry on success; a failed decide leaves it in
@@ -171,7 +171,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const decisions = await Effect.runPromise(
-        client.permission.listDecisions({ projectId }),
+        client["permission.listDecisions"]({ projectId }),
       );
       set((s) => ({
         decisionsByProject: {
@@ -208,7 +208,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.permission.revokeDecision({ requestId }),
+        client["permission.revokeDecision"]({ requestId }),
       );
     } catch {
       if (before !== undefined) {

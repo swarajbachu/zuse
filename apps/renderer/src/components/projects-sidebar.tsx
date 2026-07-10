@@ -248,7 +248,7 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
           if (tracked.has(id)) continue;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client.session.streamStatus({ sessionId: id }),
+              client["session.streamStatus"]({ sessionId: id }),
               (event) =>
                 Effect.sync(() => {
                   // Capture the prior running flag BEFORE the status update so
@@ -393,7 +393,7 @@ export function ProjectsSidebar() {
       for (const folder of missing) {
         try {
           const info = await Effect.runPromise(
-            client.git.origin({ folderId: folder.id }),
+            client["git.origin"]({ folderId: folder.id }),
           );
           if (cancelled) return;
           setOrigins((prev) => ({ ...prev, [folder.id]: info }));

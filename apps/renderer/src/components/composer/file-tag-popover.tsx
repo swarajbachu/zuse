@@ -68,7 +68,7 @@ export function FileTagPopover({
       try {
         const client = await getRpcClient();
         const results = await Effect.runPromise(
-          client.workspace.searchFiles({
+          client["workspace.searchFiles"]({
             projectId,
             query,
             limit: 20,

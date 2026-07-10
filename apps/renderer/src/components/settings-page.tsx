@@ -479,7 +479,7 @@ function DiagnosticsPane() {
       recordUiAction("diagnostics.export.started");
       const clientContext = await collectDiagnosticsClientContext();
       const result = await Effect.runPromise(
-        client.diagnostics.export({ clientContext }),
+        client["diagnostics.export"]({ clientContext }),
       );
       const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
       if (jsonCopied) markCopied("json");
@@ -622,7 +622,7 @@ function BrowserSettingsPane() {
 
   const load = async () => {
     const client = await getRpcClient();
-    const list = await Effect.runPromise(client.browser.listCredentials({}));
+    const list = await Effect.runPromise(client["browser.listCredentials"]({}));
     setCreds(list.map((c) => ({ origin: c.origin, username: c.username })));
   };
 
@@ -636,7 +636,7 @@ function BrowserSettingsPane() {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.browser.setCredential({
+        client["browser.setCredential"]({
           origin: origin.trim(),
           username: username.trim(),
           password,
@@ -654,7 +654,7 @@ function BrowserSettingsPane() {
   const remove = async (target: string) => {
     const client = await getRpcClient();
     await Effect.runPromise(
-      client.browser.removeCredential({ origin: target }),
+      client["browser.removeCredential"]({ origin: target }),
     );
     await load();
   };

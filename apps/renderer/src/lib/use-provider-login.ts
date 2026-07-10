@@ -72,7 +72,7 @@ export function useProviderLogin(
     const client = await getRpcClient();
     const fiber = Effect.runFork(
       Stream.runForEach(
-        client.agent.startLogin({ providerId }),
+        client["agent.startLogin"]({ providerId }),
         (event: LoginEvent) =>
           Effect.sync(() => {
             if (event._tag === "url") {

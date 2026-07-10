@@ -47,7 +47,7 @@ export function ArchivedChatsPage({
     try {
       const client = await getRpcClient();
       const chats = await Effect.runPromise(
-        client.chat.list({ projectId, includeArchived: true }),
+        client["chat.list"]({ projectId, includeArchived: true }),
       );
       setArchived(
         chats

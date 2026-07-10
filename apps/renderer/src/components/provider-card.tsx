@@ -604,7 +604,7 @@ function useProviderUpdate(providerId: ProviderId) {
     }
     const fiber = Effect.runFork(
       Stream.runForEach(
-        client.agent.updateProvider({ providerId }),
+        client["agent.updateProvider"]({ providerId }),
         (event: ProviderUpdateEvent) =>
           Effect.sync(() => {
             if (event._tag === "log") {

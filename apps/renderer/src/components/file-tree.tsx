@@ -134,7 +134,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path, worktreeId }),
+          client["fs.tree"]({ folderId, path, worktreeId }),
         );
         if (path === "") {
           setRootState({ status: "ready", entries });
@@ -167,7 +167,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path: "", worktreeId }),
+          client["fs.tree"]({ folderId, path: "", worktreeId }),
         );
         if (cancelled) return;
         setRootState({ status: "ready", entries });
@@ -189,8 +189,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       if (cancelled) return;
       fiber = Effect.runFork(
         Stream.runForEach(
-          client.fs
-            .watchTree({ folderId, worktreeId })
+          client["fs.watchTree"]({ folderId, worktreeId })
             .pipe(Stream.catchAll(() => Stream.empty)),
           ({ paths }) =>
             Effect.sync(() => {
@@ -226,7 +225,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path, worktreeId }),
+          client["fs.tree"]({ folderId, path, worktreeId }),
         );
         setChildStates((prev) => ({
           ...prev,
@@ -311,7 +310,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
         const client = await getRpcClient();
         if (kind === "file") {
           await Effect.runPromise(
-            client.fs.createFile({ folderId, path, worktreeId }),
+            client["fs.createFile"]({ folderId, path, worktreeId }),
           );
           await refreshDirectory(dirPath);
           openFileInTab({
@@ -323,7 +322,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
           });
         } else {
           await Effect.runPromise(
-            client.fs.createDirectory({ folderId, path, worktreeId }),
+            client["fs.createDirectory"]({ folderId, path, worktreeId }),
           );
           setExpanded((prev) =>
             dirPath === "" ? prev : { ...prev, [dirPath]: true },
@@ -390,7 +389,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.fs.remove({ folderId, path: entry.path, worktreeId }),
+        client["fs.remove"]({ folderId, path: entry.path, worktreeId }),
       );
       const parent = parentPathOf(entry.path);
       setExpanded((prev) => {

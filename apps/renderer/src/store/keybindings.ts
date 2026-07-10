@@ -166,7 +166,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       // Initial fetch — fills the cache before any keypress can race.
-      const file = await Effect.runPromise(client.keybindings.get());
+      const file = await Effect.runPromise(client["keybindings.get"]());
       const userRules = [...file.rules];
       const { resolved } = resolveRules(userRules);
       set({ resolvedRules: resolved, userRules, loaded: true, error: null });
@@ -176,7 +176,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
       // from other surfaces). One fiber per renderer, replaced on hot-reload.
       await stopStream();
       streamFiber = Effect.runFork(
-        Stream.runForEach(client.keybindings.stream(), (next) =>
+        Stream.runForEach(client["keybindings.stream"](), (next) =>
           Effect.sync(() => {
             const nextRules = [...next.rules];
             const r = resolveRules(nextRules);
@@ -203,7 +203,7 @@ export const useKeybindingsStore = create<KeybindingsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const file = await Effect.runPromise(
-        client.keybindings.replace({ rules: clamped }),
+        client["keybindings.replace"]({ rules: clamped }),
       );
       const nextRules = [...file.rules];
       const r = resolveRules(nextRules);

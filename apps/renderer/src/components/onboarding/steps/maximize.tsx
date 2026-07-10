@@ -52,7 +52,7 @@ export function MaximizeStep() {
     void getRpcClient()
       .then((client) =>
         Effect.runPromise(
-          client.usage.report({
+          client["usage.report"]({
             bucket: "monthly",
             ...currentMonthRange(),
           }),

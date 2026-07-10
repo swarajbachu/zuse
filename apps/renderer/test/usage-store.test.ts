@@ -14,8 +14,7 @@ const { setUsageRpcClientForTest, useUsageStore } = await import("../src/store/u
 setUsageRpcClientForTest(
   async () =>
     ({
-    usage: {
-      report: (payload: { readonly bucket?: string; readonly forceRefresh?: boolean }) => {
+    "usage.report": (payload: { readonly bucket?: string; readonly forceRefresh?: boolean }) => {
         reportCalls.push(payload);
         return Effect.promise(
           () =>
@@ -24,7 +23,6 @@ setUsageRpcClientForTest(
             }),
         );
       },
-    },
   }) as Awaited<ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>>,
 );
 

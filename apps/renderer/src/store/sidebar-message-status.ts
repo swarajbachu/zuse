@@ -61,7 +61,7 @@ export function useSidebarMessageStatusSubscriptions(
               : undefined;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client.messages.stream({ sessionId: id, sinceSequence }),
+              client["messages.stream"]({ sessionId: id, sinceSequence }),
               (envelope) =>
                 Effect.sync(() => {
                   const { sequence, message } = envelope;

@@ -103,7 +103,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     started = true;
     const subscribeOnce = Effect.tryPromise(() => getRpcClient()).pipe(
       Effect.flatMap((client) =>
-        Stream.runForEach(client.auth.sessionChanges({}), (next) =>
+        Stream.runForEach(client["auth.sessionChanges"]({}), (next) =>
           Effect.sync(() => set({ state: next })),
         ),
       ),
@@ -125,13 +125,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   hydrate: async () => {
     try {
       const client = await getRpcClient();
-      const next = await Effect.runPromise(client.auth.getSession({}));
+      const next = await Effect.runPromise(client["auth.getSession"]({}));
       set({ state: next });
     } catch {
       await new Promise((resolve) => setTimeout(resolve, HYDRATE_RETRY_MS));
       try {
         const client = await getRpcClient();
-        const next = await Effect.runPromise(client.auth.getSession({}));
+        const next = await Effect.runPromise(client["auth.getSession"]({}));
         set({ state: next });
       } catch {
         // Bridge not up yet / transient. Keep the previous/loading state; the
@@ -153,7 +153,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // Match the Effect to a result object so a user-cancel (silent) and a
       // real failure (shown) are distinguishable without a throw.
       const result = await Effect.runPromise(
-        client.auth.signIn({}).pipe(
+        client["auth.signIn"]({}).pipe(
           Effect.match({
             onFailure: (err) => ({ ok: false as const, err }),
             onSuccess: (next) => ({ ok: true as const, next }),
@@ -192,7 +192,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ state: SIGNED_OUT });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.auth.signOut({}));
+      await Effect.runPromise(client["auth.signOut"]({}));
     } catch {
       // A failed sign-out leaves the keychain entry; next getSession repairs.
     }

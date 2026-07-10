@@ -41,7 +41,7 @@ const fetchDiffStat = async (
   try {
     const client = await getRpcClient();
     return await Effect.runPromise(
-      client.git.diffStat({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.diffStat"]({ folderId, worktreeId: worktreeId ?? null }),
     );
   } catch {
     // Not a repo, git missing, etc. — caller treats absence as "no stats".
