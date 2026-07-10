@@ -30,8 +30,9 @@
 		"effect": "catalog:"
 	},
 	"devDependencies": {
-		"@effect/sql-sqlite-node": "catalog:",
+		"@zuse/sqlite": "*",
 		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

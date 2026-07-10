@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SqlClient } from "effect/unstable/sql";
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, ManagedRuntime } from "effect";
 
 import { Migration0018PokemonWorktrees } from "../src/persistence/migrations/0018_pokemon_worktrees.ts";

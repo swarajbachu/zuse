@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { RpcGroup, RpcServer } from "effect/unstable/rpc";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { randomBytes } from "node:crypto";

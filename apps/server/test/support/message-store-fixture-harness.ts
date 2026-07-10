@@ -43,7 +43,7 @@ import { Migration0024RemoteConnectState } from "../../src/persistence/migration
 import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
-import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { MessageStoreLive } from "../../src/provider/layers/message-store.ts";
 import { MessageStore } from "../../src/provider/services/message-store.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";

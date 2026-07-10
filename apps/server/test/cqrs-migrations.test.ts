@@ -8,7 +8,7 @@ import { describe, expect, test } from "vitest";
 
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
-import { layer as nodeSqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 
 describe("CQRS migrations", () => {
 	test("adds event metadata, receipts, cursors, and backfill markers", async () => {

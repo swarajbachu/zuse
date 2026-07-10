@@ -54,6 +54,7 @@ const shared = {
     alwaysBundle: [
       "@zuse/contracts",
       "@zuse/server",
+      "@zuse/sqlite",
       "@zuse/index",
       "@zuse/ssh",
       "fix-path",
@@ -65,7 +66,6 @@ const shared = {
     neverBundle: [
       "electron",
       "node-pty",
-      "better-sqlite3",
       "bindings",
       "keytar",
       "electron-updater",

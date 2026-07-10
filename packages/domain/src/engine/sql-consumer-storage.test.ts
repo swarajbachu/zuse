@@ -1,4 +1,4 @@
-import { SqliteClient } from "@effect/sql-sqlite-node";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Exit } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
@@ -15,7 +15,7 @@ const run = <A, E>(
 	program: Effect.Effect<A, E, SqlClient.SqlClient>,
 ): Promise<A> =>
 	Effect.runPromise(
-		program.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+		program.pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 
 const insertEvent = (

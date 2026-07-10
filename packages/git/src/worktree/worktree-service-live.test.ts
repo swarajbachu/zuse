@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
-import { SqliteClient } from "@effect/sql-sqlite-node";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -45,7 +45,7 @@ describe("WorktreeServiceLive", () => {
 		git(repositoryRoot, "add", "README.md");
 		git(repositoryRoot, "commit", "-m", "initial commit");
 
-		const SqlLive = SqliteClient.layer({ filename: ":memory:" });
+		const SqlLive = sqliteLayer({ filename: ":memory:" });
 		const SchemaLive = Layer.effectDiscard(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;

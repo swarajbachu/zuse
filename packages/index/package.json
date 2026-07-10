@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",
-    "better-sqlite3": "^12.9.0",
     "effect": "catalog:",
     "ignore": "^7.0.0",
     "tree-sitter": "^0.21.1",
@@ -28,7 +27,6 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "*",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

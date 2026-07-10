@@ -65,11 +65,10 @@ asarUnpack:
   - "**/*.node"
   - "dist-electron/browser-mcp-child.cjs"
   - "dist-electron/orchestration-mcp-child.cjs"
-  - "node_modules/better-sqlite3/**"
   - "node_modules/node-pty/**"
   - "node_modules/keytar/**"
 
-# We rebuild natives via the existing electron-rebuild postinstall hook.
+# We rebuild the remaining native modules via the postinstall hook.
 # electron-builder's npmRebuild step doesn't understand bun workspaces.
 npmRebuild: false
 

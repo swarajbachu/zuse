@@ -9,7 +9,7 @@ import { describe, expect, test } from "vitest";
 import { runLifecycleBackfill } from "../src/persistence/backfill.ts";
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
-import { layer as nodeSqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 
 describe("lifecycle backfill", () => {
 	test("appends missing lifecycle events once and advances all cursors", async () => {

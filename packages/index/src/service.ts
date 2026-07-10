@@ -39,7 +39,7 @@ interface InternalState {
 }
 
 /**
- * Concrete IndexService Layer. Owns a single better-sqlite3 handle per
+ * Concrete IndexService Layer. Owns a single SQLite handle per
  * workspace; runs migrations on construction; tracks indexing progress in
  * a Ref so the renderer can poll `index.status`.
  *

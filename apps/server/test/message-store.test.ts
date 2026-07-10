@@ -52,7 +52,7 @@ import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_ba
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
 // Exercise MessageStoreLive through the same node:sqlite client layer used by
 // the production Node runtime.
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
 import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
 import { MessageStore } from "../src/provider/services/message-store.ts";
