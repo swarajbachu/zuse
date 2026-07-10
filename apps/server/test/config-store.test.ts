@@ -99,6 +99,9 @@ describe("config-store settings coercion", () => {
     expect(settings.modelEnabledByProvider.claude["claude-sonnet-4-6"]).toBe(
       false,
     );
+    expect(settings.modelEnabledByProvider.codex["gpt-5.6-sol"]).toBe(true);
+    expect(settings.modelEnabledByProvider.codex["gpt-5.6-terra"]).toBe(true);
+    expect(settings.modelEnabledByProvider.codex["gpt-5.6-luna"]).toBe(true);
     expect(settings.modelEnabledByProvider.codex["gpt-5.5"]).toBe(true);
     expect(settings.modelEnabledByProvider.codex["gpt-5.3-codex"]).toBe(false);
     expect(settings.modelEnabledByProvider.grok["grok-4.5"]).toBe(true);

@@ -5,6 +5,7 @@ import type { AgentEvent } from "@zuse/wire";
 
 import type { ThreadItem } from "../src/provider/codex-app-protocol/v2/ThreadItem.ts";
 import {
+  codexReasoningEffort,
   codexWritableRootsForCwd,
   translateCodexItem,
   translateCodexStatusNotification,
@@ -401,5 +402,22 @@ describe("codexWritableRootsForCwd", () => {
     expect(codexWritableRootsForCwd(cwd)).toEqual(
       expect.arrayContaining([cwd, ...gitDirs]),
     );
+  });
+});
+
+describe("codexReasoningEffort", () => {
+  it("passes only the selected model's supported efforts through to Codex", () => {
+    expect(codexReasoningEffort("gpt-5.5", "xhigh")).toBe("xhigh");
+    expect(codexReasoningEffort("gpt-5.5", "max")).toBeNull();
+    expect(codexReasoningEffort("gpt-5.6-sol", "max")).toBe("max");
+    expect(codexReasoningEffort("gpt-5.6-terra", "ultra")).toBe("ultra");
+    expect(codexReasoningEffort("gpt-5.4", "xhigh")).toBeNull();
+  });
+
+  it("keeps standard efforts for custom models and drops unknown values", () => {
+    expect(codexReasoningEffort("custom-model", "high")).toBe("high");
+    expect(codexReasoningEffort("custom-model", "ultra")).toBeNull();
+    expect(codexReasoningEffort(undefined, undefined)).toBeNull();
+    expect(codexReasoningEffort("gpt-5.6-luna", "turbo")).toBeNull();
   });
 });

@@ -1685,12 +1685,20 @@ function ReasoningPicker({
   });
 
   useEffect(() => {
-    if (resolved === null || !resolved.options.some((o) => o.id === level)) {
+    if (resolved === null) {
       onLevelChange?.(null);
       return;
     }
+    if (!resolved.options.some((o) => o.id === level)) {
+      setLevel(defaultId);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(storageKey, defaultId);
+      }
+      onLevelChange?.(defaultId);
+      return;
+    }
     onLevelChange?.(level);
-  }, [level, onLevelChange, resolved]);
+  }, [defaultId, level, onLevelChange, resolved, storageKey]);
 
   if (resolved === null) return null;
 
