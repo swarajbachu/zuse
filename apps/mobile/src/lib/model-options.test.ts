@@ -1,7 +1,7 @@
 import type { AgentAvailability } from "@zuse/wire";
 import { describe, expect, test } from "bun:test";
 
-import { availableProviderIds } from "./model-options";
+import { availableProviderIds, reasoningValueForModel } from "./model-options";
 
 const entry = (
   providerId: AgentAvailability["providerId"],
@@ -43,5 +43,13 @@ describe("availableProviderIds", () => {
     expect(availableProviderIds([entry("codex", { status: "error" })])).toEqual(
       [],
     );
+  });
+});
+
+describe("reasoningValueForModel", () => {
+  test("falls back to the model default when a stored effort is unsupported", () => {
+    expect(
+      reasoningValueForModel("codex", "gpt-5.5", { reasoning: "ultra" }),
+    ).toMatchObject({ value: "medium", label: "Medium" });
   });
 });

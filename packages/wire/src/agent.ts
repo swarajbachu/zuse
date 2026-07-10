@@ -86,8 +86,7 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = "default";
  *   - Claude → `maxThinkingTokens` (low=5k, medium=15k, high=60k) + SDK
  *     `effort` enum (low/medium/high/xhigh/max). `ultracode` is a Claude
  *     Code preset that normalizes to `xhigh` + `settings.ultracode: true`.
- *   - Codex → `reasoning_effort` enum (low/medium/high pass through; higher
- *     tiers fall back to `high`).
+ *   - Codex → `reasoning_effort` enum (supported tiers pass through).
  *   - Gemini Pro → `thinkingConfig.thinkingBudget` (low=4k, medium=16k, high=32k)
  *
  * Providers/models that don't support thinking simply omit the descriptor
@@ -99,6 +98,7 @@ export const ReasoningLevel = Schema.Literal(
   "high",
   "xhigh",
   "max",
+  "ultra",
   "ultracode",
 );
 export type ReasoningLevel = typeof ReasoningLevel.Type;
@@ -718,8 +718,8 @@ export const StartSessionInput = Schema.Struct({
   /**
    * Opaque per-model knob values. Keys map to
    * `ModelDescriptor.optionDescriptors[].id` (e.g. `"reasoning"`); values
-   * are the selected option id (`"low" | "medium" | "high"`) for selects
-   * or `"true" | "false"` for booleans. Drivers consume what they support
+   * are the selected option id (for example, `"low"` or `"ultra"`) for
+   * selects or `"true" | "false"` for booleans. Drivers consume what they support
    * and ignore the rest — the FE composer renders only the descriptors
    * the current model declared, so no value should arrive that the driver
    * can't interpret.
@@ -769,12 +769,13 @@ export interface ModelOption {
 }
 
 /**
- * Standard 3-level reasoning descriptor for Codex/Gemini/Cursor and the
- * `reasoning` knob name used across non-Claude providers. Keep id/options
- * aligned with `ReasoningLevel`.
+ * Reasoning descriptor for Codex/Gemini/Cursor and the `reasoning` knob name
+ * used across non-Claude providers. Models can append provider-supported
+ * tiers beyond the standard low/medium/high set.
  */
 const reasoningSelectDescriptor = (
   defaultId: ReasoningLevel = "medium",
+  additionalOptions: ReadonlyArray<{ id: ReasoningLevel; label: string }> = [],
 ): SelectOptionDescriptor => ({
   kind: "select",
   id: "reasoning",
@@ -783,8 +784,30 @@ const reasoningSelectDescriptor = (
     { id: "low", label: "Low" },
     { id: "medium", label: "Medium" },
     { id: "high", label: "High" },
+    ...additionalOptions,
   ],
   defaultId,
+});
+
+const extraHighReasoningOption = {
+  id: "xhigh",
+  label: "Extra High",
+} as const;
+
+const gpt56ExtendedReasoningOptions = [
+  extraHighReasoningOption,
+  { id: "max", label: "Max" },
+  { id: "ultra", label: "Ultra" },
+] as const;
+
+const gpt56Model = (id: string, label: string): ModelOption => ({
+  id,
+  label,
+  optionDescriptors: [
+    reasoningSelectDescriptor("medium", gpt56ExtendedReasoningOptions),
+  ],
+  supportsPlanMode: true,
+  supportsWebSearch: "native",
 });
 
 /**
@@ -994,12 +1017,16 @@ export const MODELS_BY_PROVIDER: Record<
     },
   ],
   codex: [
+    gpt56Model("gpt-5.6-sol", "GPT-5.6 Sol"),
+    gpt56Model("gpt-5.6-terra", "GPT-5.6 Terra"),
+    gpt56Model("gpt-5.6-luna", "GPT-5.6 Luna"),
     {
       id: "gpt-5.5",
       label: "GPT-5.5",
+      defaultModel: true,
       // Fast tier supported — see gpt-5.4 note above.
       optionDescriptors: [
-        reasoningSelectDescriptor("medium"),
+        reasoningSelectDescriptor("medium", [extraHighReasoningOption]),
         booleanDescriptor("fastMode", "Fast"),
       ],
       supportsPlanMode: true,

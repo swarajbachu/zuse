@@ -114,10 +114,12 @@ export const reasoningValueForModel = (
 } | null => {
   const descriptor = reasoningDescriptorForModel(providerId, model);
   if (descriptor === null) return null;
+  const requestedValue = modelOptions?.[descriptor.id];
+  const requestedOption = descriptor.options.find(
+    (option) => option.id === requestedValue,
+  );
   const value =
-    modelOptions?.[descriptor.id] ??
-    descriptor.defaultId ??
-    descriptor.options[0]?.id;
+    requestedOption?.id ?? descriptor.defaultId ?? descriptor.options[0]?.id;
   if (value === undefined) return null;
   const label =
     descriptor.options.find((option) => option.id === value)?.label ?? value;

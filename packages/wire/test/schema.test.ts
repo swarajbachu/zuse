@@ -681,6 +681,43 @@ describe("SettingsFile round-trip", () => {
 });
 
 describe("model visibility helpers", () => {
+  it("exposes GPT-5.6 variants in quality order with their supported reasoning efforts", () => {
+    expect(
+      MODELS_BY_PROVIDER.codex.slice(0, 4).map((model) => model.id),
+    ).toEqual(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]);
+    expect(defaultModelFor("codex")).toBe("gpt-5.5");
+
+    const reasoningOptions = (modelId: string) => {
+      const descriptor = MODELS_BY_PROVIDER.codex
+        .find((model) => model.id === modelId)
+        ?.optionDescriptors?.find(
+          (option) => option.kind === "select" && option.id === "reasoning",
+        );
+      return descriptor?.kind === "select"
+        ? descriptor.options.map(({ id, label }) => ({ id, label }))
+        : [];
+    };
+
+    expect(reasoningOptions("gpt-5.5")).toEqual([
+      { id: "low", label: "Low" },
+      { id: "medium", label: "Medium" },
+      { id: "high", label: "High" },
+      { id: "xhigh", label: "Extra High" },
+    ]);
+
+    const gpt56Options = [
+      { id: "low", label: "Low" },
+      { id: "medium", label: "Medium" },
+      { id: "high", label: "High" },
+      { id: "xhigh", label: "Extra High" },
+      { id: "max", label: "Max" },
+      { id: "ultra", label: "Ultra" },
+    ];
+    for (const modelId of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+      expect(reasoningOptions(modelId)).toEqual(gpt56Options);
+    }
+  });
+
   it("uses Sonnet 5 as the default visible Claude model", () => {
     expect(defaultModelFor("claude")).toBe("claude-sonnet-5");
     expect(visibleModelsForProvider("claude")[0]?.id).toBe("claude-fable-5");
@@ -719,9 +756,7 @@ describe("model visibility helpers", () => {
 
   it("surfaces Grok 4.5 without changing the Grok default", () => {
     expect(defaultModelFor("grok")).toBe("grok-build");
-    expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(
-      true,
-    );
+    expect(MODELS_BY_PROVIDER.grok.some((m) => m.id === "grok-4.5")).toBe(true);
     expect(
       visibleModelsForProvider("grok").some((m) => m.id === "grok-4.5"),
     ).toBe(true);
