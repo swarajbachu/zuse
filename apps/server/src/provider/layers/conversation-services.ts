@@ -12,7 +12,8 @@ import {
   ChatArchiveScriptError,
   ChatArchiveTimeoutError,
   ChatArchiveWorktreeError,
-  type ChatId,
+  type ChatArchiveResult,
+  ChatId,
   ChatNotFoundError,
   type CodeAnnotation,
   type ComposerAnnotation,
@@ -48,6 +49,7 @@ import {
   WorktreeId,
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
+import { ChatEvent } from "@zuse/domain/chat/events";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import type { StoredEvent } from "@zuse/domain/engine/dispatch";
@@ -827,6 +829,14 @@ const decodeProviderStartRequest = Schema.decodeUnknownEffect(
 const decodeProviderModelOptions = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
 );
+const decodeChatEvent = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(ChatEvent),
+);
+type ChatArchiveError =
+  | ChatNotFoundError
+  | ChatArchiveScriptError
+  | ChatArchiveTimeoutError
+  | ChatArchiveWorktreeError;
 
 export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
@@ -867,9 +877,12 @@ export const ConversationServicesLive = Layer.effectContext(
     let runProviderStartReactor: Effect.Effect<void, SessionStartError> =
       Effect.void;
     let runProviderStopReactor: Effect.Effect<void> = Effect.void;
+    let runChatArchiveReactor: Effect.Effect<void, ChatArchiveError> =
+      Effect.void;
     const sessionReactorSemaphore = yield* Semaphore.make(1);
     const providerStartReactorSemaphore = yield* Semaphore.make(1);
     const providerStopReactorSemaphore = yield* Semaphore.make(1);
+    const chatArchiveReactorSemaphore = yield* Semaphore.make(1);
     const provider = yield* ProviderService;
     const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
       Effect.gen(function* () {
@@ -3291,9 +3304,10 @@ export const ConversationServicesLive = Layer.effectContext(
           });
         });
 
-    const archiveChat: ConversationOperations["archiveChat"] = (
-      chatId,
-      force,
+    const performChatArchive = (
+      chatId: ChatId,
+      force: boolean,
+      commandId: string,
     ) =>
       Effect.gen(function* () {
         const chat = yield* lookupChat(chatId);
@@ -3373,11 +3387,6 @@ export const ConversationServicesLive = Layer.effectContext(
         }
 
         const archivedAt = yield* currentTimestamp;
-        yield* dispatchChatCommand(chatId, {
-          _tag: "ArchiveChat",
-          archivedAt,
-          archivedWorktreeJson: snapshotJson,
-        });
         yield* Effect.forEach(
           liveSessions,
           ({ id }) =>
@@ -3387,7 +3396,120 @@ export const ConversationServicesLive = Layer.effectContext(
             }),
           { discard: true },
         );
-        return { chat: yield* lookupChat(chatId), cleanup };
+        yield* dispatchChatCommand(
+          chatId,
+          {
+            _tag: "ArchiveChat",
+            archivedAt,
+            archivedWorktreeJson: snapshotJson,
+          },
+          `${commandId}:archive`,
+        );
+        const result = { chat: yield* lookupChat(chatId), cleanup };
+        yield* sql`
+          INSERT OR IGNORE INTO reactor_effect_receipts
+            (effect_id, completed_at)
+          VALUES (${commandId}, ${new Date().toISOString()})
+        `.pipe(Effect.orDie);
+        return result;
+      });
+
+    const chatArchiveResults = yield* Ref.make<
+      ReadonlyMap<ChatId, ChatArchiveResult>
+    >(new Map());
+    type ChatArchiveCommand = {
+      readonly _tag: "ArchiveChatWorktree";
+      readonly force: boolean;
+    };
+    const chatArchiveReactor = new ReactorRunner<
+      StoredEvent<typeof ChatEvent.Type>,
+      ChatArchiveCommand,
+      SqlConsumerStorageError,
+      never,
+      ChatArchiveError
+    >(
+      makeSqlConsumerStorage(sql, {
+        streamKind: "chat",
+        decodeEvent: decodeChatEvent,
+      }),
+      (reactorInput) =>
+        Effect.gen(function* () {
+          const chatId = ChatId.make(reactorInput.streamId);
+          const completed = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id = ${reactorInput.commandId}
+            LIMIT 1
+          `.pipe(Effect.orDie);
+          const result =
+            completed.length > 0
+              ? { chat: yield* lookupChat(chatId), cleanup: null }
+              : yield* performChatArchive(
+                  chatId,
+                  reactorInput.command.force,
+                  reactorInput.commandId,
+                );
+          yield* Ref.update(chatArchiveResults, (current) => {
+            const next = new Map(current);
+            next.set(chatId, result);
+            return next;
+          });
+        }),
+      {
+        name: "chat-archive",
+        react: (record) =>
+          Effect.succeed(
+            record.event._tag === "ChatArchiveRequested"
+              ? [
+                  {
+                    streamId: record.streamId,
+                    command: {
+                      _tag: "ArchiveChatWorktree",
+                      force: record.event.force,
+                    },
+                  },
+                ]
+              : [],
+          ),
+      },
+    );
+    runChatArchiveReactor = Effect.suspend(() =>
+      chatArchiveReactorSemaphore.withPermits(1)(
+        chatArchiveReactor.catchUp().pipe(
+          Effect.asVoid,
+          Effect.catch((error) =>
+            error._tag === "ChatArchiveScriptError" ||
+            error._tag === "ChatArchiveTimeoutError" ||
+            error._tag === "ChatArchiveWorktreeError" ||
+            error._tag === "ChatNotFoundError"
+              ? Effect.fail(error)
+              : Effect.die(error),
+          ),
+        ),
+      ),
+    );
+    yield* runChatArchiveReactor;
+
+    const archiveChat: ConversationOperations["archiveChat"] = (
+      chatId,
+      force,
+    ) =>
+      Effect.gen(function* () {
+        const chat = yield* lookupChat(chatId);
+        if (chat.archivedAt !== null) return { chat, cleanup: null };
+        yield* dispatchChatCommand(chatId, {
+          _tag: "RequestArchiveChat",
+          force,
+          requestedAt: yield* currentTimestamp,
+        });
+        yield* runChatArchiveReactor;
+        const results = yield* Ref.get(chatArchiveResults);
+        const result = results.get(chatId);
+        if (result === undefined) {
+          return yield* Effect.die(
+            new Error(`chat archive reactor produced no result for ${chatId}`),
+          );
+        }
+        return result;
       });
 
     const unarchiveChat: ConversationOperations["unarchiveChat"] = (chatId) =>

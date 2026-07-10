@@ -640,6 +640,48 @@ describe("ConversationServices — chat & session lifecycle", () => {
     });
   });
 
+  it("archives chats through the durable archive reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const result = await run(
+        Effect.flatMap(store, (service) =>
+          service.archiveChat(created.chat.id, false),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.chat.id}
+              AND type IN ('ChatArchiveRequested', 'ChatArchived')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:chat-archive:%'
+          `;
+          return { events, receipts };
+        }),
+      );
+
+      expect(result.chat.archivedAt).not.toBeNull();
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ChatArchiveRequested",
+        "ChatArchived",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(

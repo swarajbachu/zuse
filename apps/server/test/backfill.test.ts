@@ -156,6 +156,7 @@ describe("lifecycle backfill", () => {
 				{ projector_name: "chat-read-model", last_sequence: 5 },
 				{ projector_name: "messages", last_sequence: 1 },
 				{ projector_name: "reactor:auto-name-chat", last_sequence: 5 },
+				{ projector_name: "reactor:chat-archive", last_sequence: 5 },
 				{
 					projector_name: "reactor:permission-lifecycle",
 					last_sequence: 5,

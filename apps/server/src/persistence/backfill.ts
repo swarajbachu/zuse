@@ -21,6 +21,7 @@ const PROJECTORS = [
 	"reactor:permission-lifecycle",
 	"reactor:provider-start",
 	"reactor:provider-stop",
+	"reactor:chat-archive",
 ] as const;
 
 interface ChatRow {

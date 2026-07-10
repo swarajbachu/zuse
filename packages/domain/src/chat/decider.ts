@@ -71,6 +71,10 @@ export const decideChat = (
 			return state.activeSessionId === command.sessionId
 				? success([])
 				: success([{ ...command, _tag: "ChatActiveSessionSet" }]);
+		case "RequestArchiveChat":
+			return state.archived || state.archiveRequested
+				? success([])
+				: success([{ ...command, _tag: "ChatArchiveRequested" }]);
 		case "ArchiveChat":
 			return state.archived
 				? success([])

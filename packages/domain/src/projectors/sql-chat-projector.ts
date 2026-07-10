@@ -72,6 +72,8 @@ export const makeSqlChatProjector = (
 				`;
 				return;
 			}
+			case "ChatArchiveRequested":
+				return;
 			case "ChatArchived": {
 				const archivedAt = new Date(event.archivedAt).toISOString();
 				yield* sql`

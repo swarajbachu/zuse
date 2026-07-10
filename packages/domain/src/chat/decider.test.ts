@@ -80,4 +80,21 @@ describe("chat decider", () => {
 		state = evolveChats(state, unarchived.success);
 		expect(Result.getOrThrow(decideChat(state, unarchive))).toEqual([]);
 	});
+
+	test("emits one durable archive request until the archive settles", () => {
+		const first = decideChat(initialChatState, created);
+		if (Result.isFailure(first)) throw first.failure;
+		let state = evolveChats(initialChatState, first.success);
+		const request: ChatCommand = {
+			_tag: "RequestArchiveChat",
+			force: false,
+			requestedAt: 20,
+		};
+		const requested = Result.getOrThrow(decideChat(state, request));
+		expect(requested).toEqual([
+			{ _tag: "ChatArchiveRequested", force: false, requestedAt: 20 },
+		]);
+		state = evolveChats(state, requested);
+		expect(Result.getOrThrow(decideChat(state, request))).toEqual([]);
+	});
 });
