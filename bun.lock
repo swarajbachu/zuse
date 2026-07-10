@@ -366,10 +366,14 @@
       "version": "0.0.0",
       "dependencies": {
         "@zuse/contracts": "*",
+        "@zuse/pokemon-data": "*",
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/platform-node": "catalog:",
+        "@effect/sql-sqlite-node": "catalog:",
         "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },

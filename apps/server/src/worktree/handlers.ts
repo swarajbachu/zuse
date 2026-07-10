@@ -1,7 +1,7 @@
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 
-import { WorktreeService } from "./services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 
 const Create = MemoizeRpcs.toLayerHandler(
   "worktree.create",

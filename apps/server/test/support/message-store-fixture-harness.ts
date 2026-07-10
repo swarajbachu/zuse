@@ -48,7 +48,7 @@ import { ProviderService } from "../../src/provider/services/provider-service.ts
 import { PtyService } from "../../src/pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
-import { WorktreeService } from "../../src/worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 const FIXTURE_WORKTREE_ID = "fixture-worktree" as WorktreeId;

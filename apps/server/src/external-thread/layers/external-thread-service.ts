@@ -28,7 +28,7 @@ import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "../../provider/drivers/claude.ts";
 import { translateCodexItem } from "../../provider/drivers/codex.ts";
 import { MessageStore } from "../../provider/services/message-store.ts";
-import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { ExternalThreadService } from "../services/external-thread-service.ts";
 

@@ -59,7 +59,7 @@ import {
   type OrchestrationToolDeps,
 } from "../drivers/orchestration-tools.ts";
 
-import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { GitService } from "@zuse/git/git-service";
