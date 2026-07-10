@@ -139,7 +139,6 @@ import {
   MessagesQueueStreamRpc,
   MessagesQueueUpdateRpc,
   MessagesSendRpc,
-  MessagesStreamRpc,
   SessionAnswerQuestionRpc,
   SessionArchiveRpc,
   SessionCreateRpc,
@@ -161,7 +160,6 @@ import {
   SessionSetProviderRpc,
   SessionSetRuntimeModeRpc,
   SessionSetWorktreeRpc,
-  SessionStatusStreamRpc,
   SessionUnarchiveRpc,
 } from "./session.ts";
 import {
@@ -307,9 +305,7 @@ export const MemoizeRpcs = RpcGroup.make(
   SessionSetPermissionModeRpc,
   SessionAnswerQuestionRpc,
   SessionSetWorktreeRpc,
-  SessionStatusStreamRpc,
   MessagesListRpc,
-  MessagesStreamRpc,
   MessagesSendRpc,
   MessagesInterruptRpc,
   MessagesQueueListRpc,

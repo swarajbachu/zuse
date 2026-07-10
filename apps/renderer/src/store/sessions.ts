@@ -105,7 +105,7 @@ type SessionsState = {
   } | null>;
   /**
    * Patch the cached `Session.status` for a session. Called by the
-   * `session.streamStatus` subscription so the renderer's view of
+   * durable `session.events` subscription so the renderer's view of
    * `Session.status` reflects post-boot transitions
    * (`booting` → `idle` / `running` / `error`).
    */

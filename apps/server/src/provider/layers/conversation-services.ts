@@ -25,7 +25,6 @@ import {
   GoalUnsupportedError,
   Message,
   type MessageContent,
-  MessageEnvelope,
   MessageId,
   type MessageId as MessageIdType,
   type MessageOrigin,
@@ -1146,22 +1145,8 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* ndjson.append(sessionId, projectId, message);
       });
 
-    // One pubsub per session, lazily created. Re-used across multiple
-    // `streamMessages` subscribers so a single provider event fans out to
-    // every connected renderer view of that session.
-    const pubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<MessageEnvelope>>
-    >(new Map());
     const fibers = yield* Ref.make<
       ReadonlyMap<SessionId, Fiber.Fiber<unknown, unknown>>
-    >(new Map());
-
-    type StatusEvent = {
-      readonly sessionId: SessionId;
-      readonly status: Session["status"];
-    };
-    const statusPubsubs = yield* Ref.make<
-      ReadonlyMap<SessionId, PubSub.PubSub<StatusEvent>>
     >(new Map());
     const goalPubsubs = yield* Ref.make<
       ReadonlyMap<
@@ -1175,8 +1160,8 @@ export const ConversationServicesLive = Layer.effectContext(
     const goalsBySession = new Map<string, ThreadGoal | null>();
 
     // Single hub for chat-row changes (create / title / worktree binding).
-    // Unlike the per-session message/status pubsubs, chats are few and updates
-    // rare, so one project-filtered hub keeps it simple. The renderer seeds
+    // Chats are few and updates rare, so one project-filtered hub keeps it
+    // simple. The renderer seeds
     // from `chat.list`; this stream carries live changes after subscription,
     // so a Zuse-orchestrated spawn appears in the sidebar without
     // requiring a full app reload.
@@ -1186,34 +1171,6 @@ export const ConversationServicesLive = Layer.effectContext(
 
     // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
     // Chats that already received a successful LLM title this process lifetime.
-
-    const getOrMakePubsub = (sessionId: SessionId) =>
-      Effect.gen(function* () {
-        const map = yield* Ref.get(pubsubs);
-        const existing = map.get(sessionId);
-        if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<MessageEnvelope>();
-        yield* Ref.update(pubsubs, (m) => {
-          const next = new Map(m);
-          next.set(sessionId, pubsub);
-          return next;
-        });
-        return pubsub;
-      });
-
-    const getOrMakeStatusPubsub = (sessionId: SessionId) =>
-      Effect.gen(function* () {
-        const map = yield* Ref.get(statusPubsubs);
-        const existing = map.get(sessionId);
-        if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<StatusEvent>();
-        yield* Ref.update(statusPubsubs, (m) => {
-          const next = new Map(m);
-          next.set(sessionId, pubsub);
-          return next;
-        });
-        return pubsub;
-      });
 
     const getOrMakeGoalPubsub = (sessionId: SessionId) =>
       Effect.gen(function* () {
@@ -1411,8 +1368,6 @@ export const ConversationServicesLive = Layer.effectContext(
           status,
           updatedAt: yield* currentTimestamp,
         });
-        const pubsub = yield* getOrMakeStatusPubsub(sessionId);
-        yield* PubSub.publish(pubsub, { sessionId, status });
         if (status === "idle" || status === "closed") {
           yield* Effect.forkDetach(flushQueueAfterIdle(sessionId));
         }
@@ -1436,25 +1391,6 @@ export const ConversationServicesLive = Layer.effectContext(
             ),
           ),
         );
-
-    const broadcastMessage = (
-      sessionId: SessionId,
-      persisted: PersistedMessage,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        // Publish AFTER the append transaction committed (persistMessage
-        // returned) — a subscriber must never observe an event that later
-        // rolls back. The sinceSequence cursor closes any
-        // crash-between-commit-and-publish gap.
-        const pubsub = yield* getOrMakePubsub(sessionId);
-        yield* PubSub.publish(
-          pubsub,
-          MessageEnvelope.make({
-            sequence: persisted.sequence,
-            message: persisted.message,
-          }),
-        );
-      });
 
     /**
      * Fork a daemon that consumes the provider's event stream for one
@@ -1555,7 +1491,6 @@ export const ConversationServicesLive = Layer.effectContext(
                 return;
               }
               const persisted = yield* persistMessage(sessionId, content);
-              yield* broadcastMessage(sessionId, persisted);
               yield* ndjsonAppend(sessionId, persisted);
               // A provider `Error` event terminates the turn but, unlike a
               // `Completed`, carries no lifecycle reason of its own — so
@@ -1597,11 +1532,9 @@ export const ConversationServicesLive = Layer.effectContext(
         });
       });
 
-    // Interrupt only the provider → pubsub event-pump fiber, leaving the
-    // message and status PubSubs alive. The renderer's `messages.stream`
-    // and `session.streamStatus` subscriptions stay connected; the next
-    // `sendMessage` lazy-restarts the provider and a fresh pump-fiber
-    // publishes to the same pubsubs. Use this for setModel / setProvider /
+    // Interrupt only the provider event-pump fiber. Durable session-event
+    // subscribers stay connected while `sendMessage` lazily restarts the
+    // provider and installs a fresh pump. Use this for setModel / setProvider /
     // resumeSession — anything that swaps the provider session out and
     // back in. Use `teardownSubscription` instead when the session itself
     // is going away (deleteSession).
@@ -1623,26 +1556,6 @@ export const ConversationServicesLive = Layer.effectContext(
     const teardownSubscription = (sessionId: SessionId): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* interruptProviderFiber(sessionId);
-        const pubsubMap = yield* Ref.get(pubsubs);
-        const pubsub = pubsubMap.get(sessionId);
-        if (pubsub !== undefined) {
-          yield* PubSub.shutdown(pubsub);
-          yield* Ref.update(pubsubs, (m) => {
-            const next = new Map(m);
-            next.delete(sessionId);
-            return next;
-          });
-        }
-        const statusMap = yield* Ref.get(statusPubsubs);
-        const statusPubsub = statusMap.get(sessionId);
-        if (statusPubsub !== undefined) {
-          yield* PubSub.shutdown(statusPubsub);
-          yield* Ref.update(statusPubsubs, (m) => {
-            const next = new Map(m);
-            next.delete(sessionId);
-            return next;
-          });
-        }
         yield* shutdownQueueSession(sessionId);
       });
 
@@ -2214,8 +2127,8 @@ export const ConversationServicesLive = Layer.effectContext(
         }
         if (background) {
           // Detach the boot so the RPC reply happens immediately. The status
-          // pubsub fans the eventual transition out to the renderer via
-          // `session.streamStatus`; on failure we mark `error` and log so
+          // durable event feed carries the eventual transition to clients;
+          // on failure we mark `error` and log so
           // the user sees a closable failed tab instead of a stuck spinner.
           yield* Effect.forkDetach(
             runProviderStartReactor.pipe(
@@ -2360,7 +2273,6 @@ export const ConversationServicesLive = Layer.effectContext(
         // selector flips to null — switching the composer slot back
         // from the QuestionCard to the regular editor. Without this,
         // the row sits in the DB until the next hydrate.
-        yield* broadcastMessage(sessionId, persisted);
         yield* ndjsonAppend(sessionId, persisted);
         yield* provider
           .answerQuestion(sessionId, itemId, answers)
@@ -2413,8 +2325,8 @@ export const ConversationServicesLive = Layer.effectContext(
           updatedAt: yield* currentTimestamp,
         });
         // Drop the provider's in-memory session and interrupt the event pump
-        // fiber; the message + status pubsubs stay alive so the renderer's
-        // streams remain connected. sendMessage's "send fails → restart"
+        // fiber; durable session-event subscriptions remain connected.
+        // sendMessage's "send fails → restart"
         // path reads sessions.model so the next turn picks up the new model.
         yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
@@ -2451,8 +2363,7 @@ export const ConversationServicesLive = Layer.effectContext(
           model,
           updatedAt: yield* currentTimestamp,
         });
-        // See setModel: keep the pubsubs alive so the renderer's streams
-        // stay connected across the provider swap.
+        // See setModel: the durable stream stays connected across the swap.
         yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
         yield* setStatus(sessionId, "idle");
@@ -3100,7 +3011,6 @@ export const ConversationServicesLive = Layer.effectContext(
                     _tag: "error",
                     message: error.reason,
                   });
-                  yield* broadcastMessage(sessionId, persistedError);
                   yield* ndjsonAppend(sessionId, persistedError);
                   yield* setStatus(sessionId, "error");
                 }),
@@ -3689,65 +3599,6 @@ export const ConversationServicesLive = Layer.effectContext(
         ),
       );
 
-    const streamMessages: ConversationOperations["streamMessages"] = (
-      sessionId,
-      sinceSequence,
-    ) =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          yield* lookupSession(sessionId);
-          const since = sinceSequence ?? 0;
-          // Subscribe to the live pubsub *before* reading the replay so a
-          // message persisted between SELECT and Stream.fromQueue is still
-          // delivered. The cursor makes dedup structural: replay covers
-          // everything ≤ lastReplayed, the live tail admits only envelopes
-          // past it — no seen-Set, O(1) memory, gap-free resume.
-          const pubsub = yield* getOrMakePubsub(sessionId);
-          const dequeue = yield* PubSub.subscribe(pubsub);
-          const rows = yield* sql<MessageRow & { readonly sequence: number }>`
-            SELECT id, session_id, role, kind, content_json, parent_item_id,
-                   created_at, sequence
-            FROM messages
-            WHERE session_id = ${sessionId} AND sequence > ${since}
-            ORDER BY sequence ASC
-          `.pipe(Effect.orDie);
-          const replay = rows.map((row) =>
-            MessageEnvelope.make({
-              sequence: row.sequence,
-              message: messageFromRow(row),
-            }),
-          );
-          const lastReplayed =
-            replay.length > 0 ? replay[replay.length - 1]!.sequence : since;
-          const live = Stream.fromSubscription(dequeue).pipe(
-            Stream.filter((envelope) => envelope.sequence > lastReplayed),
-          );
-          return Stream.concat(Stream.fromIterable(replay), live);
-        }),
-      );
-
-    const streamStatus: ConversationOperations["streamStatus"] = (sessionId) =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          const session = yield* lookupSession(sessionId);
-          // Mirror streamMessages: subscribe before reading the persisted row
-          // so transitions during the SELECT window are still delivered.
-          const pubsub = yield* getOrMakeStatusPubsub(sessionId);
-          const dequeue = yield* PubSub.subscribe(pubsub);
-          const initial: {
-            readonly sessionId: SessionId;
-            readonly status: Session["status"];
-          } = {
-            sessionId,
-            status: session.status,
-          };
-          return Stream.concat(
-            Stream.succeed(initial),
-            Stream.fromSubscription(dequeue),
-          );
-        }),
-      );
-
     // Providers that support goal mode. Codex backs it with `thread/goal/*`
     // RPCs; Grok forwards to its native `/goal` slash command with
     // driver-local state. Both go through `setGoalWithLiveProvider` →
@@ -4014,8 +3865,8 @@ export const ConversationServicesLive = Layer.effectContext(
           );
         }
         // Best-effort cleanup of any stale in-memory session before opening
-        // a fresh handle attached to the same DB row. Keep the pubsubs
-        // alive so renderer subscriptions stay connected across the
+        // a fresh handle attached to the same DB row. Renderer subscriptions
+        // stay connected across the
         // resume — only the event-pump fiber needs to restart.
         yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
@@ -4156,7 +4007,6 @@ export const ConversationServicesLive = Layer.effectContext(
             VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignore);
         }
-        yield* broadcastMessage(sessionId, persisted);
         const chat = yield* lookupChat(session.chatId).pipe(
           Effect.mapError(() => new SessionNotFoundError({ sessionId })),
         );
@@ -4182,7 +4032,6 @@ export const ConversationServicesLive = Layer.effectContext(
               message:
                 "Goal mode is currently only supported for Codex and Grok sessions.",
             });
-            yield* broadcastMessage(sessionId, persistedError);
             yield* ndjsonAppend(sessionId, persistedError);
             return false;
           }
@@ -4200,7 +4049,6 @@ export const ConversationServicesLive = Layer.effectContext(
                   _tag: "error",
                   message,
                 });
-                yield* broadcastMessage(sessionId, persistedError);
                 yield* ndjsonAppend(sessionId, persistedError);
                 yield* setStatus(sessionId, "idle");
                 return null;
@@ -4277,7 +4125,6 @@ export const ConversationServicesLive = Layer.effectContext(
               _tag: "error",
               message: sendResult.reason,
             });
-            yield* broadcastMessage(sessionId, persistedError);
             yield* ndjsonAppend(sessionId, persistedError);
             yield* setStatus(sessionId, "error");
             return false;
@@ -4309,7 +4156,6 @@ export const ConversationServicesLive = Layer.effectContext(
               _tag: "error",
               message,
             });
-            yield* broadcastMessage(sessionId, persistedError);
             yield* ndjsonAppend(sessionId, persistedError);
             yield* setStatus(sessionId, "idle");
             return false;
@@ -4393,7 +4239,6 @@ export const ConversationServicesLive = Layer.effectContext(
       unarchiveSession,
       deleteSession,
       resumeSession,
-      streamStatus,
       getGoal,
       setGoal,
       clearGoal,
@@ -4421,7 +4266,6 @@ export const ConversationServicesLive = Layer.effectContext(
     } satisfies TranscriptServiceShape;
     const messageService = {
       listMessages,
-      streamMessages,
       sendMessage,
       interruptSession,
     } satisfies MessageServiceShape;

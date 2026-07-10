@@ -431,24 +431,6 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(MessageService, (svc) => svc.listMessages(sessionId)),
 );
 
-const MessagesStream = MemoizeRpcs.toLayerHandler(
-  "messages.stream",
-  ({ sessionId, sinceSequence }) =>
-    Stream.unwrap(
-      Effect.map(MessageService, (svc) =>
-        svc.streamMessages(sessionId, sinceSequence),
-      ),
-    ),
-);
-
-const SessionStreamStatus = MemoizeRpcs.toLayerHandler(
-  "session.streamStatus",
-  ({ sessionId }) =>
-    Stream.unwrap(
-      Effect.map(SessionService, (svc) => svc.streamStatus(sessionId)),
-    ),
-);
-
 const SessionEvents = MemoizeRpcs.toLayerHandler(
   "session.events",
   ({ sessionId, afterSequence }) =>
@@ -731,14 +713,12 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionSetPermissionMode,
   SessionAnswerQuestion,
   SessionSetWorktree,
-  SessionStreamStatus,
   SessionEvents,
   SessionGoalGet,
   SessionGoalSet,
   SessionGoalClear,
   SessionGoalStream,
   MessagesList,
-  MessagesStream,
   MessagesSend,
   MessagesInterrupt,
   MessagesQueueList,

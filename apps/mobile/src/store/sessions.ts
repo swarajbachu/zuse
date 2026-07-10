@@ -9,6 +9,7 @@ import type {
   SessionStatus,
   WorktreeId,
 } from "@zuse/contracts";
+import { projectSessionEvent } from "@zuse/client-runtime/session-events";
 import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
@@ -76,6 +77,7 @@ type SessionsState = {
 };
 
 const statusFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const sessionEventSequences = new Map<string, number>();
 const chatFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stopFiber = async (
@@ -279,7 +281,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         projects.map(async (project) => {
           const [chats, sessions] = await Promise.all([
             Effect.runPromise(client["chat.list"]({ projectId: project.id })),
-            Effect.runPromise(client["session.list"]({ projectId: project.id })),
+            Effect.runPromise(
+              client["session.list"]({ projectId: project.id }),
+            ),
           ]);
           return { project, chats, sessions };
         }),
@@ -329,14 +333,22 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         const key = `${connKey}:status:${session.id}`;
         await stopFiber(key, statusFibers);
         const statusProgram = Stream.runForEach(
-          client["session.streamStatus"]({ sessionId: session.id }),
-          (event) =>
+          client["session.events"]({
+            sessionId: session.id,
+            afterSequence: sessionEventSequences.get(key),
+          }),
+          (envelope) =>
             Effect.sync(() => {
+              const previous = sessionEventSequences.get(key) ?? 0;
+              if (envelope.sequence > previous) {
+                sessionEventSequences.set(key, envelope.sequence);
+              }
+              const event = projectSessionEvent(envelope);
+              if (event._tag !== "status") return;
               set((state) => ({
                 statusBySession: {
                   ...state.statusBySession,
-                  [connectionSessionKey(connKey, event.sessionId)]:
-                    event.status,
+                  [connectionSessionKey(connKey, session.id)]: event.status,
                 },
               }));
             }),

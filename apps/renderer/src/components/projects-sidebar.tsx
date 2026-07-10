@@ -31,6 +31,7 @@ import {
   type ProviderId,
   type SessionId,
 } from "@zuse/contracts";
+import { projectSessionEvent } from "@zuse/client-runtime/session-events";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import { BlurredEmail } from "~/components/blurred-email";
@@ -202,8 +203,10 @@ const chatIdForSession = (sessionId: SessionId): ChatId | null => {
   return null;
 };
 
+const sessionEventSequence = new Map<SessionId, number>();
+
 /**
- * Keep a live `session.streamStatus` subscription per known session so the
+ * Keep one durable session-event subscription per known session so the
  * sidebar's busy indicators stay accurate even when a project is collapsed
  * or its row isn't mounted. Lives at the sidebar root so subscription
  * lifetime is decoupled from row-mount lifetime (the prior per-`SessionRow`
@@ -216,12 +219,10 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
   // tracked set and only start/stop the deltas. Critically, an existing
   // session's fiber is NEVER torn down just because another session is
   // added or removed from the list — tearing it down would force a fresh
-  // `streamStatus` subscribe whose initial event (read from the DB at
-  // subscribe time) would clobber the live `true` flag with whatever's
-  // persisted, making the previous session's loader disappear.
-  const fibersRef = useRef<
-    Map<SessionId, Fiber.Fiber<unknown, unknown>>
-  >(new Map());
+  // event replay and can make the previous session's loader flicker.
+  const fibersRef = useRef<Map<SessionId, Fiber.Fiber<unknown, unknown>>>(
+    new Map(),
+  );
   const idsKey = sessionIds.join(",");
 
   useEffect(() => {
@@ -248,9 +249,18 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
           if (tracked.has(id)) continue;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client["session.streamStatus"]({ sessionId: id }),
-              (event) =>
+              client["session.events"]({
+                sessionId: id,
+                afterSequence: sessionEventSequence.get(id),
+              }),
+              (envelope) =>
                 Effect.sync(() => {
+                  const previousSequence = sessionEventSequence.get(id) ?? 0;
+                  if (envelope.sequence > previousSequence) {
+                    sessionEventSequence.set(id, envelope.sequence);
+                  }
+                  const event = projectSessionEvent(envelope);
+                  if (event._tag !== "status") return;
                   // Capture the prior running flag BEFORE the status update so
                   // we can detect the running→idle edge for unread tracking.
                   const wasRunning =

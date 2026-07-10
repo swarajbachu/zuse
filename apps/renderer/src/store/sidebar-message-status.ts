@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
 import type { Message, SessionId } from "@zuse/contracts";
+import { projectSessionEvent } from "@zuse/client-runtime/session-events";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -24,9 +25,9 @@ const lastSequenceBySession = new Map<SessionId, number>();
 export function useSidebarMessageStatusSubscriptions(
   sessionIds: ReadonlyArray<SessionId>,
 ) {
-  const fibersRef = useRef<
-    Map<SessionId, Fiber.Fiber<unknown, unknown>>
-  >(new Map());
+  const fibersRef = useRef<Map<SessionId, Fiber.Fiber<unknown, unknown>>>(
+    new Map(),
+  );
   const idsKey = sessionIds.join(",");
 
   useEffect(() => {
@@ -54,19 +55,22 @@ export function useSidebarMessageStatusSubscriptions(
         if (cancelled) return;
         for (const id of toAdd) {
           if (tracked.has(id)) continue;
-          const sinceSequence =
+          const afterSequence =
             (useSidebarMessageStatusStore.getState().messagesBySession[id]
               ?.length ?? 0) > 0
               ? lastSequenceBySession.get(id)
               : undefined;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client["messages.stream"]({ sessionId: id, sinceSequence }),
+              client["session.events"]({ sessionId: id, afterSequence }),
               (envelope) =>
                 Effect.sync(() => {
-                  const { sequence, message } = envelope;
+                  const { sequence } = envelope;
                   const prev = lastSequenceBySession.get(id) ?? 0;
                   if (sequence > prev) lastSequenceBySession.set(id, sequence);
+                  const projected = projectSessionEvent(envelope);
+                  if (projected._tag !== "message") return;
+                  const { message } = projected;
                   useSidebarMessageStatusStore.setState((s) => {
                     const current = s.messagesBySession[id] ?? [];
                     if (current.some((row) => row.id === message.id)) return s;

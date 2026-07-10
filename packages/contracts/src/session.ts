@@ -883,27 +883,6 @@ export const MessagesListRpc = Rpc.make("messages.list", {
 });
 
 /**
- * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
- * rows in global `sequence` order — a replay of everything past `sinceSequence`
- * (0 when omitted, i.e. the full history), then live rows as the provider
- * produces events. The renderer treats it as the single source of truth — no
- * separate hydrate / live split.
- *
- * Clients record the highest `sequence` seen per session and pass it back as
- * `sinceSequence` on resubscribe: the server replays only the delta, so a
- * flaky-network reconnect is O(missed messages) and gap-free by construction.
- */
-export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({
-    sessionId: SessionId,
-    sinceSequence: Schema.optional(Schema.Number),
-  }),
-  success: MessageEnvelope,
-  error: SessionNotFoundError,
-  stream: true,
-});
-
-/**
  * Send a user turn. The legacy `text` field stays accepted alongside the
  * richer `input` form so the renderer can migrate the composer to
  * `ComposerInput` in a follow-up phase without a wire flag-day. Server
@@ -1102,19 +1081,6 @@ export const SessionEventsRpc = Rpc.make("session.events", {
     afterSequence: Schema.optional(Schema.Number),
   }),
   success: SessionDomainEventEnvelope,
-  error: SessionNotFoundError,
-  stream: true,
-});
-
-/**
- * Live status feed for a session. Mirrors the message stream pattern: emits
- * the current status immediately, then every transition. The renderer uses
- * it to keep the composer's "running" indicator stable across the whole
- * tool-call loop instead of inferring from the last message.
- */
-export const SessionStatusStreamRpc = Rpc.make("session.streamStatus", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Schema.Struct({ sessionId: SessionId, status: SessionStatus }),
   error: SessionNotFoundError,
   stream: true,
 });

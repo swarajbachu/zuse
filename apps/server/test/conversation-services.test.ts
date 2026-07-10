@@ -366,7 +366,7 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
-    Layer.provide(DomainLive),
+    Layer.provideMerge(DomainLive),
     Layer.provide(ChatDomainLive),
     Layer.provide(SessionQueriesLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
@@ -382,7 +382,11 @@ const makeRuntime = (dbPath: string) => {
 const withRuntime = async <A>(
   fn: (
     run: <X>(
-      eff: Effect.Effect<X, unknown, TestConversation | SqlClient.SqlClient>,
+      eff: Effect.Effect<
+        X,
+        unknown,
+        TestConversation | SqlClient.SqlClient | SessionDomain
+      >,
     ) => Promise<X>,
   ) => Promise<A>,
 ): Promise<A> => {
@@ -390,7 +394,11 @@ const withRuntime = async <A>(
   const dbPath = join(dir, "test.sqlite");
   const runtime = makeRuntime(dbPath);
   const run = <X>(
-    eff: Effect.Effect<X, unknown, TestConversation | SqlClient.SqlClient>,
+    eff: Effect.Effect<
+      X,
+      unknown,
+      TestConversation | SqlClient.SqlClient | SessionDomain
+    >,
   ): Promise<X> => runtime.runPromise(eff as Effect.Effect<X, unknown, never>);
   try {
     // Seed the project row through the runtime's own SqlClient.
@@ -2043,8 +2051,18 @@ describe("ConversationServices — provider event persistence", () => {
 });
 
 describe("ConversationServices cursor streaming", () => {
-  const userText = (envelope: { readonly message: { content: unknown } }) =>
-    (envelope.message.content as { text?: string }).text;
+  const messageEvents = (domain: SessionDomain, sessionId: SessionId) =>
+    domain
+      .events({ streamId: sessionId })
+      .pipe(
+        Stream.filter((record) => record.event._tag === "MessagePersisted"),
+      );
+  const userText = (record: {
+    readonly event: { readonly contentJson?: string };
+  }) =>
+    record.event.contentJson === undefined
+      ? undefined
+      : (JSON.parse(record.event.contentJson) as { text?: string }).text;
 
   it("resumes from sinceSequence with zero gaps or duplicates", async () => {
     await withRuntime(async (run) => {
@@ -2064,8 +2082,8 @@ describe("ConversationServices cursor streaming", () => {
 
       // First subscription: full replay of the three persisted rows.
       const first = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
         ),
       );
       expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
@@ -2080,8 +2098,15 @@ describe("ConversationServices cursor streaming", () => {
 
       // Resubscribe with the recorded cursor — exactly the delta, in order.
       const resumed = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(id, cursor).pipe(Stream.take(2))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(
+            domain.events({ streamId: id, afterSequence: cursor }).pipe(
+              Stream.filter(
+                (record) => record.event._tag === "MessagePersisted",
+              ),
+              Stream.take(2),
+            ),
+          ),
         ),
       );
       expect(resumed.map(userText)).toEqual(["m4", "m5"]);
@@ -2108,8 +2133,9 @@ describe("ConversationServices cursor streaming", () => {
       const collected = await run(
         Effect.gen(function* () {
           const s = yield* store;
+          const domain = yield* SessionDomain;
           const fiber = yield* Effect.forkChild(
-            Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+            Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
           );
           yield* s.sendMessage(id, "m2");
           yield* s.sendMessage(id, "m3");
@@ -2117,7 +2143,7 @@ describe("ConversationServices cursor streaming", () => {
         }),
       );
       expect(collected.map(userText)).toEqual(["m1", "m2", "m3"]);
-      expect(new Set(collected.map((e) => e.message.id)).size).toBe(3);
+      expect(new Set(collected.map((e) => e.eventId)).size).toBe(3);
     });
   });
 
@@ -2138,13 +2164,13 @@ describe("ConversationServices cursor streaming", () => {
       await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a2")));
 
       const forA = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(a).pipe(Stream.take(2))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, a).pipe(Stream.take(2))),
         ),
       );
       const forB = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(b).pipe(Stream.take(1))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, b).pipe(Stream.take(1))),
         ),
       );
 

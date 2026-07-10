@@ -19,7 +19,7 @@ const initialProbes: Probe[] = [
   { name: "Capabilities", status: "pending", detail: "" },
   { name: "Schema decode", status: "pending", detail: "" },
   { name: "Effect stream", status: "pending", detail: "" },
-  { name: "Live wire", status: "pending", detail: "" }
+  { name: "Live wire", status: "pending", detail: "" },
 ];
 
 export default function SmokeScreen() {
@@ -27,7 +27,9 @@ export default function SmokeScreen() {
 
   const update = (name: string, patch: Partial<Probe>) => {
     setProbes((current) =>
-      current.map((probe) => (probe.name === name ? { ...probe, ...patch } : probe))
+      current.map((probe) =>
+        probe.name === name ? { ...probe, ...patch } : probe,
+      ),
     );
   };
 
@@ -87,7 +89,9 @@ export default function SmokeScreen() {
   );
 }
 
-const runCapabilityProbe = (update: (name: string, patch: Partial<Probe>) => void) => {
+const runCapabilityProbe = (
+  update: (name: string, patch: Partial<Probe>) => void,
+) => {
   const report = {
     WebSocket: typeof globalThis.WebSocket,
     TextEncoder: typeof globalThis.TextEncoder,
@@ -95,7 +99,7 @@ const runCapabilityProbe = (update: (name: string, patch: Partial<Probe>) => voi
     WeakRef: typeof globalThis.WeakRef,
     "Symbol.asyncIterator": typeof Symbol.asyncIterator,
     FinalizationRegistry: typeof globalThis.FinalizationRegistry,
-    structuredClone: typeof globalThis.structuredClone
+    structuredClone: typeof globalThis.structuredClone,
   };
   const required =
     report.WebSocket === "function" &&
@@ -105,16 +109,18 @@ const runCapabilityProbe = (update: (name: string, patch: Partial<Probe>) => voi
     report["Symbol.asyncIterator"] === "symbol";
   update("Capabilities", {
     status: required ? "pass" : "fail",
-    detail: JSON.stringify(report, null, 2)
+    detail: JSON.stringify(report, null, 2),
   });
 };
 
-const runSchemaProbe = async (update: (name: string, patch: Partial<Probe>) => void) => {
+const runSchemaProbe = async (
+  update: (name: string, patch: Partial<Probe>) => void,
+) => {
   try {
     const valid = fixture("assistant", { _tag: "assistant", text: "hello" });
     const decoded = Schema.decodeUnknownResult(MessageEnvelope)(valid);
     const unknown = Schema.decodeUnknownResult(MessageEnvelope)(
-      fixture("mystery", { _tag: "mystery", text: "nope" })
+      fixture("mystery", { _tag: "mystery", text: "nope" }),
     );
     if (Result.isFailure(decoded)) {
       throw new Error(String(decoded.failure));
@@ -125,40 +131,45 @@ const runSchemaProbe = async (update: (name: string, patch: Partial<Probe>) => v
     Schema.encodeSync(MessageEnvelope)(decoded.success);
     update("Schema decode", {
       status: "pass",
-      detail: "MessageEnvelope decode/encode passed; unknown _tag failed closed."
+      detail:
+        "MessageEnvelope decode/encode passed; unknown _tag failed closed.",
     });
   } catch (cause) {
     update("Schema decode", { status: "fail", detail: errorText(cause) });
   }
 };
 
-const runEffectProbe = async (update: (name: string, patch: Partial<Probe>) => void) => {
+const runEffectProbe = async (
+  update: (name: string, patch: Partial<Probe>) => void,
+) => {
   try {
     const values = await Effect.runPromise(
       Stream.range(1, 3).pipe(
         Stream.mapEffect((n) => Effect.succeed(n * 2)),
-        Stream.runCollect
-      )
+        Stream.runCollect,
+      ),
     );
     await Effect.runPromise(
       Effect.gen(function* () {
         const fiber = yield* Effect.never.pipe(Effect.forkChild);
         yield* Fiber.interrupt(fiber);
-      })
+      }),
     );
     update("Effect stream", {
       status: "pass",
-      detail: `Stream values: ${values.join(", ")}; interrupt passed.`
+      detail: `Stream values: ${values.join(", ")}; interrupt passed.`,
     });
   } catch (cause) {
     update("Effect stream", { status: "fail", detail: errorText(cause) });
   }
 };
 
-const runLiveProbe = async (update: (name: string, patch: Partial<Probe>) => void) => {
+const runLiveProbe = async (
+  update: (name: string, patch: Partial<Probe>) => void,
+) => {
   try {
     const client = await Effect.runPromise(
-      getConnectionClient({ host: "127.0.0.1", port: 8787 })
+      getConnectionClient({ host: "127.0.0.1", port: 8787 }),
     );
     const ping = await Effect.runPromise(client["ping.ping"]({}));
     const projects = await Effect.runPromise(client["workspace.list"]({}));
@@ -166,15 +177,15 @@ const runLiveProbe = async (update: (name: string, patch: Partial<Probe>) => voi
     let streamDetail = "no sessions available";
     if (firstProject !== undefined) {
       const sessions = await Effect.runPromise(
-        client["session.list"]({ projectId: firstProject.id })
+        client["session.list"]({ projectId: firstProject.id }),
       );
       const firstSession = sessions[0];
       if (firstSession !== undefined) {
         const envelopes = await Effect.runPromise(
-          client["messages.stream"]({
+          client["session.events"]({
             sessionId: firstSession.id,
-            sinceSequence: 0,
-          }).pipe(Stream.take(3), Stream.runCollect)
+            afterSequence: 0,
+          }).pipe(Stream.take(3), Stream.runCollect),
         );
         streamDetail = `session ${firstSession.id}; sequences ${envelopes
           .map((envelope) => envelope.sequence)
@@ -183,7 +194,7 @@ const runLiveProbe = async (update: (name: string, patch: Partial<Probe>) => voi
     }
     update("Live wire", {
       status: "pass",
-      detail: `${ping.message}; projects=${projects.length}; ${streamDetail}`
+      detail: `${ping.message}; projects=${projects.length}; ${streamDetail}`,
     });
   } catch (cause) {
     update("Live wire", { status: "fail", detail: errorText(cause) });
@@ -197,8 +208,8 @@ const fixture = (id: string, content: unknown) => ({
     sessionId: "session-smoke",
     role: "assistant",
     content,
-    createdAt: "2026-07-03T00:00:00.000Z"
-  }
+    createdAt: "2026-07-03T00:00:00.000Z",
+  },
 });
 
 const errorText = (cause: unknown) =>
