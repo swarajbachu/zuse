@@ -89,7 +89,13 @@ interface AgentSlot {
  * "saved" figure (cost if every sub-agent turn had run on the main
  * model). Hidden when no usage rows exist.
  */
-export function CostFooter({ sessionId }: { sessionId: SessionId }) {
+export function CostFooter({
+  sessionId,
+  constrain = true,
+}: {
+  sessionId: SessionId;
+  constrain?: boolean;
+}) {
   const messages = useMessagesStore(
     (s) => s.messagesBySession[sessionId] ?? EMPTY,
   );
@@ -169,8 +175,14 @@ export function CostFooter({ sessionId }: { sessionId: SessionId }) {
   if (summary === null) return null;
 
   return (
-    <div className="px-3 pb-1 text-[10px] text-muted-foreground">
-      <div className="mx-auto w-full max-w-4xl">
+    <div
+      className={
+        constrain
+          ? "px-3 pb-1 text-[10px] text-muted-foreground"
+          : "pb-1 text-[10px] text-muted-foreground"
+      }
+    >
+      <div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
         <span className="tabular-nums">
           {summary.lines.join(" · ")}
           {summary.saved > 0.005 ? (

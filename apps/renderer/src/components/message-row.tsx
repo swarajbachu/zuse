@@ -1038,14 +1038,14 @@ export function ErrorBubble({
     error.kind === "network" ? "bg-alert-warning-bg" : "bg-alert-error-bg";
 
   return (
-    <div className="px-4 py-2">
+    <div className="py-2">
       <div
         className={cn(
-          "max-w-[88%] rounded-xl px-3 py-2 text-xs text-foreground",
+          "w-full rounded-xl px-3 py-2 text-xs text-foreground",
           bg,
         )}
       >
-        <div className="flex items-start gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           <HugeiconsIcon
             icon={AlertCircleIcon}
             strokeWidth={2}
@@ -1060,7 +1060,7 @@ export function ErrorBubble({
                 Provider error
               </span>
             )}
-            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+            <pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {error.message || "(empty)"}
             </pre>
             {sessionId !== undefined && (
@@ -1098,7 +1098,7 @@ export function ErrorBubble({
             <button
               type="button"
               onClick={onDismiss}
-              className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               Dismiss
             </button>
