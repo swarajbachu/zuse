@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.6]
+
+### Changed
+- Add production crash recovery tools (#317)
+- Quiet live tool-call rows in the chat stream (#316)
+- better animations (#315)
+- Constrain active chat content rail (#314)
+- Agents notes (#313)
+
 ## [0.12.5]
 
 ### Added
