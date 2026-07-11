@@ -167,7 +167,7 @@ implementation time and updated alongside `MODELS_BY_PROVIDER`.)
 
 ## Driver changes
 
-All edits live in `apps/server/src/provider/drivers/claude.ts`.
+All edits live in `packages/agents/src/drivers/claude.ts`.
 
 ### `start()` — pass `agents` into SDK options
 

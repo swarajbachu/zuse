@@ -1,17 +1,18 @@
-import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
-import { SqlClient } from "effect/unstable/sql";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { Effect, Layer } from "effect";
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
+import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
+import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
+import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
+import { translateCodexItem } from "@zuse/agents/drivers/codex";
+import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import {
   ContinueExternalThreadResult,
   defaultModelFor,
   ExternalThread,
-  type AgentEvent,
   type Folder,
   type Message,
   type MessageContent,
@@ -19,16 +20,13 @@ import {
   type Worktree,
   WorktreeId,
 } from "@zuse/contracts";
-
-import { resolveCliPath } from "../../provider/availability.ts";
-import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
-import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
-import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
-import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
-import { translateClaudeSdkMessages } from "../../provider/drivers/claude.ts";
-import { translateCodexItem } from "../../provider/drivers/codex.ts";
-import { TranscriptService } from "../../provider/services/conversation-services.ts";
 import { WorktreeService } from "@zuse/git/worktree-service";
+import { Effect, Layer } from "effect";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { SqlClient } from "effect/unstable/sql";
+import { resolveCliPath } from "../../provider/availability.ts";
+import { eventToContent } from "../../provider/conversation-message-mapping.ts";
+import { TranscriptService } from "../../provider/services/conversation-services.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { ExternalThreadService } from "../services/external-thread-service.ts";
 
@@ -314,11 +312,12 @@ export const claudeTranscriptMessages = (
       const message = rowMessage(row);
       const content = rowText(row);
       if (message !== null && rowRole(row) !== "user") {
-        return translateClaudeSdkMessages([row as unknown as SDKMessage])
-          .flatMap((event) => {
-            const translated = agentEventToMessageContent(event);
-            return translated === null ? [] : [translated];
-          });
+        return translateClaudeSdkMessages([
+          row as unknown as SDKMessage,
+        ]).flatMap((event) => {
+          const translated = eventToContent(event);
+          return translated === null ? [] : [translated];
+        });
       }
       if (
         message !== null &&
@@ -328,11 +327,12 @@ export const claudeTranscriptMessages = (
           (block) => asRecord(block)?.["type"] === "tool_result",
         )
       ) {
-        return translateClaudeSdkMessages([row as unknown as SDKMessage])
-          .flatMap((event) => {
-            const translated = agentEventToMessageContent(event);
-            return translated === null ? [] : [translated];
-          });
+        return translateClaudeSdkMessages([
+          row as unknown as SDKMessage,
+        ]).flatMap((event) => {
+          const translated = eventToContent(event);
+          return translated === null ? [] : [translated];
+        });
       }
       if (content === null || !isMeaningfulConversationText(row, content)) {
         return [];
@@ -361,106 +361,6 @@ const codexUserInputText = (input: UserInput): string | null => {
       return `[image](${input.url})`;
     case "localImage":
       return `[image](${input.path})`;
-  }
-};
-
-const agentEventToMessageContent = (
-  event: AgentEvent,
-): MessageContent | null => {
-  switch (event._tag) {
-    case "AssistantMessage":
-      return {
-        _tag: "assistant",
-        text: event.text,
-        parentItemId: event.parentItemId,
-      };
-    case "Thinking":
-      return {
-        _tag: "thinking",
-        itemId: event.itemId,
-        text: event.text,
-        redacted: event.redacted,
-        parentItemId: event.parentItemId,
-      };
-    case "ToolUse":
-      return {
-        _tag: "tool_use",
-        itemId: event.itemId,
-        tool: event.tool,
-        input: event.input,
-        parentItemId: event.parentItemId,
-      };
-    case "ToolResult":
-      return {
-        _tag: "tool_result",
-        itemId: event.itemId,
-        output: event.output,
-        isError: event.isError,
-        parentItemId: event.parentItemId,
-      };
-    case "SubagentSummary":
-      return {
-        _tag: "subagent_summary",
-        itemId: event.itemId,
-        agentName: event.agentName,
-        model: event.model,
-        turns: event.turns,
-        durationMs: event.durationMs,
-        summary: event.summary,
-        isError: event.isError,
-      };
-    case "UsageDelta":
-      return {
-        _tag: "usage",
-        parentItemId: event.parentItemId,
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-        cacheReadTokens: event.cacheReadTokens,
-        cacheCreationTokens: event.cacheCreationTokens,
-        model: event.model,
-      };
-    case "ContextUsage":
-      return {
-        _tag: "context_usage",
-        providerId: event.providerId,
-        usedTokens: event.usedTokens,
-        windowTokens: event.windowTokens,
-        precision: event.precision,
-        source: event.source,
-      };
-    case "ContextCompaction":
-      return {
-        _tag: "context_compaction",
-        itemId: event.itemId,
-        providerId: event.providerId,
-        startedAt: event.startedAt,
-        durationMs: event.durationMs,
-        beforeTokens: event.beforeTokens,
-        afterTokens: event.afterTokens,
-        status: event.status,
-      };
-    case "UsageLimit":
-      return {
-        _tag: "usage_limit",
-        providerId: event.providerId,
-        label: event.label,
-        usedPercent: event.usedPercent,
-        resetsAt: event.resetsAt,
-        windowMinutes: event.windowMinutes,
-      };
-    case "UserQuestion":
-      return {
-        _tag: "user_question",
-        itemId: event.itemId,
-        questions: event.questions,
-        parentItemId: event.parentItemId,
-      };
-    case "Error":
-      return { _tag: "error", message: event.message };
-    case "Interrupted":
-      return { _tag: "interrupted" };
-    default:
-      return null;
   }
 };
 
@@ -505,7 +405,7 @@ const codexTranscriptMessages = (cursor: string) =>
             continue;
           }
           for (const event of translateCodexItem(item, "completed")) {
-            const content = agentEventToMessageContent(event);
+            const content = eventToContent(event);
             if (content !== null) out.push(content);
           }
         }
@@ -712,7 +612,10 @@ export const ExternalThreadServiceLive = Layer.effect(
           }
         } else if (providerId === "codex") {
           const imported = yield* codexTranscriptMessages(input.cursor).pipe(
-            Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+            Effect.provideService(
+              CommandExecutor.ChildProcessSpawner,
+              executor,
+            ),
           );
           if (imported.length > 0) {
             importedMessages = yield* messages

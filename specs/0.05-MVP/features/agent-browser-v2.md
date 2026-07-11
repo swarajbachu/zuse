@@ -156,7 +156,7 @@ Everything from the v1 spec's list, plus:
   `apps/renderer/src/components/browser-pane.tsx`.
 - Wire: `packages/contracts/src/browser.ts` (`FillForm`, `Network`, `Dialog`,
   extended `Wait`/`Screenshot`).
-- Tools + policy: `apps/server/src/provider/drivers/browser-tools.ts`,
+- Tools + policy: `packages/agents/src/drivers/browser-tools.ts`,
   `drivers/claude.ts` (`READ_ONLY_TOOLS`).
 
 ## Risks / verification notes

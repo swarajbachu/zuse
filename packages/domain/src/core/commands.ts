@@ -45,6 +45,10 @@ export const SessionCommand = Schema.Union([
 		status: SessionCreatedFields.status,
 		updatedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("SetQueuePaused", {
+		paused: Schema.Boolean,
+		updatedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SetResume", {
 		cursor: SessionCreatedFields.cursor,
 		resumeStrategy: SessionCreatedFields.resumeStrategy,

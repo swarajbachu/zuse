@@ -19,6 +19,7 @@ export type SessionState = {
 	readonly title: string | null;
 	readonly model: string | null;
 	readonly status: SessionStatus | null;
+	readonly queuePaused: boolean;
 	readonly cursor: string | null;
 	readonly resumeStrategy: ResumeStrategy | null;
 	readonly runtimeMode: RuntimeMode | null;
@@ -43,6 +44,7 @@ export const initialSessionState: SessionState = {
 	title: null,
 	model: null,
 	status: null,
+	queuePaused: false,
 	cursor: null,
 	resumeStrategy: null,
 	runtimeMode: null,
@@ -89,6 +91,7 @@ export const evolve = (
 				runtimeMode: event.runtimeMode ?? null,
 				worktreeId: event.worktreeId ?? null,
 				permissionMode: event.permissionMode ?? null,
+				queuePaused: event.queuePaused ?? false,
 				version,
 			};
 		case "SessionTitleSet":
@@ -118,6 +121,8 @@ export const evolve = (
 			};
 		case "SessionStatusSet":
 			return { ...state, status: event.status, version };
+		case "SessionQueuePausedSet":
+			return { ...state, queuePaused: event.paused, version };
 		case "SessionResumeSet":
 			return {
 				...state,

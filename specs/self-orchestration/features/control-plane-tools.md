@@ -23,7 +23,7 @@ Registered in the existing `memoize` MCP server, so the model sees them as
 for lineage. `send_to_thread` reports `queued: false` today (Phase 1 sends
 directly); Phase 2 routes to the message queue when the target is mid-turn.
 
-Defined in `apps/server/src/provider/drivers/orchestration-tools.ts`,
+Defined in `packages/agents/src/drivers/orchestration-tools.ts`,
 mirroring `code-index/claude-tools.ts` and `browser-tools.ts`: plain-async
 handlers the SDK invokes directly, kept free of Effect wiring. Each handler
 calls a promise-bound dep that returns a `{ ok, ... } | { ok: false, error }`
@@ -96,7 +96,7 @@ See [decisions/0023-autonomy-via-permission-broker.md](../decisions/0023-autonom
 **New**
 - `packages/contracts/src/autonomy.ts` — `AutonomyLevel`, `DEFAULT_AUTONOMY_LEVEL`,
   `autonomyEnablesOrchestration()`.
-- `apps/server/src/provider/drivers/orchestration-tools.ts` — `buildOrchestrationTools`.
+- `packages/agents/src/drivers/orchestration-tools.ts` — `buildOrchestrationTools`.
 - `apps/server/src/persistence/migrations/0019_chat_lineage.ts`.
 
 **Modified**
@@ -115,7 +115,7 @@ See [decisions/0023-autonomy-via-permission-broker.md](../decisions/0023-autonom
   `Runtime` import, `messageContentToText`/`orchestrationErrorText` helpers,
   `ChatRow`/`chatFromRow`/SELECTs/INSERT lineage column, threaded `extraTools`
   through all 4 `provider.start` calls.
-- `apps/server/src/provider/drivers/claude.ts` — read-only orchestration FQNs.
+- `packages/agents/src/drivers/claude.ts` — read-only orchestration FQNs.
 - `apps/server/src/provider/handlers.ts` — `originSessionId` through `chat.create`.
 - `apps/server/src/persistence/migrations.ts` + `test/message-store.test.ts` —
   register migration 0019; test ConfigStore stub returns real settings.

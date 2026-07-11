@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
+import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 import type {
   AgentEvent,
   AgentSessionId,
@@ -64,8 +65,8 @@ import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
 import { Migration0032ReactorEffectReceipts } from "../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "../src/persistence/migrations/0033_reactor_effect_steps.ts";
+import { Migration0034ToolEventLookup } from "../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
 import { ConversationServicesLive } from "../src/provider/layers/conversation-services.ts";
 import {
   ChatService,
@@ -335,6 +336,7 @@ const runAllMigrations = Effect.all(
     Migration0031BackfillRuns,
     Migration0032ReactorEffectReceipts,
     Migration0033ReactorEffectSteps,
+    Migration0034ToolEventLookup,
   ],
   { discard: true },
 );

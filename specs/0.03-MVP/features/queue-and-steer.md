@@ -201,8 +201,8 @@ draft attachments (see [composer.md](composer.md)).
 | `apps/renderer/src/components/chat-composer.tsx`           | edit   | Mount `QueueTray` inside the card, above the editor.          |
 | `apps/renderer/src/store/messages.ts`                      | edit   | `queueBySession`, `queue`, `steerFromQueue`, `dropFromQueue`; auto-flush hook. |
 | `apps/server/src/provider/services/provider-service.ts`    | edit   | `steer(sessionId, input)` orchestrator.                       |
-| `apps/server/src/provider/drivers/claude.ts`               | edit   | `steer` impl: interrupt → drain → send.                       |
-| `apps/server/src/provider/drivers/codex.ts`                | edit   | `steer` impl: interrupt → send.                               |
+| `packages/agents/src/drivers/claude.ts`               | edit   | `steer` impl: interrupt → drain → send.                       |
+| `packages/agents/src/drivers/codex.ts`                | edit   | `steer` impl: interrupt → send.                               |
 | `packages/contracts/src/session.ts`                             | edit   | `SteerUnsupportedError` + `MessagesSteerRpc`.                 |
 | `packages/contracts/src/rpc.ts`                                 | edit   | Register the new RPC.                                         |
 

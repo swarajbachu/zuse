@@ -65,10 +65,10 @@ export const makeSqlChatProjector = (
 					UPDATE chats
 					SET active_session_id = ${event.sessionId}, updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
-					  AND EXISTS (
+					  AND (${event.sessionId} IS NULL OR EXISTS (
 						SELECT 1 FROM sessions
 						WHERE id = ${event.sessionId} AND chat_id = ${record.streamId}
-					  )
+					  ))
 				`;
 				return;
 			}

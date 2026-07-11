@@ -21,11 +21,13 @@ describe("lifecycle backfill", () => {
 				project_id TEXT NOT NULL,
 				worktree_id TEXT,
 				title TEXT NOT NULL,
+				active_session_id TEXT,
 				origin_session_id TEXT,
 				archived_at TEXT,
 				archived_worktree_json TEXT,
 				last_read_at TEXT,
-				created_at TEXT NOT NULL
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
 			);
 			CREATE TABLE sessions (
 				id TEXT PRIMARY KEY,
@@ -44,8 +46,10 @@ describe("lifecycle backfill", () => {
 				forked_from_message_id TEXT,
 				permission_mode TEXT NOT NULL DEFAULT 'default',
 				tool_search INTEGER NOT NULL DEFAULT 0,
+				queue_paused INTEGER NOT NULL DEFAULT 0,
 				archived_at TEXT,
-				created_at TEXT NOT NULL
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
 			);
 			CREATE TABLE messages (
 				id TEXT PRIMARY KEY,
@@ -54,7 +58,8 @@ describe("lifecycle backfill", () => {
 				kind TEXT NOT NULL,
 				content_json TEXT NOT NULL,
 				parent_item_id TEXT,
-				created_at TEXT NOT NULL
+				created_at TEXT NOT NULL,
+				sequence INTEGER
 			);
 			CREATE TABLE events (
 				sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,16 +88,32 @@ describe("lifecycle backfill", () => {
 			);
 			INSERT INTO messages VALUES (
 				'message-1', 'session-1', 'user', 'text',
-				'{"spacing":  "preserved"}', NULL, '2026-01-02T00:00:00.000Z'
+				'{"spacing":  "preserved"}', NULL, '2026-01-02T00:00:00.000Z', 1
 			);
 			INSERT INTO events
 				(event_id, stream_kind, stream_id, stream_version, type, occurred_at, actor, payload_json)
-			VALUES (
+			VALUES
+			(
 				'backfill:message-1', 'session', 'session-1', 1,
 				'MessagePersisted', '2026-01-02T00:00:00.000Z', NULL,
 				'{"messageId":"message-1"}'
+			),
+			(
+				'backfill:chat-created:chat-1', 'chat', 'chat-1', 1,
+				'ChatCreated', '2026-01-01T00:00:00.000Z', 'backfill',
+				'{"_tag":"ChatCreated","chatId":"chat-1","projectId":"project-1","worktreeId":null,"title":"Existing title","originSessionId":null,"lastReadAt":1767225600000,"createdAt":1767225600000}'
+			),
+			(
+				'backfill:session-created:session-1', 'session', 'session-1', 2,
+				'SessionCreated', '2026-01-01T00:00:00.000Z', 'backfill',
+				'{"_tag":"SessionCreated","sessionId":"session-1","chatId":"chat-1","projectId":"project-1","createdAt":1767225600000}'
+			),
+			(
+				'backfill:session-title:session-1', 'session', 'session-1', 3,
+				'SessionTitleSet', '2026-01-01T00:00:00.000Z', 'backfill',
+				'{"_tag":"SessionTitleSet","title":"Existing title","updatedAt":1767225600000}'
 			);
-			INSERT INTO app_state VALUES ('projector_watermark', '1');
+			INSERT INTO app_state VALUES ('projector_watermark', '4');
 		`);
 		seed.close();
 
@@ -104,10 +125,18 @@ describe("lifecycle backfill", () => {
 				Effect.gen(function* () {
 					yield* Migration0030CqrsEngine;
 					yield* Migration0031BackfillRuns;
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+						INSERT INTO backfill_runs
+							(backfill_name, status, started_at, completed_at, event_count)
+						VALUES
+							('conversation-lifecycle-v4', 'completed',
+							 '2026-01-04T00:00:00.000Z', '2026-01-04T00:00:00.000Z', 4)
+					`;
 					return yield* runLifecycleBackfill;
 				}),
 			);
-			expect(result).toEqual({ status: "completed", eventCount: 4 });
+			expect(result).toEqual({ status: "completed", eventCount: 3 });
 
 			const snapshot = await runtime.runPromise(
 				Effect.gen(function* () {
@@ -134,15 +163,20 @@ describe("lifecycle backfill", () => {
 					stream_version,
 				})),
 			).toEqual([
-				{ type: "MessagePersisted", stream_kind: "session", stream_version: 1 },
 				{ type: "ChatCreated", stream_kind: "chat", stream_version: 1 },
-				{ type: "SessionCreated", stream_kind: "session", stream_version: 2 },
-				{ type: "SessionTitleSet", stream_kind: "session", stream_version: 3 },
+				{ type: "SessionCreated", stream_kind: "session", stream_version: 1 },
+				{ type: "SessionTitleSet", stream_kind: "session", stream_version: 2 },
+				{ type: "MessagePersisted", stream_kind: "session", stream_version: 3 },
 				{ type: "SessionArchived", stream_kind: "session", stream_version: 4 },
+				{
+					type: "ChatActiveSessionSet",
+					stream_kind: "chat",
+					stream_version: 2,
+				},
 			]);
-			const firstPayload = snapshot.events[0]?.payload_json;
-			expect(firstPayload).toBeDefined();
-			expect(JSON.parse(firstPayload ?? "null")).toEqual({
+			const messagePayload = snapshot.events[3]?.payload_json;
+			expect(messagePayload).toBeDefined();
+			expect(JSON.parse(messagePayload ?? "null")).toEqual({
 				_tag: "MessagePersisted",
 				messageId: "message-1",
 				turnId: null,
@@ -153,22 +187,22 @@ describe("lifecycle backfill", () => {
 				createdAt: Date.parse("2026-01-02T00:00:00.000Z"),
 			});
 			expect(snapshot.cursors).toEqual([
-				{ projector_name: "chat-read-model", last_sequence: 5 },
-				{ projector_name: "messages", last_sequence: 1 },
-				{ projector_name: "reactor:auto-name-chat", last_sequence: 5 },
-				{ projector_name: "reactor:chat-archive", last_sequence: 5 },
-				{ projector_name: "reactor:chat-delete", last_sequence: 5 },
+				{ projector_name: "chat-read-model", last_sequence: 7 },
+				{ projector_name: "messages", last_sequence: 7 },
+				{ projector_name: "reactor:auto-name-chat", last_sequence: 7 },
+				{ projector_name: "reactor:chat-archive", last_sequence: 7 },
+				{ projector_name: "reactor:chat-delete", last_sequence: 7 },
 				{
 					projector_name: "reactor:permission-lifecycle",
-					last_sequence: 5,
+					last_sequence: 7,
 				},
-				{ projector_name: "reactor:provider-start", last_sequence: 5 },
-				{ projector_name: "reactor:provider-stop", last_sequence: 5 },
-				{ projector_name: "session-read-model", last_sequence: 5 },
+				{ projector_name: "reactor:provider-start", last_sequence: 7 },
+				{ projector_name: "reactor:provider-stop", last_sequence: 7 },
+				{ projector_name: "session-read-model", last_sequence: 7 },
 			]);
 			expect(snapshot.rerun).toEqual({
 				status: "already-completed",
-				eventCount: 4,
+				eventCount: 3,
 			});
 		} finally {
 			await runtime.dispose();

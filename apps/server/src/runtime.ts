@@ -334,6 +334,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProjectorCatchup),
     Layer.provide(SessionDomainLayer),
     Layer.provide(ChatDomainLayer),
+    Layer.provide(SessionQueriesLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );

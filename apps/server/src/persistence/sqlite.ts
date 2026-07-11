@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -14,8 +15,8 @@ import { ensureSqliteRenameCompatibility, sqliteDbPath } from "./db-path.ts";
  * and isolated benches; otherwise the file lives at
  * `<userData>/zuse.sqlite` so a user can `sqlite3` into it.
  *
- * Bun uses its built-in driver for development and tests. Node and Electron
- * use `node:sqlite`, keeping production persistence free of native addons.
+ * Production and development use the same `node:sqlite` implementation.
+ * Tests inject an isolated client layer explicitly at their boundary.
  */
 export const SqliteLive = Layer.unwrap(
 	Effect.gen(function* () {
@@ -33,17 +34,7 @@ export const SqliteLive = Layer.unwrap(
 		}
 		const filename = inMemory ? ":memory:" : sqliteDbPath(paths.userData);
 
-		if (process.versions.bun !== undefined) {
-			const bunSqlite = yield* Effect.tryPromise(
-				() => import("@effect/sql-sqlite-bun"),
-			).pipe(Effect.orDie);
-			return bunSqlite.SqliteClient.layer({ filename });
-		}
-
-		const nodeSqlite = yield* Effect.tryPromise(
-			() => import("@zuse/sqlite"),
-		).pipe(Effect.orDie);
-		return nodeSqlite.layer({ filename }) as Layer.Layer<
+		return nodeSqliteLayer({ filename }) as Layer.Layer<
 			SqlClient.SqlClient,
 			SqlError
 		>;

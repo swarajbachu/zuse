@@ -1,21 +1,17 @@
 import { randomUUID } from "node:crypto";
-
-import { FileSystem, Path } from "effect";
-import { SqlClient } from "effect/unstable/sql";
-import { Effect, Layer } from "effect";
-
+import {
+  AttachmentService,
+  type AttachmentServiceShape,
+} from "@zuse/agents/kernel/attachment-service";
 import { AttachmentTooLargeError, ContextWriteError } from "@zuse/contracts";
-
+import { Effect, FileSystem, Layer, Path } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { AppPaths } from "../../app-paths.ts";
 import {
   ensureContextFilesDir,
   resolveSessionCwd,
 } from "../../context/context-files.ts";
 import { extForUpload } from "../image-mime.ts";
-import {
-  AttachmentService,
-  type AttachmentServiceShape,
-} from "../services/attachment-service.ts";
 
 /**
  * Per-attachment cap, validated client-side and re-validated here. Matches
@@ -24,7 +20,10 @@ import {
 const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 
 const sessionSegment = (sessionId: string): string =>
-  sessionId.toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 80);
+  sessionId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .slice(0, 80);
 
 /**
  * Legacy flat blob directory under userData. New uploads land in the
@@ -143,9 +142,7 @@ export const AttachmentServiceLive = Layer.effect(
           SELECT mime_type, original_name, abs_path
           FROM attachments WHERE id = ${id}
         `.pipe(
-          Effect.orElseSucceed(
-            () => [] as ReadonlyArray<AttachmentMetaRow>,
-          ),
+          Effect.orElseSucceed(() => [] as ReadonlyArray<AttachmentMetaRow>),
         );
         const row = rows[0];
         if (row === undefined) return null;

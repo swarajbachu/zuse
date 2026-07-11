@@ -14,6 +14,7 @@
     "test": "turbo run test",
     "test:live-agents": "cd apps/server && bun run test:live-agents",
     "schemas:generate": "node scripts/generate-settings-schemas.mjs",
+    "verify:backfill": "tsx scripts/verify-backfill.ts",
     "diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
     "rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
     "dist:mac": "bun run build:desktop && cd apps/desktop && bun run dist:mac",
@@ -23,6 +24,7 @@
     "@biomejs/biome": "2.5.3",
     "@effect/vitest": "4.0.0-beta.97",
     "prettier": "catalog:",
+    "tsx": "4.23.0",
     "turbo": "catalog:",
     "typescript": "catalog:",
     "vitest": "4.1.10"
@@ -41,7 +43,6 @@
     "catalog": {
       "@effect/platform-node": "4.0.0-beta.97",
       "@effect/sql-pg": "4.0.0-beta.97",
-      "@effect/sql-sqlite-bun": "4.0.0-beta.97",
       "@effect/vitest": "4.0.0-beta.97",
       "@types/node": "^22.15.3",
       "@types/react": "19.2.2",
@@ -60,7 +61,6 @@
   "overrides": {
     "@effect/platform-node": "4.0.0-beta.97",
     "@effect/sql-pg": "4.0.0-beta.97",
-    "@effect/sql-sqlite-bun": "4.0.0-beta.97",
     "@effect/vitest": "4.0.0-beta.97",
     "effect": "4.0.0-beta.97"
   },

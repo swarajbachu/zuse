@@ -47,12 +47,12 @@ const shared = {
   },
   // Workspace packages ship as raw .ts source — bundle them in instead of
   // letting Node try to require() the .ts file at runtime.
-  // `fix-path` is ESM-only ("type": "module"). Electron 33 ships Node 20.x
-  // where `require()` of an ESM module throws ERR_REQUIRE_ESM. Bundling it
-  // inline transpiles it to CJS so the main bundle can call it directly.
+  // `fix-path` is ESM-only ("type": "module"). Bundle it inline so the CJS
+  // Electron main process can call it without crossing a require/ESM boundary.
   deps: {
     alwaysBundle: [
       "@zuse/contracts",
+      "@zuse/agents",
       "@zuse/server",
       "@zuse/sqlite",
       "@zuse/index",
@@ -73,7 +73,6 @@ const shared = {
       "tree-sitter-typescript",
       "tree-sitter-javascript",
       "tree-sitter-json",
-      "bun:sqlite",
     ],
   },
 };
@@ -98,12 +97,12 @@ export default defineConfig([
     // this artifact next to the main bundle (browser-mcp-bridge.ts).
     entry: {
       "browser-mcp-child":
-        "../server/src/provider/drivers/acp/browser-mcp-child.ts",
+        "../../packages/agents/src/drivers/acp/browser-mcp-child.ts",
     },
     deps: {
       alwaysBundle: [
         "@zuse/contracts",
-        "@zuse/server",
+        "@zuse/agents",
         "@modelcontextprotocol/sdk",
       ],
     },
@@ -114,12 +113,12 @@ export default defineConfig([
     // via bun/node to reach the session-bound parent bridge.
     entry: {
       "orchestration-mcp-child":
-        "../server/src/provider/drivers/acp/orchestration-mcp-child.ts",
+        "../../packages/agents/src/drivers/acp/orchestration-mcp-child.ts",
     },
     deps: {
       alwaysBundle: [
         "@zuse/contracts",
-        "@zuse/server",
+        "@zuse/agents",
         "@modelcontextprotocol/sdk",
       ],
     },

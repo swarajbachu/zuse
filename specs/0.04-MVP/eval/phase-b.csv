@@ -1,8 +1,8 @@
 taskId,tier,succeeded,tokens,wallMs,toolCalls,notes
-T01-startClaudeSession,baseline,1,7501,35,3,"apps/server/src/provider/drivers/claude.ts,apps/server/src/provider/layers/provider-service.ts"
+T01-startClaudeSession,baseline,1,7501,35,3,"packages/agents/src/drivers/claude.ts,apps/server/src/provider/layers/provider-service.ts"
 T02-IndexService,baseline,1,3563,25,4,"packages/index/src/api.ts,specs/0.04-MVP/decisions/0013-index-as-package.md,specs/0.04-MVP/decisions/0017-branch-aware-manifest.md"
 T03-treesitterChunker,baseline,1,3017,26,3,"packages/index/src/chunker/index.ts,packages/index/src/chunker/treesitter.ts"
-T04-PermissionService,baseline,1,13801,23,5,"apps/server/src/provider/drivers/claude.ts,apps/server/src/provider/handlers.ts,apps/server/src/provider/layers/permission-service.ts,apps/server/src/provider/layers/provider-service.ts"
+T04-PermissionService,baseline,1,13801,23,5,"packages/agents/src/drivers/claude.ts,apps/server/src/provider/handlers.ts,apps/server/src/provider/layers/permission-service.ts,apps/server/src/provider/layers/provider-service.ts"
 T05-MemoizeRpcs,baseline,1,3858,23,3,"packages/contracts/src/rpc.ts,specs/0.01-MVP/architecture.md"
 T06-GitService,baseline,0,567,22,2,"apps/server/src/git/services/git-service.ts"
 T07-buildIndexTools,baseline,0,4047,22,2,"apps/server/src/provider/layers/provider-service.ts"

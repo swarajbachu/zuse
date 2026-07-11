@@ -1,35 +1,24 @@
-import { spawn } from "node:child_process";
+import { isIgnorableGrokAuthNoise } from "@zuse/agents/drivers/acp/grok-auth-noise";
 import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
   type AgentDefinition,
-  type AgentEvent,
-  type AgentSessionNotFoundError,
   type AttachmentRef,
-  type AutonomyLevel,
-  type BrowserAnnotation,
-  Chat,
+  type Chat,
   ChatAlreadyStartedError,
-  ChatArchiveScriptError,
-  ChatArchiveTimeoutError,
-  ChatArchiveWorktreeError,
   type ChatArchiveResult,
+  ChatArchiveScriptError,
+  ChatArchiveWorktreeError,
   ChatId,
   ChatNotFoundError,
-  type CodeAnnotation,
   type ComposerAnnotation,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
-  defaultModelFor,
   type FileRef,
   type FolderId,
-  GoalUnsupportedError,
   Message,
   type MessageContent,
   MessageId,
-  type MessageId as MessageIdType,
   type MessageOrigin,
-  type MessageRole,
-  MODELS_BY_PROVIDER,
   type PermissionMode,
   type ProviderId,
   type ResumeStrategy,
@@ -41,52 +30,24 @@ import {
   SessionStartError,
   type SkillRef,
   ThreadGoal,
-  type ThreadGoalSetInput,
-  visibleModelsForProvider,
   type Worktree,
-  type WorktreeCreateSource,
   WorktreeId,
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
-import { ChatEvent } from "@zuse/domain/chat/events";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
-import type { StoredEvent } from "@zuse/domain/engine/dispatch";
-import { ReactorRunner } from "@zuse/domain/engine/reactor-runner";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
-import {
-  makeSqlConsumerStorage,
-  type SqlConsumerStorageError,
-} from "@zuse/domain/engine/sql-consumer-storage";
-import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
-import {
-  type AutoNameCommand,
-  autoNameReactorDefinition,
-  type ChatArchiveCommand,
-  chatArchiveReactorDefinition,
-  type ChatDeleteCommand,
-  chatDeleteReactorDefinition,
-  type ProviderStartCommand,
-  providerStartReactorDefinition,
-  type ProviderStopCommand,
-  providerStopReactorDefinition,
-} from "@zuse/domain/reactors/conversation";
-import {
-  SqlSessionQueries,
-  type SqlSessionReadRecord,
-} from "@zuse/domain/queries/sql-session-queries";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import {
   Context,
   DateTime,
   Effect,
-  Fiber,
   Layer,
   PubSub,
   Ref,
   Schema,
-  Semaphore,
   Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -95,22 +56,45 @@ import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
-import { isIgnorableGrokAuthNoise } from "../drivers/acp/grok-auth-noise.ts";
+import { runArchiveScript } from "../conversation-archive-script.ts";
+import { makeConversationEventRuntime } from "../conversation-event-runtime.ts";
 import {
-  eventToContent,
-  messageContentToText,
-  orchestrationErrorText,
+  isGoalCapableProvider,
+  makeConversationGoalOperations,
+} from "../conversation-goal-operations.ts";
+import { makeConversationGoalState } from "../conversation-goal-state.ts";
+import {
+  deriveProvisionalTitle,
+  formatProviderFailure,
+  looksLikeAuthFailure,
+  serializeAnnotations,
+  textFromMessageContent,
+} from "../conversation-input.ts";
+import {
   parentItemIdOfContent,
   roleForContent,
   shouldIncludeInTranscript,
   transcriptToMarkdown,
 } from "../conversation-message-mapping.ts";
-import { makeReactorEffectJournal } from "../reactor-effect-journal.ts";
+import { makeConversationOrchestration } from "../conversation-orchestration.ts";
 import {
-  buildOrchestrationTools,
-  type OrchestrationSessionTools,
-  type OrchestrationToolDeps,
-} from "../drivers/orchestration-tools.ts";
+  type ChatArchiveReactorError,
+  type ConversationReactorHandlers,
+  makeConversationReactorRuntime,
+} from "../conversation-reactors.ts";
+import {
+  type ChatRow,
+  chatFromRow,
+  type MessageRow,
+  messageFromRecord,
+  messageFromRow,
+  parseAgents,
+  parseArchivedWorktreeSnapshot,
+  type SessionRow,
+  sessionFromRecord,
+  sessionFromRow,
+} from "../conversation-records.ts";
+import { makeReactorEffectJournal } from "../reactor-effect-journal.ts";
 import {
   ChatService,
   type ChatServiceShape,
@@ -125,413 +109,14 @@ import {
   TranscriptService,
   type TranscriptServiceShape,
 } from "../services/conversation-services.ts";
-import {
-  type GetRuntimeMode,
-  ProviderService,
-} from "../services/provider-service.ts";
+import { ProviderService } from "../services/provider-service.ts";
 import {
   buildConversationText,
   formatBranchName,
-  isTrivialUserMessage,
   shouldDeferAutoName,
   TitleGenerator,
 } from "../title-generator.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
-
-interface SessionRow {
-  readonly id: string;
-  readonly project_id: string;
-  readonly title: string;
-  readonly provider_id: string;
-  readonly model: string;
-  readonly status: string;
-  readonly archived_at: string | null;
-  readonly cursor: string | null;
-  readonly resume_strategy: string;
-  readonly runtime_mode: string;
-  readonly agents_json: string | null;
-  readonly worktree_id: string | null;
-  readonly chat_id: string;
-  readonly forked_from_session_id: string | null;
-  readonly forked_from_message_id: string | null;
-  readonly permission_mode: string;
-  readonly tool_search: number;
-  readonly created_at: string;
-  readonly updated_at: string;
-}
-
-interface ChatRow {
-  readonly id: string;
-  readonly project_id: string;
-  readonly worktree_id: string | null;
-  readonly title: string;
-  readonly active_session_id: string | null;
-  readonly origin_session_id: string | null;
-  readonly archived_at: string | null;
-  readonly archived_worktree_json: string | null;
-  readonly last_message_at: string | null;
-  readonly last_read_at: string | null;
-  readonly created_at: string;
-  readonly updated_at: string;
-}
-
-const ARCHIVE_SCRIPT_TIMEOUT_MS = 10 * 60 * 1000;
-const ARCHIVE_OUTPUT_LIMIT = 12_000;
-
-interface ArchivedWorktreeSnapshot {
-  readonly id: string;
-  readonly projectId: string;
-  readonly path: string;
-  readonly name: string;
-  readonly branch: string;
-  readonly baseBranch: string;
-  readonly createdAt: string;
-}
-
-const truncateArchiveOutput = (value: string): string => {
-  if (value.length <= ARCHIVE_OUTPUT_LIMIT) return value;
-  return `…${value.slice(value.length - ARCHIVE_OUTPUT_LIMIT)}`;
-};
-
-const parseArchivedWorktreeSnapshot = (
-  raw: string | null,
-): ArchivedWorktreeSnapshot | null => {
-  if (raw === null || raw.length === 0) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<ArchivedWorktreeSnapshot>;
-    if (
-      typeof parsed.id !== "string" ||
-      typeof parsed.projectId !== "string" ||
-      typeof parsed.path !== "string" ||
-      typeof parsed.name !== "string" ||
-      typeof parsed.branch !== "string" ||
-      typeof parsed.baseBranch !== "string" ||
-      typeof parsed.createdAt !== "string"
-    ) {
-      return null;
-    }
-    return {
-      id: parsed.id,
-      projectId: parsed.projectId,
-      path: parsed.path,
-      name: parsed.name,
-      branch: parsed.branch,
-      baseBranch: parsed.baseBranch,
-      createdAt: parsed.createdAt,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const parseAgents = (
-  raw: string | null,
-): Readonly<Record<string, AgentDefinition>> | null => {
-  if (raw === null || raw.length === 0) return null;
-  try {
-    return JSON.parse(raw) as Record<string, AgentDefinition>;
-  } catch {
-    return null;
-  }
-};
-
-const RUNTIME_MODES: ReadonlySet<RuntimeMode> = new Set([
-  "approval-required",
-  "auto-accept-edits",
-  "auto-accept-edits-and-bash",
-  "full-access",
-]);
-
-const runtimeModeFromRow = (raw: string): RuntimeMode =>
-  RUNTIME_MODES.has(raw as RuntimeMode)
-    ? (raw as RuntimeMode)
-    : DEFAULT_RUNTIME_MODE;
-
-const PERMISSION_MODES: ReadonlySet<PermissionMode> = new Set([
-  "default",
-  "plan",
-  "acceptEdits",
-]);
-
-const permissionModeFromRow = (raw: string): PermissionMode =>
-  PERMISSION_MODES.has(raw as PermissionMode)
-    ? (raw as PermissionMode)
-    : DEFAULT_PERMISSION_MODE;
-
-const RESUME_STRATEGIES: ReadonlySet<Session["resumeStrategy"]> = new Set([
-  "none",
-  "claude-session-id",
-  "codex-thread-id",
-  "grok-session-id",
-  "cursor-session-id",
-  "gemini-session-id",
-  "opencode-session-id",
-]);
-
-const resumeStrategyFromRow = (raw: string): Session["resumeStrategy"] =>
-  RESUME_STRATEGIES.has(raw as Session["resumeStrategy"])
-    ? (raw as Session["resumeStrategy"])
-    : "none";
-
-interface MessageRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly role: string;
-  readonly kind: string;
-  readonly content_json: string;
-  readonly parent_item_id: string | null;
-  readonly created_at: string;
-}
-
-const sessionFromRow = (row: SessionRow): Session =>
-  Session.make({
-    id: SessionId.make(row.id),
-    projectId: row.project_id as FolderId,
-    title: row.title,
-    providerId: row.provider_id as ProviderId,
-    model: row.model,
-    status: row.status as Session["status"],
-    archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
-    cursor: row.cursor,
-    resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
-    runtimeMode: runtimeModeFromRow(row.runtime_mode),
-    worktreeId:
-      row.worktree_id === null
-        ? null
-        : (row.worktree_id as unknown as WorktreeId),
-    chatId: row.chat_id as unknown as ChatId,
-    forkedFromSessionId:
-      row.forked_from_session_id === null
-        ? null
-        : SessionId.make(row.forked_from_session_id),
-    forkedFromMessageId:
-      row.forked_from_message_id === null
-        ? null
-        : (row.forked_from_message_id as MessageIdType),
-    permissionMode: permissionModeFromRow(row.permission_mode),
-    toolSearch: row.tool_search === 1,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  });
-
-const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
-  Session.make({
-    id: SessionId.make(record.sessionId),
-    projectId: record.projectId as FolderId,
-    title: record.title,
-    providerId: record.providerId as ProviderId,
-    model: record.model,
-    status: record.status,
-    archivedAt: record.archivedAt === null ? null : new Date(record.archivedAt),
-    cursor: record.cursor,
-    resumeStrategy: resumeStrategyFromRow(record.resumeStrategy),
-    runtimeMode: runtimeModeFromRow(record.runtimeMode),
-    worktreeId:
-      record.worktreeId === null
-        ? null
-        : (record.worktreeId as unknown as WorktreeId),
-    chatId: record.chatId as unknown as ChatId,
-    forkedFromSessionId:
-      record.forkedFromSessionId === null
-        ? null
-        : SessionId.make(record.forkedFromSessionId),
-    forkedFromMessageId:
-      record.forkedFromMessageId === null
-        ? null
-        : (record.forkedFromMessageId as MessageIdType),
-    permissionMode: permissionModeFromRow(record.permissionMode),
-    toolSearch: record.toolSearch,
-    createdAt: new Date(record.createdAt),
-    updatedAt: new Date(record.updatedAt),
-  });
-
-const chatFromRow = (row: ChatRow): Chat =>
-  Chat.make({
-    id: row.id as unknown as ChatId,
-    projectId: row.project_id as FolderId,
-    worktreeId:
-      row.worktree_id === null
-        ? null
-        : (row.worktree_id as unknown as WorktreeId),
-    title: row.title,
-    activeSessionId:
-      row.active_session_id === null
-        ? null
-        : SessionId.make(row.active_session_id),
-    originSessionId:
-      row.origin_session_id === null
-        ? null
-        : SessionId.make(row.origin_session_id),
-    archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
-    lastMessageAt:
-      row.last_message_at === null ? null : new Date(row.last_message_at),
-    lastReadAt: row.last_read_at === null ? null : new Date(row.last_read_at),
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
-  });
-
-const normalizeMessageContent = (content: MessageContent): MessageContent => {
-  if (content._tag === "context_compaction" && content.status === undefined) {
-    return { ...content, status: "completed" };
-  }
-  return content;
-};
-
-const messageFromRow = (row: MessageRow): Message => {
-  const content = normalizeMessageContent(
-    JSON.parse(row.content_json) as MessageContent,
-  );
-  return Message.make({
-    id: MessageId.make(row.id),
-    sessionId: SessionId.make(row.session_id),
-    role: row.role as MessageRole,
-    content,
-    createdAt: new Date(row.created_at),
-  });
-};
-
-const messageFromRecord = (record: MessageReadRecord): Message =>
-  Message.make({
-    id: MessageId.make(record.messageId),
-    sessionId: SessionId.make(record.sessionId),
-    role: record.role as MessageRole,
-    content: normalizeMessageContent(
-      JSON.parse(record.contentJson) as MessageContent,
-    ),
-    createdAt: new Date(record.createdAt),
-  });
-
-/**
- * Derive a starting title from the first line of the user's prompt. Phase 3
- * tracks the placeholder so PR 7's "auto-title" pass can still rewrite blank
- * titles after the assistant replies.
- */
-const titleFromInitial = (prompt: string | undefined): string => {
-  if (prompt === undefined) return "New chat";
-  const firstLine = prompt.trim().split("\n")[0] ?? "";
-  const truncated = firstLine.slice(0, 60).trim();
-  return truncated.length > 0 ? truncated : "New chat";
-};
-
-/** Provisional sidebar title before the LLM auto-namer runs. */
-const deriveProvisionalTitle = (prompt: string | undefined): string => {
-  if (prompt === undefined) return "New chat";
-  if (isTrivialUserMessage(prompt)) return "New chat";
-  return titleFromInitial(prompt);
-};
-
-const textFromMessageContent = (content: MessageContent): string | null => {
-  if (content._tag === "user" || content._tag === "user_rich") {
-    return content.text;
-  }
-  if (content._tag === "assistant") {
-    return content.text;
-  }
-  return null;
-};
-
-/**
- * Render stacked code annotations into the numbered list the model receives.
- * Each entry is `path:lineRange — comment`; the agent's cwd is the workspace
- * root, so the relative path resolves when it reads the file. Pure string fn —
- * no I/O.
- */
-const isBrowserAnnotation = (
-  annotation: ComposerAnnotation,
-): annotation is BrowserAnnotation =>
-  "_tag" in annotation && annotation._tag === "browser";
-
-const serializeCodeAnnotations = (
-  annotations: ReadonlyArray<CodeAnnotation>,
-): string => {
-  const lines = annotations.map((a, i) => {
-    const range =
-      a.startLine === a.endLine
-        ? `${a.startLine}`
-        : `${a.startLine}-${a.endLine}`;
-    return `${i + 1}. ${a.relPath}:${range} — ${a.comment}`;
-  });
-  return ["Code annotations:", ...lines].join("\n");
-};
-
-const serializeBrowserAnnotations = (
-  annotations: ReadonlyArray<BrowserAnnotation>,
-): string => {
-  const lines = annotations.map((a, i) => {
-    const targetCount = a.elements.length + a.regions.length + a.strokes.length;
-    const firstElement = a.elements[0];
-    const target =
-      firstElement !== undefined
-        ? `<${firstElement.tagName}> ${firstElement.label}`.trim()
-        : `${targetCount} visual ${targetCount === 1 ? "target" : "targets"}`;
-    const title =
-      a.pageTitle !== null && a.pageTitle.trim().length > 0
-        ? ` (${a.pageTitle.trim()})`
-        : "";
-    const screenshot =
-      a.screenshotAttachment !== null ? " Screenshot attached." : "";
-    return `${i + 1}. ${a.pageUrl}${title} — ${target}; ${a.comment}.${screenshot}`;
-  });
-  return ["Browser annotations:", ...lines].join("\n");
-};
-
-const serializeAnnotations = (
-  annotations: ReadonlyArray<ComposerAnnotation>,
-): string => {
-  const code = annotations.filter(
-    (annotation): annotation is CodeAnnotation =>
-      !isBrowserAnnotation(annotation),
-  );
-  const browser = annotations.filter(isBrowserAnnotation);
-  return [
-    code.length > 0 ? serializeCodeAnnotations(code) : "",
-    browser.length > 0 ? serializeBrowserAnnotations(browser) : "",
-  ]
-    .filter((section) => section.length > 0)
-    .join("\n\n");
-};
-
-const formatProviderFailure = (cause: unknown): string => {
-  if (cause instanceof Error) return cause.message;
-  if (cause !== null && typeof cause === "object") {
-    const record = cause as Record<string, unknown>;
-    const tag = typeof record["_tag"] === "string" ? record["_tag"] : null;
-    const reason =
-      typeof record["reason"] === "string" ? record["reason"] : null;
-    const providerId =
-      typeof record["providerId"] === "string" ? record["providerId"] : null;
-    const sessionId =
-      typeof record["sessionId"] === "string" ? record["sessionId"] : null;
-    if (reason !== null && reason.length > 0) {
-      const provider = providerId !== null ? `${providerId}: ` : "";
-      return tag !== null
-        ? `${tag}: ${provider}${reason}`
-        : `${provider}${reason}`;
-    }
-    if (sessionId !== null) {
-      return tag !== null
-        ? `${tag}: ${sessionId}`
-        : `No active provider process for session ${sessionId}.`;
-    }
-    try {
-      return JSON.stringify(cause, null, 2);
-    } catch {
-      return String(cause);
-    }
-  }
-  return String(cause);
-};
-
-// Auth failures (expired/missing OAuth, `401 Invalid authentication
-// credentials`, `Please run /login`) are not recoverable by re-spawning the
-// provider — restarting just hits the same 401, which is what left sessions
-// retrying forever and eventually surfacing an unrelated transient (e.g. a
-// Cloudflare 522). When the failure looks like auth we skip the restart and
-// surface the error so the renderer can show the inline "Sign in" button.
-const looksLikeAuthFailure = (reason: string): boolean =>
-  /\b401\b|\bunauthorized\b|invalid authentication credentials|please run \/login|please log ?in|invalid api key|authentication failed|authorizationrequired/i.test(
-    reason,
-  );
 
 /**
  * A persisted message together with the global event-log `sequence` its
@@ -560,17 +145,9 @@ const decodeProviderModelOptions = Schema.decodeUnknownEffect(
 const decodeArchiveCleanupDetail = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ output: Schema.String })),
 );
-const decodeChatEvent = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(ChatEvent),
-);
-type ChatArchiveError =
-  | ChatNotFoundError
-  | ChatArchiveScriptError
-  | ChatArchiveTimeoutError
-  | ChatArchiveWorktreeError;
-
 export const ConversationServicesLive = Layer.effectContext(
   Effect.gen(function* () {
+    const serviceScope = yield* Effect.scope;
     const sql = yield* SqlClient.SqlClient;
     const sessionQueries = yield* SqlSessionQueries;
     const sessionDomain = yield* SessionDomain;
@@ -609,15 +186,10 @@ export const ConversationServicesLive = Layer.effectContext(
     let runProviderStartReactor: Effect.Effect<void, SessionStartError> =
       Effect.void;
     let runProviderStopReactor: Effect.Effect<void> = Effect.void;
-    let runChatArchiveReactor: Effect.Effect<void, ChatArchiveError> =
+    let runChatArchiveReactor: Effect.Effect<void, ChatArchiveReactorError> =
       Effect.void;
     let runChatDeleteReactor: Effect.Effect<void, ChatNotFoundError> =
       Effect.void;
-    const sessionReactorSemaphore = yield* Semaphore.make(1);
-    const providerStartReactorSemaphore = yield* Semaphore.make(1);
-    const providerStopReactorSemaphore = yield* Semaphore.make(1);
-    const chatArchiveReactorSemaphore = yield* Semaphore.make(1);
-    const chatDeleteReactorSemaphore = yield* Semaphore.make(1);
     const provider = yield* ProviderService;
     const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
       Effect.gen(function* () {
@@ -679,97 +251,6 @@ export const ConversationServicesLive = Layer.effectContext(
           SELECT path FROM projects WHERE id = ${projectId} LIMIT 1
         `.pipe(Effect.orDie);
         return rows[0]?.path ?? null;
-      });
-
-    const runArchiveScript = ({
-      chatId,
-      script,
-      cwd,
-      env,
-    }: {
-      readonly chatId: ChatId;
-      readonly script: string;
-      readonly cwd: string;
-      readonly env: Readonly<Record<string, string>>;
-    }) =>
-      Effect.tryPromise({
-        try: () =>
-          new Promise<{ readonly output: string }>((resolve, reject) => {
-            let output = "";
-            let timedOut = false;
-            const child = spawn("/bin/zsh", ["-lc", script], {
-              cwd,
-              env: { ...(process.env as Record<string, string>), ...env },
-              stdio: ["ignore", "pipe", "pipe"],
-            });
-
-            const append = (chunk: unknown) => {
-              output = truncateArchiveOutput(output + String(chunk));
-            };
-            child.stdout?.on("data", append);
-            child.stderr?.on("data", append);
-
-            const timer = setTimeout(() => {
-              timedOut = true;
-              try {
-                child.kill("SIGKILL");
-              } catch {
-                // already exited
-              }
-            }, ARCHIVE_SCRIPT_TIMEOUT_MS);
-
-            child.on("error", (err) => {
-              clearTimeout(timer);
-              reject(
-                new ChatArchiveScriptError({
-                  chatId,
-                  exitCode: null,
-                  signal: null,
-                  output: truncateArchiveOutput(
-                    output ||
-                      (err instanceof Error ? err.message : String(err)),
-                  ),
-                }),
-              );
-            });
-
-            child.on("close", (code, signal) => {
-              clearTimeout(timer);
-              const finalOutput = truncateArchiveOutput(output);
-              if (timedOut) {
-                reject(
-                  new ChatArchiveTimeoutError({
-                    chatId,
-                    timeoutMs: ARCHIVE_SCRIPT_TIMEOUT_MS,
-                    output: finalOutput,
-                  }),
-                );
-                return;
-              }
-              if (code !== 0) {
-                reject(
-                  new ChatArchiveScriptError({
-                    chatId,
-                    exitCode: code,
-                    signal,
-                    output: finalOutput,
-                  }),
-                );
-                return;
-              }
-              resolve({ output: finalOutput });
-            });
-          }),
-        catch: (err) =>
-          err instanceof ChatArchiveScriptError ||
-          err instanceof ChatArchiveTimeoutError
-            ? err
-            : new ChatArchiveScriptError({
-                chatId,
-                exitCode: null,
-                signal: null,
-                output: err instanceof Error ? err.message : String(err),
-              }),
       });
 
     // Project-id cache so the per-message NDJSON append doesn't hit the DB
@@ -859,26 +340,15 @@ export const ConversationServicesLive = Layer.effectContext(
               ),
             ),
           );
-          if (rows.length === 0) return;
-          projectId = rows[0]!.project_id as FolderId;
+          const [row] = rows;
+          if (row === undefined) return;
+          projectId = row.project_id as FolderId;
           projectIdBySession.set(sessionId, projectId);
         }
         yield* ndjson.append(sessionId, projectId, message);
       });
 
-    const fibers = yield* Ref.make<
-      ReadonlyMap<SessionId, Fiber.Fiber<unknown, unknown>>
-    >(new Map());
-    const goalPubsubs = yield* Ref.make<
-      ReadonlyMap<
-        SessionId,
-        PubSub.PubSub<{
-          readonly sessionId: SessionId;
-          readonly goal: ThreadGoal | null;
-        }>
-      >
-    >(new Map());
-    const goalsBySession = new Map<string, ThreadGoal | null>();
+    const goalState = yield* makeConversationGoalState();
 
     // Single hub for chat-row changes (create / title / worktree binding).
     // Chats are few and updates rare, so one project-filtered hub keeps it
@@ -892,57 +362,6 @@ export const ConversationServicesLive = Layer.effectContext(
 
     // Chats whose LLM auto-name is in flight — cleared when the fiber ends.
     // Chats that already received a successful LLM title this process lifetime.
-
-    const getOrMakeGoalPubsub = (sessionId: SessionId) =>
-      Effect.gen(function* () {
-        const map = yield* Ref.get(goalPubsubs);
-        const existing = map.get(sessionId);
-        if (existing !== undefined) return existing;
-        const pubsub = yield* PubSub.unbounded<{
-          readonly sessionId: SessionId;
-          readonly goal: ThreadGoal | null;
-        }>();
-        yield* Ref.update(goalPubsubs, (m) => {
-          const next = new Map(m);
-          next.set(sessionId, pubsub);
-          return next;
-        });
-        return pubsub;
-      });
-
-    const publishGoal = (
-      sessionId: SessionId,
-      goal: ThreadGoal | null,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        goalsBySession.set(sessionId, goal);
-        const pubsub = yield* getOrMakeGoalPubsub(sessionId);
-        yield* PubSub.publish(pubsub, { sessionId, goal }).pipe(Effect.asVoid);
-      });
-
-    const latestGoalUserMessageMatches = (
-      sessionId: SessionId,
-      text: string,
-    ): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
-        const rows = yield* sql<{ readonly content_json: string }>`
-          SELECT content_json FROM messages
-          WHERE session_id = ${sessionId} AND role = 'user'
-          ORDER BY created_at DESC
-          LIMIT 1
-        `.pipe(Effect.orDie);
-        const raw = rows[0]?.content_json;
-        if (raw === undefined) return false;
-        try {
-          const content = JSON.parse(raw) as MessageContent;
-          if (content._tag !== "user" && content._tag !== "user_rich") {
-            return false;
-          }
-          return content.goal === true && content.text.trim() === text.trim();
-        } catch {
-          return false;
-        }
-      });
 
     const lookupSession = (
       sessionId: SessionId,
@@ -1000,7 +419,10 @@ export const ConversationServicesLive = Layer.effectContext(
       Effect.gen(function* () {
         const rows = yield* sql<{ readonly content_json: string }>`
           SELECT content_json FROM messages
-          WHERE session_id = ${sessionId} AND kind = 'tool_use'
+          WHERE session_id = ${sessionId}
+            AND kind = 'tool_use'
+            AND json_valid(content_json)
+            AND json_extract(content_json, '$.itemId') = ${content.itemId}
           ORDER BY sequence DESC
         `.pipe(Effect.orDie);
         const nextFingerprint = toolUseFingerprint(content);
@@ -1072,12 +494,10 @@ export const ConversationServicesLive = Layer.effectContext(
         };
       });
 
-    let flushQueueAfterIdle: (
-      sessionId: SessionId,
-    ) => Effect.Effect<void> = () => Effect.void;
-    let shutdownQueueSession: (
-      sessionId: SessionId,
-    ) => Effect.Effect<void> = () => Effect.void;
+    let flushQueueAfterIdle: (sessionId: SessionId) => Effect.Effect<void> =
+      () => Effect.void;
+    let shutdownQueueSession: (sessionId: SessionId) => Effect.Effect<void> =
+      () => Effect.void;
 
     const setStatus = (
       sessionId: SessionId,
@@ -1090,7 +510,7 @@ export const ConversationServicesLive = Layer.effectContext(
           updatedAt: yield* currentTimestamp,
         });
         if (status === "idle" || status === "closed") {
-          yield* Effect.forkDetach(flushQueueAfterIdle(sessionId));
+          yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
         }
       });
 
@@ -1121,158 +541,52 @@ export const ConversationServicesLive = Layer.effectContext(
      * boundary — the alternative is a runaway error that bubbles into the
      * RPC server and tears down the whole transport.
      */
-    const startSubscription = (sessionId: SessionId): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
-        const fiber = yield* Effect.forkDetach(
-          Stream.runForEach(provider.events(sessionId), (event) =>
-            Effect.gen(function* () {
-              if (event._tag === "Status") {
-                if (
-                  event.status === "running" ||
-                  event.status === "closed" ||
-                  event.status === "error" ||
-                  event.status === "idle"
-                ) {
-                  yield* setStatus(sessionId, event.status);
-                  if (event.status === "running") {
-                    yield* publishRelayActivity(sessionId, "running");
-                  }
-                }
-                return;
-              }
-              if (event._tag === "Completed") {
-                yield* settleActiveTurn(
-                  sessionId,
-                  event.reason === "interrupted"
-                    ? "interrupted"
-                    : event.reason === "error"
-                      ? "error"
-                      : "completed",
-                );
-                yield* setStatus(
-                  sessionId,
-                  event.reason === "error" ? "error" : "closed",
-                );
-                yield* publishRelayActivity(
-                  sessionId,
-                  event.reason === "error" ? "error" : "completed",
-                );
-                return;
-              }
-              if (event._tag === "SessionCursor") {
-                yield* dispatchSessionCommand(sessionId, {
-                  _tag: "SetResume",
-                  cursor: event.cursor,
-                  resumeStrategy: event.strategy,
-                  updatedAt: yield* currentTimestamp,
-                });
-                return;
-              }
-              if (event._tag === "PermissionModeChanged") {
-                // SDK flipped its lifecycle mode (typically because
-                // ExitPlanMode just ran successfully). Persist + cache
-                // so the chat-header chip auto-untoggles and a future
-                // `provider.start` resume passes the new mode through.
-                yield* dispatchSessionCommand(sessionId, {
-                  _tag: "SetPermissionMode",
-                  permissionMode: event.mode,
-                  updatedAt: yield* currentTimestamp,
-                });
-                permissionModeBySession.set(sessionId, event.mode);
-                return;
-              }
-              if (event._tag === "GoalUpdated") {
-                yield* publishGoal(sessionId, ThreadGoal.make(event.goal));
-                return;
-              }
-              if (event._tag === "GoalCleared") {
-                yield* publishGoal(sessionId, null);
-                return;
-              }
-              if (
-                session.providerId === "grok" &&
-                event._tag === "Error" &&
-                isIgnorableGrokAuthNoise(event.message)
-              ) {
-                return;
-              }
-              if (event._tag === "PermissionRequest") {
-                yield* publishRelayActivity(sessionId, "approval-needed");
-              }
-              if (event._tag === "UserQuestion") {
-                yield* publishRelayActivity(sessionId, "question-needed");
-              }
-              const content = eventToContent(event);
-              if (content === null) return;
-              if (
-                content._tag === "tool_use" &&
-                (yield* isDuplicateToolUse(sessionId, content))
-              ) {
-                return;
-              }
-              const persisted = yield* persistMessage(sessionId, content);
-              yield* ndjsonAppend(sessionId, persisted);
-              // A provider `Error` event terminates the turn but, unlike a
-              // `Completed`, carries no lifecycle reason of its own — so
-              // without this the session is left pinned at `running` and the
-              // composer / setup card spin forever (this is the "stuck on the
-              // loading screen" symptom for auth failures, which surface as a
-              // mid-stream Error with no trailing result message). Flip to
-              // `error` so the renderer shows the error bubble + login CTA.
-              if (event._tag === "Error") {
-                yield* settleActiveTurn(sessionId, "error");
-                yield* publishRelayActivity(sessionId, "error");
-                yield* setStatus(sessionId, "error");
-              }
-              if (event._tag === "Interrupted") {
-                yield* settleActiveTurn(sessionId, "interrupted");
-                yield* setStatus(sessionId, "idle");
-              }
-            }),
-          ).pipe(
-            Effect.catchCause((cause) =>
-              Effect.gen(function* () {
-                if (turnIdsBySession.has(sessionId)) {
-                  yield* settleActiveTurn(sessionId, "error").pipe(
-                    Effect.catchCause(() => Effect.void),
-                  );
-                }
-                yield* Effect.logDebug(
-                  "[ConversationServices] event stream ended",
-                );
-                yield* Effect.logDebug(cause);
-              }),
-            ),
-          ),
-        );
-        yield* Ref.update(fibers, (m) => {
-          const next = new Map(m);
-          next.set(sessionId, fiber);
-          return next;
-        });
-      });
-
-    // Interrupt only the provider event-pump fiber. Durable session-event
-    // subscribers stay connected while `sendMessage` lazily restarts the
-    // provider and installs a fresh pump. Use this for setModel / setProvider /
-    // resumeSession — anything that swaps the provider session out and
-    // back in. Use `teardownSubscription` instead when the session itself
-    // is going away (deleteSession).
-    const interruptProviderFiber = (
-      sessionId: SessionId,
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const fiberMap = yield* Ref.get(fibers);
-        const fiber = fiberMap.get(sessionId);
-        if (fiber === undefined) return;
-        yield* Fiber.interrupt(fiber);
-        yield* Ref.update(fibers, (m) => {
-          const next = new Map(m);
-          next.delete(sessionId);
-          return next;
-        });
-      });
+    const eventRuntime = yield* makeConversationEventRuntime({
+      scope: serviceScope,
+      events: (sessionId) => provider.events(sessionId),
+      providerId: (sessionId) =>
+        lookupSession(sessionId).pipe(
+          Effect.orDie,
+          Effect.map((session) => session.providerId),
+        ),
+      setStatus,
+      settleTurn: settleActiveTurn,
+      hasActiveTurn: (sessionId) => turnIdsBySession.has(sessionId),
+      setResume: (sessionId, cursor, strategy) =>
+        Effect.gen(function* () {
+          yield* dispatchSessionCommand(sessionId, {
+            _tag: "SetResume",
+            cursor,
+            resumeStrategy: strategy,
+            updatedAt: yield* currentTimestamp,
+          });
+        }),
+      setPermissionMode: (sessionId, mode) =>
+        Effect.gen(function* () {
+          yield* dispatchSessionCommand(sessionId, {
+            _tag: "SetPermissionMode",
+            permissionMode: mode,
+            updatedAt: yield* currentTimestamp,
+          });
+          permissionModeBySession.set(sessionId, mode);
+        }),
+      publishGoal: (sessionId, goal) =>
+        goalState.publish(
+          sessionId,
+          goal === null ? null : ThreadGoal.make(goal),
+        ),
+      publishRelayActivity,
+      ignoreError: (providerId, message) =>
+        providerId === "grok" && isIgnorableGrokAuthNoise(message),
+      isDuplicateToolUse,
+      persist: (sessionId, content) =>
+        Effect.gen(function* () {
+          const persisted = yield* persistMessage(sessionId, content);
+          yield* ndjsonAppend(sessionId, persisted);
+        }),
+    });
+    const startSubscription = eventRuntime.start;
+    const interruptProviderFiber = eventRuntime.interrupt;
 
     const teardownSubscription = (sessionId: SessionId): Effect.Effect<void> =>
       Effect.gen(function* () {
@@ -1347,356 +661,125 @@ export const ConversationServicesLive = Layer.effectContext(
         return row;
       });
 
-    /**
-     * Build the session-bound control-plane (orchestration) tool bundle. The
-     * tools are built in for every managed session; mutating calls still go
-     * through the normal provider permission gate. Each tool bridges back into
-     * these Effect methods via `Runtime.runPromise`, mapping every typed failure to a
-     * `{ ok: false, error }` result so provider MCP handlers never throw.
-     *
-     * Spawned threads carry `originSessionId = ctx.sessionId` for lineage, and
-     * inherit this session's provider/model unless the agent overrides them.
-     */
-    const buildOrchestrationForSession = (ctx: {
-      readonly sessionId: SessionId;
-      readonly chatId: ChatId;
-      readonly projectId: FolderId;
-      readonly worktreeId: WorktreeId | null;
-      readonly providerId: ProviderId;
-      readonly model: string;
-    }): Effect.Effect<OrchestrationSessionTools | null> =>
+    interface OpenProviderSessionOptions {
+      readonly initialPrompt?: string;
+      readonly modelOptions?: Readonly<Record<string, string>>;
+      readonly enableSubagents?: boolean;
+      readonly forkFromResume?: boolean;
+      readonly postBootStatus?: Session["status"];
+      readonly sendAfterOpen?: {
+        readonly text: string;
+        readonly attachments: ReadonlyArray<AttachmentRef>;
+      };
+    }
+
+    const openProviderSession = (
+      session: Session,
+      options: OpenProviderSessionOptions = {},
+    ): Effect.Effect<void, SessionStartError> =>
       Effect.gen(function* () {
-        const settings = yield* configStore
-          .getSettings()
-          .pipe(Effect.catchCause(() => Effect.succeed(null)));
-        const level: AutonomyLevel = "approval-gated";
-        const run = Effect.runPromiseWith(runtime);
-        const providerModelFor = (input: {
-          readonly providerId?: string;
-          readonly model?: string;
-        }): { readonly providerId: ProviderId; readonly model: string } => {
-          const providerId =
-            (input.providerId as ProviderId | undefined) ?? ctx.providerId;
-          const model =
-            input.model ??
-            (providerId === ctx.providerId
-              ? ctx.model
-              : (settings?.defaultModelByProvider[providerId] ??
-                defaultModelFor(providerId)));
-          return { providerId, model };
-        };
-        const sourceForBaseBranch = (
-          baseBranch: string | undefined,
-        ): WorktreeCreateSource | undefined =>
-          baseBranch !== undefined
-            ? { _tag: "branch", branch: baseBranch, remote: null }
-            : undefined;
-        const createWorktreeForOrchestration = (baseBranch?: string) =>
-          worktrees.create(ctx.projectId, sourceForBaseBranch(baseBranch));
-        const createOrchestrationChat = (input: {
-          readonly task: string;
-          readonly title?: string;
-          readonly worktreeId: WorktreeId | null;
-          readonly providerId?: string;
-          readonly model?: string;
-        }) => {
-          const { providerId, model } = providerModelFor(input);
-          return createChat({
-            projectId: ctx.projectId,
-            providerId,
-            model,
-            title: input.title,
-            initialPrompt: input.task,
-            worktreeId: input.worktreeId,
-            originSessionId: ctx.sessionId,
-          }).pipe(
-            Effect.map((res) => ({
-              ok: true as const,
-              chatId: res.chat.id as string,
-              sessionId: res.initialSession.id as string,
-              title: res.chat.title,
-              worktreeId:
-                res.chat.worktreeId === null
-                  ? null
-                  : (res.chat.worktreeId as string),
-            })),
+        runtimeModeBySession.set(session.id, session.runtimeMode);
+        permissionModeBySession.set(session.id, session.permissionMode);
+        const subagents = agentsFor(session.id);
+        const cwdOverride = yield* cwdForWorktree(session.worktreeId);
+        const orchestrationTools = yield* makeConversationOrchestration(
+          {
+            runtime,
+            getSettings: configStore.getSettings,
+            createWorktree: (projectId, source) =>
+              worktrees.create(projectId, source),
+            createChat: (input) => createChat(input),
+            createSession: (input) => createSession(input),
+            getChat: lookupChat,
+            getSession: lookupSession,
+            sendToSession: (sessionId, text, origin) =>
+              sendMessage(
+                sessionId,
+                text,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                origin,
+              ),
+            listMessages,
+            listChats,
+            listSessions,
+          },
+          {
+            sessionId: session.id,
+            chatId: session.chatId,
+            projectId: session.projectId,
+            worktreeId: session.worktreeId,
+            providerId: session.providerId,
+            model: session.model,
+          },
+        );
+        yield* provider
+          .start(
+            {
+              folderId: session.projectId,
+              providerId: session.providerId,
+              mode: "sdk",
+              sessionId: session.id,
+              initialPrompt: options.initialPrompt,
+              model: session.model,
+              agents: subagents?.agents,
+              enableSubagents:
+                options.enableSubagents ?? subagents?.enableSubagents,
+              cwdOverride,
+              permissionMode: session.permissionMode,
+              modelOptions: options.modelOptions,
+              toolSearch: session.toolSearch,
+              forkFromResume: options.forkFromResume,
+            },
+            session.cursor,
+            () => getRuntimeModeFor(session.id),
+            orchestrationTools,
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              error._tag === "ProviderNotAvailableError"
+                ? new SessionStartError({
+                    providerId: session.providerId,
+                    reason: error.reason,
+                  })
+                : error._tag === "AgentSessionStartError"
+                  ? new SessionStartError({
+                      providerId: error.providerId,
+                      reason: error.reason,
+                    })
+                  : new SessionStartError({
+                      providerId: session.providerId,
+                      reason: formatProviderFailure(error),
+                    }),
+            ),
           );
-        };
-        const createOrchestrationSession = (input: {
-          readonly task: string;
-          readonly title?: string;
-          readonly chatId: ChatId;
-          readonly providerId?: string;
-          readonly model?: string;
-        }) => {
-          const { providerId, model } = providerModelFor(input);
-          return createSession({
-            chatId: input.chatId,
-            providerId,
-            model,
-            title: input.title,
-            initialPrompt: input.task,
-            originSessionId: ctx.sessionId,
-            background: true,
-          }).pipe(
-            Effect.map((session) => ({
-              ok: true as const,
-              chatId: session.chatId as string,
-              sessionId: session.id as string,
-              title: session.title,
-              worktreeId:
-                session.worktreeId === null
-                  ? null
-                  : (session.worktreeId as string),
-            })),
-          );
-        };
-        const deps: OrchestrationToolDeps = {
-          createWorktree: (input) =>
-            run(
-              createWorktreeForOrchestration(input.baseBranch).pipe(
-                Effect.map((wt) => ({
-                  ok: true as const,
-                  worktreeId: wt.id as string,
-                  path: wt.path,
-                  branch: wt.branch,
-                })),
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
+        yield* attachProvider(session.id, session.providerId);
+        if (options.postBootStatus !== undefined) {
+          yield* setStatus(session.id, options.postBootStatus);
+        }
+        yield* startSubscription(session.id);
+        if (options.sendAfterOpen !== undefined) {
+          yield* provider
+            .send(
+              session.id,
+              options.sendAfterOpen.text,
+              options.sendAfterOpen.attachments,
+            )
+            .pipe(
+              Effect.catchTag("AgentSessionNotFoundError", () =>
+                Effect.fail(
+                  new SessionStartError({
+                    providerId: session.providerId,
+                    reason: "Provider session disappeared after start.",
                   }),
                 ),
               ),
-            ),
-          createThread: (input) =>
-            run(
-              Effect.gen(function* () {
-                const wt = yield* createWorktreeForOrchestration(
-                  input.baseBranch,
-                );
-                const chat = yield* createOrchestrationChat({
-                  task: input.task,
-                  title: input.title,
-                  worktreeId: wt.id,
-                  providerId: input.providerId,
-                  model: input.model,
-                }).pipe(Effect.result);
-                if (chat._tag === "Failure") {
-                  return {
-                    ok: false as const,
-                    error: `${orchestrationErrorText(chat.failure)}; orphaned worktreeId: ${wt.id as string}`,
-                  };
-                }
-                return {
-                  ok: true as const,
-                  chatId: chat.success.chatId,
-                  sessionId: chat.success.sessionId,
-                  title: chat.success.title,
-                  worktreeId: wt.id as string,
-                  path: wt.path,
-                  branch: wt.branch,
-                };
-              }).pipe(
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
-                  }),
-                ),
-              ),
-            ),
-          createSession: (input) =>
-            run(
-              Effect.gen(function* () {
-                const chatId =
-                  input.chatId !== undefined
-                    ? (input.chatId as ChatId)
-                    : ctx.chatId;
-                const chat = yield* lookupChat(chatId).pipe(Effect.result);
-                if (chat._tag === "Failure") {
-                  return {
-                    ok: false as const,
-                    error: `chatId ${chatId as string} not found`,
-                  };
-                }
-                if (
-                  (chat.success.projectId as string) !==
-                  (ctx.projectId as string)
-                ) {
-                  return {
-                    ok: false as const,
-                    error: `chatId ${chatId as string} does not belong to this project`,
-                  };
-                }
-                if (chat.success.archivedAt !== null) {
-                  return {
-                    ok: false as const,
-                    error: `chatId ${chatId as string} is archived`,
-                  };
-                }
-                return yield* createOrchestrationSession({
-                  task: input.task,
-                  title: input.title,
-                  chatId,
-                  providerId: input.providerId,
-                  model: input.model,
-                });
-              }).pipe(
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
-                  }),
-                ),
-              ),
-            ),
-          sendToThread: (input) =>
-            run(
-              Effect.gen(function* () {
-                const target = yield* getSession(input.sessionId as SessionId);
-                yield* sendMessage(
-                  input.sessionId as SessionId,
-                  input.text,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  {
-                    chatId: ctx.chatId,
-                    sessionId: ctx.sessionId,
-                    providerId: ctx.providerId,
-                  },
-                );
-                return {
-                  ok: true as const,
-                  queued: false,
-                  chatId: target.chatId as string,
-                };
-              }).pipe(
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
-                  }),
-                ),
-              ),
-            ),
-          readThread: (input) =>
-            run(
-              Effect.gen(function* () {
-                const session = yield* getSession(input.sessionId as SessionId);
-                const msgs = yield* listMessages(input.sessionId as SessionId);
-                const limit = input.limit ?? 20;
-                const messages = msgs.slice(-limit).map((m) => ({
-                  role: m.role,
-                  text: messageContentToText(m.content),
-                }));
-                return {
-                  ok: true as const,
-                  status: session.status,
-                  messages,
-                };
-              }).pipe(
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
-                  }),
-                ),
-              ),
-            ),
-          listThreads: (input) =>
-            run(
-              Effect.gen(function* () {
-                const includeArchived = input.includeArchived ?? false;
-                const chats = yield* listChats(ctx.projectId, includeArchived);
-                const sessions = yield* listSessions(
-                  ctx.projectId,
-                  includeArchived,
-                );
-                const statusBySession = new Map(
-                  sessions.map((s) => [s.id as string, s.status as string]),
-                );
-                const threads = chats.map((c) => ({
-                  chatId: c.id as string,
-                  sessionId: (c.activeSessionId ?? "") as string,
-                  title: c.title,
-                  worktreeId:
-                    c.worktreeId === null ? null : (c.worktreeId as string),
-                  status:
-                    c.activeSessionId !== null
-                      ? (statusBySession.get(c.activeSessionId as string) ??
-                        "unknown")
-                      : "unknown",
-                  spawnedByMe: c.originSessionId === ctx.sessionId,
-                }));
-                return { ok: true as const, threads };
-              }).pipe(
-                Effect.catch((err) =>
-                  Effect.succeed({
-                    ok: false as const,
-                    error: orchestrationErrorText(err),
-                  }),
-                ),
-              ),
-            ),
-          listModels: (input) =>
-            Promise.resolve().then(() => {
-              const allProviderIds = Object.keys(
-                MODELS_BY_PROVIDER,
-              ) as ProviderId[];
-              const providerIds =
-                input.providerId !== undefined
-                  ? allProviderIds.includes(input.providerId as ProviderId)
-                    ? [input.providerId as ProviderId]
-                    : []
-                  : allProviderIds;
-              if (input.providerId !== undefined && providerIds.length === 0) {
-                return {
-                  ok: false as const,
-                  error: `Unknown providerId: ${input.providerId}`,
-                };
-              }
-              const providers = providerIds.map((providerId) => {
-                const defaultModel =
-                  settings?.defaultModelByProvider[providerId] ??
-                  defaultModelFor(providerId);
-                const models = visibleModelsForProvider(
-                  providerId,
-                  settings?.modelEnabledByProvider,
-                  { includeModelId: defaultModel },
-                ).map((model) => ({
-                  id: model.id,
-                  label: model.label,
-                  defaultModel: model.id === defaultModel,
-                }));
-                return {
-                  providerId,
-                  defaultModel,
-                  models,
-                };
-              });
-              return { ok: true as const, providers };
-            }),
-          whoami: () =>
-            Promise.resolve({
-              sessionId: ctx.sessionId as string,
-              chatId: ctx.chatId as string,
-              projectId: ctx.projectId as string,
-              worktreeId:
-                ctx.worktreeId === null ? null : (ctx.worktreeId as string),
-              providerId: ctx.providerId as string,
-              model: ctx.model,
-              autonomyLevel: level,
-            }),
-        };
-        return {
-          deps,
-          claudeTools: buildOrchestrationTools(deps),
-        };
+            );
+        }
       });
 
     const createSession: ConversationOperations["createSession"] = (
@@ -1827,6 +910,7 @@ export const ConversationServicesLive = Layer.effectContext(
               forkedFromMessageId,
               permissionMode: initialPermissionMode,
               toolSearch: initialToolSearch,
+              queuePaused: false,
               providerStartJson: JSON.stringify(providerStart),
               createdAt: now.getTime(),
             },
@@ -1837,11 +921,15 @@ export const ConversationServicesLive = Layer.effectContext(
           Effect.flatMap(broadcastChat),
           Effect.catch(() => Effect.void),
         );
-        if (hasInitial) {
+        if (
+          input.initialPrompt !== undefined &&
+          input.initialPrompt.trim().length > 0
+        ) {
+          const initialPrompt = input.initialPrompt;
           yield* beginTurn(sessionId);
           yield* persistMessage(sessionId, {
             _tag: "user",
-            text: input.initialPrompt!,
+            text: initialPrompt,
             goal: false,
             ...(origin !== undefined ? { origin } : {}),
           });
@@ -1851,7 +939,7 @@ export const ConversationServicesLive = Layer.effectContext(
           // durable event feed carries the eventual transition to clients;
           // on failure we mark `error` and log so
           // the user sees a closable failed tab instead of a stuck spinner.
-          yield* Effect.forkDetach(
+          yield* Effect.forkIn(
             runProviderStartReactor.pipe(
               Effect.catchCause((cause) =>
                 Effect.logWarning(
@@ -1859,6 +947,7 @@ export const ConversationServicesLive = Layer.effectContext(
                 ),
               ),
             ),
+            serviceScope,
             { startImmediately: true },
           );
           return Session.make({
@@ -2140,10 +1229,11 @@ export const ConversationServicesLive = Layer.effectContext(
                  archived_at, archived_worktree_json, last_message_at, last_read_at, created_at, updated_at
           FROM chats WHERE id = ${chatId} LIMIT 1
         `.pipe(Effect.orDie);
-        if (rows.length === 0) {
+        const [row] = rows;
+        if (row === undefined) {
           return yield* Effect.fail(new ChatNotFoundError({ chatId }));
         }
-        return chatFromRow(rows[0]!);
+        return chatFromRow(row);
       });
 
     const listChats: ConversationOperations["listChats"] = (
@@ -2244,9 +1334,10 @@ export const ConversationServicesLive = Layer.effectContext(
               LIMIT 1
             `.pipe(
               Effect.orDie,
-              Effect.map((rows) =>
-                rows.length > 0 ? messageFromRow(rows[0]!) : null,
-              ),
+              Effect.map((rows) => {
+                const [row] = rows;
+                return row === undefined ? null : messageFromRow(row);
+              }),
             )
           : null;
         yield* broadcastChat(chat);
@@ -2614,190 +1705,95 @@ export const ConversationServicesLive = Layer.effectContext(
         yield* markComplete;
       }).pipe(Effect.catchCause(() => Effect.void));
 
-    const providerStartReactor = new ReactorRunner<
-      StoredEvent,
-      ProviderStartCommand,
-      SqlConsumerStorageError,
-      never,
-      SessionStartError
-    >(
-      makeSqlConsumerStorage(sql),
-      (reactorInput) =>
-        Effect.gen(function* () {
-          if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
+    const handleProviderStart: ConversationReactorHandlers["providerStart"] = (
+      reactorInput,
+    ) =>
+      Effect.gen(function* () {
+        if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
 
-          const sessionId = SessionId.make(reactorInput.streamId);
-          const session = yield* lookupSession(sessionId).pipe(
-            Effect.catch(() => Effect.succeed(null)),
-          );
-          if (session === null) return;
-          const request = yield* decodeProviderStartRequest(
-            reactorInput.command.providerStartJson,
-          ).pipe(
-            Effect.mapError(
-              (cause) =>
-                new SessionStartError({
-                  providerId: session.providerId,
-                  reason: `Invalid provider start request: ${String(cause)}`,
-                }),
+        const sessionId = SessionId.make(reactorInput.streamId);
+        const session = yield* lookupSession(sessionId).pipe(
+          Effect.catch(() => Effect.succeed(null)),
+        );
+        if (session === null) return;
+        const request = yield* decodeProviderStartRequest(
+          reactorInput.command.providerStartJson,
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new SessionStartError({
+                providerId: session.providerId,
+                reason: `Invalid provider start request: ${String(cause)}`,
+              }),
+          ),
+        );
+        const modelOptions =
+          request.modelOptionsJson === null
+            ? undefined
+            : yield* decodeProviderModelOptions(request.modelOptionsJson).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new SessionStartError({
+                      providerId: session.providerId,
+                      reason: `Invalid provider model options: ${String(cause)}`,
+                    }),
+                ),
+              );
+        const start = openProviderSession(session, {
+          initialPrompt: request.initialPrompt ?? undefined,
+          modelOptions,
+          enableSubagents: request.enableSubagents,
+          forkFromResume: request.forkFromResume,
+          postBootStatus: request.postBootStatus,
+        });
+        if (request.background) {
+          yield* start.pipe(
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  `[ConversationServices] provider.start failed for session ${sessionId} (${session.providerId}): ${error.reason}`,
+                );
+                const persistedError = yield* persistMessage(sessionId, {
+                  _tag: "error",
+                  message: error.reason,
+                });
+                yield* ndjsonAppend(sessionId, persistedError);
+                yield* setStatus(sessionId, "error");
+              }),
             ),
           );
-          const modelOptions =
-            request.modelOptionsJson === null
-              ? undefined
-              : yield* decodeProviderModelOptions(
-                  request.modelOptionsJson,
-                ).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new SessionStartError({
-                        providerId: session.providerId,
-                        reason: `Invalid provider model options: ${String(cause)}`,
-                      }),
-                  ),
-                );
-          const subagents = agentsFor(sessionId);
-          const cwdOverride = yield* cwdForWorktree(session.worktreeId);
-          const orchestrationTools = yield* buildOrchestrationForSession({
-            sessionId,
-            chatId: session.chatId,
-            projectId: session.projectId,
-            worktreeId: session.worktreeId,
-            providerId: session.providerId,
-            model: session.model,
-          });
-          const start = provider
-            .start(
-              {
-                folderId: session.projectId,
-                providerId: session.providerId,
-                mode: "sdk",
-                sessionId,
-                initialPrompt: request.initialPrompt ?? undefined,
-                model: session.model,
-                agents: subagents?.agents,
-                enableSubagents: request.enableSubagents,
-                cwdOverride,
-                permissionMode: session.permissionMode,
-                modelOptions,
-                toolSearch: session.toolSearch,
-                forkFromResume: request.forkFromResume,
-              },
-              session.cursor,
-              () => getRuntimeModeFor(sessionId),
-              orchestrationTools,
-            )
-            .pipe(
-              Effect.mapError((error) =>
-                error._tag === "ProviderNotAvailableError"
-                  ? new SessionStartError({
-                      providerId: session.providerId,
-                      reason: error.reason,
-                    })
-                  : new SessionStartError({
-                      providerId: error.providerId,
-                      reason: error.reason,
-                    }),
-              ),
-              Effect.flatMap(() =>
-                attachProvider(sessionId, session.providerId),
-              ),
-              Effect.flatMap(() =>
-                setStatus(sessionId, request.postBootStatus),
-              ),
-              Effect.flatMap(() => startSubscription(sessionId)),
-            );
-          if (request.background) {
-            yield* start.pipe(
-              Effect.catch((error) =>
-                Effect.gen(function* () {
-                  yield* Effect.logWarning(
-                    `[ConversationServices] provider.start failed for session ${sessionId} (${session.providerId}): ${error.reason}`,
-                  );
-                  const persistedError = yield* persistMessage(sessionId, {
-                    _tag: "error",
-                    message: error.reason,
-                  });
-                  yield* ndjsonAppend(sessionId, persistedError);
-                  yield* setStatus(sessionId, "error");
-                }),
-              ),
-            );
-          } else {
-            yield* start;
-          }
-          yield* reactorEffects.complete(reactorInput.commandId);
-        }),
-      providerStartReactorDefinition,
-    );
-    runProviderStartReactor = Effect.suspend(() => {
-      return providerStartReactorSemaphore.withPermits(1)(
-        providerStartReactor.catchUp().pipe(
-          Effect.asVoid,
-          Effect.catch((error) =>
-            error._tag === "SessionStartError"
-              ? Effect.fail(error)
-              : Effect.die(error),
-          ),
-        ),
-      );
-    });
-    yield* runProviderStartReactor;
+        } else {
+          yield* start;
+        }
+        yield* reactorEffects.complete(reactorInput.commandId);
+      });
 
-    const providerStopReactor = new ReactorRunner<
-      StoredEvent,
-      ProviderStopCommand,
-      SqlConsumerStorageError
-    >(
-      makeSqlConsumerStorage(sql),
-      (reactorInput) =>
-        Effect.gen(function* () {
-          if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
-          const sessionId = SessionId.make(reactorInput.streamId);
-          yield* provider
-            .close(sessionId)
-            .pipe(Effect.catch(() => Effect.void));
-          yield* sessionDomain
-            .dispatch({
-              commandId: `${reactorInput.commandId}:detach`,
-              streamId: sessionId,
-              command: {
-                _tag: "DetachProvider",
-                detachedAt: reactorInput.command.requestedAt,
-              },
-            })
-            .pipe(Effect.orDie);
-          yield* reactorEffects.complete(reactorInput.commandId);
-        }),
-      providerStopReactorDefinition,
-    );
-    runProviderStopReactor = Effect.suspend(() =>
-      providerStopReactorSemaphore.withPermits(1)(
-        providerStopReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
-      ),
-    );
-    yield* runProviderStopReactor;
+    const handleProviderStop: ConversationReactorHandlers["providerStop"] = (
+      reactorInput,
+    ) =>
+      Effect.gen(function* () {
+        if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
+        const sessionId = SessionId.make(reactorInput.streamId);
+        yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+        yield* sessionDomain
+          .dispatch({
+            commandId: `${reactorInput.commandId}:detach`,
+            streamId: sessionId,
+            command: {
+              _tag: "DetachProvider",
+              detachedAt: reactorInput.command.requestedAt,
+            },
+          })
+          .pipe(Effect.orDie);
+        yield* reactorEffects.complete(reactorInput.commandId);
+      });
 
-    const autoNameReactor = new ReactorRunner<
-      StoredEvent,
-      AutoNameCommand,
-      SqlConsumerStorageError
-    >(
-      makeSqlConsumerStorage(sql),
-      (input) =>
-        Effect.gen(function* () {
-          const sessionId = SessionId.make(input.streamId);
-          const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
-          yield* autoNameChat(session.chatId, sessionId, input.commandId);
-        }),
-      autoNameReactorDefinition,
-    );
-    runSessionReactors = Effect.suspend(() => {
-      return sessionReactorSemaphore.withPermits(1)(
-        autoNameReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
-      );
-    });
-    yield* runSessionReactors;
+    const handleAutoName: ConversationReactorHandlers["autoName"] = (input) =>
+      Effect.gen(function* () {
+        const sessionId = SessionId.make(input.streamId);
+        const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
+        yield* autoNameChat(session.chatId, sessionId, input.commandId);
+      });
 
     /**
      * Worktrees are immutable past the first user message in any of the
@@ -3026,54 +2022,27 @@ export const ConversationServicesLive = Layer.effectContext(
     const chatArchiveResults = yield* Ref.make<
       ReadonlyMap<ChatId, ChatArchiveResult>
     >(new Map());
-    const chatArchiveReactor = new ReactorRunner<
-      StoredEvent<typeof ChatEvent.Type>,
-      ChatArchiveCommand,
-      SqlConsumerStorageError,
-      never,
-      ChatArchiveError
-    >(
-      makeSqlConsumerStorage(sql, {
-        streamKind: "chat",
-        decodeEvent: decodeChatEvent,
-      }),
-      (reactorInput) =>
-        Effect.gen(function* () {
-          const chatId = ChatId.make(reactorInput.streamId);
-          const completed = yield* reactorEffects.isCompleted(
-            reactorInput.commandId,
-          );
-          const result = completed
-            ? { chat: yield* lookupChat(chatId), cleanup: null }
-            : yield* performChatArchive(
-                chatId,
-                reactorInput.command.force,
-                reactorInput.commandId,
-              );
-          yield* Ref.update(chatArchiveResults, (current) => {
-            const next = new Map(current);
-            next.set(chatId, result);
-            return next;
-          });
-        }),
-      chatArchiveReactorDefinition,
-    );
-    runChatArchiveReactor = Effect.suspend(() =>
-      chatArchiveReactorSemaphore.withPermits(1)(
-        chatArchiveReactor.catchUp().pipe(
-          Effect.asVoid,
-          Effect.catch((error) =>
-            error._tag === "ChatArchiveScriptError" ||
-            error._tag === "ChatArchiveTimeoutError" ||
-            error._tag === "ChatArchiveWorktreeError" ||
-            error._tag === "ChatNotFoundError"
-              ? Effect.fail(error)
-              : Effect.die(error),
-          ),
-        ),
-      ),
-    );
-    yield* runChatArchiveReactor;
+    const handleChatArchive: ConversationReactorHandlers["chatArchive"] = (
+      reactorInput,
+    ) =>
+      Effect.gen(function* () {
+        const chatId = ChatId.make(reactorInput.streamId);
+        const completed = yield* reactorEffects.isCompleted(
+          reactorInput.commandId,
+        );
+        const result = completed
+          ? { chat: yield* lookupChat(chatId), cleanup: null }
+          : yield* performChatArchive(
+              chatId,
+              reactorInput.command.force,
+              reactorInput.commandId,
+            );
+        yield* Ref.update(chatArchiveResults, (current) => {
+          const next = new Map(current);
+          next.set(chatId, result);
+          return next;
+        });
+      });
 
     const archiveChat: ConversationOperations["archiveChat"] = (
       chatId,
@@ -3224,46 +2193,36 @@ export const ConversationServicesLive = Layer.effectContext(
         // ON DELETE CASCADE handles sessions + messages.
       });
 
-    const chatDeleteReactor = new ReactorRunner<
-      StoredEvent<typeof ChatEvent.Type>,
-      ChatDeleteCommand,
-      SqlConsumerStorageError,
-      never,
-      ChatNotFoundError
-    >(
-      makeSqlConsumerStorage(sql, {
-        streamKind: "chat",
-        decodeEvent: decodeChatEvent,
-      }),
-      (reactorInput) =>
-        Effect.gen(function* () {
-          const deleteCommandId = `${reactorInput.commandId}:delete`;
-          const completed = yield* sql<{ readonly command_id: string }>`
+    const handleChatDelete: ConversationReactorHandlers["chatDelete"] = (
+      reactorInput,
+    ) =>
+      Effect.gen(function* () {
+        const deleteCommandId = `${reactorInput.commandId}:delete`;
+        const completed = yield* sql<{ readonly command_id: string }>`
             SELECT command_id FROM command_receipts
             WHERE command_id = ${deleteCommandId}
             LIMIT 1
           `.pipe(Effect.orDie);
-          if (completed.length > 0) return;
-          yield* performChatDelete(
-            ChatId.make(reactorInput.streamId),
-            reactorInput.commandId,
-          );
-        }),
-      chatDeleteReactorDefinition,
-    );
-    runChatDeleteReactor = Effect.suspend(() =>
-      chatDeleteReactorSemaphore.withPermits(1)(
-        chatDeleteReactor.catchUp().pipe(
-          Effect.asVoid,
-          Effect.catch((error) =>
-            error._tag === "ChatNotFoundError"
-              ? Effect.fail(error)
-              : Effect.die(error),
-          ),
-        ),
-      ),
-    );
-    yield* runChatDeleteReactor;
+        if (completed.length > 0) return;
+        yield* performChatDelete(
+          ChatId.make(reactorInput.streamId),
+          reactorInput.commandId,
+        );
+      });
+
+    const reactorRuntime = yield* makeConversationReactorRuntime({
+      providerStart: handleProviderStart,
+      providerStop: handleProviderStop,
+      autoName: handleAutoName,
+      chatArchive: handleChatArchive,
+      chatDelete: handleChatDelete,
+    });
+    runSessionReactors = reactorRuntime.runSession;
+    runProviderStartReactor = reactorRuntime.runProviderStart;
+    runProviderStopReactor = reactorRuntime.runProviderStop;
+    runChatArchiveReactor = reactorRuntime.runChatArchive;
+    runChatDeleteReactor = reactorRuntime.runChatDelete;
+    yield* reactorRuntime.catchUpAll;
 
     const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
       Effect.gen(function* () {
@@ -3285,257 +2244,20 @@ export const ConversationServicesLive = Layer.effectContext(
         ),
       );
 
-    // Providers that support goal mode. Codex backs it with `thread/goal/*`
-    // RPCs; Grok forwards to its native `/goal` slash command with
-    // driver-local state. Both go through `setGoalWithLiveProvider` →
-    // `provider.setGoal`, which routes to the right handle.
-    const goalCapableProviders = new Set<ProviderId>(["codex", "grok"]);
-    const ensureGoalSession = (
-      sessionId: SessionId,
-    ): Effect.Effect<Session, SessionNotFoundError | GoalUnsupportedError> =>
-      Effect.gen(function* () {
-        const session = yield* lookupSession(sessionId);
-        if (!goalCapableProviders.has(session.providerId)) {
-          return yield* Effect.fail(
-            new GoalUnsupportedError({ providerId: session.providerId }),
-          );
-        }
-        return session;
-      });
+    const goalOperations = makeConversationGoalOperations({
+      provider,
+      state: goalState,
+      lookupSession,
+      openProviderSession,
+    });
+    const { getGoal, setGoal, clearGoal, streamGoal } = goalOperations;
 
-    const mapProviderSessionNotFound =
-      (
-        sessionId: SessionId,
-      ): ((
-        error: AgentSessionNotFoundError,
-      ) => Effect.Effect<never, SessionNotFoundError>) =>
-      () =>
-        Effect.fail(new SessionNotFoundError({ sessionId }));
-
-    const startProviderSessionOnly = (
-      session: Session,
-    ): Effect.Effect<void, SessionStartError> => {
-      runtimeModeBySession.set(session.id, session.runtimeMode);
-      permissionModeBySession.set(session.id, session.permissionMode);
-      const subagents = agentsFor(session.id);
-      return cwdForWorktree(session.worktreeId).pipe(
-        Effect.flatMap((cwdOverride) =>
-          provider
-            .start(
-              {
-                folderId: session.projectId,
-                providerId: session.providerId,
-                mode: "sdk",
-                sessionId: session.id,
-                model: session.model,
-                agents: subagents?.agents,
-                enableSubagents: subagents?.enableSubagents,
-                cwdOverride,
-                permissionMode: session.permissionMode,
-                toolSearch: session.toolSearch,
-              },
-              session.cursor,
-              () => getRuntimeModeFor(session.id),
-            )
-            .pipe(
-              Effect.tap(() => attachProvider(session.id, session.providerId)),
-              Effect.flatMap(() => startSubscription(session.id)),
-              Effect.mapError((err) =>
-                err._tag === "ProviderNotAvailableError"
-                  ? new SessionStartError({
-                      providerId: session.providerId,
-                      reason: err.reason,
-                    })
-                  : err._tag === "AgentSessionStartError"
-                    ? new SessionStartError({
-                        providerId: err.providerId,
-                        reason: err.reason,
-                      })
-                    : new SessionStartError({
-                        providerId: session.providerId,
-                        reason: formatProviderFailure(err),
-                      }),
-              ),
-            ),
-        ),
-      );
-    };
-
-    const setGoalWithLiveProvider = (
-      session: Session,
-      goalInput: ThreadGoalSetInput,
-    ): Effect.Effect<ThreadGoal, SessionNotFoundError | SessionStartError> => {
-      const attempt = provider.setGoal(session.id, goalInput);
-      const retryBooting = (
-        retriesLeft: number,
-      ): Effect.Effect<
-        ThreadGoal,
-        AgentSessionNotFoundError | SessionNotFoundError
-      > =>
-        attempt.pipe(
-          Effect.catchTag("AgentSessionNotFoundError", (err) =>
-            Effect.gen(function* () {
-              const latest = yield* lookupSession(session.id);
-              if (retriesLeft <= 0 || latest.status !== "booting") {
-                return yield* Effect.fail(err);
-              }
-              yield* Effect.sleep("250 millis");
-              return yield* retryBooting(retriesLeft - 1);
-            }),
-          ),
-        );
-      return retryBooting(240).pipe(
-        Effect.catchTag("AgentSessionNotFoundError", () =>
-          startProviderSessionOnly(session).pipe(
-            Effect.andThen(provider.setGoal(session.id, goalInput)),
-            Effect.catchTag(
-              "AgentSessionNotFoundError",
-              mapProviderSessionNotFound(session.id),
-            ),
-          ),
-        ),
-      );
-    };
-
-    const getGoal: ConversationOperations["getGoal"] = (sessionId) =>
-      Effect.gen(function* () {
-        yield* ensureGoalSession(sessionId);
-        const goal = yield* provider
-          .getGoal(sessionId)
-          .pipe(
-            Effect.catchTag(
-              "AgentSessionNotFoundError",
-              mapProviderSessionNotFound(sessionId),
-            ),
-          );
-        yield* publishGoal(sessionId, goal);
-        return goal;
-      });
-
-    const setGoal: ConversationOperations["setGoal"] = (sessionId, goalInput) =>
-      Effect.gen(function* () {
-        const session = yield* ensureGoalSession(sessionId);
-        const goal = yield* setGoalWithLiveProvider(session, goalInput);
-        yield* publishGoal(sessionId, goal);
-        return goal;
-      });
-
-    const clearGoal: ConversationOperations["clearGoal"] = (sessionId) =>
-      Effect.gen(function* () {
-        yield* ensureGoalSession(sessionId);
-        yield* provider
-          .clearGoal(sessionId)
-          .pipe(
-            Effect.catchTag(
-              "AgentSessionNotFoundError",
-              mapProviderSessionNotFound(sessionId),
-            ),
-          );
-        yield* publishGoal(sessionId, null);
-      });
-
-    const streamGoal: ConversationOperations["streamGoal"] = (sessionId) =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          yield* ensureGoalSession(sessionId);
-          const pubsub = yield* getOrMakeGoalPubsub(sessionId);
-          const dequeue = yield* PubSub.subscribe(pubsub);
-          const cached = goalsBySession.get(sessionId);
-          const initialGoal =
-            cached !== undefined
-              ? cached
-              : yield* provider
-                  .getGoal(sessionId)
-                  .pipe(Effect.catch(() => Effect.succeed(null)));
-          if (cached === undefined) goalsBySession.set(sessionId, initialGoal);
-          return Stream.concat(
-            Stream.succeed({ sessionId, goal: initialGoal }),
-            Stream.fromSubscription(dequeue),
-          );
-        }),
-      );
-
-    /**
-     * Restart the provider for `session` under the same persisted id so the
-     * message history stays attached to the same row. Used after a process
-     * restart wipes the provider's in-memory session map.
-     *
-     * The user's text + attachments are pushed via `provider.send` after the
-     * session opens, NOT via `StartSessionInput.initialPrompt`. The
-     * initialPrompt path only knows about plain text — routing through
-     * `send` reuses the image-block builder so attachments survive the
-     * restart instead of dropping silently.
-     */
     const restartProviderSession = (
       session: Session,
       text: string,
       attachments: ReadonlyArray<AttachmentRef>,
-    ): Effect.Effect<void, SessionStartError> => {
-      runtimeModeBySession.set(session.id, session.runtimeMode);
-      permissionModeBySession.set(session.id, session.permissionMode);
-      const subagents = agentsFor(session.id);
-      return buildOrchestrationForSession({
-        sessionId: session.id,
-        chatId: session.chatId,
-        projectId: session.projectId,
-        worktreeId: session.worktreeId,
-        providerId: session.providerId,
-        model: session.model,
-      }).pipe(
-        Effect.flatMap((orchestrationTools) =>
-          cwdForWorktree(session.worktreeId).pipe(
-            Effect.flatMap((cwdOverride) =>
-              provider
-                .start(
-                  {
-                    folderId: session.projectId,
-                    providerId: session.providerId,
-                    mode: "sdk",
-                    sessionId: session.id,
-                    model: session.model,
-                    agents: subagents?.agents,
-                    enableSubagents: subagents?.enableSubagents,
-                    cwdOverride,
-                    permissionMode: session.permissionMode,
-                    toolSearch: session.toolSearch,
-                  },
-                  // Re-attach to the upstream conversation when we have a
-                  // cursor. The driver passes it as `options.resume`; SDK
-                  // reloads history and continues from there.
-                  session.cursor,
-                  () => getRuntimeModeFor(session.id),
-                  orchestrationTools,
-                )
-                .pipe(
-                  Effect.tap(() =>
-                    attachProvider(session.id, session.providerId),
-                  ),
-                  Effect.flatMap(() => startSubscription(session.id)),
-                  Effect.flatMap(() =>
-                    provider.send(session.id, text, attachments),
-                  ),
-                  Effect.mapError((err) =>
-                    err._tag === "ProviderNotAvailableError"
-                      ? new SessionStartError({
-                          providerId: session.providerId,
-                          reason: err.reason,
-                        })
-                      : err._tag === "AgentSessionStartError"
-                        ? new SessionStartError({
-                            providerId: err.providerId,
-                            reason: err.reason,
-                          })
-                        : new SessionStartError({
-                            providerId: session.providerId,
-                            reason: formatProviderFailure(err),
-                          }),
-                  ),
-                ),
-            ),
-          ),
-        ),
-      );
-    };
+    ): Effect.Effect<void, SessionStartError> =>
+      openProviderSession(session, { sendAfterOpen: { text, attachments } });
 
     const resumeSession: ConversationOperations["resumeSession"] = (
       sessionId,
@@ -3556,54 +2278,7 @@ export const ConversationServicesLive = Layer.effectContext(
         // resume — only the event-pump fiber needs to restart.
         yield* closeProvider(sessionId);
         yield* interruptProviderFiber(sessionId);
-        runtimeModeBySession.set(session.id, session.runtimeMode);
-        permissionModeBySession.set(session.id, session.permissionMode);
-        const subagents = agentsFor(session.id);
-        const cwdOverride = yield* cwdForWorktree(session.worktreeId);
-        // Re-attach the control-plane tools so a resumed autonomous session
-        // keeps its ability to spawn + steer threads.
-        const orchestrationTools = yield* buildOrchestrationForSession({
-          sessionId: session.id,
-          chatId: session.chatId,
-          projectId: session.projectId,
-          worktreeId: session.worktreeId,
-          providerId: session.providerId,
-          model: session.model,
-        });
-        yield* provider
-          .start(
-            {
-              folderId: session.projectId,
-              providerId: session.providerId,
-              mode: "sdk",
-              sessionId: session.id,
-              model: session.model,
-              agents: subagents?.agents,
-              enableSubagents: subagents?.enableSubagents,
-              cwdOverride,
-              permissionMode: session.permissionMode,
-              toolSearch: session.toolSearch,
-            },
-            session.cursor,
-            () => getRuntimeModeFor(session.id),
-            orchestrationTools,
-          )
-          .pipe(
-            Effect.mapError((err) =>
-              err._tag === "ProviderNotAvailableError"
-                ? new SessionStartError({
-                    providerId: session.providerId,
-                    reason: err.reason,
-                  })
-                : new SessionStartError({
-                    providerId: err.providerId,
-                    reason: err.reason,
-                  }),
-            ),
-          );
-        yield* attachProvider(sessionId, session.providerId);
-        yield* startSubscription(sessionId);
-        yield* setStatus(sessionId, "running");
+        yield* openProviderSession(session, { postBootStatus: "running" });
         return yield* lookupSession(sessionId);
       });
 
@@ -3620,15 +2295,15 @@ export const ConversationServicesLive = Layer.effectContext(
     ): Effect.Effect<boolean, SessionNotFoundError> =>
       Effect.gen(function* () {
         const session = yield* lookupSession(sessionId);
-        if (asGoal !== true && goalCapableProviders.has(session.providerId)) {
-          const goal = goalsBySession.get(sessionId);
+        if (asGoal !== true && isGoalCapableProvider(session.providerId)) {
+          const goal = goalState.current(sessionId);
           const trimmed = text.trim();
           if (
             goal !== undefined &&
             goal !== null &&
             goal.status === "active" &&
             goal.objective.trim() === trimmed &&
-            (yield* latestGoalUserMessageMatches(sessionId, trimmed))
+            (yield* goalState.latestUserMessageMatches(sessionId, trimmed))
           ) {
             return true;
           }
@@ -3712,7 +2387,7 @@ export const ConversationServicesLive = Layer.effectContext(
         if (asGoal === true) {
           const objective = text.trim();
           if (objective.length === 0) return false;
-          if (!goalCapableProviders.has(session.providerId)) {
+          if (!isGoalCapableProvider(session.providerId)) {
             const persistedError = yield* persistMessage(sessionId, {
               _tag: "error",
               message:
@@ -3721,7 +2396,7 @@ export const ConversationServicesLive = Layer.effectContext(
             yield* ndjsonAppend(sessionId, persistedError);
             return false;
           }
-          const goal = yield* setGoalWithLiveProvider(session, {
+          const goal = yield* setGoal(sessionId, {
             objective,
             status: "active",
           }).pipe(
@@ -3742,7 +2417,6 @@ export const ConversationServicesLive = Layer.effectContext(
             ),
           );
           if (goal === null) return false;
-          yield* publishGoal(sessionId, goal);
           // Grok runs goal mode by forwarding `/goal` as a real prompt turn,
           // so reflect the running turn the way a normal send does — the
           // driver emits `Status: idle` when the goal run finishes. Codex
@@ -3890,6 +2564,12 @@ export const ConversationServicesLive = Layer.effectContext(
           input.annotations,
         ),
       settleActiveTurn,
+      setQueuePaused: (sessionId, paused) =>
+        dispatchSessionCommand(sessionId, {
+          _tag: "SetQueuePaused",
+          paused,
+          updatedAt: Date.now(),
+        }),
     });
     flushQueueAfterIdle = queueRuntime.flushAfterIdle;
     shutdownQueueSession = queueRuntime.shutdown;

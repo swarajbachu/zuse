@@ -1,4 +1,9 @@
 import {
+  loadOpencodeInventory,
+  removeOpencodeProviderAuth,
+  setOpencodeProviderAuth,
+} from "@zuse/agents/drivers/opencode";
+import {
   AgentSessionStartError,
   CredentialStoreError,
   MemoizeRpcs,
@@ -6,20 +11,11 @@ import {
   SessionDomainEventEnvelope,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
-import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
-
+import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
-import {
-  loadOpencodeInventory,
-  removeOpencodeProviderAuth,
-  setOpencodeProviderAuth,
-} from "./drivers/opencode.ts";
 import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
-import { CredentialsService } from "./services/credentials-service.ts";
-import { startProviderLogin } from "./services/login-service.ts";
-import { startProviderUpdate } from "./services/update-service.ts";
 import {
   ChatService,
   MessageService,
@@ -27,8 +23,11 @@ import {
   SessionService,
   TranscriptService,
 } from "./services/conversation-services.ts";
+import { CredentialsService } from "./services/credentials-service.ts";
+import { startProviderLogin } from "./services/login-service.ts";
 import { PermissionService } from "./services/permission-service.ts";
 import { ProviderService } from "./services/provider-service.ts";
+import { startProviderUpdate } from "./services/update-service.ts";
 
 /**
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`

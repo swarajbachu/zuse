@@ -127,7 +127,7 @@ shortest path with the strongest correctness guarantees.
 
 ## Consequences
 
-- `apps/server/src/provider/drivers/claude.ts` gains an `agents` field
+- `packages/agents/src/drivers/claude.ts` gains an `agents` field
   in its `Options` construction and `"Agent"` in `allowedTools`. About a
   dozen lines.
 - `translate()` propagates `parent_tool_use_id` to wire events. About

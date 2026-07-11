@@ -20,7 +20,7 @@ export const ChatCommand = Schema.Union([
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SetActiveSession", {
-		sessionId: Schema.String,
+		sessionId: Schema.NullOr(Schema.String),
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestArchiveChat", {

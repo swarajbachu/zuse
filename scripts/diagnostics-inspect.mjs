@@ -56,7 +56,7 @@ function relevantHints(traceSummary) {
     "apps/renderer/src/components/",
   ]);
   for (const providerId of providerIds) {
-    hints.add(`apps/server/src/provider/drivers/${providerId}.ts`);
+    hints.add(`packages/agents/src/drivers/${providerId}.ts`);
   }
   if ([...spans].some((span) => span.includes("message"))) {
     hints.add("packages/contracts/src/session.ts");

@@ -1,7 +1,7 @@
 import {
   ComposerInput,
-  QueueState,
   QueuedMessage,
+  QueueState,
   type Session,
   SessionId,
   type SessionNotFoundError,
@@ -33,6 +33,10 @@ export interface QueueServiceRuntimeDeps {
     sessionId: SessionId,
     outcome: "error",
   ) => Effect.Effect<void>;
+  readonly setQueuePaused: (
+    sessionId: SessionId,
+    paused: boolean,
+  ) => Effect.Effect<void>;
 }
 
 export interface QueueServiceRuntime {
@@ -54,7 +58,13 @@ const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
 
 export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
   function* (deps: QueueServiceRuntimeDeps) {
-    const { sql, lookupSession, submitUserMessage, settleActiveTurn } = deps;
+    const {
+      sql,
+      lookupSession,
+      submitUserMessage,
+      settleActiveTurn,
+      setQueuePaused,
+    } = deps;
     const pubsubs = yield* Ref.make<
       ReadonlyMap<SessionId, PubSub.PubSub<QueueState>>
     >(new Map());
@@ -107,11 +117,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
     const setPaused = (sessionId: SessionId, paused: boolean) =>
       Effect.gen(function* () {
-        yield* sql`
-        UPDATE sessions
-        SET queue_paused = ${paused ? 1 : 0}, updated_at = ${new Date().toISOString()}
-        WHERE id = ${sessionId}
-      `.pipe(Effect.orDie);
+        yield* setQueuePaused(sessionId, paused);
         yield* broadcast(sessionId);
       });
 
