@@ -72,6 +72,17 @@ export const makeSqlChatProjector = (
 				`;
 				return;
 			}
+			case "ChatLastMessageSet": {
+				const messageAt =
+					event.messageAt === null
+						? null
+						: new Date(event.messageAt).toISOString();
+				yield* sql`
+					UPDATE chats SET last_message_at = ${messageAt}
+					WHERE id = ${record.streamId}
+				`;
+				return;
+			}
 			case "ChatArchiveRequested":
 				return;
 			case "ChatArchived": {

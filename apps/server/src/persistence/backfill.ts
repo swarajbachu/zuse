@@ -13,7 +13,7 @@ import {
 import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-const BACKFILL_NAME = "conversation-lifecycle-v6";
+const BACKFILL_NAME = "conversation-lifecycle-v9";
 const PROJECTORS = [
 	"messages",
 	"session-read-model",
@@ -35,6 +35,7 @@ interface ChatRow {
 	readonly origin_session_id: string | null;
 	readonly archived_at: string | null;
 	readonly archived_worktree_json: string | null;
+	readonly last_message_at: string | null;
 	readonly last_read_at: string | null;
 	readonly created_at: string;
 	readonly updated_at: string;
@@ -160,7 +161,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			const chats = yield* sql<ChatRow>`
 				SELECT id, project_id, worktree_id, title, active_session_id,
 					origin_session_id, archived_at, archived_worktree_json,
-					last_read_at, created_at, updated_at
+					last_message_at, last_read_at, created_at, updated_at
 				FROM chats ORDER BY created_at, id
 			`;
 			const messages = yield* sql<MessageRow>`
@@ -168,14 +169,43 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					parent_item_id, created_at
 				FROM messages ORDER BY created_at, rowid
 			`;
-			// Migration 0020 created message events before lifecycle events existed.
-			// Replace only those deterministic legacy rows so a replay from sequence
-			// zero observes ChatCreated / SessionCreated before MessagePersisted.
+			// Migration 0020 and pre-CQRS live writes can place MessagePersisted
+			// before SessionCreated. Replace those rows from the authoritative message
+			// snapshot. Also discard orphan/corrupt message events: there was no
+			// historical MessageDeleted transition capable of removing them on replay.
 			yield* sql`
 				DELETE FROM events
 				WHERE type = 'MessagePersisted'
-					AND event_id LIKE 'backfill:%'
-					AND event_id NOT LIKE 'backfill:message:%'
+					AND (
+						(event_id LIKE 'backfill:%'
+							AND event_id NOT LIKE 'backfill:message:%')
+						OR CASE WHEN json_valid(payload_json) THEN (
+							json_extract(payload_json, '$.messageId') IS NULL
+							OR NOT EXISTS (
+								SELECT 1 FROM messages
+								WHERE messages.id = json_extract(
+									events.payload_json, '$.messageId'
+								)
+							)
+						) ELSE 1 END
+						OR NOT EXISTS (
+							SELECT 1 FROM events AS creation
+							WHERE creation.stream_kind = 'session'
+								AND creation.stream_id = events.stream_id
+								AND creation.type = 'SessionCreated'
+								AND creation.sequence < events.sequence
+						)
+					)
+			`;
+			// Older backfills placed their title snapshot before archive/message
+			// transitions. Re-append it at the end of the surviving session history
+			// so title and updated_at converge to the authoritative row.
+			yield* sql`
+				DELETE FROM events
+				WHERE type = 'SessionTitleSet'
+					AND event_id IN (
+						SELECT 'backfill:session-title:' || id FROM sessions
+					)
 			`;
 			// Removing the legacy version-1 message event can leave a session stream
 			// starting at version 2. Compact versions inside the transaction so the
@@ -289,9 +319,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				if (existingTransitions.has(`${prefix}SessionCreated`)) {
 					existingEventIds.add(`backfill:session-created:${session.sessionId}`);
 				}
-				if (existingTransitions.has(`${prefix}SessionTitleSet`)) {
-					existingEventIds.add(`backfill:session-title:${session.sessionId}`);
-				}
 				if (existingTransitions.has(`${prefix}SessionArchived`)) {
 					existingEventIds.add(
 						`backfill:session-archived:${session.sessionId}`,
@@ -375,6 +402,28 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 							_tag: "ChatActiveSessionSet",
 							sessionId: chat.active_session_id,
 							updatedAt,
+						},
+					});
+				}
+				const lastMessageEventId = `backfill:chat-last-message:${chat.id}`;
+				if (
+					!existingEventIds.has(lastMessageEventId) &&
+					!existingTransitions.has(`chat:${chat.id}:ChatLastMessageSet`)
+				) {
+					const updatedAt = requiredTimestamp(
+						chat.updated_at,
+						"chats.updated_at",
+					);
+					postSessionChatEvents.push({
+						eventId: lastMessageEventId,
+						streamId: chat.id,
+						occurredAt: updatedAt,
+						event: {
+							_tag: "ChatLastMessageSet",
+							messageAt: timestamp(
+								chat.last_message_at,
+								"chats.last_message_at",
+							),
 						},
 					});
 				}

@@ -13,6 +13,7 @@ export type ChatState = {
 	readonly activeSessionId: string | null;
 	readonly originSessionId: string | null;
 	readonly lastReadAt: number | null;
+	readonly lastMessageAt: number | null;
 	readonly archivedWorktreeJson: string | null;
 	readonly version: number;
 };
@@ -30,6 +31,7 @@ export const initialChatState: ChatState = {
 	activeSessionId: null,
 	originSessionId: null,
 	lastReadAt: null,
+	lastMessageAt: null,
 	archivedWorktreeJson: null,
 	version: 0,
 };
@@ -57,6 +59,8 @@ export const evolveChat = (state: ChatState, event: ChatEvent): ChatState => {
 			return { ...state, worktreeId: event.worktreeId, version };
 		case "ChatActiveSessionSet":
 			return { ...state, activeSessionId: event.sessionId, version };
+		case "ChatLastMessageSet":
+			return { ...state, lastMessageAt: event.messageAt, version };
 		case "ChatArchiveRequested":
 			return { ...state, archiveRequested: true, version };
 		case "ChatArchived":

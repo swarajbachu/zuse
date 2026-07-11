@@ -23,6 +23,9 @@ export const ChatEvent = Schema.Union([
 		sessionId: Schema.NullOr(Schema.String),
 		updatedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ChatLastMessageSet", {
+		messageAt: Schema.NullOr(Schema.Number),
+	}),
 	Schema.TaggedStruct("ChatArchiveRequested", {
 		force: Schema.Boolean,
 		requestedAt: Schema.Number,

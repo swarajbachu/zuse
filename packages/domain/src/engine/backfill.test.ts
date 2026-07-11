@@ -68,14 +68,14 @@ describe("synthesizeBackfill", () => {
 		expect(events.map((event) => event.event._tag)).toEqual([
 			"SessionCreated",
 			"MessagePersisted",
-			"SessionTitleSet",
 			"SessionArchived",
+			"SessionTitleSet",
 		]);
 		expect(events.map((event) => event.eventId)).toEqual([
 			"backfill:session-created:session-1",
 			"backfill:message:message-2",
-			"backfill:session-title:session-1",
 			"backfill:session-archived:session-1",
+			"backfill:session-title:session-1",
 		]);
 		expect(events[1]?.event).toMatchObject({
 			_tag: "MessagePersisted",

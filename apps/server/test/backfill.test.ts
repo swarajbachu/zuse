@@ -25,6 +25,7 @@ describe("lifecycle backfill", () => {
 				origin_session_id TEXT,
 				archived_at TEXT,
 				archived_worktree_json TEXT,
+				last_message_at TEXT,
 				last_read_at TEXT,
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
@@ -75,9 +76,10 @@ describe("lifecycle backfill", () => {
 			);
 			CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 			INSERT INTO chats
-				(id, project_id, title, last_read_at, created_at)
+				(id, project_id, title, last_message_at, last_read_at, created_at)
 			VALUES (
 				'chat-1', 'project-1', 'Existing title',
+				'2026-01-02T00:00:00.000Z',
 				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
 			);
 			INSERT INTO sessions
@@ -99,17 +101,22 @@ describe("lifecycle backfill", () => {
 				'{"messageId":"message-1"}'
 			),
 			(
+				'random-pre-lifecycle-message', 'session', 'session-1', 2,
+				'MessagePersisted', '2026-01-02T00:00:00.000Z', 'user',
+				'{"messageId":"message-1","createdAt":"2026-01-02T00:00:00.000Z"}'
+			),
+			(
 				'backfill:chat-created:chat-1', 'chat', 'chat-1', 1,
 				'ChatCreated', '2026-01-01T00:00:00.000Z', 'backfill',
 				'{"_tag":"ChatCreated","chatId":"chat-1","projectId":"project-1","worktreeId":null,"title":"Existing title","originSessionId":null,"lastReadAt":1767225600000,"createdAt":1767225600000}'
 			),
 			(
-				'backfill:session-created:session-1', 'session', 'session-1', 2,
+				'backfill:session-created:session-1', 'session', 'session-1', 3,
 				'SessionCreated', '2026-01-01T00:00:00.000Z', 'backfill',
 				'{"_tag":"SessionCreated","sessionId":"session-1","chatId":"chat-1","projectId":"project-1","createdAt":1767225600000}'
 			),
 			(
-				'backfill:session-title:session-1', 'session', 'session-1', 3,
+				'backfill:session-title:session-1', 'session', 'session-1', 4,
 				'SessionTitleSet', '2026-01-01T00:00:00.000Z', 'backfill',
 				'{"_tag":"SessionTitleSet","title":"Existing title","updatedAt":1767225600000}'
 			),
@@ -117,8 +124,13 @@ describe("lifecycle backfill", () => {
 				'backfill:orphan-message', 'session', 'deleted-session', 1,
 				'MessagePersisted', '2025-12-31T00:00:00.000Z', 'backfill',
 				'{"messageId":"orphan-message","createdAt":"2025-12-31T00:00:00.000Z"}'
+			),
+			(
+				'random-orphan-event', 'session', 'deleted-session', 2,
+				'MessagePersisted', '2025-12-31T00:00:01.000Z', 'user',
+				'{"messageId":"random-orphan","createdAt":"2025-12-31T00:00:01.000Z"}'
 			);
-			INSERT INTO app_state VALUES ('projector_watermark', '5');
+			INSERT INTO app_state VALUES ('projector_watermark', '7');
 		`);
 		seed.close();
 
@@ -141,7 +153,7 @@ describe("lifecycle backfill", () => {
 					return yield* runLifecycleBackfill;
 				}),
 			);
-			expect(result).toEqual({ status: "completed", eventCount: 3 });
+			expect(result).toEqual({ status: "completed", eventCount: 5 });
 
 			const snapshot = await runtime.runPromise(
 				Effect.gen(function* () {
@@ -170,16 +182,21 @@ describe("lifecycle backfill", () => {
 			).toEqual([
 				{ type: "ChatCreated", stream_kind: "chat", stream_version: 1 },
 				{ type: "SessionCreated", stream_kind: "session", stream_version: 1 },
-				{ type: "SessionTitleSet", stream_kind: "session", stream_version: 2 },
-				{ type: "MessagePersisted", stream_kind: "session", stream_version: 3 },
-				{ type: "SessionArchived", stream_kind: "session", stream_version: 4 },
+				{ type: "MessagePersisted", stream_kind: "session", stream_version: 2 },
+				{ type: "SessionArchived", stream_kind: "session", stream_version: 3 },
+				{ type: "SessionTitleSet", stream_kind: "session", stream_version: 4 },
 				{
 					type: "ChatActiveSessionSet",
 					stream_kind: "chat",
 					stream_version: 2,
 				},
+				{
+					type: "ChatLastMessageSet",
+					stream_kind: "chat",
+					stream_version: 3,
+				},
 			]);
-			const messagePayload = snapshot.events[3]?.payload_json;
+			const messagePayload = snapshot.events[2]?.payload_json;
 			expect(messagePayload).toBeDefined();
 			expect(JSON.parse(messagePayload ?? "null")).toEqual({
 				_tag: "MessagePersisted",
@@ -191,23 +208,29 @@ describe("lifecycle backfill", () => {
 				parentItemId: null,
 				createdAt: Date.parse("2026-01-02T00:00:00.000Z"),
 			});
+			const lastMessagePayload = snapshot.events[6]?.payload_json;
+			expect(lastMessagePayload).toBeDefined();
+			expect(JSON.parse(lastMessagePayload ?? "null")).toEqual({
+				_tag: "ChatLastMessageSet",
+				messageAt: Date.parse("2026-01-02T00:00:00.000Z"),
+			});
 			expect(snapshot.cursors).toEqual([
-				{ projector_name: "chat-read-model", last_sequence: 8 },
-				{ projector_name: "messages", last_sequence: 8 },
-				{ projector_name: "reactor:auto-name-chat", last_sequence: 8 },
-				{ projector_name: "reactor:chat-archive", last_sequence: 8 },
-				{ projector_name: "reactor:chat-delete", last_sequence: 8 },
+				{ projector_name: "chat-read-model", last_sequence: 12 },
+				{ projector_name: "messages", last_sequence: 12 },
+				{ projector_name: "reactor:auto-name-chat", last_sequence: 12 },
+				{ projector_name: "reactor:chat-archive", last_sequence: 12 },
+				{ projector_name: "reactor:chat-delete", last_sequence: 12 },
 				{
 					projector_name: "reactor:permission-lifecycle",
-					last_sequence: 8,
+					last_sequence: 12,
 				},
-				{ projector_name: "reactor:provider-start", last_sequence: 8 },
-				{ projector_name: "reactor:provider-stop", last_sequence: 8 },
-				{ projector_name: "session-read-model", last_sequence: 8 },
+				{ projector_name: "reactor:provider-start", last_sequence: 12 },
+				{ projector_name: "reactor:provider-stop", last_sequence: 12 },
+				{ projector_name: "session-read-model", last_sequence: 12 },
 			]);
 			expect(snapshot.rerun).toEqual({
 				status: "already-completed",
-				eventCount: 3,
+				eventCount: 5,
 			});
 		} finally {
 			await runtime.dispose();

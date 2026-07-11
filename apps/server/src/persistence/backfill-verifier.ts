@@ -149,8 +149,19 @@ const snapshotMismatch = (
 	actual: ReadModelSnapshot,
 ): string | null => {
 	for (const table of ["chats", "sessions", "messages"] as const) {
-		if (JSON.stringify(expected[table]) !== JSON.stringify(actual[table])) {
-			return `${table} differs after sequence-zero replay`;
+		const expectedRows = expected[table];
+		const actualRows = actual[table];
+		const length = Math.max(expectedRows.length, actualRows.length);
+		for (let index = 0; index < length; index += 1) {
+			const expectedRow = expectedRows[index];
+			const actualRow = actualRows[index];
+			if (JSON.stringify(expectedRow) !== JSON.stringify(actualRow)) {
+				return [
+					`${table} differs after sequence-zero replay at row ${index}`,
+					`expected=${JSON.stringify(expectedRow)}`,
+					`actual=${JSON.stringify(actualRow)}`,
+				].join("; ");
+			}
 		}
 	}
 	return null;
