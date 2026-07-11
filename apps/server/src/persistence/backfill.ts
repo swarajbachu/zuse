@@ -13,7 +13,7 @@ import {
 import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-const BACKFILL_NAME = "conversation-lifecycle-v5";
+const BACKFILL_NAME = "conversation-lifecycle-v6";
 const PROJECTORS = [
 	"messages",
 	"session-read-model",
@@ -172,11 +172,10 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			// Replace only those deterministic legacy rows so a replay from sequence
 			// zero observes ChatCreated / SessionCreated before MessagePersisted.
 			yield* sql`
-			DELETE FROM events
+				DELETE FROM events
 				WHERE type = 'MessagePersisted'
-					AND event_id IN (
-						SELECT 'backfill:' || id FROM messages
-					)
+					AND event_id LIKE 'backfill:%'
+					AND event_id NOT LIKE 'backfill:message:%'
 			`;
 			// Removing the legacy version-1 message event can leave a session stream
 			// starting at version 2. Compact versions inside the transaction so the

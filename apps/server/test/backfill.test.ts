@@ -112,8 +112,13 @@ describe("lifecycle backfill", () => {
 				'backfill:session-title:session-1', 'session', 'session-1', 3,
 				'SessionTitleSet', '2026-01-01T00:00:00.000Z', 'backfill',
 				'{"_tag":"SessionTitleSet","title":"Existing title","updatedAt":1767225600000}'
+			),
+			(
+				'backfill:orphan-message', 'session', 'deleted-session', 1,
+				'MessagePersisted', '2025-12-31T00:00:00.000Z', 'backfill',
+				'{"messageId":"orphan-message","createdAt":"2025-12-31T00:00:00.000Z"}'
 			);
-			INSERT INTO app_state VALUES ('projector_watermark', '4');
+			INSERT INTO app_state VALUES ('projector_watermark', '5');
 		`);
 		seed.close();
 
@@ -187,18 +192,18 @@ describe("lifecycle backfill", () => {
 				createdAt: Date.parse("2026-01-02T00:00:00.000Z"),
 			});
 			expect(snapshot.cursors).toEqual([
-				{ projector_name: "chat-read-model", last_sequence: 7 },
-				{ projector_name: "messages", last_sequence: 7 },
-				{ projector_name: "reactor:auto-name-chat", last_sequence: 7 },
-				{ projector_name: "reactor:chat-archive", last_sequence: 7 },
-				{ projector_name: "reactor:chat-delete", last_sequence: 7 },
+				{ projector_name: "chat-read-model", last_sequence: 8 },
+				{ projector_name: "messages", last_sequence: 8 },
+				{ projector_name: "reactor:auto-name-chat", last_sequence: 8 },
+				{ projector_name: "reactor:chat-archive", last_sequence: 8 },
+				{ projector_name: "reactor:chat-delete", last_sequence: 8 },
 				{
 					projector_name: "reactor:permission-lifecycle",
-					last_sequence: 7,
+					last_sequence: 8,
 				},
-				{ projector_name: "reactor:provider-start", last_sequence: 7 },
-				{ projector_name: "reactor:provider-stop", last_sequence: 7 },
-				{ projector_name: "session-read-model", last_sequence: 7 },
+				{ projector_name: "reactor:provider-start", last_sequence: 8 },
+				{ projector_name: "reactor:provider-stop", last_sequence: 8 },
+				{ projector_name: "session-read-model", last_sequence: 8 },
 			]);
 			expect(snapshot.rerun).toEqual({
 				status: "already-completed",
