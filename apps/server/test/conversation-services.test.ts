@@ -40,6 +40,16 @@ import {
 import { SqlClient } from "effect/unstable/sql";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
+import { ConversationState } from "../src/conversation/core/conversation-state.ts";
+import { ConversationServicesLive } from "../src/conversation/layers/conversation-services.ts";
+import {
+	ChatService,
+	type ConversationOperations,
+	MessageService,
+	QueueService,
+	SessionService,
+	TranscriptService,
+} from "../src/conversation/services/conversation-services.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../src/persistence/migrations/0003_resume_and_export.ts";
@@ -68,16 +78,6 @@ import { Migration0032ReactorEffectReceipts } from "../src/persistence/migration
 import { Migration0033ReactorEffectSteps } from "../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-import { ConversationState } from "../src/provider/conversation-state.ts";
-import { ConversationServicesLive } from "../src/provider/layers/conversation-services.ts";
-import {
-	ChatService,
-	type ConversationOperations,
-	MessageService,
-	QueueService,
-	SessionService,
-	TranscriptService,
-} from "../src/provider/services/conversation-services.ts";
 import { ProviderService } from "../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../src/provider/title-generator.ts";
 import { PtyService } from "../src/pty/services/pty-service.ts";
@@ -350,12 +350,12 @@ const runAllMigrations = Effect.all(
 	{ discard: true },
 );
 
-const makeRuntime = (dbPath: string) => {
+const makeRuntime = (dbPath: string, migrate = true) => {
 	const SqlLive = sqliteLayer({ filename: dbPath });
 	// Run migrations during layer build, and re-export SqlClient downstream.
-	const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
-		Layer.provideMerge(SqlLive),
-	);
+	const Migrated = migrate
+		? Layer.effectDiscard(runAllMigrations).pipe(Layer.provideMerge(SqlLive))
+		: SqlLive;
 	const DomainLive = SessionDomain.layer.pipe(
 		Layer.provide(Migrated),
 		Layer.provide(NodeServices.layer),
@@ -1840,6 +1840,95 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			expect(queue.items.map((item) => item.input.text)).toEqual(["wait"]);
 		});
+	});
+
+	it("flushes a durable queue when restart recovery clears stale running state", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-queue-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${PROJECT_ID}, ${"/tmp/project"}, ${"Test"}, ${now}, ${now})
+					`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "recover this queue",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:stale-running",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SetStatus",
+							status: "running",
+							updatedAt: Date.now(),
+						},
+					}),
+				),
+			);
+			await first.dispose();
+
+			const restarted = makeRuntime(dbPath, false);
+			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
+			try {
+				const queue = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.listQueuedMessages(initialSession.id).pipe(
+							Effect.flatMap((state) =>
+								state.items.length === 0
+									? Effect.succeed(state)
+									: Effect.fail("queue not flushed" as const),
+							),
+							Effect.retry({ schedule: Schedule.recurs(100) }),
+						),
+					),
+				);
+				expect(queue.items).toEqual([]);
+				const messages = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.listMessages(initialSession.id),
+					),
+				);
+				expect(messages.at(-1)?.content).toMatchObject({
+					_tag: "user",
+					text: "recover this queue",
+				});
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("manual interrupt pauses queued messages and blocks auto-flush", async () => {

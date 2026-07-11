@@ -24,6 +24,7 @@ import {
   PubSub,
   Ref,
   Schema,
+  Semaphore,
   Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -37,6 +38,7 @@ import {
 interface PendingEntry {
   readonly request: PermissionRequest;
   readonly deferred: Deferred.Deferred<PermissionDecision>;
+  readonly projectId: FolderId;
 }
 
 interface DecisionRow {
@@ -51,6 +53,11 @@ interface DecisionRow {
   readonly decided_at: string;
 }
 
+interface PendingRequestRow {
+  readonly request_json: string;
+  readonly project_id: string;
+}
+
 /**
  * Decisions that should map to `scope='folder'`. Only `AlwaysAllow` is
  * folder-scoped today; everything else stays session-scoped (even denials,
@@ -63,6 +70,9 @@ const scopeForDecision = (
 
 const decodeSavedDecision = Schema.decodeUnknownEffect(SavedDecision);
 const decodePermissionDecision = Schema.decodeUnknownEffect(PermissionDecision);
+const decodePermissionRequest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(PermissionRequest),
+);
 
 const rowToSavedDecision = (
   row: DecisionRow,
@@ -191,15 +201,6 @@ export const PermissionServiceLive = Layer.effect(
         ),
       );
 
-    /**
-     * Side table — `requestId → projectId` — so `decide()` can persist with
-     * the right `project_id` without re-querying the session row. Cleared
-     * when the request is fulfilled.
-     */
-    const projectByRequest = yield* Ref.make<ReadonlyMap<string, FolderId>>(
-      new Map(),
-    );
-
     type PermissionLifecycleCommand =
       | { readonly _tag: "PublishPermission"; readonly requestId: string }
       | {
@@ -232,17 +233,8 @@ export const PermissionServiceLive = Layer.effect(
           const decision = yield* decodePermissionDecision(
             JSON.parse(input.command.decisionJson),
           ).pipe(Effect.orDie);
-          const projects = yield* Ref.get(projectByRequest);
-          const projectId = projects.get(input.command.requestId);
-          if (projectId !== undefined) {
-            yield* persistDecision(entry.request, projectId, decision);
-          }
+          yield* persistDecision(entry.request, entry.projectId, decision);
           yield* Ref.update(pending, (current) => {
-            const next = new Map(current);
-            next.delete(input.command.requestId);
-            return next;
-          });
-          yield* Ref.update(projectByRequest, (current) => {
             const next = new Map(current);
             next.delete(input.command.requestId);
             return next;
@@ -252,7 +244,7 @@ export const PermissionServiceLive = Layer.effect(
             requestId: input.command.requestId,
             sessionId: entry.request.sessionId,
             decision: decision._tag,
-            projectId: projectId ?? null,
+            projectId: entry.projectId,
           });
         }),
       {
@@ -287,20 +279,53 @@ export const PermissionServiceLive = Layer.effect(
         },
       },
     );
-    let permissionReactorActive = false;
-    const runPermissionReactor = Effect.suspend(() => {
-      if (permissionReactorActive) return Effect.void;
-      permissionReactorActive = true;
-      return permissionReactor.catchUp().pipe(
-        Effect.asVoid,
+    const permissionReactorLock = yield* Semaphore.make(1);
+    const runPermissionReactor = permissionReactorLock.withPermits(1)(
+      permissionReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
+    );
+
+    // The driver Deferred is process-local, but the prompt itself is durable.
+    // Recreate unresolved entries before replaying the reactor so a restarted UI
+    // can still list and decide them. The original provider process is gone; the
+    // replacement Deferred simply gives the normal resolution path a safe target.
+    const unresolved = yield* sql<PendingRequestRow>`
+      SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
+             sessions.project_id
+      FROM events AS requested
+      JOIN sessions ON sessions.id = requested.stream_id
+      WHERE requested.stream_kind = 'session'
+        AND requested.type = 'PermissionRequested'
+        AND json_valid(requested.payload_json)
+        AND NOT EXISTS (
+          SELECT 1 FROM events AS resolved
+          WHERE resolved.stream_kind = 'session'
+            AND resolved.stream_id = requested.stream_id
+            AND resolved.type = 'PermissionResolved'
+            AND json_extract(resolved.payload_json, '$.requestId') =
+                json_extract(requested.payload_json, '$.requestId')
+        )
+      ORDER BY requested.sequence
+    `;
+    for (const row of unresolved) {
+      const recovered = yield* decodePermissionRequest(row.request_json).pipe(
         Effect.orDie,
-        Effect.ensuring(
-          Effect.sync(() => {
-            permissionReactorActive = false;
-          }),
-        ),
       );
-    });
+      const deferred = yield* Deferred.make<PermissionDecision>();
+      yield* Ref.update(pending, (current) => {
+        const next = new Map(current);
+        next.set(recovered.id, {
+          request: recovered,
+          deferred,
+          projectId: row.project_id as FolderId,
+        });
+        return next;
+      });
+      log("request.recovered", {
+        requestId: recovered.id,
+        sessionId: recovered.sessionId,
+        projectId: row.project_id,
+      });
+    }
     yield* runPermissionReactor;
 
     const request: PermissionServiceShape["request"] = (
@@ -334,15 +359,10 @@ export const PermissionServiceLive = Layer.effect(
           requestedAt: new Date(),
           forcePrompt: options.forcePrompt === true,
         });
-        yield* Ref.update(projectByRequest, (m) => {
-          const next = new Map(m);
-          next.set(id, options.projectId);
-          return next;
-        });
         const deferred = yield* Deferred.make<PermissionDecision>();
         yield* Ref.update(pending, (m) => {
           const next = new Map(m);
-          next.set(id, { request: req, deferred });
+          next.set(id, { request: req, deferred, projectId: options.projectId });
           log("request.pending_added", {
             requestId: id,
             sessionId,

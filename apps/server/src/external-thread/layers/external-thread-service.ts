@@ -24,9 +24,9 @@ import { WorktreeService } from "@zuse/git/worktree-service";
 import { Effect, Layer } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { SqlClient } from "effect/unstable/sql";
+import { eventToContent } from "../../conversation/core/conversation-message-mapping.ts";
+import { TranscriptService } from "../../conversation/services/conversation-services.ts";
 import { resolveCliPath } from "../../provider/availability.ts";
-import { eventToContent } from "../../provider/conversation-message-mapping.ts";
-import { TranscriptService } from "../../provider/services/conversation-services.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { ExternalThreadService } from "../services/external-thread-service.ts";
 

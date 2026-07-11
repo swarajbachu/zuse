@@ -4,12 +4,15 @@ import {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
-import type { ChatEvent } from "@zuse/domain/chat/events";
+import { ChatEvent } from "@zuse/domain/chat/events";
+import { SessionEvent } from "@zuse/domain/core/events";
 import {
 	messageEventFromSnapshot,
 	sessionCreatedEventFromSnapshot,
 	synthesizeBackfill,
 } from "@zuse/domain/engine/backfill";
+import { makeSqlChatProjector } from "@zuse/domain/projectors/sql-chat-projector";
+import { makeSqlSessionProjector } from "@zuse/domain/projectors/sql-session-projector";
 import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
@@ -88,6 +91,21 @@ interface StreamVersionRow {
 	readonly stream_version: number;
 }
 
+interface ProjectorCursorRow {
+	readonly projector_name: string;
+	readonly last_sequence: number;
+}
+
+interface ProjectionEventRow {
+	readonly sequence: number;
+	readonly event_id: string;
+	readonly correlation_id: string | null;
+	readonly causation_event_id: string | null;
+	readonly stream_id: string;
+	readonly stream_version: number;
+	readonly payload_json: string;
+}
+
 interface BackfillMarkerRow {
 	readonly status: "running" | "completed";
 	readonly event_count: number;
@@ -124,6 +142,12 @@ const decodeSessionStatus = Schema.decodeUnknownEffect(SessionStatus);
 const decodeResumeStrategy = Schema.decodeUnknownEffect(ResumeStrategy);
 const decodeRuntimeMode = Schema.decodeUnknownEffect(RuntimeMode);
 const decodePermissionMode = Schema.decodeUnknownEffect(PermissionMode);
+const decodeSessionEvent = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(SessionEvent),
+);
+const decodeChatEvent = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(ChatEvent),
+);
 
 export const runLifecycleBackfill = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
@@ -151,24 +175,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					completed_at = NULL, event_count = 0
 			`;
 
-			const sessions = yield* sql<SessionRow>`
-				SELECT id, chat_id, project_id, title, provider_id, model, status,
-					cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
-					forked_from_session_id, forked_from_message_id, permission_mode,
-					tool_search, queue_paused, created_at, updated_at, archived_at
-				FROM sessions ORDER BY created_at, id
-			`;
-			const chats = yield* sql<ChatRow>`
-				SELECT id, project_id, worktree_id, title, active_session_id,
-					origin_session_id, archived_at, archived_worktree_json,
-					last_message_at, last_read_at, created_at, updated_at
-				FROM chats ORDER BY created_at, id
-			`;
-			const messages = yield* sql<MessageRow>`
-				SELECT rowid AS row_id, id, session_id, role, kind, content_json,
-					parent_item_id, created_at
-				FROM messages ORDER BY created_at, rowid
-			`;
 			// Migration 0020 and pre-CQRS live writes can place MessagePersisted
 			// before SessionCreated. Replace those rows from the authoritative message
 			// snapshot. Also discard orphan/corrupt message events: there was no
@@ -207,6 +213,32 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			// Removing the legacy version-1 message event can leave a session stream
 			// starting at version 2. Compact versions inside the transaction so the
 			// next live append observes a head equal to the number of evolved events.
+			// Rewrite durable receipts against the surviving pre-compaction versions
+			// first so idempotent re-dispatch returns the same logical stream head.
+			yield* sql`
+				UPDATE command_receipts AS receipt
+				SET stream_version = (
+						SELECT COUNT(*) FROM events AS event
+						WHERE event.stream_kind = receipt.stream_kind
+							AND event.stream_id = receipt.stream_id
+							AND event.stream_version <= receipt.stream_version
+					),
+					result_json = CASE
+						WHEN json_valid(receipt.result_json)
+						THEN json_set(
+							receipt.result_json,
+							'$.streamVersion',
+							(
+								SELECT COUNT(*) FROM events AS event
+								WHERE event.stream_kind = receipt.stream_kind
+									AND event.stream_id = receipt.stream_id
+									AND event.stream_version <= receipt.stream_version
+							)
+						)
+						ELSE receipt.result_json
+					END
+				WHERE receipt.stream_kind = 'session'
+			`;
 			yield* sql`
 				UPDATE events SET stream_version = -sequence
 				WHERE stream_kind = 'session'
@@ -225,6 +257,92 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					WHERE ranked.event_id = events.event_id
 				)
 				WHERE stream_kind = 'session'
+			`;
+
+			// Migration 0030 seeds projector cursors from the legacy watermark. Any
+			// later non-backfill event is a durable CQRS write. Replay it before taking
+			// the authoritative snapshots; otherwise advancing cursors below would
+			// permanently skip a dispatch whose projection had not committed.
+			const cursorRows = yield* sql<ProjectorCursorRow>`
+				SELECT projector_name, last_sequence FROM projector_cursors
+				WHERE projector_name IN ('session-read-model', 'chat-read-model')
+			`;
+			const cursors = new Map(
+				cursorRows.map((row) => [row.projector_name, row.last_sequence]),
+			);
+			const replayPendingProjection = <E>(
+				streamKind: "session" | "chat",
+				afterSequence: number,
+				apply: (row: ProjectionEventRow) => Effect.Effect<void, E>,
+			) =>
+				Effect.gen(function* () {
+					const rows = yield* sql<ProjectionEventRow>`
+				SELECT sequence, event_id, correlation_id, causation_event_id,
+					stream_id, stream_version, payload_json
+				FROM events
+				WHERE stream_kind = ${streamKind}
+					AND sequence > ${afterSequence}
+					AND event_id NOT LIKE 'backfill:%'
+				ORDER BY sequence
+			`;
+					for (const row of rows) yield* apply(row);
+				});
+			const sessionProjector = makeSqlSessionProjector(sql);
+			yield* replayPendingProjection(
+				"session",
+				cursors.get("session-read-model") ?? 0,
+				(row) =>
+					Effect.gen(function* () {
+						yield* sessionProjector.apply({
+							eventId: row.event_id,
+							correlationId: row.correlation_id ?? row.event_id,
+							causationEventId: row.causation_event_id,
+							streamId: row.stream_id,
+							streamVersion: row.stream_version,
+							sequence: row.sequence,
+							event: yield* decodeSessionEvent(row.payload_json).pipe(
+								Effect.orDie,
+							),
+						});
+					}),
+			);
+			const chatProjector = makeSqlChatProjector(sql);
+			yield* replayPendingProjection(
+				"chat",
+				cursors.get("chat-read-model") ?? 0,
+				(row) =>
+					Effect.gen(function* () {
+						yield* chatProjector.apply({
+							eventId: row.event_id,
+							correlationId: row.correlation_id ?? row.event_id,
+							causationEventId: row.causation_event_id,
+							streamId: row.stream_id,
+							streamVersion: row.stream_version,
+							sequence: row.sequence,
+							event: yield* decodeChatEvent(row.payload_json).pipe(
+								Effect.orDie,
+							),
+						});
+					}),
+			);
+
+			const sessions = yield* sql<SessionRow>`
+				SELECT id, chat_id, project_id, title, provider_id, model, status,
+					cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
+					forked_from_session_id, forked_from_message_id, permission_mode,
+					tool_search, queue_paused, created_at, updated_at, archived_at
+				FROM sessions ORDER BY created_at, id
+			`;
+			const chats = yield* sql<ChatRow>`
+				SELECT id, project_id, worktree_id, title, active_session_id,
+					origin_session_id, archived_at, archived_worktree_json,
+					last_message_at, last_read_at, created_at, updated_at
+				FROM chats ORDER BY created_at, id
+			`;
+			const messages = yield* sql<MessageRow>`
+				SELECT rowid AS row_id, id, session_id, role, kind, content_json,
+					parent_item_id, created_at
+				FROM messages ORDER BY created_at, rowid
 			`;
 			const existingEvents = yield* sql<ExistingEventRow>`
 				SELECT event_id, stream_kind, stream_id, type,
@@ -434,10 +552,13 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			const chatVersions = new Map(
 				chatVersionRows.map((row) => [row.stream_id, row.stream_version]),
 			);
-			for (const item of chatEvents) {
-				const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
-				chatVersions.set(item.streamId, streamVersion);
-				yield* sql`
+			const appendChatEvents = (items: ReadonlyArray<ChatBackfillEvent>) =>
+				Effect.forEach(
+					items,
+					(item) => {
+						const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
+						chatVersions.set(item.streamId, streamVersion);
+						return sql`
 					INSERT INTO events
 						(event_id, correlation_id, causation_event_id, stream_kind,
 						 stream_id, stream_version, type, occurred_at, actor, payload_json)
@@ -446,8 +567,11 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						 ${streamVersion}, ${item.event._tag},
 						 ${new Date(item.occurredAt).toISOString()}, 'backfill',
 						 ${JSON.stringify(item.event)})
-				`;
-			}
+						`;
+					},
+					{ discard: true },
+				);
+			yield* appendChatEvents(chatEvents);
 
 			const versionRows = yield* sql<StreamVersionRow>`
 				SELECT stream_id, MAX(stream_version) AS stream_version
@@ -471,20 +595,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						 ${JSON.stringify(item.event)})
 				`;
 			}
-			for (const item of postSessionChatEvents) {
-				const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
-				chatVersions.set(item.streamId, streamVersion);
-				yield* sql`
-          INSERT INTO events
-            (event_id, correlation_id, causation_event_id, stream_kind,
-             stream_id, stream_version, type, occurred_at, actor, payload_json)
-          VALUES
-            (${item.eventId}, ${item.eventId}, NULL, 'chat', ${item.streamId},
-             ${streamVersion}, ${item.event._tag},
-             ${new Date(item.occurredAt).toISOString()}, 'backfill',
-             ${JSON.stringify(item.event)})
-        `;
-			}
+			yield* appendChatEvents(postSessionChatEvents);
 			yield* sql`
 				UPDATE messages
 				SET sequence = COALESCE(

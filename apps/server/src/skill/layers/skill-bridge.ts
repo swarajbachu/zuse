@@ -1,12 +1,10 @@
 import * as fsSync from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
+import type { ProviderId, Skill } from "@zuse/contracts";
 import { Effect, Layer, PubSub, Stream } from "effect";
 
-import type { ProviderId, Skill } from "@zuse/contracts";
-
-import { SessionService } from "../../provider/services/conversation-services.ts";
+import { SessionService } from "../../conversation/services/conversation-services.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { SkillBridge } from "../services/skill-bridge.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";

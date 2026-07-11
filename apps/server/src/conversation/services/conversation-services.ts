@@ -1,0 +1,578 @@
+import type {
+	AgentDefinition,
+	AgentItemId,
+	AttachmentRef,
+	Chat,
+	ChatAlreadyStartedError,
+	ChatArchiveResult,
+	ChatArchiveScriptError,
+	ChatArchiveTimeoutError,
+	ChatArchiveWorktreeError,
+	ChatId,
+	ChatNotFoundError,
+	ChatUnarchiveResult,
+	ComposerAnnotation,
+	ComposerInput,
+	FileRef,
+	FolderId,
+	ForkDestination,
+	ForkMode,
+	GoalUnsupportedError,
+	Message,
+	MessageContent,
+	MessageId,
+	MessageOrigin,
+	PermissionMode,
+	ProviderId,
+	QueuedMessage,
+	QueueState,
+	ResumeStrategy,
+	RuntimeMode,
+	Session,
+	SessionAlreadyStartedError,
+	SessionId,
+	SessionNotFoundError,
+	SessionStartError,
+	SkillRef,
+	ThreadGoal,
+	ThreadGoalSetInput,
+	UserQuestionAnswer,
+	WorktreeId,
+} from "@zuse/contracts";
+import { Context, type Effect, type Stream } from "effect";
+
+/**
+ * Public conversation service contracts for sessions and their message log.
+ * Wraps `ProviderService` so RPC handlers and the renderer talk to one
+ * coherent surface used by the session RPC boundary.
+ *
+ * Invariants:
+ * - `Session.id` matches the provider's in-memory `AgentSessionId`.
+ * - Every persisted `Message` corresponds to either a user submit or an
+ *   `AgentEvent` that produced renderable content; lifecycle events
+ *   (`Started`, `Status`, `Completed`) update the session row but are not
+ *   persisted as messages.
+ */
+export interface CreateSessionInput {
+	/**
+	 * The chat (sidebar container) this session belongs to. Project +
+	 * worktree are derived from the chat — clients no longer pass either
+	 * directly to session create.
+	 */
+	readonly chatId: ChatId;
+	readonly providerId: ProviderId;
+	readonly model: string;
+	readonly title?: string;
+	readonly initialPrompt?: string;
+	readonly runtimeMode?: RuntimeMode;
+	/**
+	 * Sub-agents the main agent may delegate to. Stored on the session row
+	 * as JSON so a resumed session re-passes the same roster into
+	 * `provider.start`. Empty/omitted means no sub-agents.
+	 */
+	readonly agents?: Readonly<Record<string, AgentDefinition>>;
+	/**
+	 * Master toggle for sub-agent delegation on this session. Defaults true
+	 * when `agents` is non-empty; the driver only adds `Agent` to
+	 * `allowedTools` when the effective value is true.
+	 */
+	readonly enableSubagents?: boolean;
+	/**
+	 * SDK lifecycle mode. `'plan'` starts the session in plan mode; the
+	 * agent is restricted to read-only tools and ends its turn by calling
+	 * `ExitPlanMode`. Defaults to `'default'`.
+	 */
+	readonly permissionMode?: PermissionMode;
+	readonly modelOptions?: Readonly<Record<string, string>>;
+	/**
+	 * Persist the deferred-tools toggle on the session row. No-op today
+	 * (the AskUserQuestion server is the only MCP server and is small);
+	 * the flag is here so 0.04's code-index MCP servers can ride on it.
+	 */
+	readonly toolSearch?: boolean;
+	/**
+	 * Defer `provider.start` to a background fiber and return as soon as the
+	 * row is inserted. The returned `Session` has `status = "booting"`; a
+	 * status pubsub event fires when boot finishes (`idle`/`running`) or
+	 * fails (`error`). Used by the `session.create` RPC so a new in-chat tab
+	 * appears in ~hundreds of ms instead of ~60s. `chat.create` keeps the
+	 * default synchronous behavior so its existing staged loading panel
+	 * timing is preserved.
+	 */
+	readonly background?: boolean;
+	readonly resumeCursor?: string | null;
+	readonly resumeStrategy?: ResumeStrategy;
+	/**
+	 * Fork provenance — set when this session branches from another. Persisted
+	 * to the `forked_from_*` columns. `forkFromResume` tells the driver to fork
+	 * the resumed transcript (Claude `forkSession` / Codex `thread/fork`)
+	 * instead of continuing it, so the source session stays untouched.
+	 */
+	readonly forkedFromSessionId?: SessionId | null;
+	readonly forkedFromMessageId?: MessageId | null;
+	readonly forkFromResume?: boolean;
+	/**
+	 * Lineage for sessions opened inside an existing chat by orchestration
+	 * control-plane tools. Chat-level lineage covers newly-created sidebar
+	 * chats; this covers new session tabs inside an existing chat.
+	 */
+	readonly originSessionId?: SessionId | null;
+}
+
+export interface CreateChatInput {
+	readonly projectId: FolderId;
+	readonly providerId: ProviderId;
+	readonly model: string;
+	readonly title?: string;
+	readonly initialPrompt?: string;
+	readonly runtimeMode?: RuntimeMode;
+	readonly worktreeId?: WorktreeId | null;
+	readonly agents?: Readonly<Record<string, AgentDefinition>>;
+	readonly enableSubagents?: boolean;
+	readonly permissionMode?: PermissionMode;
+	readonly modelOptions?: Readonly<Record<string, string>>;
+	readonly toolSearch?: boolean;
+	/**
+	 * Lineage — when set, this chat was spawned by another session via
+	 * orchestration control-plane tools. Persisted on the chat row so the
+	 * sidebar can nest agent-spawned chats under their parent. `null`/omitted
+	 * for user-created chats.
+	 */
+	readonly originSessionId?: SessionId | null;
+	readonly resumeCursor?: string | null;
+	readonly resumeStrategy?: ResumeStrategy;
+	readonly forkedFromSessionId?: SessionId | null;
+	readonly forkedFromMessageId?: MessageId | null;
+	readonly forkFromResume?: boolean;
+}
+
+/**
+ * A forked branch of an existing conversation. See `SessionForkRpc`.
+ */
+export interface ForkSessionInput {
+	readonly sourceSessionId: SessionId;
+	readonly fromMessageId: MessageId;
+	readonly destination: ForkDestination;
+	readonly providerId?: ProviderId;
+	readonly model?: string;
+	readonly worktreeId?: WorktreeId | null;
+	readonly title?: string;
+}
+
+export interface ForkSessionResult {
+	readonly chat: Chat;
+	readonly session: Session;
+	readonly forkMode: ForkMode;
+}
+
+export interface ConversationOperations {
+	readonly listSessions: (
+		projectId: FolderId,
+		includeArchived: boolean,
+	) => Effect.Effect<ReadonlyArray<Session>>;
+
+	readonly getSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<Session, SessionNotFoundError>;
+
+	readonly createSession: (
+		input: CreateSessionInput,
+	) => Effect.Effect<Session, SessionStartError>;
+
+	readonly renameSession: (
+		sessionId: SessionId,
+		title: string,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly setModel: (
+		sessionId: SessionId,
+		model: string,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	/**
+	 * Switch a session's provider and model. Allowed only before the first
+	 * user message has been recorded — fails with `SessionAlreadyStartedError`
+	 * otherwise, because the new CLI cannot read the prior CLI's transcript.
+	 * Also clears the resume cursor since it's provider-specific.
+	 */
+	readonly setProvider: (
+		sessionId: SessionId,
+		providerId: ProviderId,
+		model: string,
+	) => Effect.Effect<void, SessionNotFoundError | SessionAlreadyStartedError>;
+
+	/**
+	 * Update the per-session permission posture. The change applies to the
+	 * next tool call — running `canUseTool` callbacks observe the new value
+	 * via the runtime-mode getter `ProviderService` hands the driver.
+	 */
+	readonly setRuntimeMode: (
+		sessionId: SessionId,
+		runtimeMode: RuntimeMode,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	/**
+	 * Switch the SDK lifecycle mode (plan / default / acceptEdits) on a
+	 * live session. Forwards to `ProviderService.setPermissionMode` and
+	 * persists the new value so resume restarts in the same mode.
+	 */
+	readonly setPermissionMode: (
+		sessionId: SessionId,
+		mode: PermissionMode,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	/**
+	 * Resolve a pending in-process AskUserQuestion call by `itemId`.
+	 * Persists a `user_question_answer` row before forwarding to the
+	 * driver so the renderer's view stays consistent if the SDK turn
+	 * unwinds before the row reaches the live stream.
+	 */
+	readonly answerQuestion: (
+		sessionId: SessionId,
+		itemId: AgentItemId,
+		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	/**
+	 * Switch the worktree this session runs in. Allowed only before the first
+	 * user message has been recorded — fails with `SessionAlreadyStartedError`
+	 * otherwise. `null` means "run in the main checkout."
+	 */
+	readonly setWorktree: (
+		sessionId: SessionId,
+		worktreeId: WorktreeId | null,
+	) => Effect.Effect<void, SessionNotFoundError | SessionAlreadyStartedError>;
+
+	readonly archiveSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly unarchiveSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly deleteSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	// -------------------------------------------------------------------------
+	// Chats — sidebar containers; each chat hosts ≥1 session as a tab.
+	// -------------------------------------------------------------------------
+
+	readonly listChats: (
+		projectId: FolderId,
+		includeArchived: boolean,
+	) => Effect.Effect<ReadonlyArray<Chat>>;
+
+	readonly getChat: (chatId: ChatId) => Effect.Effect<Chat, ChatNotFoundError>;
+
+	/**
+	 * Creates the chat row AND its initial session in one transaction.
+	 * Returns both so the renderer lands directly on the new session, plus
+	 * the persisted initial user message (when `initialPrompt` was supplied)
+	 * so the renderer can seed its messages store and skip the empty-state
+	 * flash while the live stream connects.
+	 */
+	readonly createChat: (input: CreateChatInput) => Effect.Effect<
+		{
+			readonly chat: Chat;
+			readonly initialSession: Session;
+			readonly initialMessage: Message | null;
+		},
+		SessionStartError
+	>;
+
+	readonly continueExternalThread: (
+		input: CreateChatInput & {
+			readonly resumeCursor: string;
+			readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+		},
+	) => Effect.Effect<
+		{
+			readonly chat: Chat;
+			readonly initialSession: Session;
+		},
+		SessionStartError
+	>;
+
+	readonly importExternalMessages: (
+		sessionId: SessionId,
+		messages: ReadonlyArray<MessageContent>,
+	) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
+
+	/**
+	 * Branch a conversation from a specific message into a new tab (same chat)
+	 * or a new sidebar chat. Picks `resume` (real provider memory via
+	 * `forkSession` / `thread/fork`) when the fork point is the conversation
+	 * tail and the provider supports it, otherwise `copy` (replay the visible
+	 * transcript up to the fork message). Records `forked_from_*` on the new
+	 * session.
+	 */
+	readonly forkSession: (
+		input: ForkSessionInput,
+	) => Effect.Effect<
+		ForkSessionResult,
+		SessionNotFoundError | SessionStartError
+	>;
+
+	/**
+	 * Serialise a session's transcript to Markdown, optionally truncated at
+	 * `uptoMessageId` (inclusive). Backs the transcript handoff/attach flows.
+	 */
+	readonly exportTranscript: (
+		sessionId: SessionId,
+		uptoMessageId?: MessageId,
+	) => Effect.Effect<string, SessionNotFoundError>;
+
+	/**
+	 * The latest `ExitPlanMode` plan text for a session, or `null` if none.
+	 * Backs the "Add plans" chip on a new chat.
+	 */
+	readonly latestPlan: (
+		sessionId: SessionId,
+	) => Effect.Effect<string | null, SessionNotFoundError>;
+
+	readonly renameChat: (
+		chatId: ChatId,
+		title: string,
+	) => Effect.Effect<void, ChatNotFoundError>;
+
+	/**
+	 * Mark a chat read by stamping `last_read_at` to "now". Returns the
+	 * refreshed chat. Idempotent.
+	 */
+	readonly markChatRead: (
+		chatId: ChatId,
+	) => Effect.Effect<Chat, ChatNotFoundError>;
+
+	/**
+	 * Live feed of chat-row changes (title / worktree) for one project. Emits
+	 * only live patches — no backfill — so the renderer keeps its `chat.list`
+	 * snapshot and applies updates (e.g. the background auto-namer rewriting a
+	 * title) on top. Never fails.
+	 */
+	readonly streamChatChanges: (projectId: FolderId) => Stream.Stream<Chat>;
+
+	/**
+	 * Update the chat's worktree. Allowed only when no session in the chat
+	 * has any user message yet. Mirrors the new value onto every member
+	 * session's `worktreeId` in the same transaction.
+	 */
+	readonly setChatWorktree: (
+		chatId: ChatId,
+		worktreeId: WorktreeId | null,
+	) => Effect.Effect<Chat, ChatNotFoundError | ChatAlreadyStartedError>;
+
+	/**
+	 * Persist the user's last-active tab inside the chat. Called whenever
+	 * the user switches tabs in the strip so a future click on the chat's
+	 * sidebar row restores the right one.
+	 */
+	readonly setChatActiveSession: (
+		chatId: ChatId,
+		sessionId: SessionId,
+	) => Effect.Effect<void, ChatNotFoundError>;
+
+	readonly archiveChat: (
+		chatId: ChatId,
+		force: boolean,
+	) => Effect.Effect<
+		ChatArchiveResult,
+		| ChatNotFoundError
+		| ChatArchiveScriptError
+		| ChatArchiveTimeoutError
+		| ChatArchiveWorktreeError
+	>;
+
+	readonly unarchiveChat: (
+		chatId: ChatId,
+	) => Effect.Effect<
+		ChatUnarchiveResult,
+		ChatNotFoundError | ChatArchiveWorktreeError
+	>;
+
+	readonly deleteChat: (
+		chatId: ChatId,
+	) => Effect.Effect<void, ChatNotFoundError>;
+
+	readonly resumeSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<Session, SessionNotFoundError | SessionStartError>;
+
+	readonly listMessages: (
+		sessionId: SessionId,
+	) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
+
+	readonly getGoal: (
+		sessionId: SessionId,
+	) => Effect.Effect<
+		ThreadGoal | null,
+		SessionNotFoundError | GoalUnsupportedError
+	>;
+
+	readonly setGoal: (
+		sessionId: SessionId,
+		goal: ThreadGoalSetInput,
+	) => Effect.Effect<
+		ThreadGoal,
+		SessionNotFoundError | SessionStartError | GoalUnsupportedError
+	>;
+
+	readonly clearGoal: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError | GoalUnsupportedError>;
+
+	readonly streamGoal: (
+		sessionId: SessionId,
+	) => Stream.Stream<
+		{ readonly sessionId: SessionId; readonly goal: ThreadGoal | null },
+		SessionNotFoundError | GoalUnsupportedError
+	>;
+
+	readonly sendMessage: (
+		sessionId: SessionId,
+		text: string,
+		attachments?: ReadonlyArray<AttachmentRef>,
+		fileRefs?: ReadonlyArray<FileRef>,
+		skillRefs?: ReadonlyArray<SkillRef>,
+		annotations?: ReadonlyArray<ComposerAnnotation>,
+		asGoal?: boolean,
+		clientMessageId?: MessageId,
+		origin?: MessageOrigin,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly interruptSession: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly listQueuedMessages: (
+		sessionId: SessionId,
+	) => Effect.Effect<QueueState, SessionNotFoundError>;
+
+	readonly streamQueuedMessages: (
+		sessionId: SessionId,
+	) => Stream.Stream<QueueState, SessionNotFoundError>;
+
+	readonly addQueuedMessage: (
+		sessionId: SessionId,
+		input: ComposerInput,
+	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
+
+	readonly updateQueuedMessage: (
+		sessionId: SessionId,
+		queueId: string,
+		input: ComposerInput,
+	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
+
+	readonly deleteQueuedMessage: (
+		sessionId: SessionId,
+		queueId: string,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly sendQueuedMessageNow: (
+		sessionId: SessionId,
+		queueId: string,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly reorderQueuedMessages: (
+		sessionId: SessionId,
+		queueIds: ReadonlyArray<string>,
+	) => Effect.Effect<ReadonlyArray<QueuedMessage>, SessionNotFoundError>;
+
+	readonly flushQueuedMessages: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly resumeQueuedMessages: (
+		sessionId: SessionId,
+	) => Effect.Effect<void, SessionNotFoundError>;
+}
+
+export type SessionServiceShape = Pick<
+	ConversationOperations,
+	| "listSessions"
+	| "getSession"
+	| "createSession"
+	| "renameSession"
+	| "setModel"
+	| "setProvider"
+	| "setRuntimeMode"
+	| "setPermissionMode"
+	| "answerQuestion"
+	| "setWorktree"
+	| "archiveSession"
+	| "unarchiveSession"
+	| "deleteSession"
+	| "resumeSession"
+	| "getGoal"
+	| "setGoal"
+	| "clearGoal"
+	| "streamGoal"
+>;
+
+export type ChatServiceShape = Pick<
+	ConversationOperations,
+	| "listChats"
+	| "getChat"
+	| "createChat"
+	| "renameChat"
+	| "markChatRead"
+	| "streamChatChanges"
+	| "setChatWorktree"
+	| "setChatActiveSession"
+	| "archiveChat"
+	| "unarchiveChat"
+	| "deleteChat"
+>;
+
+export type TranscriptServiceShape = Pick<
+	ConversationOperations,
+	| "continueExternalThread"
+	| "importExternalMessages"
+	| "forkSession"
+	| "exportTranscript"
+	| "latestPlan"
+>;
+
+export type MessageServiceShape = Pick<
+	ConversationOperations,
+	"listMessages" | "sendMessage" | "interruptSession"
+>;
+
+export type QueueServiceShape = Pick<
+	ConversationOperations,
+	| "listQueuedMessages"
+	| "streamQueuedMessages"
+	| "addQueuedMessage"
+	| "updateQueuedMessage"
+	| "deleteQueuedMessage"
+	| "sendQueuedMessageNow"
+	| "reorderQueuedMessages"
+	| "flushQueuedMessages"
+	| "resumeQueuedMessages"
+>;
+
+export class SessionService extends Context.Service<
+	SessionService,
+	SessionServiceShape
+>()("zuse/SessionService") {}
+
+export class ChatService extends Context.Service<
+	ChatService,
+	ChatServiceShape
+>()("zuse/ChatService") {}
+
+export class TranscriptService extends Context.Service<
+	TranscriptService,
+	TranscriptServiceShape
+>()("zuse/TranscriptService") {}
+
+export class MessageService extends Context.Service<
+	MessageService,
+	MessageServiceShape
+>()("zuse/MessageService") {}
+
+export class QueueService extends Context.Service<
+	QueueService,
+	QueueServiceShape
+>()("zuse/QueueService") {}

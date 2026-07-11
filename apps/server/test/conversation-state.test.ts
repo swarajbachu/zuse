@@ -6,7 +6,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
-import { ConversationState } from "../src/provider/conversation-state.ts";
+import { ConversationState } from "../src/conversation/core/conversation-state.ts";
 
 const run = <A>(effect: Effect.Effect<A, never, ConversationState>) =>
 	Effect.runPromise(effect.pipe(Effect.provide(ConversationState.layer)));

@@ -26,6 +26,16 @@ import {
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
+import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
+import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
+import {
+	ChatService,
+	type ConversationOperations,
+	MessageService,
+	QueueService,
+	SessionService,
+	TranscriptService,
+} from "../../src/conversation/services/conversation-services.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../../src/persistence/migrations/0003_resume_and_export.ts";
@@ -56,16 +66,6 @@ import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrat
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
-import { ConversationState } from "../../src/provider/conversation-state.ts";
-import { ConversationServicesLive } from "../../src/provider/layers/conversation-services.ts";
-import {
-	ChatService,
-	type ConversationOperations,
-	MessageService,
-	QueueService,
-	SessionService,
-	TranscriptService,
-} from "../../src/provider/services/conversation-services.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
 import { PtyService } from "../../src/pty/services/pty-service.ts";

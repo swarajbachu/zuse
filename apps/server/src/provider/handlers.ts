@@ -14,15 +14,15 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { Effect, Layer, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
-import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
-import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import {
   ChatService,
   MessageService,
   QueueService,
   SessionService,
   TranscriptService,
-} from "./services/conversation-services.ts";
+} from "../conversation/services/conversation-services.ts";
+import { resolveCliPath, resolveUpdateCommand } from "./availability.ts";
+import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
 import { startProviderLogin } from "./services/login-service.ts";
 import { PermissionService } from "./services/permission-service.ts";
