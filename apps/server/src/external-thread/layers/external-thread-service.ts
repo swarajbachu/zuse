@@ -27,7 +27,7 @@ import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadR
 import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "../../provider/drivers/claude.ts";
 import { translateCodexItem } from "../../provider/drivers/codex.ts";
-import { MessageStore } from "../../provider/services/message-store.ts";
+import { TranscriptService } from "../../provider/services/conversation-services.ts";
 import { WorktreeService } from "@zuse/git/worktree-service";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { ExternalThreadService } from "../services/external-thread-service.ts";
@@ -660,7 +660,7 @@ export const ExternalThreadServiceLive = Layer.effect(
     const sql = yield* SqlClient.SqlClient;
     const workspace = yield* WorkspaceService;
     const worktrees = yield* WorktreeService;
-    const messages = yield* MessageStore;
+    const messages = yield* TranscriptService;
 
     const list: ExternalThreadService["Service"]["list"] = (limit) =>
       Effect.gen(function* () {

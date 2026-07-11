@@ -9,7 +9,7 @@ const rpc = vi.hoisted(() => ({
 
 vi.mock("../src/lib/rpc-client.ts", () => ({
   getRpcClient: async () => ({
-    "agent.availability": rpc.availability,
+    "provider.availability": rpc.availability,
   }),
 }));
 
@@ -55,12 +55,10 @@ describe("provider update state", () => {
   });
 
   it("tracks one-click updates by provider", () => {
-    useProvidersStore
-      .getState()
-      .setProviderUpdateState("claude", {
-        kind: "running",
-        line: "installing Claude",
-      });
+    useProvidersStore.getState().setProviderUpdateState("claude", {
+      kind: "running",
+      line: "installing Claude",
+    });
 
     const state = useProvidersStore.getState();
     expect(state.updateStateByProvider.claude).toEqual({
@@ -69,8 +67,7 @@ describe("provider update state", () => {
     });
     for (const providerId of providers.filter((p) => p !== "claude")) {
       expect(
-        state.updateStateByProvider[providerId] ??
-          IDLE_PROVIDER_UPDATE_STATE,
+        state.updateStateByProvider[providerId] ?? IDLE_PROVIDER_UPDATE_STATE,
       ).toEqual(IDLE_PROVIDER_UPDATE_STATE);
     }
   });

@@ -28,9 +28,13 @@ describe("CommandDispatcher", () => {
 		expect(calls).toBe(1);
 		gate.resolve("ok");
 		await expect(duplicate).resolves.toBe("ok");
+		await expect(
+			dispatcher.dispatch("cmd-1", () => Promise.resolve("fresh")),
+		).resolves.toBe("fresh");
+		expect(calls).toBe(1);
 	});
 
-	test("re-dispatches only commands without receipts after reconnect", async () => {
+	test("keeps one receipt promise while redispatching after reconnect", async () => {
 		const dispatcher = new CommandDispatcher();
 		const firstAttempt = deferred<string>();
 		let calls = 0;
@@ -39,13 +43,25 @@ describe("CommandDispatcher", () => {
 			return calls === 1 ? firstAttempt.promise : Promise.resolve("receipt");
 		};
 
-		void dispatcher.dispatch("cmd-2", operation).catch(() => undefined);
+		const receipt = dispatcher.dispatch("cmd-2", operation, {
+			shouldRetry: () => true,
+		});
 		firstAttempt.reject(new Error("connection lost"));
 		await Promise.resolve();
-		await expect(Promise.all(dispatcher.redispatchPending())).resolves.toEqual([
-			"receipt",
-		]);
+		const [redispatched] = dispatcher.redispatchPending();
+		expect(redispatched).toBe(receipt);
+		await expect(receipt).resolves.toBe("receipt");
 		expect(calls).toBe(2);
+		expect(dispatcher.pendingCommandIds).toEqual([]);
+	});
+
+	test("rejects non-retryable failures", async () => {
+		const dispatcher = new CommandDispatcher();
+		const receipt = dispatcher.dispatch("cmd-3", () =>
+			Promise.reject(new Error("validation failed")),
+		);
+
+		await expect(receipt).rejects.toThrow("validation failed");
 		expect(dispatcher.pendingCommandIds).toEqual([]);
 	});
 });

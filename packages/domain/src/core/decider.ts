@@ -71,14 +71,55 @@ export const decide = (
 			}
 			return state.title === title
 				? success([])
-				: success([{ _tag: "SessionTitleSet", title }]);
+				: success([
+						{ _tag: "SessionTitleSet", title, updatedAt: command.updatedAt },
+					]);
 		}
+		case "SetModel":
+			return state.model === command.model
+				? success([])
+				: success([{ ...command, _tag: "SessionModelSet" }]);
+		case "SetProvider":
+			return state.providerId === command.providerId &&
+				state.model === command.model
+				? success([])
+				: success([{ ...command, _tag: "SessionProviderSet" }]);
+		case "SetRuntimeMode":
+			return state.runtimeMode === command.runtimeMode
+				? success([])
+				: success([{ ...command, _tag: "SessionRuntimeModeSet" }]);
+		case "SetPermissionMode":
+			return state.permissionMode === command.permissionMode
+				? success([])
+				: success([{ ...command, _tag: "SessionPermissionModeSet" }]);
+		case "SetWorktree":
+			return state.worktreeId === command.worktreeId
+				? success([])
+				: success([{ ...command, _tag: "SessionWorktreeSet" }]);
+		case "SetStatus":
+			return state.status === command.status
+				? success([])
+				: success([{ ...command, _tag: "SessionStatusSet" }]);
+		case "SetResume":
+			return state.cursor === command.cursor &&
+				state.resumeStrategy === command.resumeStrategy
+				? success([])
+				: success([{ ...command, _tag: "SessionResumeSet" }]);
 		case "ArchiveSession":
 			return state.archived
 				? success([])
 				: success([
 						{ _tag: "SessionArchived", archivedAt: command.archivedAt },
 					]);
+		case "UnarchiveSession":
+			return state.archived
+				? success([
+						{
+							_tag: "SessionUnarchived",
+							unarchivedAt: command.unarchivedAt,
+						},
+					])
+				: success([]);
 		case "DeleteSession":
 			return success([
 				{ _tag: "SessionDeleted", deletedAt: command.deletedAt },
@@ -116,6 +157,27 @@ export const decide = (
 			});
 			return success(events);
 		}
+		case "SettleActiveTurn": {
+			if (state.currentTurnId === null) return success([]);
+			const events: SessionEvent[] = [];
+			for (const [segmentId, segment] of state.openSegments) {
+				if (segment.turnId !== state.currentTurnId) continue;
+				events.push({
+					_tag: "SegmentSettled",
+					turnId: state.currentTurnId,
+					segmentId,
+					outcome: command.outcome,
+					settledAt: command.settledAt,
+				});
+			}
+			events.push({
+				_tag: "TurnSettled",
+				turnId: state.currentTurnId,
+				outcome: command.outcome,
+				settledAt: command.settledAt,
+			});
+			return success(events);
+		}
 		case "PersistMessage":
 			return state.messageIds.has(command.messageId)
 				? success([])
@@ -144,36 +206,38 @@ export const decide = (
 						new PermissionNotPending({ requestId: command.requestId }),
 					);
 		case "AttachProvider":
-			if (state.providerId === command.providerId) return success([]);
+			if (state.attachedProviderId === command.providerId) return success([]);
 			return success([
-				...(state.providerId === null
+				...(state.attachedProviderId === null
 					? []
 					: [
 							{
 								_tag: "ProviderDetached" as const,
-								providerId: state.providerId,
+								providerId: state.attachedProviderId,
 								detachedAt: command.attachedAt,
 							},
 						]),
 				{ ...command, _tag: "ProviderAttached" },
 			]);
+		case "RequestProviderStop":
+			return state.attachedProviderId === null
+				? success([])
+				: success([
+						{
+							_tag: "ProviderStopRequested",
+							providerId: state.attachedProviderId,
+							requestedAt: command.requestedAt,
+						},
+					]);
 		case "DetachProvider":
-			return state.providerId === null
+			return state.attachedProviderId === null
 				? success([])
 				: success([
 						{
 							_tag: "ProviderDetached",
-							providerId: state.providerId,
+							providerId: state.attachedProviderId,
 							detachedAt: command.detachedAt,
 						},
 					]);
-		case "RecordCheckpoint":
-			return state.checkpointIds.has(command.checkpointId)
-				? success([])
-				: success([{ ...command, _tag: "CheckpointRecorded" }]);
-		case "RequestWorktreeArchive":
-			return state.archiveWorktreeIds.has(command.worktreeId)
-				? success([])
-				: success([{ ...command, _tag: "WorktreeArchiveRequested" }]);
 	}
 };

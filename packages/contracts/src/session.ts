@@ -490,9 +490,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
     // Sub-agents the new session may delegate to. The renderer reads
     // these from the user's preset settings and injects them at create
     // time so the wire stays the single source of truth.
-    agents: Schema.optional(
-      Schema.Record(Schema.String, AgentDefinition ),
-    ),
+    agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
     enableSubagents: Schema.optional(Schema.Boolean),
     /**
      * Start the session in plan mode. The agent will explore read-only
@@ -500,9 +498,7 @@ export const SessionCreateRpc = Rpc.make("session.create", {
      * `'default'` (immediate execution).
      */
     permissionMode: Schema.optional(PermissionMode),
-    modelOptions: Schema.optional(
-      Schema.Record(Schema.String, Schema.String ),
-    ),
+    modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
     /**
      * Persist the deferred-tools toggle for this session. Reserved for
      * 0.04 code-index MCP servers; no-op today.
@@ -749,9 +745,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
     initialPrompt: Schema.optional(Schema.String),
     runtimeMode: Schema.optional(RuntimeMode),
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-    agents: Schema.optional(
-      Schema.Record(Schema.String, AgentDefinition ),
-    ),
+    agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
     enableSubagents: Schema.optional(Schema.Boolean),
     permissionMode: Schema.optional(PermissionMode),
     toolSearch: Schema.optional(Schema.Boolean),
@@ -760,9 +754,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
      * session id. Omitted for user-created chats.
      */
     originSessionId: Schema.optional(SessionId),
-    modelOptions: Schema.optional(
-      Schema.Record(Schema.String, Schema.String ),
-    ),
+    modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   }),
   success: Schema.Struct({
     chat: Chat,
@@ -888,27 +880,6 @@ export const MessagesListRpc = Rpc.make("messages.list", {
   payload: Schema.Struct({ sessionId: SessionId }),
   success: Schema.Array(Message),
   error: SessionNotFoundError,
-});
-
-/**
- * Subscribe to a session's message log. The stream emits {@link MessageEnvelope}
- * rows in global `sequence` order — a replay of everything past `sinceSequence`
- * (0 when omitted, i.e. the full history), then live rows as the provider
- * produces events. The renderer treats it as the single source of truth — no
- * separate hydrate / live split.
- *
- * Clients record the highest `sequence` seen per session and pass it back as
- * `sinceSequence` on resubscribe: the server replays only the delta, so a
- * flaky-network reconnect is O(missed messages) and gap-free by construction.
- */
-export const MessagesStreamRpc = Rpc.make("messages.stream", {
-  payload: Schema.Struct({
-    sessionId: SessionId,
-    sinceSequence: Schema.optional(Schema.Number),
-  }),
-  success: MessageEnvelope,
-  error: SessionNotFoundError,
-  stream: true,
 });
 
 /**
@@ -1090,15 +1061,26 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
   error: SessionNotFoundError,
 });
 
-/**
- * Live status feed for a session. Mirrors the message stream pattern: emits
- * the current status immediately, then every transition. The renderer uses
- * it to keep the composer's "running" indicator stable across the whole
- * tool-call loop instead of inferring from the last message.
- */
-export const SessionStatusStreamRpc = Rpc.make("session.streamStatus", {
-  payload: Schema.Struct({ sessionId: SessionId }),
-  success: Schema.Struct({ sessionId: SessionId, status: SessionStatus }),
+export class SessionDomainEventEnvelope extends Schema.Class<SessionDomainEventEnvelope>(
+  "SessionDomainEventEnvelope",
+)({
+  sequence: Schema.Number,
+  eventId: Schema.String,
+  correlationId: Schema.String,
+  causationEventId: Schema.NullOr(Schema.String),
+  sessionId: SessionId,
+  streamVersion: Schema.Number,
+  type: Schema.String,
+  payloadJson: Schema.String,
+}) {}
+
+/** Ordered durable session-domain feed with cursor-based replay. */
+export const SessionEventsRpc = Rpc.make("session.events", {
+  payload: Schema.Struct({
+    sessionId: SessionId,
+    afterSequence: Schema.optional(Schema.Number),
+  }),
+  success: SessionDomainEventEnvelope,
   error: SessionNotFoundError,
   stream: true,
 });

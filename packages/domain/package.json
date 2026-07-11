@@ -4,18 +4,29 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./chat/commands": "./src/chat/commands.ts",
+		"./chat/decider": "./src/chat/decider.ts",
+		"./chat/events": "./src/chat/events.ts",
+		"./chat/state": "./src/chat/state.ts",
 		"./core/commands": "./src/core/commands.ts",
 		"./core/decider": "./src/core/decider.ts",
 		"./core/events": "./src/core/events.ts",
 		"./core/ingestion": "./src/core/ingestion/ingestion.ts",
 		"./core/state": "./src/core/state.ts",
 		"./engine/backfill": "./src/engine/backfill.ts",
+		"./engine/chat-domain": "./src/engine/chat-domain.ts",
 		"./engine/dispatch": "./src/engine/dispatch.ts",
 		"./engine/projector-runner": "./src/engine/projector-runner.ts",
 		"./engine/reactor-runner": "./src/engine/reactor-runner.ts",
+		"./engine/session-domain": "./src/engine/session-domain.ts",
+		"./engine/sql-consumer-storage": "./src/engine/sql-consumer-storage.ts",
 		"./engine/sql-dispatch-storage": "./src/engine/sql-dispatch-storage.ts",
 		"./projectors/read-model": "./src/projectors/read-model.ts",
-		"./queries/session-queries": "./src/queries/session-queries.ts"
+		"./projectors/sql-chat-projector": "./src/projectors/sql-chat-projector.ts",
+		"./projectors/sql-session-projector": "./src/projectors/sql-session-projector.ts",
+		"./reactors/conversation": "./src/reactors/conversation.ts",
+		"./queries/session-queries": "./src/queries/session-queries.ts",
+		"./queries/sql-session-queries": "./src/queries/sql-session-queries.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
@@ -27,8 +38,9 @@
 		"effect": "catalog:"
 	},
 	"devDependencies": {
-		"@effect/sql-sqlite-node": "catalog:",
+		"@zuse/sqlite": "*",
 		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

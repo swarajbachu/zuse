@@ -47,7 +47,7 @@ export interface ProviderServiceShape {
     resumeCursor?: string | null,
     getRuntimeMode?: GetRuntimeMode,
     /**
-     * Session-bound orchestration tools. `MessageStore` owns the actual
+     * Session-bound orchestration tools. `ConversationServices` owns the actual
      * operations and passes this bundle when autonomy is enabled. Drivers
      * expose it through their native MCP path (Claude SDK, Codex app-server,
      * Grok ACP) without duplicating worktree/chat persistence logic.

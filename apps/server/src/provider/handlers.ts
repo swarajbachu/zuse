@@ -3,7 +3,9 @@ import {
   CredentialStoreError,
   MemoizeRpcs,
   type ProviderId,
+  SessionDomainEventEnvelope,
 } from "@zuse/contracts";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
 
@@ -18,7 +20,13 @@ import { BrowserBridgeService } from "./services/browser-bridge-service.ts";
 import { CredentialsService } from "./services/credentials-service.ts";
 import { startProviderLogin } from "./services/login-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
-import { MessageStore } from "./services/message-store.ts";
+import {
+  ChatService,
+  MessageService,
+  QueueService,
+  SessionService,
+  TranscriptService,
+} from "./services/conversation-services.ts";
 import { PermissionService } from "./services/permission-service.ts";
 import { ProviderService } from "./services/provider-service.ts";
 
@@ -26,18 +34,17 @@ import { ProviderService } from "./services/provider-service.ts";
  * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
  * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/contracts`):
  *
- *   PR 3 — `agent.availability`         ← here
- *   PR 4 — `agent.setCredential`        ← here
- *   PR 5/6 — `agent.start` / `send` / `interrupt` / `close` / `events`
+ * Provider process management stays behind this boundary while session
+ * lifecycle and event traffic use the durable session domain.
  */
 const Availability = MemoizeRpcs.toLayerHandler(
-  "agent.availability",
+  "provider.availability",
   ({ refresh }) =>
     Effect.flatMap(ProviderService, (svc) => svc.availability(refresh)),
 );
 
 const SetCredential = MemoizeRpcs.toLayerHandler(
-  "agent.setCredential",
+  "provider.setCredential",
   ({ providerId, apiKey }) =>
     Effect.flatMap(ProviderService, (svc) =>
       svc.setCredential(providerId, apiKey).pipe(
@@ -53,28 +60,6 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
     ),
 );
 
-const Start = MemoizeRpcs.toLayerHandler("agent.start", (input) =>
-  Effect.flatMap(ProviderService, (svc) => svc.start(input)),
-);
-
-const Send = MemoizeRpcs.toLayerHandler("agent.send", ({ sessionId, text }) =>
-  Effect.flatMap(ProviderService, (svc) => svc.send(sessionId, text)),
-);
-
-const Interrupt = MemoizeRpcs.toLayerHandler(
-  "agent.interrupt",
-  ({ sessionId, turnId }) =>
-    Effect.flatMap(ProviderService, (svc) => svc.interrupt(sessionId, turnId)),
-);
-
-const Close = MemoizeRpcs.toLayerHandler("agent.close", ({ sessionId }) =>
-  Effect.flatMap(ProviderService, (svc) => svc.close(sessionId)),
-);
-
-const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
-  Stream.unwrap(Effect.map(ProviderService, (svc) => svc.events(sessionId))),
-);
-
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
 // provider card or in an auth error bubble. `cursor` and `claude` have real
 // handlers — they spawn the provider's `login` subcommand, extract the OAuth
@@ -82,7 +67,7 @@ const Events = MemoizeRpcs.toLayerHandler("agent.events", ({ sessionId }) =>
 // navigate away, IPC drop), the stream's scope closes and the child process is
 // SIGTERM'd by the service's finalizer.
 const StartLogin = MemoizeRpcs.toLayerHandler(
-  "agent.startLogin",
+  "provider.startLogin",
   ({ providerId }) => startProviderLogin(providerId),
 );
 
@@ -91,7 +76,7 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 // streams output, and ends with `done`. On success the renderer re-probes
 // availability so the new version shows immediately.
 const UpdateProvider = MemoizeRpcs.toLayerHandler(
-  "agent.updateProvider",
+  "provider.update",
   ({ providerId }) =>
     Stream.unwrap(
       resolveUpdateCommand(providerId).pipe(
@@ -106,7 +91,7 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 // short-live an `opencode serve` for the SDK calls and tear it down on
 // return so we don't leave a server lingering.
 const OpencodeInventory = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeInventory",
+  "provider.opencode.inventory",
   () =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -148,7 +133,7 @@ const requireOpencodePath = (): Effect.Effect<
   });
 
 const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeSetProviderAuth",
+  "provider.opencode.setAuth",
   ({ providerId, apiKey }) =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -162,12 +147,12 @@ const OpencodeSetProviderAuth = MemoizeRpcs.toLayerHandler(
 );
 
 const OpencodeRemoveProviderAuth = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeRemoveProviderAuth",
+  "provider.opencode.removeAuth",
   ({ providerId }) => removeOpencodeProviderAuth(providerId),
 );
 
 const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeAddCustomProvider",
+  "provider.opencode.addCustom",
   ({ id, name, baseURL, npm, apiKey, models }) =>
     Effect.gen(function* () {
       const opencodePath = yield* requireOpencodePath();
@@ -189,7 +174,7 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
 );
 
 const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
-  "agent.opencodeRemoveCustomProvider",
+  "provider.opencode.removeCustom",
   ({ id }) =>
     Effect.gen(function* () {
       const configStore = yield* ConfigStoreService;
@@ -204,25 +189,23 @@ const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
 );
 
 // ---------------------------------------------------------------------------
-// session.* / messages.* — chat-MVP surface backed by `MessageStore`.
-// `agent.*` handlers above stay live (renderer no longer calls them, but the
-// store composes them and they're useful for low-level testing).
+// session.* / messages.* — focused conversation service surfaces.
 // ---------------------------------------------------------------------------
 
 const SessionList = MemoizeRpcs.toLayerHandler(
   "session.list",
   ({ projectId, includeArchived }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.listSessions(projectId, includeArchived ?? false),
     ),
 );
 
 const SessionGet = MemoizeRpcs.toLayerHandler("session.get", ({ sessionId }) =>
-  Effect.flatMap(MessageStore, (svc) => svc.getSession(sessionId)),
+  Effect.flatMap(SessionService, (svc) => svc.getSession(sessionId)),
 );
 
 const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
-  Effect.flatMap(MessageStore, (svc) =>
+  Effect.flatMap(SessionService, (svc) =>
     svc.createSession({
       chatId: input.chatId,
       providerId: input.providerId,
@@ -247,17 +230,17 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
 const ChatList = MemoizeRpcs.toLayerHandler(
   "chat.list",
   ({ projectId, includeArchived }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(ChatService, (svc) =>
       svc.listChats(projectId, includeArchived ?? false),
     ),
 );
 
 const ChatGet = MemoizeRpcs.toLayerHandler("chat.get", ({ chatId }) =>
-  Effect.flatMap(MessageStore, (svc) => svc.getChat(chatId)),
+  Effect.flatMap(ChatService, (svc) => svc.getChat(chatId)),
 );
 
 const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
-  Effect.flatMap(MessageStore, (svc) =>
+  Effect.flatMap(ChatService, (svc) =>
     svc.createChat({
       projectId: input.projectId,
       providerId: input.providerId,
@@ -279,25 +262,25 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
 const ChatRename = MemoizeRpcs.toLayerHandler(
   "chat.rename",
   ({ chatId, title }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.renameChat(chatId, title)),
+    Effect.flatMap(ChatService, (svc) => svc.renameChat(chatId, title)),
 );
 
 const ChatMarkRead = MemoizeRpcs.toLayerHandler("chat.markRead", ({ chatId }) =>
-  Effect.flatMap(MessageStore, (svc) => svc.markChatRead(chatId)),
+  Effect.flatMap(ChatService, (svc) => svc.markChatRead(chatId)),
 );
 
 const ChatStreamChanges = MemoizeRpcs.toLayerHandler(
   "chat.streamChanges",
   ({ projectId }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamChatChanges(projectId)),
+      Effect.map(ChatService, (svc) => svc.streamChatChanges(projectId)),
     ),
 );
 
 const ChatSetWorktree = MemoizeRpcs.toLayerHandler(
   "chat.setWorktree",
   ({ chatId, worktreeId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(ChatService, (svc) =>
       svc.setChatWorktree(chatId, worktreeId),
     ),
 );
@@ -305,7 +288,7 @@ const ChatSetWorktree = MemoizeRpcs.toLayerHandler(
 const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
   "chat.setActiveSession",
   ({ chatId, sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(ChatService, (svc) =>
       svc.setChatActiveSession(chatId, sessionId),
     ),
 );
@@ -313,7 +296,7 @@ const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
 const ChatArchive = MemoizeRpcs.toLayerHandler(
   "chat.archive",
   ({ chatId, force }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(ChatService, (svc) =>
       svc.archiveChat(chatId, force ?? false),
     ),
 );
@@ -321,29 +304,31 @@ const ChatArchive = MemoizeRpcs.toLayerHandler(
 const ChatUnarchive = MemoizeRpcs.toLayerHandler(
   "chat.unarchive",
   ({ chatId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.unarchiveChat(chatId)),
+    Effect.flatMap(ChatService, (svc) => svc.unarchiveChat(chatId)),
 );
 
 const ChatDelete = MemoizeRpcs.toLayerHandler("chat.delete", ({ chatId }) =>
-  Effect.flatMap(MessageStore, (svc) => svc.deleteChat(chatId)),
+  Effect.flatMap(ChatService, (svc) => svc.deleteChat(chatId)),
 );
 
 const SessionRename = MemoizeRpcs.toLayerHandler(
   "session.rename",
   ({ sessionId, title }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.renameSession(sessionId, title)),
+    Effect.flatMap(SessionService, (svc) =>
+      svc.renameSession(sessionId, title),
+    ),
 );
 
 const SessionSetModel = MemoizeRpcs.toLayerHandler(
   "session.setModel",
   ({ sessionId, model }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.setModel(sessionId, model)),
+    Effect.flatMap(SessionService, (svc) => svc.setModel(sessionId, model)),
 );
 
 const SessionSetProvider = MemoizeRpcs.toLayerHandler(
   "session.setProvider",
   ({ sessionId, providerId, model }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.setProvider(sessionId, providerId, model),
     ),
 );
@@ -351,29 +336,29 @@ const SessionSetProvider = MemoizeRpcs.toLayerHandler(
 const SessionArchive = MemoizeRpcs.toLayerHandler(
   "session.archive",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.archiveSession(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.archiveSession(sessionId)),
 );
 
 const SessionUnarchive = MemoizeRpcs.toLayerHandler(
   "session.unarchive",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.unarchiveSession(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.unarchiveSession(sessionId)),
 );
 
 const SessionDelete = MemoizeRpcs.toLayerHandler(
   "session.delete",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.deleteSession(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.deleteSession(sessionId)),
 );
 
 const SessionResume = MemoizeRpcs.toLayerHandler(
   "session.resume",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.resumeSession(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.resumeSession(sessionId)),
 );
 
 const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
-  Effect.flatMap(MessageStore, (svc) =>
+  Effect.flatMap(TranscriptService, (svc) =>
     svc.forkSession({
       sourceSessionId: input.sourceSessionId,
       fromMessageId: input.fromMessageId,
@@ -389,7 +374,7 @@ const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
 const SessionExportTranscript = MemoizeRpcs.toLayerHandler(
   "session.exportTranscript",
   ({ sessionId, uptoMessageId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(TranscriptService, (svc) =>
       svc
         .exportTranscript(sessionId, uptoMessageId)
         .pipe(Effect.map((markdown) => ({ markdown }))),
@@ -399,7 +384,7 @@ const SessionExportTranscript = MemoizeRpcs.toLayerHandler(
 const SessionLatestPlan = MemoizeRpcs.toLayerHandler(
   "session.latestPlan",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(TranscriptService, (svc) =>
       svc.latestPlan(sessionId).pipe(Effect.map((plan) => ({ plan }))),
     ),
 );
@@ -407,7 +392,7 @@ const SessionLatestPlan = MemoizeRpcs.toLayerHandler(
 const SessionSetRuntimeMode = MemoizeRpcs.toLayerHandler(
   "session.setRuntimeMode",
   ({ sessionId, runtimeMode }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.setRuntimeMode(sessionId, runtimeMode),
     ),
 );
@@ -415,7 +400,7 @@ const SessionSetRuntimeMode = MemoizeRpcs.toLayerHandler(
 const SessionSetPermissionMode = MemoizeRpcs.toLayerHandler(
   "session.setPermissionMode",
   ({ sessionId, mode }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.setPermissionMode(sessionId, mode),
     ),
 );
@@ -423,7 +408,7 @@ const SessionSetPermissionMode = MemoizeRpcs.toLayerHandler(
 const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
   "session.answerQuestion",
   ({ sessionId, itemId, answers }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.answerQuestion(
         sessionId,
         itemId as import("@zuse/contracts").AgentItemId,
@@ -435,7 +420,7 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
   "session.setWorktree",
   ({ sessionId, worktreeId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(SessionService, (svc) =>
       svc.setWorktree(sessionId, worktreeId),
     ),
 );
@@ -443,49 +428,60 @@ const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
 const MessagesList = MemoizeRpcs.toLayerHandler(
   "messages.list",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.listMessages(sessionId)),
+    Effect.flatMap(MessageService, (svc) => svc.listMessages(sessionId)),
 );
 
-const MessagesStream = MemoizeRpcs.toLayerHandler(
-  "messages.stream",
-  ({ sessionId, sinceSequence }) =>
+const SessionEvents = MemoizeRpcs.toLayerHandler(
+  "session.events",
+  ({ sessionId, afterSequence }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) =>
-        svc.streamMessages(sessionId, sinceSequence),
-      ),
-    ),
-);
-
-const SessionStreamStatus = MemoizeRpcs.toLayerHandler(
-  "session.streamStatus",
-  ({ sessionId }) =>
-    Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamStatus(sessionId)),
+      Effect.gen(function* () {
+        const sessions = yield* SessionService;
+        yield* sessions.getSession(sessionId);
+        const domain = yield* SessionDomain;
+        return domain.events({ streamId: sessionId, afterSequence }).pipe(
+          Stream.map((record) =>
+            SessionDomainEventEnvelope.make({
+              sequence: record.sequence,
+              eventId: record.eventId,
+              correlationId: record.correlationId,
+              causationEventId: record.causationEventId,
+              sessionId,
+              streamVersion: record.streamVersion,
+              type: record.event._tag,
+              payloadJson: JSON.stringify(record.event),
+            }),
+          ),
+          Stream.orDie,
+        );
+      }),
     ),
 );
 
 const SessionGoalGet = MemoizeRpcs.toLayerHandler(
   "session.goal.get",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.getGoal(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.getGoal(sessionId)),
 );
 
 const SessionGoalSet = MemoizeRpcs.toLayerHandler(
   "session.goal.set",
   ({ sessionId, goal }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.setGoal(sessionId, goal)),
+    Effect.flatMap(SessionService, (svc) => svc.setGoal(sessionId, goal)),
 );
 
 const SessionGoalClear = MemoizeRpcs.toLayerHandler(
   "session.goal.clear",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.clearGoal(sessionId)),
+    Effect.flatMap(SessionService, (svc) => svc.clearGoal(sessionId)),
 );
 
 const SessionGoalStream = MemoizeRpcs.toLayerHandler(
   "session.goal.stream",
   ({ sessionId }) =>
-    Stream.unwrap(Effect.map(MessageStore, (svc) => svc.streamGoal(sessionId))),
+    Stream.unwrap(
+      Effect.map(SessionService, (svc) => svc.streamGoal(sessionId)),
+    ),
 );
 
 const MessagesSend = MemoizeRpcs.toLayerHandler(
@@ -503,7 +499,7 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
         `[rpc.messages.send] attachments: ${JSON.stringify(input.attachments)}`,
       );
     }
-    return Effect.flatMap(MessageStore, (svc) =>
+    return Effect.flatMap(MessageService, (svc) =>
       svc.sendMessage(
         sessionId,
         input?.text ?? text ?? "",
@@ -521,27 +517,27 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
   "messages.interrupt",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.interruptSession(sessionId)),
+    Effect.flatMap(MessageService, (svc) => svc.interruptSession(sessionId)),
 );
 
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
   "messages.queue.list",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.listQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.listQueuedMessages(sessionId)),
 );
 
 const MessagesQueueStream = MemoizeRpcs.toLayerHandler(
   "messages.queue.stream",
   ({ sessionId }) =>
     Stream.unwrap(
-      Effect.map(MessageStore, (svc) => svc.streamQueuedMessages(sessionId)),
+      Effect.map(QueueService, (svc) => svc.streamQueuedMessages(sessionId)),
     ),
 );
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
   "messages.queue.add",
   ({ sessionId, input }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.addQueuedMessage(sessionId, input),
     ),
 );
@@ -549,7 +545,7 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
   "messages.queue.update",
   ({ sessionId, queueId, input }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.updateQueuedMessage(sessionId, queueId, input),
     ),
 );
@@ -557,7 +553,7 @@ const MessagesQueueUpdate = MemoizeRpcs.toLayerHandler(
 const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
   "messages.queue.delete",
   ({ sessionId, queueId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.deleteQueuedMessage(sessionId, queueId),
     ),
 );
@@ -565,7 +561,7 @@ const MessagesQueueDelete = MemoizeRpcs.toLayerHandler(
 const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
   "messages.queue.sendNow",
   ({ sessionId, queueId }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.sendQueuedMessageNow(sessionId, queueId),
     ),
 );
@@ -573,7 +569,7 @@ const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
 const MessagesQueueReorder = MemoizeRpcs.toLayerHandler(
   "messages.queue.reorder",
   ({ sessionId, queueIds }) =>
-    Effect.flatMap(MessageStore, (svc) =>
+    Effect.flatMap(QueueService, (svc) =>
       svc.reorderQueuedMessages(sessionId, queueIds),
     ),
 );
@@ -581,13 +577,13 @@ const MessagesQueueReorder = MemoizeRpcs.toLayerHandler(
 const MessagesQueueFlush = MemoizeRpcs.toLayerHandler(
   "messages.queue.flush",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.flushQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.flushQueuedMessages(sessionId)),
 );
 
 const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
   "messages.queue.resume",
   ({ sessionId }) =>
-    Effect.flatMap(MessageStore, (svc) => svc.resumeQueuedMessages(sessionId)),
+    Effect.flatMap(QueueService, (svc) => svc.resumeQueuedMessages(sessionId)),
 );
 
 // ---------------------------------------------------------------------------
@@ -682,11 +678,6 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
 export const ProviderHandlersLayer = Layer.mergeAll(
   Availability,
   SetCredential,
-  Start,
-  Send,
-  Interrupt,
-  Close,
-  Events,
   StartLogin,
   UpdateProvider,
   OpencodeInventory,
@@ -722,13 +713,12 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionSetPermissionMode,
   SessionAnswerQuestion,
   SessionSetWorktree,
-  SessionStreamStatus,
+  SessionEvents,
   SessionGoalGet,
   SessionGoalSet,
   SessionGoalClear,
   SessionGoalStream,
   MessagesList,
-  MessagesStream,
   MessagesSend,
   MessagesInterrupt,
   MessagesQueueList,

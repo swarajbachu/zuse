@@ -2,13 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
-
 import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
 import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
-import { layer as nodeSqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { Migration0032ReactorEffectReceipts } from "../src/persistence/migrations/0032_reactor_effect_receipts.ts";
+import { Migration0033ReactorEffectSteps } from "../src/persistence/migrations/0033_reactor_effect_steps.ts";
 
 describe("CQRS migrations", () => {
 	test("adds event metadata, receipts, cursors, and backfill markers", async () => {
@@ -43,6 +44,8 @@ describe("CQRS migrations", () => {
 				Effect.gen(function* () {
 					yield* Migration0030CqrsEngine;
 					yield* Migration0031BackfillRuns;
+					yield* Migration0032ReactorEffectReceipts;
+					yield* Migration0033ReactorEffectSteps;
 					const sql = yield* SqlClient.SqlClient;
 					const event = yield* sql<{
 						readonly correlation_id: string;
@@ -55,7 +58,7 @@ describe("CQRS migrations", () => {
 					const tables = yield* sql<{ readonly name: string }>`
 						SELECT name FROM sqlite_master
 						WHERE type = 'table'
-							AND name IN ('command_receipts', 'backfill_runs')
+							AND name IN ('command_receipts', 'backfill_runs', 'reactor_effect_receipts', 'reactor_effect_steps')
 						ORDER BY name
 					`;
 					return { event, cursor, tables };
@@ -71,6 +74,8 @@ describe("CQRS migrations", () => {
 			expect(snapshot.tables.map((table) => table.name)).toEqual([
 				"backfill_runs",
 				"command_receipts",
+				"reactor_effect_receipts",
+				"reactor_effect_steps",
 			]);
 		} finally {
 			await runtime.dispose();

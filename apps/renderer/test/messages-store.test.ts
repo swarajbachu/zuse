@@ -37,24 +37,24 @@ let rpcClientFactory: () => Awaited<
 const makeQueueClient = () =>
   ({
     "messages.interrupt": () =>
-        Effect.sync(() => {
-          interruptCalls += 1;
-        }),
+      Effect.sync(() => {
+        interruptCalls += 1;
+      }),
     "messages.queue.sendNow": (payload: {
-        readonly sessionId: SessionId;
-        readonly queueId: string;
-      }) =>
-        Effect.sync(() => {
-          sendNowCalls.push(payload);
-        }),
+      readonly sessionId: SessionId;
+      readonly queueId: string;
+    }) =>
+      Effect.sync(() => {
+        sendNowCalls.push(payload);
+      }),
     "messages.queue.resume": (payload: { readonly sessionId: SessionId }) =>
-        Effect.sync(() => {
-          resumeCalls.push(payload);
-        }),
+      Effect.sync(() => {
+        resumeCalls.push(payload);
+      }),
     "messages.queue.flush": (payload: { readonly sessionId: SessionId }) =>
-        Effect.sync(() => {
-          flushCalls.push(payload);
-        }),
+      Effect.sync(() => {
+        flushCalls.push(payload);
+      }),
   }) as Awaited<
     ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
   >;
@@ -115,12 +115,11 @@ describe("messages store queue actions", () => {
     let streamCalls = 0;
     rpcClientFactory = () =>
       ({
-        "messages.stream": () => {
-            streamCalls += 1;
-            return streamCalls === 1 ? Stream.never : Stream.empty;
-          },
+        "session.events": () => {
+          streamCalls += 1;
+          return streamCalls === 1 ? Stream.never : Stream.empty;
+        },
         "messages.queue.stream": () => Stream.empty,
-        "session.streamStatus": () => Stream.empty,
       }) as Awaited<
         ReturnType<typeof import("../src/lib/rpc-client.ts").getRpcClient>
       >;

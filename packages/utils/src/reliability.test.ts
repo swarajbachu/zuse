@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 import { OrderedPushBus } from "./push-bus.js";
 import { ReadinessBarrier } from "./readiness.js";
 import { Reaper } from "./reaper.js";
-import { ConnectionSupervisorState } from "./supervisor.js";
 
 describe("reliability primitives", () => {
 	test("readiness opens once", async () => {
@@ -40,15 +39,5 @@ describe("reliability primitives", () => {
 		expect(reaper.reap(10)).toEqual(["old"]);
 		expect(reaper.reap(19)).toEqual([]);
 		expect(reaper.reap(20)).toEqual(["new"]);
-	});
-
-	test("supervisor caps backoff and resets after a stable connection", () => {
-		const supervisor = new ConnectionSupervisorState();
-		expect([0, 1, 2, 3, 4, 5].map((now) => supervisor.failed(now))).toEqual([
-			1_000, 2_000, 4_000, 8_000, 16_000, 16_000,
-		]);
-		supervisor.connected(100);
-		expect(supervisor.failed(30_100)).toBe(1_000);
-		expect(supervisor.snapshot().attempt).toBe(1);
 	});
 });

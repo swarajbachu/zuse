@@ -1,10 +1,7 @@
-import { SqlClient } from "effect/unstable/sql";
-import { layer as sqliteLayer } from "../../src/persistence/node-sqlite-client.ts";
-import { Effect, Layer, ManagedRuntime, Schedule, Stream } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { NodeServices } from "@effect/platform-node";
 import type {
   AgentEvent,
   AgentSessionId,
@@ -13,11 +10,22 @@ import type {
   WorktreeId,
 } from "@zuse/contracts";
 import { RepositorySettings, Worktree } from "@zuse/contracts";
-
-import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
-import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
-import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
+import { layer as sqliteLayer } from "@zuse/sqlite";
+import {
+  Context,
+  Effect,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Stream,
+} from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { Migration0001Initial } from "../../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../../src/persistence/migrations/0003_resume_and_export.ts";
@@ -42,18 +50,47 @@ import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_a
 import { Migration0022AttachmentAbsPath } from "../../src/persistence/migrations/0022_attachment_abs_path.ts";
 import { Migration0023ChatLineage } from "../../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
-import { MessageStoreLive } from "../../src/provider/layers/message-store.ts";
-import { MessageStore } from "../../src/provider/services/message-store.ts";
+import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_cqrs_engine.ts";
+import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
+import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrations/0032_reactor_effect_receipts.ts";
+import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
+import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
+import { ConversationServicesLive } from "../../src/provider/layers/conversation-services.ts";
+import {
+  ChatService,
+  type ConversationOperations,
+  MessageService,
+  QueueService,
+  SessionService,
+  TranscriptService,
+} from "../../src/provider/services/conversation-services.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
-import { PtyService } from "../../src/pty/services/pty-service.ts";
-import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
-import { WorktreeService } from "@zuse/git/worktree-service";
+import { PtyService } from "../../src/pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../../src/relay/activity-publisher.ts";
+import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 
 export const FIXTURE_PROJECT_ID = "fixture-project" as FolderId;
 const FIXTURE_WORKTREE_ID = "fixture-worktree" as WorktreeId;
 const FIXTURE_PROJECT_PATH = "/tmp/zuse-fixture-project";
 const FIXTURE_WORKTREE_PATH = "/tmp/zuse-fixture-project/.memo/worktree";
+
+class TestConversation extends Context.Service<
+  TestConversation,
+  ConversationOperations
+>()("test/FixtureConversation") {}
+
+const TestConversationLive = Layer.effect(
+  TestConversation,
+  Effect.gen(function* () {
+    const sessions = yield* SessionService;
+    const chats = yield* ChatService;
+    const transcripts = yield* TranscriptService;
+    const messages = yield* MessageService;
+    const queue = yield* QueueService;
+    return { ...sessions, ...chats, ...transcripts, ...messages, ...queue };
+  }),
+);
 
 const renderableTags = new Set<AgentEvent["_tag"]>([
   "AssistantMessage",
@@ -93,6 +130,10 @@ const runAllMigrations = Effect.all(
     Migration0022AttachmentAbsPath,
     Migration0023ChatLineage,
     Migration0024RemoteConnectState,
+    Migration0030CqrsEngine,
+    Migration0031BackfillRuns,
+    Migration0032ReactorEffectReceipts,
+    Migration0033ReactorEffectSteps,
   ],
   { discard: true },
 );
@@ -245,7 +286,18 @@ const makeRuntime = (
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
-  const TestLayer = MessageStoreLive.pipe(
+  const DomainLive = SessionDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
+  const ChatDomainLive = ChatDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
+  const SessionQueriesLive = SqlSessionQueries.layer.pipe(
+    Layer.provide(Migrated),
+  );
+  const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
     Layer.provide(StubRepositorySettingsLive),
@@ -255,19 +307,25 @@ const makeRuntime = (
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
+    Layer.provide(DomainLive),
+    Layer.provide(ChatDomainLive),
+    Layer.provide(SessionQueriesLive),
     Layer.provideMerge(Migrated),
+  );
+  const TestLayer = TestConversationLive.pipe(
+    Layer.provideMerge(ConversationLayer),
   );
 
   return ManagedRuntime.make(TestLayer);
 };
 
-export const assertEventsAcceptedByMessageStore = async (
+export const assertEventsAcceptedByConversationServices = async (
   events: ReadonlyArray<AgentEvent>,
 ): Promise<void> => {
   const dir = mkdtempSync(join(tmpdir(), "zuse-provider-fixture-"));
   const runtime = makeRuntime(join(dir, "fixture.sqlite"), events);
   const run = <A>(
-    effect: Effect.Effect<A, unknown, MessageStore | SqlClient.SqlClient>,
+    effect: Effect.Effect<A, unknown, TestConversation | SqlClient.SqlClient>,
   ): Promise<A> =>
     runtime.runPromise(effect as Effect.Effect<A, unknown, never>);
 
@@ -284,7 +342,7 @@ export const assertEventsAcceptedByMessageStore = async (
     );
 
     const { initialSession } = await run(
-      Effect.flatMap(MessageStore, (store) =>
+      Effect.flatMap(TestConversation, (store) =>
         store.createChat({
           projectId: FIXTURE_PROJECT_ID,
           providerId: "claude",
@@ -299,7 +357,7 @@ export const assertEventsAcceptedByMessageStore = async (
     ).length;
 
     const waitForReplay = Effect.gen(function* () {
-      const store = yield* MessageStore;
+      const store = yield* TestConversation;
       const messages = yield* store.listMessages(initialSession.id);
       const providerMessages = messages.filter(
         (message) => message.role !== "user",
@@ -323,10 +381,7 @@ export const assertEventsAcceptedByMessageStore = async (
       return { providerMessages, session };
     }).pipe(
       Effect.retry(
-        Schedule.max([
-          Schedule.spaced("10 millis"),
-          Schedule.recurs(100),
-        ]),
+        Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
       ),
     );
 

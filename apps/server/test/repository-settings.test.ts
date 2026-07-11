@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { SqlClient } from "effect/unstable/sql";
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
+import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import {
   existsSync,

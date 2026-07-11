@@ -16,13 +16,13 @@ import { z } from "zod";
  *
  * These mirror `buildIndexTools` / `buildBrowserTools`: the handlers are plain
  * async functions the Claude SDK invokes directly, kept free of any Effect
- * wiring. `MessageStore` binds the deps below to its own Effect methods via
+ * wiring. `ConversationServices` binds the deps below to its own Effect methods via
  * `Runtime.runPromise`, and — crucially — translates every failure into a
  * `{ ok: false, error }` result so these handlers never throw. That keeps the
  * tool surface free of raw try/catch and matches the `BrowserCommandResult`
  * convention.
  *
- * Registration is gated on autonomy: `MessageStore` only builds + passes these
+ * Registration is gated on autonomy: `ConversationServices` only builds + passes these
  * when the session's autonomy level is not `"off"`. The mutating tools
  * (create_thread / create_session / send_to_thread) fall through the driver's
  * permission policy to a prompt, which IS the approval gate for the
@@ -31,7 +31,7 @@ import { z } from "zod";
  * reads.
  */
 
-// ── Result contracts (set by MessageStore, never thrown) ────────────────────
+// ── Result contracts (set by ConversationServices, never thrown) ────────────────────
 
 export type CreateWorktreeResult =
   | {
@@ -124,8 +124,8 @@ export interface WhoamiResult {
 }
 
 /**
- * The Effect-free surface `MessageStore` binds. Each call resolves to a result
- * object; rejections are not expected (MessageStore catches Effect failures).
+ * The Effect-free surface `ConversationServices` binds. Each call resolves to a result
+ * object; rejections are not expected (ConversationServices catches Effect failures).
  */
 export interface OrchestrationToolDeps {
   readonly createWorktree: (input: {

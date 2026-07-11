@@ -23,7 +23,7 @@
 	},
 	"devDependencies": {
 		"@effect/platform-node": "catalog:",
-		"@effect/sql-sqlite-node": "catalog:",
+		"@zuse/sqlite": "*",
 		"@repo/typescript-config": "*",
 		"@types/node": "catalog:",
 		"typescript": "catalog:",

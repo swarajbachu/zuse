@@ -22,7 +22,6 @@ import type {
   GoalUnsupportedError,
   Message,
   MessageContent,
-  MessageEnvelope,
   MessageId,
   MessageOrigin,
   PermissionMode,
@@ -36,7 +35,6 @@ import type {
   SessionId,
   SessionNotFoundError,
   SessionStartError,
-  SessionStatus,
   SkillRef,
   ThreadGoal,
   ThreadGoalSetInput,
@@ -47,8 +45,7 @@ import type {
 /**
  * Persistence-backed orchestration of chat sessions and their message log.
  * Wraps `ProviderService` so RPC handlers and the renderer talk to one
- * coherent surface — `agent.*` RPCs stay live for low-level access but the
- * chat UI never reaches past `MessageStore`.
+ * coherent surface used by the session RPC boundary.
  *
  * Invariants:
  * - `Session.id` matches the provider's in-memory `AgentSessionId`.
@@ -56,7 +53,6 @@ import type {
  *   `AgentEvent` that produced renderable content; lifecycle events
  *   (`Started`, `Status`, `Completed`) update the session row but are not
  *   persisted as messages.
- * - `streamMessages` emits the full backfill before any live row.
  */
 export interface CreateSessionInput {
   /**
@@ -170,7 +166,7 @@ export interface ForkSessionResult {
   readonly forkMode: ForkMode;
 }
 
-export interface MessageStoreShape {
+export interface ConversationOperations {
   readonly listSessions: (
     projectId: FolderId,
     includeArchived: boolean,
@@ -408,24 +404,6 @@ export interface MessageStoreShape {
     sessionId: SessionId,
   ) => Effect.Effect<ReadonlyArray<Message>, SessionNotFoundError>;
 
-  readonly streamMessages: (
-    sessionId: SessionId,
-    sinceSequence?: number,
-  ) => Stream.Stream<MessageEnvelope, SessionNotFoundError>;
-
-  /**
-   * Live status feed. Emits the current `Session.status` immediately and
-   * publishes every transition (`idle` → `running` → `closed` / `error`).
-   * The renderer uses this to keep its in-flight indicator stable across
-   * the whole tool-call loop instead of inferring from message content.
-   */
-  readonly streamStatus: (
-    sessionId: SessionId,
-  ) => Stream.Stream<
-    { readonly sessionId: SessionId; readonly status: SessionStatus },
-    SessionNotFoundError
-  >;
-
   readonly getGoal: (
     sessionId: SessionId,
   ) => Effect.Effect<
@@ -511,7 +489,91 @@ export interface MessageStoreShape {
   ) => Effect.Effect<void, SessionNotFoundError>;
 }
 
-export class MessageStore extends Context.Service<
-  MessageStore,
-  MessageStoreShape
->()("memoize/MessageStore") {}
+export type SessionServiceShape = Pick<
+  ConversationOperations,
+  | "listSessions"
+  | "getSession"
+  | "createSession"
+  | "renameSession"
+  | "setModel"
+  | "setProvider"
+  | "setRuntimeMode"
+  | "setPermissionMode"
+  | "answerQuestion"
+  | "setWorktree"
+  | "archiveSession"
+  | "unarchiveSession"
+  | "deleteSession"
+  | "resumeSession"
+  | "getGoal"
+  | "setGoal"
+  | "clearGoal"
+  | "streamGoal"
+>;
+
+export type ChatServiceShape = Pick<
+  ConversationOperations,
+  | "listChats"
+  | "getChat"
+  | "createChat"
+  | "renameChat"
+  | "markChatRead"
+  | "streamChatChanges"
+  | "setChatWorktree"
+  | "setChatActiveSession"
+  | "archiveChat"
+  | "unarchiveChat"
+  | "deleteChat"
+>;
+
+export type TranscriptServiceShape = Pick<
+  ConversationOperations,
+  | "continueExternalThread"
+  | "importExternalMessages"
+  | "forkSession"
+  | "exportTranscript"
+  | "latestPlan"
+>;
+
+export type MessageServiceShape = Pick<
+  ConversationOperations,
+  "listMessages" | "sendMessage" | "interruptSession"
+>;
+
+export type QueueServiceShape = Pick<
+  ConversationOperations,
+  | "listQueuedMessages"
+  | "streamQueuedMessages"
+  | "addQueuedMessage"
+  | "updateQueuedMessage"
+  | "deleteQueuedMessage"
+  | "sendQueuedMessageNow"
+  | "reorderQueuedMessages"
+  | "flushQueuedMessages"
+  | "resumeQueuedMessages"
+>;
+
+export class SessionService extends Context.Service<
+  SessionService,
+  SessionServiceShape
+>()("zuse/SessionService") {}
+
+export class ChatService extends Context.Service<
+  ChatService,
+  ChatServiceShape
+>()("zuse/ChatService") {}
+
+export class TranscriptService extends Context.Service<
+  TranscriptService,
+  TranscriptServiceShape
+>()("zuse/TranscriptService") {}
+
+export class MessageService extends Context.Service<
+  MessageService,
+  MessageServiceShape
+>()("zuse/MessageService") {}
+
+export class QueueService extends Context.Service<
+  QueueService,
+  QueueServiceShape
+>()("zuse/QueueService") {}

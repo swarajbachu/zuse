@@ -6,14 +6,14 @@ import { type DomainError, decide } from "../core/decider.js";
 import type { SessionEvent } from "../core/events.js";
 import { evolveAll, initialSessionState } from "../core/state.js";
 
-export type StoredEvent = {
+export type StoredEvent<Event = SessionEvent> = {
 	readonly eventId: string;
 	readonly correlationId: string;
 	readonly causationEventId: string | null;
 	readonly streamId: string;
 	readonly streamVersion: number;
 	readonly sequence: number;
-	readonly event: SessionEvent;
+	readonly event: Event;
 };
 
 export const CommandReceipt = Schema.Struct({
@@ -24,15 +24,15 @@ export const CommandReceipt = Schema.Struct({
 });
 export type CommandReceipt = typeof CommandReceipt.Type;
 
-export type DispatchInput = {
+export type DispatchInput<Command = SessionCommand> = {
 	readonly commandId: string;
 	readonly streamId: string;
 	readonly correlationId?: string;
 	readonly causationEventId?: string;
-	readonly command: SessionCommand;
+	readonly command: Command;
 };
 
-export type AppendInput = {
+export type AppendInput<Event = SessionEvent> = {
 	readonly commandId: string;
 	readonly streamId: string;
 	readonly correlationId: string;
@@ -40,16 +40,20 @@ export type AppendInput = {
 	readonly expectedVersion: number;
 	readonly events: readonly {
 		readonly eventId: string;
-		readonly event: SessionEvent;
+		readonly event: Event;
 	}[];
 };
 
-export interface DispatchStorage<StorageError = never> {
+export interface DispatchStorage<StorageError = never, Event = SessionEvent> {
 	receipt(
 		commandId: string,
 	): Effect.Effect<CommandReceipt | null, StorageError>;
-	events(streamId: string): Effect.Effect<readonly StoredEvent[], StorageError>;
-	append(input: AppendInput): Effect.Effect<CommandReceipt, StorageError>;
+	events(
+		streamId: string,
+	): Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
+	append(
+		input: AppendInput<Event>,
+	): Effect.Effect<CommandReceipt, StorageError>;
 }
 
 export class ConcurrencyConflict extends Schema.TaggedErrorClass<ConcurrencyConflict>()(
@@ -61,22 +65,34 @@ export class ConcurrencyConflict extends Schema.TaggedErrorClass<ConcurrencyConf
 	},
 ) {}
 
-export class DispatchEngine<StorageError = never> {
+export class DispatchEngine<
+	StorageError = never,
+	EventIdError = never,
+	EventIdRequirements = never,
+> {
 	private readonly worker = new KeyedEffectSerialWorker<string>();
 
 	constructor(
 		private readonly storage: DispatchStorage<StorageError>,
-		private readonly makeEventId: () => string,
+		private readonly makeEventId: () => Effect.Effect<
+			string,
+			EventIdError,
+			EventIdRequirements
+		>,
 	) {}
 
 	dispatch(
 		input: DispatchInput,
-	): Effect.Effect<CommandReceipt, DispatchFailure<StorageError>> {
+	): Effect.Effect<
+		CommandReceipt,
+		DispatchFailure<StorageError> | EventIdError,
+		EventIdRequirements
+	> {
 		return this.worker.run(input.streamId, this.run(input));
 	}
 
 	private readonly run = Effect.fn("DispatchEngine.run")(function* (
-		this: DispatchEngine<StorageError>,
+		this: DispatchEngine<StorageError, EventIdError, EventIdRequirements>,
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
@@ -90,16 +106,17 @@ export class DispatchEngine<StorageError = never> {
 		const decision = decide(state, input.command);
 		if (Result.isFailure(decision)) return yield* decision.failure;
 
+		const events = yield* Effect.forEach(decision.success, (event) =>
+			this.makeEventId().pipe(Effect.map((eventId) => ({ eventId, event }))),
+		);
+
 		return yield* this.storage.append({
 			commandId: input.commandId,
 			streamId: input.streamId,
 			correlationId: input.correlationId ?? input.commandId,
 			causationEventId: input.causationEventId ?? null,
 			expectedVersion: state.version,
-			events: decision.success.map((event) => ({
-				eventId: this.makeEventId(),
-				event,
-			})),
+			events,
 		});
 	});
 }

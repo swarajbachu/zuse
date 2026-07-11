@@ -5,7 +5,7 @@ import { useMessagesStore } from "../store/messages.ts";
 /**
  * Mirror the number of currently-running agents to the main process.
  *
- * `runningBySession` (fed by the `session.streamStatus` subscription) is the
+ * `runningBySession` (fed by the `session.events` subscription) is the
  * renderer's source of truth for which sessions have an in-flight turn. Main
  * needs the *count* for two things it owns: the `before-quit` guard
  * ("N agents are running — quit anyway?") and the "quit/restart when idle"

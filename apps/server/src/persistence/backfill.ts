@@ -1,15 +1,59 @@
-import { synthesizeBackfill } from "@zuse/domain/engine/backfill";
-import { Effect } from "effect";
+import {
+	PermissionMode,
+	ResumeStrategy,
+	RuntimeMode,
+	SessionStatus,
+} from "@zuse/contracts";
+import type { ChatEvent } from "@zuse/domain/chat/events";
+import {
+	messageEventFromSnapshot,
+	sessionCreatedEventFromSnapshot,
+	synthesizeBackfill,
+} from "@zuse/domain/engine/backfill";
+import { DateTime, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-const BACKFILL_NAME = "session-lifecycle-v2";
-const PROJECTORS = ["messages", "sessions", "chats", "activity"] as const;
+const BACKFILL_NAME = "conversation-lifecycle-v4";
+const PROJECTORS = [
+	"session-read-model",
+	"chat-read-model",
+	"reactor:auto-name-chat",
+	"reactor:permission-lifecycle",
+	"reactor:provider-start",
+	"reactor:provider-stop",
+	"reactor:chat-archive",
+	"reactor:chat-delete",
+] as const;
+
+interface ChatRow {
+	readonly id: string;
+	readonly project_id: string;
+	readonly worktree_id: string | null;
+	readonly title: string;
+	readonly origin_session_id: string | null;
+	readonly archived_at: string | null;
+	readonly archived_worktree_json: string | null;
+	readonly last_read_at: string | null;
+	readonly created_at: string;
+}
 
 interface SessionRow {
 	readonly id: string;
 	readonly chat_id: string;
 	readonly project_id: string;
 	readonly title: string;
+	readonly provider_id: string;
+	readonly model: string;
+	readonly status: string;
+	readonly cursor: string | null;
+	readonly resume_strategy: string;
+	readonly runtime_mode: string;
+	readonly agents_json: string | null;
+	readonly worktree_id: string | null;
+	readonly forked_from_session_id: string | null;
+	readonly forked_from_message_id: string | null;
+	readonly permission_mode: string;
+	readonly tool_search: number;
 	readonly created_at: string;
 	readonly archived_at: string | null;
 }
@@ -60,6 +104,11 @@ const requiredTimestamp = (value: string, field: string): number => {
 	return parsed;
 };
 
+const decodeSessionStatus = Schema.decodeUnknownEffect(SessionStatus);
+const decodeResumeStrategy = Schema.decodeUnknownEffect(ResumeStrategy);
+const decodeRuntimeMode = Schema.decodeUnknownEffect(RuntimeMode);
+const decodePermissionMode = Schema.decodeUnknownEffect(PermissionMode);
+
 export const runLifecycleBackfill = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	return yield* sql.withTransaction(
@@ -76,7 +125,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				} as const;
 			}
 
-			const startedAt = new Date().toISOString();
+			const startedAt = (yield* DateTime.nowAsDate).toISOString();
 			yield* sql`
 				INSERT INTO backfill_runs
 					(backfill_name, status, started_at, completed_at, event_count)
@@ -87,8 +136,16 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			`;
 
 			const sessions = yield* sql<SessionRow>`
-				SELECT id, chat_id, project_id, title, created_at, archived_at
+				SELECT id, chat_id, project_id, title, provider_id, model, status,
+					cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
+					forked_from_session_id, forked_from_message_id, permission_mode,
+					tool_search, created_at, archived_at
 				FROM sessions ORDER BY created_at, id
+			`;
+			const chats = yield* sql<ChatRow>`
+				SELECT id, project_id, worktree_id, title, origin_session_id,
+					archived_at, archived_worktree_json, last_read_at, created_at
+				FROM chats ORDER BY created_at, id
 			`;
 			const messages = yield* sql<MessageRow>`
 				SELECT rowid AS row_id, id, session_id, role, kind, content_json,
@@ -103,27 +160,77 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					END AS message_id
 				FROM events
 			`;
+			const messageSnapshots = messages.map((row) => ({
+				rowId: row.row_id,
+				messageId: row.id,
+				sessionId: row.session_id,
+				role: row.role,
+				kind: row.kind,
+				contentJson: row.content_json,
+				parentItemId: row.parent_item_id,
+				createdAt: requiredTimestamp(row.created_at, "messages.created_at"),
+			}));
+			const messagesById = new Map(
+				messageSnapshots.map((message) => [message.messageId, message]),
+			);
+			for (const existing of existingEvents) {
+				if (existing.message_id === null) continue;
+				const message = messagesById.get(existing.message_id);
+				if (message === undefined) continue;
+				yield* sql`
+					UPDATE events
+					SET payload_json = ${JSON.stringify(messageEventFromSnapshot(message))}
+					WHERE event_id = ${existing.event_id}
+				`;
+			}
+
+			const sessionSnapshots = yield* Effect.forEach(sessions, (row) =>
+				Effect.gen(function* () {
+					const status = yield* decodeSessionStatus(row.status);
+					const resumeStrategy = yield* decodeResumeStrategy(
+						row.resume_strategy,
+					);
+					const runtimeMode = yield* decodeRuntimeMode(row.runtime_mode);
+					const permissionMode = yield* decodePermissionMode(
+						row.permission_mode,
+					);
+					return {
+						sessionId: row.id,
+						chatId: row.chat_id,
+						projectId: row.project_id,
+						title: row.title,
+						providerId: row.provider_id,
+						model: row.model,
+						status,
+						cursor: row.cursor,
+						resumeStrategy,
+						runtimeMode,
+						agentsJson: row.agents_json,
+						worktreeId: row.worktree_id,
+						forkedFromSessionId: row.forked_from_session_id,
+						forkedFromMessageId: row.forked_from_message_id,
+						permissionMode,
+						toolSearch: row.tool_search !== 0,
+						createdAt: requiredTimestamp(row.created_at, "sessions.created_at"),
+						archivedAt: timestamp(row.archived_at, "sessions.archived_at"),
+						deletedAt: null,
+					};
+				}),
+			);
+			for (const session of sessionSnapshots) {
+				yield* sql`
+					UPDATE events
+					SET payload_json = ${JSON.stringify(
+						sessionCreatedEventFromSnapshot(session),
+					)}
+					WHERE event_id = ${`backfill:session-created:${session.sessionId}`}
+						AND type = 'SessionCreated'
+				`;
+			}
 
 			const events = synthesizeBackfill({
-				sessions: sessions.map((row) => ({
-					sessionId: row.id,
-					chatId: row.chat_id,
-					projectId: row.project_id,
-					title: row.title,
-					createdAt: requiredTimestamp(row.created_at, "sessions.created_at"),
-					archivedAt: timestamp(row.archived_at, "sessions.archived_at"),
-					deletedAt: null,
-				})),
-				messages: messages.map((row) => ({
-					rowId: row.row_id,
-					messageId: row.id,
-					sessionId: row.session_id,
-					role: row.role,
-					kind: row.kind,
-					contentJson: row.content_json,
-					parentItemId: row.parent_item_id,
-					createdAt: requiredTimestamp(row.created_at, "messages.created_at"),
-				})),
+				sessions: sessionSnapshots,
+				messages: messageSnapshots,
 				existingEventIds: new Set(existingEvents.map((row) => row.event_id)),
 				existingMessageIds: new Set(
 					existingEvents.flatMap((row) =>
@@ -131,6 +238,76 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					),
 				),
 			});
+			const existingEventIds = new Set(
+				existingEvents.map((row) => row.event_id),
+			);
+			const chatEvents: Array<{
+				readonly eventId: string;
+				readonly streamId: string;
+				readonly occurredAt: number;
+				readonly event: ChatEvent;
+			}> = [];
+			for (const chat of chats) {
+				const createdAt = requiredTimestamp(
+					chat.created_at,
+					"chats.created_at",
+				);
+				const createdEventId = `backfill:chat-created:${chat.id}`;
+				if (!existingEventIds.has(createdEventId)) {
+					chatEvents.push({
+						eventId: createdEventId,
+						streamId: chat.id,
+						occurredAt: createdAt,
+						event: {
+							_tag: "ChatCreated",
+							chatId: chat.id,
+							projectId: chat.project_id,
+							worktreeId: chat.worktree_id,
+							title: chat.title,
+							originSessionId: chat.origin_session_id,
+							lastReadAt: timestamp(chat.last_read_at, "chats.last_read_at"),
+							createdAt,
+						},
+					});
+				}
+				const archivedAt = timestamp(chat.archived_at, "chats.archived_at");
+				const archivedEventId = `backfill:chat-archived:${chat.id}`;
+				if (archivedAt !== null && !existingEventIds.has(archivedEventId)) {
+					chatEvents.push({
+						eventId: archivedEventId,
+						streamId: chat.id,
+						occurredAt: archivedAt,
+						event: {
+							_tag: "ChatArchived",
+							archivedAt,
+							archivedWorktreeJson: chat.archived_worktree_json,
+						},
+					});
+				}
+			}
+
+			const chatVersionRows = yield* sql<StreamVersionRow>`
+				SELECT stream_id, MAX(stream_version) AS stream_version
+				FROM events WHERE stream_kind = 'chat'
+				GROUP BY stream_id
+			`;
+			const chatVersions = new Map(
+				chatVersionRows.map((row) => [row.stream_id, row.stream_version]),
+			);
+			for (const item of chatEvents) {
+				const streamVersion = (chatVersions.get(item.streamId) ?? 0) + 1;
+				chatVersions.set(item.streamId, streamVersion);
+				yield* sql`
+					INSERT INTO events
+						(event_id, correlation_id, causation_event_id, stream_kind,
+						 stream_id, stream_version, type, occurred_at, actor, payload_json)
+					VALUES
+						(${item.eventId}, ${item.eventId}, NULL, 'chat', ${item.streamId},
+						 ${streamVersion}, ${item.event._tag},
+						 ${new Date(item.occurredAt).toISOString()}, 'backfill',
+						 ${JSON.stringify(item.event)})
+				`;
+			}
 
 			const versionRows = yield* sql<StreamVersionRow>`
 				SELECT stream_id, MAX(stream_version) AS stream_version
@@ -159,7 +336,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events
 			`;
 			const head = heads[0]?.sequence ?? 0;
-			const completedAt = new Date().toISOString();
+			const completedAt = (yield* DateTime.nowAsDate).toISOString();
 			for (const projector of PROJECTORS) {
 				yield* sql`
 					INSERT INTO projector_cursors
@@ -173,10 +350,13 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			yield* sql`
 				UPDATE backfill_runs SET
 					status = 'completed', completed_at = ${completedAt},
-					event_count = ${events.length}
+					event_count = ${events.length + chatEvents.length}
 				WHERE backfill_name = ${BACKFILL_NAME}
 			`;
-			return { status: "completed", eventCount: events.length } as const;
+			return {
+				status: "completed",
+				eventCount: events.length + chatEvents.length,
+			} as const;
 		}),
 	);
 });

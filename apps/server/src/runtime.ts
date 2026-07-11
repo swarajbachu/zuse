@@ -1,10 +1,12 @@
 import { NodeServices } from "@effect/platform-node";
 import { MemoizeRpcs } from "@zuse/contracts";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
-import { SqlClient } from "effect/unstable/sql";
 
 import { AppPaths } from "./app-paths.ts";
 import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts";
@@ -23,7 +25,7 @@ import {
   LanAuthConfig,
   type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
-import { makeEventStore } from "./persistence/event-store.ts";
+import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
 import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
@@ -31,7 +33,7 @@ import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
 import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
-import { MessageStoreLive } from "./provider/layers/message-store.ts";
+import { ConversationServicesLive } from "./provider/layers/conversation-services.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
@@ -123,6 +125,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
       ),
     ),
   );
+  const BackfilledSqlite = MigratedSqlite.pipe(
+    Layer.provideMerge(
+      Layer.effectDiscard(runLifecycleBackfill).pipe(
+        Layer.provide(MigratedSqlite),
+      ),
+    ),
+  );
 
   // After migrations: import any pre-existing `workspaces.json` once.
   // `provideMerge` keeps the SqlClient available downstream.
@@ -158,9 +167,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   // shape as GitLayer + the SqlClient for persisting the rows.
   const WorktreePortsLayer = Layer.mergeAll(
     ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
-    RepositorySettingsReaderLive.pipe(
-      Layer.provide(RepositorySettingsLayer),
-    ),
+    RepositorySettingsReaderLive.pipe(Layer.provide(RepositorySettingsLayer)),
     WorktreeNameAllocatorLive,
     WorktreeDecorationLive,
     PokemonAssignmentLive.pipe(Layer.provide(PokemonLayer)),
@@ -222,6 +229,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(NodeServices.layer),
   );
 
+  const SessionDomainLayer = SessionDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
+  const ChatDomainLayer = ChatDomain.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+    Layer.provide(NodeServices.layer),
+  );
+  const SessionQueriesLayer = SqlSessionQueries.layer.pipe(
+    Layer.provide(BackfilledSqlite),
+  );
+
   // PermissionService brokers between the SDK permission callback (driver
   // side) and the renderer toast (RPC side). It writes decisions to
   // SQLite so an `AllowForSession` row survives a process crash and the
@@ -229,6 +248,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const PermissionLayer = PermissionServiceLive.pipe(
     Layer.provide(MigratedSqlite),
     Layer.provide(AppPathsLayer),
+    Layer.provide(SessionDomainLayer),
   );
 
   // BrowserBridge brokers between the in-process browser MCP tools (driver
@@ -266,11 +286,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   );
 
   // NdjsonLogger writes a best-effort transcript audit file alongside the
-  // SQLite store. Provided to MessageStore so the same daemon that persists
+  // SQLite store. Provided to Conversation services so the same daemon that persists
   // a row also tail-writes the NDJSON line.
   const NdjsonLoggerLayer = NdjsonLoggerLive.pipe(Layer.provide(AppPathsLayer));
 
-  // MessageStore composes ProviderService with the SQLite-backed sessions /
+  // Conversation services composes ProviderService with the SQLite-backed sessions /
   // messages tables. The chat-MVP RPC surface (session.* / messages.*) talks
   // through this; legacy agent.* handlers stay bound to ProviderService for
   // low-level testing.
@@ -282,33 +302,38 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     Layer.provide(ProviderLayer),
   );
 
-  // After migrations, before MessageStore: replay any events past the
-  // projector high-water mark. In steady state this is a no-op (append and
-  // projection share a transaction); it makes the projection rebuildable —
-  // drop `messages`, reset the watermark, boot. Same shape as ImportShim.
+  // Replay durable domain events before accepting transport traffic.
   const ProjectorCatchup = Layer.effectDiscard(
     Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* makeEventStore(sql).catchup;
+      const domain = yield* SessionDomain;
+      yield* domain.catchUp;
+      const chats = yield* ChatDomain;
+      yield* chats.catchUp;
     }),
-  ).pipe(Layer.provide(MigratedSqlite));
+  ).pipe(
+    Layer.provide(SessionDomainLayer),
+    Layer.provide(ChatDomainLayer),
+    Layer.provide(SessionQueriesLayer),
+  );
 
   const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
     Layer.provide(LanAuthLayer),
   );
 
-  const MessageStoreLayer = MessageStoreLive.pipe(
+  const ConversationServicesLayer = ConversationServicesLive.pipe(
     Layer.provide(ProviderLayer),
     Layer.provide(WorktreeLayer),
     Layer.provide(RepositorySettingsLayer),
     Layer.provide(PtyLayer),
     // GitService + ConfigStore + TitleGenerator back the background auto-namer
-    // (rename chat + optional branch); see message-store `autoNameChat`.
+    // (rename chat + optional branch); see conversation-services `autoNameChat`.
     Layer.provide(GitLayer),
     Layer.provide(ConfigStoreLayer),
     Layer.provide(TitleGeneratorLayer),
     Layer.provide(RelayActivityPublisherLayer),
     Layer.provide(ProjectorCatchup),
+    Layer.provide(SessionDomainLayer),
+    Layer.provide(ChatDomainLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NdjsonLoggerLayer),
   );
@@ -322,7 +347,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   const ExternalThreadLayer = ExternalThreadServiceLive.pipe(
     Layer.provide(WorkspaceLayer),
     Layer.provide(WorktreeLayer),
-    Layer.provide(MessageStoreLayer),
+    Layer.provide(ConversationServicesLayer),
     Layer.provide(MigratedSqlite),
     Layer.provide(NodeServices.layer),
   );
@@ -336,7 +361,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
   );
   const SkillBridgeLayer = SkillBridgeLive.pipe(
     Layer.provide(SkillDiscoveryLayer),
-    Layer.provide(MessageStoreLayer),
+    Layer.provide(ConversationServicesLayer),
     Layer.provide(WorkspaceLayer),
   );
   // AuthService owns the WorkOS PKCE flow + shared file-backed session bundle.
@@ -390,7 +415,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
     FileSearchLayer,
     ProjectScaffoldLayer,
     ProviderLayer,
-    MessageStoreLayer,
+    SessionDomainLayer,
+    ConversationServicesLayer,
     PermissionLayer,
     AttachmentLayer,
     BrowserBridgeLayer,

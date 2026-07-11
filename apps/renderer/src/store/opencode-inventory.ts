@@ -71,7 +71,7 @@ const sameInventory = (
 
 const fetchInventory = async (): Promise<OpencodeInventory> => {
   const client = await getRpcClient();
-  return Effect.runPromise(client["agent.opencodeInventory"]({}));
+  return Effect.runPromise(client["provider.opencode.inventory"]({}));
 };
 
 export const useOpencodeInventory = create<State>((set, get) => ({

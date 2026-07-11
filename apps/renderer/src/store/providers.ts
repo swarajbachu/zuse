@@ -83,7 +83,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const list = await Effect.runPromise(
-        client["agent.availability"]({ refresh: force }),
+        client["provider.availability"]({ refresh: force }),
       );
       set({ availability: list, loading: false, availabilityLoaded: true });
     } catch (err) {
@@ -105,7 +105,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client["agent.setCredential"]({ providerId, apiKey }),
+        client["provider.setCredential"]({ providerId, apiKey }),
       );
       await get().refresh();
     } catch (err) {

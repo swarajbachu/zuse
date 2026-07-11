@@ -1,10 +1,13 @@
 import type { Message, MessageId, SessionId } from "@zuse/contracts";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
-
-import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { connectionSessionKey } from "~/lib/session-key";
+import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -21,7 +24,8 @@ type MessagesState = {
 };
 
 const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const highestSequenceBySession = new Map<string, number>();
+const eventCursorKey = (liveKey: string): string =>
+  `mobile:messages:${liveKey}`;
 const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;
 
@@ -46,7 +50,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
       readMessagesSnapshot(connKey, sessionId),
     );
     if (cached !== null) {
-      highestSequenceBySession.set(liveKey, cached.highestSequence);
+      sessionEventCursors.set(eventCursorKey(liveKey), cached.highestSequence);
       set((state) => ({
         messagesBySession: {
           ...state.messagesBySession,
@@ -78,48 +82,53 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
           }));
           void get().flush(connKey, sessionId);
         }
-        console.info("[mobile] messages.stream", { sessionId });
+        console.info("[mobile] session.events", { sessionId });
+        const afterSequence =
+          sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0;
         const program = Stream.runForEach(
-          client["messages.stream"]({ sessionId }),
+          client["session.events"]({ sessionId, afterSequence }),
           (envelope) =>
             Effect.sync(() => {
-              const previous = highestSequenceBySession.get(liveKey) ?? 0;
-              if (envelope.sequence > previous) {
-                highestSequenceBySession.set(liveKey, envelope.sequence);
-              }
-              console.info("[mobile] messages.stream envelope", {
+              sessionEventCursors.set(
+                eventCursorKey(liveKey),
+                envelope.sequence,
+              );
+              console.info("[mobile] session.events envelope", {
                 sessionId,
                 sequence: envelope.sequence,
               });
+              const projected = projectSessionEvent(envelope);
+              if (projected._tag !== "message") return;
+              const { message } = projected;
               set((state) => {
                 const current = state.messagesBySession[liveKey] ?? [];
-                if (optimisticIds.has(envelope.message.id)) {
-                  optimisticIds.delete(envelope.message.id);
+                if (optimisticIds.has(message.id)) {
+                  optimisticIds.delete(message.id);
                   return {
                     messagesBySession: {
                       ...state.messagesBySession,
-                      [liveKey]: current.map((message) =>
-                        message.id === envelope.message.id
-                          ? envelope.message
-                          : message,
+                      [liveKey]: current.map((currentMessage) =>
+                        currentMessage.id === message.id
+                          ? message
+                          : currentMessage,
                       ),
                     },
                   };
                 }
                 const existingIndex = current.findIndex(
-                  (message) => message.id === envelope.message.id,
+                  (currentMessage) => currentMessage.id === message.id,
                 );
                 if (existingIndex !== -1) {
                   return {
                     messagesBySession: {
                       ...state.messagesBySession,
-                      [liveKey]: current.map((message, index) =>
-                        index === existingIndex ? envelope.message : message,
+                      [liveKey]: current.map((currentMessage, index) =>
+                        index === existingIndex ? message : currentMessage,
                       ),
                     },
                   };
                 }
-                const next = [...current, envelope.message].slice(-500);
+                const next = [...current, message].slice(-500);
                 return {
                   messagesBySession: {
                     ...state.messagesBySession,
@@ -169,7 +178,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
     const messages = get().messagesBySession[liveKey] ?? [];
     await Effect.runPromise(
       writeMessagesSnapshot(connKey, sessionId, {
-        highestSequence: highestSequenceBySession.get(liveKey) ?? 0,
+        highestSequence: sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0,
         messages,
       }),
     ).catch(() => {});

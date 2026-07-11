@@ -1,15 +1,10 @@
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, test } from "vitest";
 import type { SessionCommand } from "../core/commands.js";
+import { createSessionCommand } from "../test/session.js";
 import { DispatchEngine, InMemoryDispatchStorage } from "./dispatch.js";
 
-const create: SessionCommand = {
-	_tag: "CreateSession",
-	sessionId: "session-1",
-	chatId: "chat-1",
-	projectId: "project-1",
-	createdAt: 1,
-};
+const create: SessionCommand = createSessionCommand;
 
 const run = Effect.runPromise;
 
@@ -17,7 +12,9 @@ describe("DispatchEngine", () => {
 	test("returns the original receipt when a command is re-dispatched", async () => {
 		const storage = new InMemoryDispatchStorage();
 		let nextId = 0;
-		const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
+		const engine = new DispatchEngine(storage, () =>
+			Effect.succeed(`event-${++nextId}`),
+		);
 
 		const [first, replay] = await run(
 			Effect.gen(function* () {
@@ -43,7 +40,9 @@ describe("DispatchEngine", () => {
 	test("serializes every distinct concurrent command on one stream", async () => {
 		const storage = new InMemoryDispatchStorage();
 		let nextId = 0;
-		const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
+		const engine = new DispatchEngine(storage, () =>
+			Effect.succeed(`event-${++nextId}`),
+		);
 
 		const created = engine.dispatch({
 			commandId: "command-create",
@@ -53,12 +52,12 @@ describe("DispatchEngine", () => {
 		const titled = engine.dispatch({
 			commandId: "command-title",
 			streamId: "session-1",
-			command: { _tag: "SetTitle", title: "Renamed" },
+			command: { _tag: "SetTitle", title: "Renamed", updatedAt: 2 },
 		});
 		const retitled = engine.dispatch({
 			commandId: "command-retitle",
 			streamId: "session-1",
-			command: { _tag: "SetTitle", title: "Renamed again" },
+			command: { _tag: "SetTitle", title: "Renamed again", updatedAt: 3 },
 		});
 
 		const [createReceipt, titleReceipt, retitleReceipt] = await run(
@@ -74,13 +73,13 @@ describe("DispatchEngine", () => {
 
 	test("does not append events when the decider rejects a command", async () => {
 		const storage = new InMemoryDispatchStorage();
-		const engine = new DispatchEngine(storage, () => "unused");
+		const engine = new DispatchEngine(storage, () => Effect.succeed("unused"));
 		await expect(
 			run(
 				engine.dispatch({
 					commandId: "command-title",
 					streamId: "missing",
-					command: { _tag: "SetTitle", title: "No session" },
+					command: { _tag: "SetTitle", title: "No session", updatedAt: 1 },
 				}),
 			),
 		).rejects.toMatchObject({ _tag: "SessionNotFound" });
@@ -104,7 +103,9 @@ describe("DispatchEngine", () => {
 						}),
 				};
 				let nextId = 0;
-				const engine = new DispatchEngine(storage, () => `event-${++nextId}`);
+				const engine = new DispatchEngine(storage, () =>
+					Effect.succeed(`event-${++nextId}`),
+				);
 				const dispatched = Effect.all(
 					[
 						engine.dispatch({
@@ -133,7 +134,7 @@ describe("DispatchEngine", () => {
 
 	test("records correlation and causation metadata on emitted events", async () => {
 		const storage = new InMemoryDispatchStorage();
-		const engine = new DispatchEngine(storage, () => "event-1");
+		const engine = new DispatchEngine(storage, () => Effect.succeed("event-1"));
 
 		await run(
 			engine.dispatch({

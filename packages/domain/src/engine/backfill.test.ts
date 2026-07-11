@@ -1,7 +1,30 @@
+import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import { InMemorySessionReadModel } from "../projectors/read-model.js";
 import { synthesizeBackfill } from "./backfill.js";
 import type { StoredEvent } from "./dispatch.js";
+
+const session = {
+	sessionId: "session-1",
+	chatId: "chat-1",
+	projectId: "project-1",
+	title: "Title",
+	providerId: "provider-1",
+	model: "model-1",
+	status: "idle",
+	cursor: null,
+	resumeStrategy: "none",
+	runtimeMode: "approval-required",
+	agentsJson: null,
+	worktreeId: null,
+	forkedFromSessionId: null,
+	forkedFromMessageId: null,
+	permissionMode: "default",
+	toolSearch: false,
+	createdAt: 10,
+	archivedAt: null,
+	deletedAt: null,
+} as const;
 
 describe("synthesizeBackfill", () => {
 	test("creates deterministic lifecycle and message events per session", () => {
@@ -9,13 +32,9 @@ describe("synthesizeBackfill", () => {
 		const events = synthesizeBackfill({
 			sessions: [
 				{
-					sessionId: "session-1",
-					chatId: "chat-1",
-					projectId: "project-1",
+					...session,
 					title: "Existing title",
-					createdAt: 10,
 					archivedAt: 50,
-					deletedAt: null,
 				},
 			],
 			messages: [
@@ -61,18 +80,21 @@ describe("synthesizeBackfill", () => {
 			contentJson,
 			parentItemId: "message-1",
 		});
+		expect(events[0]?.event).toMatchObject({
+			_tag: "SessionCreated",
+			providerId: "provider-1",
+			model: "model-1",
+			resumeStrategy: "none",
+			runtimeMode: "approval-required",
+			permissionMode: "default",
+		});
 	});
 
 	test("skips deterministic events already appended by a partial attempt", () => {
 		const events = synthesizeBackfill({
 			sessions: [
 				{
-					sessionId: "session-1",
-					chatId: "chat-1",
-					projectId: "project-1",
-					title: "Title",
-					createdAt: 10,
-					archivedAt: null,
+					...session,
 					deletedAt: 20,
 				},
 			],
@@ -90,17 +112,7 @@ describe("synthesizeBackfill", () => {
 	test("rebuilds an equivalent read model from synthesized events", async () => {
 		const contentJson = '{"spacing":  "is stable"}';
 		const events = synthesizeBackfill({
-			sessions: [
-				{
-					sessionId: "session-1",
-					chatId: "chat-1",
-					projectId: "project-1",
-					title: "Title",
-					createdAt: 10,
-					archivedAt: null,
-					deletedAt: null,
-				},
-			],
+			sessions: [session],
 			messages: [
 				{
 					rowId: 1,
@@ -118,12 +130,14 @@ describe("synthesizeBackfill", () => {
 		});
 		const model = new InMemorySessionReadModel();
 		for (const [index, event] of events.entries()) {
-			await model.apply({
-				...event,
-				causationEventId: null,
-				streamVersion: index + 1,
-				sequence: index + 1,
-			} satisfies StoredEvent);
+			await Effect.runPromise(
+				model.apply({
+					...event,
+					causationEventId: null,
+					streamVersion: index + 1,
+					sequence: index + 1,
+				} satisfies StoredEvent),
+			);
 		}
 
 		expect(model.session("session-1")).toMatchObject({ title: "Title" });

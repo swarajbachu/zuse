@@ -10,8 +10,9 @@ describe("session domain schemas", () => {
 			Schema.decodeUnknownSync(SessionCommand)({
 				_tag: "SetTitle",
 				title: "Clean foundation",
+				updatedAt: 1,
 			}),
-		).toEqual({ _tag: "SetTitle", title: "Clean foundation" });
+		).toEqual({ _tag: "SetTitle", title: "Clean foundation", updatedAt: 1 });
 		expect(
 			Schema.decodeUnknownSync(SessionEvent)({
 				_tag: "TurnSettled",

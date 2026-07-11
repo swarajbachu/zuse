@@ -298,7 +298,7 @@ interface TranslateState {
    * Tool-use ids for in-flight `ExitPlanMode` calls. When the matching
    * `tool_result` lands with `is_error === false`, the SDK has already
    * flipped its internal `permissionMode` to `default`; we mirror that
-   * by emitting a `PermissionModeChanged` event so MessageStore
+   * by emitting a `PermissionModeChanged` event so ConversationServices
    * persists the new mode and the chip auto-untoggles.
    */
   exitPlanModeIds: Set<string>;
@@ -861,7 +861,7 @@ const translate = (
             continue;
           }
           // Successful ExitPlanMode → SDK is now in `default` mode.
-          // Emit PermissionModeChanged so MessageStore persists the
+          // Emit PermissionModeChanged so ConversationServices persists the
           // flip and the chip auto-untoggles. We still emit the
           // ToolResult itself so the plan card sees `result` and
           // switches to its "Approved" state.
@@ -1739,7 +1739,7 @@ export const startClaudeSession = (
     // Pump SDK messages → AgentEvents in a forked daemon. Sessions outlive the
     // start RPC; `close()` is what ends the pump (input close + abort, which
     // makes the SDK loop terminate). On the first message that has a
-    // populated `session_id` we surface it as `SessionCursor` so MessageStore
+    // populated `session_id` we surface it as `SessionCursor` so ConversationServices
     // can persist it for resume.
     let cursorAnnounced = false;
     const pump = Effect.tryPromise({

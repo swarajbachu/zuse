@@ -61,7 +61,7 @@ export const makeElectronServerProtocol = (webContents: WebContents) =>
       // ---- disconnects: webContents destroyed OR top-level reload ---------
       // The renderer's `RpcClient` request-id counter is module-level, so a
       // Cmd+R reload restarts it at 0. Any stream RPC from the previous page
-      // (messages.stream, session.streamStatus, ...) is still alive in this
+      // (session.events, queue streams, ...) is still alive in this
       // server's per-client fiber map because `webContents.destroyed` never
       // fired. When the new page's request IDs collide with those stale
       // streams, `RpcServer.handleRequest` blocks on `Fiber.await(oldFiber)`

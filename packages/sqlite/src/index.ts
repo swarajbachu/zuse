@@ -6,21 +6,6 @@ import type { Connection } from "effect/unstable/sql/SqlConnection";
 import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
-/**
- * SqlClient over Node's built-in `node:sqlite` (stable since Node 22.13).
- *
- * Why not `@effect/sql-sqlite-node` (better-sqlite3)? A native addon is
- * ABI-locked to one runtime: the Electron prebuild is rejected by system
- * Node, so the headless `zuse serve` could never share the Electron build's
- * persistence. `node:sqlite` is built into every Node ≥22 — one persistence
- * layer for the in-process Electron path and the headless WS path alike.
- *
- * The shape mirrors the upstream sqlite drivers: a single connection guarded
- * by a one-permit semaphore (SQLite file-level locking), `Client.make` for
- * the query/transaction machinery. Only the generic `SqlClient` tag is
- * provided — nothing in this repo used the sqlite-specific extras
- * (`export`/`backup`/`loadExtension`).
- */
 export interface NodeSqliteClientConfig {
 	readonly filename: string;
 	readonly disableWAL?: boolean | undefined;
@@ -34,9 +19,6 @@ const sqlError = (
 	message: string,
 	operation: string,
 ): SqlError => {
-	// Node exposes SQLite's numeric extended code as `errcode`; Effect's
-	// cross-driver classifier reads `errno`. Normalize at this adapter boundary
-	// so unique and constraint violations keep their structured reason.
 	const normalizedCause =
 		typeof cause === "object" &&
 		cause !== null &&
@@ -60,14 +42,19 @@ const sqlError = (
 	});
 };
 
-/** `node:sqlite` cannot bind booleans (SQLITE bind rejects them); bun's
- * driver coerces silently. Coerce here so a bun-green test cannot hide a
- * production bind failure. */
 const normalizeParams = (
 	params: ReadonlyArray<unknown>,
 ): ReadonlyArray<unknown> =>
-	params.some((p) => typeof p === "boolean")
-		? params.map((p) => (typeof p === "boolean" ? (p ? 1 : 0) : p))
+	params.some((param) => typeof param === "boolean" || param instanceof Date)
+		? params.map((param) =>
+				typeof param === "boolean"
+					? param
+						? 1
+						: 0
+					: param instanceof Date
+						? param.toISOString()
+						: param,
+			)
 		: params;
 
 export const make = (
@@ -79,12 +66,8 @@ export const make = (
 > =>
 	Effect.gen(function* () {
 		const compiler = Statement.makeCompilerSqlite();
-
 		const makeConnection = Effect.gen(function* () {
 			const db = yield* Effect.try({
-				// FK enforcement must stay ON: better-sqlite3 ships
-				// SQLITE_DEFAULT_FOREIGN_KEYS=1 and deleteChat/deleteSession rely on
-				// ON DELETE CASCADE. node:sqlite defaults to true — pinned explicitly.
 				try: () =>
 					new DatabaseSync(options.filename, {
 						enableForeignKeyConstraints: true,
@@ -100,13 +83,10 @@ export const make = (
 				});
 			}
 
-			// Statement cache: the SQL text universe is the finite set of tagged
-			// templates in this repo. sqlite recompiles stale statements internally
-			// (prepare_v2 semantics), so entries survive schema migrations.
 			const cache = new Map<string, StatementSync>();
 			const prepare = (sql: string): StatementSync => {
-				const hit = cache.get(sql);
-				if (hit !== undefined) return hit;
+				const cached = cache.get(sql);
+				if (cached !== undefined) return cached;
 				const statement = db.prepare(sql);
 				cache.set(sql, statement);
 				return statement;
@@ -145,26 +125,24 @@ export const make = (
 						? Effect.map(run(sql, params), transformRows)
 						: run(sql, params);
 				},
-				executeRaw(sql, params) {
-					return run(sql, params);
-				},
-				executeValues(sql, params) {
-					return Effect.map(run(sql, params), (rows) =>
+				executeRaw: (sql, params) => run(sql, params),
+				executeValues: (sql, params) =>
+					Effect.map(run(sql, params), (rows) =>
 						rows.map((row) => Object.values(row as object)),
-					);
-				},
-				executeValuesUnprepared(sql, params) {
-					return Effect.map(run(sql, params, false), (rows) =>
+					),
+				executeValuesUnprepared: (sql, params) =>
+					Effect.map(run(sql, params, false), (rows) =>
 						rows.map((row) => Object.values(row as object)),
-					);
-				},
+					),
 				executeUnprepared(sql, params, transformRows) {
-					// uncached path — BEGIN/COMMIT/SAVEPOINT from withTransaction land here
 					const result = run(sql, params, false);
 					return transformRows ? Effect.map(result, transformRows) : result;
 				},
-				executeStream(_sql, _params) {
-					return Stream.die(new Error("executeStream not implemented"));
+				executeStream(sql, params, transformRows) {
+					const rows = transformRows
+						? Effect.map(run(sql, params), transformRows)
+						: run(sql, params);
+					return Stream.fromIterableEffect(rows);
 				},
 			} satisfies Connection;
 		});

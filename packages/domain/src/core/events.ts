@@ -1,16 +1,52 @@
 import { Schema } from "effect";
 
 import { SegmentKind, SettlementOutcome } from "./commands.js";
+import {
+	SessionConfigurationFields,
+	SessionCreatedEventFields,
+} from "./session-fields.js";
 
 export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("SessionCreated", {
-		sessionId: Schema.String,
-		chatId: Schema.String,
-		projectId: Schema.String,
-		createdAt: Schema.Number,
+		...SessionCreatedEventFields,
+		providerStartJson: Schema.optional(Schema.String),
 	}),
-	Schema.TaggedStruct("SessionTitleSet", { title: Schema.String }),
+	Schema.TaggedStruct("SessionTitleSet", {
+		title: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionModelSet", {
+		model: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionProviderSet", {
+		providerId: Schema.String,
+		model: Schema.String,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionRuntimeModeSet", {
+		runtimeMode: SessionConfigurationFields.runtimeMode,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionPermissionModeSet", {
+		permissionMode: SessionConfigurationFields.permissionMode,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionWorktreeSet", {
+		worktreeId: SessionConfigurationFields.worktreeId,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionStatusSet", {
+		status: SessionConfigurationFields.status,
+		updatedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SessionResumeSet", {
+		cursor: SessionConfigurationFields.cursor,
+		resumeStrategy: SessionConfigurationFields.resumeStrategy,
+		updatedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SessionArchived", { archivedAt: Schema.Number }),
+	Schema.TaggedStruct("SessionUnarchived", { unarchivedAt: Schema.Number }),
 	Schema.TaggedStruct("SessionDeleted", { deletedAt: Schema.Number }),
 	Schema.TaggedStruct("TurnStarted", {
 		turnId: Schema.String,
@@ -51,24 +87,20 @@ export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("PermissionResolved", {
 		requestId: Schema.String,
 		decision: Schema.String,
+		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ProviderAttached", {
 		providerId: Schema.String,
 		attachedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ProviderStopRequested", {
+		providerId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ProviderDetached", {
 		providerId: Schema.String,
 		detachedAt: Schema.Number,
-	}),
-	Schema.TaggedStruct("CheckpointRecorded", {
-		checkpointId: Schema.String,
-		payloadJson: Schema.String,
-		recordedAt: Schema.Number,
-	}),
-	Schema.TaggedStruct("WorktreeArchiveRequested", {
-		worktreeId: Schema.String,
-		requestedAt: Schema.Number,
 	}),
 ]);
 export type SessionEvent = typeof SessionEvent.Type;

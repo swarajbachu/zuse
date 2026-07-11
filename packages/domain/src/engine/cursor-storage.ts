@@ -1,7 +1,14 @@
-export interface CursorStorage<Event> {
-	cursor(consumerName: string): Promise<number>;
-	eventsAfter(sequence: number): Promise<readonly Event[]>;
-	commitCursor(consumerName: string, sequence: number): Promise<void>;
+import { Effect } from "effect";
+
+export interface CursorStorage<Event, Error = never, Requirements = never> {
+	cursor(consumerName: string): Effect.Effect<number, Error, Requirements>;
+	eventsAfter(
+		sequence: number,
+	): Effect.Effect<readonly Event[], Error, Requirements>;
+	commitCursor(
+		consumerName: string,
+		sequence: number,
+	): Effect.Effect<void, Error, Requirements>;
 }
 
 export class InMemoryCursorStorage<Event extends { readonly sequence: number }>
@@ -11,22 +18,23 @@ export class InMemoryCursorStorage<Event extends { readonly sequence: number }>
 
 	constructor(private readonly eventLog: readonly Event[]) {}
 
-	cursor(consumerName: string): Promise<number> {
-		return Promise.resolve(this.cursorValue(consumerName));
+	cursor(consumerName: string): Effect.Effect<number> {
+		return Effect.sync(() => this.cursorValue(consumerName));
 	}
 
 	cursorValue(consumerName: string): number {
 		return this.cursors.get(consumerName) ?? 0;
 	}
 
-	eventsAfter(sequence: number): Promise<readonly Event[]> {
-		return Promise.resolve(
+	eventsAfter(sequence: number): Effect.Effect<readonly Event[]> {
+		return Effect.sync(() =>
 			this.eventLog.filter((event) => event.sequence > sequence),
 		);
 	}
 
-	commitCursor(consumerName: string, sequence: number): Promise<void> {
-		this.cursors.set(consumerName, sequence);
-		return Promise.resolve();
+	commitCursor(consumerName: string, sequence: number): Effect.Effect<void> {
+		return Effect.sync(() => {
+			this.cursors.set(consumerName, sequence);
+		});
 	}
 }

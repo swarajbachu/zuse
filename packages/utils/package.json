@@ -8,8 +8,7 @@
 		"./keyed-worker": "./src/keyed-worker.ts",
 		"./push-bus": "./src/push-bus.ts",
 		"./readiness": "./src/readiness.ts",
-		"./reaper": "./src/reaper.ts",
-		"./supervisor": "./src/supervisor.ts"
+		"./reaper": "./src/reaper.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

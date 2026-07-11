@@ -6,6 +6,9 @@ import {
   EnvironmentEndpoint,
   MemoizeRpcs,
   PairingError,
+  WIRE_PROTOCOL_VERSION,
+  WireProtocolRejected,
+  WireWelcome,
 } from "@zuse/contracts";
 
 import { buildAdvertisedEndpoints } from "./advertised-endpoints.ts";
@@ -46,6 +49,21 @@ const PairingRevokeToken = MemoizeRpcs.toLayerHandler(
       const auth = yield* LanAuthService;
       yield* auth.revokeToken(tokenId);
     }).pipe(Effect.mapError(toPairingError)),
+);
+
+const ConnectHandshake = MemoizeRpcs.toLayerHandler(
+  "connect.handshake",
+  ({ protocolVersion }) =>
+    protocolVersion === WIRE_PROTOCOL_VERSION
+      ? Effect.succeed(
+          WireWelcome.make({ protocolVersion: WIRE_PROTOCOL_VERSION }),
+        )
+      : Effect.fail(
+          new WireProtocolRejected({
+            expectedVersion: WIRE_PROTOCOL_VERSION,
+            receivedVersion: protocolVersion,
+          }),
+        ),
 );
 
 const ConnectDescribe = MemoizeRpcs.toLayerHandler("connect.describe", () =>
@@ -136,6 +154,7 @@ export const LanAuthHandlersLayer = Layer.mergeAll(
   PairingStart,
   PairingListTokens,
   PairingRevokeToken,
+  ConnectHandshake,
   ConnectDescribe,
   ConnectLinkProof,
   ConnectRelayConfig,

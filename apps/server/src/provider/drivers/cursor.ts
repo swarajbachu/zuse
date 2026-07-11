@@ -43,7 +43,7 @@ import { prefixFirstPromptWithWorkspaceInstructions } from "../workspace-instruc
  * stdin/stdout JSON-RPC. One persistent child per session. The conversation
  * is identified by an ACP-minted `sessionId` returned from `session/new`;
  * we surface that as a `SessionCursor { strategy: "cursor-session-id" }`
- * so it round-trips through `MessageStore` for future resume support.
+ * so it round-trips through `ConversationServices` for future resume support.
  */
 export interface CursorSessionHandle {
   readonly events: Stream.Stream<AgentEvent>;

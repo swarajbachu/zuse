@@ -1,20 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { SqlClient } from "effect/unstable/sql";
-// Exercise MessageStoreLive through the same node:sqlite client layer used by
-// the production Node runtime.
-import { layer as sqliteLayer } from "../src/persistence/node-sqlite-client.ts";
-import {
-  Effect,
-  Fiber,
-  Layer,
-  ManagedRuntime,
-  Schedule,
-  Stream,
-} from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import { NodeServices } from "@effect/platform-node";
 import type {
   AgentEvent,
   AgentSessionId,
@@ -26,14 +13,31 @@ import type {
 } from "@zuse/contracts";
 import {
   ComposerInput,
+  defaultModelFor,
   MessageId,
   RepositorySettings,
   Worktree,
-  defaultModelFor,
 } from "@zuse/contracts";
-
-import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
-import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
+import { ChatDomain } from "@zuse/domain/engine/chat-domain";
+import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
+import { GitService } from "@zuse/git/git-service";
+import { WorktreeService } from "@zuse/git/worktree-service";
+// Exercise ConversationServicesLive through the same node:sqlite client layer used by
+// the production Node runtime.
+import { layer as sqliteLayer } from "@zuse/sqlite";
+import {
+  Context,
+  Effect,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Schedule,
+  Stream,
+} from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { beforeEach, describe, expect, it } from "vitest";
+import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
 import { Migration0001Initial } from "../src/persistence/migrations/0001_initial.ts";
 import { Migration0002Permissions } from "../src/persistence/migrations/0002_permissions.ts";
 import { Migration0003ResumeAndExport } from "../src/persistence/migrations/0003_resume_and_export.ts";
@@ -56,24 +60,51 @@ import { Migration0019QueuePaused } from "../src/persistence/migrations/0019_que
 import { Migration0020Events } from "../src/persistence/migrations/0020_events.ts";
 import { Migration0023ChatLineage } from "../src/persistence/migrations/0023_chat_lineage.ts";
 import { Migration0029ChatLineageRepair } from "../src/persistence/migrations/0029_chat_lineage_repair.ts";
-import { WorktreeService } from "@zuse/git/worktree-service";
-import { MessageStore } from "../src/provider/services/message-store.ts";
-import { ProviderService } from "../src/provider/services/provider-service.ts";
-import { MessageStoreLive } from "../src/provider/layers/message-store.ts";
-import { PtyService } from "../src/pty/services/pty-service.ts";
-import { RepositorySettingsService } from "../src/repository-settings/services/repository-settings-service.ts";
-import { GitService } from "@zuse/git/git-service";
-import { TitleGenerator } from "../src/provider/title-generator.ts";
-import { ConfigStoreService } from "../src/config-store/services/config-store-service.ts";
+import { Migration0030CqrsEngine } from "../src/persistence/migrations/0030_cqrs_engine.ts";
+import { Migration0031BackfillRuns } from "../src/persistence/migrations/0031_backfill_runs.ts";
+import { Migration0032ReactorEffectReceipts } from "../src/persistence/migrations/0032_reactor_effect_receipts.ts";
+import { Migration0033ReactorEffectSteps } from "../src/persistence/migrations/0033_reactor_effect_steps.ts";
+import { NdjsonLogger } from "../src/persistence/ndjson-logger.ts";
 import type { OrchestrationSessionTools } from "../src/provider/drivers/orchestration-tools.ts";
+import { ConversationServicesLive } from "../src/provider/layers/conversation-services.ts";
+import {
+  ChatService,
+  type ConversationOperations,
+  MessageService,
+  QueueService,
+  SessionService,
+  TranscriptService,
+} from "../src/provider/services/conversation-services.ts";
+import { ProviderService } from "../src/provider/services/provider-service.ts";
+import { TitleGenerator } from "../src/provider/title-generator.ts";
+import { PtyService } from "../src/pty/services/pty-service.ts";
+import { RelayActivityPublisher } from "../src/relay/activity-publisher.ts";
+import { RepositorySettingsService } from "../src/repository-settings/services/repository-settings-service.ts";
 
 const PROJECT_ID = "proj-test" as FolderId;
 const TEST_WORKTREE_ID = "wt-pikachu" as WorktreeId;
 const TEST_WORKTREE_PATH = "/tmp/project/.memo/pikachu";
 
+class TestConversation extends Context.Service<
+  TestConversation,
+  ConversationOperations
+>()("test/TestConversation") {}
+
+const TestConversationLive = Layer.effect(
+  TestConversation,
+  Effect.gen(function* () {
+    const sessions = yield* SessionService;
+    const chats = yield* ChatService;
+    const transcripts = yield* TranscriptService;
+    const messages = yield* MessageService;
+    const queue = yield* QueueService;
+    return { ...sessions, ...chats, ...transcripts, ...messages, ...queue };
+  }),
+);
+
 /**
  * Scripted provider events the stub replays on `events()` for the next
- * created session. The MessageStore boot path subscribes to this stream and
+ * created session. The ConversationServices boot path subscribes to this stream and
  * persists each renderable event — letting us assert the full
  * provider-event → messages-table pipeline without a real agent CLI.
  */
@@ -217,7 +248,7 @@ const StubRelayActivityPublisherLive = Layer.succeed(RelayActivityPublisher, {
   publish: () => Effect.void,
 });
 
-/** Chat archive cleanup is out of scope for MessageStore persistence tests. */
+/** Chat archive cleanup is out of scope for ConversationServices persistence tests. */
 const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
   get: (projectId) =>
     Effect.succeed(
@@ -300,6 +331,10 @@ const runAllMigrations = Effect.all(
     Migration0020Events,
     Migration0023ChatLineage,
     Migration0029ChatLineageRepair,
+    Migration0030CqrsEngine,
+    Migration0031BackfillRuns,
+    Migration0032ReactorEffectReceipts,
+    Migration0033ReactorEffectSteps,
   ],
   { discard: true },
 );
@@ -310,7 +345,18 @@ const makeRuntime = (dbPath: string) => {
   const Migrated = Layer.effectDiscard(runAllMigrations).pipe(
     Layer.provideMerge(SqlLive),
   );
-  const TestLayer = MessageStoreLive.pipe(
+  const DomainLive = SessionDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
+  const ChatDomainLive = ChatDomain.layer.pipe(
+    Layer.provide(Migrated),
+    Layer.provide(NodeServices.layer),
+  );
+  const SessionQueriesLive = SqlSessionQueries.layer.pipe(
+    Layer.provide(Migrated),
+  );
+  const ConversationLayer = ConversationServicesLive.pipe(
     Layer.provide(StubProviderLive),
     Layer.provide(StubWorktreeLive),
     Layer.provide(StubRepositorySettingsLive),
@@ -320,9 +366,15 @@ const makeRuntime = (dbPath: string) => {
     Layer.provide(StubTitleGeneratorLive),
     Layer.provide(StubConfigStoreLive),
     Layer.provide(StubRelayActivityPublisherLive),
+    Layer.provideMerge(DomainLive),
+    Layer.provide(ChatDomainLive),
+    Layer.provide(SessionQueriesLive),
     // provideMerge (not provide) so SqlClient stays in the runtime context —
     // the test seeds the `projects` row through it directly.
     Layer.provideMerge(Migrated),
+  );
+  const TestLayer = TestConversationLive.pipe(
+    Layer.provideMerge(ConversationLayer),
   );
   return ManagedRuntime.make(TestLayer);
 };
@@ -330,7 +382,11 @@ const makeRuntime = (dbPath: string) => {
 const withRuntime = async <A>(
   fn: (
     run: <X>(
-      eff: Effect.Effect<X, unknown, MessageStore | SqlClient.SqlClient>,
+      eff: Effect.Effect<
+        X,
+        unknown,
+        TestConversation | SqlClient.SqlClient | SessionDomain
+      >,
     ) => Promise<X>,
   ) => Promise<A>,
 ): Promise<A> => {
@@ -338,7 +394,11 @@ const withRuntime = async <A>(
   const dbPath = join(dir, "test.sqlite");
   const runtime = makeRuntime(dbPath);
   const run = <X>(
-    eff: Effect.Effect<X, unknown, MessageStore | SqlClient.SqlClient>,
+    eff: Effect.Effect<
+      X,
+      unknown,
+      TestConversation | SqlClient.SqlClient | SessionDomain
+    >,
   ): Promise<X> => runtime.runPromise(eff as Effect.Effect<X, unknown, never>);
   try {
     // Seed the project row through the runtime's own SqlClient.
@@ -370,7 +430,7 @@ const withRuntime = async <A>(
   }
 };
 
-const store = MessageStore;
+const store = TestConversation;
 
 beforeEach(() => {
   providerStartInputs = [];
@@ -382,13 +442,11 @@ beforeEach(() => {
   createdWorktrees = new Map();
 });
 
-describe("MessageStore migrations", () => {
+describe("ConversationServices migrations", () => {
   it("0016 repairs queued_messages rows from the old position column", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
     const dbPath = join(dir, "test.sqlite");
-    const runtime = ManagedRuntime.make(
-      sqliteLayer({ filename: dbPath }),
-    );
+    const runtime = ManagedRuntime.make(sqliteLayer({ filename: dbPath }));
     try {
       await runtime.runPromise(
         Effect.gen(function* () {
@@ -455,9 +513,7 @@ describe("MessageStore migrations", () => {
   it("0029 repairs databases that skipped chat lineage", async () => {
     const dir = mkdtempSync(join(tmpdir(), "mz-chat-lineage-repair-"));
     const dbPath = join(dir, "test.sqlite");
-    const runtime = ManagedRuntime.make(
-      sqliteLayer({ filename: dbPath }),
-    );
+    const runtime = ManagedRuntime.make(sqliteLayer({ filename: dbPath }));
     try {
       await runtime.runPromise(
         Effect.gen(function* () {
@@ -505,7 +561,180 @@ describe("MessageStore migrations", () => {
   });
 });
 
-describe("MessageStore — chat & session lifecycle", () => {
+describe("ConversationServices — chat & session lifecycle", () => {
+  it("starts providers through the durable provider-start reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{
+            readonly event_id: string;
+            readonly payload_json: string;
+          }>`
+            SELECT event_id, payload_json FROM events
+            WHERE stream_id = ${created.initialSession.id}
+              AND type = 'SessionCreated'
+          `;
+          const cursor = yield* sql<{ readonly last_sequence: number }>`
+            SELECT last_sequence FROM projector_cursors
+            WHERE projector_name = 'reactor:provider-start'
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:provider-start:%'
+          `;
+          return { events, cursor, receipts };
+        }),
+      );
+
+      expect(providerStartInputs).toHaveLength(1);
+      expect(evidence.events).toHaveLength(1);
+      expect(
+        JSON.parse(evidence.events[0]?.payload_json ?? "null"),
+      ).toMatchObject({
+        _tag: "SessionCreated",
+        providerStartJson: expect.any(String),
+      });
+      expect(evidence.cursor[0]?.last_sequence).toBeGreaterThan(0);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
+  it("stops providers through the durable provider-stop reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (service) =>
+          service.setModel(created.initialSession.id, "claude-sonnet-4-6"),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.initialSession.id}
+              AND type IN ('ProviderStopRequested', 'ProviderDetached')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:provider-stop:%'
+          `;
+          return { events, receipts };
+        }),
+      );
+
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ProviderStopRequested",
+        "ProviderDetached",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
+  it("archives chats through the durable archive reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      const result = await run(
+        Effect.flatMap(store, (service) =>
+          service.archiveChat(created.chat.id, false),
+        ),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.chat.id}
+              AND type IN ('ChatArchiveRequested', 'ChatArchived')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly effect_id: string }>`
+            SELECT effect_id FROM reactor_effect_receipts
+            WHERE effect_id LIKE 'reactor:chat-archive:%'
+          `;
+          return { events, receipts };
+        }),
+      );
+
+      expect(result.chat.archivedAt).not.toBeNull();
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ChatArchiveRequested",
+        "ChatArchived",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+    });
+  });
+
+  it("deletes chats through the durable deletion reactor", async () => {
+    await withRuntime(async (run) => {
+      const created = await run(
+        Effect.flatMap(store, (service) =>
+          service.createChat({
+            projectId: PROJECT_ID,
+            providerId: "claude",
+            model: "claude-opus-4-8",
+          }),
+        ),
+      );
+      await run(
+        Effect.flatMap(store, (service) => service.deleteChat(created.chat.id)),
+      );
+      const evidence = await run(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const events = yield* sql<{ readonly type: string }>`
+            SELECT type FROM events
+            WHERE stream_id = ${created.chat.id}
+              AND type IN ('ChatDeleteRequested', 'ChatDeleted')
+            ORDER BY sequence
+          `;
+          const receipts = yield* sql<{ readonly command_id: string }>`
+            SELECT command_id FROM command_receipts
+            WHERE command_id LIKE 'reactor:chat-delete:%:delete'
+          `;
+          const chats = yield* sql<{ readonly id: string }>`
+            SELECT id FROM chats WHERE id = ${created.chat.id}
+          `;
+          return { events, receipts, chats };
+        }),
+      );
+
+      expect(evidence.events.map(({ type }) => type)).toEqual([
+        "ChatDeleteRequested",
+        "ChatDeleted",
+      ]);
+      expect(evidence.receipts).toHaveLength(1);
+      expect(evidence.chats).toEqual([]);
+    });
+  });
+
   it("createChat persists a chat, an initial session, and the user message", async () => {
     await withRuntime(async (run) => {
       const result = await run(
@@ -563,7 +792,9 @@ describe("MessageStore — chat & session lifecycle", () => {
           providerId: "claude",
         },
       });
-      expect(providerStartInputs.at(-1)?.initialPrompt).toBe("do the spawned task");
+      expect(providerStartInputs.at(-1)?.initialPrompt).toBe(
+        "do the spawned task",
+      );
     });
   });
 
@@ -1685,7 +1916,7 @@ describe("MessageStore — chat & session lifecycle", () => {
   });
 });
 
-describe("MessageStore — provider event persistence", () => {
+describe("ConversationServices — provider event persistence", () => {
   it("persists a scripted AssistantMessage event as an assistant message", async () => {
     scriptedEvents = [
       { _tag: "AssistantMessage", itemId: "i_a1" as never, text: "all done" },
@@ -1717,10 +1948,7 @@ describe("MessageStore — provider event persistence", () => {
               : Effect.fail("not yet" as const),
           ),
           Effect.retry(
-            Schedule.max([
-              Schedule.spaced("10 millis"),
-              Schedule.recurs(100),
-            ]),
+            Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
           ),
           Effect.result,
         );
@@ -1733,6 +1961,31 @@ describe("MessageStore — provider event persistence", () => {
             text: "all done",
           });
         }
+        const domainTags = await run(
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            const rows = yield* sql<{ readonly type: string }>`
+              SELECT type FROM events
+              WHERE stream_id = ${id}
+              ORDER BY stream_version
+            `;
+            const tags = rows.map((row) => row.type);
+            return tags.includes("TurnSettled")
+              ? tags
+              : yield* Effect.fail("turn not settled" as const);
+          }).pipe(
+            Effect.retry(
+              Schedule.max([
+                Schedule.spaced("10 millis"),
+                Schedule.recurs(100),
+              ]),
+            ),
+          ),
+        );
+        expect(domainTags).toContain("TurnStarted");
+        expect(domainTags).toContain("MessagePersisted");
+        expect(domainTags).toContain("TurnSettled");
+        expect(domainTags).toContain("ProviderAttached");
       });
     } finally {
       scriptedEvents = [];
@@ -1779,10 +2032,7 @@ describe("MessageStore — provider event persistence", () => {
             rows.length > 0 ? Effect.succeed(rows) : Effect.fail("not yet"),
           ),
           Effect.retry(
-            Schedule.max([
-              Schedule.spaced("10 millis"),
-              Schedule.recurs(100),
-            ]),
+            Schedule.max([Schedule.spaced("10 millis"), Schedule.recurs(100)]),
           ),
         );
 
@@ -1800,9 +2050,19 @@ describe("MessageStore — provider event persistence", () => {
   });
 });
 
-describe("MessageStore cursor streaming", () => {
-  const userText = (envelope: { readonly message: { content: unknown } }) =>
-    (envelope.message.content as { text?: string }).text;
+describe("ConversationServices cursor streaming", () => {
+  const messageEvents = (domain: SessionDomain, sessionId: SessionId) =>
+    domain
+      .events({ streamId: sessionId })
+      .pipe(
+        Stream.filter((record) => record.event._tag === "MessagePersisted"),
+      );
+  const userText = (record: {
+    readonly event: { readonly contentJson?: string };
+  }) =>
+    record.event.contentJson === undefined
+      ? undefined
+      : (JSON.parse(record.event.contentJson) as { text?: string }).text;
 
   it("resumes from sinceSequence with zero gaps or duplicates", async () => {
     await withRuntime(async (run) => {
@@ -1822,8 +2082,8 @@ describe("MessageStore cursor streaming", () => {
 
       // First subscription: full replay of the three persisted rows.
       const first = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
         ),
       );
       expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
@@ -1838,8 +2098,15 @@ describe("MessageStore cursor streaming", () => {
 
       // Resubscribe with the recorded cursor — exactly the delta, in order.
       const resumed = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(id, cursor).pipe(Stream.take(2))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(
+            domain.events({ streamId: id, afterSequence: cursor }).pipe(
+              Stream.filter(
+                (record) => record.event._tag === "MessagePersisted",
+              ),
+              Stream.take(2),
+            ),
+          ),
         ),
       );
       expect(resumed.map(userText)).toEqual(["m4", "m5"]);
@@ -1866,8 +2133,9 @@ describe("MessageStore cursor streaming", () => {
       const collected = await run(
         Effect.gen(function* () {
           const s = yield* store;
+          const domain = yield* SessionDomain;
           const fiber = yield* Effect.forkChild(
-            Stream.runCollect(s.streamMessages(id).pipe(Stream.take(3))),
+            Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
           );
           yield* s.sendMessage(id, "m2");
           yield* s.sendMessage(id, "m3");
@@ -1875,7 +2143,7 @@ describe("MessageStore cursor streaming", () => {
         }),
       );
       expect(collected.map(userText)).toEqual(["m1", "m2", "m3"]);
-      expect(new Set(collected.map((e) => e.message.id)).size).toBe(3);
+      expect(new Set(collected.map((e) => e.eventId)).size).toBe(3);
     });
   });
 
@@ -1896,13 +2164,13 @@ describe("MessageStore cursor streaming", () => {
       await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a2")));
 
       const forA = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(a).pipe(Stream.take(2))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, a).pipe(Stream.take(2))),
         ),
       );
       const forB = await run(
-        Effect.flatMap(store, (s) =>
-          Stream.runCollect(s.streamMessages(b).pipe(Stream.take(1))),
+        Effect.flatMap(SessionDomain, (domain) =>
+          Stream.runCollect(messageEvents(domain, b).pipe(Stream.take(1))),
         ),
       );
 
@@ -1915,7 +2183,7 @@ describe("MessageStore cursor streaming", () => {
   });
 });
 
-describe("MessageStore — fork & transcript export", () => {
+describe("ConversationServices — fork & transcript export", () => {
   it("exportTranscript renders the user prompt as Markdown", async () => {
     await withRuntime(async (run) => {
       const chat = await run(

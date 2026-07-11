@@ -6,6 +6,7 @@
 	"exports": {
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./connection": "./src/connection.ts",
+		"./session-events": "./src/session-events.ts",
 		"./supervisor": "./src/supervisor.ts"
 	},
 	"scripts": {
@@ -13,7 +14,8 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@zuse/utils": "*"
+		"@zuse/contracts": "*",
+		"effect": "catalog:"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
