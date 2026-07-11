@@ -716,6 +716,7 @@ export const startGeminiSession = (
 					// Best-effort cancel; do NOT SIGINT the child or the persistent
 					// session dies for every subsequent send.
 					notify("session/cancel", { sessionId: sid });
+					Queue.offerUnsafe(events, { _tag: "Interrupted" });
 					// Force-reject the in-flight `session/prompt` request so the
 					// `inflight` promise chain unblocks. Without this, if Gemini's
 					// CLI doesn't honour `session/cancel` (or responds slowly), the

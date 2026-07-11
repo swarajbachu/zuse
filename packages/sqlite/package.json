@@ -8,7 +8,9 @@
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit --passWithNoTests",
+		"test:integration": "vitest run test/integration"
 	},
 	"dependencies": {
 		"effect": "catalog:"

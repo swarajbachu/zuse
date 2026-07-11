@@ -1,0 +1,28 @@
+{
+	"name": "@zuse/system-tests",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test/system",
+		"test:unit": "vitest run test/unit --passWithNoTests",
+		"test:integration": "vitest run test/integration --passWithNoTests",
+		"test:system": "vitest run test/system",
+		"test:desktop": "vitest run test/desktop --passWithNoTests"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"@zuse/client-runtime": "*",
+		"@zuse/contracts": "*",
+		"@zuse/testkit": "*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"playwright-core": "^1.55.0",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

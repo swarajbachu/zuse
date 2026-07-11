@@ -189,6 +189,7 @@ const makeRuntime = (
 		updateBranch: () => Effect.void,
 		remove: () => Effect.void,
 		rerunSetup: () => Effect.die("not used"),
+		setupStream: () => Stream.die("not used"),
 		startRun: () => Effect.die("not used"),
 		restore: () => Effect.die("not used"),
 	});
@@ -257,6 +258,9 @@ const makeRuntime = (
 		origin: () => Effect.die("not used"),
 		prState: () => Effect.die("not used"),
 		prDetails: () => Effect.die("not used"),
+		listPrs: () => Effect.die("not used"),
+		listIssues: () => Effect.die("not used"),
+		issueMarkdown: () => Effect.die("not used"),
 		changes: () => Effect.die("not used"),
 		diff: () => Effect.die("not used"),
 		commit: () => Effect.die("not used"),
@@ -264,6 +268,9 @@ const makeRuntime = (
 		mergePr: () => Effect.die("not used"),
 		markReady: () => Effect.die("not used"),
 		init: () => Effect.die("not used"),
+		revertFile: () => Effect.die("not used"),
+		revertAll: () => Effect.die("not used"),
+		diffStat: () => Effect.die("not used"),
 		fixFailingChecks: () => Effect.die("not used"),
 	});
 

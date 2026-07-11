@@ -485,6 +485,34 @@
         "vitest": "catalog:",
       },
     },
+    "tests/system": {
+      "name": "@zuse/system-tests",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-node": "catalog:",
+        "@zuse/client-runtime": "*",
+        "@zuse/contracts": "*",
+        "@zuse/testkit": "*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "playwright-core": "^1.55.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "tests/testkit": {
+      "name": "@zuse/testkit",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "tools/index-eval": {
       "name": "@zuse/index-eval",
       "version": "0.0.0",
@@ -1815,6 +1843,10 @@
     "@zuse/sqlite": ["@zuse/sqlite@workspace:packages/sqlite"],
 
     "@zuse/ssh": ["@zuse/ssh@workspace:packages/ssh"],
+
+    "@zuse/system-tests": ["@zuse/system-tests@workspace:tests/system"],
+
+    "@zuse/testkit": ["@zuse/testkit@workspace:tests/testkit"],
 
     "@zuse/utils": ["@zuse/utils@workspace:packages/utils"],
 
@@ -3449,6 +3481,8 @@
     "picomatch": ["picomatch@4.0.4", "http://registry.npmjs.org/picomatch/-/picomatch-4.0.4.tgz", {}, "sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A=="],
 
     "pkce-challenge": ["pkce-challenge@5.0.1", "http://registry.npmjs.org/pkce-challenge/-/pkce-challenge-5.0.1.tgz", {}, "sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ=="],
+
+    "playwright-core": ["playwright-core@1.61.1", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg=="],
 
     "plist": ["plist@3.1.1", "", { "dependencies": { "@xmldom/xmldom": "^0.9.10", "base64-js": "^1.5.1", "xmlbuilder": "^15.1.1" } }, "sha512-ZIfcLJC+7E7FBFnDxm9MPmt7D+DidyQ26lewieO75AdhA2ayMtsJSES0iWzqJQbcVRSrTufQoy0DR94xHue0oA=="],
 
