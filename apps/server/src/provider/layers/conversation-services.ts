@@ -56,7 +56,6 @@ import { RelayActivityPublisher } from "../../relay/activity-publisher.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
 import { runArchiveScript } from "../conversation-archive-script.ts";
 import { makeConversationEventRuntime } from "../conversation-event-runtime.ts";
-import { ConversationState } from "../conversation-state.ts";
 import {
 	isGoalCapableProvider,
 	makeConversationGoalOperations,
@@ -93,6 +92,7 @@ import {
 	sessionFromRecord,
 	sessionFromRow,
 } from "../conversation-records.ts";
+import { ConversationState } from "../conversation-state.ts";
 import { makeReactorEffectJournal } from "../reactor-effect-journal.ts";
 import {
 	ChatService,
@@ -259,13 +259,25 @@ export const ConversationServicesLive = Layer.effectContext(
 			const turnId = `turn_${crypto.randomUUID()}`;
 			return Effect.gen(function* () {
 				const startedAt = yield* currentTimestamp;
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "StartTurn",
-					turnId,
-					startedAt,
-				});
-				state.setActiveTurn(sessionId, turnId);
-				return turnId;
+				// The durable decider is the authority. After a restart (or if two
+				// callers race before the cache is populated), it returns the already
+				// running turn instead of letting this process invent a second one.
+				const resolvedTurnId = yield* sessionDomain
+					.dispatch({
+						commandId: crypto.randomUUID(),
+						streamId: sessionId,
+						command: { _tag: "StartTurn", turnId, startedAt },
+					})
+					.pipe(
+						Effect.as(turnId),
+						Effect.catchTag("TurnAlreadyRunning", (error) =>
+							Effect.succeed(error.turnId),
+						),
+						Effect.orDie,
+					);
+				if (resolvedTurnId === turnId) yield* runSessionReactors;
+				state.rememberActiveTurn(sessionId, resolvedTurnId);
+				return resolvedTurnId;
 			});
 		};
 
@@ -343,7 +355,7 @@ export const ConversationServicesLive = Layer.effectContext(
 				// Hydrate the agents cache from the row on first sight after boot
 				// so resume / lazy-restart pick up the same roster the session was
 				// created with.
-				if (!state.hasAgents(sessionId)) {
+				if (state.agents(sessionId) === undefined) {
 					const parsed = parseAgents(record.agentsJson);
 					if (parsed !== null && "agents" in parsed) {
 						const hydrated = parsed as unknown as {
@@ -515,7 +527,6 @@ export const ConversationServicesLive = Layer.effectContext(
 				),
 			setStatus,
 			settleTurn: settleActiveTurn,
-			hasActiveTurn: (sessionId) => state.hasActiveTurn(sessionId),
 			setResume: (sessionId, cursor, strategy) =>
 				Effect.gen(function* () {
 					yield* dispatchSessionCommand(sessionId, {
@@ -746,8 +757,9 @@ export const ConversationServicesLive = Layer.effectContext(
 
 		const createSession: ConversationOperations["createSession"] = (
 			input: CreateSessionInput,
-		) =>
-			Effect.gen(function* () {
+		) => {
+			const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
+			return Effect.gen(function* () {
 				// Project + worktree are inherited from the chat row — clients no
 				// longer pass them at session-create time. Fail-fast on missing /
 				// archived chats so we never leave a stray provider session behind.
@@ -764,7 +776,6 @@ export const ConversationServicesLive = Layer.effectContext(
 				// `provider.start` runs. Background-mode callers (`session.create`)
 				// can then return immediately and let the slow CLI boot flip the
 				// status out of `"booting"` from a daemon fiber.
-				const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
 				const effectiveEnableSubagents =
 					input.enableSubagents ??
 					(input.agents !== undefined && Object.keys(input.agents).length > 0);
@@ -958,7 +969,14 @@ export const ConversationServicesLive = Layer.effectContext(
 					createdAt: now,
 					updatedAt: now,
 				});
-			});
+			}).pipe(
+				Effect.catchCause((cause) =>
+					Effect.sync(() => state.clearSession(sessionId)).pipe(
+						Effect.andThen(Effect.failCause(cause)),
+					),
+				),
+			);
+		};
 
 		const renameSession: ConversationOperations["renameSession"] = (
 			sessionId,

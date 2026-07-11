@@ -173,21 +173,18 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			// before SessionCreated. Replace those rows from the authoritative message
 			// snapshot. Also discard orphan/corrupt message events: there was no
 			// historical MessageDeleted transition capable of removing them on replay.
+			// A message missing from the read model is not sufficient evidence by
+			// itself: it may be a valid durable event whose projector cursor did not
+			// commit before a crash.
 			yield* sql`
 				DELETE FROM events
 				WHERE type = 'MessagePersisted'
 					AND (
 						(event_id LIKE 'backfill:%'
 							AND event_id NOT LIKE 'backfill:message:%')
-						OR CASE WHEN json_valid(payload_json) THEN (
-							json_extract(payload_json, '$.messageId') IS NULL
-							OR NOT EXISTS (
-								SELECT 1 FROM messages
-								WHERE messages.id = json_extract(
-									events.payload_json, '$.messageId'
-								)
-							)
-						) ELSE 1 END
+						OR CASE WHEN json_valid(payload_json)
+							THEN json_extract(payload_json, '$.messageId') IS NULL
+							ELSE 1 END
 						OR NOT EXISTS (
 							SELECT 1 FROM events AS creation
 							WHERE creation.stream_kind = 'session'

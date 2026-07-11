@@ -8,15 +8,16 @@ import type {
 	AgentSessionId,
 	AutonomyLevel,
 	FolderId,
-	SessionId,
 	StartSessionInput,
 	WorktreeId,
 } from "@zuse/contracts";
 import {
+	AgentSessionStartError,
 	ComposerInput,
 	defaultModelFor,
 	MessageId,
 	RepositorySettings,
+	SessionId,
 	Worktree,
 } from "@zuse/contracts";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
@@ -117,6 +118,7 @@ let providerSentTexts: string[] = [];
 let providerStartOrchestrationTools: Array<
 	OrchestrationSessionTools | null | undefined
 > = [];
+let failProviderStart = false;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
@@ -125,10 +127,16 @@ let createdWorktrees = new Map<string, Worktree>();
 const StubProviderLive = Layer.succeed(ProviderService, {
 	availability: () => Effect.succeed([]),
 	start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
-		Effect.sync(() => {
+		Effect.gen(function* () {
 			providerStartInputs.push(input);
 			providerStartCursors.push(resumeCursor);
 			providerStartOrchestrationTools.push(orchestrationTools);
+			if (failProviderStart) {
+				return yield* new AgentSessionStartError({
+					providerId: input.providerId,
+					reason: "scripted start failure",
+				});
+			}
 			return {
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
@@ -360,7 +368,7 @@ const makeRuntime = (dbPath: string) => {
 		Layer.provide(Migrated),
 	);
 	const ConversationLayer = ConversationServicesLive.pipe(
-		Layer.provide(ConversationState.layer),
+		Layer.provideMerge(ConversationState.layer),
 		Layer.provide(StubProviderLive),
 		Layer.provide(StubWorktreeLive),
 		Layer.provide(StubRepositorySettingsLive),
@@ -389,7 +397,10 @@ const withRuntime = async <A>(
 			eff: Effect.Effect<
 				X,
 				unknown,
-				TestConversation | SqlClient.SqlClient | SessionDomain
+				| TestConversation
+				| SqlClient.SqlClient
+				| SessionDomain
+				| ConversationState
 			>,
 		) => Promise<X>,
 	) => Promise<A>,
@@ -401,7 +412,7 @@ const withRuntime = async <A>(
 		eff: Effect.Effect<
 			X,
 			unknown,
-			TestConversation | SqlClient.SqlClient | SessionDomain
+			TestConversation | SqlClient.SqlClient | SessionDomain | ConversationState
 		>,
 	): Promise<X> => runtime.runPromise(eff as Effect.Effect<X, unknown, never>);
 	try {
@@ -441,6 +452,7 @@ beforeEach(() => {
 	providerStartCursors = [];
 	providerSentTexts = [];
 	providerStartOrchestrationTools = [];
+	failProviderStart = false;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -566,6 +578,100 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
+	it("releases session caches when synchronous provider startup fails", async () => {
+		await withRuntime(async (run) => {
+			failProviderStart = true;
+			const exit = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				).pipe(Effect.result),
+			);
+			expect(exit._tag).toBe("Failure");
+
+			const cached = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const state = yield* ConversationState;
+					const rows = yield* sql<{ readonly stream_id: string }>`
+						SELECT stream_id FROM events
+						WHERE stream_kind = 'session' AND type = 'SessionCreated'
+						LIMIT 1
+					`;
+					const sessionId = SessionId.make(rows[0]?.stream_id ?? "missing");
+					return {
+						projectId: state.projectId(sessionId),
+						agents: state.agents(sessionId),
+						activeTurn: state.activeTurn(sessionId),
+					};
+				}),
+			);
+			expect(cached).toEqual({
+				projectId: undefined,
+				agents: undefined,
+				activeTurn: undefined,
+			});
+		});
+	});
+
+	it("reuses the durable active turn after the process cache is empty", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const state = yield* ConversationState;
+					yield* domain.dispatch({
+						commandId: "test:durable-turn",
+						streamId: initialSession.id,
+						command: {
+							_tag: "StartTurn",
+							turnId: "turn-durable",
+							startedAt: 1,
+						},
+					});
+					state.clearActiveTurn(initialSession.id);
+				}),
+			);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(initialSession.id, "resume safely"),
+				),
+			);
+			const evidence = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const turns = yield* sql<{ readonly count: number }>`
+						SELECT COUNT(*) AS count FROM events
+						WHERE stream_id = ${initialSession.id} AND type = 'TurnStarted'
+					`;
+					const messages = yield* sql<{ readonly payload_json: string }>`
+						SELECT payload_json FROM events
+						WHERE stream_id = ${initialSession.id} AND type = 'MessagePersisted'
+						ORDER BY sequence DESC LIMIT 1
+					`;
+					return { turns, messages };
+				}),
+			);
+			expect(evidence.turns[0]?.count).toBe(1);
+			expect(
+				JSON.parse(evidence.messages[0]?.payload_json ?? "null"),
+			).toMatchObject({ turnId: "turn-durable" });
+		});
+	});
+
 	it("starts providers through the durable provider-start reactor", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(

@@ -25,11 +25,11 @@ export interface SessionAgentsConfig {
  * active-turn check) resolve synchronously without a DB round-trip.
  *
  * Methods are intentionally synchronous: the provider-start callbacks that read
- * `runtimeMode` / `hasActiveTurn` are plain functions, so this substrate must
+ * `runtimeMode` / `activeTurn` are plain functions, so this substrate must
  * expose plain accessors rather than Effect-returning ones.
  *
  * Responsibility: own the process-lifetime caches (project id, runtime mode,
- * permission mode, sub-agents config, active turn id) keyed by session.
+ * sub-agents config, active turn id) keyed by session.
  * NOT responsible for: persistence, command dispatch, or reactor execution —
  * those own their durable state elsewhere.
  */
@@ -40,15 +40,14 @@ export interface ConversationStateApi {
 	readonly runtimeMode: (sessionId: SessionId) => RuntimeMode;
 	readonly setRuntimeMode: (sessionId: SessionId, mode: RuntimeMode) => void;
 	readonly agents: (sessionId: SessionId) => SessionAgentsConfig | undefined;
-	readonly hasAgents: (sessionId: SessionId) => boolean;
 	readonly setAgents: (
 		sessionId: SessionId,
 		value: SessionAgentsConfig,
 	) => void;
 	readonly activeTurn: (sessionId: SessionId) => string | undefined;
-	readonly setActiveTurn: (sessionId: SessionId, turnId: string) => void;
+	/** Remember the turn selected by the durable domain for synchronous callbacks. */
+	readonly rememberActiveTurn: (sessionId: SessionId, turnId: string) => void;
 	readonly clearActiveTurn: (sessionId: SessionId) => void;
-	readonly hasActiveTurn: (sessionId: SessionId) => boolean;
 	/** Release every process-lifetime entry after a durable session deletion. */
 	readonly clearSession: (sessionId: SessionId) => void;
 }
@@ -75,18 +74,16 @@ export class ConversationState extends Context.Service<
 					runtimeModeBySession.set(sessionId, mode);
 				},
 				agents: (sessionId) => agentsBySession.get(sessionId),
-				hasAgents: (sessionId) => agentsBySession.has(sessionId),
 				setAgents: (sessionId, value) => {
 					agentsBySession.set(sessionId, value);
 				},
 				activeTurn: (sessionId) => turnIdsBySession.get(sessionId),
-				setActiveTurn: (sessionId, turnId) => {
+				rememberActiveTurn: (sessionId, turnId) => {
 					turnIdsBySession.set(sessionId, turnId);
 				},
 				clearActiveTurn: (sessionId) => {
 					turnIdsBySession.delete(sessionId);
 				},
-				hasActiveTurn: (sessionId) => turnIdsBySession.has(sessionId),
 				clearSession: (sessionId) => {
 					projectIdBySession.delete(sessionId);
 					runtimeModeBySession.delete(sessionId);

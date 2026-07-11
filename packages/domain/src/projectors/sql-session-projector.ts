@@ -5,6 +5,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { CompleteSessionCreatedEvent } from "../core/session-fields.js";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
+import { updateChatLastMessage } from "./chat-last-message-projection.js";
 
 export class SessionProjectionDecodeError extends Schema.TaggedErrorClass<SessionProjectionDecodeError>()(
 	"SessionProjectionDecodeError",
@@ -194,12 +195,11 @@ export const makeSqlSessionProjector = (
 					UPDATE sessions SET updated_at = ${createdAt}
 					WHERE id = ${record.streamId}
 				`;
-				yield* sql`
-					UPDATE chats SET last_message_at = ${createdAt}
-					WHERE id = (
-						SELECT chat_id FROM sessions WHERE id = ${record.streamId}
-					)
-				`;
+				yield* updateChatLastMessage(
+					sql,
+					{ _tag: "Session", sessionId: record.streamId },
+					event.createdAt,
+				);
 				return;
 			}
 			case "ProviderAttached":

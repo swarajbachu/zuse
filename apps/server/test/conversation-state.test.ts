@@ -23,14 +23,14 @@ describe("ConversationState", () => {
 				const state = yield* ConversationState;
 				state.setProjectId(first, project);
 				state.setRuntimeMode(first, runtimeMode);
-				state.setActiveTurn(first, "turn-1");
+				state.rememberActiveTurn(first, "turn-1");
 				return {
 					firstProject: state.projectId(first),
 					secondProject: state.projectId(second),
 					firstMode: state.runtimeMode(first),
 					secondMode: state.runtimeMode(second),
-					firstActive: state.hasActiveTurn(first),
-					secondActive: state.hasActiveTurn(second),
+					firstActive: state.activeTurn(first) !== undefined,
+					secondActive: state.activeTurn(second) !== undefined,
 				};
 			}),
 		);
@@ -53,13 +53,13 @@ describe("ConversationState", () => {
 				state.setProjectId(sessionId, FolderId.make("project-1"));
 				state.setRuntimeMode(sessionId, RuntimeMode.make("full-access"));
 				state.setAgents(sessionId, { agents: {}, enableSubagents: true });
-				state.setActiveTurn(sessionId, "turn-1");
+				state.rememberActiveTurn(sessionId, "turn-1");
 				state.clearSession(sessionId);
 				return {
 					project: state.projectId(sessionId),
 					mode: state.runtimeMode(sessionId),
 					agents: state.agents(sessionId),
-					active: state.hasActiveTurn(sessionId),
+					active: state.activeTurn(sessionId) !== undefined,
 				};
 			}),
 		);
