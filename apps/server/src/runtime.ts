@@ -34,10 +34,7 @@ import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
 import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
-import {
-	CredentialsServiceEphemeral,
-	CredentialsServiceLive,
-} from "./provider/layers/credentials-service.ts";
+import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
@@ -93,7 +90,6 @@ export interface MainLayerDeps {
 		Layer.Layer<RpcServer.Protocol, never, LanAuthService>
 	>;
 	readonly authShell: typeof AuthShell.Service;
-	readonly credentialStore?: "os" | "ephemeral";
 	readonly lanAuth?: {
 		readonly policy: LanAuthPolicy;
 		readonly advertisedHost?: string | null;
@@ -111,10 +107,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const AppPathsLayer = Layer.succeed(AppPaths, { userData: deps.userData });
 	const FolderPickerLayer = Layer.succeed(FolderPicker, deps.folderPicker);
 	const AuthShellLayer = Layer.succeed(AuthShell, deps.authShell);
-	const CredentialsLayer =
-		deps.credentialStore === "ephemeral"
-			? CredentialsServiceEphemeral
-			: CredentialsServiceLive;
 	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, {
 		policy: deps.lanAuth?.policy ?? "local",
 		advertisedHost: deps.lanAuth?.advertisedHost ?? null,
@@ -283,7 +275,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
 	// PermissionService.
 	const ProviderLayer = ProviderServiceLive.pipe(
-		Layer.provide(CredentialsLayer),
+		Layer.provide(CredentialsServiceLive),
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
@@ -380,7 +372,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// keychain storage. The host supplies AuthShell (browser + callback), and
 	// the callback sink is registered at build time, so Handlers forces boot.
 	const AuthLayer = AuthServiceLive.pipe(
-		Layer.provide(CredentialsLayer),
+		Layer.provide(CredentialsServiceLive),
 		Layer.provide(SessionStoreLive),
 		Layer.provide(AuthShellLayer),
 	);
@@ -432,7 +424,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		AttachmentLayer,
 		BrowserBridgeLayer,
 		// browser.* credential RPCs read/write the keychain directly.
-		CredentialsLayer,
+		CredentialsServiceLive,
 		SkillBridgeLayer,
 		DiagnosticsLayer,
 		LanAuthLayer,

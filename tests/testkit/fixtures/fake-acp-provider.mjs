@@ -1,5 +1,14 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import net from "node:net";
+import { join } from "node:path";
 import readline from "node:readline";
 
 if (process.argv.includes("--version")) {
@@ -10,8 +19,24 @@ if (process.argv.includes("--version")) {
 const scenario = process.env.ZUSE_FAKE_ACP_SCENARIO || "complete";
 const sessions = new Map();
 const pendingPrompts = new Map();
-let nextSession = 1;
 let control = null;
+
+const stateDirectory = process.env.ZUSE_FAKE_ACP_STATE_DIR || "";
+if (stateDirectory.length > 0) mkdirSync(stateDirectory, { recursive: true });
+const statePath = (sessionId) =>
+	join(stateDirectory, `${encodeURIComponent(sessionId)}.json`);
+const readSession = (sessionId) => {
+	if (stateDirectory.length === 0 || !existsSync(statePath(sessionId)))
+		return null;
+	return JSON.parse(readFileSync(statePath(sessionId), "utf8"));
+};
+const writeSession = (sessionId, state) => {
+	if (stateDirectory.length === 0) return;
+	const target = statePath(sessionId);
+	const temporary = `${target}.${process.pid}.tmp`;
+	writeFileSync(temporary, JSON.stringify(state));
+	renameSync(temporary, target);
+};
 
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const report = (event, fields = {}) => {
@@ -77,32 +102,79 @@ const handleRequest = (message) => {
 		return;
 	}
 	if (method === "session/new") {
-		const sessionId = `fake-acp-${nextSession++}`;
-		sessions.set(sessionId, { cwd: params.cwd });
+		const sessionId = `fake-acp-${randomUUID()}`;
+		const state = { cwd: params.cwd, pendingPermission: null };
+		sessions.set(sessionId, state);
+		writeSession(sessionId, state);
 		write({ jsonrpc: "2.0", id, result: { sessionId } });
 		report("session.created", { sessionId, cwd: params.cwd });
 		return;
 	}
 	if (method === "session/load") {
-		sessions.set(params.sessionId, { cwd: params.cwd });
+		const persisted = readSession(params.sessionId);
+		if (persisted === null) {
+			write({
+				jsonrpc: "2.0",
+				id,
+				error: { code: -32001, message: "Unknown persisted session" },
+			});
+			return;
+		}
+		const state = { ...persisted, cwd: params.cwd };
+		sessions.set(params.sessionId, state);
+		writeSession(params.sessionId, state);
+		if (state.pendingPermission !== null) {
+			const permissionRequestId = 800000 + Number(id);
+			pendingPrompts.set(permissionRequestId, {
+				kind: "resumed-permission",
+				loadId: id,
+				sessionId: params.sessionId,
+			});
+			write({
+				jsonrpc: "2.0",
+				id: permissionRequestId,
+				method: "fs/write_text_file",
+				params: state.pendingPermission,
+			});
+			report("permission.resumed", { sessionId: params.sessionId });
+			return;
+		}
 		write({ jsonrpc: "2.0", id, result: { sessionId: params.sessionId } });
+		report("session.loaded", { sessionId: params.sessionId });
 		return;
 	}
 	if (method === "session/prompt") {
 		const sessionId = params.sessionId;
-		report("prompt.received", { sessionId });
+		const prompt = Array.isArray(params.prompt)
+			? params.prompt
+					.map((part) => (typeof part?.text === "string" ? part.text : ""))
+					.join("\n")
+			: "";
+		report("prompt.received", { sessionId, prompt });
 		if (scenario === "crash") process.exit(42);
 		if (scenario === "malformed") process.stdout.write("not-json\n");
 		if (scenario === "stall") return;
 		if (scenario === "permission") {
 			const cwd = sessions.get(sessionId)?.cwd || process.cwd();
 			const permissionRequestId = 900000 + Number(id);
-			pendingPrompts.set(permissionRequestId, { promptId: id, sessionId });
+			const permission = {
+				path: `${cwd}/permission.txt`,
+				content: "allowed",
+			};
+			const state = sessions.get(sessionId) ?? { cwd };
+			const nextState = { ...state, pendingPermission: permission };
+			sessions.set(sessionId, nextState);
+			writeSession(sessionId, nextState);
+			pendingPrompts.set(permissionRequestId, {
+				kind: "prompt-permission",
+				promptId: id,
+				sessionId,
+			});
 			write({
 				jsonrpc: "2.0",
 				id: permissionRequestId,
 				method: "fs/write_text_file",
-				params: { path: `${cwd}/permission.txt`, content: "allowed" },
+				params: permission,
 			});
 			report("permission.requested", { sessionId });
 			return;
@@ -147,7 +219,28 @@ input.on("line", (line) => {
 	}
 	if (message.id !== undefined && pendingPrompts.has(message.id)) {
 		const pending = pendingPrompts.get(message.id);
-		if (typeof pending === "object" && pending !== null) {
+		pendingPrompts.delete(message.id);
+		if (pending?.kind === "resumed-permission") {
+			const state = sessions.get(pending.sessionId);
+			if (state !== undefined) {
+				const nextState = { ...state, pendingPermission: null };
+				sessions.set(pending.sessionId, nextState);
+				writeSession(pending.sessionId, nextState);
+			}
+			update(pending.sessionId, "Permission accepted.");
+			write({
+				jsonrpc: "2.0",
+				id: pending.loadId,
+				result: { sessionId: pending.sessionId },
+			});
+			report("permission.continued", { sessionId: pending.sessionId });
+		} else if (pending?.kind === "prompt-permission") {
+			const state = sessions.get(pending.sessionId);
+			if (state !== undefined) {
+				const nextState = { ...state, pendingPermission: null };
+				sessions.set(pending.sessionId, nextState);
+				writeSession(pending.sessionId, nextState);
+			}
 			complete(pending.promptId, pending.sessionId, "Permission accepted.");
 		}
 	}

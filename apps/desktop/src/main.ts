@@ -1419,10 +1419,6 @@ function createMainWindow() {
 		Layer.launch(
 			makeMainLayer({
 				userData: app.getPath("userData"),
-				credentialStore:
-					process.env.ZUSE_CREDENTIAL_STORE === "ephemeral"
-						? "ephemeral"
-						: "os",
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [relayWsProtocol],

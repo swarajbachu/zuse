@@ -1,25 +1,21 @@
-import { join } from "node:path";
 import { MessageId } from "@zuse/contracts";
-import { eventually, makeTemporaryDirectory } from "@zuse/testkit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	createSystemConversation,
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
-import { startHeadlessServer } from "../../src/headless-server.ts";
-import { connectSystemRpc } from "../../src/rpc-client.ts";
+import { waitForSessionMessages } from "../../src/session-observer.ts";
+import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("conversation flow through production RPC", () => {
 	it("persists a deterministic provider turn and restores it after restart", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-flow-");
-		const root = temporary.path;
-		const repository = join(root, "repository");
-		initializeSystemRepository(repository);
+		await withSystemTest("zuse-system-flow-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
 
-		let server = await startHeadlessServer({ root });
-		let session = await connectSystemRpc(server.endpoint);
-		try {
+			let server = await scope.server();
+			let session = await scope.rpc(server.endpoint);
 			const { conversation: created } = await createSystemConversation(
 				session.client,
 				repository,
@@ -32,22 +28,17 @@ describe("conversation flow through production RPC", () => {
 				}),
 			);
 
-			const messages = await eventually(
-				() =>
-					Effect.runPromise(
-						session.client["messages.list"]({
-							sessionId: created.initialSession.id,
-						}),
-					),
-				(value) =>
-					value.some(
-						(message) =>
-							message.content._tag === "assistant" &&
-							message.content.text.includes(
-								"Hello from deterministic provider.",
-							),
-					),
-				"assistant response through RPC",
+			await waitForSessionMessages(
+				session.client,
+				created.initialSession.id,
+				(message) =>
+					message.content._tag === "assistant" &&
+					message.content.text.includes("Hello from deterministic provider."),
+			);
+			const messages = await Effect.runPromise(
+				session.client["messages.list"]({
+					sessionId: created.initialSession.id,
+				}),
 			);
 			expect(
 				messages.filter((message) => message.role === "user"),
@@ -62,8 +53,8 @@ describe("conversation flow through production RPC", () => {
 
 			await session.dispose();
 			await server.stop("SIGKILL");
-			server = await startHeadlessServer({ root });
-			session = await connectSystemRpc(server.endpoint);
+			server = await scope.server();
+			session = await scope.rpc(server.endpoint);
 
 			const restored = await Effect.runPromise(
 				session.client["messages.list"]({
@@ -90,8 +81,8 @@ describe("conversation flow through production RPC", () => {
 			);
 			await session.dispose();
 			await server.stop();
-			server = await startHeadlessServer({ root });
-			session = await connectSystemRpc(server.endpoint);
+			server = await scope.server();
+			session = await scope.rpc(server.endpoint);
 			const archived = await Effect.runPromise(
 				session.client["chat.list"]({
 					projectId: created.chat.projectId,
@@ -111,17 +102,13 @@ describe("conversation flow through production RPC", () => {
 			).rejects.toMatchObject({ _tag: "ChatNotFoundError" });
 			await session.dispose();
 			await server.stop();
-			server = await startHeadlessServer({ root });
-			session = await connectSystemRpc(server.endpoint);
+			server = await scope.server();
+			session = await scope.rpc(server.endpoint);
 			await expect(
 				Effect.runPromise(
 					session.client["chat.get"]({ chatId: created.chat.id }),
 				),
 			).rejects.toMatchObject({ _tag: "ChatNotFoundError" });
-		} finally {
-			await session.dispose();
-			await server.stop();
-			temporary.dispose();
-		}
+		});
 	}, 45_000);
 });

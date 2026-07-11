@@ -7,6 +7,7 @@
 		".": "./src/index.ts",
 		"./fake-acp": "./src/fake-acp.ts",
 		"./fake-provider-peers": "./src/fake-provider-peers.ts",
+		"./headless-server": "./src/headless-server.ts",
 		"./process": "./src/process.ts"
 	},
 	"scripts": {

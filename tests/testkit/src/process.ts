@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 export type ProcessOutput = {
 	readonly stdout: string;
@@ -23,8 +23,75 @@ export type ManagedChildProcess = {
 const OUTPUT_TAIL_LIMIT = 64 * 1024;
 const LINE_HISTORY_LIMIT = 512;
 
-const appendTail = (current: string, chunk: string): string =>
-	`${current}${chunk}`.slice(-OUTPUT_TAIL_LIMIT);
+export type BoundedTextBuffer = {
+	readonly append: (chunk: string) => void;
+	readonly read: () => string;
+};
+
+export const makeBoundedTextBuffer = (limit: number): BoundedTextBuffer => {
+	if (!Number.isInteger(limit) || limit <= 0) {
+		throw new Error("Bounded text buffer limit must be a positive integer.");
+	}
+	let value = "";
+	return {
+		append: (chunk) => {
+			value = `${value}${chunk}`.slice(-limit);
+		},
+		read: () => value,
+	};
+};
+
+export type TestResourceScope = {
+	readonly defer: (release: () => Promise<void> | void) => void;
+	readonly acquire: <A>(
+		acquire: () => Promise<A> | A,
+		release: (resource: A) => Promise<void> | void,
+	) => Promise<A>;
+};
+
+export const withResourceScope = async <A>(
+	run: (resources: TestResourceScope) => Promise<A>,
+): Promise<A> => {
+	const releases: Array<() => Promise<void> | void> = [];
+	const resources: TestResourceScope = {
+		defer: (release) => releases.push(release),
+		acquire: async (acquire, release) => {
+			const resource = await acquire();
+			releases.push(() => release(resource));
+			return resource;
+		},
+	};
+	let result: A | undefined;
+	let failure: unknown;
+	let failed = false;
+	try {
+		result = await run(resources);
+	} catch (cause) {
+		failed = true;
+		failure = cause;
+	}
+	const cleanupFailures: Array<unknown> = [];
+	for (const release of releases.reverse()) {
+		try {
+			await release();
+		} catch (cause) {
+			cleanupFailures.push(cause);
+		}
+	}
+	if (failed) {
+		if (cleanupFailures.length > 0) {
+			throw new AggregateError(
+				[failure, ...cleanupFailures],
+				"Test body and resource cleanup both failed.",
+			);
+		}
+		throw failure;
+	}
+	if (cleanupFailures.length > 0) {
+		throw new AggregateError(cleanupFailures, "Test resource cleanup failed.");
+	}
+	return result as A;
+};
 
 export const makeHermeticEnvironment = (
 	overrides: Readonly<Record<string, string | undefined>>,
@@ -45,17 +112,17 @@ export const spawnManaged = (
 	args: ReadonlyArray<string>,
 	options: {
 		readonly cwd: string;
-		readonly env?: NodeJS.ProcessEnv;
+		readonly env?: Readonly<Record<string, string | undefined>>;
 	},
 ): ManagedChildProcess => {
 	const child = spawn(command, [...args], {
 		cwd: options.cwd,
-		env: options.env,
+		env: options.env as NodeJS.ProcessEnv | undefined,
 		stdio: ["pipe", "pipe", "pipe"],
 		detached: process.platform !== "win32",
 	});
-	let stdout = "";
-	let stderr = "";
+	const stdout = makeBoundedTextBuffer(OUTPUT_TAIL_LIMIT);
+	const stderr = makeBoundedTextBuffer(OUTPUT_TAIL_LIMIT);
 	let stdoutRemainder = "";
 	const stdoutLines: Array<string> = [];
 	const waiters = new Set<{
@@ -74,14 +141,14 @@ export const spawnManaged = (
 	};
 	const accept = (chunk: Buffer | string): void => {
 		const text = String(chunk);
-		stdout = appendTail(stdout, text);
+		stdout.append(text);
 		const pending = `${stdoutRemainder}${text}`.split(/\r?\n/);
 		stdoutRemainder = pending.pop() ?? "";
 		for (const line of pending) acceptLine(line);
 	};
 	child.stdout.on("data", accept);
 	child.stderr.on("data", (chunk) => {
-		stderr = appendTail(stderr, String(chunk));
+		stderr.append(String(chunk));
 	});
 	child.stdout.once("end", () => {
 		if (stdoutRemainder.length > 0) {
@@ -107,7 +174,7 @@ export const spawnManaged = (
 				waiters.delete(waiter);
 				reject(
 					new Error(
-						`Timed out waiting for ${description}.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+						`Timed out waiting for ${description}.\nstdout:\n${stdout.read()}\nstderr:\n${stderr.read()}`,
 					),
 				);
 			}, timeoutMs);
@@ -166,7 +233,7 @@ export const spawnManaged = (
 				child.off("exit", onExit);
 				reject(
 					new Error(
-						`Timed out waiting for child process exit.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+						`Timed out waiting for child process exit.\nstdout:\n${stdout.read()}\nstderr:\n${stderr.read()}`,
 					),
 				);
 			}, timeoutMs);
@@ -175,7 +242,7 @@ export const spawnManaged = (
 
 	return {
 		child,
-		output: () => ({ stdout, stderr }),
+		output: () => ({ stdout: stdout.read(), stderr: stderr.read() }),
 		waitForStdout,
 		waitForExit,
 		stop,
@@ -195,20 +262,46 @@ export const makeTemporaryDirectory = (
 	};
 };
 
-export const eventually = async <A>(
-	read: () => Promise<A> | A,
-	accept: (value: A) => boolean,
-	description: string,
+export const waitForFile = (
+	path: string,
 	timeoutMs = 10_000,
-): Promise<A> => {
-	const deadline = Date.now() + timeoutMs;
-	let last: A | undefined;
-	while (Date.now() < deadline) {
-		last = await read();
-		if (accept(last)) return last;
-		await new Promise<void>((resolve) => setTimeout(resolve, 10));
-	}
-	throw new Error(
-		`Timed out waiting for ${description}. Last value: ${JSON.stringify(last)}`,
-	);
+	signal?: AbortSignal,
+): Promise<void> => {
+	if (existsSync(path)) return Promise.resolve();
+	return new Promise((resolve, reject) => {
+		const expectedName = basename(path);
+		let settled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let watcher: ReturnType<typeof watch> | undefined;
+		const onAbort = (): void =>
+			finish(new Error(`Stopped waiting for file ${path}`));
+		const finish = (cause?: Error): void => {
+			if (settled) return;
+			settled = true;
+			if (timer !== undefined) clearTimeout(timer);
+			watcher?.close();
+			signal?.removeEventListener("abort", onAbort);
+			if (cause === undefined) resolve();
+			else reject(cause);
+		};
+		if (signal?.aborted === true) {
+			finish(new Error(`Stopped waiting for file ${path}`));
+			return;
+		}
+		signal?.addEventListener("abort", onAbort, { once: true });
+		watcher = watch(dirname(path), (_event, filename) => {
+			if (
+				(filename === null || String(filename) === expectedName) &&
+				existsSync(path)
+			) {
+				finish();
+			}
+		});
+		watcher.once("error", (cause) => finish(cause));
+		timer = setTimeout(
+			() => finish(new Error(`Timed out waiting for file ${path}`)),
+			timeoutMs,
+		);
+		if (existsSync(path)) finish();
+	});
 };

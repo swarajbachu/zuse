@@ -166,11 +166,30 @@ describe("PermissionService restart recovery", () => {
 				),
 			);
 			expect(pending.map((request) => request.id)).toEqual([published?.id]);
+			const reattached = restarted.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "git status" },
+						{ projectId: FolderId.make("project-1") },
+					),
+				),
+			);
 			await restarted.runPromise(
 				Effect.flatMap(PermissionService, (service) =>
 					service.decide(published?.id ?? "missing", { _tag: "AllowOnce" }),
 				),
 			);
+			await expect(
+				Effect.runPromise(Fiber.join(reattached).pipe(Effect.timeout(1_000))),
+			).resolves.toEqual({ _tag: "AllowOnce" });
+			expect(
+				await restarted.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([]);
 			const decisions = await restarted.runPromise(
 				Effect.flatMap(PermissionService, (service) =>
 					service.listDecisions({ projectId: FolderId.make("project-1") }),

@@ -1,14 +1,14 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeUrl } from "node:url";
+import { type FakeAcpScenario, installFakeAcpProvider } from "./fake-acp.ts";
+import { keytarShimRequirePath } from "./fake-provider-peers.ts";
 import {
-	type FakeAcpScenario,
-	installFakeAcpProvider,
 	type ManagedChildProcess,
 	makeHermeticEnvironment,
 	makeTemporaryDirectory,
 	spawnManaged,
-} from "@zuse/testkit";
+} from "./process.ts";
 
 export type HeadlessServerHarness = {
 	readonly endpoint: string;
@@ -19,7 +19,9 @@ export type HeadlessServerHarness = {
 	readonly stop: (signal?: NodeJS.Signals) => Promise<void>;
 };
 
-const repoRoot = resolve(fileURLToPath(new URL("../../../", import.meta.url)));
+const repoRoot = resolve(
+	fileURLToPath(new NodeUrl("../../../", import.meta.url)),
+);
 
 export const startHeadlessServer = async (options?: {
 	readonly root?: string;
@@ -50,7 +52,7 @@ export const startHeadlessServer = async (options?: {
 				HOME: home,
 				XDG_DATA_HOME: join(home, ".local", "share"),
 				ZUSE_HOST: options?.host ?? "127.0.0.1",
-				ZUSE_CREDENTIAL_STORE: "ephemeral",
+				NODE_OPTIONS: `--require=${keytarShimRequirePath}`,
 				ZUSE_PORT: "0",
 				ZUSE_SERVER_READY_STDOUT: "1",
 				ZUSE_USER_DATA: userData,

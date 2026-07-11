@@ -12,5 +12,5 @@
 			"~/*": ["src/*"]
 		}
 	},
-	"include": ["app", "src", "test", "*.js"]
+	"include": ["app", "src", "*.js"]
 }

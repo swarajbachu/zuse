@@ -1,7 +1,7 @@
 import { chmodSync, copyFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeUrl } from "node:url";
 import { installHermeticProcessPath } from "./fake-acp.ts";
 
 export type FakeSdkPeer<A> = {
@@ -92,7 +92,11 @@ export const startFakeHttpProviderPeer = async (
 };
 
 const appServerFixture = fileURLToPath(
-	new URL("../fixtures/fake-app-server-provider.mjs", import.meta.url),
+	new NodeUrl("../fixtures/fake-app-server-provider.mjs", import.meta.url),
+);
+
+export const keytarShimRequirePath = fileURLToPath(
+	new NodeUrl("../fixtures/keytar-shim.cjs", import.meta.url),
 );
 
 export const installFakeAppServerProvider = (root: string): string => {

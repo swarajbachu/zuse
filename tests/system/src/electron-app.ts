@@ -2,7 +2,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeHermeticEnvironment } from "@zuse/testkit";
+import {
+	keytarShimRequirePath,
+	makeBoundedTextBuffer,
+	makeHermeticEnvironment,
+} from "@zuse/testkit";
 import {
 	_electron,
 	type ElectronApplication,
@@ -29,8 +33,12 @@ export const launchElectronApp = async (options: {
 	readonly providerBinDirectory: string;
 }): Promise<ElectronHarness> => {
 	const errors: Array<string> = [];
-	let stdout = "";
-	let stderr = "";
+	const stdout = makeBoundedTextBuffer(64 * 1024);
+	const stderr = makeBoundedTextBuffer(64 * 1024);
+	const pushError = (error: string): void => {
+		errors.push(error.slice(-4 * 1024));
+		if (errors.length > 128) errors.shift();
+	};
 	const executablePath = requireFromDesktop("electron") as string;
 	const app = await _electron.launch({
 		executablePath,
@@ -47,24 +55,24 @@ export const launchElectronApp = async (options: {
 			PATH: options.providerBinDirectory,
 			VITE_DEV_SERVER_URL: "",
 			ZUSE_DESKTOP_WS_PORT: "0",
-			ZUSE_CREDENTIAL_STORE: "ephemeral",
+			NODE_OPTIONS: `--require=${keytarShimRequirePath}`,
 			ZUSE_PRESERVE_PATH: "1",
 			ZUSE_USER_DATA_DIR: options.userData,
 		}),
 	});
 	app.process().stdout?.on("data", (chunk) => {
-		stdout += String(chunk);
+		stdout.append(String(chunk));
 	});
 	app.process().stderr?.on("data", (chunk) => {
-		stderr += String(chunk);
+		stderr.append(String(chunk));
 	});
 	const observedPages = new WeakSet<Page>();
 	const observePage = (page: Page): void => {
 		if (observedPages.has(page)) return;
 		observedPages.add(page);
-		page.on("pageerror", (error) => errors.push(error.stack ?? error.message));
+		page.on("pageerror", (error) => pushError(error.stack ?? error.message));
 		page.on("console", (message) => {
-			if (message.type() === "error") errors.push(message.text());
+			if (message.type() === "error") pushError(message.text());
 		});
 	};
 	app.on("window", observePage);
@@ -77,12 +85,13 @@ export const launchElectronApp = async (options: {
 		await app.close().catch(() => undefined);
 		throw cause;
 	}
+	let closed = false;
 	return {
 		app,
 		page,
 		errors,
 		diagnostics: () =>
-			`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout}\nmain stderr:\n${stderr}`,
+			`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout.read()}\nmain stderr:\n${stderr.read()}`,
 		captureFailure: async (name) => {
 			const directory = join(repoRoot, ".context", "test-artifacts");
 			mkdirSync(directory, { recursive: true });
@@ -91,11 +100,13 @@ export const launchElectronApp = async (options: {
 			await page.screenshot({ path: `${prefix}.png`, fullPage: true });
 			writeFileSync(
 				`${prefix}.log`,
-				`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout}\nmain stderr:\n${stderr}`,
+				`renderer errors:\n${errors.join("\n")}\nmain stdout:\n${stdout.read()}\nmain stderr:\n${stderr.read()}`,
 			);
 			return prefix;
 		},
 		close: async () => {
+			if (closed) return;
+			closed = true;
 			await app.close();
 		},
 	};

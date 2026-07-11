@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL as NodeUrl } from "node:url";
 
 export type FakeAcpScenario =
 	| "complete"
@@ -21,7 +21,7 @@ export type FakeAcpScenario =
 export type FakeAcpInstallation = {
 	readonly binDirectory: string;
 	readonly executable: string;
-	readonly environment: NodeJS.ProcessEnv;
+	readonly environment: Readonly<Record<string, string>>;
 };
 
 export type FakeAcpEvent = {
@@ -37,6 +37,7 @@ export type FakeAcpController = {
 		timeoutMs?: number,
 	) => Promise<FakeAcpEvent>;
 	readonly send: (command: Readonly<Record<string, unknown>>) => void;
+	readonly events: (event?: string) => ReadonlyArray<FakeAcpEvent>;
 	readonly close: () => Promise<void>;
 };
 
@@ -78,7 +79,7 @@ export const installHermeticProcessPath = (root: string): string => {
 };
 
 const fixture = fileURLToPath(
-	new URL("../fixtures/fake-acp-provider.mjs", import.meta.url),
+	new NodeUrl("../fixtures/fake-acp-provider.mjs", import.meta.url),
 );
 
 export const installFakeAcpProvider = (options: {
@@ -96,6 +97,7 @@ export const installFakeAcpProvider = (options: {
 		executable,
 		environment: {
 			ZUSE_FAKE_ACP_SCENARIO: options.scenario ?? "complete",
+			ZUSE_FAKE_ACP_STATE_DIR: join(options.root, "fake-acp-state"),
 			...(options.controlPort === undefined
 				? {}
 				: { ZUSE_FAKE_ACP_CONTROL_PORT: String(options.controlPort) }),
@@ -146,6 +148,8 @@ export const startFakeAcpController = async (): Promise<FakeAcpController> => {
 	}
 	return {
 		port: address.port,
+		events: (event) =>
+			history.filter((value) => event === undefined || value.event === event),
 		waitFor: (event, predicate = () => true, timeoutMs = 10_000) => {
 			const existing = history.find(
 				(value) => value.event === event && predicate(value),

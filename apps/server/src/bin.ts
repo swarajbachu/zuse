@@ -43,8 +43,6 @@ export const runHeadlessServer = (): void => {
 		process.env.ZUSE_ADVERTISED_HOST ??
 		(host === "0.0.0.0" || host === "::" ? null : host);
 	const pairingBootstrap = process.env.ZUSE_ENABLE_PAIRING === "1";
-	const credentialStore =
-		process.env.ZUSE_CREDENTIAL_STORE === "ephemeral" ? "ephemeral" : "os";
 
 	const layer = makeMainLayer({
 		userData,
@@ -71,7 +69,6 @@ export const runHeadlessServer = (): void => {
 			open: () => Effect.void,
 			onCallbackUrl: () => Effect.void,
 		},
-		credentialStore,
 		lanAuth: { policy, advertisedHost, port, pairingBootstrap },
 	});
 

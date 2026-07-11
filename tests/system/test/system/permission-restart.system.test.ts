@@ -1,36 +1,33 @@
-import { join } from "node:path";
-import { MessageId } from "@zuse/contracts";
-import {
-	eventually,
-	makeTemporaryDirectory,
-	startFakeAcpController,
-} from "@zuse/testkit";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	createSystemConversation,
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
-import { startHeadlessServer } from "../../src/headless-server.ts";
-import { connectSystemRpc } from "../../src/rpc-client.ts";
+import { waitForSessionMessages } from "../../src/session-observer.ts";
+import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("permission recovery through production RPC", () => {
 	it("restores and resolves a pending permission after process death", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-permission-");
-		const controller = await startFakeAcpController();
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		let server = await startHeadlessServer({
-			root: temporary.path,
-			scenario: "permission",
-			controlPort: controller.port,
-		});
-		let session = await connectSystemRpc(server.endpoint);
-		try {
+		await withSystemTest("zuse-system-permission-", async (scope) => {
+			const controller = await scope.controller();
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			let server = await scope.server({
+				scenario: "permission",
+				controlPort: controller.port,
+			});
+			let session = await scope.rpc(server.endpoint);
 			const { conversation } = await createSystemConversation(
 				session.client,
 				repository,
 				{ runtimeMode: "approval-required" },
+			);
+			const pendingRequest = Effect.runPromise(
+				session.client["permission.requests"]({}).pipe(
+					Stream.take(1),
+					Stream.runCollect,
+				),
 			);
 			await Effect.runPromise(
 				session.client["messages.send"]({
@@ -39,22 +36,21 @@ describe("permission recovery through production RPC", () => {
 				}),
 			);
 			await controller.waitFor("permission.requested");
-			const beforeRestart = await eventually(
-				() =>
-					Effect.runPromise(
-						session.client["permission.listPending"]({
-							sessionId: conversation.initialSession.id,
-						}),
-					),
-				(value) => value.length === 1,
-				"pending permission before restart",
-			);
+			const beforeRestart = Array.from(await pendingRequest);
 
 			await session.dispose();
 			await server.stop("SIGKILL");
-			await controller.close();
-			server = await startHeadlessServer({ root: temporary.path });
-			session = await connectSystemRpc(server.endpoint);
+			server = await scope.server({
+				scenario: "permission",
+				controlPort: controller.port,
+			});
+			session = await scope.rpc(server.endpoint);
+			const resume = Effect.runPromise(
+				session.client["session.resume"]({
+					sessionId: conversation.initialSession.id,
+				}),
+			);
+			await controller.waitFor("permission.resumed");
 
 			const restored = await Effect.runPromise(
 				session.client["permission.listPending"]({
@@ -74,6 +70,8 @@ describe("permission recovery through production RPC", () => {
 					decision: { _tag: "AllowOnce" },
 				}),
 			);
+			await controller.waitFor("permission.continued");
+			await resume;
 			await expect(
 				Effect.runPromise(
 					session.client["permission.decide"]({
@@ -90,44 +88,27 @@ describe("permission recovery through production RPC", () => {
 				),
 			).toEqual([]);
 
-			await Effect.runPromise(
-				session.client["session.resume"]({
+			await waitForSessionMessages(
+				session.client,
+				conversation.initialSession.id,
+				(message) =>
+					message.content._tag === "assistant" &&
+					message.content.text.includes("Permission accepted."),
+			);
+			const messages = await Effect.runPromise(
+				session.client["messages.list"]({
 					sessionId: conversation.initialSession.id,
 				}),
-			);
-			await Effect.runPromise(
-				session.client["messages.send"]({
-					sessionId: conversation.initialSession.id,
-					text: "Continue after permission recovery.",
-					clientMessageId: MessageId.make("permission-recovery-continuation"),
-				}),
-			);
-			const messages = await eventually(
-				() =>
-					Effect.runPromise(
-						session.client["messages.list"]({
-							sessionId: conversation.initialSession.id,
-						}),
-					),
-				(value) =>
-					value.some((message) => message.content._tag === "assistant"),
-				"turn after permission recovery",
 			);
 			expect(
 				messages.some((message) => message.content._tag === "assistant"),
 			).toBe(true);
 			expect(
-				messages.filter(
-					(message) =>
-						message.content._tag === "user" &&
-						message.content.text === "Continue after permission recovery.",
-				),
+				messages.filter((message) => message.role === "user"),
 			).toHaveLength(1);
-		} finally {
-			await session.dispose();
-			await server.stop();
-			await controller.close();
-			temporary.dispose();
-		}
+			expect(
+				messages.filter((message) => message.content._tag === "assistant"),
+			).toHaveLength(1);
+		});
 	}, 60_000);
 });

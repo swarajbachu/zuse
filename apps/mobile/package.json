@@ -7,7 +7,7 @@
 		"start": "expo start",
 		"ios": "expo run:ios",
 		"lint": "eslint .",
-		"check-types": "tsc --noEmit",
+		"check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
 		"test": "vitest run test",
 		"test:unit": "vitest run test/unit",
 		"test:integration": "vitest run test/integration --passWithNoTests",
@@ -65,7 +65,9 @@
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
 		"@types/react": "catalog:",
+		"@zuse/testkit": "*",
 		"babel-preset-expo": "~57.0.0",
 		"eslint": "catalog:",
 		"eslint-config-expo": "~57.0.0",

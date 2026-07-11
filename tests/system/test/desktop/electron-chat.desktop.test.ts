@@ -1,10 +1,6 @@
-import { existsSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import {
-	eventually,
-	installFakeAcpProvider,
-	makeTemporaryDirectory,
-} from "@zuse/testkit";
+import { installFakeAcpProvider, waitForFile } from "@zuse/testkit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,19 +8,16 @@ import {
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
 import { launchElectronApp } from "../../src/electron-app.ts";
-import { startHeadlessServer } from "../../src/headless-server.ts";
-import { connectSystemRpc } from "../../src/rpc-client.ts";
+import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("built Electron application", () => {
 	it("boots, sends a real chat turn, and restores the transcript after relaunch", async () => {
-		const temporary = makeTemporaryDirectory("zuse-electron-system-");
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		const server = await startHeadlessServer({ root: temporary.path });
-		const rpc = await connectSystemRpc(server.endpoint);
-		const provider = installFakeAcpProvider({ root: temporary.path });
-		let electron: Awaited<ReturnType<typeof launchElectronApp>> | undefined;
-		try {
+		await withSystemTest("zuse-electron-system-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			const server = await scope.server();
+			const rpc = await scope.rpc(server.endpoint);
+			const provider = installFakeAcpProvider({ root: scope.root });
 			await Effect.runPromise(
 				rpc.client["settings.update"]({
 					patch: {
@@ -44,11 +37,15 @@ describe("built Electron application", () => {
 			await rpc.dispose();
 			await server.stop();
 
-			electron = await launchElectronApp({
-				root: temporary.path,
-				userData: server.userData,
-				providerBinDirectory: provider.binDirectory,
-			});
+			let electron = await scope.acquire(
+				() =>
+					launchElectronApp({
+						root: scope.root,
+						userData: server.userData,
+						providerBinDirectory: provider.binDirectory,
+					}),
+				(value) => value.close(),
+			);
 			await electron.page
 				.getByText(conversation.chat.title, { exact: true })
 				.first()
@@ -75,11 +72,15 @@ describe("built Electron application", () => {
 			expect(electron.errors).toEqual([]);
 
 			await electron.close();
-			electron = await launchElectronApp({
-				root: temporary.path,
-				userData: server.userData,
-				providerBinDirectory: provider.binDirectory,
-			});
+			electron = await scope.acquire(
+				() =>
+					launchElectronApp({
+						root: scope.root,
+						userData: server.userData,
+						providerBinDirectory: provider.binDirectory,
+					}),
+				(value) => value.close(),
+			);
 			await electron.page
 				.getByText(conversation.chat.title, { exact: true })
 				.first()
@@ -99,40 +100,41 @@ describe("built Electron application", () => {
 				);
 			}
 			expect(electron.errors).toEqual([]);
-		} finally {
-			await electron?.close().catch(() => undefined);
-			await rpc.dispose().catch(() => undefined);
-			await server.stop().catch(() => undefined);
-			temporary.dispose();
-		}
+		});
 	}, 90_000);
 
 	it("cold-starts the renderer and creates the production database", async () => {
-		const temporary = makeTemporaryDirectory("zuse-electron-smoke-");
-		const userData = join(temporary.path, "user-data");
-		const provider = installFakeAcpProvider({ root: temporary.path });
-		let electron: Awaited<ReturnType<typeof launchElectronApp>> | undefined;
-		try {
-			electron = await launchElectronApp({
-				root: temporary.path,
-				userData,
-				providerBinDirectory: provider.binDirectory,
-			});
-			await electron.page.locator("body").waitFor({ state: "visible" });
-			await eventually(
-				() => existsSync(join(userData, "zuse.sqlite")),
-				(value) => value,
-				"Electron production database creation",
+		await withSystemTest("zuse-electron-smoke-", async (scope) => {
+			const userData = scope.path("user-data");
+			mkdirSync(userData, { recursive: true });
+			const fileWait = new AbortController();
+			scope.defer(() => fileWait.abort());
+			const databaseReady = waitForFile(
+				join(userData, "zuse.sqlite"),
+				20_000,
+				fileWait.signal,
 			);
-			expect(electron.errors).toEqual([]);
-		} catch (cause) {
-			const artifact = await electron?.captureFailure("electron-cold-start");
-			throw new Error(
-				`${cause instanceof Error ? cause.message : String(cause)}${artifact === undefined ? "" : `\nartifact: ${artifact}`}`,
-			);
-		} finally {
-			await electron?.close().catch(() => undefined);
-			temporary.dispose();
-		}
+			const provider = installFakeAcpProvider({ root: scope.root });
+			let electron: Awaited<ReturnType<typeof launchElectronApp>> | undefined;
+			try {
+				const launch = scope.acquire(
+					() =>
+						launchElectronApp({
+							root: scope.root,
+							userData,
+							providerBinDirectory: provider.binDirectory,
+						}),
+					(value) => value.close(),
+				);
+				[electron] = await Promise.all([launch, databaseReady]);
+				await electron.page.locator("body").waitFor({ state: "visible" });
+				expect(electron.errors).toEqual([]);
+			} catch (cause) {
+				const artifact = await electron?.captureFailure("electron-cold-start");
+				throw new Error(
+					`${cause instanceof Error ? cause.message : String(cause)}${artifact === undefined ? "" : `\nartifact: ${artifact}`}`,
+				);
+			}
+		});
 	}, 45_000);
 });

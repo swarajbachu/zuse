@@ -2,33 +2,26 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { MessageId } from "@zuse/contracts";
-import {
-	eventually,
-	makeTemporaryDirectory,
-	startFakeAcpController,
-} from "@zuse/testkit";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	createSystemConversation,
 	initializeSystemRepository,
 } from "../../src/conversation-fixture.ts";
-import { startHeadlessServer } from "../../src/headless-server.ts";
-import { connectSystemRpc } from "../../src/rpc-client.ts";
+import { waitForSessionMessages } from "../../src/session-observer.ts";
+import { withSystemTest } from "../../src/system-scope.ts";
 
 describe("durable RPC operations", () => {
 	it("recovers queued work exactly once after an abrupt server restart", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-queue-");
-		const controller = await startFakeAcpController();
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		let server = await startHeadlessServer({
-			root: temporary.path,
-			scenario: "hold",
-			controlPort: controller.port,
-		});
-		let session = await connectSystemRpc(server.endpoint);
-		try {
+		await withSystemTest("zuse-system-queue-", async (scope) => {
+			const controller = await scope.controller();
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			let server = await scope.server({
+				scenario: "hold",
+				controlPort: controller.port,
+			});
+			let session = await scope.rpc(server.endpoint);
 			const { conversation } = await createSystemConversation(
 				session.client,
 				repository,
@@ -60,31 +53,34 @@ describe("durable RPC operations", () => {
 
 			await session.dispose();
 			await server.stop("SIGKILL");
-			await controller.close();
-			server = await startHeadlessServer({ root: temporary.path });
-			session = await connectSystemRpc(server.endpoint);
+			server = await scope.server({
+				controlPort: controller.port,
+			});
+			session = await scope.rpc(server.endpoint);
 
-			const messages = await eventually(
-				() =>
-					Effect.runPromise(
-						session.client["messages.list"]({
-							sessionId: conversation.initialSession.id,
-						}),
-					),
-				(value) => {
-					const recovered = value.filter(
-						(message) =>
-							message.content._tag === "user" &&
-							message.content.text.startsWith("Recovered queued turn"),
-					);
-					return (
-						recovered.length === 2 &&
-						value.filter((message) => message.content._tag === "assistant")
-							.length >= 2
-					);
-				},
-				"recovered queued turns in order",
+			for (const text of [
+				"Recovered queued turn 1",
+				"Recovered queued turn 2",
+			]) {
+				await controller.waitFor(
+					"prompt.received",
+					(event) =>
+						typeof event.prompt === "string" && event.prompt.includes(text),
+					20_000,
+				);
+			}
+
+			await waitForSessionMessages(
+				session.client,
+				conversation.initialSession.id,
+				(message) => message.content._tag === "assistant",
+				2,
 				20_000,
+			);
+			const messages = await Effect.runPromise(
+				session.client["messages.list"]({
+					sessionId: conversation.initialSession.id,
+				}),
 			);
 			const recoveredTexts = messages
 				.filter(
@@ -99,26 +95,34 @@ describe("durable RPC operations", () => {
 				"Recovered queued turn 1",
 				"Recovered queued turn 2",
 			]);
+			for (const text of [
+				"Recovered queued turn 1",
+				"Recovered queued turn 2",
+			]) {
+				expect(
+					controller
+						.events("prompt.received")
+						.filter(
+							(event) =>
+								typeof event.prompt === "string" && event.prompt.includes(text),
+						),
+				).toHaveLength(1);
+			}
 			const queue = await Effect.runPromise(
 				session.client["messages.queue.list"]({
 					sessionId: conversation.initialSession.id,
 				}),
 			);
 			expect(queue.items).toEqual([]);
-		} finally {
-			await session.dispose();
-			await server.stop();
-			temporary.dispose();
-		}
+		});
 	}, 60_000);
 
 	it("deduplicates concurrent client message identifiers and uses real Git", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-idempotency-");
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		const server = await startHeadlessServer({ root: temporary.path });
-		const session = await connectSystemRpc(server.endpoint);
-		try {
+		await withSystemTest("zuse-system-idempotency-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			const server = await scope.server();
+			const session = await scope.rpc(server.endpoint);
 			const { folder, conversation } = await createSystemConversation(
 				session.client,
 				repository,
@@ -157,16 +161,15 @@ describe("durable RPC operations", () => {
 				Effect.runPromise(session.client["messages.send"](payload)),
 				Effect.runPromise(session.client["messages.send"](payload)),
 			]);
-			const messages = await eventually(
-				() =>
-					Effect.runPromise(
-						session.client["messages.list"]({
-							sessionId: conversation.initialSession.id,
-						}),
-					),
-				(value) =>
-					value.some((message) => message.content._tag === "assistant"),
-				"idempotent provider response",
+			await waitForSessionMessages(
+				session.client,
+				conversation.initialSession.id,
+				(message) => message.content._tag === "assistant",
+			);
+			const messages = await Effect.runPromise(
+				session.client["messages.list"]({
+					sessionId: conversation.initialSession.id,
+				}),
 			);
 			expect(
 				messages.filter(
@@ -175,20 +178,15 @@ describe("durable RPC operations", () => {
 						message.content.text === "Idempotent message",
 				),
 			).toHaveLength(1);
-		} finally {
-			await session.dispose();
-			await server.stop();
-			temporary.dispose();
-		}
+		});
 	}, 45_000);
 
 	it("keeps parallel session streams isolated", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-parallel-");
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		const server = await startHeadlessServer({ root: temporary.path });
-		const session = await connectSystemRpc(server.endpoint);
-		try {
+		await withSystemTest("zuse-system-parallel-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			const server = await scope.server();
+			const session = await scope.rpc(server.endpoint);
 			const folder = await Effect.runPromise(
 				session.client["workspace.add"]({ path: repository }),
 			);
@@ -219,28 +217,28 @@ describe("durable RPC operations", () => {
 					}),
 				),
 			]);
-			const [firstMessages, secondMessages] = await Promise.all([
-				eventually(
-					() =>
-						Effect.runPromise(
-							session.client["messages.list"]({
-								sessionId: first.initialSession.id,
-							}),
-						),
-					(messages) =>
-						messages.some((message) => message.content._tag === "assistant"),
-					"first parallel response",
+			await Promise.all([
+				waitForSessionMessages(
+					session.client,
+					first.initialSession.id,
+					(message) => message.content._tag === "assistant",
 				),
-				eventually(
-					() =>
-						Effect.runPromise(
-							session.client["messages.list"]({
-								sessionId: second.initialSession.id,
-							}),
-						),
-					(messages) =>
-						messages.some((message) => message.content._tag === "assistant"),
-					"second parallel response",
+				waitForSessionMessages(
+					session.client,
+					second.initialSession.id,
+					(message) => message.content._tag === "assistant",
+				),
+			]);
+			const [firstMessages, secondMessages] = await Promise.all([
+				Effect.runPromise(
+					session.client["messages.list"]({
+						sessionId: first.initialSession.id,
+					}),
+				),
+				Effect.runPromise(
+					session.client["messages.list"]({
+						sessionId: second.initialSession.id,
+					}),
 				),
 			]);
 			expect(
@@ -257,21 +255,26 @@ describe("durable RPC operations", () => {
 						message.content.text === "first-only",
 				),
 			).toBe(false);
-		} finally {
-			await session.dispose();
-			await server.stop();
-			temporary.dispose();
-		}
+		});
 	}, 45_000);
 
 	it("fails SQLite write contention promptly and recovers after release", async () => {
-		const temporary = makeTemporaryDirectory("zuse-system-contention-");
-		const repository = join(temporary.path, "repository");
-		initializeSystemRepository(repository);
-		const server = await startHeadlessServer({ root: temporary.path });
-		const session = await connectSystemRpc(server.endpoint);
-		const blocker = new DatabaseSync(join(server.userData, "zuse.sqlite"));
-		try {
+		await withSystemTest("zuse-system-contention-", async (scope) => {
+			const repository = scope.path("repository");
+			initializeSystemRepository(repository);
+			const server = await scope.server();
+			const session = await scope.rpc(server.endpoint);
+			const blocker = await scope.acquire(
+				() => new DatabaseSync(join(server.userData, "zuse.sqlite")),
+				(database) => database.close(),
+			);
+			scope.defer(() => {
+				try {
+					blocker.exec("ROLLBACK");
+				} catch {
+					// The successful-path rollback already released the transaction.
+				}
+			});
 			blocker.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
 			const startedAt = Date.now();
 			await expect(
@@ -286,16 +289,6 @@ describe("durable RPC operations", () => {
 				session.client["workspace.add"]({ path: repository }),
 			);
 			expect(folder.path).toBe(repository);
-		} finally {
-			try {
-				blocker.exec("ROLLBACK");
-			} catch {
-				// The successful-path rollback already released the transaction.
-			}
-			blocker.close();
-			await session.dispose();
-			await server.stop();
-			temporary.dispose();
-		}
+		});
 	}, 30_000);
 });

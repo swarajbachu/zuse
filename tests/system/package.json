@@ -16,11 +16,13 @@
 		"@zuse/client-runtime": "*",
 		"@zuse/contracts": "*",
 		"@zuse/testkit": "*",
-		"effect": "catalog:"
+		"effect": "catalog:",
+		"ws": "^8.21.0"
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
 		"@types/node": "catalog:",
+		"@types/ws": "^8.18.1",
 		"playwright-core": "^1.55.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
