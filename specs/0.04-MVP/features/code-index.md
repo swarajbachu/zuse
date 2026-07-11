@@ -353,7 +353,7 @@ Two consumption shapes.
 Codex SDK adapters register five custom tools at session start:
 
 ```ts
-// apps/server/src/provider/drivers/claude.ts (additions)
+// packages/agents/src/drivers/claude.ts (additions)
 registerTool("code_search",     IndexService.search)
 registerTool("symbol_lookup",   IndexService.symbolLookup)
 registerTool("find_references", IndexService.findReferences)

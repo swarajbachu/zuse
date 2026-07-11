@@ -42,7 +42,7 @@ export const TASKS: ReadonlyArray<EvalTask> = [
   {
     id: "T01-startClaudeSession",
     question: "Where is the Claude SDK session started?",
-    acceptableFiles: ["apps/server/src/provider/drivers/claude.ts"],
+    acceptableFiles: ["packages/agents/src/drivers/claude.ts"],
     symbol: "startClaudeSession",
     grepPattern: "startClaudeSession",
   },

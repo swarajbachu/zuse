@@ -1,21 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { Schema } from "effect";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-
-import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/contracts";
-
-import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
+import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
+import {
+  type AcpProviderTag,
+  createAcpTranslator,
+} from "@zuse/agents/drivers/acp/translate";
 import {
   translateCodexItem,
   translateCodexStatusNotification,
-} from "../src/provider/drivers/codex.ts";
-import {
-  createAcpTranslator,
-  type AcpProviderTag,
-} from "../src/provider/drivers/acp/translate.ts";
+} from "@zuse/agents/drivers/codex";
+import { AgentEvent, type AgentEvent as AgentEventType } from "@zuse/contracts";
+import { Schema } from "effect";
+import { describe, expect, it } from "vitest";
 import { assertEventsAcceptedByConversationServices } from "./support/conversation-services-fixture-harness.ts";
 
 type AcpFixture = {

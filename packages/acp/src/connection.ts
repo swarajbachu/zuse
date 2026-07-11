@@ -2,6 +2,13 @@ import type { Readable, Writable } from "node:stream";
 import { Schema } from "effect";
 
 import { JsonRpcMessage, type JsonRpcNotification } from "./protocol.js";
+import {
+	AcpResponseError,
+	AcpRpcClient,
+	type AcpRpcMessage,
+} from "./rpc-client.js";
+
+export { AcpResponseError } from "./rpc-client.js";
 
 export class AcpConnectionClosedError extends Error {
 	constructor(message = "ACP connection closed") {
@@ -10,35 +17,22 @@ export class AcpConnectionClosedError extends Error {
 	}
 }
 
-export class AcpResponseError extends Error {
-	constructor(
-		readonly code: number,
-		message: string,
-		readonly data?: unknown,
-	) {
-		super(message);
-		this.name = "AcpResponseError";
-	}
-}
-
-type Pending = {
-	readonly resolve: (value: unknown) => void;
-	readonly reject: (cause: unknown) => void;
-};
-
 export class AcpConnection {
-	private readonly pending = new Map<string | number, Pending>();
 	private readonly listeners = new Set<
 		(message: JsonRpcNotification) => void
 	>();
+	private readonly rpc: AcpRpcClient;
 	private buffer = "";
-	private nextId = 1;
 	private closed = false;
 
 	constructor(
 		private readonly readable: Readable,
 		private readonly writable: Writable,
 	) {
+		this.rpc = new AcpRpcClient((message) => {
+			if (this.closed) throw new AcpConnectionClosedError();
+			this.writable.write(`${JSON.stringify(message)}\n`);
+		});
 		readable.setEncoding("utf8");
 		readable.on("data", this.onData);
 		readable.once("end", this.onEnd);
@@ -52,11 +46,8 @@ export class AcpConnection {
 	}
 
 	notify(method: string, params?: unknown): void {
-		this.write({
-			jsonrpc: "2.0",
-			method,
-			...(params === undefined ? {} : { params }),
-		});
+		if (this.closed) throw new AcpConnectionClosedError();
+		this.rpc.notify(method, params);
 	}
 
 	async request<A>(
@@ -65,21 +56,16 @@ export class AcpConnection {
 		result: Schema.Codec<A>,
 	): Promise<A> {
 		if (this.closed) throw new AcpConnectionClosedError();
-		const id = this.nextId++;
-		const response = new Promise<unknown>((resolve, reject) => {
-			this.pending.set(id, { resolve, reject });
-		});
-		this.write({ jsonrpc: "2.0", id, method, params });
-		return Schema.decodeUnknownPromise(result)(await response);
+		return Schema.decodeUnknownPromise(result)(
+			await this.rpc.request(method, params),
+		);
 	}
 
 	close(): void {
 		if (this.closed) return;
 		this.closed = true;
 		this.detach();
-		const error = new AcpConnectionClosedError();
-		for (const pending of this.pending.values()) pending.reject(error);
-		this.pending.clear();
+		this.rpc.rejectAll(new AcpConnectionClosedError());
 	}
 
 	private readonly onData = (chunk: string): void => {
@@ -102,24 +88,15 @@ export class AcpConnection {
 			this.failAll(cause);
 			return;
 		}
-		if ("id" in message && "result" in message) {
-			this.pending.get(message.id)?.resolve(message.result);
-			this.pending.delete(message.id);
-			return;
-		}
-		if ("id" in message && "error" in message) {
-			if (message.id !== null) {
-				this.pending
-					.get(message.id)
-					?.reject(
-						new AcpResponseError(
-							message.error.code,
-							message.error.message,
-							message.error.data,
-						),
-					);
-				this.pending.delete(message.id);
-			}
+		if ("id" in message) {
+			this.rpc.acceptResponse(message as AcpRpcMessage, {
+				mapError: (error) =>
+					new AcpResponseError(
+						error.code ?? -32603,
+						error.message ?? "Unknown ACP error",
+						error.data,
+					),
+			});
 			return;
 		}
 		if (!("id" in message)) {
@@ -127,17 +104,13 @@ export class AcpConnection {
 		}
 	}
 
-	private write(message: unknown): void {
-		if (this.closed) throw new AcpConnectionClosedError();
-		this.writable.write(`${JSON.stringify(message)}\n`);
-	}
-
 	private readonly onEnd = (): void => this.close();
 	private readonly onError = (cause: Error): void => this.failAll(cause);
 
 	private failAll(cause: unknown): void {
-		for (const pending of this.pending.values()) pending.reject(cause);
-		this.pending.clear();
+		this.rpc.rejectAll(
+			cause instanceof Error ? cause : new Error(String(cause)),
+		);
 	}
 
 	private detach(): void {

@@ -1,12 +1,8 @@
 import * as os from "node:os";
 import * as path from "node:path";
-
-import { FileSystem } from "effect";
-import { Effect, Layer } from "effect";
-
-import { Skill, type ProviderId } from "@zuse/contracts";
-
-import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
+import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { type ProviderId, Skill } from "@zuse/contracts";
+import { Effect, FileSystem, Layer } from "effect";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 

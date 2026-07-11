@@ -89,23 +89,25 @@ describe("SqlSessionProjector", () => {
 		]);
 	});
 
-	test("rejects an incomplete legacy creation event", async () => {
-		await expect(
-			run(
-				Effect.gen(function* () {
-					yield* createDomainTestSchema();
-					const sql = yield* SqlClient.SqlClient;
-					yield* makeSqlSessionProjector(sql).apply(
-						stored(1, {
-							_tag: "SessionCreated",
-							sessionId: "session-1",
-							chatId: "chat-1",
-							projectId: "project-1",
-							createdAt: 1,
-						}),
-					);
-				}),
-			),
-		).rejects.toMatchObject({ _tag: "SessionProjectionDecodeError" });
+	test("defaults queue state for creation events written before that field existed", async () => {
+		const { queuePaused: _, ...legacyCreation } = sessionCreation;
+		const queuePaused = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				yield* makeSqlSessionProjector(sql).apply(
+					stored(1, { _tag: "SessionCreated", ...legacyCreation }),
+				);
+				const rows = yield* sql<{ readonly queue_paused: number }>`
+					SELECT queue_paused FROM sessions WHERE id = 'session-1'
+				`;
+				return rows[0]?.queue_paused;
+			}),
+		);
+		expect(queuePaused).toBe(0);
 	});
 });

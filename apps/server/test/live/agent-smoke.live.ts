@@ -1,27 +1,25 @@
-import { describe, expect, it } from "vitest";
-import { Effect, Fiber, Layer, Stream } from "effect";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
-
+import { startClaudeSession } from "@zuse/agents/drivers/claude";
+import { startCodexSession } from "@zuse/agents/drivers/codex";
+import { startGeminiSession } from "@zuse/agents/drivers/gemini";
+import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
-  DEFAULT_RUNTIME_MODE,
   type AgentEvent,
   type AgentSessionId,
+  DEFAULT_RUNTIME_MODE,
   type FolderId,
   type PermissionDecision,
   type PermissionKind,
   type ProviderId,
   type StartSessionInput,
 } from "@zuse/contracts";
-
-import { AttachmentService } from "../../src/attachment/services/attachment-service.ts";
-import { startClaudeSession } from "../../src/provider/drivers/claude.ts";
-import { startCodexSession } from "../../src/provider/drivers/codex.ts";
-import { startGeminiSession } from "../../src/provider/drivers/gemini.ts";
-import { startGrokSession } from "../../src/provider/drivers/grok.ts";
-import { startOpencodeSession } from "../../src/provider/drivers/opencode.ts";
+import { Effect, Fiber, Layer, Stream } from "effect";
+import { describe, expect, it } from "vitest";
 
 type LiveProvider = {
   readonly providerId: ProviderId;
@@ -159,9 +157,10 @@ const startProvider = async (
         requestPermission,
         () => DEFAULT_RUNTIME_MODE,
       );
-    case "cursor":
-      const { startCursorSession } =
-        await import("../../src/provider/drivers/cursor.ts");
+    case "cursor": {
+      const { startCursorSession } = await import(
+        "@zuse/agents/drivers/cursor"
+      );
       return startCursorSession(
         input,
         cwd,
@@ -171,6 +170,7 @@ const startProvider = async (
         requestPermission,
         () => DEFAULT_RUNTIME_MODE,
       );
+    }
     case "opencode":
       return startOpencodeSession(input, cwd, apiKey, binaryPath, sessionId);
   }

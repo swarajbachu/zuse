@@ -5,6 +5,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { ChatEvent } from "../chat/events.js";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
+import { updateChatLastMessage } from "./chat-last-message-projection.js";
 
 export const makeSqlChatProjector = (
 	sql: SqlClient.SqlClient,
@@ -65,11 +66,19 @@ export const makeSqlChatProjector = (
 					UPDATE chats
 					SET active_session_id = ${event.sessionId}, updated_at = ${updatedAt}
 					WHERE id = ${record.streamId}
-					  AND EXISTS (
+					  AND (${event.sessionId} IS NULL OR EXISTS (
 						SELECT 1 FROM sessions
 						WHERE id = ${event.sessionId} AND chat_id = ${record.streamId}
-					  )
+					  ))
 				`;
+				return;
+			}
+			case "ChatLastMessageSet": {
+				yield* updateChatLastMessage(
+					sql,
+					{ _tag: "Chat", chatId: record.streamId },
+					event.messageAt,
+				);
 				return;
 			}
 			case "ChatArchiveRequested":

@@ -40,6 +40,10 @@ export const SessionEvent = Schema.Union([
 		status: SessionConfigurationFields.status,
 		updatedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("SessionQueuePausedSet", {
+		paused: Schema.Boolean,
+		updatedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SessionResumeSet", {
 		cursor: SessionConfigurationFields.cursor,
 		resumeStrategy: SessionConfigurationFields.resumeStrategy,

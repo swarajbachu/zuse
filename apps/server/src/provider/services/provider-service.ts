@@ -1,4 +1,4 @@
-import { Context, type Effect, type Stream } from "effect";
+import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 
 import type {
   AgentAvailability,
@@ -20,9 +20,8 @@ import type {
   ThreadGoalSetInput,
   UserQuestionAnswer,
 } from "@zuse/contracts";
-
+import { Context, type Effect, type Stream } from "effect";
 import type { CredentialsError } from "../errors.ts";
-import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.ts";
 
 /**
  * Live-read of the per-session runtime mode. Bound at start time and read by
@@ -32,10 +31,9 @@ import type { OrchestrationSessionTools } from "../drivers/orchestration-tools.t
 export type GetRuntimeMode = () => RuntimeMode;
 
 /**
- * Public-facing service that the RPC handlers bind to. Every wire RPC
- * (`agent.availability`, `agent.start`, `agent.send`, …) maps to one method
- * here. The live impl (PR 5+) composes `ProviderRegistry`, `Credentials`, and
- * the spawn-CLI helper to satisfy these.
+ * Provider-process service used by the conversation runtime. Public RPCs bind
+ * to session operations; those operations use this service to manage the
+ * corresponding provider handle and event stream.
  */
 export interface ProviderServiceShape {
   readonly availability: (

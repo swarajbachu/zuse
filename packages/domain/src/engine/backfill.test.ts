@@ -21,7 +21,9 @@ const session = {
 	forkedFromMessageId: null,
 	permissionMode: "default",
 	toolSearch: false,
+	queuePaused: false,
 	createdAt: 10,
+	updatedAt: 10,
 	archivedAt: null,
 	deletedAt: null,
 } as const;
@@ -65,17 +67,17 @@ describe("synthesizeBackfill", () => {
 
 		expect(events.map((event) => event.event._tag)).toEqual([
 			"SessionCreated",
-			"SessionTitleSet",
 			"MessagePersisted",
 			"SessionArchived",
+			"SessionTitleSet",
 		]);
 		expect(events.map((event) => event.eventId)).toEqual([
 			"backfill:session-created:session-1",
-			"backfill:session-title:session-1",
 			"backfill:message:message-2",
 			"backfill:session-archived:session-1",
+			"backfill:session-title:session-1",
 		]);
-		expect(events[2]?.event).toMatchObject({
+		expect(events[1]?.event).toMatchObject({
 			_tag: "MessagePersisted",
 			contentJson,
 			parentItemId: "message-1",

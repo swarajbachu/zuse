@@ -5,6 +5,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 import { CompleteSessionCreatedEvent } from "../core/session-fields.js";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
+import { updateChatLastMessage } from "./chat-last-message-projection.js";
 
 export class SessionProjectionDecodeError extends Schema.TaggedErrorClass<SessionProjectionDecodeError>()(
 	"SessionProjectionDecodeError",
@@ -45,7 +46,7 @@ export const makeSqlSessionProjector = (
 						 archived_at, cursor, resume_strategy, runtime_mode,
 						 agents_json, worktree_id, chat_id, forked_from_session_id,
 						 forked_from_message_id, permission_mode, tool_search,
-						 created_at, updated_at)
+						 queue_paused, created_at, updated_at)
 					VALUES
 						(${created.sessionId}, ${created.projectId}, ${created.title},
 						 ${created.providerId}, ${created.model}, ${created.status}, NULL,
@@ -53,7 +54,7 @@ export const makeSqlSessionProjector = (
 						 ${created.agentsJson}, ${created.worktreeId}, ${created.chatId},
 						 ${created.forkedFromSessionId}, ${created.forkedFromMessageId},
 						 ${created.permissionMode}, ${created.toolSearch ? 1 : 0},
-						 ${createdAt}, ${createdAt})
+						 ${created.queuePaused ? 1 : 0}, ${createdAt}, ${createdAt})
 				`;
 				yield* sql`
 					UPDATE chats
@@ -124,6 +125,15 @@ export const makeSqlSessionProjector = (
 				`;
 				return;
 			}
+			case "SessionQueuePausedSet": {
+				const updatedAt = new Date(event.updatedAt).toISOString();
+				yield* sql`
+					UPDATE sessions
+					SET queue_paused = ${event.paused ? 1 : 0}, updated_at = ${updatedAt}
+					WHERE id = ${record.streamId}
+				`;
+				return;
+			}
 			case "SessionResumeSet": {
 				const updatedAt = new Date(event.updatedAt).toISOString();
 				yield* sql`
@@ -185,12 +195,11 @@ export const makeSqlSessionProjector = (
 					UPDATE sessions SET updated_at = ${createdAt}
 					WHERE id = ${record.streamId}
 				`;
-				yield* sql`
-					UPDATE chats SET last_message_at = ${createdAt}
-					WHERE id = (
-						SELECT chat_id FROM sessions WHERE id = ${record.streamId}
-					)
-				`;
+				yield* updateChatLastMessage(
+					sql,
+					{ _tag: "Session", sessionId: record.streamId },
+					event.createdAt,
+				);
 				return;
 			}
 			case "ProviderAttached":

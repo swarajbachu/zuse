@@ -1,7 +1,6 @@
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
-
-import { AttachmentService } from "./services/attachment-service.ts";
 
 const Upload = MemoizeRpcs.toLayerHandler(
   "attachments.upload",

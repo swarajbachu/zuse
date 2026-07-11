@@ -1,53 +1,38 @@
-import { FileSystem } from "effect";
-import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
-import { Cache, Effect, Layer, Ref, Runtime, Stream } from "effect";
-
+import { buildBrowserTools } from "@zuse/agents/drivers/browser-tools";
+import { startClaudeSession } from "@zuse/agents/drivers/claude";
+import { startCodexSession } from "@zuse/agents/drivers/codex";
+import { prewarmCursor, startCursorSession } from "@zuse/agents/drivers/cursor";
+import { startGeminiSession } from "@zuse/agents/drivers/gemini";
+import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
+import type {
+  GoalCapableSessionHandle,
+  ProviderSessionHandle,
+} from "@zuse/agents/kernel/driver";
+import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import {
-  AgentSessionId,
+  type AgentAvailability,
+  type AgentEvent,
+  type AgentSessionId,
   AgentSessionNotFoundError,
   AgentSessionStartError,
   DEFAULT_RUNTIME_MODE,
-  type AgentAvailability,
-  type AgentEvent,
   type FolderId,
   type PermissionDecision,
   type PermissionKind,
   type ProviderId,
   type ThreadGoalSetInput,
 } from "@zuse/contracts";
-
-import { probeAllProviders, resolveCliPath } from "../availability.ts";
-import {
-  startClaudeSession,
-  type ClaudeSessionHandle,
-} from "../drivers/claude.ts";
-import {
-  startCodexSession,
-  type CodexSessionHandle,
-} from "../drivers/codex.ts";
-import { startGrokSession, type GrokSessionHandle } from "../drivers/grok.ts";
-import {
-  startGeminiSession,
-  type GeminiSessionHandle,
-} from "../drivers/gemini.ts";
-import {
-  prewarmCursor,
-  startCursorSession,
-  type CursorSessionHandle,
-} from "../drivers/cursor.ts";
-import {
-  startOpencodeSession,
-  type OpencodeSessionHandle,
-} from "../drivers/opencode.ts";
-import { AttachmentService } from "../../attachment/services/attachment-service.ts";
+import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
-import { buildBrowserTools } from "../drivers/browser-tools.ts";
+import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
+import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
-import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
-import { zuseWorkspaceInstructions } from "../workspace-instructions.ts";
 
 /**
  * Live `ProviderService`. PR 5 wires the Claude SDK driver behind the session
@@ -58,20 +43,14 @@ import { zuseWorkspaceInstructions } from "../workspace-instructions.ts";
  * own their own scope so `close()` is the canonical teardown — there is no
  * autocleanup tied to the renderer subscription.
  */
-type SessionHandle =
-  | ClaudeSessionHandle
-  | CodexSessionHandle
-  | GrokSessionHandle
-  | GeminiSessionHandle
-  | CursorSessionHandle
-  | OpencodeSessionHandle;
+type SessionHandle = ProviderSessionHandle;
 
 /**
  * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
  * Grok forwards to its native `/goal` slash command with driver-local state.
  * Both share the same method shape so the goal routes treat them uniformly.
  */
-type GoalCapableHandle = CodexSessionHandle | GrokSessionHandle;
+type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
   readonly providerId: ProviderId;
   readonly handle: SessionHandle;

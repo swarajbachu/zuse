@@ -162,4 +162,19 @@ describe("session decider", () => {
 			),
 		).toEqual([]);
 	});
+
+	test("records queue pause changes idempotently", () => {
+		const command = {
+			_tag: "SetQueuePaused" as const,
+			paused: true,
+			updatedAt: 2,
+		};
+		expect(Result.getOrThrow(decide(created(), command))).toEqual([
+			{ _tag: "SessionQueuePausedSet", paused: true, updatedAt: 2 },
+		]);
+		const paused = evolveAll(created(), [
+			{ _tag: "SessionQueuePausedSet", paused: true, updatedAt: 2 },
+		]);
+		expect(Result.getOrThrow(decide(paused, command))).toEqual([]);
+	});
 });

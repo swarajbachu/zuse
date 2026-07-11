@@ -1,12 +1,9 @@
-import { FileSystem } from "effect";
-import {
-  ChildProcess as Command,
-  ChildProcessSpawner as CommandExecutor,
-} from "effect/unstable/process";
-import { Duration, Effect, Stream } from "effect";
 import { homedir } from "node:os";
 import { join } from "node:path";
-
+import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
+import type { Account } from "@zuse/agents/codex-generated/v2/Account";
+import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
+import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import {
   AgentAvailability,
   type CliVersionStatus,
@@ -16,11 +13,11 @@ import {
   type ProviderHealthStatus,
   type ProviderId,
 } from "@zuse/contracts";
-
-import type { Account } from "@zuse/agents/codex-generated/v2/Account";
-import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
-import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
-import { CodexAppServerClient } from "./codex-app-server-client.ts";
+import { Duration, Effect, FileSystem, Stream } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 
 interface ProviderProbe {
   readonly providerId: ProviderId;
@@ -159,7 +156,10 @@ const collectText = (
 ) =>
   s.pipe(
     Stream.decodeText({ encoding: "utf-8" }),
-    Stream.runFold(() => "", (acc, chunk) => acc + chunk),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
   );
 
 const runCapture = (cmd: Command.Command) =>
@@ -227,7 +227,7 @@ export interface CliVersion {
 // Codex SDK 0.128 unconditionally invokes `codex exec --experimental-json`;
 // that flag landed in the matching CLI release, so any older codex binary
 // crashes inside the SDK with "unexpected argument '--experimental-json'".
-// Keep in lock-step with the `@openai/codex-sdk` pin in apps/server/package.json.
+// Keep in lock-step with the provider implementation in `@zuse/agents`.
 export const MIN_CODEX_CLI_VERSION: CliVersion = {
   major: 0,
   minor: 128,
@@ -307,9 +307,15 @@ export const compareCliVersion = (a: CliVersion, b: CliVersion): number => {
  */
 export const probeCliVersion = (
   cliBinary: string,
-): Effect.Effect<CliVersion | null, never, CommandExecutor.ChildProcessSpawner> =>
+): Effect.Effect<
+  CliVersion | null,
+  never,
+  CommandExecutor.ChildProcessSpawner
+> =>
   Effect.gen(function* () {
-    const result = yield* runCapture(Command.make(cliBinary, ["--version"])).pipe(
+    const result = yield* runCapture(
+      Command.make(cliBinary, ["--version"]),
+    ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
       Effect.catch(() => Effect.succeedNone),
     );
@@ -417,9 +423,6 @@ export const deriveLatestAdvisory = (
 
 const normalizeCommandPath = (p: string): string =>
   p.replaceAll("\\", "/").replaceAll("/./", "/").toLowerCase();
-
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", `'\\''`)}'`;
 
 const isBunGlobalPath = (p: string): boolean => p.includes("/.bun/bin/");
 
@@ -554,8 +557,6 @@ interface AccountInfo {
    */
   readonly statusMessage?: string;
 }
-
-const ACCOUNT_PROBE_TIMEOUT = Duration.seconds(5);
 
 const CODEX_PLAN_LABEL: Partial<Record<PlanType, string>> = {
   plus: "ChatGPT Plus Subscription",
@@ -981,7 +982,10 @@ const probeGeminiAccount: Effect.Effect<
 // cursor-agent CLI emits a TUI-style status frame before its final answer,
 // e.g. ` Starting login process...\n[2K[1A[2K[G\n Not logged in`. We only
 // want to read the final human-readable line.
-const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_PATTERN = new RegExp(
+  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
 const stripAnsi = (raw: string): string => raw.replace(ANSI_PATTERN, "");
 
 // `cursor-agent status` is the CLI's own auth signal. It prints either
@@ -1028,7 +1032,9 @@ const probeCursorAccount: Effect.Effect<
 > = Effect.gen(function* () {
   const executor = yield* CommandExecutor.ChildProcessSpawner;
   const result = yield* Effect.gen(function* () {
-    const proc = yield* executor.spawn(Command.make("cursor-agent", ["status"]));
+    const proc = yield* executor.spawn(
+      Command.make("cursor-agent", ["status"]),
+    );
     const stdout = yield* collectText(proc.stdout);
     const stderr = yield* collectText(proc.stderr);
     const exitCode = yield* proc.exitCode;

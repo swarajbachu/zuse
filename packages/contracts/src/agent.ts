@@ -1,12 +1,12 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { AgentItemId, AgentSessionId, AgentTurnId, FolderId } from "./ids.ts";
 
 /**
  * Identifier for a provider implementation (driver). v1 ships claude + codex;
  * the literal union is the contract — adding a new provider is an additive
- * change here plus a new driver in `apps/server/src/provider/drivers/`.
+ * change here plus a new driver in `@zuse/agents`.
  */
 export const ProviderId = Schema.Literals([
   "claude",
@@ -330,10 +330,9 @@ export const AgentErrorKind = Schema.Literals(["auth", "network", "generic"]);
 export type AgentErrorKind = typeof AgentErrorKind.Type;
 
 // ---------------------------------------------------------------------------
-// Event union — emitted on agent.events stream, one row per event. The split
-// is intentionally broad so the renderer can render each kind without a giant
-// switch on payload shape; phases 3+ add fields to existing tags rather than
-// introducing new top-level shapes for the same concept.
+// Provider event union consumed by the conversation runtime. The split is
+// intentionally broad so ingestion can handle each kind without a giant
+// switch on payload shape.
 // ---------------------------------------------------------------------------
 
 const StartedEvent = Schema.TaggedStruct("Started", {
@@ -383,7 +382,7 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
  * `apps/renderer/src/components/tool-row.tsx` switches on `tool` and reads
  * specific keys out of `input` — to keep every provider's row rendering
  * identical, ACP drivers translate native frames into these shapes
- * (`apps/server/src/provider/drivers/acp/translate.ts`).
+ * (`@zuse/agents/drivers/acp/translate`).
  *
  *   tool          input keys                              result `output`
  *   ---------     ------------------------------------    -------------------
@@ -535,7 +534,7 @@ const ErrorEvent = Schema.TaggedStruct("Error", {
  * Driver-emitted side-channel for the SDK's resume token. Claude exposes
  * its session UUID as `session_id` on every message; Codex exposes its
  * thread id via the `thread.started` event. Each driver captures the token
- * on first sight and emits this event so MessageStore can persist it onto
+ * on first sight and emits this event so the conversation domain can persist it onto
  * `sessions.cursor` / `sessions.resume_strategy`. Lifecycle-only — never
  * persisted as a chat row.
  */
@@ -676,7 +675,7 @@ export const StartSessionInput = Schema.Struct({
    */
   workspaceInstructions: Schema.optional(Schema.String),
   // Optional caller-supplied id. When omitted, ProviderService mints a fresh
-  // one. MessageStore uses this to lazy-restart a closed session without
+  // one. The conversation domain uses this to lazy-restart a closed session without
   // moving its persisted history to a new row.
   sessionId: Schema.optional(AgentSessionId),
   // Optional provider-specific model id (e.g. "claude-opus-4-7"). Drivers
@@ -695,7 +694,7 @@ export const StartSessionInput = Schema.Struct({
   /**
    * Optional absolute path the agent should run in. When omitted, the
    * provider resolves cwd from `folderId` (the project's main checkout).
-   * `MessageStore` populates this with a worktree path when a session was
+   * The conversation domain populates this with a worktree path when a session was
    * created against a worktree, so the SDK runs in the worktree dir.
    */
   cwdOverride: Schema.optional(Schema.String),
@@ -1678,7 +1677,7 @@ export const ProviderOpencodeRemoveCustomRpc = Rpc.make(
 );
 
 // ---------------------------------------------------------------------------
-// One-click sign-in flow. The renderer subscribes to `agent.startLogin`,
+// One-click sign-in flow. The renderer subscribes to `provider.startLogin`,
 // which spawns the provider's `login` subcommand server-side, extracts the
 // OAuth URL the CLI prints, and reports progress back as a stream of
 // `LoginEvent`s. Today only `cursor` has a real handler; other providers

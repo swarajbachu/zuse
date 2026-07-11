@@ -100,6 +100,10 @@ export const decide = (
 			return state.status === command.status
 				? success([])
 				: success([{ ...command, _tag: "SessionStatusSet" }]);
+		case "SetQueuePaused":
+			return state.queuePaused === command.paused
+				? success([])
+				: success([{ ...command, _tag: "SessionQueuePausedSet" }]);
 		case "SetResume":
 			return state.cursor === command.cursor &&
 				state.resumeStrategy === command.resumeStrategy

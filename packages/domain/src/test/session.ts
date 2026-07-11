@@ -22,6 +22,7 @@ export const sessionCreation = {
 	forkedFromMessageId: null,
 	permissionMode: "default",
 	toolSearch: false,
+	queuePaused: false,
 	createdAt: 1,
 } as const satisfies Omit<CreateSessionCommand, "_tag">;
 

@@ -23,7 +23,9 @@ export type LegacySessionSnapshot = {
 	readonly forkedFromMessageId: string | null;
 	readonly permissionMode: PermissionMode;
 	readonly toolSearch: boolean;
+	readonly queuePaused: boolean;
 	readonly createdAt: number;
+	readonly updatedAt: number;
 	readonly archivedAt: number | null;
 	readonly deletedAt: number | null;
 };
@@ -75,6 +77,7 @@ export const sessionCreatedEventFromSnapshot = (
 	forkedFromMessageId: session.forkedFromMessageId,
 	permissionMode: session.permissionMode,
 	toolSearch: session.toolSearch,
+	queuePaused: session.queuePaused,
 	createdAt: session.createdAt,
 });
 
@@ -137,17 +140,6 @@ export const synthesizeBackfill = (
 			session.createdAt,
 			sessionCreatedEventFromSnapshot(session),
 		);
-		append(
-			session.sessionId,
-			id("session-title", session.sessionId),
-			session.createdAt,
-			{
-				_tag: "SessionTitleSet",
-				title: session.title,
-				updatedAt: session.createdAt,
-			},
-		);
-
 		const messages = [...(messagesBySession.get(session.sessionId) ?? [])].sort(
 			(left, right) =>
 				left.createdAt - right.createdAt || left.rowId - right.rowId,
@@ -161,7 +153,6 @@ export const synthesizeBackfill = (
 				messageEventFromSnapshot(message),
 			);
 		}
-
 		if (session.archivedAt !== null) {
 			append(
 				session.sessionId,
@@ -170,6 +161,16 @@ export const synthesizeBackfill = (
 				{ _tag: "SessionArchived", archivedAt: session.archivedAt },
 			);
 		}
+		append(
+			session.sessionId,
+			id("session-title", session.sessionId),
+			session.updatedAt,
+			{
+				_tag: "SessionTitleSet",
+				title: session.title,
+				updatedAt: session.updatedAt,
+			},
+		);
 		if (session.deletedAt !== null) {
 			append(
 				session.sessionId,

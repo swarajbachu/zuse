@@ -30,8 +30,9 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 ## Workspace Boundaries
 
-- `apps/desktop` owns the Electron shell and native desktop integration; `apps/renderer` owns the desktop UI; `apps/server` owns backend services, persistence, providers, sessions, and IPC.
+- `apps/desktop` owns the Electron shell and native desktop integration; `apps/renderer` owns the desktop UI; `apps/server` owns backend composition, transports, persistence wiring, sessions, and IPC.
 - `apps/mobile`, `apps/web`, and `apps/mcp-server` own the mobile client, marketing site, and MCP integration respectively.
+- `packages/agents` owns provider drivers and their shared kernel, `packages/acp` owns the ACP transport, `packages/domain` owns CQRS machinery, and `packages/git` owns Git/worktree implementations.
 - `packages/contracts` contains contracts and schemas, `packages/ui` contains reusable UI, and focused packages own their specific shared capability. Do not place application behavior in contract packages.
 
 ## Reference Repositories

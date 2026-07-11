@@ -4,7 +4,7 @@ import {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const SessionIdentityFields = {
 	sessionId: Schema.String,
@@ -27,6 +27,9 @@ export const SessionConfigurationFields = {
 	forkedFromMessageId: Schema.NullOr(Schema.String),
 	permissionMode: PermissionMode,
 	toolSearch: Schema.Boolean,
+	queuePaused: Schema.Boolean.pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed(false)),
+	),
 } as const;
 
 export const SessionCreatedFields = {
@@ -58,4 +61,5 @@ export const SessionCreatedEventFields = {
 	),
 	permissionMode: Schema.optionalKey(SessionConfigurationFields.permissionMode),
 	toolSearch: Schema.optionalKey(SessionConfigurationFields.toolSearch),
+	queuePaused: Schema.optionalKey(SessionConfigurationFields.queuePaused),
 } as const;

@@ -452,8 +452,8 @@ view; it is not lifted into Zustand.
 | `apps/server/src/attachment/image-mime.ts`                            | new    | MIME → extension map.                                                     |
 | `apps/server/src/workspace/file-search.ts`                            | new    | `.gitignore`-aware walker for `workspace.searchFiles`.                    |
 | `apps/server/src/provider/services/provider-service.ts`               | edit   | Accept `ComposerInput`; expand `fileRefs` (read file contents at send).   |
-| `apps/server/src/provider/drivers/claude.ts`                          | edit   | Map `attachments` to image content blocks; honor `skillRefs`.             |
-| `apps/server/src/provider/drivers/codex.ts`                           | edit   | Drop attachments with toast (Codex CLI image-input not supported); honor `skillRefs`. |
+| `packages/agents/src/drivers/claude.ts`                          | edit   | Map `attachments` to image content blocks; honor `skillRefs`.             |
+| `packages/agents/src/drivers/codex.ts`                           | edit   | Drop attachments with toast (Codex CLI image-input not supported); honor `skillRefs`. |
 | `packages/contracts/src/composer.ts`                                       | new    | `ComposerInput`, `AttachmentRef`, `FileRef`, `SkillRef`.                  |
 | `packages/contracts/src/attachment.ts`                                     | new    | Upload + Touch RPCs.                                                      |
 | `packages/contracts/src/workspace.ts`                                      | new    | Search-files RPC.                                                         |

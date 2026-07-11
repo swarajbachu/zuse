@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Effect, Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import {
   AgentDefinition,
@@ -26,14 +26,13 @@ import {
 } from "./ids.ts";
 import { Worktree } from "./worktree.ts";
 
-export { ChatId } from "./ids.ts";
-
 export {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_RUNTIME_MODE,
   PermissionMode,
   RuntimeMode,
 } from "./agent.ts";
+export { ChatId } from "./ids.ts";
 
 /**
  * A session is one chat thread inside a project. The id matches the underlying
@@ -50,7 +49,7 @@ export type SessionId = AgentSessionId;
  *              on success, `error` on failure. Stale `booting` rows from a
  *              crashed daemon are cleaned up at boot.
  * `idle`     — row exists but no provider session is currently driving it.
- * `running`  — provider session is alive; `agent.events` is being consumed.
+ * `running`  — provider session is alive and its event stream is being consumed.
  * `closed`   — turn ended normally or session was closed by the user.
  * `error`    — provider terminated the session with an error.
  */
