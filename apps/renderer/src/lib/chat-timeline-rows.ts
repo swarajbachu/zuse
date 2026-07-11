@@ -1,6 +1,7 @@
 import type { AgentItemId, Message } from "@zuse/contracts";
 
 import { groupMessages } from "./group-messages.ts";
+import { isToolActivityMessage } from "./tool-activity.ts";
 
 export type ChatTimelineRow =
   | {
@@ -17,6 +18,8 @@ export type ChatTimelineRow =
       readonly agentName: string;
       readonly prompt: string;
       readonly modelRequested: string | undefined;
+      readonly childSessionId: string | undefined;
+      readonly presentation: "inline" | "detached";
       readonly children: ReadonlyArray<Message>;
       readonly summary: {
         readonly text: string;
@@ -27,9 +30,16 @@ export type ChatTimelineRow =
       } | null;
     }
   | {
-      readonly kind: "turn-summary";
+      readonly kind: "tool-group";
+      readonly id: string;
+      readonly messages: ReadonlyArray<Message>;
+      readonly live: boolean;
+    }
+  | {
+      readonly kind: "turn-activity";
       readonly id: string;
       readonly body: ReadonlyArray<Message>;
+      readonly totalBody: ReadonlyArray<Message>;
     }
   | {
       readonly kind: "working";
@@ -85,10 +95,7 @@ const inputScore = (input: unknown): number => {
 };
 
 const preferToolUse = (current: Message, next: Message): Message => {
-  if (
-    current.content._tag !== "tool_use" ||
-    next.content._tag !== "tool_use"
-  ) {
+  if (current.content._tag !== "tool_use" || next.content._tag !== "tool_use") {
     return current;
   }
   return inputScore(next.content.input) > inputScore(current.content.input)
@@ -116,10 +123,10 @@ export function normalizeTimelineMessages(
       continue;
     }
 
-    normalized[existingIndex] = preferToolUse(
-      normalized[existingIndex]!,
-      message,
-    );
+    const existing = normalized[existingIndex];
+    if (existing !== undefined) {
+      normalized[existingIndex] = preferToolUse(existing, message);
+    }
   }
 
   return normalized;
@@ -154,11 +161,10 @@ export function deriveChatTimelineRows({
 
   const rows: ChatTimelineRow[] = [];
 
-  for (let index = 0; index < turns.length; index += 1) {
-    const turn = turns[index]!;
-    const isLastTurn = index === turns.length - 1;
-    const isLive = inFlight && isLastTurn;
-
+  for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
+    const turn = turns[turnIndex];
+    if (turn === undefined) continue;
+    const isLiveTurn = inFlight && turnIndex === turns.length - 1;
     if (turn.user !== null) {
       rows.push({
         kind: "message",
@@ -168,15 +174,6 @@ export function deriveChatTimelineRows({
       });
     }
 
-    const hasToolCalls = turn.body.some(
-      (message) => message.content._tag === "tool_use",
-    );
-    const hasFinalText = turn.body.some(
-      (message) =>
-        message.content._tag === "assistant" &&
-        message.content.text.trim().length > 0,
-    );
-    const showSummary = !isLive && hasToolCalls && hasFinalText;
     const bodyGroups = groupMessages(turn.body);
     const planMessages = turn.body.filter(
       (message) =>
@@ -188,26 +185,19 @@ export function deriveChatTimelineRows({
         message.content._tag === "tool_use" ? [message.content.itemId] : [],
       ),
     );
-    const summaryBody =
-      planMessages.length === 0
-        ? turn.body
-        : turn.body.filter((message) => {
-            if (
-              message.content._tag === "tool_use" &&
-              message.content.tool === "ExitPlanMode"
-            ) {
-              return false;
-            }
-            if (
-              message.content._tag === "tool_result" &&
-              planItemIds.has(message.content.itemId)
-            ) {
-              return false;
-            }
-            return true;
-          });
-
-    if (showSummary) {
+    const nonPlanToolUses = turn.body.filter(
+      (message) =>
+        message.content._tag === "tool_use" &&
+        message.content.tool !== "ExitPlanMode",
+    );
+    const finalAssistant = [...turn.body]
+      .reverse()
+      .find((message) => message.content._tag === "assistant");
+    if (
+      !isLiveTurn &&
+      nonPlanToolUses.length > 0 &&
+      finalAssistant !== undefined
+    ) {
       for (const message of planMessages) {
         rows.push({
           kind: "message",
@@ -216,16 +206,72 @@ export function deriveChatTimelineRows({
           enterUser: false,
         });
       }
+      const detailBody = turn.body.filter((message) => {
+        if (message === finalAssistant) return false;
+        if (
+          message.content._tag === "tool_use" &&
+          message.content.tool === "ExitPlanMode"
+        ) {
+          return false;
+        }
+        return !(
+          message.content._tag === "tool_result" &&
+          planItemIds.has(message.content.itemId)
+        );
+      });
       rows.push({
-        kind: "turn-summary",
-        id: `summary:${turn.user?.id ?? `turn-${index}`}`,
-        body: summaryBody,
+        kind: "turn-activity",
+        id: `turn-activity:${turn.user?.id ?? finalAssistant.id}`,
+        body: detailBody,
+        totalBody: turn.body,
+      });
+      rows.push({
+        kind: "message",
+        id: `message:${finalAssistant.id}`,
+        message: finalAssistant,
+        enterUser: false,
       });
       continue;
     }
-
+    let pendingTools: Message[] = [];
+    const flushTools = (live = false) => {
+      if (pendingTools.length === 0) return;
+      const first = pendingTools[0];
+      if (first === undefined) return;
+      rows.push({
+        kind: "tool-group",
+        id: `tool-group:${first.id}`,
+        messages: pendingTools,
+        live,
+      });
+      pendingTools = [];
+    };
     for (const group of bodyGroups) {
       if (group.kind === "single") {
+        if (
+          group.message.content._tag === "tool_use" &&
+          group.message.content.tool === "ExitPlanMode"
+        ) {
+          flushTools();
+          rows.push({
+            kind: "message",
+            id: `message:${group.message.id}`,
+            message: group.message,
+            enterUser: false,
+          });
+          continue;
+        }
+        if (
+          group.message.content._tag === "tool_result" &&
+          planItemIds.has(group.message.content.itemId)
+        ) {
+          continue;
+        }
+        if (isToolActivityMessage(group.message)) {
+          pendingTools.push(group.message);
+          continue;
+        }
+        flushTools();
         rows.push({
           kind: "message",
           id: `message:${group.message.id}`,
@@ -233,6 +279,7 @@ export function deriveChatTimelineRows({
           enterUser: false,
         });
       } else {
+        flushTools();
         rows.push({
           kind: "subagent",
           id: `subagent:${group.parent.id}`,
@@ -241,11 +288,14 @@ export function deriveChatTimelineRows({
           agentName: group.agentName,
           prompt: group.prompt,
           modelRequested: group.modelRequested,
+          childSessionId: group.childSessionId,
+          presentation: group.presentation,
           children: group.children,
           summary: group.summary,
         });
       }
     }
+    flushTools(isLiveTurn);
   }
 
   if (inFlight && !awaitingPlanApproval) {

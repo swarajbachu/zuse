@@ -1,15 +1,15 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   ClipboardIcon,
   Robot01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
 
-import type { AgentItemId, Message } from "@zuse/contracts";
-
 import { cn } from "~/lib/utils";
+import { useUiStore } from "~/store/ui";
 
 import { CopyButton } from "./copy-button.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
@@ -55,6 +55,8 @@ function SubagentRowImpl({
   agentName,
   prompt,
   modelRequested,
+  childSessionId,
+  presentation,
   children,
   summary,
 }: {
@@ -62,6 +64,8 @@ function SubagentRowImpl({
   readonly agentName: string;
   readonly prompt: string;
   readonly modelRequested: string | undefined;
+  readonly childSessionId: string | undefined;
+  readonly presentation: "inline" | "detached";
   readonly children: ReadonlyArray<Message>;
   readonly summary: {
     readonly text: string;
@@ -72,6 +76,7 @@ function SubagentRowImpl({
   } | null;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const revealSubagent = useUiStore((state) => state.revealSubagent);
 
   const trailingMeta = useMemo(() => {
     if (summary !== null) {
@@ -105,7 +110,13 @@ function SubagentRowImpl({
     <div className="px-4">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => {
+          if (presentation === "detached" && childSessionId !== undefined) {
+            revealSubagent(childSessionId);
+            return;
+          }
+          setExpanded((e) => !e);
+        }}
         className={cn(
           "group flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-xs",
           "hover:bg-muted/40 cursor-pointer",
@@ -138,7 +149,7 @@ function SubagentRowImpl({
           <span className="min-w-0 truncate">{trailingMeta}</span>
         </span>
       </button>
-      {expanded ? (
+      {expanded && presentation === "inline" ? (
         <div className="ml-7 mt-1 border-l border-border/60 pl-3">
           <PromptRow text={prompt} />
           <div className="flex flex-col">

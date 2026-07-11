@@ -850,6 +850,29 @@ export const translateCodexItem = (
 	}
 };
 
+export const translateCodexCollabItem = (
+	item: Extract<ThreadItem, { readonly type: "collabAgentToolCall" }>,
+	phase: "started" | "completed",
+): ReadonlyArray<AgentEvent> => {
+	if (phase !== "started" || item.tool !== "spawnAgent") return [];
+	const childSessionId = item.receiverThreadIds[0];
+	if (childSessionId === undefined) return [];
+	const agentName = item.prompt?.split("\n", 1)[0]?.slice(0, 80) || "Subagent";
+	return [
+		{
+			_tag: "ToolUse",
+			itemId: item.id as AgentItemId,
+			tool: "Agent",
+			input: {
+				prompt: item.prompt ?? "",
+				description: agentName,
+				model: item.model ?? "inherit",
+			},
+			subagent: { childSessionId, presentation: "detached" },
+		},
+	];
+};
+
 export const translateCodexStatusNotification = (
 	notification: ServerNotification,
 	activeThreadId: string | null,
@@ -943,6 +966,60 @@ export const startCodexSession = (
 		let modelFastTier: boolean | null = null;
 		const latestContextTokensByThread = new Map<string, number>();
 		const pendingCompactionsByThread = new Map<string, CompactSnapshot>();
+		type DetachedAgent = {
+			readonly parentItemId: AgentItemId;
+			readonly childSessionId: string;
+			readonly prompt: string;
+			readonly model: string;
+			readonly startedAt: number;
+			agentName: string;
+			turns: number;
+			lastText: string;
+			finished: boolean;
+		};
+		const detachedAgentsByThread = new Map<string, DetachedAgent>();
+
+		const withDetachedParent = (
+			event: AgentEvent,
+			agent: DetachedAgent,
+		): AgentEvent | null => {
+			switch (event._tag) {
+				case "AssistantMessage":
+					agent.lastText = event.text;
+					return { ...event, parentItemId: agent.parentItemId };
+				case "Thinking":
+				case "ToolResult":
+				case "PermissionRequest":
+					return { ...event, parentItemId: agent.parentItemId };
+				case "ToolUse":
+					return { ...event, parentItemId: agent.parentItemId };
+				case "UsageDelta":
+					return { ...event, parentItemId: agent.parentItemId };
+				default:
+					return null;
+			}
+		};
+
+		const finishDetachedAgent = (
+			agent: DetachedAgent,
+			isError: boolean,
+			durationMs?: number | null,
+		): AgentEvent | null => {
+			if (agent.finished) return null;
+			agent.finished = true;
+			return {
+				_tag: "SubagentSummary",
+				itemId: agent.parentItemId,
+				agentName: agent.agentName,
+				model: agent.model,
+				turns: Math.max(1, agent.turns),
+				durationMs: durationMs ?? Math.max(0, Date.now() - agent.startedAt),
+				summary: agent.lastText,
+				isError,
+				childSessionId: agent.childSessionId,
+				presentation: "detached",
+			};
+		};
 
 		type QuestionWaiter = {
 			readonly questionIds: ReadonlyArray<string>;
@@ -1580,6 +1657,33 @@ export const startCodexSession = (
 
 			switch (notification.method) {
 				case "thread/started":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.thread.id,
+						);
+						if (child !== undefined) {
+							child.agentName =
+								notification.params.thread.name ??
+								notification.params.thread.agentNickname ??
+								child.agentName;
+							return [
+								{
+									_tag: "ToolUse",
+									itemId: child.parentItemId,
+									tool: "Agent",
+									input: {
+										prompt: child.prompt,
+										description: child.agentName,
+										model: child.model,
+									},
+									subagent: {
+										childSessionId: child.childSessionId,
+										presentation: "detached",
+									},
+								},
+							];
+						}
+					}
 					activeThreadId = notification.params.thread.id;
 					return [
 						{
@@ -1589,10 +1693,32 @@ export const startCodexSession = (
 						},
 					];
 				case "turn/started":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							child.turns += 1;
+							return [];
+						}
+					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = notification.params.turn.id;
 					return [{ _tag: "Status", status: "running" }];
 				case "turn/completed":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							const summary = finishDetachedAgent(
+								child,
+								notification.params.turn.status === "failed",
+								notification.params.turn.durationMs,
+							);
+							return summary === null ? [] : [summary];
+						}
+					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = null;
 					return [{ _tag: "Status", status: "idle" }];
@@ -1613,7 +1739,41 @@ export const startCodexSession = (
 					if (notification.params.threadId !== activeThreadId) return [];
 					return [{ _tag: "GoalCleared" }];
 				case "item/started":
-					if (notification.params.threadId !== activeThreadId) return [];
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							return translateCodexItem(
+								notification.params.item,
+								"started",
+							).flatMap((event) => {
+								const nested = withDetachedParent(event, child);
+								return nested === null ? [] : [nested];
+							});
+						}
+						if (notification.params.threadId !== activeThreadId) return [];
+						if (notification.params.item.type === "collabAgentToolCall") {
+							const item = notification.params.item;
+							if (item.tool !== "spawnAgent") return [];
+							const childSessionId = item.receiverThreadIds[0];
+							if (childSessionId === undefined) return [];
+							const agent: DetachedAgent = {
+								parentItemId: item.id as AgentItemId,
+								childSessionId,
+								prompt: item.prompt ?? "",
+								model: item.model ?? "inherit",
+								startedAt: Date.now(),
+								agentName:
+									item.prompt?.split("\n", 1)[0]?.slice(0, 80) || "Subagent",
+								turns: 0,
+								lastText: "",
+								finished: false,
+							};
+							detachedAgentsByThread.set(childSessionId, agent);
+							return translateCodexCollabItem(item, "started");
+						}
+					}
 					{
 						const translated = translateCodexItem(
 							notification.params.item,
@@ -1627,7 +1787,23 @@ export const startCodexSession = (
 						return translated;
 					}
 				case "item/completed":
-					if (notification.params.threadId !== activeThreadId) return [];
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							return translateCodexItem(
+								notification.params.item,
+								"completed",
+							).flatMap((event) => {
+								const nested = withDetachedParent(event, child);
+								return nested === null ? [] : [nested];
+							});
+						}
+						if (notification.params.threadId !== activeThreadId) return [];
+						if (notification.params.item.type === "collabAgentToolCall")
+							return [];
+					}
 					{
 						const compactMetadata =
 							notification.params.item.type === "contextCompaction"

@@ -3,6 +3,7 @@ import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
 	codexReasoningEffort,
 	codexWritableRootsForCwd,
+	translateCodexCollabItem,
 	translateCodexItem,
 	translateCodexStatusNotification,
 } from "@zuse/agents/drivers/codex";
@@ -231,6 +232,52 @@ describe("translateCodexItem", () => {
 		expect(ev.afterTokens).toBeNull();
 		expect(ev.status).toBe("completed");
 		expect(ev.durationMs).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe("translateCodexCollabItem", () => {
+	it("creates a detached Agent row for a spawned child thread", () => {
+		const item: Extract<ThreadItem, { type: "collabAgentToolCall" }> = {
+			type: "collabAgentToolCall",
+			id: "spawn-1",
+			tool: "spawnAgent",
+			status: "inProgress",
+			senderThreadId: "parent-thread",
+			receiverThreadIds: ["child-thread"],
+			prompt: "Review the renderer",
+			model: "gpt-5.5",
+			reasoningEffort: "high",
+			agentsStates: {},
+		};
+
+		expect(translateCodexCollabItem(item, "started")).toEqual([
+			expect.objectContaining({
+				_tag: "ToolUse",
+				itemId: "spawn-1",
+				tool: "Agent",
+				subagent: {
+					childSessionId: "child-thread",
+					presentation: "detached",
+				},
+			}),
+		]);
+		expect(translateCodexCollabItem(item, "completed")).toEqual([]);
+	});
+
+	it("does not create duplicate rows for collaboration control calls", () => {
+		const item: Extract<ThreadItem, { type: "collabAgentToolCall" }> = {
+			type: "collabAgentToolCall",
+			id: "wait-1",
+			tool: "wait",
+			status: "completed",
+			senderThreadId: "parent-thread",
+			receiverThreadIds: ["child-thread"],
+			prompt: null,
+			model: null,
+			reasoningEffort: null,
+			agentsStates: {},
+		};
+		expect(translateCodexCollabItem(item, "started")).toEqual([]);
 	});
 });
 

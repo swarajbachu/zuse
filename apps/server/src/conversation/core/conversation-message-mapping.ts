@@ -186,6 +186,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				tool: event.tool,
 				input: event.input,
 				parentItemId: event.parentItemId,
+				subagent: event.subagent,
 			};
 		case "ToolResult":
 			return {
@@ -205,6 +206,8 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				durationMs: event.durationMs,
 				summary: event.summary,
 				isError: event.isError,
+				childSessionId: event.childSessionId,
+				presentation: event.presentation,
 			};
 		case "UsageDelta":
 			return {

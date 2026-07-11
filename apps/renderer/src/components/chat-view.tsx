@@ -1,16 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
-
 import type {
   AgentItemId,
   Message,
@@ -18,16 +8,25 @@ import type {
   SessionId,
   UserQuestionAnswer,
 } from "@zuse/contracts";
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   CHAT_LIST_ANCHOR_OFFSET,
   resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
 import {
+  type ChatTimelineRow,
   deriveChatTimelineRows,
   resolveLatestUserMessageId,
   rowAnchorMessageId,
-  type ChatTimelineRow,
 } from "../lib/chat-timeline-rows.ts";
 import {
   getAnchoredTurnMetrics,
@@ -36,32 +35,34 @@ import {
   shouldRestoreAnchorScrollOffset,
   type TimelineScrollMode,
 } from "../lib/timeline-scroll-anchoring.ts";
+import { countTurnProgressMessages } from "../lib/tool-activity.ts";
 import {
-  chatArchiveProgressLabel,
   type ChatArchiveProgressPhase,
+  chatArchiveProgressLabel,
   useChatsStore,
 } from "../store/chats.ts";
-import { useRegisterPane } from "../store/pane-focus.ts";
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { ChatLookupsProvider } from "./chat-lookups.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { useForkMenu } from "./fork-menu.tsx";
-import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
+import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import {
   ErrorBubble,
   MessageRow,
   type ToolResultRecord,
 } from "./message-row.tsx";
-import { ChatLookupsProvider } from "./chat-lookups.tsx";
-import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
-import { SubagentRow } from "./subagent-row.tsx";
-import { TurnSummary } from "./turn-summary.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
+import { SubagentRow } from "./subagent-row.tsx";
+import { ToolGroup } from "./tool-group.tsx";
+import { TurnActivityGroup } from "./turn-activity-group.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
+import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
 // `[]` from a Zustand selector each call breaks `useSyncExternalStore`'s
@@ -182,8 +183,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   const listRef = useRef<LegendListRef | null>(null);
   const scrollElementRef = useRef<HTMLDivElement | null>(null);
-  const timelineScrollModeRef =
-    useRef<TimelineScrollMode>("following-end");
+  const timelineScrollModeRef = useRef<TimelineScrollMode>("following-end");
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const lastAnchoredUserMessageIdRef = useRef<string | null>(null);
   const latestUserMessageIdRef = useRef<string | null>(latestUserMessageId);
@@ -278,7 +278,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
         const list = listRef.current;
         if (!list) return;
 
-        void list.scrollToEnd({ animated: remainingAttempts === 8 && animated });
+        void list.scrollToEnd({
+          animated: remainingAttempts === 8 && animated,
+        });
 
         if (remainingAttempts <= 0) return;
         requestAnimationFrame(() => {
@@ -632,7 +634,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     const frame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         if (
-          liveFollowGenerationRef.current !== userNavigationGenerationRef.current
+          liveFollowGenerationRef.current !==
+          userNavigationGenerationRef.current
         ) {
           return;
         }
@@ -669,7 +672,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       cancelAnimationFrame(frame);
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
     };
-  }, [getActiveTimelineTurnMetrics, rows, timelineRealContentOverflowsViewport]);
+  }, [
+    getActiveTimelineTurnMetrics,
+    rows,
+    timelineRealContentOverflowsViewport,
+  ]);
 
   // Pair tool_result rows back to their originating tool_use by AgentItemId.
   // The driver assigns the SDK's tool_use id to both events, so each
@@ -724,11 +731,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   const renderTimelineRow = useCallback(
     ({ item }: { item: ChatTimelineRow }) => (
-      <TimelineRow
-        row={item}
-        sessionId={sessionId}
-        onFork={forkMenu.openAt}
-      />
+      <TimelineRow row={item} sessionId={sessionId} onFork={forkMenu.openAt} />
     ),
     [forkMenu.openAt, sessionId],
   );
@@ -866,15 +869,23 @@ function TimelineRow({
             agentName={row.agentName}
             prompt={row.prompt}
             modelRequested={row.modelRequested}
+            childSessionId={row.childSessionId}
+            presentation={row.presentation}
             children={row.children}
             summary={row.summary}
           />
         </div>
       );
-    case "turn-summary":
+    case "tool-group":
       return (
         <div>
-          <TurnSummary body={row.body} />
+          <ToolGroup messages={row.messages} live={row.live} />
+        </div>
+      );
+    case "turn-activity":
+      return (
+        <div>
+          <TurnActivityGroup body={row.body} totalBody={row.totalBody} />
         </div>
       );
     case "working":
@@ -935,12 +946,32 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
   }, []);
 
   const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
+  const currentTurn = useMemo(() => {
+    let start = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (
+        message?.content._tag === "user" ||
+        message?.content._tag === "user_rich"
+      ) {
+        start = i + 1;
+        break;
+      }
+    }
+    return messages.slice(start);
+  }, [messages]);
+  const toolCount = currentTurn.filter(
+    (message) => message.content._tag === "tool_use",
+  ).length;
+  const messageCount = countTurnProgressMessages(currentTurn);
+  const progress = `${toolCount} tool ${toolCount === 1 ? "call" : "calls"}, ${messageCount} ${messageCount === 1 ? "message" : "messages"}`;
+  const liveLabel = `Working with ${progress} · ${formatElapsed(elapsed)}`;
 
   return (
     <div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
       <Spinner className="size-3" />
       <ShimmerText tone="lime" className="tabular-nums">
-        {formatElapsed(elapsed)}
+        {liveLabel}
       </ShimmerText>
     </div>
   );
