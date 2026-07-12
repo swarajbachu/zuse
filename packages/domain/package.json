@@ -30,7 +30,9 @@
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration"
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",

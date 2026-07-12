@@ -346,7 +346,7 @@ export const startGeminiSession = (
 				// alongside the JSON-RPC stream (google-gemini/gemini-cli#22647).
 				// Log to stderr so the leak is visible during debugging, but don't
 				// abort — assistant content rides typed `session/update` frames.
-				stdoutNoiseTail = (stdoutNoiseTail + `${line}\n`).slice(-4096);
+				stdoutNoiseTail = `${stdoutNoiseTail}${line}\n`.slice(-4096);
 				process.stderr.write(`[gemini.stdout.nonjson] ${line}\n`);
 				return;
 			}
@@ -355,7 +355,7 @@ export const startGeminiSession = (
 				if (msg.method === "session/update") {
 					const update =
 						msg.params !== null && typeof msg.params === "object"
-							? (msg.params as Record<string, unknown>)["update"]
+							? (msg.params as Record<string, unknown>).update
 							: undefined;
 					if (update !== undefined) {
 						for (const ev of translator.translate(update)) {
@@ -549,6 +549,7 @@ export const startGeminiSession = (
 					providerLabel: "Gemini",
 					httpServers: httpMcpServers,
 					fallbackServers: stdioMcpFallback.ensure,
+					resumeCursor,
 				});
 			},
 			catch: (cause) =>
@@ -558,7 +559,7 @@ export const startGeminiSession = (
 				}),
 		});
 
-		acpSessionId = yield* handshake.pipe(
+		const acquiredSession = yield* handshake.pipe(
 			Effect.tapError(() =>
 				Effect.sync(() => {
 					child.kill("SIGTERM");
@@ -567,6 +568,11 @@ export const startGeminiSession = (
 				}),
 			),
 		);
+		acpSessionId = acquiredSession.sessionId;
+		if (acquiredSession.resumed) {
+			for (const event of translator.flush()) Queue.offerUnsafe(events, event);
+			Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
+		}
 
 		Queue.offerUnsafe(events, {
 			_tag: "SessionCursor",
@@ -574,9 +580,9 @@ export const startGeminiSession = (
 			strategy: "grok-session-id",
 		});
 
-		if (resumeCursor !== null && resumeCursor !== acpSessionId) {
+		if (resumeCursor !== null && !acquiredSession.resumed) {
 			console.warn(
-				`[gemini] previous cursor ${resumeCursor} discarded — ACP session/load not wired; using new session ${acpSessionId}`,
+				`[gemini] previous cursor ${resumeCursor} was unavailable; using new session ${acpSessionId}`,
 			);
 		}
 
@@ -716,6 +722,7 @@ export const startGeminiSession = (
 					// Best-effort cancel; do NOT SIGINT the child or the persistent
 					// session dies for every subsequent send.
 					notify("session/cancel", { sessionId: sid });
+					Queue.offerUnsafe(events, { _tag: "Interrupted" });
 					// Force-reject the in-flight `session/prompt` request so the
 					// `inflight` promise chain unblocks. Without this, if Gemini's
 					// CLI doesn't honour `session/cancel` (or responds slowly), the

@@ -19,7 +19,9 @@
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
-		"test": "vitest run"
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration"
 	},
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
