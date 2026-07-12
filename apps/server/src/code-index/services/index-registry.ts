@@ -76,7 +76,7 @@ export interface IndexHandle {
   }) => Promise<ReadonlyArray<SearchHit>>;
 }
 
-export class IndexRegistry extends Context.Tag("memoize/IndexRegistry")<
+export class IndexRegistry extends Context.Service<
   IndexRegistry,
   IndexRegistryShape
->() {}
+>()("memoize/IndexRegistry") {}

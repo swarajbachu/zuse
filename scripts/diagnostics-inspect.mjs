@@ -56,16 +56,18 @@ function relevantHints(traceSummary) {
     "apps/renderer/src/components/",
   ]);
   for (const providerId of providerIds) {
-    hints.add(`apps/server/src/provider/drivers/${providerId}.ts`);
+    hints.add(`packages/agents/src/drivers/${providerId}.ts`);
   }
   if ([...spans].some((span) => span.includes("message"))) {
-    hints.add("packages/wire/src/session.ts");
+    hints.add("packages/contracts/src/session.ts");
   }
   return [...hints];
 }
 
 function buildReport({ diagnosticId, bundlePath, bundle }) {
   const traceSummary = bundle.artifacts?.["trace-summary"] ?? {};
+  const bundleSummary = bundle.artifacts?.["bundle-summary"] ?? {};
+  const clientContext = bundle.artifacts?.["client-context"] ?? {};
   const recentErrors = bundle.artifacts?.["recent-errors"] ?? {};
   const providerStatus = bundle.artifacts?.["provider-status"] ?? {};
   const environment = bundle.artifacts?.environment ?? {};
@@ -86,13 +88,80 @@ function buildReport({ diagnosticId, bundlePath, bundle }) {
     "",
     likelyIssue(traceSummary),
     "",
+    "## Bundle Health",
+    "",
+  ];
+
+  const warnings = Array.isArray(bundleSummary.diagnosticWarnings)
+    ? bundleSummary.diagnosticWarnings
+    : [];
+  if (warnings.length === 0) {
+    lines.push("No bundle warnings.", "");
+  } else {
+    for (const warning of warnings) lines.push(`- ${warning}`);
+    lines.push("");
+  }
+
+  const artifactSizes =
+    typeof bundleSummary.artifactSizes === "object" &&
+    bundleSummary.artifactSizes !== null
+      ? Object.entries(bundleSummary.artifactSizes)
+      : [];
+  if (artifactSizes.length > 0) {
+    lines.push("### Artifact Sizes", "");
+    for (const [name, size] of artifactSizes) {
+      lines.push(`- ${name}: ${size} bytes`);
+    }
+    lines.push("");
+  }
+
+  lines.push(
+    "## Client Context",
+    "",
+    `- view=${clientContext.view ?? "unknown"} settings=${clientContext.settingsSection ?? "unknown"} mainTab=${clientContext.activeMainTab ?? "unknown"}`,
+    `- project=${clientContext.selectedFolderId ?? "none"} chat=${clientContext.selectedChatId ?? "none"} session=${clientContext.activeSessionId ?? "none"}`,
+    `- openFile=${clientContext.openFile ?? "none"}`,
+    "",
+  );
+
+  const rendererLogs = Array.isArray(clientContext.rendererLogs)
+    ? clientContext.rendererLogs
+    : [];
+  const mainProcessLogs = Array.isArray(clientContext.mainProcessLogs)
+    ? clientContext.mainProcessLogs
+    : [];
+  const recentUiActions = Array.isArray(clientContext.recentUiActions)
+    ? clientContext.recentUiActions
+    : [];
+
+  if (recentUiActions.length > 0) {
+    lines.push("### Recent UI Actions", "");
+    for (const action of recentUiActions.slice(-12)) {
+      lines.push(
+        `- ${action.createdAt ?? "unknown"} · ${action.action ?? "unknown"}${action.detail ? ` · ${action.detail}` : ""}`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (rendererLogs.length > 0 || mainProcessLogs.length > 0) {
+    lines.push("### Recent App Logs", "");
+    for (const log of [...rendererLogs, ...mainProcessLogs].slice(-20)) {
+      lines.push(
+        `- ${log.createdAt ?? "unknown"} · ${log.level ?? "unknown"} · ${log.source ?? "unknown"} · ${log.message ?? ""}`,
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push(
     "## Relevant Trace",
     "",
     String(firstTraceId),
     "",
     "## Recent Failures",
     "",
-  ];
+  );
 
   if (latestFailures.length === 0) {
     lines.push("No recent failures found.", "");

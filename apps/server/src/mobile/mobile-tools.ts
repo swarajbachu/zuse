@@ -1,7 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
-import type { MobileDevice, MobileStatus } from "@zuse/wire";
+import type { MobileDevice, MobileStatus } from "@zuse/contracts";
 
 export interface MobileToolBridge {
   readonly status: () => Promise<MobileStatus>;

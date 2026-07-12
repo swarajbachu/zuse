@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -42,7 +42,7 @@ const fetchPrState = async (
   try {
     const client = await getRpcClient();
     const info = await Effect.runPromise(
-      client.git.prState({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.prState"]({ folderId, worktreeId: worktreeId ?? null }),
     );
     return info;
   } catch {
@@ -91,7 +91,8 @@ export const usePrStateStore = create<PrState>((set, get) => ({
   byKey: {},
   hydrate: async (folderId, worktreeId) => {
     const key = prStateKey(folderId, worktreeId);
-    if (key in get().byKey) return;
+    const existing = get().byKey[key];
+    if (existing !== undefined && existing.state !== "none") return;
     const info = await fetchPrState(folderId, worktreeId);
     if (info === null) return;
     set((s) => ({ byKey: { ...s.byKey, [key]: info } }));

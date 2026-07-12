@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { MobileDevice, MobileProjectDetection } from "@zuse/wire";
+import { MobileDevice, MobileProjectDetection } from "@zuse/contracts";
 
 type PackageJson = {
   readonly dependencies?: Record<string, string>;

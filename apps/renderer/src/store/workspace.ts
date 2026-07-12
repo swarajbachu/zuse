@@ -6,7 +6,7 @@ import type {
   FolderId,
   GithubRepoSummary,
   ProjectTemplate,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -58,7 +58,7 @@ type WorkspaceState = {
 const persistSelection = async (folderId: FolderId | null): Promise<void> => {
   try {
     const client = await getRpcClient();
-    await Effect.runPromise(client.workspace.setSelected({ folderId }));
+    await Effect.runPromise(client["workspace.setSelected"]({ folderId }));
   } catch {
     // best-effort persistence; the in-memory store already updated
   }
@@ -102,8 +102,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const [folders, persisted] = await Promise.all([
-        Effect.runPromise(client.workspace.list({})),
-        Effect.runPromise(client.workspace.getSelected({})),
+        Effect.runPromise(client["workspace.list"]({})),
+        Effect.runPromise(client["workspace.getSelected"]({})),
       ]);
       // Prefer the persisted selection if its folder still exists; otherwise
       // pick the first folder so the UI is never in a "have folders, none
@@ -124,9 +124,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      const path = await Effect.runPromise(client.workspace.pickFolder({}));
+      const path = await Effect.runPromise(client["workspace.pickFolder"]({}));
       if (path === null) return;
-      const folder = await Effect.runPromise(client.workspace.add({ path }));
+      const folder = await Effect.runPromise(client["workspace.add"]({ path }));
       set((s) => ({
         folders: [...s.folders, folder],
         selectedFolderId: folder.id,
@@ -140,7 +140,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.workspace.remove({ folderId }));
+      await Effect.runPromise(client["workspace.remove"]({ folderId }));
       const nextSelected = (() => {
         const s = get();
         const folders = s.folders.filter((f) => f.id !== folderId);
@@ -164,7 +164,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   pickFolder: async () => {
     try {
       const client = await getRpcClient();
-      return await Effect.runPromise(client.workspace.pickFolder({}));
+      return await Effect.runPromise(client["workspace.pickFolder"]({}));
     } catch {
       return null;
     }
@@ -176,8 +176,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const [repos, auth] = await Promise.all([
-        Effect.runPromise(client.workspace.listGithubRepos({ limit: 30 })),
-        Effect.runPromise(client.workspace.ghAuthStatus({})),
+        Effect.runPromise(client["workspace.listGithubRepos"]({ limit: 30 })),
+        Effect.runPromise(client["workspace.ghAuthStatus"]({})),
       ]);
       set({
         recentGithubRepos: repos,
@@ -197,7 +197,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const folder = await Effect.runPromise(
-        client.workspace.cloneRepo({ url, parent }),
+        client["workspace.cloneRepo"]({ url, parent }),
       );
       set((s) => ({
         folders: [...s.folders, folder],
@@ -214,7 +214,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const folder = await Effect.runPromise(
-        client.workspace.createProject({
+        client["workspace.createProject"]({
           name,
           parent,
           template,

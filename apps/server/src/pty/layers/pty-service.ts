@@ -1,5 +1,5 @@
 import * as pty from "node-pty";
-import { Effect, Exit, Layer, Mailbox, Ref, Stream } from "effect";
+import { type Cause, Effect, Exit, Layer, Queue, Ref, Stream } from "effect";
 
 import {
   PtyDataEvent,
@@ -8,14 +8,17 @@ import {
   PtyNotFoundError,
   PtySpawnError,
   type PtyEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { PtyService } from "../services/pty-service.ts";
 
 interface ActivePty {
   readonly pty: pty.IPty;
   readonly cwd: string;
-  readonly mailbox: Mailbox.Mailbox<typeof PtyEvent.Type, PtyNotFoundError>;
+  readonly events: Queue.Queue<
+    typeof PtyEvent.Type,
+    PtyNotFoundError | Cause.Done
+  >;
 }
 
 const defaultShell = (): string => {
@@ -30,13 +33,13 @@ export const PtyServiceLive = Layer.effect(
   Effect.gen(function* () {
     const ref = yield* Ref.make<ReadonlyMap<PtyId, ActivePty>>(new Map());
 
-    const open: PtyService["Type"]["open"] = (cwd, cols, rows, command) =>
+    const open: PtyService["Service"]["open"] = (cwd, cols, rows, command) =>
       Effect.gen(function* () {
         const id = PtyId.make(crypto.randomUUID());
 
-        const mailbox = yield* Mailbox.make<
+        const events = yield* Queue.make<
           typeof PtyEvent.Type,
-          PtyNotFoundError
+          PtyNotFoundError | Cause.Done
         >();
 
         const cmd = command?.cmd ?? defaultShell();
@@ -62,17 +65,17 @@ export const PtyServiceLive = Layer.effect(
         });
 
         child.onData((bytes) => {
-          mailbox.unsafeOffer(PtyDataEvent.make({ bytes }));
+          Queue.offerUnsafe(events, PtyDataEvent.make({ bytes }));
         });
 
         child.onExit(({ exitCode, signal }) => {
-          mailbox.unsafeOffer(
+          Queue.offerUnsafe(events,
             PtyExitEvent.make({
               exitCode: exitCode ?? null,
               signal: signal ?? null,
             }),
           );
-          mailbox.unsafeDone(Exit.void);
+          Queue.endUnsafe(events);
           Effect.runSync(
             Ref.update(ref, (m) => {
               const next = new Map(m);
@@ -84,7 +87,7 @@ export const PtyServiceLive = Layer.effect(
 
         yield* Ref.update(ref, (m) => {
           const next = new Map(m);
-          next.set(id, { pty: child, cwd, mailbox });
+          next.set(id, { pty: child, cwd, events });
           return next;
         });
 
@@ -101,12 +104,12 @@ export const PtyServiceLive = Layer.effect(
           : Effect.succeed(active);
       });
 
-    const write: PtyService["Type"]["write"] = (ptyId, data) =>
+    const write: PtyService["Service"]["write"] = (ptyId, data) =>
       Effect.flatMap(getActive(ptyId), ({ pty: child }) =>
         Effect.sync(() => child.write(data)),
       );
 
-    const resize: PtyService["Type"]["resize"] = (ptyId, cols, rows) =>
+    const resize: PtyService["Service"]["resize"] = (ptyId, cols, rows) =>
       Effect.flatMap(getActive(ptyId), ({ pty: child }) =>
         Effect.sync(() => {
           try {
@@ -118,7 +121,7 @@ export const PtyServiceLive = Layer.effect(
         }),
       );
 
-    const close: PtyService["Type"]["close"] = (ptyId) =>
+    const close: PtyService["Service"]["close"] = (ptyId) =>
       Effect.flatMap(getActive(ptyId), ({ pty: child }) =>
         Effect.sync(() => {
           try {
@@ -129,7 +132,7 @@ export const PtyServiceLive = Layer.effect(
         }),
       );
 
-    const closeByCwdPrefix: PtyService["Type"]["closeByCwdPrefix"] = (
+    const closeByCwdPrefix: PtyService["Service"]["closeByCwdPrefix"] = (
       cwdPrefix,
     ) =>
       Effect.gen(function* () {
@@ -150,10 +153,10 @@ export const PtyServiceLive = Layer.effect(
         }
       });
 
-    const subscribe: PtyService["Type"]["subscribe"] = (ptyId) =>
+    const subscribe: PtyService["Service"]["subscribe"] = (ptyId) =>
       Stream.unwrap(
-        Effect.map(getActive(ptyId), ({ mailbox }) =>
-          Mailbox.toStream(mailbox),
+        Effect.map(getActive(ptyId), ({ events }) =>
+          Stream.fromQueue(events),
         ),
       );
 

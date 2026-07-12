@@ -1,12 +1,12 @@
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 
-import { WorktreeService } from "./services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 
 const Create = MemoizeRpcs.toLayerHandler(
   "worktree.create",
-  ({ projectId }) =>
-    Effect.flatMap(WorktreeService, (svc) => svc.create(projectId)),
+  ({ projectId, source }) =>
+    Effect.flatMap(WorktreeService, (svc) => svc.create(projectId, source)),
 );
 
 const List = MemoizeRpcs.toLayerHandler("worktree.list", ({ projectId }) =>

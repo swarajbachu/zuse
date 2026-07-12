@@ -1,4 +1,4 @@
-import { Effect, Mailbox, type Scope, Stream } from "effect";
+import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 import {
   spawn,
   type ChildProcessWithoutNullStreams,
@@ -10,7 +10,7 @@ import {
   AgentSessionStartError,
   type LoginEvent,
   type ProviderId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 // Each provider's interactive login command prints an OAuth URL to stdout (or
 // to stderr inside its TUI frame) and waits for the user to complete the flow
@@ -54,7 +54,7 @@ const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
  * to the renderer. Today `cursor` and `claude` have real handlers — other
  * providers resolve to an immediate `{ kind: "done", ok: false, reason: … }`.
  *
- * Cancellation: the stream is wrapped in `Stream.unwrapScoped`, so when the
+ * Cancellation: the stream is wrapped in `Stream.unwrap`, so when the
  * renderer unsubscribes (or the IPC drops), the scope closes and the
  * registered finalizer kills the child process with SIGTERM (escalating to
  * SIGKILL after a short grace period).
@@ -71,7 +71,7 @@ export const startProviderLogin = (
     };
     return Stream.succeed(event);
   }
-  return Stream.unwrapScoped(spawnLoginProcess(spec));
+  return Stream.unwrap(spawnLoginProcess(spec));
 };
 
 const spawnLoginProcess = (
@@ -82,7 +82,7 @@ const spawnLoginProcess = (
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const mailbox = yield* Mailbox.make<LoginEvent>();
+    const events = yield* Queue.make<LoginEvent, Cause.Done>();
 
     // Spawn into the user's home dir — login doesn't touch the project tree
     // and we don't want a project-local stale state to interfere.
@@ -94,7 +94,7 @@ const spawnLoginProcess = (
         stdio: ["pipe", "pipe", "pipe"],
       });
     } catch (cause) {
-      yield* mailbox.end;
+      yield* Queue.end(events);
       return yield* Effect.fail(
         new AgentSessionStartError({
           providerId: spec.providerId,
@@ -112,12 +112,12 @@ const spawnLoginProcess = (
     const handleLine = (raw: string): void => {
       const cleaned = raw.replace(ANSI_PATTERN, "").trim();
       if (cleaned.length === 0) return;
-      mailbox.unsafeOffer({ _tag: "log", text: cleaned });
+      Queue.offerUnsafe(events, { _tag: "log", text: cleaned });
       if (!urlEmitted) {
         const m = cleaned.match(spec.urlPattern);
         if (m !== null) {
           urlEmitted = true;
-          mailbox.unsafeOffer({ _tag: "url", url: m[0] });
+          Queue.offerUnsafe(events, { _tag: "url", url: m[0] });
         }
       }
     };
@@ -135,22 +135,22 @@ const spawnLoginProcess = (
         : signal !== null
           ? `${spec.command} login was terminated (${signal})`
           : `${spec.command} login exited with code ${code ?? "?"}`;
-      mailbox.unsafeOffer({
+      Queue.offerUnsafe(events, {
         _tag: "done",
         ok,
         ...(reason !== undefined ? { reason } : {}),
       });
-      void mailbox.end.pipe(Effect.runPromise);
+      Queue.endUnsafe(events);
     });
 
     child.once("error", (err) => {
       exited = true;
-      mailbox.unsafeOffer({
+      Queue.offerUnsafe(events, {
         _tag: "done",
         ok: false,
         reason: err.message,
       });
-      void mailbox.end.pipe(Effect.runPromise);
+      Queue.endUnsafe(events);
     });
 
     yield* Effect.addFinalizer(() =>
@@ -175,5 +175,5 @@ const spawnLoginProcess = (
       }),
     );
 
-    return Mailbox.toStream(mailbox);
+    return Stream.fromQueue(events);
   });

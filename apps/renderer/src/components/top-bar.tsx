@@ -38,7 +38,7 @@ import {
   type GitBranchInfo,
   type GitMergeMethod,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
@@ -66,6 +66,7 @@ import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
 import { Button } from "./ui/button.tsx";
+import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
@@ -222,7 +223,7 @@ export function TopBarMain() {
     void (async () => {
       try {
         const client = await getRpcClient();
-        const origin = await Effect.runPromise(client.git.origin({ folderId }));
+        const origin = await Effect.runPromise(client["git.origin"]({ folderId }));
         if (cancelled) return;
         setOriginLabel(
           origin !== null ? `${origin.owner}/${origin.repo}` : null,
@@ -243,7 +244,7 @@ export function TopBarMain() {
     try {
       const client = await getRpcClient();
       const list = await Effect.runPromise(
-        client.git.branches({ folderId, worktreeId }),
+        client["git.branches"]({ folderId, worktreeId }),
       );
       setBranches(list);
     } catch (err) {
@@ -276,7 +277,7 @@ export function TopBarMain() {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.switchBranch({
+        client["git.switchBranch"]({
           folderId,
           worktreeId,
           branch: branch.name,
@@ -559,7 +560,7 @@ function RenameBranchDialog({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.renameBranch({ folderId, worktreeId, name: next }),
+        client["git.renameBranch"]({ folderId, worktreeId, name: next }),
       );
       await onRenamed();
       onOpenChange(false);
@@ -883,6 +884,36 @@ function RunButton() {
 
 export function TopBarRight() {
   const ctx = useActiveContext();
+  const selectedChatId = useChatsStore((s) => s.selectedChatId);
+  const resetKey =
+    ctx.status === "ready"
+      ? `${ctx.folderId}:${ctx.worktreeId ?? "main"}:${selectedChatId ?? "none"}`
+      : `empty:${selectedChatId ?? "none"}`;
+
+  return (
+    <ErrorBoundary
+      resetKey={resetKey}
+      fallback={
+        <header className={`${SECTION_CLASS} justify-between px-2`}>
+          <div className={ACTION_CLASS} />
+          <div
+            className={`text-[11px] text-[var(--accent-red)] ${ACTION_CLASS}`}
+          >
+            Actions unavailable
+          </div>
+        </header>
+      }
+      onError={(error) => {
+        console.error("[top-bar] action surface crashed", error);
+      }}
+    >
+      <TopBarRightContent />
+    </ErrorBoundary>
+  );
+}
+
+function TopBarRightContent() {
+  const ctx = useActiveContext();
   const folderId = ctx.status === "ready" ? ctx.folderId : null;
   const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
   const status = useGitStatusStore((s) =>
@@ -956,7 +987,7 @@ export function TopBarRight() {
             run={async () => {
               const client = await getRpcClient();
               await Effect.runPromise(
-                client.git.push({ folderId, worktreeId }),
+                client["git.push"]({ folderId, worktreeId }),
               );
             }}
             onSuccess={() => refreshAfterAction(folderId, worktreeId)}
@@ -1025,7 +1056,7 @@ export function TopBarRight() {
             run={async () => {
               const client = await getRpcClient();
               await Effect.runPromise(
-                client.git.markReady({ folderId, worktreeId }),
+                client["git.markReady"]({ folderId, worktreeId }),
               );
             }}
             onSuccess={() => refreshAfterAction(folderId, worktreeId)}
@@ -1218,7 +1249,7 @@ function MergeButton({
         run={async () => {
           const client = await getRpcClient();
           await Effect.runPromise(
-            client.git.mergePr({
+            client["git.mergePr"]({
               folderId,
               worktreeId,
               action: "merge",
@@ -1289,7 +1320,7 @@ function AutoMergeToggle({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.mergePr({
+        client["git.mergePr"]({
           folderId,
           worktreeId,
           action: enabled ? "disable-auto" : "enable-auto",
@@ -1383,7 +1414,7 @@ function FixActionsButton({
     try {
       const client = await getRpcClient();
       const artifact = await Effect.runPromise(
-        client.git.fixFailingChecks({ folderId, worktreeId }),
+        client["git.fixFailingChecks"]({ folderId, worktreeId }),
       );
       setActiveMainTab("chat");
       const input = new ComposerInput({

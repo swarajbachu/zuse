@@ -1,5 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, MoreHorizontalIcon, PencilIcon, RotateLeft01Icon, Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Alert01Icon,
+  MoreHorizontalIcon,
+  PencilIcon,
+  Search01Icon,
+  UndoIcon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { Plus } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -14,7 +20,7 @@ import {
   type Command,
   type KeybindingRule,
   keyStringFromEvent,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import {
@@ -150,12 +156,7 @@ function RecordingSurface({
   };
 
   const onKeyUp = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      !event.shiftKey
-    ) {
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
       setPending(null);
     }
   };
@@ -440,7 +441,7 @@ function RowEditor({
                         onClick={() => dispatch({ type: "reset", row })}
                         aria-label="Discard pending changes"
                       >
-                        <HugeiconsIcon icon={RotateLeft01Icon} className="size-3.5" />
+                        <HugeiconsIcon icon={UndoIcon} className="size-3.5" />
                       </Button>
                     }
                   />
@@ -687,8 +688,8 @@ function ConflictWarning({
         side="top"
         className="max-w-72 whitespace-normal leading-relaxed"
       >
-        {description} The most recent matching binding wins when both
-        fire on the same chord.
+        {description} The most recent matching binding wins when both fire on
+        the same chord.
       </TooltipPopup>
     </Tooltip>
   );
@@ -739,7 +740,11 @@ function ExpandableSearch({
   }
   return (
     <div className="relative">
-      <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
+      <HugeiconsIcon
+        icon={Search01Icon}
+        className="pointer-events-none absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
       <input
         ref={inputRef}
         autoFocus

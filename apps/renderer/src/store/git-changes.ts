@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitChange, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitChange, WorktreeId } from "@zuse/contracts";
 
 import { classifyGit, type GitErrorTag } from "../lib/git-rpc.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -52,7 +52,7 @@ export const useGitChangesStore = create<GitChangesState>((set, get) => ({
     const key = gitChangesKey(folderId, worktreeId);
     const client = await getRpcClient();
     const result = await classifyGit(
-      client.git.changes({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.changes"]({ folderId, worktreeId: worktreeId ?? null }),
     );
     set((s) => ({
       byKey: result.ok ? { ...s.byKey, [key]: result.value } : s.byKey,
@@ -68,7 +68,7 @@ export const useGitChangesStore = create<GitChangesState>((set, get) => ({
   },
   initRepo: async (folderId, worktreeId) => {
     const client = await getRpcClient();
-    await Effect.runPromise(client.git.init({ folderId }));
+    await Effect.runPromise(client["git.init"]({ folderId }));
     await Promise.all([
       get().refresh(folderId, worktreeId),
       useGitStatusStore.getState().refresh(folderId, worktreeId),

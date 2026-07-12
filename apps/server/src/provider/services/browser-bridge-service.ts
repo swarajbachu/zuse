@@ -6,7 +6,17 @@ import type {
   BrowserCommandRequest,
   BrowserCommandResult,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+
+export interface BrowserBridgeDiagnostics {
+  readonly connectedRendererCount: number;
+  readonly pendingCommandCount: number;
+  readonly issuedCommandCount: number;
+  readonly timeoutCount: number;
+  readonly overloadCount: number;
+  readonly disconnectCount: number;
+  readonly missingResponseCount: number;
+}
 
 /**
  * Bridge between the in-process browser MCP tools (which call `send` from
@@ -37,8 +47,10 @@ export interface BrowserBridgeServiceShape {
   ) => Effect.Effect<void, BrowserCommandNotFoundError>;
 
   readonly commands: () => Stream.Stream<BrowserCommandRequest>;
+
+  readonly diagnostics: Effect.Effect<BrowserBridgeDiagnostics>;
 }
 
-export class BrowserBridgeService extends Context.Tag(
+export class BrowserBridgeService extends Context.Service<BrowserBridgeService, BrowserBridgeServiceShape>()(
   "memoize/BrowserBridgeService",
-)<BrowserBridgeService, BrowserBridgeServiceShape>() {}
+) {}

@@ -12,7 +12,7 @@ import {
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Effect, Fiber, Stream } from "effect";
 
-import type { FolderId, FsEntry } from "@zuse/wire";
+import type { FolderId, FsEntry } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
@@ -134,7 +134,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path, worktreeId }),
+          client["fs.tree"]({ folderId, path, worktreeId }),
         );
         if (path === "") {
           setRootState({ status: "ready", entries });
@@ -167,7 +167,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path: "", worktreeId }),
+          client["fs.tree"]({ folderId, path: "", worktreeId }),
         );
         if (cancelled) return;
         setRootState({ status: "ready", entries });
@@ -182,16 +182,15 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
   }, [folderId, worktreeId]);
 
   useEffect(() => {
-    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
     let cancelled = false;
     void (async () => {
       const client = await getRpcClient();
       if (cancelled) return;
       fiber = Effect.runFork(
         Stream.runForEach(
-          client.fs
-            .watchTree({ folderId, worktreeId })
-            .pipe(Stream.catchAll(() => Stream.empty)),
+          client["fs.watchTree"]({ folderId, worktreeId })
+            .pipe(Stream.catch(() => Stream.empty)),
           ({ paths }) =>
             Effect.sync(() => {
               const toRefresh = new Set<string>([""]);
@@ -226,7 +225,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       try {
         const client = await getRpcClient();
         const entries = await Effect.runPromise(
-          client.fs.tree({ folderId, path, worktreeId }),
+          client["fs.tree"]({ folderId, path, worktreeId }),
         );
         setChildStates((prev) => ({
           ...prev,
@@ -311,7 +310,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
         const client = await getRpcClient();
         if (kind === "file") {
           await Effect.runPromise(
-            client.fs.createFile({ folderId, path, worktreeId }),
+            client["fs.createFile"]({ folderId, path, worktreeId }),
           );
           await refreshDirectory(dirPath);
           openFileInTab({
@@ -323,7 +322,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
           });
         } else {
           await Effect.runPromise(
-            client.fs.createDirectory({ folderId, path, worktreeId }),
+            client["fs.createDirectory"]({ folderId, path, worktreeId }),
           );
           setExpanded((prev) =>
             dirPath === "" ? prev : { ...prev, [dirPath]: true },
@@ -390,7 +389,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.fs.remove({ folderId, path: entry.path, worktreeId }),
+        client["fs.remove"]({ folderId, path: entry.path, worktreeId }),
       );
       const parent = parentPathOf(entry.path);
       setExpanded((prev) => {

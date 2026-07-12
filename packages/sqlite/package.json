@@ -1,0 +1,24 @@
+{
+	"name": "@zuse/sqlite",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit --passWithNoTests",
+		"test:integration": "vitest run test/integration"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

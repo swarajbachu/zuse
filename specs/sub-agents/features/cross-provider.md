@@ -233,7 +233,7 @@ identical to Claude-side rows because the wire schema is the same.
 - **Provider-agnostic agent definitions.** Today an `AgentDefinition`
   lists Claude tool names. A Codex sub-agent gets the closest mapping
   the bridge can manage. A future cleanup is a `tool-name` translation
-  layer in `packages/wire/src/tools.ts`.
+  layer in `packages/contracts/src/tools.ts`.
 - **Model auto-selection.** Today the user picks the sub-agent's
   model. Future: memoize suggests "based on this prompt, gpt-5-mini
   would be ~3× cheaper than Haiku for the same quality, switch?"
@@ -245,7 +245,7 @@ identical to Claude-side rows because the wire schema is the same.
 
 1. `apps/server/src/provider/mcp/memoize-bridge.ts` + register with
    the parent driver's MCP layer.
-2. `CrossProviderInvocationEvent` in `packages/wire/src/agent.ts`.
+2. `CrossProviderInvocationEvent` in `packages/contracts/src/agent.ts`.
 3. Cross-provider preset entries in
    `apps/renderer/src/lib/subagent-presets.ts`.
 4. Renderer badge update + provider arrow icon.

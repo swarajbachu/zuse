@@ -101,7 +101,7 @@ rejects path traversal by requiring a single safe path segment.
 
 ## RPC and Wire Types
 
-Pokemon wire types live in `packages/wire/src/pokemon.ts`.
+Pokemon wire types live in `packages/contracts/src/pokemon.ts`.
 
 The RPC surface includes:
 

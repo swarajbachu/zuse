@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 
-import type { PtyId } from "@zuse/wire";
+import type { PtyId } from "@zuse/contracts";
 
 import { getRpcClient } from "./rpc-client.ts";
 import type { TerminalInstance } from "../store/terminals.ts";
@@ -33,7 +33,7 @@ type LiveTerminal = {
   readonly observer: ResizeObserver;
   readonly refreshTheme: () => void;
   ptyId: PtyId | null;
-  streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
+  streamFiber: Fiber.Fiber<unknown, unknown> | null;
   disposables: { dispose: () => void } | null;
   resizeTimer: number | null;
   /** Set once `dispose()` runs so a late async PTY open closes itself. */
@@ -162,7 +162,7 @@ async function openPty(
     if (live.disposed) return;
 
     const { ptyId: id } = await Effect.runPromise(
-      client.pty.open({
+      client["pty.open"]({
         cwd: opts.cwd,
         cols: term.cols,
         rows: term.rows,
@@ -177,13 +177,13 @@ async function openPty(
       }),
     );
     if (live.disposed) {
-      void Effect.runPromise(client.pty.close({ ptyId: id }));
+      void Effect.runPromise(client["pty.close"]({ ptyId: id }));
       return;
     }
     live.ptyId = id;
     safeFit(live);
     void Effect.runPromise(
-      client.pty.resize({ ptyId: id, cols: term.cols, rows: term.rows }),
+      client["pty.resize"]({ ptyId: id, cols: term.cols, rows: term.rows }),
     ).catch(() => {
       // ignore
     });
@@ -191,7 +191,7 @@ async function openPty(
     // Pump output stream into xterm. Stays alive while the chat is in the
     // background so scrollback keeps filling.
     live.streamFiber = Effect.runFork(
-      Stream.runForEach(client.pty.output({ ptyId: id }), (event) =>
+      Stream.runForEach(client["pty.output"]({ ptyId: id }), (event) =>
         Effect.sync(() => {
           if (event._tag === "data") {
             term.write(event.bytes);
@@ -208,7 +208,7 @@ async function openPty(
 
     // Forward keystrokes to the pty.
     const dataDisposable = term.onData((data) => {
-      void Effect.runPromise(client.pty.write({ ptyId: id, data })).catch(
+      void Effect.runPromise(client["pty.write"]({ ptyId: id, data })).catch(
         () => {
           // pty exited; ignore
         },
@@ -219,7 +219,7 @@ async function openPty(
     const sendResize = () => {
       if (live.ptyId === null) return;
       void Effect.runPromise(
-        client.pty.resize({
+        client["pty.resize"]({
           ptyId: live.ptyId,
           cols: term.cols,
           rows: term.rows,
@@ -307,7 +307,7 @@ export function dispose(instanceId: string): void {
   if (live.ptyId !== null) {
     const id = live.ptyId;
     void getRpcClient().then((client) =>
-      Effect.runPromise(client.pty.close({ ptyId: id })).catch(() => {
+      Effect.runPromise(client["pty.close"]({ ptyId: id })).catch(() => {
         // already closed
       }),
     );

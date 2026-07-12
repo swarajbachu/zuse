@@ -1,0 +1,19 @@
+# Zuse repository settings. Commit this file to share setup with your team.
+# Add files below that should be linked from the main checkout into every Zuse worktree.
+schemaVersion = 1
+autoCreateWorktree = false
+archiveRemoveWorktree = false
+
+file_include_globs = [
+  ".env",
+  ".env.local",
+  ".env.*.local",
+]
+
+[scripts]
+setup = "bun install"
+run = "bun run dev"
+archive = ""
+auto_run_after_setup = false
+
+[environment_variables]

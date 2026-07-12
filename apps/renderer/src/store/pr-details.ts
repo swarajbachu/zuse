@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/wire";
+import type { FolderId, GitPrDetails, WorktreeId } from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -38,7 +38,7 @@ const fetchPrDetails = async (
   try {
     const client = await getRpcClient();
     return await Effect.runPromise(
-      client.git.prDetails({ folderId, worktreeId: worktreeId ?? null }),
+      client["git.prDetails"]({ folderId, worktreeId: worktreeId ?? null }),
     );
   } catch {
     return null;
@@ -50,7 +50,8 @@ export const usePrDetailsStore = create<PrDetailsState>((set, get) => ({
   loadingByKey: {},
   hydrate: async (folderId, worktreeId) => {
     const key = prDetailsKey(folderId, worktreeId);
-    if (key in get().byKey) return;
+    const existing = get().byKey[key];
+    if (existing !== undefined && existing.state !== "none") return;
     if (get().loadingByKey[key] === true) return;
     set((s) => ({ loadingByKey: { ...s.loadingByKey, [key]: true } }));
     const info = await fetchPrDetails(folderId, worktreeId);

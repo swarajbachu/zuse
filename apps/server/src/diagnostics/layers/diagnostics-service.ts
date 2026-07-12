@@ -1,4 +1,4 @@
-import { SqlClient } from "@effect/sql";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 import {
   copyFileSync,
@@ -17,7 +17,7 @@ import {
   DiagnosticsExportError,
   DiagnosticsExportResult,
   type AgentAvailability,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import packageJson from "../../../package.json" with { type: "json" };
 import { AppPaths } from "../../app-paths.ts";
@@ -52,10 +52,12 @@ interface SessionEventFile {
 
 type BundleArtifactName =
   | "manifest"
+  | "bundle-summary"
   | "trace-summary"
   | "recent-errors"
   | "environment"
   | "provider-status"
+  | "client-context"
   | "redacted-session-events";
 
 function safeIsoForFile(date: Date): string {
@@ -178,13 +180,25 @@ function summarizeProvider(provider: AgentAvailability) {
   };
 }
 
+function prettyJson(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function jsonByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value));
+}
+
 function writeJson(path: string, value: unknown): void {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  writeFileSync(path, prettyJson(value), "utf8");
 }
 
 function buildSummary(input: {
   readonly diagnosticId: string;
   readonly bundlePath: string;
+  readonly version: string;
+  readonly platform: string;
+  readonly arch: string;
+  readonly osRelease: string;
   readonly latestFailures: ReadonlyArray<{
     readonly span: string;
     readonly message: string;
@@ -195,6 +209,8 @@ function buildSummary(input: {
   return [
     `Diagnostic ID: ${input.diagnosticId}`,
     `Bundle: ${input.bundlePath}`,
+    `App: Zuse ${input.version}`,
+    `Platform: ${input.platform}-${input.arch} ${input.osRelease}`,
     `Latest failure: ${topFailure ? `${topFailure.span} - ${topFailure.message}` : "none found"}`,
     `Providers captured: ${input.providerCount}`,
   ].join("\n");
@@ -207,7 +223,7 @@ export const DiagnosticsServiceLive = Layer.effect(
     const paths = yield* AppPaths;
     const providerService = yield* ProviderService;
 
-    const exportBundle = () =>
+    const exportBundle = (payload: { readonly clientContext?: unknown }) =>
       Effect.gen(function* () {
         const createdAt = new Date();
         const diagnosticId = `diag_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
@@ -288,12 +304,52 @@ export const DiagnosticsServiceLive = Layer.effect(
             redactSessionEventFile,
           ),
         }));
+        const artifacts: Record<string, unknown> = {
+          "trace-summary": traceSummary,
+          "recent-errors": recentErrors,
+          environment,
+          "provider-status": providerStatus,
+          "redacted-session-events": sessionEvents,
+        };
+        if (payload.clientContext !== undefined) {
+          artifacts["client-context"] = payload.clientContext;
+        }
+
+        const artifactSizes = Object.fromEntries(
+          Object.entries(artifacts).map(([name, artifact]) => [
+            name,
+            jsonByteLength(artifact),
+          ]),
+        );
+        const diagnosticWarnings = [
+          latestFailures.length === 0
+            ? "No persisted message errors were captured."
+            : null,
+          payload.clientContext === undefined
+            ? "No renderer client context was provided."
+            : null,
+        ].filter((warning): warning is string => warning !== null);
+        const bundleSummary = {
+          diagnosticId,
+          generatedFor: "github-bug-report",
+          attachFileToIssue: true,
+          pasteJsonOnlyIfAttachmentFails: true,
+          artifactSizes,
+          diagnosticWarnings,
+        };
+        artifacts["bundle-summary"] = bundleSummary;
+        artifactSizes["bundle-summary"] = jsonByteLength(bundleSummary);
+
         const included: BundleArtifactName[] = [
           "manifest",
+          "bundle-summary",
           "trace-summary",
           "recent-errors",
           "environment",
           "provider-status",
+          ...(payload.clientContext !== undefined
+            ? (["client-context"] as const)
+            : []),
           "redacted-session-events",
         ];
         const manifest = {
@@ -313,10 +369,14 @@ export const DiagnosticsServiceLive = Layer.effect(
 
         yield* Effect.try(() => {
           writeJson(join(bundleDir, "manifest.json"), manifest);
+          writeJson(join(bundleDir, "bundle-summary.json"), bundleSummary);
           writeJson(join(bundleDir, "trace-summary.json"), traceSummary);
           writeJson(join(bundleDir, "recent-errors.json"), recentErrors);
           writeJson(join(bundleDir, "environment.json"), environment);
           writeJson(join(bundleDir, "provider-status.json"), providerStatus);
+          if (payload.clientContext !== undefined) {
+            writeJson(join(bundleDir, "client-context.json"), payload.clientContext);
+          }
           writeJson(
             join(bundleDir, "session-events-redacted.json"),
             sessionEvents,
@@ -330,13 +390,7 @@ export const DiagnosticsServiceLive = Layer.effect(
         );
         const bundle = {
           manifest,
-          artifacts: {
-            "trace-summary": traceSummary,
-            "recent-errors": recentErrors,
-            environment,
-            "provider-status": providerStatus,
-            "redacted-session-events": sessionEvents,
-          },
+          artifacts,
         };
         yield* Effect.try(() => {
           writeJson(bundlePath, bundle);
@@ -346,23 +400,18 @@ export const DiagnosticsServiceLive = Layer.effect(
         const summary = buildSummary({
           diagnosticId,
           bundlePath,
+          version: packageJson.version,
+          platform: platform(),
+          arch: arch(),
+          osRelease: release(),
           latestFailures,
           providerCount: providers.length,
         });
-        const agentPrompt = [
-          `A user exported diagnostics for Zuse Alpha issue ${diagnosticId}.`,
-          `Inspect .context/diagnostics/${diagnosticId}.`,
-          "Start with REPORT.md, then use trace-summary.json and the raw bundle files.",
-          "Find the root cause and propose or implement a fix.",
-          "Do not include sensitive user content in the final summary.",
-        ].join("\n");
-
         return DiagnosticsExportResult.make({
           diagnosticId,
           createdAt,
           bundlePath,
           summary,
-          agentPrompt,
           included,
         });
       }).pipe(

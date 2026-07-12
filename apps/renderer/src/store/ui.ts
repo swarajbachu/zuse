@@ -1,11 +1,6 @@
 import { create } from "zustand";
 
-import type {
-  ChatId,
-  CodeAnnotation,
-  FolderId,
-  WorktreeId,
-} from "@zuse/wire";
+import type { ChatId, CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 
 import { useChatsStore } from "./chats.ts";
 
@@ -24,8 +19,10 @@ export type SettingsSection =
   | { readonly kind: "general" }
   | { readonly kind: "providers" }
   | { readonly kind: "workspace" }
+  | { readonly kind: "devices" }
   | { readonly kind: "pokedex" }
   | { readonly kind: "browser" }
+  | { readonly kind: "notch" }
   | { readonly kind: "diagnostics" }
   | { readonly kind: "shortcuts" }
   | { readonly kind: "developer" }

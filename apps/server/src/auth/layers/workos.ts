@@ -70,11 +70,65 @@ interface WorkosAuthenticateResponse {
   };
 }
 
+interface WorkosErrorResponse {
+  readonly error?: string;
+  readonly error_description?: string;
+  readonly code?: string;
+}
+
+const parseWorkosErrorCode = (raw: string): "invalid_grant" | undefined => {
+  try {
+    const parsed = JSON.parse(raw) as WorkosErrorResponse;
+    const code = parsed.error ?? parsed.code;
+    return code === "invalid_grant" ? "invalid_grant" : undefined;
+  } catch {
+    return raw.includes("invalid_grant") ? "invalid_grant" : undefined;
+  }
+};
+
+const parseAuthenticateResponse = (
+  value: unknown,
+): WorkosAuthenticateResponse => {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("WorkOS authenticate response was not an object.");
+  }
+  const obj = value as Partial<WorkosAuthenticateResponse>;
+  const user = obj.user;
+  if (typeof obj.access_token !== "string" || obj.access_token === "") {
+    throw new Error("WorkOS authenticate response was missing access_token.");
+  }
+  if (typeof obj.refresh_token !== "string" || obj.refresh_token === "") {
+    throw new Error("WorkOS authenticate response was missing refresh_token.");
+  }
+  if (typeof user !== "object" || user === null) {
+    throw new Error("WorkOS authenticate response was missing user.");
+  }
+  if (typeof user.id !== "string" || user.id === "") {
+    throw new Error("WorkOS authenticate response was missing user.id.");
+  }
+  if (typeof user.email !== "string" || user.email === "") {
+    throw new Error("WorkOS authenticate response was missing user.email.");
+  }
+  return {
+    access_token: obj.access_token,
+    refresh_token: obj.refresh_token,
+    organization_id: obj.organization_id ?? null,
+    user: {
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name ?? null,
+      last_name: user.last_name ?? null,
+      profile_picture_url: user.profile_picture_url ?? null,
+    },
+  };
+};
+
 /** The normalized bundle we persist (keychain) and reason about internally. */
 export interface SessionBundle {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly expiresAt: number;
+  readonly refreshedAt: number;
   readonly organizationId: string | null;
   readonly user: {
     readonly id: string;
@@ -84,6 +138,43 @@ export interface SessionBundle {
     readonly profilePictureUrl: string | null;
   };
 }
+
+export const parseSessionBundle = (value: unknown): SessionBundle | null => {
+  if (typeof value !== "object" || value === null) return null;
+  const obj = value as Partial<SessionBundle>;
+  const user = obj.user;
+  if (
+    typeof obj.accessToken !== "string" ||
+    typeof obj.refreshToken !== "string" ||
+    typeof obj.expiresAt !== "number" ||
+    typeof user !== "object" ||
+    user === null ||
+    typeof user.id !== "string"
+  ) {
+    return null;
+  }
+  return {
+    accessToken: obj.accessToken,
+    refreshToken: obj.refreshToken,
+    expiresAt: obj.expiresAt,
+    refreshedAt:
+      typeof obj.refreshedAt === "number" && Number.isFinite(obj.refreshedAt)
+        ? obj.refreshedAt
+        : 0,
+    organizationId:
+      typeof obj.organizationId === "string" ? obj.organizationId : null,
+    user: {
+      id: user.id,
+      email: typeof user.email === "string" ? user.email : "",
+      firstName: typeof user.firstName === "string" ? user.firstName : null,
+      lastName: typeof user.lastName === "string" ? user.lastName : null,
+      profilePictureUrl:
+        typeof user.profilePictureUrl === "string"
+          ? user.profilePictureUrl
+          : null,
+    },
+  };
+};
 
 /**
  * Read `exp` from a JWT access token without verifying the signature — we only
@@ -109,6 +200,7 @@ const toBundle = (res: WorkosAuthenticateResponse): SessionBundle => ({
   accessToken: res.access_token,
   refreshToken: res.refresh_token,
   expiresAt: expiryFromJwt(res.access_token),
+  refreshedAt: Date.now(),
   organizationId: res.organization_id ?? null,
   user: {
     id: res.user.id,
@@ -128,16 +220,29 @@ const authenticate = (
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`WorkOS ${res.status}: ${text.slice(0, 500)}`);
+        const err = new Error(`WorkOS ${res.status}: ${text.slice(0, 500)}`);
+        Object.assign(err, { workosCode: parseWorkosErrorCode(text) });
+        throw err;
       }
-      return (await res.json()) as WorkosAuthenticateResponse;
+      return parseAuthenticateResponse(await res.json());
     },
     catch: (cause) =>
       new AuthTokenError({
-        reason: cause instanceof Error ? cause.message : String(cause),
+        reason:
+          cause instanceof Error && cause.name === "TimeoutError"
+            ? "WorkOS request timed out."
+            : cause instanceof Error
+              ? cause.message
+              : String(cause),
+        code:
+          cause instanceof Error &&
+          (cause as { workosCode?: unknown }).workosCode === "invalid_grant"
+            ? "invalid_grant"
+            : undefined,
         cause,
       }),
   }).pipe(Effect.map(toBundle));

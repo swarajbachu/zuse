@@ -4,7 +4,7 @@ import {
   type FolderId,
   type RepositorySettings,
   type RepositorySettingsPatch,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface RepositorySettingsServiceShape {
   /**
@@ -26,6 +26,6 @@ export interface RepositorySettingsServiceShape {
   ) => Effect.Effect<RepositorySettings>;
 }
 
-export class RepositorySettingsService extends Context.Tag(
+export class RepositorySettingsService extends Context.Service<RepositorySettingsService, RepositorySettingsServiceShape>()(
   "memoize/RepositorySettingsService",
-)<RepositorySettingsService, RepositorySettingsServiceShape>() {}
+) {}

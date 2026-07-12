@@ -2,7 +2,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CodeAnnotation, GitDiffResult } from "@zuse/wire";
+import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { ShimmerText } from "~/components/ui/shimmer-text";
@@ -58,6 +58,13 @@ type PreviewState =
   | { status: "binary"; size: number }
   | { status: "error"; reason: string };
 
+const isCodeAnnotation = (annotation: unknown): annotation is CodeAnnotation =>
+  typeof annotation === "object" &&
+  annotation !== null &&
+  "relPath" in annotation &&
+  "startLine" in annotation &&
+  !("_tag" in annotation);
+
 const formatError = (err: unknown): string => {
   if (typeof err === "object" && err !== null && "_tag" in err) {
     const tag = String((err as { _tag: unknown })._tag);
@@ -108,9 +115,9 @@ const joinPath = (base: string, rel: string): string =>
 
 const fileUrlForDirectory = (dir: string): string => {
   const normalized = dir.endsWith("/") ? dir : `${dir}/`;
-  const segments = normalized.split("/").map((segment) =>
-    segment === "" ? "" : encodeURIComponent(segment),
-  );
+  const segments = normalized
+    .split("/")
+    .map((segment) => (segment === "" ? "" : encodeURIComponent(segment)));
   return `file://${segments.join("/")}`;
 };
 
@@ -261,6 +268,7 @@ function CodeMirrorBody({
   const visibleAnnotations = useMemo(
     () =>
       draftAnnotations
+        .filter(isCodeAnnotation)
         .filter(
           (a) =>
             a.relPath === annotationPath || a.absPath === annotationAbsPath,
@@ -305,14 +313,14 @@ function CodeMirrorBody({
       const result =
         file.kind === "external"
           ? await Effect.runPromise(
-              client.fs.writeExternalFile({
+              client["fs.writeExternalFile"]({
                 path: file.absPath,
                 content: docRef.current,
                 expectedMtime: mtimeRef.current,
               }),
             )
           : await Effect.runPromise(
-              client.fs.writeFile({
+              client["fs.writeFile"]({
                 folderId: file.folderId,
                 path: file.path,
                 content: docRef.current,
@@ -418,10 +426,10 @@ function CodeMirrorBody({
         const result =
           openFile.kind === "external"
             ? await Effect.runPromise(
-                client.fs.readExternalFile({ path: openFile.absPath }),
+                client["fs.readExternalFile"]({ path: openFile.absPath }),
               )
             : await Effect.runPromise(
-                client.fs.readFile({
+                client["fs.readFile"]({
                   folderId: openFile.folderId,
                   path: openFile.path,
                   worktreeId: openFile.worktreeId,
@@ -712,7 +720,7 @@ function DiffViewBody({
     void (async () => {
       const client = await getRpcClient();
       const result = await classifyGit(
-        client.git.diff({
+        client["git.diff"]({
           folderId: openFile.folderId,
           worktreeId: openFile.worktreeId,
           path: openFile.path,
@@ -832,10 +840,10 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
         const result =
           openFile.kind === "external"
             ? await Effect.runPromise(
-                client.fs.readExternalFile({ path: openFile.absPath }),
+                client["fs.readExternalFile"]({ path: openFile.absPath }),
               )
             : await Effect.runPromise(
-                client.fs.readFile({
+                client["fs.readFile"]({
                   folderId: openFile.folderId,
                   path: openFile.path,
                   worktreeId: openFile.worktreeId,

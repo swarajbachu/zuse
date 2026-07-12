@@ -4,7 +4,7 @@ import type {
   AuthCancelledError,
   AuthFlowError,
   AuthState,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { AuthTokenError } from "../errors.ts";
 
@@ -34,7 +34,7 @@ export interface AuthServiceShape {
   readonly getAccessToken: () => Effect.Effect<string, AuthTokenError>;
 }
 
-export class AuthService extends Context.Tag("memoize/AuthService")<
+export class AuthService extends Context.Service<
   AuthService,
   AuthServiceShape
->() {}
+>()("memoize/AuthService") {}

@@ -1,0 +1,11 @@
+{
+	"extends": "@repo/typescript-config/base.json",
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"module": "Preserve",
+		"moduleResolution": "Bundler",
+		"noEmit": true,
+		"types": ["node"]
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts"]
+}

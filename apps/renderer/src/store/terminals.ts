@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { ChatId } from "@zuse/wire";
+import type { ChatId } from "@zuse/contracts";
 
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 

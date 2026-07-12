@@ -4,7 +4,7 @@ import {
   type FolderId,
   type FsFolderNotFoundError,
   type WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface FileSearchHit {
   readonly relPath: string;
@@ -32,7 +32,7 @@ export interface FileSearchServiceShape {
   ) => Effect.Effect<ReadonlyArray<FileSearchHit>, FsFolderNotFoundError>;
 }
 
-export class FileSearchService extends Context.Tag("memoize/FileSearchService")<
+export class FileSearchService extends Context.Service<
   FileSearchService,
   FileSearchServiceShape
->() {}
+>()("memoize/FileSearchService") {}

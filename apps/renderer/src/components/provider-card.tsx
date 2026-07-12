@@ -16,16 +16,21 @@ import {
   type ProviderId,
   type ProviderUpdateEvent,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ApiKeyRow } from "~/components/api-key-row";
+import { BlurredEmail } from "~/components/blurred-email";
+import { OpencodeProviderManager } from "~/components/opencode-provider-manager";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { ProviderIcon } from "~/components/provider-icons";
 import { Button } from "~/components/ui/button";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { getRpcClient } from "~/lib/rpc-client";
-import { useProvidersStore } from "~/store/providers";
+import {
+  IDLE_PROVIDER_UPDATE_STATE,
+  useProvidersStore,
+} from "~/store/providers";
 import {
   Select,
   SelectItem,
@@ -239,15 +244,25 @@ export function ProviderCard({
           ))}
         <SubscriptionRow providerId={providerId} availability={availability} />
 
-        <ModelDefault providerId={providerId} />
-        <ModelVisibilitySettings providerId={providerId} />
+        {providerId === "opencode" ? (
+          // OpenCode fronts ~150 model providers; its card gets a dedicated
+          // provider manager (connect catalog providers, add custom
+          // OpenAI-compatible ones, pick which models show) instead of the
+          // single-model defaults + one API key the other harnesses use.
+          <OpencodeProviderManager />
+        ) : (
+          <>
+            <ModelDefault providerId={providerId} />
+            <ModelVisibilitySettings providerId={providerId} />
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium text-muted-foreground">
-            API key (optional)
-          </span>
-          <ApiKeyRow providerId={providerId} />
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                API key (optional)
+              </span>
+              <ApiKeyRow providerId={providerId} />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -412,33 +427,6 @@ function SubscriptionRow({
 }
 
 /**
- * Privacy-aware email pill. Blurs the address by default (so screen-records
- * and screenshots don't leak it) and reveals on click; clicking again
- * re-blurs. Rendered as a span because the provider row itself is a button.
- */
-function BlurredEmail({ email }: { email: string }) {
-  const [revealed, setRevealed] = useState(false);
-  return (
-    <span
-      onClick={(e) => {
-        e.stopPropagation();
-        setRevealed((r) => !r);
-      }}
-      title={revealed ? "Click to hide" : "Click to reveal"}
-      aria-label={revealed ? "Hide email" : "Reveal email"}
-      className={cn(
-        "max-w-[16rem] cursor-pointer truncate rounded px-1 py-0.5 text-left font-mono text-[11px] transition-[filter,background-color] duration-150",
-        revealed
-          ? "bg-muted/40 text-foreground"
-          : "bg-muted/40 text-foreground blur-[5px] select-none hover:blur-[3px]",
-      )}
-    >
-      {email}
-    </span>
-  );
-}
-
-/**
  * One-click sign-in row for providers with a real in-app login handler
  * (`cursor`, `claude`). Click → subscribe to `agent.startLogin`, which spawns
  * the provider's `login` subcommand server-side and streams progress. The
@@ -569,12 +557,6 @@ function ProviderSignInRow({ providerId }: { providerId: ProviderId }) {
   );
 }
 
-type UpdateState =
-  | { readonly kind: "idle" }
-  | { readonly kind: "running"; readonly line: string | null }
-  | { readonly kind: "success" }
-  | { readonly kind: "failed"; readonly reason: string };
-
 /**
  * Subscribe to `agent.updateProvider`, which spawns the provider's update
  * command server-side and streams its output. On the terminal `done` event we
@@ -583,18 +565,24 @@ type UpdateState =
  */
 function useProviderUpdate(providerId: ProviderId) {
   const refresh = useProvidersStore((s) => s.refresh);
-  const [state, setState] = useState<UpdateState>({ kind: "idle" });
-  const fiberRef = useRef<Fiber.RuntimeFiber<unknown, unknown> | null>(null);
+  const state = useProvidersStore(
+    (s) => s.updateStateByProvider[providerId] ?? IDLE_PROVIDER_UPDATE_STATE,
+  );
+  const setProviderUpdateState = useProvidersStore(
+    (s) => s.setProviderUpdateState,
+  );
+  const fiberRef = useRef<Fiber.Fiber<unknown, unknown> | null>(null);
   const resetTimerRef = useRef<number | null>(null);
 
   useEffect(
     () => () => {
       const fiber = fiberRef.current;
       if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+      setProviderUpdateState(providerId, IDLE_PROVIDER_UPDATE_STATE);
       if (resetTimerRef.current !== null)
         window.clearTimeout(resetTimerRef.current);
     },
-    [],
+    [providerId, setProviderUpdateState],
   );
 
   const run = async () => {
@@ -603,15 +591,27 @@ function useProviderUpdate(providerId: ProviderId) {
       window.clearTimeout(resetTimerRef.current);
       resetTimerRef.current = null;
     }
-    setState({ kind: "running", line: null });
-    const client = await getRpcClient();
+    setProviderUpdateState(providerId, { kind: "running", line: null });
+    let client: Awaited<ReturnType<typeof getRpcClient>>;
+    try {
+      client = await getRpcClient();
+    } catch (err) {
+      setProviderUpdateState(providerId, {
+        kind: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
     const fiber = Effect.runFork(
       Stream.runForEach(
-        client.agent.updateProvider({ providerId }),
+        client["provider.update"]({ providerId }),
         (event: ProviderUpdateEvent) =>
           Effect.sync(() => {
             if (event._tag === "log") {
-              setState({ kind: "running", line: event.text });
+              setProviderUpdateState(providerId, {
+                kind: "running",
+                line: event.text,
+              });
             } else if (event._tag === "done") {
               fiberRef.current = null;
               if (event.ok) {
@@ -620,17 +620,20 @@ function useProviderUpdate(providerId: ProviderId) {
                 // version show together for a beat. Stay on the spinner until
                 // the probe lands.
                 void refresh().finally(() => {
-                  setState({ kind: "success" });
+                  setProviderUpdateState(providerId, { kind: "success" });
                   // Re-probe hides the icon if now on latest; for
                   // version-unknown CLIs (Grok) drop the "Updated" badge after
                   // a moment so the control returns to idle.
                   resetTimerRef.current = window.setTimeout(() => {
-                    setState({ kind: "idle" });
+                    setProviderUpdateState(
+                      providerId,
+                      IDLE_PROVIDER_UPDATE_STATE,
+                    );
                     resetTimerRef.current = null;
                   }, 4_000);
                 });
               } else {
-                setState({
+                setProviderUpdateState(providerId, {
                   kind: "failed",
                   reason: event.reason ?? "Update failed.",
                 });
@@ -638,10 +641,10 @@ function useProviderUpdate(providerId: ProviderId) {
             }
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             fiberRef.current = null;
-            setState({
+            setProviderUpdateState(providerId, {
               kind: "failed",
               reason: err instanceof Error ? err.message : String(err),
             });

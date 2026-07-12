@@ -25,69 +25,6 @@ body,
   border-radius: 4px;
 }
 
-.chat-row-enter {
-  animation: chat-row-enter 150ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
-  will-change: transform, opacity;
-}
-
-.chat-row-enter-user {
-  animation-duration: 210ms;
-}
-
-.chat-send-flight {
-  animation: chat-send-flight 220ms cubic-bezier(0.215, 0.61, 0.355, 1) both;
-  pointer-events: none;
-  transform-origin: top left;
-  will-change: transform, opacity;
-}
-
-@keyframes chat-row-enter {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 5px, 0);
-  }
-  to {
-    opacity: 1;
-    transform: translate3d(0, 0, 0);
-  }
-}
-
-@keyframes chat-send-flight {
-  0% {
-    opacity: 0.82;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  70% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--chat-send-x), var(--chat-send-y), 0)
-      scale(0.96);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-row-enter {
-    animation: chat-row-enter-reduced 80ms ease-out both;
-    will-change: opacity;
-  }
-
-  .chat-send-flight {
-    animation: none;
-    display: none;
-  }
-
-  @keyframes chat-row-enter-reduced {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
-  }
-}
-
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
   --animate-caret-blink: 1s ease-out infinite caret-blink;
@@ -300,12 +237,12 @@ body,
   --accent-red: hsl(0 74% 56%);
   --accent-zinc: hsl(72 4% 42%);
 
-  --secondary: hsl(74 10% 93%);
+  --secondary: hsl(74 10% 92%);
   --secondary-foreground: var(--foreground);
-  --muted: hsl(74 10% 93%);
-  --muted-foreground: hsl(72 6% 39%);
-  --accent: hsl(74 18% 90%);
-  --accent-foreground: hsl(72 34% 14%);
+  --muted: hsl(74 10% 86%);
+  --muted-foreground: hsl(72 7% 34%);
+  --accent: hsl(73 22% 84%);
+  --accent-foreground: hsl(72 36% 11%);
 
   --destructive: hsl(0 74% 50%);
   --destructive-foreground: hsl(72 22% 99%);
@@ -393,20 +330,24 @@ body,
   --accent-green: hsl(131 72% 59%);
   --accent-blue: hsl(220 96% 68%);
   --accent-amber: hsl(18 96% 62%);
-  --accent-red: hsl(0 91% 71%);
+  --accent-red: hsl(0 84% 60%);
   --accent-zinc: hsl(72 2% 63%);
 
   --secondary: hsl(72 4% 10%);
   --secondary-foreground: hsl(72 4% 92%);
 
-  --muted: hsl(72 4% 10%);
-  --muted-foreground: hsl(72 2% 64%);
+  /* Muted + accent sit ABOVE --card/--popover (both 13%) on the moss ramp so
+     hover/selected states and muted surfaces read clearly against cards and
+     the 6% background. Previously accent == card (13%), making every dropdown
+     hover invisible. */
+  --muted: hsl(72 4% 24%);
+  --muted-foreground: hsl(72 3% 70%);
 
-  --accent: hsl(72 4% 13%);
+  --accent: hsl(72 4% 27%);
   --accent-foreground: hsl(72 4% 92%);
 
-  --destructive: hsl(0 91% 71%);
-  --destructive-foreground: hsl(72 5% 6%);
+  --destructive: hsl(0 84% 52%);
+  --destructive-foreground: hsl(0 0% 100%);
 
   --success: hsl(131 72% 59%);
   --success-foreground: hsl(130 66% 10%);
@@ -417,7 +358,7 @@ body,
   --info: hsl(220 96% 68%);
   --info-foreground: hsl(217 45% 14%);
 
-  --alert-error-bg: hsl(360 15% 22%);
+  --alert-error-bg: hsl(0 54% 18%);
   --alert-warning-bg: hsl(360 15% 22%);
   --alert-info-bg: hsl(217 45% 18%);
   --alert-success-bg: hsl(130 64% 11%);
@@ -447,7 +388,7 @@ body,
   --chart-2: hsl(131 72% 59%);
   --chart-3: hsl(18 96% 62%);
   --chart-4: hsl(220 96% 68%);
-  --chart-5: hsl(0 91% 71%);
+  --chart-5: hsl(0 84% 60%);
 
   --user-bubble: hsl(72 4% 13%);
   --user-bubble-foreground: hsl(72 4% 92%);

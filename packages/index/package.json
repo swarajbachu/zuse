@@ -1,35 +1,36 @@
 {
-  "name": "@zuse/index",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "require": "./src/index.ts"
-    }
-  },
-  "scripts": {
-    "check-types": "tsc --noEmit",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "@noble/hashes": "^1.5.0",
-    "better-sqlite3": "^12.9.0",
-    "effect": "catalog:",
-    "ignore": "^7.0.0",
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-javascript": "^0.23.0",
-    "tree-sitter-json": "^0.24.0",
-    "tree-sitter-typescript": "^0.23.0"
-  },
-  "devDependencies": {
-    "@repo/typescript-config": "*",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "catalog:",
-    "typescript": "catalog:"
-  }
+	"name": "@zuse/index",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts",
+			"require": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration"
+	},
+	"dependencies": {
+		"@noble/hashes": "^1.5.0",
+		"effect": "catalog:",
+		"ignore": "^7.0.0",
+		"tree-sitter": "^0.21.1",
+		"tree-sitter-javascript": "^0.23.0",
+		"tree-sitter-json": "^0.24.0",
+		"tree-sitter-typescript": "^0.23.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
 }

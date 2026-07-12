@@ -1,3 +1,5 @@
+import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -32,6 +34,16 @@ const tagFromErrorName = (value: string | null): string | null => {
 };
 
 export const formatError = (err: unknown): string => {
+  const formatted = formatErrorInner(err);
+  recordDiagnosticEvent({
+    level: "error",
+    source: "renderer.formatError",
+    message: formatted,
+  });
+  return formatted;
+};
+
+const formatErrorInner = (err: unknown): string => {
   if (!isRecord(err)) return String(err);
 
   const message = typeof err["message"] === "string" ? err["message"] : null;

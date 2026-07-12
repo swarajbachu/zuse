@@ -1,24 +1,24 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import { Session } from "@zuse/wire";
+import { Session } from "@zuse/contracts";
 import type {
   AgentItemId,
   ChatId,
+  ForkDestination,
+  ForkMode,
   FolderId,
+  MessageId,
   PermissionMode,
   ProviderId,
   RuntimeMode,
   SessionId,
   UserQuestionAnswer,
-} from "@zuse/wire";
+  WorktreeId,
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
-import {
-  buildAgentsForNewSession,
-  useSubagentsStore,
-} from "./subagents.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
@@ -85,8 +85,27 @@ type SessionsState = {
     },
   ) => Promise<SessionId | null>;
   /**
+   * Branch a conversation from `fromMessageId` into a new tab (same chat) or
+   * a new sidebar chat. Inserts + selects the resulting chat/session and
+   * returns identifiers plus the fork mode the server chose
+   * (`resume` = real agent memory, `copy` = replayed transcript).
+   */
+  readonly fork: (input: {
+    sourceSessionId: SessionId;
+    fromMessageId: MessageId;
+    destination: ForkDestination;
+    providerId?: ProviderId;
+    model?: string;
+    worktreeId?: WorktreeId | null;
+    title?: string;
+  }) => Promise<{
+    chatId: ChatId;
+    sessionId: SessionId;
+    forkMode: ForkMode;
+  } | null>;
+  /**
    * Patch the cached `Session.status` for a session. Called by the
-   * `session.streamStatus` subscription so the renderer's view of
+   * durable `session.events` subscription so the renderer's view of
    * `Session.status` reflects post-boot transitions
    * (`booting` → `idle` / `running` / `error`).
    */
@@ -201,7 +220,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const includeArchived =
         get().showArchivedByProject[projectId] === true;
       const sessions = await Effect.runPromise(
-        client.session.list({ projectId, includeArchived }),
+        client["session.list"]({ projectId, includeArchived }),
       );
       set((s) => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
@@ -221,22 +240,13 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }));
     try {
       const client = await getRpcClient();
-      // Sub-agent presets are Claude-only this PR — Codex sessions ship
-      // empty `agents` so the wire stays uniform.
-      const agents =
-        providerId === "claude" ? buildAgentsForNewSession() : {};
-      const enableSubagents =
-        providerId === "claude" &&
-        useSubagentsStore.getState().enableForNewSessions;
       const session = await Effect.runPromise(
-        client.session.create({
+        client["session.create"]({
           chatId,
           providerId,
           model,
           initialPrompt: opts?.initialPrompt,
           runtimeMode: opts?.runtimeMode,
-          agents,
-          enableSubagents,
           permissionMode: opts?.permissionMode,
           toolSearch: opts?.toolSearch,
         }),
@@ -266,6 +276,66 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       return null;
     }
   },
+  fork: async (input) => {
+    set({ error: null });
+    try {
+      const client = await getRpcClient();
+      const { chat, session, forkMode } = await Effect.runPromise(
+        client["session.fork"]({
+          sourceSessionId: input.sourceSessionId,
+          fromMessageId: input.fromMessageId,
+          destination: input.destination,
+          providerId: input.providerId,
+          model: input.model,
+          worktreeId: input.worktreeId,
+          title: input.title,
+        }),
+      );
+      const projectId = session.projectId;
+      // Insert + select the forked session.
+      set((s) => {
+        const existing = s.sessionsByProject[projectId] ?? [];
+        const withoutDup = existing.filter((row) => row.id !== session.id);
+        return {
+          sessionsByProject: {
+            ...s.sessionsByProject,
+            [projectId]: [session, ...withoutDup],
+          },
+          selectedSessionId: session.id,
+          selectedSessionByProject: {
+            ...s.selectedSessionByProject,
+            [projectId]: session.id,
+          },
+        };
+      });
+      // Land the chat: a new sidebar entry for `destination: "chat"`, or the
+      // existing chat re-selected for `destination: "tab"`. Lazy-require to
+      // dodge the chats.ts ↔ sessions.ts import cycle.
+      void import("./chats.ts").then(({ useChatsStore }) => {
+        useChatsStore.setState((s) => {
+          const list = s.chatsByProject[projectId] ?? [];
+          const nextList = list.some((row) => row.id === chat.id)
+            ? list.map((row) => (row.id === chat.id ? chat : row))
+            : [chat, ...list];
+          return {
+            chatsByProject: { ...s.chatsByProject, [projectId]: nextList },
+            selectedChatId: chat.id,
+            selectedChatByProject: {
+              ...s.selectedChatByProject,
+              [projectId]: chat.id,
+            },
+          };
+        });
+        // Persist the active tab within the chat so a later sidebar click
+        // restores this forked session.
+        void useChatsStore.getState().setActiveSession(chat.id, session.id);
+      });
+      return { chatId: chat.id, sessionId: session.id, forkMode };
+    } catch (err) {
+      set({ error: formatError(err) });
+      return null;
+    }
+  },
   setSessionStatus: (sessionId, status) => {
     set((s) => {
       const projectId = findSessionProject(s.sessionsByProject, sessionId);
@@ -290,7 +360,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.rename({ sessionId, title }));
+      await Effect.runPromise(client["session.rename"]({ sessionId, title }));
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
         if (projectId === null) return {};
@@ -317,7 +387,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.setModel({ sessionId, model }));
+      await Effect.runPromise(client["session.setModel"]({ sessionId, model }));
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
         if (projectId === null) return {};
@@ -361,7 +431,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setRuntimeMode({ sessionId, runtimeMode }),
+        client["session.setRuntimeMode"]({ sessionId, runtimeMode }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -395,7 +465,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setPermissionMode({ sessionId, mode }),
+        client["session.setPermissionMode"]({ sessionId, mode }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -408,7 +478,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.answerQuestion({ sessionId, itemId, answers }),
+        client["session.answerQuestion"]({ sessionId, itemId, answers }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -424,7 +494,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.session.setProvider({ sessionId, providerId, model }),
+        client["session.setProvider"]({ sessionId, providerId, model }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
@@ -456,7 +526,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.archive({ sessionId }));
+      await Effect.runPromise(client["session.archive"]({ sessionId }));
       // Re-hydrate the affected project so visibility honors showArchived.
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       if (projectId !== null) await get().hydrate(projectId);
@@ -481,7 +551,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.unarchive({ sessionId }));
+      await Effect.runPromise(client["session.unarchive"]({ sessionId }));
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       if (projectId !== null) await get().hydrate(projectId);
     } catch (err) {
@@ -492,7 +562,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.session.delete({ sessionId }));
+      await Effect.runPromise(client["session.delete"]({ sessionId }));
       const projectId = findSessionProject(get().sessionsByProject, sessionId);
       set((s) => {
         if (projectId === null) return {};
@@ -519,7 +589,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const session = await Effect.runPromise(
-        client.session.resume({ sessionId }),
+        client["session.resume"]({ sessionId }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);
@@ -549,7 +619,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const session = await Effect.runPromise(
-        client.session.get({ sessionId }),
+        client["session.get"]({ sessionId }),
       );
       set((s) => {
         const projectId = findSessionProject(s.sessionsByProject, sessionId);

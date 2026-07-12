@@ -8,7 +8,7 @@ import type {
   AgentTurnId,
   ProviderId,
   StartSessionInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import type { ProviderAdapterError } from "../errors.ts";
 
@@ -43,7 +43,7 @@ export interface ProviderAdapterShape {
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 
-export class ProviderAdapter extends Context.Tag("memoize/ProviderAdapter")<
+export class ProviderAdapter extends Context.Service<
   ProviderAdapter,
   ProviderAdapterShape
->() {}
+>()("memoize/ProviderAdapter") {}

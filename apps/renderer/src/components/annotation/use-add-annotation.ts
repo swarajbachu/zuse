@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import type { CodeAnnotation } from "@zuse/wire";
+import type { CodeAnnotation } from "@zuse/contracts";
 
 import { useAnnotationsStore } from "../../store/annotations.ts";
 import { useSessionsStore } from "../../store/sessions.ts";

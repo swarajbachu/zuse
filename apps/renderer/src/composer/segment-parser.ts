@@ -6,7 +6,7 @@ import {
   type FileRef,
   type ProviderId,
   type SkillRef,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { allChips } from "../lib/codemirror/composer-chips.ts";
 

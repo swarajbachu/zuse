@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/wire";
+import type { PokemonPokedexEntry, PokemonRarity } from "@zuse/contracts";
 
 import { PokemonRarityText } from "../pokemon.tsx";
 import {

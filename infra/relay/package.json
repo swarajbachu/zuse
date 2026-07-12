@@ -1,0 +1,38 @@
+{
+	"name": "@zuse/relay",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/index.ts",
+	"types": "./src/index.ts",
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration",
+		"mint-keys": "node scripts/mint-keys.mjs",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate",
+		"secret": "wrangler secret put RELAY_MINT_PRIVATE_JWK",
+		"secret:cf": "wrangler secret put CF_API_TOKEN",
+		"dev": "wrangler dev",
+		"deploy": "wrangler deploy"
+	},
+	"dependencies": {
+		"@effect/sql-pg": "catalog:",
+		"effect": "catalog:",
+		"jose": "^6.2.3"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "^4.20260601.1",
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"@types/pg": "^8.20.0",
+		"drizzle-kit": "^0.31.4",
+		"drizzle-orm": "^0.44.3",
+		"pg": "^8.22.0",
+		"typescript": "catalog:",
+		"vitest": "catalog:",
+		"wrangler": "^4.107.0"
+	}
+}

@@ -101,7 +101,7 @@ apps/
   server/      All backend logic — Effect Layers
   web/         Next.js marketing site
 packages/
-  wire/        @zuse/wire — typed RPC contracts + branded IDs
+  wire/        @zuse/contracts — typed RPC contracts + branded IDs
   ui/          Shared React components
 specs/
   0.01-MVP/    Foundation

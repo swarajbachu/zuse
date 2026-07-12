@@ -1,8 +1,0 @@
-{
-  "extends": "@repo/typescript-config/base.json",
-  "include": ["src/**/*.ts"],
-  "compilerOptions": {
-    "noEmit": true,
-    "allowImportingTsExtensions": true
-  }
-}

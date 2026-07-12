@@ -10,7 +10,7 @@ import type {
   MobileStartError,
   MobileStatus,
   MobileUnsupportedError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface MobileServiceShape {
   readonly availability: () => Effect.Effect<MobileAvailability>;
@@ -36,8 +36,7 @@ export interface MobileServiceShape {
   readonly logTail: (lines: number) => Effect.Effect<string>;
 }
 
-export class MobileService extends Context.Tag("memoize/MobileService")<
+export class MobileService extends Context.Service<
   MobileService,
   MobileServiceShape
->() {}
-
+>()("memoize/MobileService") {}

@@ -1,0 +1,77 @@
+{
+	"name": "mobile",
+	"version": "0.0.0",
+	"private": true,
+	"main": "expo-router/entry",
+	"scripts": {
+		"start": "expo start",
+		"ios": "expo run:ios",
+		"lint": "eslint .",
+		"check-types": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration --passWithNoTests",
+		"android": "expo run:android"
+	},
+	"expo": {
+		"install": {
+			"exclude": [
+				"typescript",
+				"@types/react"
+			]
+		}
+	},
+	"dependencies": {
+		"@expo-google-fonts/geist-mono": "^0.4.1",
+		"@expo-google-fonts/inter": "^0.4.2",
+		"@expo/ui": "~57.0.3",
+		"@hugeicons-pro/core-solid-rounded": "^4.2.1",
+		"@hugeicons/react-native": "^1.0.15",
+		"@noble/curves": "^1.9.7",
+		"@noble/hashes": "^1.8.0",
+		"@zuse/client-runtime": "*",
+		"@zuse/contracts": "*",
+		"clsx": "^2.1.1",
+		"effect": "catalog:",
+		"expo": "^57.0.2",
+		"expo-auth-session": "~57.0.1",
+		"expo-camera": "~57.0.0",
+		"expo-crypto": "~57.0.0",
+		"expo-file-system": "~57.0.0",
+		"expo-font": "~57.0.0",
+		"expo-glass-effect": "~57.0.0",
+		"expo-haptics": "~57.0.0",
+		"expo-notifications": "~57.0.3",
+		"expo-router": "~57.0.3",
+		"expo-secure-store": "~57.0.0",
+		"expo-status-bar": "~57.0.0",
+		"expo-web-browser": "~57.0.0",
+		"jose": "^6.2.3",
+		"lucide-react-native": "^0.475.0",
+		"react": "19.2.3",
+		"react-native": "0.86.0",
+		"react-native-gesture-handler": "~2.32.0",
+		"react-native-markdown-display": "^7.0.2",
+		"react-native-quick-crypto": "^0.7.0",
+		"react-native-reanimated": "4.5.0",
+		"react-native-safe-area-context": "~5.7.0",
+		"react-native-screens": "4.25.2",
+		"react-native-svg": "15.15.4",
+		"tailwind-merge": "^3.5.0",
+		"tailwindcss": "^4.0.0",
+		"text-encoding": "^0.7.0",
+		"uniwind": "^1.9.0",
+		"zustand": "^5.0.2"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"@zuse/testkit": "*",
+		"babel-preset-expo": "~57.0.0",
+		"eslint": "catalog:",
+		"eslint-config-expo": "~57.0.0",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

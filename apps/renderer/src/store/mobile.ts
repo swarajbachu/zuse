@@ -6,7 +6,7 @@ import type {
   MobileDevice,
   MobileProjectDetection,
   MobileStatus,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useUiStore } from "./ui.ts";
@@ -34,8 +34,8 @@ type MobileState = {
   readonly detectProject: (cwd: string) => Promise<MobileProjectDetection>;
 };
 
-let eventFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let frameFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let eventFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let frameFiber: Fiber.Fiber<unknown, unknown> | null = null;
 
 const readSelected = (): string | null => {
   try {
@@ -80,7 +80,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       const availability = await Effect.runPromise(
-        client.mobile.availability({}),
+        client["mobile.availability"]({}),
       );
       set({ availability });
       if (availability.supported) {
@@ -91,7 +91,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   },
   refreshDevices: async () => {
     const client = await getRpcClient();
-    const devices = await Effect.runPromise(client.mobile.listDevices({}));
+    const devices = await Effect.runPromise(client["mobile.listDevices"]({}));
     const selected = get().selectedUdid;
     const nextSelected =
       selected !== null && devices.some((d) => d.udid === selected)
@@ -110,7 +110,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       eventFiber = Effect.runFork(
-        Stream.runForEach(client.mobile.events({}), (event) =>
+        Stream.runForEach(client["mobile.events"]({}), (event) =>
           Effect.sync(() => {
             if (event._tag === "Status") {
               set({ status: event.status });
@@ -136,7 +136,7 @@ export const useMobileStore = create<MobileState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       frameFiber = Effect.runFork(
-        Stream.runForEach(client.mobile.frames({}), (frame) =>
+        Stream.runForEach(client["mobile.frames"]({}), (frame) =>
           Effect.sync(() => {
             set({ frameUrl: `data:image/jpeg;base64,${frame.data}` });
           }),
@@ -153,15 +153,16 @@ export const useMobileStore = create<MobileState>((set, get) => ({
   start: async (cwd, udid) => {
     const client = await getRpcClient();
     set({ log: [], frameUrl: null });
-    await Effect.runPromise(client.mobile.start({ cwd, udid, source: "user" }));
+    await Effect.runPromise(
+      client["mobile.start"]({ cwd, udid, source: "user" }),
+    );
   },
   stop: async () => {
     const client = await getRpcClient();
-    await Effect.runPromise(client.mobile.stop({}));
+    await Effect.runPromise(client["mobile.stop"]({}));
   },
   detectProject: async (cwd) => {
     const client = await getRpcClient();
-    return await Effect.runPromise(client.mobile.detectProject({ cwd }));
+    return await Effect.runPromise(client["mobile.detectProject"]({ cwd }));
   },
 }));
-

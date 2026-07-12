@@ -31,7 +31,7 @@ hidden/closed webview can't hang the agent turn).
 
 ```
 Claude agent (server)
-  → MCP tool (apps/server/src/provider/drivers/browser-tools.ts)
+  → MCP tool (packages/agents/src/drivers/browser-tools.ts)
     → BrowserBridgeService.send(cmd)            [publish + await Deferred]
       → browser.commands stream → renderer
         → BrowserPane drives <webview>          [capturePage / executeJavaScript]
@@ -103,9 +103,9 @@ Defense in depth even so:
 
 ## Key files
 
-- Wire: `packages/wire/src/browser.ts` (commands, results, RPCs), registered in `rpc.ts`.
+- Wire: `packages/contracts/src/browser.ts` (commands, results, RPCs), registered in `rpc.ts`.
 - Server bridge: `apps/server/src/provider/{services,layers}/browser-bridge-service.ts`.
-- Tools: `apps/server/src/provider/drivers/browser-tools.ts`; registered + policy in `drivers/claude.ts`.
+- Tools: `packages/agents/src/drivers/browser-tools.ts`; registered + policy in `drivers/claude.ts`.
 - RPC handlers: `apps/server/src/provider/handlers.ts`; layer wiring in `runtime.ts`.
 - Credentials: `apps/server/src/provider/{services,layers}/credentials-service.ts` (`browserCred:` namespace).
 - Renderer executor + shutter: `apps/renderer/src/components/browser-pane.tsx`, `browser-shutter.tsx`.

@@ -1,4 +1,4 @@
-import { Context, type Effect, type Stream } from "effect";
+import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 
 import type {
   AgentAvailability,
@@ -19,8 +19,8 @@ import type {
   ThreadGoal,
   ThreadGoalSetInput,
   UserQuestionAnswer,
-} from "@zuse/wire";
-
+} from "@zuse/contracts";
+import { Context, type Effect, type Stream } from "effect";
 import type { CredentialsError } from "../errors.ts";
 
 /**
@@ -31,18 +31,26 @@ import type { CredentialsError } from "../errors.ts";
 export type GetRuntimeMode = () => RuntimeMode;
 
 /**
- * Public-facing service that the RPC handlers bind to. Every wire RPC
- * (`agent.availability`, `agent.start`, `agent.send`, …) maps to one method
- * here. The live impl (PR 5+) composes `ProviderRegistry`, `Credentials`, and
- * the spawn-CLI helper to satisfy these.
+ * Provider-process service used by the conversation runtime. Public RPCs bind
+ * to session operations; those operations use this service to manage the
+ * corresponding provider handle and event stream.
  */
 export interface ProviderServiceShape {
-  readonly availability: () => Effect.Effect<ReadonlyArray<AgentAvailability>>;
+  readonly availability: (
+    refresh?: boolean,
+  ) => Effect.Effect<ReadonlyArray<AgentAvailability>>;
 
   readonly start: (
     input: StartSessionInput,
     resumeCursor?: string | null,
     getRuntimeMode?: GetRuntimeMode,
+    /**
+     * Session-bound orchestration tools. `ConversationServices` owns the actual
+     * operations and passes this bundle when autonomy is enabled. Drivers
+     * expose it through their native MCP path (Claude SDK, Codex app-server,
+     * Grok ACP) without duplicating worktree/chat persistence logic.
+     */
+    orchestrationTools?: OrchestrationSessionTools | null,
   ) => Effect.Effect<
     { readonly sessionId: AgentSessionId },
     ProviderNotAvailableError | AgentSessionStartError
@@ -107,7 +115,7 @@ export interface ProviderServiceShape {
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 
-export class ProviderService extends Context.Tag("memoize/ProviderService")<
+export class ProviderService extends Context.Service<
   ProviderService,
   ProviderServiceShape
->() {}
+>()("memoize/ProviderService") {}

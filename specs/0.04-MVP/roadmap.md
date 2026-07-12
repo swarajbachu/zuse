@@ -47,7 +47,7 @@ branch with one changed file results in exactly one new blob row.
 the experiment that justifies the rest of the work.
 
 - `IndexService.symbolLookup`, `findReferences`, `readChunk`, `listModule`
-- Register tools in the Claude SDK adapter (`apps/server/src/provider/drivers/claude.ts`)
+- Register tools in the Claude SDK adapter (`packages/agents/src/drivers/claude.ts`)
 - Build a 20-task evaluation harness under `tools/index-eval/`:
   task descriptions, fixtures, scoring (token usage, wall time, success)
 - Run baseline (grep agent) vs. Tier-1-enabled

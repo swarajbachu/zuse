@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -11,6 +11,18 @@ import { getRpcClient } from "../lib/rpc-client.ts";
 // subscribers on every unrelated store update).
 const EMPTY_CAPABILITIES: ReadonlyArray<string> = [];
 
+export type ProviderUpdateState =
+  | { readonly kind: "idle" }
+  | { readonly kind: "running"; readonly line: string | null }
+  | { readonly kind: "success" }
+  | { readonly kind: "failed"; readonly reason: string };
+
+export const IDLE_PROVIDER_UPDATE_STATE: ProviderUpdateState = {
+  kind: "idle",
+};
+
+let pendingAvailabilityLoad: Promise<void> | null = null;
+
 /**
  * Renderer-side cache of provider availability + the credentials sheet
  * controller. Replaces the per-session state that used to live in
@@ -19,10 +31,19 @@ const EMPTY_CAPABILITIES: ReadonlyArray<string> = [];
 type ProvidersState = {
   readonly availability: ReadonlyArray<AgentAvailability>;
   readonly loading: boolean;
+  readonly availabilityLoaded: boolean;
   readonly error: string | null;
   readonly credentialsOpen: boolean;
-  readonly refresh: () => Promise<void>;
+  readonly updateStateByProvider: Partial<
+    Record<ProviderId, ProviderUpdateState>
+  >;
+  readonly load: () => Promise<void>;
+  readonly refresh: (force?: boolean) => Promise<void>;
   readonly setCredentialsOpen: (open: boolean) => void;
+  readonly setProviderUpdateState: (
+    providerId: ProviderId,
+    state: ProviderUpdateState,
+  ) => void;
   /**
    * Version-gated features the installed CLI supports for `providerId` (the
    * `capabilities` list from the availability probe). `[]` when the provider
@@ -39,19 +60,44 @@ type ProvidersState = {
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
   availability: [],
   loading: false,
+  availabilityLoaded: false,
   error: null,
   credentialsOpen: false,
-  refresh: async () => {
+  updateStateByProvider: {},
+  load: async () => {
+    if (get().availabilityLoaded) return;
+    if (pendingAvailabilityLoad !== null) {
+      await pendingAvailabilityLoad;
+      return;
+    }
+    const load = get()
+      .refresh(false)
+      .finally(() => {
+        if (pendingAvailabilityLoad === load) pendingAvailabilityLoad = null;
+      });
+    pendingAvailabilityLoad = load;
+    await load;
+  },
+  refresh: async (force = true) => {
     set({ loading: true, error: null });
     try {
       const client = await getRpcClient();
-      const list = await Effect.runPromise(client.agent.availability({}));
-      set({ availability: list, loading: false });
+      const list = await Effect.runPromise(
+        client["provider.availability"]({ refresh: force }),
+      );
+      set({ availability: list, loading: false, availabilityLoaded: true });
     } catch (err) {
       set({ error: formatError(err), loading: false });
     }
   },
   setCredentialsOpen: (open) => set({ credentialsOpen: open }),
+  setProviderUpdateState: (providerId, state) =>
+    set((current) => ({
+      updateStateByProvider: {
+        ...current.updateStateByProvider,
+        [providerId]: state,
+      },
+    })),
   capabilitiesFor: (providerId) =>
     get().availability.find((a) => a.providerId === providerId)?.capabilities ??
     EMPTY_CAPABILITIES,
@@ -59,7 +105,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.agent.setCredential({ providerId, apiKey }),
+        client["provider.setCredential"]({ providerId, apiKey }),
       );
       await get().refresh();
     } catch (err) {

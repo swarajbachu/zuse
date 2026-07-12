@@ -5,15 +5,49 @@
 
 import { spawn } from "node:child_process";
 import { rmSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 
-const RENDERER_PORT = Number(process.env.PORT ?? 5733);
+function parsePort(name, fallback) {
+  const raw = process.env[name] ?? fallback;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    console.error(`[dev] ${name} must be a TCP port number, got ${raw}`);
+    process.exit(1);
+  }
+  return port;
+}
+
+function assertPortAvailable(name, host, port) {
+  return new Promise((resolveAvailable, rejectUnavailable) => {
+    const server = createServer();
+    server.once("error", (error) => {
+      const reason =
+        error && typeof error === "object" && "code" in error
+          ? `${error.code}`
+          : String(error);
+      rejectUnavailable(
+        new Error(
+          `[dev] ${name} port ${host}:${port} is unavailable (${reason}).`,
+        ),
+      );
+    });
+    server.once("listening", () => {
+      server.close(() => resolveAvailable());
+    });
+    server.listen(port, host);
+  });
+}
+
+const RENDERER_PORT = parsePort("PORT", 5733);
+const DESKTOP_WS_PORT = parsePort("ZUSE_DESKTOP_WS_PORT", 8788);
 const RENDERER_HOST = process.env.HOST?.trim() || "localhost";
 const DEV_SERVER_URL = `http://${RENDERER_HOST}:${RENDERER_PORT}`;
+const DESKTOP_WS_HOST = "127.0.0.1";
 
 // Force Electron to wait for the bundle produced by this dev run. Otherwise a
 // stale dist-electron from a previous build can launch immediately, then the
@@ -23,6 +57,20 @@ rmSync(resolve(repoRoot, "apps", "desktop", "dist-electron"), {
   recursive: true,
   force: true,
 });
+
+try {
+  await Promise.all([
+    assertPortAvailable("renderer", RENDERER_HOST, RENDERER_PORT),
+    assertPortAvailable("desktop websocket", DESKTOP_WS_HOST, DESKTOP_WS_PORT),
+  ]);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}
+
+console.log(
+  `[dev] using fixed ports: renderer ${RENDERER_HOST}:${RENDERER_PORT}, desktop websocket ${DESKTOP_WS_HOST}:${DESKTOP_WS_PORT}`,
+);
 
 const children = [];
 let shuttingDown = false;
@@ -62,6 +110,7 @@ run("renderer", "bun", ["run", "--filter", "renderer", "dev"], {
 run("desktop:bundle", "bun", ["run", "--filter", "desktop", "dev:bundle"]);
 run("desktop:electron", "bun", ["run", "--filter", "desktop", "dev:electron"], {
   VITE_DEV_SERVER_URL: DEV_SERVER_URL,
+  ZUSE_DESKTOP_WS_PORT: String(DESKTOP_WS_PORT),
 });
 
 process.once("SIGINT", () => void shutdown(130));

@@ -5,7 +5,7 @@ import {
   Sun03Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import type { AppearanceMode } from "@zuse/wire";
+import type { AppearanceMode } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 import { useSettingsStore } from "../../../store/settings.ts";

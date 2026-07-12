@@ -1,0 +1,26 @@
+{
+	"name": "@zuse/acp",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./connection": "./src/connection.ts",
+		"./protocol": "./src/protocol.ts",
+		"./rpc-client": "./src/rpc-client.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration --passWithNoTests"
+	},
+	"dependencies": {
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

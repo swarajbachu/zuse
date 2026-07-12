@@ -1,0 +1,11 @@
+{
+	"schemaVersion": 29,
+	"projectId": "legacy-project",
+	"chatId": "legacy-chat",
+	"sessionId": "legacy-session",
+	"messageId": "legacy-message",
+	"title": "Migrated conversation",
+	"message": "preserve this legacy message",
+	"createdAt": "2026-01-01T00:00:00.000Z",
+	"messageAt": "2026-01-02T00:00:00.000Z"
+}

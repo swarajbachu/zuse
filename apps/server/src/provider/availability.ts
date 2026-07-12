@@ -1,8 +1,9 @@
-import { Command, CommandExecutor, FileSystem } from "@effect/platform";
-import { Duration, Effect, Stream } from "effect";
-import { homedir, platform } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
-
+import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
+import type { Account } from "@zuse/agents/codex-generated/v2/Account";
+import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
+import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import {
   AgentAvailability,
   type CliVersionStatus,
@@ -11,12 +12,12 @@ import {
   type ProviderAuthStatus,
   type ProviderHealthStatus,
   type ProviderId,
-} from "@zuse/wire";
-
-import type { Account } from "./codex-app-protocol/v2/Account.ts";
-import type { GetAccountResponse } from "./codex-app-protocol/v2/GetAccountResponse.ts";
-import type { PlanType } from "./codex-app-protocol/PlanType.ts";
-import { CodexAppServerClient } from "./codex-app-server-client.ts";
+} from "@zuse/contracts";
+import { Duration, Effect, FileSystem, Stream } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 
 interface ProviderProbe {
   readonly providerId: ProviderId;
@@ -151,17 +152,20 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 const PROBE_TIMEOUT = Duration.seconds(4);
 
 const collectText = (
-  s: Stream.Stream<Uint8Array, import("@effect/platform/Error").PlatformError>,
+  s: Stream.Stream<Uint8Array, import("effect/PlatformError").PlatformError>,
 ) =>
   s.pipe(
-    Stream.decodeText("utf-8"),
-    Stream.runFold("", (acc, chunk) => acc + chunk),
+    Stream.decodeText({ encoding: "utf-8" }),
+    Stream.runFold(
+      () => "",
+      (acc, chunk) => acc + chunk,
+    ),
   );
 
 const runCapture = (cmd: Command.Command) =>
   Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
-    const proc = yield* executor.start(cmd);
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
+    const proc = yield* executor.spawn(cmd);
     const stdout = yield* collectText(proc.stdout);
     const exitCode = yield* proc.exitCode;
     return { stdout: stdout.trim(), exitCode };
@@ -185,8 +189,7 @@ export const selectCliPathCandidate = (
   // managed binary.
   return (
     candidates.find(
-      (candidate) =>
-        !isManagedCodexShimPath(normalizeCommandPath(candidate)),
+      (candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
     ) ?? null
   );
 };
@@ -199,13 +202,13 @@ export const selectCliPathCandidate = (
  */
 export const resolveCliPath = (
   cliBinary: string,
-): Effect.Effect<string | null, never, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<string | null, never, CommandExecutor.ChildProcessSpawner> =>
   Effect.gen(function* () {
     const result = yield* runCapture(
-      Command.make("which", "-a", cliBinary),
+      Command.make("which", ["-a", cliBinary]),
     ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
     return selectCliPathCandidate(
@@ -224,7 +227,7 @@ export interface CliVersion {
 // Codex SDK 0.128 unconditionally invokes `codex exec --experimental-json`;
 // that flag landed in the matching CLI release, so any older codex binary
 // crashes inside the SDK with "unexpected argument '--experimental-json'".
-// Keep in lock-step with the `@openai/codex-sdk` pin in apps/server/package.json.
+// Keep in lock-step with the provider implementation in `@zuse/agents`.
 export const MIN_CODEX_CLI_VERSION: CliVersion = {
   major: 0,
   minor: 128,
@@ -304,11 +307,17 @@ export const compareCliVersion = (a: CliVersion, b: CliVersion): number => {
  */
 export const probeCliVersion = (
   cliBinary: string,
-): Effect.Effect<CliVersion | null, never, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<
+  CliVersion | null,
+  never,
+  CommandExecutor.ChildProcessSpawner
+> =>
   Effect.gen(function* () {
-    const result = yield* runCapture(Command.make(cliBinary, "--version")).pipe(
+    const result = yield* runCapture(
+      Command.make(cliBinary, ["--version"]),
+    ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
     if (result._tag !== "Some" || result.value.exitCode !== 0) return null;
     return parseCliVersion(result.value.stdout);
@@ -363,7 +372,7 @@ const fetchNpmLatestVersion = (
   }).pipe(
     Effect.timeoutOption(PROBE_TIMEOUT),
     Effect.map((opt) => (opt._tag === "Some" ? opt.value : null)),
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catch(() => Effect.succeed(null)),
   );
 
 /**
@@ -415,9 +424,6 @@ export const deriveLatestAdvisory = (
 const normalizeCommandPath = (p: string): string =>
   p.replaceAll("\\", "/").replaceAll("/./", "/").toLowerCase();
 
-const shellQuote = (value: string): string =>
-  `'${value.replaceAll("'", `'\\''`)}'`;
-
 const isBunGlobalPath = (p: string): boolean => p.includes("/.bun/bin/");
 
 const isPnpmGlobalPath = (p: string): boolean =>
@@ -437,8 +443,10 @@ const isHomebrewPath = (p: string): boolean =>
   p.startsWith("/usr/local/bin/");
 
 const isManagedCodexShimPath = (p: string): boolean =>
-  p.endsWith("/application support/com.conductor.app/bin/codex") ||
-  (p.includes("/application support/com.conductor.app/agent-binaries/codex/") &&
+  p.endsWith("/application support/app.memoize.desktop/bin/codex") ||
+  (p.includes(
+    "/application support/app.memoize.desktop/agent-binaries/codex/",
+  ) &&
     p.endsWith("/codex"));
 
 // A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's
@@ -510,7 +518,7 @@ export const resolveUpdateCommand = (
 ): Effect.Effect<
   string | null,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const probe = PROBES.find((p) => p.providerId === providerId);
@@ -524,7 +532,7 @@ export const resolveUpdateCommand = (
     const fs = yield* FileSystem.FileSystem;
     const realPath = yield* fs
       .realPath(cliPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(cliPath)));
+      .pipe(Effect.catch(() => Effect.succeed(cliPath)));
     return buildUpdateCommand(providerId, [cliPath, realPath]);
   });
 
@@ -549,8 +557,6 @@ interface AccountInfo {
    */
   readonly statusMessage?: string;
 }
-
-const ACCOUNT_PROBE_TIMEOUT = Duration.seconds(5);
 
 const CODEX_PLAN_LABEL: Partial<Record<PlanType, string>> = {
   plus: "ChatGPT Plus Subscription",
@@ -590,21 +596,13 @@ const ACCOUNT_PROBE_TIMEOUT_MS = 5_000;
 const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
   Effect.promise(async () => {
     let client: CodexAppServerClient | null = null;
-    let timer: NodeJS.Timeout | null = null;
     try {
-      const startWithTimeout = new Promise<CodexAppServerClient>(
-        (resolve, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error("Codex auth probe timed out"));
-          }, ACCOUNT_PROBE_TIMEOUT_MS);
-          CodexAppServerClient.start({
-            codexPath,
-            onNotification: () => {},
-            onServerRequest: (_req, respond) => respond(null),
-          }).then(resolve, reject);
-        },
-      );
-      client = await startWithTimeout;
+      client = await CodexAppServerClient.start({
+        codexPath,
+        startupTimeoutMs: ACCOUNT_PROBE_TIMEOUT_MS,
+        onNotification: () => {},
+        onServerRequest: (_req, respond) => respond(null),
+      });
       const response = await client.request<GetAccountResponse>(
         "account/read",
         {},
@@ -634,7 +632,6 @@ const probeCodexAccount = (codexPath: string): Effect.Effect<AccountInfo> =>
           err instanceof Error ? err.message : "Could not verify Codex auth",
       } satisfies AccountInfo;
     } finally {
-      if (timer !== null) clearTimeout(timer);
       // Kill the child process — without this the `codex app-server`
       // subprocess leaks for several minutes per probe.
       client?.close();
@@ -652,6 +649,10 @@ const CLAUDE_SUB_LABEL: Record<string, string> = {
 };
 
 interface ClaudeCredentialBlob {
+  readonly oauthAccount?: {
+    readonly emailAddress?: string;
+    readonly email?: string;
+  };
   readonly claudeAiOauth?: {
     readonly subscriptionType?: string;
     readonly emailAddress?: string;
@@ -690,46 +691,54 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
   };
 };
 
+const parseClaudeAccountFile = (raw: string): AccountInfo | null => {
+  try {
+    const parsed = JSON.parse(raw) as ClaudeCredentialBlob;
+    const oauth = parsed.oauthAccount;
+    if (!oauth) return null;
+    const email = oauth.emailAddress ?? oauth.email;
+    return {
+      authStatus: "authenticated",
+      authType: "oauth",
+      authLabel: "Claude subscription",
+      ...(email ? { authEmail: email } : {}),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const readOptionalFile = (
+  path: string,
+): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const exists = yield* fs
+      .exists(path)
+      .pipe(Effect.catch(() => Effect.succeed(false)));
+    if (!exists) return null;
+    return yield* fs
+      .readFileString(path)
+      .pipe(Effect.catch(() => Effect.succeed(null)));
+  });
+
 const probeClaudeAccount: Effect.Effect<
   AccountInfo,
   never,
-  FileSystem.FileSystem | CommandExecutor.CommandExecutor
+  FileSystem.FileSystem
 > = Effect.gen(function* () {
-  if (platform() === "darwin") {
-    // macOS: `security find-generic-password -w` prints the password (the
-    // OAuth credential blob) to stdout when present, exits non-zero
-    // otherwise. The presence-check (without `-w`) used to live in
-    // `probeClaudeLogin`; we now read the value so we can extract the
-    // subscription tier and email.
-    const result = yield* runCapture(
-      Command.make(
-        "security",
-        "find-generic-password",
-        "-s",
-        "Claude Code-credentials",
-        "-w",
-      ),
-    ).pipe(
-      Effect.timeoutOption(ACCOUNT_PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
-    );
-    if (result._tag !== "Some" || result.value.exitCode !== 0) {
-      return { authStatus: "unauthenticated" } satisfies AccountInfo;
-    }
-    return parseClaudeCredentials(result.value.stdout);
+  const accountRaw = yield* readOptionalFile(join(homedir(), ".claude.json"));
+  if (accountRaw !== null) {
+    const account = parseClaudeAccountFile(accountRaw);
+    if (account !== null) return account;
   }
-  const fs = yield* FileSystem.FileSystem;
-  const path = join(homedir(), ".claude", ".credentials.json");
-  const exists = yield* fs
-    .exists(path)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
-  if (!exists) return { authStatus: "unauthenticated" };
-  const raw = yield* fs
-    .readFileString(path)
-    .pipe(Effect.catchAll(() => Effect.succeed("")));
-  return raw.length === 0
+  const credentialsRaw = yield* readOptionalFile(
+    join(homedir(), ".claude", ".credentials.json"),
+  );
+  if (credentialsRaw === null) return { authStatus: "unauthenticated" };
+  return credentialsRaw.length === 0
     ? { authStatus: "authenticated" }
-    : parseClaudeCredentials(raw);
+    : parseClaudeCredentials(credentialsRaw);
 });
 
 interface GrokAuthEntry {
@@ -925,12 +934,12 @@ const probeGrokAccount: Effect.Effect<
 
   const authExists = yield* fs
     .exists(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
 
   if (authExists) {
     const raw = yield* fs
       .readFileString(authPath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+      .pipe(Effect.catch(() => Effect.succeed("")));
     if (raw.length > 0) {
       return parseGrokAuthJson(raw);
     }
@@ -939,7 +948,7 @@ const probeGrokAccount: Effect.Effect<
   // No auth.json at all → unauthenticated (user has never run `grok login`)
   const dirExists = yield* fs
     .exists(dir)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   return dirExists
     ? ({
         authStatus: "authenticated",
@@ -963,7 +972,7 @@ const probeGeminiAccount: Effect.Effect<
   const path = join(homedir(), ".gemini");
   const exists = yield* fs
     .exists(path)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   return exists
     ? ({ authStatus: "authenticated", authType: "cli" } satisfies AccountInfo)
     : ({ authStatus: "unauthenticated" } satisfies AccountInfo);
@@ -973,7 +982,10 @@ const probeGeminiAccount: Effect.Effect<
 // cursor-agent CLI emits a TUI-style status frame before its final answer,
 // e.g. ` Starting login process...\n[2K[1A[2K[G\n Not logged in`. We only
 // want to read the final human-readable line.
-const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_PATTERN = new RegExp(
+  `${String.fromCharCode(27)}(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
 const stripAnsi = (raw: string): string => raw.replace(ANSI_PATTERN, "");
 
 // `cursor-agent status` is the CLI's own auth signal. It prints either
@@ -1016,11 +1028,13 @@ const parseCursorStatusOutput = (raw: string): AccountInfo => {
 const probeCursorAccount: Effect.Effect<
   AccountInfo,
   never,
-  CommandExecutor.CommandExecutor
+  CommandExecutor.ChildProcessSpawner
 > = Effect.gen(function* () {
-  const executor = yield* CommandExecutor.CommandExecutor;
+  const executor = yield* CommandExecutor.ChildProcessSpawner;
   const result = yield* Effect.gen(function* () {
-    const proc = yield* executor.start(Command.make("cursor-agent", "status"));
+    const proc = yield* executor.spawn(
+      Command.make("cursor-agent", ["status"]),
+    );
     const stdout = yield* collectText(proc.stdout);
     const stderr = yield* collectText(proc.stderr);
     const exitCode = yield* proc.exitCode;
@@ -1028,7 +1042,7 @@ const probeCursorAccount: Effect.Effect<
   }).pipe(
     Effect.scoped,
     Effect.timeoutOption(PROBE_TIMEOUT),
-    Effect.catchAll(() => Effect.succeedNone),
+    Effect.catch(() => Effect.succeedNone),
   );
   if (result._tag !== "Some") {
     return { authStatus: "unknown" } satisfies AccountInfo;
@@ -1084,13 +1098,13 @@ const probeOpencodeAccount: Effect.Effect<
   const authPath = join(homedir(), ".local", "share", "opencode", "auth.json");
   const exists = yield* fs
     .exists(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed(false)));
+    .pipe(Effect.catch(() => Effect.succeed(false)));
   if (!exists) {
     return { authStatus: "unauthenticated" } satisfies AccountInfo;
   }
   const raw = yield* fs
     .readFileString(authPath)
-    .pipe(Effect.catchAll(() => Effect.succeed("")));
+    .pipe(Effect.catch(() => Effect.succeed("")));
   return raw.length === 0
     ? { authStatus: "authenticated", authType: "cli" }
     : parseOpencodeAuth(raw);
@@ -1102,7 +1116,7 @@ const probeAccount = (
 ): Effect.Effect<
   AccountInfo,
   never,
-  FileSystem.FileSystem | CommandExecutor.CommandExecutor
+  FileSystem.FileSystem | CommandExecutor.ChildProcessSpawner
 > => {
   switch (providerId) {
     case "claude":
@@ -1142,7 +1156,7 @@ const probeOne = (
 ): Effect.Effect<
   AgentAvailability,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const lastCheckedAt = new Date();
@@ -1162,10 +1176,10 @@ const probeOne = (
     }
 
     const versionResult = yield* runCapture(
-      Command.make(cliPath, "--version"),
+      Command.make(cliPath, ["--version"]),
     ).pipe(
       Effect.timeoutOption(PROBE_TIMEOUT),
-      Effect.catchAll(() => Effect.succeedNone),
+      Effect.catch(() => Effect.succeedNone),
     );
 
     const cliVersion =
@@ -1222,7 +1236,7 @@ const probeOne = (
     const fs = yield* FileSystem.FileSystem;
     const realPath = yield* fs
       .realPath(cliPath)
-      .pipe(Effect.catchAll(() => Effect.succeed(cliPath)));
+      .pipe(Effect.catch(() => Effect.succeed(cliPath)));
     const updateCommand =
       buildUpdateCommand(probe.providerId, [cliPath, realPath]) ?? undefined;
 
@@ -1276,5 +1290,5 @@ const probeOne = (
 export const probeAllProviders: Effect.Effect<
   ReadonlyArray<AgentAvailability>,
   never,
-  CommandExecutor.CommandExecutor | FileSystem.FileSystem
+  CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
 > = Effect.all(PROBES.map(probeOne), { concurrency: "unbounded" });

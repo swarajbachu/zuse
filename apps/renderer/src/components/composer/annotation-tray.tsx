@@ -1,6 +1,7 @@
 import {
   ArrowDown01Icon,
   BubbleChatIcon,
+  CursorMagicSelection01Icon,
   PencilEdit01Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
@@ -9,11 +10,13 @@ import { X } from "lucide-react";
 import { useState } from "react";
 
 import type {
+  BrowserAnnotation,
   CodeAnnotation,
+  ComposerAnnotation,
   FolderId,
   SessionId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
 
@@ -21,12 +24,64 @@ import { useAnnotationsStore } from "../../store/annotations.ts";
 import { useRevealAnnotation } from "../annotation/annotation-navigation.ts";
 import { AnnotationFileChip } from "../file-chip.tsx";
 
-const EMPTY: ReadonlyArray<CodeAnnotation> = [];
+const EMPTY: ReadonlyArray<ComposerAnnotation> = [];
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const browserHost = (annotation: BrowserAnnotation): string => {
+  try {
+    return new URL(annotation.pageUrl).host;
+  } catch {
+    return annotation.pageUrl || "Browser";
+  }
+};
+
+const browserTargetLabel = (annotation: BrowserAnnotation): string => {
+  const count =
+    annotation.elements.length +
+    annotation.regions.length +
+    annotation.strokes.length;
+  const first = annotation.elements[0];
+  const targetSummary = `${count} ${count === 1 ? "target" : "targets"}`;
+  return `${first ? `<${first.tagName}> · ` : ""}${targetSummary}${
+    annotation.screenshotAttachment !== null ? " · screenshot" : ""
+  }`;
+};
+
+function BrowserAnnotationChip({
+  annotation,
+  className,
+}: {
+  readonly annotation: BrowserAnnotation;
+  readonly className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-[0.375rem] border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-muted-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]",
+        className,
+      )}
+    >
+      <HugeiconsIcon
+        icon={CursorMagicSelection01Icon}
+        className="size-3.5 shrink-0 text-primary"
+        aria-hidden="true"
+      />
+      <span className="truncate font-medium text-foreground">
+        {browserHost(annotation)}
+      </span>
+      <span className="truncate">{browserTargetLabel(annotation)}</span>
+    </span>
+  );
+}
 
 /**
- * Stacked code annotations docked above the composer. Draft annotations can be
- * opened in the editor, edited in-place, removed individually, or cleared as a
- * group before submit.
+ * Stacked annotations docked above the composer. Draft annotations can be
+ * opened where possible, edited in-place, removed individually, or cleared as
+ * a group before submit.
  */
 export function AnnotationTray({
   sessionId,
@@ -51,13 +106,13 @@ export function AnnotationTray({
   if (annotations.length === 0) return null;
 
   return (
-    <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-card/80 shadow-sm">
-      <div className="flex w-full items-center gap-2 border-b border-border/40 bg-muted/20 px-2.5 py-1.5">
+    <div className="mb-1.5 overflow-hidden rounded-lg border border-border/50 bg-card/80 shadow-sm">
+      <div className="flex w-full items-center gap-1.5 border-b border-border/35 bg-muted/15 px-2 py-1">
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
-          className="flex min-h-7 flex-1 items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex min-h-6 flex-1 items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <HugeiconsIcon
             icon={BubbleChatIcon}
@@ -67,7 +122,7 @@ export function AnnotationTray({
           <span className="text-xs font-semibold text-foreground">
             Annotations
           </span>
-          <span className="rounded border border-border/50 bg-background/70 px-1.5 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
+          <span className="rounded border border-border/45 bg-background/70 px-1 py-px text-[10px] font-medium tabular-nums text-muted-foreground">
             {annotations.length}
           </span>
           <HugeiconsIcon
@@ -82,96 +137,114 @@ export function AnnotationTray({
         <button
           type="button"
           onClick={() => clear(sessionId)}
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           aria-label="Clear all annotations"
         >
           <X className="size-3.5" strokeWidth={1.8} />
         </button>
       </div>
       {expanded ? (
-        <ul className="max-h-64 space-y-px overflow-y-auto p-1">
-          {annotations.map((a, i) => (
-            <li
-              key={a.id}
-              className="group/annotation flex items-stretch gap-1.5 rounded-md"
-            >
-              <div className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/55">
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[11px] font-semibold tabular-nums text-primary">
-                  {i + 1}
-                </span>
-                <span className="grid min-w-0 flex-1 gap-1">
+        <ul className="max-h-48 divide-y divide-border/35 overflow-y-auto">
+          {annotations.map((annotation) => {
+            const browser = isBrowserAnnotation(annotation);
+            return (
+              <li
+                key={annotation.id}
+                className="group/annotation flex min-w-0 items-center gap-1.5 px-2 py-1.5 first:pt-1.5 last:pb-1.5 hover:bg-muted/45"
+              >
+                {browser ? (
+                  <BrowserAnnotationChip
+                    annotation={annotation}
+                    className="max-w-[44%] shrink-0"
+                  />
+                ) : (
                   <button
                     type="button"
-                    onClick={() => revealAnnotation(a)}
-                    className="min-w-0 justify-self-start rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    onClick={() =>
+                      revealAnnotation(annotation as CodeAnnotation)
+                    }
+                    className="min-w-0 max-w-[44%] shrink-0 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                     title="Open annotation"
                   >
-                    <AnnotationFileChip annotation={a} />
-                  </button>
-                  {editingId === a.id ? (
-                    <textarea
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          e.preventDefault();
-                          setEditingId(null);
-                        } else if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          updateComment(sessionId, a.id, editText);
-                          setEditingId(null);
-                        }
-                      }}
-                      rows={2}
-                      className="max-h-24 min-h-12 w-full resize-y rounded-md bg-background/70 px-2 py-1.5 text-sm leading-snug text-foreground outline-none ring-1 ring-border/50 focus:ring-ring/50"
-                      autoFocus
+                    <AnnotationFileChip
+                      annotation={annotation as CodeAnnotation}
+                      className="max-w-full py-px"
                     />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => revealAnnotation(a)}
-                      className="min-w-0 truncate rounded text-left text-sm leading-snug text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      {a.comment}
-                    </button>
-                  )}
-                </span>
-              </div>
-              {editingId === a.id ? (
+                  </button>
+                )}
+                <span className="h-4 w-px shrink-0 bg-border/45" />
+                {editingId === annotation.id ? (
+                  <textarea
+                    value={editText}
+                    onChange={(event) => setEditText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setEditingId(null);
+                      } else if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        updateComment(sessionId, annotation.id, editText);
+                        setEditingId(null);
+                      }
+                    }}
+                    rows={1}
+                    className="max-h-20 min-h-7 min-w-0 flex-1 resize-y rounded-md bg-background/70 px-2 py-1 text-xs leading-snug text-foreground outline-none ring-1 ring-border/50 focus:ring-ring/50"
+                    autoFocus
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!browser) {
+                        revealAnnotation(annotation as CodeAnnotation);
+                      }
+                    }}
+                    disabled={browser}
+                    className="min-w-0 flex-1 truncate rounded text-left text-xs leading-snug text-foreground disabled:cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    title={annotation.comment}
+                  >
+                    {annotation.comment}
+                  </button>
+                )}
+                {editingId === annotation.id ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateComment(sessionId, annotation.id, editText);
+                      setEditingId(null);
+                    }}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    aria-label="Save annotation"
+                  >
+                    <HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(annotation.id);
+                      setEditText(annotation.comment);
+                    }}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
+                    aria-label="Edit annotation"
+                  >
+                    <HugeiconsIcon
+                      icon={PencilEdit01Icon}
+                      className="size-3.5"
+                    />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    updateComment(sessionId, a.id, editText);
-                    setEditingId(null);
-                  }}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-80 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  aria-label="Save annotation"
+                  onClick={() => remove(sessionId, annotation.id)}
+                  className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
+                  aria-label="Remove annotation"
                 >
-                  <HugeiconsIcon icon={Tick01Icon} className="size-3.5" />
+                  <X className="size-3.5" strokeWidth={1.8} />
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(a.id);
-                    setEditText(a.comment);
-                  }}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-                  aria-label="Edit annotation"
-                >
-                  <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => remove(sessionId, a.id)}
-                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-70 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/annotation:opacity-100"
-                aria-label="Remove annotation"
-              >
-                <X className="size-3.5" strokeWidth={1.8} />
-              </button>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

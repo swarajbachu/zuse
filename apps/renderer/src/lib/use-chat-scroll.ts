@@ -7,53 +7,35 @@ import {
 } from "react";
 import type { RefObject } from "react";
 
-import type { Message, SessionId } from "@zuse/wire";
+import type { Message, SessionId } from "@zuse/contracts";
 
-// How far below the top of the viewport a freshly-sent user message lands, so
-// the tail of the previous turn stays visible above it (principle 6).
-const TOP_GAP = 24;
-// The sentinel counts as "at the live edge" while it sits within this many px
-// of the bottom of the scroll viewport.
-const LIVE_EDGE_BAND_PX = 80;
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" &&
-  typeof window.matchMedia === "function" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const isUserMessage = (m: Message | undefined): boolean =>
-  m !== undefined &&
-  (m.content._tag === "user" || m.content._tag === "user_rich");
+// The reader counts as "at the bottom" while the viewport is within this many
+// px of the true bottom. Our own pin writes land at distance 0, so following
+// stays engaged; a genuine scroll-up grows the distance past this and releases.
+const NEAR_BOTTOM_PX = 64;
 
 export interface ChatScroll {
   /** The scrollable viewport. */
   scrollRef: RefObject<HTMLDivElement | null>;
-  /** Wraps every turn; observed for size changes. */
+  /** Wraps every turn; observed for size changes (async layout shifts). */
   contentRef: RefObject<HTMLDivElement | null>;
-  /** Zero-height marker after the last real message; drives live-edge detection. */
-  sentinelRef: RefObject<HTMLDivElement | null>;
-  /** Dynamic bottom spacer that lets a short answer be read from the top. */
-  spacerRef: RefObject<HTMLDivElement | null>;
-  spacerHeight: number;
-  /** Show the "Jump to latest" pill (reader has scrolled away from the edge). */
+  /** Show the "Jump to latest" pill (reader has scrolled away from the bottom). */
   showPill: boolean;
-  /** A response is streaming out of view (drives the pill's activity dot). */
+  /** A response is streaming while the reader is scrolled away (drives the dot). */
   streaming: boolean;
   jumpToLatest: () => void;
 }
 
 /**
- * Scroll controller for the streaming chat timeline. Honors the "great
- * streaming chat" principles: never moves the reader against their intent
- * (1-3), anchors each new turn near the top so the answer streams into the
- * space below (4-7), surfaces offscreen activity (8), offers a jump-to-latest
- * affordance (9), preserves position across layout shifts (12), and never lets
- * an interruption / error steal scroll position (13).
+ * Minimal stick-to-bottom controller for the streaming chat timeline.
  *
- * Live-edge detection uses an IntersectionObserver on a bottom sentinel rather
- * than scroll math, so it stays correct even while the dynamic spacer is
- * present. "Following" (stick-to-bottom) is mirrored in a ref so event handlers
- * and layout effects read the latest value synchronously.
+ * The whole thing is derived from one measurement: the distance from the
+ * bottom of the viewport. While that distance is within {@link NEAR_BOTTOM_PX}
+ * we "follow" — pinning to the bottom as new content arrives. The instant the
+ * reader scrolls up, the distance grows and following releases; because we read
+ * position (never scroll deltas) and our own pin writes leave the distance at
+ * ~0, there is no way for a programmatic scroll to be mistaken for user intent,
+ * and a scroll-up always wins immediately. No sentinel, no spacer, no guard.
  */
 export function useChatScroll(opts: {
   sessionId: SessionId;
@@ -64,255 +46,91 @@ export function useChatScroll(opts: {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const spacerRef = useRef<HTMLDivElement | null>(null);
 
-  // `following` = stick-to-bottom engaged. Ref mirror for synchronous reads.
-  const followingRef = useRef(true);
-  const [, setFollowingState] = useState(true);
-  const setFollowing = useCallback((v: boolean) => {
-    if (followingRef.current === v) return;
-    followingRef.current = v;
-    setFollowingState(v);
+  // `stick` = follow-to-bottom engaged. Ref mirror for synchronous reads inside
+  // effects/observers; state mirror so the pill can react to changes.
+  const stickRef = useRef(true);
+  const [stuck, setStuckState] = useState(true);
+  const setStuck = useCallback((v: boolean) => {
+    if (stickRef.current === v) return;
+    stickRef.current = v;
+    setStuckState(v);
   }, []);
 
-  const [atLiveEdge, setAtLiveEdge] = useState(true);
-  const [spacerHeight, setSpacerHeight] = useState(0);
-  const setSpacer = useCallback((px: number) => {
-    setSpacerHeight((prev) => (prev === px ? prev : px));
-  }, []);
-
-  // Bookkeeping refs (synchronous; safe to read inside effects/handlers).
   const prevSessionRef = useRef<SessionId>(sessionId);
   const didInitialScrollRef = useRef(false);
-  const lastAnchoredUserIdRef = useRef<Message["id"] | null>(null);
-  // True while a freshly-sent turn is top-anchored (drives spacer sizing).
-  const anchorModeRef = useRef(false);
-  // Guards our own scroll writes from being mis-read as user intent.
-  const programmaticRef = useRef(false);
 
-  const markProgrammatic = useCallback(() => {
-    programmaticRef.current = true;
-    // Clear after the resulting scroll event has fired (two frames is plenty
-    // for an instant scroll; smooth scrolls only move downward, which the
-    // intent listener ignores anyway).
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        programmaticRef.current = false;
-      });
-    });
+  const pin = useCallback((el: HTMLDivElement) => {
+    // Instant — no smooth animation. Smooth writes fight rapid streaming updates.
+    el.scrollTop = el.scrollHeight;
   }, []);
 
-  // Size the spacer so the anchored user message can sit TOP_GAP from the top
-  // even when the answer is shorter than the viewport. Shrinks to 0 as the
-  // answer grows past the available space.
-  const recomputeSpacer = useCallback(() => {
-    const el = scrollRef.current;
-    const content = contentRef.current;
-    const id = lastAnchoredUserIdRef.current;
-    if (
-      el === null ||
-      content === null ||
-      !anchorModeRef.current ||
-      id === null
-    )
-      return;
-    const anchor = content.querySelector<HTMLElement>(
-      `[data-user-anchor="${CSS.escape(String(id))}"]`,
-    );
-    if (anchor === null) return;
-    const anchorTop =
-      anchor.getBoundingClientRect().top - content.getBoundingClientRect().top;
-    const belowAnchor = content.offsetHeight - anchorTop;
-    setSpacer(Math.max(0, el.clientHeight - TOP_GAP - belowAnchor));
-  }, [setSpacer]);
-
   const jumpToLatest = useCallback(() => {
-    anchorModeRef.current = false;
-    setSpacer(0);
-    setFollowing(true);
-    // Collapse the spacer on this paint, then scroll to the true bottom.
-    requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (el === null) return;
-      markProgrammatic();
-      el.scrollTo({
-        top: el.scrollHeight,
-        behavior: prefersReducedMotion() ? "auto" : "smooth",
-      });
-    });
-  }, [markProgrammatic, setFollowing, setSpacer]);
+    const el = scrollRef.current;
+    if (el === null) return;
+    setStuck(true);
+    pin(el);
+  }, [pin, setStuck]);
 
-  // --- Live-edge detection + re-engage (IntersectionObserver on sentinel) ---
-  useEffect(() => {
-    const root = scrollRef.current;
-    const sentinel = sentinelRef.current;
-    if (root === null || sentinel === null) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[entries.length - 1];
-        if (entry === undefined) return;
-        const edge = entry.isIntersecting;
-        setAtLiveEdge(edge);
-        // Reaching the edge via a user scroll resumes following. Our own
-        // programmatic scrolls (jump-to-latest, pin) are guarded out.
-        if (edge && !programmaticRef.current) {
-          anchorModeRef.current = false;
-          setSpacer(0);
-          setFollowing(true);
-        }
-      },
-      { root, rootMargin: `0px 0px ${LIVE_EDGE_BAND_PX}px 0px`, threshold: 0 },
-    );
-    io.observe(sentinel);
-    return () => io.disconnect();
-  }, [sessionId, setFollowing, setSpacer]);
-
-  // --- Disengage on a genuine upward user scroll ---
-  // A user scroll-up decreases scrollTop; content growth does not, so this
-  // never fires from streaming or from our own pinning (which is guarded).
+  // --- Derive stickiness from scroll position on every scroll ---
   useEffect(() => {
     const el = scrollRef.current;
     if (el === null) return;
-    let lastTop = el.scrollTop;
     const onScroll = () => {
-      const cur = el.scrollTop;
-      const delta = cur - lastTop;
-      lastTop = cur;
-      if (programmaticRef.current || delta >= -2) return;
-      const sentinel = sentinelRef.current;
-      if (sentinel === null) {
-        setFollowing(false);
-        return;
-      }
-      const dist =
-        sentinel.getBoundingClientRect().bottom -
-        el.getBoundingClientRect().bottom;
-      if (dist > LIVE_EDGE_BAND_PX) setFollowing(false);
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setStuck(distance <= NEAR_BOTTOM_PX);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [sessionId, setFollowing]);
+  }, [sessionId, setStuck]);
 
-  // --- Selecting text inside the transcript is reading intent (principle 3) ---
+  // --- Pin on async layout shifts (images, code blocks, markdown expanding) ---
   useEffect(() => {
-    const onSelect = () => {
-      const sel = document.getSelection();
-      if (sel === null || sel.isCollapsed || sel.rangeCount === 0) return;
-      const el = scrollRef.current;
-      const node = sel.anchorNode;
-      if (el !== null && node !== null && el.contains(node))
-        setFollowing(false);
-    };
-    document.addEventListener("selectionchange", onSelect);
-    return () => document.removeEventListener("selectionchange", onSelect);
-  }, [setFollowing]);
-
-  // --- Keep position across layout shifts (images, code, markdown expanding) ---
-  // While following, re-pin to the bottom; while anchored, resize the spacer.
-  // (Reading position when not following is preserved by Chromium's native
-  // `overflow-anchor`, which we never disable.)
-  useEffect(() => {
-    const content = contentRef.current;
     const el = scrollRef.current;
-    if (content === null || el === null) return;
+    const content = contentRef.current;
+    if (el === null || content === null) return;
     const ro = new ResizeObserver(() => {
-      if (followingRef.current) {
-        markProgrammatic();
-        el.scrollTop = el.scrollHeight;
-      } else if (anchorModeRef.current) {
-        recomputeSpacer();
-      }
+      if (stickRef.current) pin(el);
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, [sessionId, markProgrammatic, recomputeSpacer]);
+  }, [sessionId, pin]);
 
-  // --- React to new messages: initial land, new-turn anchor, follow-pin ---
+  // --- New content: land initially, reset on session switch, follow-pin ---
   useLayoutEffect(() => {
     // Session switch: reset to a fresh "follow + land at bottom" state.
     if (prevSessionRef.current !== sessionId) {
       prevSessionRef.current = sessionId;
-      followingRef.current = true;
-      setFollowingState(true);
+      stickRef.current = true;
+      setStuckState(true);
       didInitialScrollRef.current = false;
-      anchorModeRef.current = false;
-      lastAnchoredUserIdRef.current = null;
-      setSpacer(0);
-      setAtLiveEdge(true);
     }
 
     const el = scrollRef.current;
-    const content = contentRef.current;
     if (el === null) return;
 
     if (messages.length === 0) {
       didInitialScrollRef.current = true;
       return;
     }
-    const last = messages[messages.length - 1]!;
 
-    // First paint of a (possibly backfilled) transcript: land at the bottom
-    // and record the newest user id so history never triggers a top-anchor.
+    // First paint of a (possibly backfilled) transcript: land at the bottom.
     if (!didInitialScrollRef.current) {
       didInitialScrollRef.current = true;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (isUserMessage(messages[i])) {
-          lastAnchoredUserIdRef.current = messages[i]!.id;
-          break;
-        }
-      }
-      markProgrammatic();
-      el.scrollTop = el.scrollHeight;
+      pin(el);
       return;
     }
 
-    // A brand-new user turn: anchor it near the top, open space below for the
-    // answer, and stop following so the reader stays at the top of the answer.
-    if (isUserMessage(last) && last.id !== lastAnchoredUserIdRef.current) {
-      lastAnchoredUserIdRef.current = last.id;
-      anchorModeRef.current = true;
-      followingRef.current = false;
-      setFollowingState(false);
-      if (content !== null) {
-        const anchor = content.querySelector<HTMLElement>(
-          `[data-user-anchor="${CSS.escape(String(last.id))}"]`,
-        );
-        if (anchor !== null) {
-          const anchorTop =
-            anchor.getBoundingClientRect().top -
-            content.getBoundingClientRect().top;
-          const belowAnchor = content.offsetHeight - anchorTop;
-          const next = Math.max(0, el.clientHeight - TOP_GAP - belowAnchor);
-          // Apply synchronously so scrollIntoView has room to reach the top.
-          if (spacerRef.current !== null)
-            spacerRef.current.style.height = `${next}px`;
-          setSpacer(next);
-          markProgrammatic();
-          anchor.scrollIntoView({ block: "start", behavior: "auto" });
-        }
-      }
-      return;
-    }
-
-    // Streamed rows (assistant / thinking / tool): pin to bottom only while
-    // following; otherwise let them arrive offscreen without moving the reader.
-    if (followingRef.current) {
-      markProgrammatic();
-      el.scrollTop = el.scrollHeight;
-    } else if (anchorModeRef.current) {
-      recomputeSpacer();
-    }
-  }, [sessionId, messages, markProgrammatic, recomputeSpacer, setSpacer]);
+    // Streamed rows: pin only while following; otherwise let them arrive
+    // offscreen without moving the reader.
+    if (stickRef.current) pin(el);
+  }, [sessionId, messages, pin]);
 
   return {
     scrollRef,
     contentRef,
-    sentinelRef,
-    spacerRef,
-    spacerHeight,
-    showPill: !atLiveEdge && messages.length > 0,
-    streaming: inFlight && !atLiveEdge,
+    showPill: !stuck && messages.length > 0,
+    streaming: inFlight && !stuck,
     jumpToLatest,
   };
 }

@@ -1,0 +1,42 @@
+{
+	"name": "@zuse/agents",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./codex-generated": "./src/drivers/codex/generated/index.ts",
+		"./codex-generated/*": "./src/drivers/codex/generated/*.ts",
+		"./drivers/*": "./src/drivers/*.ts",
+		"./drivers/acp/*": "./src/drivers/acp/*.ts",
+		"./mcp-gateway": "./src/mcp-gateway/index.ts",
+		"./kernel/attachment-service": "./src/kernel/attachment-service.ts",
+		"./kernel/driver": "./src/kernel/driver.ts",
+		"./kernel/permission-policy": "./src/kernel/permission-policy.ts",
+		"./kernel/policy": "./src/kernel/policy.ts",
+		"./kernel/tool-classify": "./src/kernel/tool-classify.ts",
+		"./kernel/tool-input": "./src/kernel/tool-input.ts",
+		"./kernel/workspace-instructions": "./src/kernel/workspace-instructions.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration"
+	},
+	"dependencies": {
+		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
+		"@modelcontextprotocol/sdk": "^1.0.0",
+		"@openai/codex-sdk": "^0.128.0",
+		"@opencode-ai/sdk": "^1.3.15",
+		"@zuse/acp": "*",
+		"@zuse/contracts": "*",
+		"effect": "catalog:",
+		"zod": "^4.0.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

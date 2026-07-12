@@ -7,7 +7,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { useEffect, useState } from "react";
 
-import type { ProjectTemplate } from "@zuse/wire";
+import type { ProjectTemplate } from "@zuse/contracts";
 
 import { Button } from "~/components/ui/button";
 import { CheckboxInput } from "~/components/ui/checkbox-input";

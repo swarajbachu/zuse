@@ -10,7 +10,9 @@ import {
   GlobeIcon,
   KeyboardIcon,
   PackageIcon,
+  PencilEdit01Icon,
   Settings01Icon,
+  SmartPhone01Icon,
   TaskDone01Icon,
   TestTubeIcon,
   Tick01Icon,
@@ -33,29 +35,32 @@ import {
   type ProviderId,
   type RuntimeMode,
   visibleModelsForProvider,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   formatRelativeTime,
   useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
+import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
+import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
+import { recordUiAction } from "../lib/diagnostics-recorder.ts";
 import {
   COMPLETION_SOUND_PRESETS,
   playCompletionSound,
   prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
-import { DEFAULT_SUBAGENT_PRESETS } from "../lib/subagent-presets.ts";
 import { useAuth } from "../hooks/use-auth.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
-import { useSubagentsStore } from "../store/subagents.ts";
 import { useUiStore, type SettingsSection } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
+import { BlurredEmail } from "./blurred-email.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
+import { DevicesPane } from "./settings/devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
@@ -108,6 +113,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "workspace" },
   },
   {
+    id: "devices",
+    label: "Devices",
+    Icon: SmartPhone01Icon,
+    section: { kind: "devices" },
+  },
+  {
     id: "pokedex",
     label: "Pokedex",
     Icon: TaskDone01Icon,
@@ -118,6 +129,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     label: "Browser",
     Icon: GlobeIcon,
     section: { kind: "browser" },
+  },
+  {
+    id: "notch",
+    label: "Notch",
+    Icon: Alert01Icon,
+    section: { kind: "notch" },
   },
   {
     id: "diagnostics",
@@ -298,7 +315,7 @@ function SectionTitle({
     if (section.kind === "general") {
       return {
         title: "General",
-        subtitle: "Defaults for new chats and sub-agents.",
+        subtitle: "Defaults for new chats.",
       };
     }
     if (section.kind === "providers") {
@@ -306,6 +323,13 @@ function SectionTitle({
         title: "Providers",
         subtitle:
           "Verify what's installed, signed in, and which subscription each provider runs on.",
+      };
+    }
+    if (section.kind === "devices") {
+      return {
+        title: "Devices",
+        subtitle:
+          "Link this Mac to your account so you can drive it from your phone.",
       };
     }
     if (section.kind === "workspace") {
@@ -324,6 +348,12 @@ function SectionTitle({
       return {
         title: "Browser",
         subtitle: "Dummy test logins the agent browser can autofill.",
+      };
+    }
+    if (section.kind === "notch") {
+      return {
+        title: "Notch",
+        subtitle: "Show agent notifications in the MacBook notch area.",
       };
     }
     if (section.kind === "diagnostics") {
@@ -375,12 +405,36 @@ function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "general") return <GeneralPane />;
   if (section.kind === "providers") return <ProvidersPane />;
   if (section.kind === "workspace") return <WorkspacePane />;
+  if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;
   if (section.kind === "browser") return <BrowserSettingsPane />;
+  if (section.kind === "notch") return <NotchSettingsPane />;
   if (section.kind === "diagnostics") return <DiagnosticsPane />;
   if (section.kind === "shortcuts") return <KeybindingsPane />;
   if (section.kind === "developer") return <DeveloperPane />;
   return <RepositorySettings projectId={section.projectId} />;
+}
+
+const DIAGNOSTICS_ISSUE_URL =
+  "https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
+
+function openExternal(url: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  if (bridge?.app?.openExternal) {
+    bridge.app.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function revealPath(path: string): void {
+  const bridge = window.zuse ?? window.memoize;
+  void bridge?.app?.revealPath?.(path);
+}
+
+async function copyDiagnosticsJson(path: string): Promise<boolean> {
+  const bridge = window.zuse ?? window.memoize;
+  return (await bridge?.app?.copyFileContents?.(path)) ?? false;
 }
 
 function DiagnosticsPane() {
@@ -389,18 +443,32 @@ function DiagnosticsPane() {
     diagnosticId: string;
     bundlePath: string;
     summary: string;
-    agentPrompt: string;
+    jsonCopied: boolean;
     included: ReadonlyArray<string>;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<"summary" | "prompt" | null>(null);
+  const [copied, setCopied] = useState<"summary" | "json" | null>(null);
 
-  const copyText = async (kind: "summary" | "prompt", text: string) => {
-    await navigator.clipboard?.writeText(text);
+  const markCopied = (kind: "summary" | "json") => {
     setCopied(kind);
     window.setTimeout(() => {
       setCopied((current) => (current === kind ? null : current));
     }, 1400);
+  };
+
+  const copyText = async (text: string) => {
+    await navigator.clipboard?.writeText(text);
+    markCopied("summary");
+  };
+
+  const copyJson = async (path: string) => {
+    const ok = await copyDiagnosticsJson(path);
+    if (ok) markCopied("json");
+    setLastExport((current) =>
+      current && current.bundlePath === path
+        ? { ...current, jsonCopied: ok }
+        : current,
+    );
   };
 
   const exportDiagnostics = async () => {
@@ -408,14 +476,22 @@ function DiagnosticsPane() {
     setError(null);
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client.diagnostics.export({}));
+      recordUiAction("diagnostics.export.started");
+      const clientContext = await collectDiagnosticsClientContext();
+      const result = await Effect.runPromise(
+        client["diagnostics.export"]({ clientContext }),
+      );
+      const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
+      if (jsonCopied) markCopied("json");
+      recordUiAction("diagnostics.export.completed", result.diagnosticId);
       setLastExport({
         diagnosticId: result.diagnosticId,
         bundlePath: result.bundlePath,
         summary: result.summary,
-        agentPrompt: result.agentPrompt,
+        jsonCopied,
         included: result.included,
       });
+      revealPath(result.bundlePath);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -430,12 +506,12 @@ function DiagnosticsPane() {
   return (
     <div className="flex flex-col gap-4">
       <SettingsGroup
-        title="Support bundle"
-        description="Creates a local redacted diagnostics file plus agent-readable artifacts. Raw prompts and full transcripts are not included by default."
+        title="Bug report diagnostics"
+        description="Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
       >
         <SettingsRow
-          title="Included by default"
-          description="Manifest, trace summary, recent errors, environment, provider status, and redacted session-event previews."
+          title="Export diagnostics JSON"
+          description="Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
           action={
             <Button
               size="sm"
@@ -453,24 +529,45 @@ function DiagnosticsPane() {
         {lastExport && (
           <SettingsRow
             title={`Last export: ${lastExport.diagnosticId}`}
-            description={lastExport.bundlePath}
+            description={
+              lastExport.jsonCopied
+                ? "Diagnostics JSON copied. Attach the revealed JSON file to the GitHub issue."
+                : "Diagnostics exported. Attach the revealed JSON file to the GitHub issue."
+            }
           >
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="settings"
                 size="sm"
-                onClick={() => void copyText("summary", lastExport.summary)}
+                onClick={() => openExternal(DIAGNOSTICS_ISSUE_URL)}
               >
-                {copied === "summary" ? "Copied" : "Copy summary"}
+                Open GitHub issue
               </Button>
               <Button
                 variant="settings"
                 size="sm"
-                onClick={() => void copyText("prompt", lastExport.agentPrompt)}
+                onClick={() => void copyJson(lastExport.bundlePath)}
               >
-                {copied === "prompt" ? "Copied" : "Copy agent prompt"}
+                {copied === "json" ? "Copied" : "Copy diagnostics JSON"}
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => revealPath(lastExport.bundlePath)}
+              >
+                Reveal diagnostics file
+              </Button>
+              <Button
+                variant="settings"
+                size="sm"
+                onClick={() => void copyText(lastExport.summary)}
+              >
+                {copied === "summary" ? "Copied" : "Copy summary"}
               </Button>
             </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              File: {lastExport.bundlePath}
+            </p>
             <div className="mt-3 rounded-lg border border-border/40 bg-background/60 p-3">
               <div className="mb-2 text-xs font-medium text-muted-foreground">
                 Bundle contents
@@ -498,8 +595,8 @@ function DiagnosticsPane() {
       </SettingsGroup>
 
       <SettingsFrame
-        title="Agent intake"
-        description="After a user sends the exported JSON file, run bun run diagnostics:inspect path/to/zuse-diagnostics.json in a repo workspace. The script writes .context/diagnostics/<id>/REPORT.md for an agent to inspect."
+        title="Reporting from GitHub?"
+        description="Open a bug report, follow the template, export diagnostics from Help -> Export Diagnostics for Bug Report, then attach the JSON file before submitting."
       />
     </div>
   );
@@ -525,7 +622,7 @@ function BrowserSettingsPane() {
 
   const load = async () => {
     const client = await getRpcClient();
-    const list = await Effect.runPromise(client.browser.listCredentials({}));
+    const list = await Effect.runPromise(client["browser.listCredentials"]({}));
     setCreds(list.map((c) => ({ origin: c.origin, username: c.username })));
   };
 
@@ -539,7 +636,7 @@ function BrowserSettingsPane() {
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.browser.setCredential({
+        client["browser.setCredential"]({
           origin: origin.trim(),
           username: username.trim(),
           password,
@@ -557,7 +654,7 @@ function BrowserSettingsPane() {
   const remove = async (target: string) => {
     const client = await getRpcClient();
     await Effect.runPromise(
-      client.browser.removeCredential({ origin: target }),
+      client["browser.removeCredential"]({ origin: target }),
     );
     await load();
   };
@@ -640,6 +737,85 @@ function BrowserSettingsPane() {
             </div>
           </div>
         </div>
+      </SettingsFrame>
+    </div>
+  );
+}
+
+function NotchSettingsPane() {
+  const enabled = useSettingsStore((s) => s.notchTrayEnabled);
+  const pinned = useSettingsStore((s) => s.notchTrayPinned);
+  const setEnabled = useSettingsStore((s) => s.setNotchTrayEnabled);
+  const setPinned = useSettingsStore((s) => s.setNotchTrayPinned);
+  const [support, setSupport] = useState<{
+    supported: boolean;
+    reason: "supported" | "not-macos" | "no-notched-display";
+  } | null>(null);
+
+  useEffect(() => {
+    const notch = window.zuse?.notch ?? window.memoize?.notch;
+    let cancelled = false;
+    void notch?.getDisplaySupport?.().then((next) => {
+      if (!cancelled) setSupport(next);
+    });
+    const unsubscribe = notch?.onDisplaySupportChanged?.((next) => {
+      setSupport(next);
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const supported = support?.supported === true;
+  const unsupportedText =
+    support?.reason === "not-macos"
+      ? "Requires macOS and a MacBook display with a notch."
+      : "Requires a MacBook display with a notch.";
+
+  return (
+    <div className="flex flex-col gap-4">
+      {!supported && (
+        <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-alert-warning-bg px-3 py-2.5 text-[12px] leading-relaxed text-warning-foreground">
+          <HugeiconsIcon
+            icon={Alert01Icon}
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>{unsupportedText}</span>
+        </div>
+      )}
+
+      <SettingsGroup
+        title="Notch tray"
+        description="Show active agents near the MacBook notch. Hover the notch area to expand the tray, then click an agent to jump to its chat."
+      >
+        <SettingsRow
+          title="Enable Notch Tray"
+          description="Show running agents, pending approvals, questions, plans, completions, and failures near the notch."
+          action={<Switch checked={enabled} onCheckedChange={setEnabled} />}
+        />
+        <SettingsRow
+          title="Keep tray expanded"
+          description="Keep the agent list open instead of only expanding while the pointer is over the notch area."
+          action={
+            <Switch
+              checked={pinned}
+              disabled={!enabled}
+              onCheckedChange={setPinned}
+            />
+          }
+        />
+      </SettingsGroup>
+
+      <SettingsFrame
+        title="What appears"
+        description="The tray is intentionally quiet: it shows actionable agent states first, then recently completed turns for about 30 seconds."
+      >
+        <ul className="list-disc space-y-1 pl-4 text-[13px] leading-relaxed text-muted-foreground">
+          <li>Permission requests, questions, and plan approvals</li>
+          <li>Running agents as compact status circles</li>
+          <li>Completed turns and failures from background chats</li>
+        </ul>
       </SettingsFrame>
     </div>
   );
@@ -749,9 +925,13 @@ function GeneralPane() {
   // Display-name override draft (local cosmetic alias; persisted to localStorage
   // via the auth store). Mirror on external change.
   const [nameDraft, setNameDraft] = useState(displayName);
+  const [editingName, setEditingName] = useState(false);
   useEffect(() => {
     setNameDraft(displayName);
+    setEditingName(false);
   }, [displayName]);
+
+  const accountNameIsEmail = Boolean(user?.email && name === user.email);
 
   return (
     <div className="flex flex-col gap-4">
@@ -771,12 +951,55 @@ function GeneralPane() {
                 </AvatarFallback>
               </Avatar>
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm font-medium text-foreground">
-                  {name}
-                </span>
-                <span className="truncate text-xs text-muted-foreground">
-                  {user?.email}
-                </span>
+                {editingName ? (
+                  <input
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onBlur={() => {
+                      setDisplayName(nameDraft);
+                      setEditingName(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                      if (e.key === "Escape") {
+                        setNameDraft(displayName);
+                        setEditingName(false);
+                      }
+                    }}
+                    placeholder="Your name"
+                    className="h-7 w-full max-w-[220px] rounded-md border border-border/50 bg-background px-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
+                  />
+                ) : (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    {accountNameIsEmail && user?.email ? (
+                      <BlurredEmail email={user.email} />
+                    ) : (
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {name}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNameDraft(displayName);
+                        setEditingName(true);
+                      }}
+                      aria-label="Edit display name"
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                    >
+                      <HugeiconsIcon
+                        icon={PencilEdit01Icon}
+                        className="size-3.5"
+                      />
+                    </button>
+                  </div>
+                )}
+                {!accountNameIsEmail && user?.email ? (
+                  <BlurredEmail email={user.email} />
+                ) : null}
               </div>
               <Button
                 variant="settings"
@@ -786,23 +1009,6 @@ function GeneralPane() {
                 Sign out
               </Button>
             </div>
-            <SettingsRow
-              title="Display name"
-              description="How your name shows in Zuse Alpha. Local to this device — it doesn't change your WorkOS profile."
-            >
-              <input
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onBlur={() => setDisplayName(nameDraft)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.currentTarget.blur();
-                  }
-                }}
-                placeholder={user?.email ?? "Your name"}
-                className="h-8 w-full max-w-[260px] rounded-lg border border-border/50 bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-border"
-              />
-            </SettingsRow>
           </>
         ) : (
           <SettingsRow
@@ -959,7 +1165,7 @@ function GeneralPane() {
       >
         <SettingsRow
           title="Branch naming"
-          description="When a new chat with its own worktree gets its first message, Zuse Alpha summarizes it and renames the chat plus its git branch in this shape."
+          description="When a new chat gets its first real message, Zuse Alpha summarizes the conversation and renames the chat. Worktree-backed chats also rename their git branch in this shape."
           action={
             <Select
               value={branchNamingStyle}
@@ -1019,8 +1225,6 @@ function GeneralPane() {
         </SettingsRow>
       </SettingsGroup>
 
-      <SubagentsSection />
-
       <SettingsGroup title="Setup">
         <SettingsRow
           title="Onboarding"
@@ -1046,21 +1250,23 @@ function GeneralPane() {
 function ProvidersPane() {
   const availability = useProvidersStore((s) => s.availability);
   const loading = useProvidersStore((s) => s.loading);
+  const availabilityLoaded = useProvidersStore((s) => s.availabilityLoaded);
   const error = useProvidersStore((s) => s.error);
+  const load = useProvidersStore((s) => s.load);
   const refresh = useProvidersStore((s) => s.refresh);
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
   const setDefaultProvider = useSettingsStore((s) => s.setDefaultProvider);
   const providerEnabled = useSettingsStore((s) => s.providerEnabled);
 
-  // Refresh once on mount + re-poll when the window regains focus so the
-  // "Checked X ago" line reflects reality without forcing the user to hit
-  // refresh themselves.
+  // Refresh once when the pane opens. We deliberately do NOT re-poll on every
+  // window focus: `refresh()` → `agent.availability` reads the OS keychain
+  // (`credentials.listConfigured`), and on unsigned/dev builds macOS re-prompts
+  // for the "zuse" keychain on each access — so a focus-triggered refresh meant
+  // a keychain prompt every time the window regained focus. The manual refresh
+  // button covers the occasional "re-check now" case.
   useEffect(() => {
-    void refresh();
-    const onFocus = () => void refresh();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [refresh]);
+    void load();
+  }, [load]);
 
   const now = useRelativeTimeTick(15_000);
   const lastCheckedAt = useMemo(() => {
@@ -1161,7 +1367,10 @@ function ProvidersPane() {
             <ProviderCard
               providerId={selectedProvider}
               availability={availabilityById.get(selectedProvider)}
-              loading={loading}
+              loading={isInitialProviderAvailabilityLoading(
+                loading,
+                availabilityLoaded,
+              )}
             />
           </Card>
         </div>
@@ -1237,134 +1446,6 @@ function WorkspacePane() {
       }
       description="When on, each new chat runs in its own git worktree under ~/.zuse/<repo>/<name>/, branched off the project's HEAD. Per-repo settings can override this default."
     />
-  );
-}
-
-/**
- * Sub-agents settings. Master toggle + per-preset toggle. Model dropdowns
- * read the user's overlay; a future "Edit" sheet will surface the prompt
- * + tool subset.
- */
-function SubagentsSection() {
-  const enableForNewSessions = useSubagentsStore((s) => s.enableForNewSessions);
-  const setEnableForNewSessions = useSubagentsStore(
-    (s) => s.setEnableForNewSessions,
-  );
-  const presets = useSubagentsStore((s) => s.presets);
-  const setPresetEnabled = useSubagentsStore((s) => s.setPresetEnabled);
-  const setPresetOverride = useSubagentsStore((s) => s.setPresetOverride);
-  const modelEnabledByProvider = useSettingsStore(
-    (s) => s.modelEnabledByProvider,
-  );
-
-  const claudeModels = visibleModelsForProvider(
-    "claude",
-    modelEnabledByProvider,
-  );
-
-  return (
-    <Frame>
-      <FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
-        <p className="text-sm font-semibold text-foreground">Sub-agents</p>
-        <Switch
-          checked={enableForNewSessions}
-          onCheckedChange={setEnableForNewSessions}
-        />
-      </FrameHeader>
-
-      <Card
-        className={cn(
-          enableForNewSessions ? "" : "pointer-events-none opacity-50",
-        )}
-      >
-        <div className="flex flex-col divide-y divide-border/40 overflow-hidden">
-          {DEFAULT_SUBAGENT_PRESETS.map((preset) => {
-            const ps = presets[preset.name] ?? {
-              enabled: true,
-              overrides: {},
-            };
-            const currentModel =
-              ps.overrides.model ?? preset.definition.model ?? "";
-            const rowDisabled = !enableForNewSessions || !ps.enabled;
-            return (
-              <div
-                key={preset.name}
-                className="flex flex-col gap-3 px-4 py-3.5"
-              >
-                <label className="group flex cursor-pointer items-start gap-3">
-                  <Switch
-                    checked={ps.enabled && enableForNewSessions}
-                    disabled={!enableForNewSessions}
-                    onCheckedChange={(v) => setPresetEnabled(preset.name, v)}
-                    className="mt-0.5 shrink-0"
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-sm font-semibold leading-none text-foreground">
-                      {preset.displayName}
-                    </span>
-                    <span className="text-xs leading-snug text-muted-foreground">
-                      {preset.summary}
-                    </span>
-                  </span>
-                </label>
-
-                <div
-                  className={cn(
-                    "ml-[calc(--spacing(9)+--spacing(3))] flex flex-col gap-2",
-                    rowDisabled && "pointer-events-none opacity-50",
-                  )}
-                >
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold leading-none text-foreground">
-                      Model
-                    </span>
-                    <span className="text-xs leading-snug text-muted-foreground">
-                      Pick which model handles this sub-agent's turns.
-                    </span>
-                  </div>
-                  <div
-                    role="radiogroup"
-                    aria-label={`Model for ${preset.displayName}`}
-                    className="flex flex-col"
-                  >
-                    {claudeModels.map((m) => {
-                      const selected = currentModel === m.id;
-                      return (
-                        <label
-                          key={m.id}
-                          className="group flex cursor-pointer items-center gap-3 py-1.5"
-                        >
-                          <input
-                            type="radio"
-                            name={`subagent-model-${preset.name}`}
-                            value={m.id}
-                            checked={selected}
-                            onChange={() =>
-                              setPresetOverride(preset.name, { model: m.id })
-                            }
-                            className="sr-only"
-                          />
-                          <RadioCheck active={selected} />
-                          <span className="text-sm text-foreground">
-                            {m.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
-      <FrameFooter className="px-2 py-1 w-full">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Let your main agent delegate scoped tasks to cheaper models. Saves
-          tokens on long sessions.
-        </p>
-      </FrameFooter>
-    </Frame>
   );
 }
 

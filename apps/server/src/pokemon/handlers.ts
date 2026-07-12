@@ -1,4 +1,4 @@
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
 import { PokemonService } from "./services/pokemon-service.ts";

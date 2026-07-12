@@ -144,7 +144,7 @@ const migrations: ReadonlyArray<Migration> = [
 
 /**
  * Apply every migration whose id isn't already in `index_migrations`. Runs
- * synchronously inside `Effect.try`. better-sqlite3 statements throw on
+ * synchronously inside `Effect.try`. SQLite statements throw on
  * failure — we wrap the whole batch in a transaction so a half-applied
  * migration doesn't leave the DB in an in-between state.
  */

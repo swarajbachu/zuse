@@ -1,28 +1,39 @@
-import { Deferred, Effect, Layer, PubSub, Ref, Stream } from "effect";
-
 import {
   AuthCancelledError,
   AuthFlowError,
   AuthSession,
-  AuthState,
+  type AuthState,
   AuthUser,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import {
+  Deferred,
+  Effect,
+  Layer,
+  PubSub,
+  Ref,
+  Schedule,
+  Semaphore,
+  Stream,
+} from "effect";
 
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
-import { AuthTokenError } from "../errors.ts";
+import { AuthTokenError, type SessionStoreError } from "../errors.ts";
 import { AuthService } from "../services/auth-service.ts";
 import { AuthShell } from "../services/auth-shell.ts";
+import { SessionStore } from "../services/session-store.ts";
 import {
   authorizationUrl,
   exchangeCode,
   makePkce,
   parseCallbackUrl,
+  parseSessionBundle,
   refreshSession,
   type SessionBundle,
 } from "./workos.ts";
 
 /** Refresh when the access token is within this window of expiry. */
 const REFRESH_SKEW_MS = 60_000;
+const FORCE_REFRESH_SKIP_MS = 10 * 60_000;
 
 /** How long `signIn` waits for the browser callback before giving up. */
 const SIGN_IN_TIMEOUT = "45 seconds";
@@ -43,19 +54,10 @@ interface PendingSignIn {
   readonly state: string;
 }
 
-const parseBundle = (raw: string | null): SessionBundle | null => {
+const parseKeychainBundle = (raw: string | null): SessionBundle | null => {
   if (raw === null) return null;
   try {
-    const obj = JSON.parse(raw) as Partial<SessionBundle>;
-    if (
-      typeof obj.accessToken === "string" &&
-      typeof obj.refreshToken === "string" &&
-      typeof obj.expiresAt === "number" &&
-      obj.user !== undefined &&
-      typeof obj.user.id === "string"
-    ) {
-      return obj as SessionBundle;
-    }
+    return parseSessionBundle(JSON.parse(raw) as unknown);
   } catch {
     // Corrupt entry — treat as signed out.
   }
@@ -77,61 +79,139 @@ const toState = (b: SessionBundle): AuthState => ({
   }),
 });
 
-export const AuthServiceLive = Layer.scoped(
+export const AuthServiceLive = Layer.effect(
   AuthService,
   Effect.gen(function* () {
     const credentials = yield* CredentialsService;
+    const store = yield* SessionStore;
     const shell = yield* AuthShell;
 
     const pubsub = yield* PubSub.unbounded<AuthState>();
     const pending = yield* Ref.make<PendingSignIn | null>(null);
+    const lastKnown = yield* Ref.make<SessionBundle | null>(null);
     // Serializes refreshes so two concurrent `getSession`/`getAccessToken`
     // calls can't both mint a new token and clobber the keychain entry (R5).
-    const refreshLock = yield* Effect.makeSemaphore(1);
+    const refreshLock = yield* Semaphore.make(1);
 
     const readBundle = (): Effect.Effect<SessionBundle | null> =>
-      credentials.getWorkosSession().pipe(
-        Effect.catchAll(() => Effect.succeed<string | null>(null)),
-        Effect.map(parseBundle),
+      store.read().pipe(
+        Effect.tap((bundle) => Ref.set(lastKnown, bundle)),
+        Effect.catch((cause) =>
+          Effect.gen(function* () {
+            console.warn("[zuse] failed to read auth session", cause.reason);
+            return yield* Ref.get(lastKnown);
+          }),
+        ),
       );
 
-    const persist = (bundle: SessionBundle): Effect.Effect<void> =>
-      credentials.setWorkosSession(JSON.stringify(bundle)).pipe(
-        Effect.catchAll((cause) =>
-          Effect.sync(() => {
-            console.error("[zuse] failed to persist auth session", cause);
-          }),
+    const persist = (
+      bundle: SessionBundle,
+    ): Effect.Effect<void, AuthTokenError> =>
+      store.write(bundle).pipe(
+        Effect.tap((written) => Ref.set(lastKnown, written)),
+        Effect.tap((written) => PubSub.publish(pubsub, toState(written))),
+        Effect.asVoid,
+        Effect.mapError(
+          (cause) =>
+            new AuthTokenError({
+              reason: `Failed to persist auth session: ${cause.reason}`,
+              cause,
+            }),
         ),
       );
 
     // Refresh under the lock, re-reading first so a concurrent refresh that
     // already ran is reused instead of repeated.
+    const mapStoreError = (cause: SessionStoreError): AuthTokenError =>
+      new AuthTokenError({
+        reason: `Failed to access auth session: ${cause.reason}`,
+        cause,
+      });
+
     const doRefresh = (
       seed: SessionBundle,
+      options: { readonly force?: boolean } = {},
     ): Effect.Effect<SessionBundle, AuthTokenError> =>
-      refreshLock.withPermits(1)(
-        Effect.gen(function* () {
-          const current = yield* readBundle();
-          const base = current ?? seed;
-          if (base.expiresAt - Date.now() > REFRESH_SKEW_MS) return base;
-          const fresh = yield* refreshSession(CLIENT_ID, base.refreshToken);
-          yield* persist(fresh);
-          yield* PubSub.publish(pubsub, toState(fresh));
-          return fresh;
-        }),
-      );
+      refreshLock
+        .withPermits(1)(
+          store.withLock(
+            Effect.gen(function* () {
+              const current = yield* store.read();
+              if (current === null) {
+                return yield* Effect.fail(
+                  new AuthTokenError({
+                    reason: "Signed out during refresh.",
+                  }),
+                );
+              }
+              const base = current;
+              const now = Date.now();
+              if (current.refreshToken !== seed.refreshToken) {
+                yield* Ref.set(lastKnown, current);
+                return current;
+              }
+              if (!options.force && base.expiresAt - now > REFRESH_SKEW_MS) {
+                yield* Ref.set(lastKnown, base);
+                return base;
+              }
+              if (
+                options.force &&
+                base.refreshedAt > 0 &&
+                now - base.refreshedAt < FORCE_REFRESH_SKIP_MS &&
+                base.expiresAt - now > REFRESH_SKEW_MS
+              ) {
+                yield* Ref.set(lastKnown, base);
+                return base;
+              }
+              const attemptedRefreshToken = base.refreshToken;
+              const refreshed = yield* refreshSession(
+                CLIENT_ID,
+                attemptedRefreshToken,
+              ).pipe(Effect.result);
+              if (refreshed._tag === "Failure") {
+                if (refreshed.failure.code === "invalid_grant") {
+                  const winner = yield* store.read();
+                  if (
+                    winner !== null &&
+                    winner.refreshToken !== attemptedRefreshToken
+                  ) {
+                    yield* Ref.set(lastKnown, winner);
+                    return winner;
+                  }
+                }
+                return yield* Effect.fail(refreshed.failure);
+              }
+              const written = yield* store.write(refreshed.success);
+              yield* Ref.set(lastKnown, written);
+              yield* PubSub.publish(pubsub, toState(written));
+              return written;
+            }),
+          ),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            cause._tag === "SessionStoreError" ? mapStoreError(cause) : cause,
+          ),
+        );
+
+    const refreshIfPresent = (force: boolean): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        const bundle = yield* readBundle();
+        if (bundle === null) return;
+        yield* doRefresh(bundle, { force }).pipe(Effect.result);
+      });
 
     const getSession = (): Effect.Effect<AuthState> =>
       Effect.gen(function* () {
         const bundle = yield* readBundle();
         if (bundle === null) return SIGNED_OUT;
-        if (bundle.expiresAt - Date.now() > REFRESH_SKEW_MS) {
-          return toState(bundle);
+        if (bundle.expiresAt - Date.now() <= REFRESH_SKEW_MS) {
+          yield* doRefresh(bundle).pipe(
+            Effect.ignore,
+            Effect.forkDetach({ startImmediately: true }),
+          );
         }
-        // Near expiry: refresh, but tolerate transient failure by keeping the
-        // existing identity rather than bouncing the user to the login screen.
-        const refreshed = yield* doRefresh(bundle).pipe(Effect.either);
-        return toState(refreshed._tag === "Right" ? refreshed.right : bundle);
+        return toState(bundle);
       });
 
     const getAccessToken = (): Effect.Effect<string, AuthTokenError> =>
@@ -181,18 +261,24 @@ export const AuthServiceLive = Layer.scoped(
           CLIENT_ID,
           code,
           inflight.verifier,
-        ).pipe(Effect.either);
-        if (result._tag === "Left") {
+        ).pipe(Effect.result);
+        if (result._tag === "Failure") {
           yield* Deferred.fail(
             inflight.deferred,
-            new AuthFlowError({ reason: result.left.reason }),
+            new AuthFlowError({ reason: result.failure.reason }),
           );
           return;
         }
 
-        const bundle = result.right;
-        yield* persist(bundle);
-        yield* PubSub.publish(pubsub, toState(bundle));
+        const bundle = result.success;
+        const persisted = yield* persist(bundle).pipe(Effect.result);
+        if (persisted._tag === "Failure") {
+          yield* Deferred.fail(
+            inflight.deferred,
+            new AuthFlowError({ reason: persisted.failure.reason }),
+          );
+          return;
+        }
         yield* Deferred.succeed(inflight.deferred, bundle);
       });
 
@@ -234,9 +320,9 @@ export const AuthServiceLive = Layer.scoped(
           ),
         );
         const bundle = yield* Deferred.await(deferred).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: SIGN_IN_TIMEOUT,
-            onTimeout: () => new AuthCancelledError(),
+            orElse: () => Effect.fail(new AuthCancelledError()),
           }),
           Effect.ensuring(Ref.set(pending, null)),
         );
@@ -244,19 +330,57 @@ export const AuthServiceLive = Layer.scoped(
       });
 
     const signOut = (): Effect.Effect<void> =>
-      credentials.removeWorkosSession().pipe(
-        Effect.catchAll(() => Effect.void),
-        Effect.zipRight(PubSub.publish(pubsub, SIGNED_OUT)),
+      store.clear().pipe(
+        Effect.catch(() => Effect.void),
+        Effect.andThen(Ref.set(lastKnown, null)),
+        Effect.andThen(PubSub.publish(pubsub, SIGNED_OUT)),
         Effect.asVoid,
       );
 
     const sessionChanges = (): Stream.Stream<AuthState> =>
-      Stream.unwrapScoped(
+      Stream.unwrap(
         Effect.gen(function* () {
-          const dequeue = yield* pubsub.subscribe;
-          return Stream.fromQueue(dequeue);
+          const dequeue = yield* PubSub.subscribe(pubsub);
+          return Stream.concat(
+            Stream.fromEffect(getSession()),
+            Stream.fromSubscription(dequeue),
+          );
         }),
       );
+
+    yield* Effect.gen(function* () {
+      const fileBundle = yield* store
+        .read()
+        .pipe(Effect.catch(() => Effect.succeed(null)));
+      if (fileBundle !== null) {
+        yield* Ref.set(lastKnown, fileBundle);
+        return;
+      }
+      const legacy = yield* credentials.getWorkosSession().pipe(
+        Effect.catch(() => Effect.succeed(null)),
+        Effect.map(parseKeychainBundle),
+      );
+      if (legacy === null) return;
+      const migrated = yield* store.write(legacy).pipe(Effect.result);
+      if (migrated._tag === "Success") {
+        yield* Ref.set(lastKnown, migrated.success);
+        yield* credentials
+          .removeWorkosSession()
+          .pipe(Effect.catch(() => Effect.void));
+      }
+    });
+
+    yield* Effect.forkScoped(
+      refreshIfPresent(true).pipe(
+        Effect.andThen(
+          Effect.repeat(
+            refreshIfPresent(true),
+            Schedule.spaced("45 minutes").pipe(Schedule.jittered),
+          ),
+        ),
+        Effect.catch(() => Effect.void),
+      ),
+    );
 
     // Register our callback sink with the host. From here on, every
     // `zuse://auth/callback` deep link the shell receives is funneled into

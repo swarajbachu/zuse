@@ -5,9 +5,9 @@ import {
   Wrench01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
-import type { AgentItemId, Message, UserQuestionAnswer } from "@zuse/wire";
+import type { Message } from "@zuse/contracts";
 
 import { groupMessages } from "../lib/group-messages.ts";
 import { cn } from "~/lib/utils";
@@ -21,7 +21,7 @@ import {
   patchStats,
 } from "./inline-diff.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
-import { MessageRow, type ToolResultRecord } from "./message-row.tsx";
+import { MessageRow } from "./message-row.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { iconForTool } from "./tool-row.tsx";
 
@@ -88,15 +88,7 @@ const MAX_FILE_CHIPS = 4;
  * shows below; the footer carries elapsed time and file edit stats. No
  * outer card — sections sit flat in the timeline like every other row.
  */
-export function TurnSummary({
-  body,
-  resultsByItemId,
-  answersByItemId,
-}: {
-  body: ReadonlyArray<Message>;
-  resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
-  answersByItemId?: ReadonlyMap<AgentItemId, ReadonlyArray<UserQuestionAnswer>>;
-}) {
+function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
   const [expanded, setExpanded] = useState(false);
   const [filesExpanded, setFilesExpanded] = useState(false);
 
@@ -228,12 +220,7 @@ export function TurnSummary({
         <div className="py-1">
           {detailGroups.map((group) =>
             group.kind === "single" ? (
-              <MessageRow
-                key={group.message.id}
-                message={group.message}
-                resultsByItemId={resultsByItemId}
-                answersByItemId={answersByItemId}
-              />
+              <MessageRow key={group.message.id} message={group.message} />
             ) : (
               <SubagentRow
                 key={group.parent.id}
@@ -243,8 +230,6 @@ export function TurnSummary({
                 modelRequested={group.modelRequested}
                 children={group.children}
                 summary={group.summary}
-                resultsByItemId={resultsByItemId}
-                answersByItemId={answersByItemId}
               />
             ),
           )}
@@ -254,7 +239,7 @@ export function TurnSummary({
       {finalAssistant !== null &&
       finalAssistant.content._tag === "assistant" ? (
         <div className="px-4 py-2">
-          <div className="max-w-[88%]">
+          <div className="max-w-full">
             <MarkdownBody>{finalAssistant.content.text}</MarkdownBody>
           </div>
         </div>
@@ -318,3 +303,6 @@ export function TurnSummary({
     </div>
   );
 }
+
+export const TurnSummary = memo(TurnSummaryImpl);
+TurnSummary.displayName = "TurnSummary";

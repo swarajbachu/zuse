@@ -1,4 +1,4 @@
-import { Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { Cause, Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -14,7 +14,7 @@ import {
   type MobileEvent,
   type MobilePhase,
   type MobileProjectDetection,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   buildXcodebuildArgs,
@@ -23,7 +23,7 @@ import {
 } from "../detection.ts";
 import { MobileService } from "../services/mobile-service.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
-import type { PtyId } from "@zuse/wire";
+import type { PtyId } from "@zuse/contracts";
 
 const INITIAL_STATUS = MobileStatus.make({ phase: "idle" });
 const LOG_LIMIT = 500;
@@ -91,11 +91,11 @@ const isSupported = () =>
   process.platform === "darwin"
     ? effectText("xcrun", ["--find", "simctl"]).pipe(
         Effect.map(() => MobileAvailability.make({ supported: true })),
-        Effect.catchAll((err) =>
+        Effect.catchCause((cause) =>
           Effect.succeed(
             MobileAvailability.make({
               supported: false,
-              reason: err.message,
+              reason: Cause.pretty(cause),
             }),
           ),
         ),
@@ -170,10 +170,10 @@ export const MobileServiceLive = Layer.effect(
     const logRef = yield* Ref.make<ReadonlyArray<string>>([]);
     const eventsPubSub = yield* PubSub.unbounded<typeof MobileEvent.Type>();
     const framesPubSub = yield* PubSub.sliding<MobileFrame>(1);
-    const launchFiberRef = yield* Ref.make<Fiber.RuntimeFiber<unknown, unknown> | null>(
+    const launchFiberRef = yield* Ref.make<Fiber.Fiber<unknown, unknown> | null>(
       null,
     );
-    const frameFiberRef = yield* Ref.make<Fiber.RuntimeFiber<unknown, unknown> | null>(
+    const frameFiberRef = yield* Ref.make<Fiber.Fiber<unknown, unknown> | null>(
       null,
     );
     const activePtyRef = yield* Ref.make<PtyId | null>(null);
@@ -183,7 +183,7 @@ export const MobileServiceLive = Layer.effect(
       source: "user" | "agent",
     ) =>
       Ref.set(statusRef, status).pipe(
-        Effect.zipRight(
+        Effect.andThen(
           PubSub.publish(eventsPubSub, { _tag: "Status", status, source }),
         ),
         Effect.asVoid,
@@ -194,7 +194,7 @@ export const MobileServiceLive = Layer.effect(
         const next = [...lines, ...logLines(text)];
         return next.slice(Math.max(0, next.length - LOG_LIMIT));
       }).pipe(
-        Effect.zipRight(PubSub.publish(eventsPubSub, { _tag: "LogChunk", text })),
+        Effect.andThen(PubSub.publish(eventsPubSub, { _tag: "LogChunk", text })),
         Effect.asVoid,
       );
 
@@ -206,8 +206,8 @@ export const MobileServiceLive = Layer.effect(
             : failUnsupported(availability.reason ?? "Unsupported platform."),
         ),
         Effect.map(parseSimctlDevices),
-        Effect.catchAll((err) =>
-          failUnsupported(err instanceof Error ? err.message : String(err)),
+        Effect.catchCause((cause) =>
+          failUnsupported(Cause.pretty(cause)),
         ),
       );
 
@@ -234,7 +234,7 @@ export const MobileServiceLive = Layer.effect(
     const startFrameLoop = (udid: string) =>
       Effect.gen(function* () {
         yield* stopFrameLoop;
-        const fiber = yield* Effect.forkDaemon(
+        const fiber = yield* Effect.forkDetach(
           Effect.forever(
             Effect.gen(function* () {
               const started = Date.now();
@@ -245,7 +245,7 @@ export const MobileServiceLive = Layer.effect(
                 "screenshot",
                 "--type=jpeg",
                 "-",
-              ]).pipe(Effect.catchAll(() => Effect.succeed(null)));
+              ]).pipe(Effect.catchCause(() => Effect.succeed(null)));
               if (image !== null) {
                 yield* PubSub.publish(
                   framesPubSub,
@@ -265,7 +265,7 @@ export const MobileServiceLive = Layer.effect(
         if (device.state !== "Booted") {
           yield* appendLog(`Booting ${device.name} (${device.runtime})`);
           yield* effectText("xcrun", ["simctl", "boot", device.udid]).pipe(
-            Effect.catchAll(() => Effect.succeed("")),
+            Effect.catchCause(() => Effect.succeed("")),
           );
         }
         yield* effectText("xcrun", [
@@ -281,7 +281,7 @@ export const MobileServiceLive = Layer.effect(
       args: ReadonlyArray<string>,
       cwd: string,
     ) =>
-      Effect.async<void, Error>((resume) => {
+      Effect.callback<void, Error>((resume) => {
         const child = spawn(command, [...args], {
           cwd,
           env: process.env,
@@ -317,7 +317,7 @@ export const MobileServiceLive = Layer.effect(
           env: { CI: "1", EXPO_NO_TELEMETRY: "1" },
         });
         yield* Ref.set(activePtyRef, opened.ptyId);
-        yield* Effect.forkDaemon(
+        yield* Effect.forkDetach(
           pty.subscribe(opened.ptyId).pipe(
             Stream.runForEach((event) =>
               event._tag === "data"
@@ -341,7 +341,7 @@ export const MobileServiceLive = Layer.effect(
           env: { CI: "1" },
         });
         yield* Ref.set(activePtyRef, opened.ptyId);
-        yield* Effect.forkDaemon(
+        yield* Effect.forkDetach(
           pty.subscribe(opened.ptyId).pipe(
             Stream.runForEach((event) =>
               event._tag === "data"
@@ -474,10 +474,10 @@ export const MobileServiceLive = Layer.effect(
           source,
         );
       }).pipe(
-        Effect.catchAll((err) =>
+        Effect.catchCause((cause) =>
           Effect.gen(function* () {
             const current = yield* Ref.get(statusRef);
-            const reason = err instanceof Error ? err.message : String(err);
+            const reason = Cause.pretty(cause);
             yield* appendLog(reason);
             yield* publishStatus(
               MobileStatus.make({
@@ -491,83 +491,83 @@ export const MobileServiceLive = Layer.effect(
         ),
       );
 
-    return {
-      availability: isSupported,
-      listDevices,
-      detectProject: (cwd) =>
-        Effect.tryPromise(() => detectProjectAtPath(cwd)).pipe(
-          Effect.catchAll(() =>
-            Effect.succeed({ type: "none" } as MobileProjectDetection),
-          ),
+    const availability: MobileService["Service"]["availability"] = isSupported;
+    const detectProject: MobileService["Service"]["detectProject"] = (cwd) =>
+      Effect.tryPromise(() => detectProjectAtPath(cwd)).pipe(
+        Effect.catchCause(() =>
+          Effect.succeed({ type: "none" } as MobileProjectDetection),
         ),
-      start: (cwd, udid, source) =>
-        Effect.gen(function* () {
-          const availability = yield* isSupported();
-          if (!availability.supported) {
-            return yield* Effect.fail(
-              new MobileStartError({
-                phase: "idle",
-                reason: availability.reason ?? "Unsupported platform.",
-              }),
-            );
-          }
-          const fiber = yield* Effect.forkDaemon(startFlow(cwd, udid, source));
-          yield* Ref.set(launchFiberRef, fiber);
-        }),
-      stop: () =>
-        Effect.gen(function* () {
-          yield* stopLaunch;
-          yield* stopFrameLoop;
-          yield* publishStatus(MobileStatus.make(INITIAL_STATUS), "user");
-        }),
-      status: () => Ref.get(statusRef),
-      screenshot: (source) =>
-        Effect.gen(function* () {
-          const current = yield* Ref.get(statusRef);
-          const udid = current.device?.udid;
-          if (udid === undefined) {
-            return yield* Effect.fail(
-              new MobileScreenshotError({
-                reason: "No simulator is active. Launch the Mobile panel first.",
-              }),
-            );
-          }
-          const image = yield* effectBuffer("xcrun", [
-            "simctl",
-            "io",
-            udid,
-            "screenshot",
-            "--type=png",
-            "-",
-          ]).pipe(
-            Effect.mapError(
-              (err) => new MobileScreenshotError({ reason: err.message }),
-            ),
+      );
+    const start: MobileService["Service"]["start"] = (cwd, udid, source) =>
+      Effect.gen(function* () {
+        const availability = yield* isSupported();
+        if (!availability.supported) {
+          return yield* Effect.fail(
+            new MobileStartError({
+              phase: "idle",
+              reason: availability.reason ?? "Unsupported platform.",
+            }),
           );
-          yield* PubSub.publish(eventsPubSub, { _tag: "ShutterFlash" });
-          yield* PubSub.publish(eventsPubSub, {
-            _tag: "Status",
-            status: current,
-            source,
-          });
-          return { data: image.toString("base64") };
-        }),
-      events: () =>
-        Stream.unwrapScoped(
-          Effect.gen(function* () {
-            const dequeue = yield* eventsPubSub.subscribe;
-            return Stream.fromQueue(dequeue);
-          }),
-        ),
-      frames: () =>
-        Stream.unwrapScoped(
-          Effect.gen(function* () {
-            const dequeue = yield* framesPubSub.subscribe;
-            return Stream.fromQueue(dequeue);
-          }),
-        ),
-      logTail: (lines) =>
-        Ref.get(logRef).pipe(Effect.map((all) => all.slice(-lines).join("\n"))),
+        }
+        const fiber = yield* Effect.forkDetach(startFlow(cwd, udid, source));
+        yield* Ref.set(launchFiberRef, fiber);
+      });
+    const stop: MobileService["Service"]["stop"] = () =>
+      Effect.gen(function* () {
+        yield* stopLaunch;
+        yield* stopFrameLoop;
+        yield* publishStatus(MobileStatus.make(INITIAL_STATUS), "user");
+      });
+    const status: MobileService["Service"]["status"] = () => Ref.get(statusRef);
+    const screenshot: MobileService["Service"]["screenshot"] = (source) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(statusRef);
+        const udid = current.device?.udid;
+        if (udid === undefined) {
+          return yield* Effect.fail(
+            new MobileScreenshotError({
+              reason: "No simulator is active. Launch the Mobile panel first.",
+            }),
+          );
+        }
+        const image = yield* effectBuffer("xcrun", [
+          "simctl",
+          "io",
+          udid,
+          "screenshot",
+          "--type=png",
+          "-",
+        ]).pipe(
+          Effect.mapError(
+            (err) => new MobileScreenshotError({ reason: err.message }),
+          ),
+        );
+        yield* PubSub.publish(eventsPubSub, { _tag: "ShutterFlash" });
+        yield* PubSub.publish(eventsPubSub, {
+          _tag: "Status",
+          status: current,
+          source,
+        });
+        return { data: image.toString("base64") };
+      });
+    const events: MobileService["Service"]["events"] = () =>
+      Stream.fromPubSub(eventsPubSub);
+    const frames: MobileService["Service"]["frames"] = () =>
+      Stream.fromPubSub(framesPubSub);
+    const logTail: MobileService["Service"]["logTail"] = (lines) =>
+      Ref.get(logRef).pipe(Effect.map((all) => all.slice(-lines).join("\n")));
+
+    return {
+      availability,
+      listDevices,
+      detectProject,
+      start,
+      stop,
+      status,
+      screenshot,
+      events,
+      frames,
+      logTail,
     };
   }),
 );
