@@ -1,0 +1,25 @@
+{
+	"name": "@zuse/testkit",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./fake-acp": "./src/fake-acp.ts",
+		"./fake-provider-peers": "./src/fake-provider-peers.ts",
+		"./headless-server": "./src/headless-server.ts",
+		"./process": "./src/process.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration --passWithNoTests"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

@@ -611,7 +611,9 @@ export const startGrokSession = (
 		 *  are populated, dead=false, listeners attached. On failure the
 		 *  returned promise rejects and the caller decides whether to surface
 		 *  the error or just bubble it. */
-		const connectChild = async (): Promise<string> => {
+		const connectChild = async (
+			cursor: string | null,
+		): Promise<{ readonly sessionId: string; readonly resumed: boolean }> => {
 			child = spawn(grokPath, ["--trust", "agent", "--no-leader", "stdio"], {
 				cwd,
 				env: {
@@ -627,7 +629,7 @@ export const startGrokSession = (
 			child.stderr.setEncoding("utf-8");
 			rl = readline.createInterface({ input: child.stdout });
 			attachListeners();
-			return await runHandshake();
+			return await runHandshake(cursor);
 		};
 
 		const writeMessage = (msg: Record<string, unknown>): void => {
@@ -700,7 +702,7 @@ export const startGrokSession = (
 					if (msg.method === "session/update") {
 						const update =
 							msg.params !== null && typeof msg.params === "object"
-								? (msg.params as Record<string, unknown>)["update"]
+								? (msg.params as Record<string, unknown>).update
 								: undefined;
 						if (update !== undefined) {
 							const translated = translator.translate(update);
@@ -1015,7 +1017,9 @@ export const startGrokSession = (
 		// === ACP handshake. Used both by the initial start() path and by the
 		// transparent respawn path inside enqueuePrompt. Resets `dead` on
 		// success so the next prompt can proceed. ===
-		const runHandshake = async (): Promise<string> => {
+		const runHandshake = async (
+			cursor: string | null,
+		): Promise<{ readonly sessionId: string; readonly resumed: boolean }> => {
 			const init = (await request("initialize", {
 				protocolVersion: 1,
 				clientCapabilities: ACP_CLIENT_CAPABILITIES,
@@ -1061,29 +1065,35 @@ export const startGrokSession = (
 					? []
 					: [mcpGatewaySession.httpServerConfigs.orchestration]),
 			];
-			const createdSessionId = await createAcpSession({
+			const acquisition = await createAcpSession({
 				request,
 				cwd,
 				sessionId,
 				providerLabel: "Grok",
 				httpServers: httpMcpServers,
 				fallbackServers: ensureStdioFallbackMcp,
+				resumeCursor: cursor,
 			});
-			grokDiag("session/new succeeded", {
-				sessionId: createdSessionId,
-				authMethodUsed,
-			});
-			acpSessionId = createdSessionId;
+			grokDiag(
+				acquisition.resumed
+					? "session/load succeeded"
+					: "session/new succeeded",
+				{
+					sessionId: acquisition.sessionId,
+					authMethodUsed,
+				},
+			);
+			acpSessionId = acquisition.sessionId;
 			dead = false;
 			// Fresh server-side context → the model hasn't seen the browser-tools
 			// hint yet. Re-arm it so the next prompt carries the tool list (also
 			// covers transparent respawns after a child death).
 			browserHintPending = true;
-			return createdSessionId;
+			return acquisition;
 		};
 
-		acpSessionId = yield* Effect.tryPromise({
-			try: () => connectChild(),
+		const initialAcquisition = yield* Effect.tryPromise({
+			try: () => connectChild(resumeCursor),
 			catch: (cause) =>
 				new AgentSessionStartError({
 					providerId: "grok",
@@ -1103,6 +1113,7 @@ export const startGrokSession = (
 				}),
 			),
 		);
+		acpSessionId = initialAcquisition.sessionId;
 
 		Queue.offerUnsafe(events, {
 			_tag: "SessionCursor",
@@ -1110,13 +1121,9 @@ export const startGrokSession = (
 			strategy: "grok-session-id",
 		});
 
-		// ACP doesn't (yet) expose `session/load` in the published surface, so a
-		// resumeCursor from a prior process can't actually rejoin the prior
-		// server-side conversation. We persist the new id and move on; the user
-		// sees a fresh agent context. Wire `session/load` once it's documented.
-		if (resumeCursor !== null && resumeCursor !== acpSessionId) {
+		if (resumeCursor !== null && !initialAcquisition.resumed) {
 			console.warn(
-				`[grok] previous cursor ${resumeCursor} discarded — ACP session/load not wired; using new session ${acpSessionId}`,
+				`[grok] cursor ${resumeCursor} was unavailable; using replacement session ${acpSessionId}`,
 			);
 		}
 
@@ -1147,17 +1154,15 @@ export const startGrokSession = (
 				.then(async () => {
 					if (closed) return;
 					// If the previous child died (worker crash, auth fatal, etc.),
-					// transparently respawn before sending. The new session starts a
-					// fresh server-side context — ACP doesn't yet expose session/load,
-					// so we cannot rejoin the old conversation. Better than the old
-					// "close this chat and start a new one" dead-end.
+					// transparently respawn before sending and load the durable ACP
+					// session so provider context survives the worker process.
 					if (dead) {
 						grokDiag("respawning grok child before send (previous child died)");
 						try {
-							await connectChild();
+							const acquisition = await connectChild(acpSessionId);
 							Queue.offerUnsafe(events, {
 								_tag: "SessionCursor",
-								cursor: acpSessionId!,
+								cursor: acquisition.sessionId,
 								strategy: "grok-session-id",
 							});
 						} catch (cause) {

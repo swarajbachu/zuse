@@ -1,10 +1,1 @@
-import { Socket } from "effect/unstable/socket";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
-import { Layer } from "effect";
-
-export const wsClientProtocolLayer = (url: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(Socket.layerWebSocket(url)),
-    Layer.provide(Socket.layerWebSocketConstructorGlobal),
-    Layer.provide(RpcSerialization.layerJson),
-  );
+export { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
