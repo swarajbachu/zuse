@@ -6,7 +6,7 @@ import {
   type WorkspaceCloneFailedError,
   type WorkspaceCreateFailedError,
   type WorkspaceInvalidPathError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Everything the workspace handlers need to *produce* a project path on
@@ -56,10 +56,10 @@ export interface ProjectScaffoldShape {
   readonly ghAuthStatus: () => Effect.Effect<{ readonly authenticated: boolean }>;
 }
 
-export class ProjectScaffold extends Context.Tag("memoize/ProjectScaffold")<
+export class ProjectScaffold extends Context.Service<
   ProjectScaffold,
   ProjectScaffoldShape
->() {}
+>()("memoize/ProjectScaffold") {}
 
 /**
  * Derive the on-disk folder name from a clone URL. Mirrors `git clone`'s

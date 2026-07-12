@@ -72,7 +72,7 @@ export const search = (
     // Tier 1 — symbol lookup. Single-source path returns directly.
     const symbolHits = wantsSymbol
       ? yield* lookupSymbol(db, input.query, branch, undefined, 20, pathGlob).pipe(
-          Effect.catchAll(() =>
+          Effect.catch(() =>
             Effect.succeed([] as ReadonlyArray<ReturnType<typeof Object>>),
           ),
         )
@@ -95,7 +95,7 @@ export const search = (
 
     if (wantsBm25) {
       const hits = yield* bm25Search(db, input.query, branch, fanout, pathGlob).pipe(
-        Effect.catchAll(() => Effect.succeed([])),
+        Effect.catch(() => Effect.succeed([])),
       );
       rankings.push(hits);
     }
@@ -105,10 +105,10 @@ export const search = (
         const [vec] = yield* Effect.tryPromise({
           try: () => provider.embed([input.query]),
           catch: () => new Error("embed failed"),
-        }).pipe(Effect.catchAll(() => Effect.succeed([new Float32Array(0)])));
+        }).pipe(Effect.catch(() => Effect.succeed([new Float32Array(0)])));
         if (vec && vec.length > 0) {
           const hits = yield* vectorSearch(db, vec, branch, fanout, pathGlob).pipe(
-            Effect.catchAll(() => Effect.succeed([])),
+            Effect.catch(() => Effect.succeed([])),
           );
           rankings.push(hits);
         }
@@ -162,7 +162,7 @@ export const search = (
                 }
               | undefined,
           catch: () => new Error("fetch chunk failed"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        }).pipe(Effect.catch(() => Effect.succeed(undefined)));
         if (!row) continue;
         out.push({
           chunkId: row.id,
@@ -181,6 +181,6 @@ export const search = (
     const reranked = yield* Effect.tryPromise({
       try: () => applyRerank(input.query, out, limit),
       catch: () => new Error("rerank failed"),
-    }).pipe(Effect.catchAll(() => Effect.succeed(out.slice(0, limit))));
+    }).pipe(Effect.catch(() => Effect.succeed(out.slice(0, limit))));
     return reranked as ReadonlyArray<SearchHit>;
   });

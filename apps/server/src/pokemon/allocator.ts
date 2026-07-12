@@ -1,4 +1,4 @@
-import type { PokemonCatalogEntry } from "./catalog.ts";
+import type { PokemonCatalogEntry } from "@zuse/pokemon-data";
 
 export interface PokemonNameAllocation {
   readonly pokemon: PokemonCatalogEntry;

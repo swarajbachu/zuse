@@ -1,4 +1,4 @@
-import type { AuthUser } from "@zuse/wire";
+import type { AuthUser } from "@zuse/contracts";
 
 import { useAuthStore } from "../store/auth.ts";
 

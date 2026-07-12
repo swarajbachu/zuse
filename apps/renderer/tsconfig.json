@@ -1,11 +1,11 @@
 {
-  "extends": "@repo/typescript-config/vite-react.json",
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "compilerOptions": {
-    "allowImportingTsExtensions": true,
-    "baseUrl": ".",
-    "paths": {
-      "~/*": ["./src/*"]
-    }
-  }
+	"extends": "@repo/typescript-config/vite-react.json",
+	"include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"baseUrl": ".",
+		"paths": {
+			"~/*": ["./src/*"]
+		}
+	}
 }

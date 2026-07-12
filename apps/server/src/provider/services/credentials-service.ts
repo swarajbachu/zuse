@@ -1,6 +1,6 @@
 import { Context, type Effect } from "effect";
 
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 import type { CredentialsError } from "../errors.ts";
 
@@ -80,6 +80,6 @@ export interface CredentialsServiceShape {
   ) => Effect.Effect<void, CredentialsError>;
 }
 
-export class CredentialsService extends Context.Tag(
+export class CredentialsService extends Context.Service<CredentialsService, CredentialsServiceShape>()(
   "memoize/CredentialsService",
-)<CredentialsService, CredentialsServiceShape>() {}
+) {}

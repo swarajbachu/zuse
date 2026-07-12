@@ -1,7 +1,7 @@
 import { insertNewlineAndIndent } from "@codemirror/commands";
 import type { KeyBinding } from "@codemirror/view";
 
-import type { Command } from "@zuse/wire";
+import type { Command } from "@zuse/contracts";
 
 import { useKeybindingsStore } from "../../store/keybindings";
 import type { ComposerCallbacks } from "./composer.ts";

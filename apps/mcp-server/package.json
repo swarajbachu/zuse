@@ -1,34 +1,37 @@
 {
-  "name": "@zuse/mcp-server",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "main": "./src/bin.ts",
-  "bin": {
-    "zuse-mcp": "./src/bin.ts"
-  },
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
-      "require": "./src/index.ts"
-    }
-  },
-  "scripts": {
-    "check-types": "tsc --noEmit",
-    "dev": "bun src/bin.ts",
-    "build:bin": "bun build --compile --outfile dist/zuse-mcp src/bin.ts",
-    "test": "bun test"
-  },
-  "dependencies": {
-    "@zuse/index": "*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "effect": "catalog:",
-    "zod": "^3.23.0"
-  },
-  "devDependencies": {
-    "@repo/typescript-config": "*",
-    "@types/node": "catalog:",
-    "typescript": "catalog:"
-  }
+	"name": "@zuse/mcp-server",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "./src/bin.ts",
+	"bin": {
+		"zuse-mcp": "./src/bin.ts"
+	},
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"import": "./src/index.ts",
+			"require": "./src/index.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"dev": "bun src/bin.ts",
+		"build:bin": "bun build --compile --outfile dist/zuse-mcp src/bin.ts",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit --passWithNoTests",
+		"test:integration": "vitest run test/integration"
+	},
+	"dependencies": {
+		"@zuse/index": "*",
+		"@modelcontextprotocol/sdk": "^1.0.0",
+		"effect": "catalog:",
+		"zod": "^3.23.0"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
 }

@@ -1,4 +1,4 @@
-import type { Message, PermissionRequest, SessionId } from "@zuse/wire";
+import type { Message, PermissionRequest, SessionId } from "@zuse/contracts";
 
 export type ChatAttentionState =
   | "idle"

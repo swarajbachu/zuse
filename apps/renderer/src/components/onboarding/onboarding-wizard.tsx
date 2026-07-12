@@ -46,7 +46,7 @@ const STEPS: ReadonlyArray<StepId> = [
  * once on mount so the Provider and Project steps render fresh state.
  */
 export function OnboardingWizard() {
-  const refreshProviders = useProvidersStore((s) => s.refresh);
+  const loadProviders = useProvidersStore((s) => s.load);
   const loadWorkspace = useWorkspaceStore((s) => s.load);
   const folders = useWorkspaceStore((s) => s.folders);
   const setOnboardingCompleted = useSettingsStore(
@@ -56,9 +56,9 @@ export function OnboardingWizard() {
   const [stepIndex, setStepIndex] = useState(0);
 
   useEffect(() => {
-    void refreshProviders();
+    void loadProviders();
     void loadWorkspace();
-  }, [refreshProviders, loadWorkspace]);
+  }, [loadProviders, loadWorkspace]);
 
   const stepId = STEPS[stepIndex]!;
   const isFirst = stepIndex === 0;

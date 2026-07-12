@@ -11,22 +11,28 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { RefreshCw as RefreshIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type {
-  AgentItemId,
   AttachmentRef,
+  BrowserAnnotation,
   CodeAnnotation,
+  ComposerAnnotation,
   FileRef,
   Message,
+  MessageOrigin,
   ProviderId,
   SessionId,
   SkillRef,
-  UserQuestionAnswer,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
+import {
+  orchestrationToolName,
+  parseOrchestrationResult,
+} from "~/lib/orchestration-tools";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
+import { useChatsStore } from "~/store/chats";
 import {
   classifyMessage,
   lookupSessionProvider,
@@ -38,10 +44,32 @@ import { useUiStore } from "~/store/ui";
 
 import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { useChatLookups } from "./chat-lookups.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+import { ProviderIcon } from "./provider-icons.tsx";
+
+const isBrowserAnnotation = (
+  annotation: ComposerAnnotation,
+): annotation is BrowserAnnotation =>
+  "_tag" in annotation && annotation._tag === "browser";
+
+const browserAnnotationMeta = (annotation: BrowserAnnotation): string => {
+  const count =
+    annotation.elements.length +
+    annotation.regions.length +
+    annotation.strokes.length;
+  const first = annotation.elements[0];
+  if (first !== undefined) return `<${first.tagName}> · ${count}`;
+  try {
+    return `${new URL(annotation.pageUrl).host} · ${count}`;
+  } catch {
+    return `Browser · ${count}`;
+  }
+};
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   ExitPlanModeRow,
+  OrchestrationThreadRow,
   ThinkingRow,
   ToolRow,
   UserInputRow,
@@ -49,10 +77,12 @@ import {
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
-export interface ToolResultRecord {
-  readonly output: unknown;
-  readonly isError: boolean;
-}
+export type { ToolResultRecord } from "./chat-lookups.tsx";
+
+type MessageContent<Tag extends Message["content"]["_tag"]> = Extract<
+  Message["content"],
+  { readonly _tag: Tag }
+>;
 
 const stringifyJson = (value: unknown): string => {
   try {
@@ -107,25 +137,24 @@ const formatCompactTokenDelta = (
  * than `role` because role collapses tool_use and assistant text into one
  * bucket, but their visual treatment differs.
  *
- * `resultsByItemId` lets `tool_use` rows render their paired `tool_result`
- * inline. Standalone `tool_result` rows are suppressed when they pair with
- * a tool_use; only orphan errors fall through to the standalone error row.
+ * Tool and user-question pairing data lives in ChatLookups context so settled
+ * text rows can be memoized without receiving fresh lookup-map props.
  */
-export function MessageRow({
+function MessageRowImpl({
   message,
-  resultsByItemId,
-  answersByItemId,
   sessionId,
 }: {
   message: Message;
-  resultsByItemId: ReadonlyMap<AgentItemId, ToolResultRecord>;
-  answersByItemId?: ReadonlyMap<AgentItemId, ReadonlyArray<UserQuestionAnswer>>;
   sessionId?: SessionId;
 }) {
   switch (message.content._tag) {
     case "user":
       return (
-        <UserBubble text={message.content.text} goal={message.content.goal} />
+        <UserBubble
+          text={message.content.text}
+          origin={message.content.origin}
+          goal={message.content.goal}
+        />
       );
     case "user_rich":
       return (
@@ -135,6 +164,7 @@ export function MessageRow({
           fileRefs={message.content.fileRefs}
           skillRefs={message.content.skillRefs}
           annotations={message.content.annotations}
+          origin={message.content.origin}
           goal={message.content.goal}
         />
       );
@@ -147,48 +177,19 @@ export function MessageRow({
       );
     case "thinking":
       return (
-        <ThinkingRow
+        <ThinkingMessageRow
+          messageId={message.id}
+          sessionId={sessionId}
           text={message.content.text}
           redacted={message.content.redacted}
         />
       );
     case "tool_use":
-      if (message.content.tool === "ExitPlanMode") {
-        return (
-          <ExitPlanModeRow
-            input={message.content.input}
-            result={resultsByItemId.get(message.content.itemId)}
-          />
-        );
-      }
-      return (
-        <ToolRow
-          tool={message.content.tool}
-          input={message.content.input}
-          result={resultsByItemId.get(message.content.itemId)}
-        />
-      );
-    case "tool_result": {
-      // Suppress paired results — the matching ToolRow renders them inline.
-      // Only orphan errors (no tool_use found, e.g. driver dropped the use
-      // event) surface as a standalone error row.
-      const paired = resultsByItemId.has(message.content.itemId);
-      if (paired) return null;
-      return message.content.isError ? (
-        <ToolErrorRow output={message.content.output} />
-      ) : null;
-    }
-    case "user_question": {
-      // Pending questions live in the composer slot — ChatComposer swaps the
-      // editor for a QuestionCard. Once answered, the question + the user's
-      // selections render here as a `UserInputRow` accordion so the Q&A
-      // stays visible in scrollback like every other tool call.
-      const answers = answersByItemId?.get(message.content.itemId);
-      if (answers === undefined) return null;
-      return (
-        <UserInputRow questions={message.content.questions} answers={answers} />
-      );
-    }
+      return <ToolUseMessageRow content={message.content} />;
+    case "tool_result":
+      return <ToolResultMessageRow content={message.content} />;
+    case "user_question":
+      return <UserQuestionMessageRow content={message.content} />;
     case "user_question_answer":
       // The paired `user_question` row above renders the answer inline, so
       // the standalone answer row is suppressed.
@@ -233,6 +234,89 @@ export function MessageRow({
         </div>
       );
   }
+}
+
+export const MessageRow = memo(MessageRowImpl);
+MessageRow.displayName = "MessageRow";
+
+function ThinkingMessageRow({
+  messageId,
+  sessionId,
+  text,
+  redacted,
+}: {
+  messageId: Message["id"];
+  sessionId?: SessionId;
+  text: string;
+  redacted: boolean;
+}) {
+  // Shimmer while this thinking block is the live tip of a running turn.
+  const pending = useMessagesStore((s) => {
+    if (sessionId === undefined) return false;
+    if (s.runningBySession[sessionId] !== true) return false;
+    const msgs = s.messagesBySession[sessionId] ?? [];
+    const last = msgs[msgs.length - 1];
+    return last?.id === messageId;
+  });
+  return <ThinkingRow text={text} redacted={redacted} pending={pending} />;
+}
+
+function ToolUseMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_use">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  const result = resultsByItemId.get(content.itemId);
+  if (content.tool === "ExitPlanMode") {
+    return <ExitPlanModeRow input={content.input} result={result} />;
+  }
+  const orch = orchestrationToolName(content.tool);
+  if (
+    orch === "create_thread" ||
+    orch === "create_chat" ||
+    orch === "create_session" ||
+    orch === "send_to_thread"
+  ) {
+    const parsed =
+      result !== undefined ? parseOrchestrationResult(result.output) : null;
+    const renderCard =
+      result === undefined ||
+      (!result.isError && parsed !== null && typeof parsed.chatId === "string");
+    if (renderCard) {
+      return <OrchestrationThreadRow variant={orch} result={result} />;
+    }
+  }
+  return <ToolRow tool={content.tool} input={content.input} result={result} />;
+}
+
+function ToolResultMessageRow({
+  content,
+}: {
+  content: MessageContent<"tool_result">;
+}) {
+  const { resultsByItemId } = useChatLookups();
+  // Suppress paired results — the matching ToolRow renders them inline.
+  // Only orphan errors (no tool_use found, e.g. driver dropped the use
+  // event) surface as a standalone error row.
+  const paired = resultsByItemId.has(content.itemId);
+  if (paired) return null;
+  return content.isError ? <ToolErrorRow output={content.output} /> : null;
+}
+
+function UserQuestionMessageRow({
+  content,
+}: {
+  content: MessageContent<"user_question">;
+}) {
+  const { answersByItemId } = useChatLookups();
+  // Pending questions live in the composer slot — ChatComposer swaps the
+  // editor for a QuestionCard. Once answered, the question + the user's
+  // selections render here as a `UserInputRow` accordion so the Q&A
+  // stays visible in scrollback like every other tool call.
+  const answers = answersByItemId.get(content.itemId);
+  if (answers === undefined) return null;
+  return <UserInputRow questions={content.questions} answers={answers} />;
 }
 
 function CompactRow({
@@ -325,17 +409,26 @@ function UserBubble({
   fileRefs,
   skillRefs,
   annotations,
+  origin,
   goal = false,
 }: {
   text: string;
   attachments?: ReadonlyArray<AttachmentRef>;
   fileRefs?: ReadonlyArray<FileRef>;
   skillRefs?: ReadonlyArray<SkillRef>;
-  annotations?: ReadonlyArray<CodeAnnotation>;
+  annotations?: ReadonlyArray<ComposerAnnotation>;
+  origin?: MessageOrigin;
   goal?: boolean;
 }) {
   const hasAnnotations = annotations !== undefined && annotations.length > 0;
   const revealAnnotation = useRevealAnnotation();
+  const originChatLoaded = useChatsStore((s) =>
+    origin === undefined
+      ? false
+      : Object.values(s.chatsByProject).some((list) =>
+          list.some((c) => c.id === origin.chatId),
+        ),
+  );
   const hasChips =
     (attachments !== undefined && attachments.length > 0) ||
     (fileRefs !== undefined && fileRefs.length > 0) ||
@@ -356,21 +449,53 @@ function UserBubble({
           label="Copy message"
           className="absolute right-2 top-1.5 size-5 text-user-bubble-foreground/50 opacity-60 hover:bg-background/10 hover:text-user-bubble-foreground hover:opacity-100 focus-visible:opacity-100"
         />
+        {origin !== undefined ? (
+          <button
+            type="button"
+            disabled={!originChatLoaded}
+            onClick={() => useChatsStore.getState().select(origin.chatId)}
+            className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
+            title={
+              originChatLoaded
+                ? "Open the sender's chat"
+                : "Sender chat not loaded"
+            }
+          >
+            <ProviderIcon providerId={origin.providerId} className="size-3" />
+            <span>
+              Sent by {PROVIDER_LABEL_FOR_ERROR[origin.providerId]} from another
+              chat
+            </span>
+          </button>
+        ) : null}
         {hasAnnotations ? (
           <ol className="mb-2 space-y-1">
             {(annotations ?? []).map((a, i) => (
               <li key={a.id}>
                 <button
                   type="button"
-                  onClick={() => revealAnnotation(a)}
+                  onClick={() => {
+                    if (!isBrowserAnnotation(a)) revealAnnotation(a);
+                  }}
+                  disabled={isBrowserAnnotation(a)}
                   className="flex w-full min-w-0 items-start gap-2 rounded-lg border border-user-bubble-foreground/12 bg-background/10 px-2 py-1.5 text-left text-xs hover:bg-background/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-user-bubble-foreground/30"
-                  title="Open annotation"
+                  title={
+                    isBrowserAnnotation(a)
+                      ? "Browser annotation"
+                      : "Open annotation"
+                  }
                 >
                   <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-background/20 text-[10px] font-semibold tabular-nums">
                     {i + 1}
                   </span>
                   <span className="grid min-w-0 flex-1 gap-1">
-                    <AnnotationFileChip annotation={a} />
+                    {isBrowserAnnotation(a) ? (
+                      <span className="min-w-0 truncate font-medium">
+                        {browserAnnotationMeta(a)}
+                      </span>
+                    ) : (
+                      <AnnotationFileChip annotation={a as CodeAnnotation} />
+                    )}
                     <span className="min-w-0 break-words leading-snug">
                       {a.comment}
                     </span>
@@ -475,7 +600,7 @@ function AssistantBubble({
 }) {
   return (
     <div className="px-4 py-2">
-      <div className="max-w-[88%]">
+      <div className="max-w-full">
         <MarkdownBody>{text}</MarkdownBody>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           {createdAt !== undefined ? (
@@ -937,14 +1062,14 @@ export function ErrorBubble({
     error.kind === "network" ? "bg-alert-warning-bg" : "bg-alert-error-bg";
 
   return (
-    <div className="px-4 py-2">
+    <div className="py-2">
       <div
         className={cn(
-          "max-w-[88%] rounded-xl px-3 py-2 text-xs text-foreground",
+          "w-full rounded-xl px-3 py-2 text-xs text-foreground",
           bg,
         )}
       >
-        <div className="flex items-start gap-2">
+        <div className="flex min-w-0 items-start gap-2">
           <HugeiconsIcon
             icon={AlertCircleIcon}
             strokeWidth={2}
@@ -959,7 +1084,7 @@ export function ErrorBubble({
                 Provider error
               </span>
             )}
-            <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
+            <pre className="min-w-0 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {error.message || "(empty)"}
             </pre>
             {sessionId !== undefined && (
@@ -997,7 +1122,7 @@ export function ErrorBubble({
             <button
               type="button"
               onClick={onDismiss}
-              className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               Dismiss
             </button>

@@ -1,52 +1,38 @@
-import { CommandExecutor, FileSystem } from "@effect/platform";
-import { Effect, Layer, Ref, Runtime, Stream } from "effect";
-
+import { buildBrowserTools } from "@zuse/agents/drivers/browser-tools";
+import { startClaudeSession } from "@zuse/agents/drivers/claude";
+import { startCodexSession } from "@zuse/agents/drivers/codex";
+import { prewarmCursor, startCursorSession } from "@zuse/agents/drivers/cursor";
+import { startGeminiSession } from "@zuse/agents/drivers/gemini";
+import { startGrokSession } from "@zuse/agents/drivers/grok";
+import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
+import type {
+  GoalCapableSessionHandle,
+  ProviderSessionHandle,
+} from "@zuse/agents/kernel/driver";
+import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import {
-  AgentSessionId,
+  type AgentAvailability,
+  type AgentEvent,
+  type AgentSessionId,
   AgentSessionNotFoundError,
   AgentSessionStartError,
   DEFAULT_RUNTIME_MODE,
-  type AgentAvailability,
-  type AgentEvent,
   type FolderId,
   type PermissionDecision,
   type PermissionKind,
   type ProviderId,
   type ThreadGoalSetInput,
-} from "@zuse/wire";
-
+} from "@zuse/contracts";
+import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
-import {
-  startClaudeSession,
-  type ClaudeSessionHandle,
-} from "../drivers/claude.ts";
-import {
-  startCodexSession,
-  type CodexSessionHandle,
-} from "../drivers/codex.ts";
-import { startGrokSession, type GrokSessionHandle } from "../drivers/grok.ts";
-import {
-  startGeminiSession,
-  type GeminiSessionHandle,
-} from "../drivers/gemini.ts";
-import {
-  prewarmCursor,
-  startCursorSession,
-  type CursorSessionHandle,
-} from "../drivers/cursor.ts";
-import {
-  startOpencodeSession,
-  type OpencodeSessionHandle,
-} from "../drivers/opencode.ts";
-import { AttachmentService } from "../../attachment/services/attachment-service.ts";
-import { buildIndexTools } from "../../code-index/claude-tools.ts";
-import { buildBrowserTools } from "../drivers/browser-tools.ts";
-import { IndexRegistry } from "../../code-index/services/index-registry.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
 import { PermissionService } from "../services/permission-service.ts";
 import { ProviderService } from "../services/provider-service.ts";
-import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 
 /**
  * Live `ProviderService`. PR 5 wires the Claude SDK driver behind the session
@@ -57,20 +43,14 @@ import { WorkspaceService } from "../../workspace/services/workspace-service.ts"
  * own their own scope so `close()` is the canonical teardown — there is no
  * autocleanup tied to the renderer subscription.
  */
-type SessionHandle =
-  | ClaudeSessionHandle
-  | CodexSessionHandle
-  | GrokSessionHandle
-  | GeminiSessionHandle
-  | CursorSessionHandle
-  | OpencodeSessionHandle;
+type SessionHandle = ProviderSessionHandle;
 
 /**
  * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
  * Grok forwards to its native `/goal` slash command with driver-local state.
  * Both share the same method shape so the goal routes treat them uniformly.
  */
-type GoalCapableHandle = CodexSessionHandle | GrokSessionHandle;
+type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
   readonly providerId: ProviderId;
   readonly handle: SessionHandle;
@@ -83,15 +63,15 @@ const nextSessionId = (): AgentSessionId =>
 export const ProviderServiceLive = Layer.effect(
   ProviderService,
   Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const credentials = yield* CredentialsService;
     const workspace = yield* WorkspaceService;
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
-    const indexRegistry = yield* IndexRegistry;
-    const runtime = yield* Effect.runtime<never>();
+    const configStore = yield* ConfigStoreService;
+    const runtime = yield* Effect.context<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
     );
@@ -101,16 +81,16 @@ export const ProviderServiceLive = Layer.effect(
     // having one warm child standing by means the user's first cursor
     // session skips straight to `session/new`. Fire-and-forget — layer
     // construction does not depend on it.
-    yield* Effect.forkDaemon(
+    yield* Effect.forkDetach(
       Effect.gen(function* () {
         const cursorPath = yield* resolveCliPath("cursor-agent").pipe(
-          Effect.provideService(CommandExecutor.CommandExecutor, executor),
-          Effect.catchAll(() => Effect.succeed<string | null>(null)),
+          Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
+          Effect.catch(() => Effect.succeed<string | null>(null)),
         );
         if (cursorPath === null) return;
         const apiKey = yield* credentials
           .get("cursor")
-          .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
+          .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
         yield* Effect.sync(() => prewarmCursor(cursorPath, apiKey));
       }),
     );
@@ -126,36 +106,48 @@ export const ProviderServiceLive = Layer.effect(
         kind: PermissionKind,
         options: { readonly forcePrompt: boolean },
       ): Promise<PermissionDecision> =>
-        Runtime.runPromise(runtime)(
+        Effect.runPromiseWith(runtime)(
           permissions.request(sessionId, kind, {
             projectId,
             forcePrompt: options.forcePrompt,
           }),
         );
 
-    const availability = () =>
-      Effect.gen(function* () {
-        const list = yield* probeAllProviders.pipe(
-          Effect.provideService(CommandExecutor.CommandExecutor, executor),
-          Effect.provideService(FileSystem.FileSystem, fs),
-        );
-        // listConfigured is best-effort — a keychain failure here shouldn't
-        // wipe out the CLI-logged-in picture, which is the primary auth path
-        // and works without any keychain entry of ours.
-        const configured = yield* credentials
-          .listConfigured()
-          .pipe(
-            Effect.catchAll(() =>
-              Effect.succeed([] as ReadonlyArray<ProviderId>),
+    const availabilityCache = yield* Cache.make({
+      capacity: 1,
+      lookup: () =>
+        Effect.gen(function* () {
+          const list = yield* probeAllProviders.pipe(
+            Effect.provideService(
+              CommandExecutor.ChildProcessSpawner,
+              executor,
             ),
+            Effect.provideService(FileSystem.FileSystem, fs),
           );
-        const configuredSet = new Set<ProviderId>(configured);
-        return list.map(
-          (a): AgentAvailability => ({
-            ...a,
-            hasApiKey: configuredSet.has(a.providerId),
-          }),
-        );
+          // listConfigured is best-effort — a keychain failure here shouldn't
+          // wipe out the CLI-logged-in picture, which is the primary auth path
+          // and works without any keychain entry of ours.
+          const configured = yield* credentials
+            .listConfigured()
+            .pipe(
+              Effect.catch(() =>
+                Effect.succeed([] as ReadonlyArray<ProviderId>),
+              ),
+            );
+          const configuredSet = new Set<ProviderId>(configured);
+          return list.map(
+            (a): AgentAvailability => ({
+              ...a,
+              hasApiKey: configuredSet.has(a.providerId),
+            }),
+          );
+        }),
+    });
+
+    const availability = (refresh = false) =>
+      Effect.gen(function* () {
+        if (refresh) yield* Cache.invalidate(availabilityCache, "providers");
+        return yield* Cache.get(availabilityCache, "providers");
       });
 
     const lookup = (
@@ -170,8 +162,30 @@ export const ProviderServiceLive = Layer.effect(
 
     return {
       availability,
-      start: (input, resumeCursor = null, getRuntimeMode) =>
+      start: (
+        input,
+        resumeCursor = null,
+        getRuntimeMode,
+        orchestrationTools = null,
+      ) =>
         Effect.gen(function* () {
+          if (input.sessionId !== undefined) {
+            const requestedSessionId = input.sessionId;
+            const existing = (yield* Ref.get(sessions)).get(requestedSessionId);
+            if (existing?.providerId === input.providerId) {
+              return { sessionId: requestedSessionId };
+            }
+            if (existing !== undefined) {
+              yield* existing.handle
+                .close()
+                .pipe(Effect.catch(() => Effect.void));
+              yield* Ref.update(sessions, (current) => {
+                const next = new Map(current);
+                next.delete(requestedSessionId);
+                return next;
+              });
+            }
+          }
           const runtimeModeGetter =
             getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
           const folder = yield* workspace.findById(input.folderId);
@@ -184,9 +198,16 @@ export const ProviderServiceLive = Layer.effect(
             );
           }
           const cwd = input.cwdOverride ?? folder.path;
+          const driverInput = {
+            ...input,
+            workspaceInstructions: zuseWorkspaceInstructions({
+              projectPath: folder.path,
+              cwd,
+            }),
+          };
           const apiKey = yield* credentials
             .get(input.providerId)
-            .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
+            .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
           const sessionId = input.sessionId ?? nextSessionId();
           let handle: SessionHandle;
           if (input.providerId === "gemini") {
@@ -194,7 +215,10 @@ export const ProviderServiceLive = Layer.effect(
             // `gemini` binary. Surface a clean install message rather than
             // letting spawn fail with ENOENT inside the driver.
             const geminiPath = yield* resolveCliPath("gemini").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (geminiPath === null) {
               return yield* Effect.fail(
@@ -205,14 +229,35 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            const geminiMcpCommand = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
+            );
+            if (geminiMcpCommand === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "gemini",
+                  reason:
+                    "Bun was not found on PATH. It is required for the Gemini MCP stdio fallback.",
+                }),
+              );
+            }
             handle = yield* startGeminiSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               geminiPath,
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Effect.runPromiseWith(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
+              geminiMcpCommand,
+              orchestrationTools,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "grok") {
@@ -221,7 +266,10 @@ export const ProviderServiceLive = Layer.effect(
             // Surface a clean install message rather than letting spawn
             // fail with ENOENT inside the driver.
             const grokPath = yield* resolveCliPath("grok").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (grokPath === null) {
               return yield* Effect.fail(
@@ -232,14 +280,35 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            const bunPath = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
+            );
+            if (bunPath === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "grok",
+                  reason:
+                    "Bun was not found on PATH. It is required to expose Zuse browser tools to Grok via ACP MCP.",
+                }),
+              );
+            }
             handle = yield* startGrokSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               grokPath,
+              bunPath,
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
+              (command) =>
+                Effect.runPromiseWith(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
+              orchestrationTools,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {
@@ -248,7 +317,10 @@ export const ProviderServiceLive = Layer.effect(
             // as the other CLI-backed drivers — surface a clean error
             // before the driver tries to spawn.
             const opencodePath = yield* resolveCliPath("opencode").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (opencodePath === null) {
               return yield* Effect.fail(
@@ -259,10 +331,15 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
+            // Custom OpenAI-compatible providers are injected into
+            // `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
+            // live in opencode's own auth.json (written via
+            // `agent.opencodeSetProviderAuth`), so no key is threaded here.
+            const opencodeSettings = yield* configStore.getSettings();
             handle = yield* startOpencodeSession(
-              input,
+              driverInput,
               cwd,
-              apiKey,
+              opencodeSettings.opencodeCustomProviders,
               opencodePath,
               sessionId,
               resumeCursor,
@@ -276,7 +353,10 @@ export const ProviderServiceLive = Layer.effect(
             // handshake will time out — that's a separate, also-clean
             // error path from the driver.
             const cursorPath = yield* resolveCliPath("cursor-agent").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (cursorPath === null) {
               return yield* Effect.fail(
@@ -288,7 +368,7 @@ export const ProviderServiceLive = Layer.effect(
               );
             }
             handle = yield* startCursorSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               cursorPath,
@@ -305,7 +385,10 @@ export const ProviderServiceLive = Layer.effect(
             // found" error. Surface a clean install-Claude-Code message
             // instead.
             const claudePath = yield* resolveCliPath("claude").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (claudePath === null) {
               return yield* Effect.fail(
@@ -316,25 +399,17 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            // Phase B: resolve the per-worktree IndexService and bind the
-            // five Tier-1 tools (code_search, symbol_lookup, find_references,
-            // read_chunk, list_module) so the Claude SDK sees them alongside
-            // ask_user_question. Branch defaults to "HEAD" — the manifest
-            // resolves it; Phase E adds a real git-checkout subscription.
-            const indexHandle = yield* indexRegistry.getHandle(cwd, "HEAD");
-            const indexTools = buildIndexTools(indexHandle);
             // Browser tools drive the renderer's shared `<webview>` through
             // the bridge. Bind `send` to this session id + the live runtime so
-            // the SDK's async tool handlers stay free of Effect wiring (same
-            // shape as `buildIndexTools` binding the worktree handle).
+            // the SDK's async tool handlers stay free of Effect wiring.
             const browserTools = buildBrowserTools((command) =>
-              Runtime.runPromise(runtime)(
+              Effect.runPromiseWith(runtime)(
                 browserBridge.send(sessionId, command),
               ),
             );
 
             handle = yield* startClaudeSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               claudePath,
@@ -342,7 +417,10 @@ export const ProviderServiceLive = Layer.effect(
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
               resumeCursor,
-              [...indexTools, ...browserTools],
+              browserTools,
+              // Control-plane orchestration tools (when autonomy != off) use
+              // their own provider-neutral `zuse-orchestration` MCP server.
+              orchestrationTools?.claudeTools ?? [],
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native
@@ -350,7 +428,10 @@ export const ProviderServiceLive = Layer.effect(
             // clean install message if it's missing instead of the SDK's
             // "Unable to locate Codex CLI binaries" error.
             const codexPath = yield* resolveCliPath("codex").pipe(
-              Effect.provideService(CommandExecutor.CommandExecutor, executor),
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
             );
             if (codexPath === null) {
               return yield* Effect.fail(
@@ -358,6 +439,21 @@ export const ProviderServiceLive = Layer.effect(
                   providerId: "codex",
                   reason:
                     "Codex CLI not found on PATH. Install Codex from https://github.com/openai/codex and try again.",
+                }),
+              );
+            }
+            const codexMcpCommand = yield* resolveCliPath("bun").pipe(
+              Effect.provideService(
+                CommandExecutor.ChildProcessSpawner,
+                executor,
+              ),
+            );
+            if (codexMcpCommand === null) {
+              return yield* Effect.fail(
+                new AgentSessionStartError({
+                  providerId: "codex",
+                  reason:
+                    "Bun was not found on PATH. It is required for the Codex MCP stdio fallback.",
                 }),
               );
             }
@@ -373,12 +469,20 @@ export const ProviderServiceLive = Layer.effect(
             // either the banner before sending or the friendly error after,
             // never the cryptic SDK trace.
             handle = yield* startCodexSession(
-              input,
+              driverInput,
               cwd,
               apiKey,
               codexPath,
               sessionId,
               buildRequestPermission(input.folderId),
+              runtimeModeGetter,
+              (command) =>
+                Effect.runPromiseWith(runtime)(
+                  browserBridge.send(sessionId, command),
+                ),
+              codexMcpCommand,
+              orchestrationTools,
+              codexMcpCommand,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           }
@@ -398,7 +502,7 @@ export const ProviderServiceLive = Layer.effect(
       close: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.close().pipe(
-            Effect.zipRight(
+            Effect.andThen(
               Ref.update(sessions, (map) => {
                 const next = new Map(map);
                 next.delete(sessionId);
@@ -412,7 +516,9 @@ export const ProviderServiceLive = Layer.effect(
           Effect.map(lookup(sessionId), ({ handle }) => handle.events),
         ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
       setCredential: (providerId, apiKey) =>
-        credentials.set(providerId, apiKey),
+        credentials
+          .set(providerId, apiKey)
+          .pipe(Effect.andThen(Cache.invalidateAll(availabilityCache))),
       setPermissionMode: (sessionId, mode) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.setPermissionMode(mode),

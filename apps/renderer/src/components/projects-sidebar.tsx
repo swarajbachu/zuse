@@ -1,3 +1,4 @@
+import type { AutoAnimationPlugin } from "@formkit/auto-animate";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Analytics01Icon,
@@ -29,9 +30,14 @@ import {
   type GitOriginInfo,
   type ProviderId,
   type SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import { BlurredEmail } from "~/components/blurred-email";
 import {
   Menu,
   MenuItem,
@@ -40,6 +46,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { toastManager } from "~/components/ui/toast.tsx";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
@@ -52,6 +59,7 @@ import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import {
   archiveChatWithConfirm,
   chatArchiveProgressLabel,
@@ -78,6 +86,50 @@ const sidebarErrorToastCache = {
   chats: null as string | null,
   sessions: null as string | null,
   workspace: null as string | null,
+};
+
+/**
+ * Keep archive feedback spatial and restrained: the archived row leaves
+ * quickly while the rows below it close the gap. New rows do not animate, so
+ * expanding a project or hydrating its chats remains instant.
+ */
+const archiveListAnimation: AutoAnimationPlugin = (
+  element,
+  action,
+  before,
+  after,
+) => {
+  if (action === "remain" && before !== undefined && after !== undefined) {
+    const x = before.left - after.left;
+    const y = before.top - after.top;
+    return new KeyframeEffect(
+      element,
+      [
+        { transform: `translate3d(${x}px, ${y}px, 0)` },
+        { transform: "translate3d(0, 0, 0)" },
+      ],
+      {
+        duration: 140,
+        easing: "cubic-bezier(0.455, 0.03, 0.515, 0.955)",
+      },
+    );
+  }
+
+  if (action === "remove") {
+    return new KeyframeEffect(
+      element,
+      [
+        { opacity: 1, transform: "translate3d(0, 0, 0)" },
+        { opacity: 0, transform: "translate3d(-4px, 0, 0)" },
+      ],
+      { duration: 100, easing: "cubic-bezier(0.215, 0.61, 0.355, 1)" },
+    );
+  }
+
+  // Project expansion and initial hydration should never animate chat rows.
+  return new KeyframeEffect(element, [{ opacity: 1 }, { opacity: 1 }], {
+    duration: 1,
+  });
 };
 
 const initialsOf = (name: string): string => {
@@ -154,8 +206,11 @@ const chatIdForSession = (sessionId: SessionId): ChatId | null => {
   return null;
 };
 
+const eventCursorKey = (sessionId: SessionId): string =>
+  `renderer:sidebar-status:${sessionId}`;
+
 /**
- * Keep a live `session.streamStatus` subscription per known session so the
+ * Keep one durable session-event subscription per known session so the
  * sidebar's busy indicators stay accurate even when a project is collapsed
  * or its row isn't mounted. Lives at the sidebar root so subscription
  * lifetime is decoupled from row-mount lifetime (the prior per-`SessionRow`
@@ -168,12 +223,10 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
   // tracked set and only start/stop the deltas. Critically, an existing
   // session's fiber is NEVER torn down just because another session is
   // added or removed from the list — tearing it down would force a fresh
-  // `streamStatus` subscribe whose initial event (read from the DB at
-  // subscribe time) would clobber the live `true` flag with whatever's
-  // persisted, making the previous session's loader disappear.
-  const fibersRef = useRef<
-    Map<SessionId, Fiber.RuntimeFiber<unknown, unknown>>
-  >(new Map());
+  // event replay and can make the previous session's loader flicker.
+  const fibersRef = useRef<Map<SessionId, Fiber.Fiber<unknown, unknown>>>(
+    new Map(),
+  );
   const idsKey = sessionIds.join(",");
 
   useEffect(() => {
@@ -200,9 +253,18 @@ function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
           if (tracked.has(id)) continue;
           const fiber = Effect.runFork(
             Stream.runForEach(
-              client.session.streamStatus({ sessionId: id }),
-              (event) =>
+              client["session.events"]({
+                sessionId: id,
+                afterSequence: sessionEventCursors.get(eventCursorKey(id)),
+              }),
+              (envelope) =>
                 Effect.sync(() => {
+                  sessionEventCursors.set(
+                    eventCursorKey(id),
+                    envelope.sequence,
+                  );
+                  const event = projectSessionEvent(envelope);
+                  if (event._tag !== "status") return;
                   // Capture the prior running flag BEFORE the status update so
                   // we can detect the running→idle edge for unread tracking.
                   const wasRunning =
@@ -345,7 +407,7 @@ export function ProjectsSidebar() {
       for (const folder of missing) {
         try {
           const info = await Effect.runPromise(
-            client.git.origin({ folderId: folder.id }),
+            client["git.origin"]({ folderId: folder.id }),
           );
           if (cancelled) return;
           setOrigins((prev) => ({ ...prev, [folder.id]: info }));
@@ -525,6 +587,7 @@ function SidebarAccount() {
   }
 
   const initial = (name || user?.email || "?").charAt(0).toUpperCase();
+  const nameIsEmail = Boolean(user?.email && name === user.email);
 
   return (
     <Menu>
@@ -540,7 +603,11 @@ function SidebarAccount() {
               ) : null}
               <AvatarFallback className="text-[9px]">{initial}</AvatarFallback>
             </Avatar>
-            <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            {nameIsEmail && user?.email ? (
+              <BlurredEmail email={user.email} />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+            )}
           </button>
         }
       />
@@ -602,6 +669,7 @@ function ProjectGroup({
   const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
     null,
   );
+  const chatListRef = useAutoAnimate<HTMLUListElement>(archiveListAnimation);
 
   const openRepositorySettings = () => {
     setSettingsSection({ kind: "repository", projectId: id });
@@ -672,22 +740,19 @@ function ProjectGroup({
 
   return (
     <Fragment>
-      {/* Project header — clicking it toggles expansion + selects the folder.
-          Intentionally not highlighted; the active row is the selected
-          session, not the project. */}
+      {/* Project header toggles expansion only. Explicit actions below select
+          the project when they need project context. */}
       <li>
         <div
           role="button"
           tabIndex={0}
           onContextMenu={onContextMenu}
           onClick={() => {
-            onSelect();
             onToggleExpanded();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              onSelect();
               onToggleExpanded();
             }
           }}
@@ -762,8 +827,8 @@ function ProjectGroup({
         />
       </li>
 
-      {isExpanded && (
-        <>
+      <li className="list-none" hidden={!isExpanded}>
+        <ul ref={chatListRef} className="flex flex-col gap-0.5">
           {visibleChats.length === 0 && (
             <li className="px-12 py-1 text-[11px] text-muted-foreground">
               No chats yet.
@@ -772,8 +837,8 @@ function ProjectGroup({
           {visibleChats.map((chat) => (
             <ChatRow key={chat.id} chat={chat} />
           ))}
-        </>
-      )}
+        </ul>
+      </li>
     </Fragment>
   );
 }
@@ -1117,7 +1182,7 @@ function ChatRow({ chat }: { chat: Chat }) {
             className="ml-3"
           />
         )}
-        <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+        <TypewriterText text={chat.title} className="min-w-0 flex-1 truncate" />
         <div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
           <span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
             {showDiff && stats !== null ? (

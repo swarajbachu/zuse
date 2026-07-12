@@ -7,6 +7,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.6]
+
+### Changed
+- Add production crash recovery tools (#317)
+- Quiet live tool-call rows in the chat stream (#316)
+- better animations (#315)
+- Constrain active chat content rail (#314)
+- Agents notes (#313)
+
+## [0.12.5]
+
+### Added
+- Add GPT-5.6 model support with high and extra-high reasoning effort options.
+
+### Changed
+- Harden local development startup and Electron reload behavior.
+
+### Fixed
+- Fix image and context attachments failing validation when starting a new chat.
+
+## [0.12.4]
+
+### Changed
+- [codex] Fix landing composer attachments (#309)
+- Mobile new-chat: docked selectors, real provider logos, menu polish (#308)
+- Fix chat scroll anchoring (#307)
+
+## [0.12.3]
+
+### Changed
+- Fix merge action render loop
+- Fix Jump to latest threshold and chat scroll lifecycle (#304)
+- Fix permission card mislabeling plan-mode prompts as sensitive paths (#302)
+
+## [0.12.2]
+
+### Changed
+- Stabilize chat transcript ingestion
+
+## [0.12.1]
+
+### Changed
+- Fix skipped chat lineage migration
+
+## [0.12.0]
+
+### Added
+- Self-orchestrating agents: Phase 1 control plane + spec (#250)
+- [codex] Add shared HTTP MCP gateway (#292)
+- Add Grok 4.5 model picker support (#294)
+
+### Changed
+- Mobile UI overhaul: naming, new chat, session, stream, permission, inbox (#295)
+- [codex] Remove manual sub-agent settings (#297)
+- [codex] Improve model picker defaults (#299)
+
+### Fixed
+- [codex] Fix Grok native permission handling (#291)
+- [codex] Fix WorkOS auth persistence (#296)
+- [codex] Fix auth client startup retry (#298)
+
+## [0.11.0]
+
+### Added
+- [codex] Add browser visual annotations (#277)
+- [codex] Add remote mobile push notifications (#272)
+- [codex] Add advertised endpoint model (#270)
+- Add managed relay tunnel support (#266)
+- Mobile: interactive chat — question cards, permission approvals, offline outbox, markdown (#265)
+- Add OpenCode provider management: connect providers, custom endpoints, visibility (#260)
+- Account-based laptop → phone connection (relay + WorkOS + DPoP) (#262)
+- [codex] add zuse repository settings and bundled skill (#258)
+- [codex] Implement remote multi-client foundations (#259)
+- [codex] Add create-from source picker (#257)
+- [codex] add macbook notch notification tray (#249)
+- Auto-update: background download, restart toast, quit guard (#256)
+
+### Changed
+- Refine mobile composer controls (#285)
+- [codex] Polish mobile chat UI (#282)
+- [codex] Polish PR checks and feedback UI (#284)
+- [codex] Redesign mobile UX (#280)
+- Harden mobile connection runtime (#273)
+- [codex] Update mobile app identity (#274)
+- Improve chat timeline scrolling (#269)
+- [codex] Align chat footer controls (#267)
+- iOS native polish: glass surfaces, animated presence dots, haptics (#264)
+- Mobile: Expo 54→57 upgrade + iOS-native design pass (@expo/ui) (#263)
+- [codex] Store editable settings in JSON (#248)
+- Improve chat auto-naming with real-time sidebar updates (#247)
+
+### Fixed
+- Fix mobile relay and queued sends (#287)
+- Fix live chat sync (#286)
+- Fix mobile relay DPoP auth (#279)
+- [codex] Fix provider update state bleed (#278)
+- [codex] fix WorkOS refresh token persistence (#275)
+- Fix chat timeline live scrolling (#271)
+- [codex] Fix project accordion toggle (#268)
+- [codex] Fix chat autoscroll performance (#261)
+
+## [0.10.3]
+
+### Changed
+- Finish WorkOS sign-in on a proper "Signed in — you can close this tab" page instead of leaving the browser hanging on a dead `zuse://` URL, and drop the OS "Open in Zuse Alpha?" prompt. Packaged builds now use the localhost loopback redirect (like dev); the `zuse://` scheme handler stays registered as a fallback.
+
+## [0.10.2]
+
+### Fixed
+- Actually inline the public WorkOS client id into release builds: Turborepo's strict env mode was stripping `WORKOS_CLIENT_ID` before `tsdown` ran, so packaged builds shipped an empty id and sign-in reported "WorkOS is not configured". Declared the var in `turbo.json` so it reaches the build. Supersedes 0.10.1, which still shipped empty.
+
+## [0.10.1]
+
+### Fixed
+- Supply the public WorkOS client id at release build time so sign-in works in packaged builds instead of surfacing "WorkOS is not configured".
+
+### Changed
+- Fork chat + plan/context handoff (#252)
+- Route pasted text & dropped files into .context/files (#246)
+
+## [0.10.0]
+
+### Changed
+- Fix flickering plan-approval banner (#244)
+- Fix mermaid error bomb bar + jittery send animation (#243)
+- [codex] add provider contract test fixtures (#242)
+- [codex] Improve bug report diagnostics flow (#241)
+- [codex] Disable runtime code indexing (#240)
+- Add LAN auth pairing for WS server (#238)
+- [codex] add renderer websocket rpc client (#239)
+- [codex] continue external agent threads (#237)
+- [codex] add agent browser v2 (#236)
+- [codex] Add Expo mobile read-only client (#235)
+- [codex] Add renderer toast notifications (#234)
+- [codex] Add markdown and HTML preview tab (#233)
+- [codex] add event-sourced persistence and cursor streaming (#232)
+- Remote/multi-client foundation: wire contract + WS transport + spec (#218)
+- [codex] add light and system appearance support (#229)
+
 ## [0.9.0]
 
 ### Changed
@@ -264,7 +403,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Native macOS menu bar with keyboard shortcuts: new chat (⌘N), open project (⌘O), settings (⌘,), toggle sidebars (⌘B / ⌘⌥B), toggle terminal (⌘J), focus composer (⌘L). Bindings are listed in Settings → Keyboard shortcuts (single source of truth in `lib/shortcuts.ts`) and surfaced inline on the relevant button tooltips. (#59)
-- In-app update toast. Drives `electron-updater` manually instead of `checkForUpdatesAndNotify`; the bottom-right toast offers Later / Install on quit / Update now, downloads only after the user picks, and auto-installs once the download lands. Lifecycle events flow through a new `window.zuse.updates` bridge and shared `UpdateStatus` in `@zuse/wire`. (#61)
+- In-app update toast. Drives `electron-updater` manually instead of `checkForUpdatesAndNotify`; the bottom-right toast offers Later / Install on quit / Update now, downloads only after the user picks, and auto-installs once the download lands. Lifecycle events flow through a new `window.zuse.updates` bridge and shared `UpdateStatus` in `@zuse/contracts`. (#61)
 - Cross-provider switching on fresh chats. `ModelPicker` lets you pick a model from the other provider as long as the chat has no user message yet; a new `session.setProvider` RPC mirrors `setWorktree`'s fresh-session gate. The teardown path was split so `setModel` / `setProvider` / `resumeSession` only interrupt the provider event-pump fiber, keeping the renderer's `messages.stream` and `session.streamStatus` subscriptions alive across the swap. (#60)
 - Codex app-server slash commands. (#62)
 - Nested-tab chat UX. Sidebar rows become "chats" (a new container table); the tab strip in the main pane shows that chat's sessions as peer tabs, "+" adds a session to the active chat, and ⌘W closes the active tab via Electron menu → IPC and archives the session (auto-spawning a fresh one if it was the last). Migration 0011 backfills one chat per existing top-level session and rehomes v3 children. Adds `forked_from_session_id` / `forked_from_message_id` columns for a future fork-from-message feature. (#63)

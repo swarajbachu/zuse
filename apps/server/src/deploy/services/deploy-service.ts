@@ -13,7 +13,7 @@ import type {
   DeployStartError,
   FolderId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * One-click deploy orchestrator (ADR 0022): detect → Convex provision +
@@ -63,7 +63,7 @@ export interface DeployServiceShape {
   } | null>;
 }
 
-export class DeployService extends Context.Tag("memoize/DeployService")<
+export class DeployService extends Context.Service<
   DeployService,
   DeployServiceShape
->() {}
+>()("memoize/DeployService") {}

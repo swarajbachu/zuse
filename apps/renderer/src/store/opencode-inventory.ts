@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { create } from "zustand";
 
-import type { OpencodeInventory } from "@zuse/wire";
+import type { OpencodeInventory } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -25,11 +25,15 @@ type State = {
   readonly refresh: () => Promise<void>;
 };
 
-// Bumped when the inventory shape changes — old payloads (e.g. models
-// without `variants`) would crash the reasoning picker if we read them
-// back as the new type.
-const STORAGE_KEY = "zuse.opencode.inventory.v2";
-const LEGACY_STORAGE_KEYS = ["memoize.opencode.inventory.v2"] as const;
+// Bumped when the inventory shape changes — old payloads (e.g. providers
+// without the `connected`/`custom` flags added for the provider manager)
+// would misrender the picker if we read them back as the new type.
+const STORAGE_KEY = "zuse.opencode.inventory.v4";
+const LEGACY_STORAGE_KEYS = [
+  "zuse.opencode.inventory.v3",
+  "zuse.opencode.inventory.v2",
+  "memoize.opencode.inventory.v2",
+] as const;
 
 const readCache = (): OpencodeInventory | null => {
   if (typeof window === "undefined") return null;
@@ -67,7 +71,7 @@ const sameInventory = (
 
 const fetchInventory = async (): Promise<OpencodeInventory> => {
   const client = await getRpcClient();
-  return Effect.runPromise(client.agent.opencodeInventory({}));
+  return Effect.runPromise(client["provider.opencode.inventory"]({}));
 };
 
 export const useOpencodeInventory = create<State>((set, get) => ({

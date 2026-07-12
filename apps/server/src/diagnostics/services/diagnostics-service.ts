@@ -3,15 +3,17 @@ import { Context, type Effect } from "effect";
 import type {
   DiagnosticsExportError,
   DiagnosticsExportResult,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 export interface DiagnosticsServiceShape {
-  readonly exportBundle: () => Effect.Effect<
+  readonly exportBundle: (payload: {
+    readonly clientContext?: unknown;
+  }) => Effect.Effect<
     DiagnosticsExportResult,
     DiagnosticsExportError
   >;
 }
 
-export class DiagnosticsService extends Context.Tag(
+export class DiagnosticsService extends Context.Service<DiagnosticsService, DiagnosticsServiceShape>()(
   "memoize/DiagnosticsService",
-)<DiagnosticsService, DiagnosticsServiceShape>() {}
+) {}

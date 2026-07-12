@@ -3,18 +3,22 @@ import { create } from "zustand";
 
 import {
   type AppearanceMode,
+  type AutonomyLevel,
   type BranchNamingStyle,
   defaultModelEnabledByProvider,
   defaultModelFor,
   type CompletionSoundPreset,
+  type GitMergeMethod,
   type ModelEnabledByProvider,
+  type OpencodeCustomProvider,
   type ProviderId,
   resolveModelSlug,
   type RuntimeMode,
   type SettingsFile,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client";
+import { readStorageWithLegacy, removeStorageKeys } from "../lib/storage-keys";
 
 /**
  * Renderer view of `settings.json`. Lives in the main process — this store
@@ -29,6 +33,7 @@ import { getRpcClient } from "../lib/rpc-client";
 
 const DEFAULT_PROVIDER: ProviderId = "claude";
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
+const DEFAULT_AUTONOMY_LEVEL: AutonomyLevel = "approval-gated";
 const DEFAULT_BRANCH_NAMING_STYLE: BranchNamingStyle = "username-slug";
 
 const PROVIDER_IDS: ReadonlyArray<ProviderId> = [
@@ -73,20 +78,29 @@ const mergeModelEnabled = (
 
 const OLD_SETTINGS_KEY = "memoize.settings.v1";
 const OLD_SUBAGENTS_KEY = "memoize.subagents";
+const MERGE_PREFS_KEY = "zuse.mergePrefs.v1";
+const OLD_MERGE_PREFS_KEYS = ["memoize.mergePrefs.v1"] as const;
 
 const fallbackSnapshot = (): SettingsSlice => ({
   defaultProviderId: DEFAULT_PROVIDER,
   defaultModelByProvider: seedModels(),
   defaultRuntimeMode: DEFAULT_RUNTIME_MODE,
   defaultAutoCreateWorktree: true,
+  defaultAutonomyLevel: DEFAULT_AUTONOMY_LEVEL,
   completionSoundEnabled: false,
   completionSoundPreset: "chime",
   appearanceMode: "dark",
   onboardingCompleted: false,
   providerEnabled: seedProviderEnabled(),
   modelEnabledByProvider: seedModelEnabledByProvider(),
+  opencodeProviderVisible: {},
+  opencodeModelVisibleByProvider: {},
+  opencodeCustomProviders: [],
   branchNamingStyle: DEFAULT_BRANCH_NAMING_STYLE,
   branchNamingPrefix: "",
+  mergePrefs: { method: "merge", deleteBranch: false },
+  notchTrayEnabled: false,
+  notchTrayPinned: false,
 });
 
 const sliceFromFile = (file: SettingsFile): SettingsSlice => {
@@ -104,6 +118,7 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
     defaultModelByProvider: models,
     defaultRuntimeMode: file.defaultRuntimeMode,
     defaultAutoCreateWorktree: file.defaultAutoCreateWorktree,
+    defaultAutonomyLevel: file.defaultAutonomyLevel,
     completionSoundEnabled: file.completionSoundEnabled,
     completionSoundPreset: file.completionSoundPreset,
     appearanceMode: file.appearanceMode,
@@ -113,8 +128,22 @@ const sliceFromFile = (file: SettingsFile): SettingsSlice => {
       ...file.providerEnabled,
     },
     modelEnabledByProvider: mergeModelEnabled(file.modelEnabledByProvider),
+    opencodeProviderVisible: { ...file.opencodeProviderVisible },
+    opencodeModelVisibleByProvider: Object.fromEntries(
+      Object.entries(file.opencodeModelVisibleByProvider).map(([k, v]) => [
+        k,
+        { ...v },
+      ]),
+    ),
+    opencodeCustomProviders: file.opencodeCustomProviders.map((p) => ({
+      ...p,
+      models: p.models.map((m) => ({ ...m })),
+    })),
     branchNamingStyle: file.branchNamingStyle,
     branchNamingPrefix: file.branchNamingPrefix,
+    mergePrefs: file.mergePrefs,
+    notchTrayEnabled: file.notchTrayEnabled,
+    notchTrayPinned: file.notchTrayPinned,
   };
 };
 
@@ -123,14 +152,26 @@ interface SettingsSlice {
   readonly defaultModelByProvider: Record<ProviderId, string>;
   readonly defaultRuntimeMode: RuntimeMode;
   readonly defaultAutoCreateWorktree: boolean;
+  readonly defaultAutonomyLevel: AutonomyLevel;
   readonly completionSoundEnabled: boolean;
   readonly completionSoundPreset: CompletionSoundPreset;
   readonly appearanceMode: AppearanceMode;
   readonly onboardingCompleted: boolean;
   readonly providerEnabled: Record<ProviderId, boolean>;
   readonly modelEnabledByProvider: ModelEnabledByProvider;
+  /** OpenCode sub-provider visibility in the model picker (id → shown). */
+  readonly opencodeProviderVisible: Record<string, boolean>;
+  /** OpenCode per-sub-provider model visibility (providerId → modelId → shown). */
+  readonly opencodeModelVisibleByProvider: Record<
+    string,
+    Record<string, boolean>
+  >;
+  readonly opencodeCustomProviders: ReadonlyArray<OpencodeCustomProvider>;
   readonly branchNamingStyle: BranchNamingStyle;
   readonly branchNamingPrefix: string;
+  readonly mergePrefs: { method: GitMergeMethod; deleteBranch: boolean };
+  readonly notchTrayEnabled: boolean;
+  readonly notchTrayPinned: boolean;
 }
 
 type SettingsState = SettingsSlice & {
@@ -151,6 +192,7 @@ type SettingsState = SettingsSlice & {
   ) => void;
   readonly setDefaultRuntimeMode: (mode: RuntimeMode) => void;
   readonly setDefaultAutoCreateWorktree: (value: boolean) => void;
+  readonly setDefaultAutonomyLevel: (level: AutonomyLevel) => void;
   readonly setCompletionSoundEnabled: (value: boolean) => void;
   readonly setCompletionSoundPreset: (preset: CompletionSoundPreset) => void;
   readonly setAppearanceMode: (mode: AppearanceMode) => void;
@@ -161,11 +203,26 @@ type SettingsState = SettingsSlice & {
     modelId: string,
     value: boolean,
   ) => void;
+  readonly setOpencodeProviderVisible: (
+    providerId: string,
+    value: boolean,
+  ) => void;
+  readonly setOpencodeModelVisible: (
+    providerId: string,
+    modelId: string,
+    value: boolean,
+  ) => void;
   readonly setBranchNamingStyle: (style: BranchNamingStyle) => void;
   readonly setBranchNamingPrefix: (prefix: string) => void;
+  readonly setMergePrefs: (prefs: {
+    method: GitMergeMethod;
+    deleteBranch: boolean;
+  }) => void;
+  readonly setNotchTrayEnabled: (value: boolean) => void;
+  readonly setNotchTrayPinned: (value: boolean) => void;
 };
 
-let streamFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let streamFiber: Fiber.Fiber<unknown, unknown> | null = null;
 
 const stopStream = async () => {
   if (streamFiber !== null) {
@@ -190,7 +247,7 @@ const migrateLocalStorageOnce = async (): Promise<SettingsFile | null> => {
   try {
     const client = await getRpcClient();
     const file = await Effect.runPromise(
-      client.settings.migrateLocalStorage({
+      client["settings.migrateLocalStorage"]({
         settingsV1Raw: settingsV1Raw ?? undefined,
         subagentsRaw: subagentsRaw ?? undefined,
       }),
@@ -205,6 +262,46 @@ const migrateLocalStorageOnce = async (): Promise<SettingsFile | null> => {
   }
 };
 
+const migrateMergePrefsOnce = async (
+  file: SettingsFile,
+): Promise<SettingsFile> => {
+  if (typeof window === "undefined") return file;
+  const raw = readStorageWithLegacy(
+    window.localStorage,
+    MERGE_PREFS_KEY,
+    OLD_MERGE_PREFS_KEYS,
+  );
+  if (raw === null) return file;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const method =
+      parsed.method === "merge" ||
+      parsed.method === "squash" ||
+      parsed.method === "rebase"
+        ? parsed.method
+        : file.mergePrefs.method;
+    const mergePrefs = {
+      method,
+      deleteBranch:
+        typeof parsed.deleteBranch === "boolean"
+          ? parsed.deleteBranch
+          : file.mergePrefs.deleteBranch,
+    };
+    const client = await getRpcClient();
+    const next = await Effect.runPromise(
+      client["settings.update"]({ patch: { mergePrefs } }),
+    );
+    removeStorageKeys(
+      window.localStorage,
+      MERGE_PREFS_KEY,
+      OLD_MERGE_PREFS_KEYS,
+    );
+    return next;
+  } catch {
+    return file;
+  }
+};
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...fallbackSnapshot(),
   loaded: false,
@@ -216,12 +313,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     try {
       const client = await getRpcClient();
-      const file = await Effect.runPromise(client.settings.get());
+      const file = await migrateMergePrefsOnce(
+        await Effect.runPromise(client["settings.get"]()),
+      );
       set({ ...sliceFromFile(file), loaded: true });
 
       await stopStream();
       streamFiber = Effect.runFork(
-        Stream.runForEach(client.settings.stream(), (next) =>
+        Stream.runForEach(client["settings.stream"](), (next) =>
           Effect.sync(() => set(sliceFromFile(next))),
         ),
       );
@@ -235,7 +334,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultProviderId: providerId } }),
+        client["settings.update"]({ patch: { defaultProviderId: providerId } }),
       );
     })();
   },
@@ -245,7 +344,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultModelByProvider: next } }),
+        client["settings.update"]({ patch: { defaultModelByProvider: next } }),
       );
     })();
   },
@@ -255,7 +354,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: {
             defaultProviderId: providerId,
             defaultModelByProvider: next,
@@ -269,7 +368,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { defaultRuntimeMode: mode } }),
+        client["settings.update"]({ patch: { defaultRuntimeMode: mode } }),
       );
     })();
   },
@@ -278,8 +377,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({
+        client["settings.update"]({
           patch: { defaultAutoCreateWorktree: value },
+        }),
+      );
+    })();
+  },
+  setDefaultAutonomyLevel: (level) => {
+    set({ defaultAutonomyLevel: level });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({
+          patch: { defaultAutonomyLevel: level },
         }),
       );
     })();
@@ -289,7 +399,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { completionSoundEnabled: value } }),
+        client["settings.update"]({ patch: { completionSoundEnabled: value } }),
       );
     })();
   },
@@ -298,7 +408,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { completionSoundPreset: preset } }),
+        client["settings.update"]({ patch: { completionSoundPreset: preset } }),
       );
     })();
   },
@@ -307,7 +417,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { appearanceMode: mode } }),
+        client["settings.update"]({ patch: { appearanceMode: mode } }),
       );
     })();
   },
@@ -316,7 +426,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { onboardingCompleted: value } }),
+        client["settings.update"]({ patch: { onboardingCompleted: value } }),
       );
     })();
   },
@@ -326,7 +436,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { providerEnabled: next } }),
+        client["settings.update"]({ patch: { providerEnabled: next } }),
       );
     })();
   },
@@ -343,7 +453,33 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { modelEnabledByProvider: next } }),
+        client["settings.update"]({ patch: { modelEnabledByProvider: next } }),
+      );
+    })();
+  },
+  setOpencodeProviderVisible: (providerId, value) => {
+    const next = { ...get().opencodeProviderVisible, [providerId]: value };
+    set({ opencodeProviderVisible: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({ patch: { opencodeProviderVisible: next } }),
+      );
+    })();
+  },
+  setOpencodeModelVisible: (providerId, modelId, value) => {
+    const current = get().opencodeModelVisibleByProvider;
+    const next: Record<string, Record<string, boolean>> = {
+      ...current,
+      [providerId]: { ...current[providerId], [modelId]: value },
+    };
+    set({ opencodeModelVisibleByProvider: next });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({
+          patch: { opencodeModelVisibleByProvider: next },
+        }),
       );
     })();
   },
@@ -352,7 +488,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { branchNamingStyle: style } }),
+        client["settings.update"]({ patch: { branchNamingStyle: style } }),
       );
     })();
   },
@@ -361,7 +497,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     void (async () => {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.settings.update({ patch: { branchNamingPrefix: prefix } }),
+        client["settings.update"]({ patch: { branchNamingPrefix: prefix } }),
+      );
+    })();
+  },
+  setMergePrefs: (mergePrefs) => {
+    set({ mergePrefs });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({ patch: { mergePrefs } }),
+      );
+    })();
+  },
+  setNotchTrayEnabled: (value) => {
+    set({ notchTrayEnabled: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({ patch: { notchTrayEnabled: value } }),
+      );
+    })();
+  },
+  setNotchTrayPinned: (value) => {
+    set({ notchTrayPinned: value });
+    void (async () => {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["settings.update"]({ patch: { notchTrayPinned: value } }),
       );
     })();
   },

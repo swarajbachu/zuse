@@ -7,7 +7,7 @@ import type {
   Deployment,
   FolderId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 
@@ -89,7 +89,7 @@ export const useDeployStore = create<DeployState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const rows = await Effect.runPromise(
-        client.deploy.history({ folderId, limit: 5 }),
+        client["deploy.history"]({ folderId, limit: 5 }),
       );
       const forKey = rows.find(
         (d) => (d.worktreeId ?? null) === (worktreeId ?? null),
@@ -112,7 +112,7 @@ export const useDeployStore = create<DeployState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const rows = await Effect.runPromise(
-        client.deploy.history({ folderId, limit: 20 }),
+        client["deploy.history"]({ folderId, limit: 20 }),
       );
       set((s) => ({
         byKey: { ...s.byKey, [key]: { ...entryOf(get(), key), history: rows } },
@@ -125,7 +125,7 @@ export const useDeployStore = create<DeployState>((set, get) => ({
   refreshConvexStatus: async () => {
     try {
       const client = await getRpcClient();
-      const connection = await Effect.runPromise(client.deploy.convexStatus({}));
+      const connection = await Effect.runPromise(client["deploy.convexStatus"]({}));
       set({ convexConnection: connection, convexStatusLoaded: true });
     } catch {
       set({ convexStatusLoaded: true });
@@ -134,7 +134,7 @@ export const useDeployStore = create<DeployState>((set, get) => ({
 
   disconnectConvex: async () => {
     const client = await getRpcClient();
-    await Effect.runPromise(client.deploy.disconnectConvex({}));
+    await Effect.runPromise(client["deploy.disconnectConvex"]({}));
     set({ convexConnection: null });
   },
 }));

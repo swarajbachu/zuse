@@ -1,11 +1,10 @@
-import type { FileSystem } from "@effect/platform";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
 
 import {
   DeployDetection,
   type FrontendFramework,
   type PackageManager,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Pure detection over the worktree: which frontend framework, whether a
@@ -32,7 +31,7 @@ const readPackageJson = (
         return null;
       }
     }),
-    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.catch(() => Effect.succeed(null)),
   );
 
 const frameworkOf = (pkg: PackageJson): FrontendFramework => {
@@ -47,7 +46,7 @@ const exists = (
   fs: FileSystem.FileSystem,
   path: string,
 ): Effect.Effect<boolean> =>
-  fs.exists(path).pipe(Effect.catchAll(() => Effect.succeed(false)));
+  fs.exists(path).pipe(Effect.catch(() => Effect.succeed(false)));
 
 const detectPackageManager = (
   fs: FileSystem.FileSystem,
@@ -80,7 +79,7 @@ const monorepoCandidates = (
     for (const group of ["apps", "packages"]) {
       const entries = yield* fs
         .readDirectory(`${root}/${group}`)
-        .pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+        .pipe(Effect.catch(() => Effect.succeed([] as string[])));
       for (const entry of entries) out.push(`${group}/${entry}`);
     }
     return out;

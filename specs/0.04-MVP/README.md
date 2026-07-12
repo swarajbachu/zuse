@@ -49,7 +49,7 @@ across workspaces sharing a repo.
   branches in a parallel workspace is a manifest swap, not a re-index.
   Content-addressed dedup means N parallel workspaces on one repo share
   one blob store.
-- **Renderer scaffolding**. `index.*` RPCs registered in `@zuse/wire`.
+- **Renderer scaffolding**. `index.*` RPCs registered in `@zuse/contracts`.
   A command palette entry (`Cmd+P` → "Search code…") wires the renderer to
   the index. The primary consumer is the agent; the renderer surface is
   scaffolding for future UI.

@@ -7,7 +7,8 @@
     "build": "node ../../scripts/generate-website-changelog.mjs && next build",
     "start": "next start --port 3001",
     "lint": "eslint",
-    "check-types": "tsc --noEmit"
+    "content:generate": "fumadocs-mdx",
+    "check-types": "bun run content:generate && tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

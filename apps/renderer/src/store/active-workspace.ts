@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import type { FolderId, SessionId, WorktreeId } from "@zuse/wire";
+import type { FolderId, SessionId, WorktreeId } from "@zuse/contracts";
 
 import { useSessionsStore } from "./sessions.ts";
 import { useWorkspaceStore } from "./workspace.ts";

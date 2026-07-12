@@ -1,6 +1,6 @@
-import { CommandExecutor, FileSystem } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
-import { Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { Effect, Fiber, FileSystem, Layer, PubSub, Ref, Stream } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 
 import {
   ConvexAuthRequiredError,
@@ -19,12 +19,12 @@ import {
   FolderId,
   type FrontendFramework,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AuthService } from "../../auth/services/auth-service.ts";
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
-import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 import { ConvexAuthService } from "../services/convex-auth-service.ts";
 import { DeployService } from "../services/deploy-service.ts";
 import {
@@ -101,7 +101,7 @@ const rowToDeployment = (row: DeploymentRow): Deployment =>
 interface ActiveRun {
   readonly deploymentId: DeploymentId;
   readonly log: string;
-  readonly fiber: Fiber.RuntimeFiber<void, never> | null;
+  readonly fiber: Fiber.Fiber<void, never> | null;
 }
 
 interface EventEnvelope {
@@ -121,7 +121,7 @@ export const DeployServiceLive = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const fs = yield* FileSystem.FileSystem;
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const workspace = yield* WorkspaceService;
     const worktrees = yield* WorktreeService;
     const convexAuth = yield* ConvexAuthService;
@@ -140,7 +140,7 @@ export const DeployServiceLive = Layer.effect(
           error_summary = 'Interrupted by app restart',
           finished_at = ${new Date().toISOString()}
       WHERE status NOT IN ('ready', 'failed', 'canceled')
-    `.pipe(Effect.catchAll(() => Effect.void));
+    `.pipe(Effect.catch(() => Effect.void));
 
     const publish = (key: string, event: DeployEvent): Effect.Effect<void> =>
       PubSub.publish(pubsub, { key, event }).pipe(Effect.asVoid);
@@ -150,7 +150,7 @@ export const DeployServiceLive = Layer.effect(
     ): Effect.Effect<DeploymentRow | null> =>
       sql<DeploymentRow>`SELECT * FROM deployments WHERE id = ${id}`.pipe(
         Effect.map((rows) => rows[0] ?? null),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
 
     /** UPDATE + publish the fresh snapshot. The single write path for status. */
@@ -181,7 +181,7 @@ export const DeployServiceLive = Layer.effect(
             `UPDATE deployments SET ${sets.join(", ")} WHERE id = ?`,
             [...values, id],
           )
-          .pipe(Effect.catchAll(() => Effect.void));
+          .pipe(Effect.catch(() => Effect.void));
         const row = yield* loadRow(id);
         if (row !== null) {
           yield* publish(
@@ -225,7 +225,7 @@ export const DeployServiceLive = Layer.effect(
         SELECT * FROM deploy_projects WHERE project_id = ${folderId}
       `.pipe(
         Effect.map((rows) => rows[0] ?? null),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
 
     const saveProjectCache = (
@@ -261,7 +261,7 @@ export const DeployServiceLive = Layer.effect(
             convex_deployment_name = excluded.convex_deployment_name,
             convex_url = excluded.convex_url,
             updated_at = excluded.updated_at
-        `.pipe(Effect.catchAll(() => Effect.void));
+        `.pipe(Effect.catch(() => Effect.void));
       });
 
     const resolveCwd = (
@@ -366,13 +366,13 @@ export const DeployServiceLive = Layer.effect(
         const keychainSlot = `convex:deployKey:${convexProjectId}`;
         let deployKey = yield* credentials
           .getSecret(keychainSlot)
-          .pipe(Effect.catchAll(() => Effect.succeed<string | null>(null)));
+          .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
         if (deployKey === null) {
           yield* appendLog(key, id, "convex", "Minting deploy key…\n");
           deployKey = yield* createDeployKey(token, deploymentName);
           yield* credentials
             .setSecret(keychainSlot, deployKey)
-            .pipe(Effect.catchAll(() => Effect.void));
+            .pipe(Effect.catch(() => Effect.void));
         }
 
         yield* patchRow(key, id, {
@@ -384,7 +384,7 @@ export const DeployServiceLive = Layer.effect(
             appendLog(key, id, "convex", `${line}\n`),
           );
         yield* push(deployKey).pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             // A cached key may have been revoked — re-mint once and retry.
             /key|unauthorized|401|forbidden/i.test(err.reason)
               ? Effect.gen(function* () {
@@ -397,7 +397,7 @@ export const DeployServiceLive = Layer.effect(
                   const fresh = yield* createDeployKey(token, deploymentName);
                   yield* credentials
                     .setSecret(keychainSlot, fresh)
-                    .pipe(Effect.catchAll(() => Effect.void));
+                    .pipe(Effect.catch(() => Effect.void));
                   yield* push(fresh);
                 })
               : Effect.fail(err),
@@ -591,7 +591,7 @@ export const DeployServiceLive = Layer.effect(
           finished_at: new Date().toISOString(),
         });
       }).pipe(
-        Effect.catchAll((err: DeployStartError) =>
+        Effect.catch((err: DeployStartError) =>
           Effect.gen(function* () {
             const log = yield* currentLog(key);
             yield* patchRow(key, id, {
@@ -603,7 +603,7 @@ export const DeployServiceLive = Layer.effect(
             });
           }),
         ),
-        Effect.catchAllCause((cause) =>
+        Effect.catchCause((cause) =>
           Effect.gen(function* () {
             const log = yield* currentLog(key);
             yield* patchRow(key, id, {
@@ -639,7 +639,7 @@ export const DeployServiceLive = Layer.effect(
         ),
       );
 
-    const detect: DeployService["Type"]["detect"] = (folderId, worktreeId) =>
+    const detect: DeployService["Service"]["detect"] = (folderId, worktreeId) =>
       resolveCwd(folderId, worktreeId).pipe(
         Effect.mapError(
           (err) =>
@@ -648,7 +648,7 @@ export const DeployServiceLive = Layer.effect(
         Effect.flatMap(({ cwd }) => detectDeployable(fs, cwd)),
       );
 
-    const start: DeployService["Type"]["start"] = (folderId, worktreeId) =>
+    const start: DeployService["Service"]["start"] = (folderId, worktreeId) =>
       Effect.gen(function* () {
         const key = keyOf(folderId, worktreeId);
         const runs = yield* Ref.get(active);
@@ -692,7 +692,7 @@ export const DeployServiceLive = Layer.effect(
           return next;
         });
 
-        const fiber = yield* Effect.forkDaemon(
+        const fiber = yield* Effect.forkDetach(
           pipeline(key, id, folderId, cwd, appName, detection),
         );
         yield* Ref.update(active, (map) => {
@@ -728,9 +728,9 @@ export const DeployServiceLive = Layer.effect(
         return deployment;
       });
 
-    const events: DeployService["Type"]["events"] = (folderId, worktreeId) => {
+    const events: DeployService["Service"]["events"] = (folderId, worktreeId) => {
       const key = keyOf(folderId, worktreeId);
-      return Stream.unwrapScoped(
+      return Stream.unwrap(
         Effect.gen(function* () {
           // Subscribe before seeding so no live event can slip between the
           // snapshot read and the live tail (duplicates are harmless — both
@@ -742,7 +742,7 @@ export const DeployServiceLive = Layer.effect(
             WHERE project_id = ${folderId}
               AND worktree_id ${worktreeId === null ? sql`IS NULL` : sql`= ${worktreeId}`}
             ORDER BY created_at DESC LIMIT 1
-          `.pipe(Effect.catchAll(() => Effect.succeed([] as DeploymentRow[])));
+          `.pipe(Effect.catch(() => Effect.succeed([] as DeploymentRow[])));
           const latest = rows[0];
           if (latest !== undefined) {
             seed.push(
@@ -764,22 +764,22 @@ export const DeployServiceLive = Layer.effect(
           }
           return Stream.concat(
             Stream.fromIterable(seed),
-            Stream.fromQueue(dequeue).pipe(
-              Stream.filter((envelope) => envelope.key === key),
-              Stream.map((envelope) => envelope.event),
+            Stream.fromSubscription(dequeue).pipe(
+              Stream.filter((envelope: EventEnvelope) => envelope.key === key),
+              Stream.map((envelope: EventEnvelope) => envelope.event),
             ),
           );
         }),
       );
     };
 
-    const cancel: DeployService["Type"]["cancel"] = (deploymentId) =>
+    const cancel: DeployService["Service"]["cancel"] = (deploymentId) =>
       Effect.gen(function* () {
         const runs = yield* Ref.get(active);
         for (const run of runs.values()) {
           if (run.deploymentId === deploymentId) {
             if (run.fiber !== null) {
-              yield* Fiber.interruptFork(run.fiber);
+              yield* Fiber.interrupt(run.fiber);
             }
             return;
           }
@@ -804,7 +804,7 @@ export const DeployServiceLive = Layer.effect(
         }
       });
 
-    const history: DeployService["Type"]["history"] = (folderId, limit) =>
+    const history: DeployService["Service"]["history"] = (folderId, limit) =>
       sql<DeploymentRow>`
         SELECT * FROM deployments
         WHERE project_id = ${folderId}
@@ -812,10 +812,10 @@ export const DeployServiceLive = Layer.effect(
         LIMIT ${limit ?? 20}
       `.pipe(
         Effect.map((rows) => rows.map(rowToDeployment)),
-        Effect.catchAll(() => Effect.succeed([] as Deployment[])),
+        Effect.catch(() => Effect.succeed([] as Deployment[])),
       );
 
-    const lastFailure: DeployService["Type"]["lastFailure"] = (
+    const lastFailure: DeployService["Service"]["lastFailure"] = (
       folderId,
       worktreeId,
     ) =>
@@ -836,16 +836,16 @@ export const DeployServiceLive = Layer.effect(
             url: row.url,
           };
         }),
-        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.catch(() => Effect.succeed(null)),
       );
 
-    return {
+    return DeployService.of({
       detect,
       start,
       events,
       cancel,
       history,
       lastFailure,
-    } as const;
+    });
   }),
 );

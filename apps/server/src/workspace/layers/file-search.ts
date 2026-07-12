@@ -1,12 +1,12 @@
 import * as path from "node:path";
 
-import { FileSystem, Path } from "@effect/platform";
+import { FileSystem, Path } from "effect";
 import { Effect, Layer } from "effect";
 import fuzzysort from "fuzzysort";
 
-import { FsFolderNotFoundError } from "@zuse/wire";
+import { FsFolderNotFoundError } from "@zuse/contracts";
 
-import { WorktreeService } from "../../worktree/services/worktree-service.ts";
+import { WorktreeService } from "@zuse/git/worktree-service";
 import {
   FileSearchService,
   type FileSearchHit,

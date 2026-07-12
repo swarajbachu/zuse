@@ -1,4 +1,4 @@
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 
 import { ConvexAuthService } from "./services/convex-auth-service.ts";

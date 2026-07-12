@@ -1,7 +1,7 @@
 /**
  * Public types for the index engine. Wire-layer ergonomics in mind:
  * primitive types, no Effect objects in payloads, so these flow cleanly
- * through @effect/rpc and the MCP JSON-schema layer in apps/mcp-server.
+ * through effect/unstable/rpc and the MCP JSON-schema layer in apps/mcp-server.
  */
 
 export type LanguageId =

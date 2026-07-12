@@ -49,6 +49,9 @@ yarn-error.log*
 # Local-only project data (workspace + private agent notes)
 .context
 .notes
+.zuse/*
+!.zuse/
+!.zuse/settings.toml
 
 .gstack/
 

@@ -20,7 +20,7 @@ import type {
   DeployStatus,
   FolderId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
@@ -189,13 +189,13 @@ export function DeployPane({
   // then streams. Same lifecycle pattern as browser-pane's command stream.
   useEffect(() => {
     let cancelled = false;
-    let fiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
     void (async () => {
       const client = await getRpcClient();
       if (cancelled) return;
       fiber = Effect.runFork(
         Stream.runForEach(
-          client.deploy.events({ folderId, worktreeId }),
+          client["deploy.events"]({ folderId, worktreeId }),
           (event) =>
             Effect.sync(() => {
               useDeployStore.getState().applyEvent(key, event);
@@ -219,7 +219,7 @@ export function DeployPane({
       try {
         const client = await getRpcClient();
         const result = await Effect.runPromise(
-          client.deploy.detect({ folderId, worktreeId }),
+          client["deploy.detect"]({ folderId, worktreeId }),
         );
         if (!cancelled) setDetection(result);
       } catch {
@@ -255,7 +255,7 @@ export function DeployPane({
     setStarting(true);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.deploy.start({ folderId, worktreeId }));
+      await Effect.runPromise(client["deploy.start"]({ folderId, worktreeId }));
     } catch (err) {
       toastManager.add({
         type: "error",
@@ -272,7 +272,7 @@ export function DeployPane({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.deploy.cancel({ deploymentId: latest.id }),
+        client["deploy.cancel"]({ deploymentId: latest.id }),
       );
     } catch (err) {
       toastManager.add({
@@ -292,7 +292,7 @@ export function DeployPane({
     setConnecting(true);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.deploy.connectConvex({}));
+      await Effect.runPromise(client["deploy.connectConvex"]({}));
       await useDeployStore.getState().refreshConvexStatus();
       toastManager.add({ type: "success", title: "Convex connected" });
     } catch (err) {
@@ -573,7 +573,7 @@ function DeployHistoryRow({
     }
     const client = await getRpcClient();
     const failure = await Effect.runPromise(
-      client.deploy.lastFailure({ folderId, worktreeId }),
+      client["deploy.lastFailure"]({ folderId, worktreeId }),
     );
     if (failure === null) return;
     const message = [

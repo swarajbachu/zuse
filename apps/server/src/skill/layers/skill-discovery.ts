@@ -1,12 +1,9 @@
 import * as os from "node:os";
 import * as path from "node:path";
-
-import { FileSystem } from "@effect/platform";
-import { Effect, Layer } from "effect";
-
-import { Skill, type ProviderId } from "@zuse/wire";
-
-import { CodexAppServerClient } from "../../provider/codex-app-server-client.ts";
+import { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
+import { type ProviderId, Skill } from "@zuse/contracts";
+import { Effect, FileSystem, Layer } from "effect";
+import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 
 interface RawSkill {
@@ -29,7 +26,8 @@ const parseFrontmatter = (
   const end = content.indexOf("\n---", 3);
   if (end < 0) return {};
   const block = content.slice(3, end);
-  const out: { name?: string; description?: string; argumentHint?: string } = {};
+  const out: { name?: string; description?: string; argumentHint?: string } =
+    {};
   for (const line of block.split("\n")) {
     const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/);
     if (!m) continue;
@@ -78,12 +76,10 @@ const isDirSafe = (
   fs: FileSystem.FileSystem,
   abs: string,
 ): Effect.Effect<boolean> =>
-  fs
-    .stat(abs)
-    .pipe(
-      Effect.map((s) => s.type === "Directory"),
-      Effect.orElseSucceed(() => false),
-    );
+  fs.stat(abs).pipe(
+    Effect.map((s) => s.type === "Directory"),
+    Effect.orElseSucceed(() => false),
+  );
 
 /**
  * Project a parsed file into the wire `Skill` shape. The folder containing
@@ -236,6 +232,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
       projectCwd: string,
     ): Effect.Effect<ReadonlyArray<Skill>> =>
       Effect.gen(function* () {
+        ensureBundledZuseSkillInstalled("claude", home);
         const projectRoot = path.join(projectCwd, ".claude", "skills");
         const globalRoot = path.join(home, ".claude", "skills");
         const pluginsRoot = path.join(home, ".claude", "plugins");
@@ -256,6 +253,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
       projectCwd: string,
     ): Effect.Effect<ReadonlyArray<Skill>> =>
       Effect.gen(function* () {
+        ensureBundledZuseSkillInstalled("codex", home);
         const viaAppServer = yield* Effect.tryPromise({
           try: async (): Promise<ReadonlyArray<Skill>> => {
             const client = await CodexAppServerClient.start({
@@ -297,27 +295,35 @@ export const SkillDiscoveryServiceLive = Layer.effect(
             }
           },
           catch: (cause) => cause,
-        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
         if (viaAppServer !== null) return dedupeProjectFirst(viaAppServer);
 
         const projectRoot = path.join(projectCwd, ".codex", "prompts");
         const globalRoot = path.join(home, ".codex", "prompts");
+        const projectSkillsRoot = path.join(projectCwd, ".codex", "skills");
+        const globalSkillsRoot = path.join(home, ".codex", "skills");
         const projectRaw = yield* readCodexPromptsRoot(projectRoot);
         const globalRaw = yield* readCodexPromptsRoot(globalRoot);
+        const projectSkillsRaw = yield* readClaudeSkillsRoot(projectSkillsRoot);
+        const globalSkillsRaw = yield* readClaudeSkillsRoot(globalSkillsRoot);
         const merged: Skill[] = [
+          ...projectSkillsRaw.map((r) => toSkill(r, "project", "codex")),
           ...projectRaw.map((r) => toSkill(r, "project", "codex")),
+          ...globalSkillsRaw.map((r) => toSkill(r, "global", "codex")),
           ...globalRaw.map((r) => toSkill(r, "global", "codex")),
         ];
         return dedupeProjectFirst(merged);
       });
 
-    const discover: SkillDiscoveryService["Type"]["discover"] = (
+    const discover: SkillDiscoveryService["Service"]["discover"] = (
       providerId,
       projectCwd,
     ) =>
       providerId === "claude"
         ? discoverClaude(projectCwd)
-        : discoverCodex(projectCwd);
+        : providerId === "codex"
+          ? discoverCodex(projectCwd)
+          : Effect.succeed([]);
 
     return { discover };
   }),

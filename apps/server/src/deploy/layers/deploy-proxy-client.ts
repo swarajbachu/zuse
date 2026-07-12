@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { DeployProxyError } from "@zuse/wire";
+import { DeployProxyError } from "@zuse/contracts";
 
 import type { AuthServiceShape } from "../../auth/services/auth-service.ts";
 

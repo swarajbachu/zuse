@@ -1,0 +1,28 @@
+{
+	"name": "@zuse/client-runtime",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./command-dispatch": "./src/command-dispatch.ts",
+		"./connection": "./src/connection.ts",
+		"./session-events": "./src/session-events.ts",
+		"./supervisor": "./src/supervisor.ts",
+		"./ws-protocol": "./src/ws-protocol.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration --passWithNoTests"
+	},
+	"dependencies": {
+		"@zuse/contracts": "*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@repo/typescript-config": "*",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

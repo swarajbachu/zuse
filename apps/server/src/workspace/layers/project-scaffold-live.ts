@@ -1,4 +1,8 @@
-import { Command, CommandExecutor, FileSystem, Path } from "@effect/platform";
+import { FileSystem, Path } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 import { Effect, Layer, Stream } from "effect";
 import * as os from "node:os";
 
@@ -8,7 +12,7 @@ import {
   WorkspaceCloneFailedError,
   WorkspaceCreateFailedError,
   WorkspaceInvalidPathError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import {
   deriveCloneTargetName,
@@ -22,11 +26,11 @@ import {
  * pattern `GitServiceLive` uses for `git`/`gh` runs.
  */
 const collectText = (
-  s: Stream.Stream<Uint8Array, import("@effect/platform/Error").PlatformError>,
+  s: Stream.Stream<Uint8Array, import("effect/PlatformError").PlatformError>,
 ) =>
   s.pipe(
-    Stream.decodeText("utf-8"),
-    Stream.runFold("", (acc, chunk) => acc + chunk),
+    Stream.decodeText({ encoding: "utf-8" }),
+    Stream.runFold(() => "", (acc, chunk) => acc + chunk),
   );
 
 /**
@@ -55,7 +59,7 @@ const resolveParent = (
 export const ProjectScaffoldLive = Layer.effect(
   ProjectScaffold,
   Effect.gen(function* () {
-    const executor = yield* CommandExecutor.CommandExecutor;
+    const executor = yield* CommandExecutor.ChildProcessSpawner;
     const fs = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
 
@@ -72,9 +76,10 @@ export const ProjectScaffoldLive = Layer.effect(
     ) =>
       Effect.scoped(
         Effect.gen(function* () {
-          let cmd = Command.make(bin, ...args);
-          if (cwd !== null) cmd = cmd.pipe(Command.workingDirectory(cwd));
-          const proc = yield* executor.start(cmd);
+          const cmd = Command.make(bin, args, {
+            cwd: cwd ?? undefined,
+          });
+          const proc = yield* executor.spawn(cmd);
           const stdout = yield* collectText(proc.stdout);
           const stderr = yield* collectText(proc.stderr);
           const exitCode = yield* proc.exitCode;
@@ -86,7 +91,7 @@ export const ProjectScaffoldLive = Layer.effect(
     const cleanupDir = (absPath: string): Effect.Effect<void> =>
       fs.remove(absPath, { recursive: true, force: true }).pipe(Effect.ignore);
 
-    const cloneRepo: ProjectScaffold["Type"]["cloneRepo"] = (url, parent) =>
+    const cloneRepo: ProjectScaffold["Service"]["cloneRepo"] = (url, parent) =>
       Effect.gen(function* () {
         const derived = deriveCloneTargetName(url);
         if (derived === null) {
@@ -131,25 +136,17 @@ export const ProjectScaffoldLive = Layer.effect(
           ["clone", "--progress", url, target],
           parentAbs,
         ).pipe(
-          Effect.catchTags({
-            SystemError: (err) =>
-              Effect.fail(
-                new WorkspaceCloneFailedError({
-                  url,
-                  reason:
-                    err.reason === "NotFound"
-                      ? "git is not installed or not on PATH."
-                      : err.message ?? String(err),
-                }),
-              ),
-            BadArgument: (err) =>
-              Effect.fail(
-                new WorkspaceCloneFailedError({
-                  url,
-                  reason: err.message ?? String(err),
-                }),
-              ),
-          }),
+          Effect.catchTag("PlatformError", (error) =>
+            Effect.fail(
+              new WorkspaceCloneFailedError({
+                url,
+                reason:
+                  error.reason._tag === "NotFound"
+                    ? "git is not installed or not on PATH."
+                    : error.message,
+              }),
+            ),
+          ),
         );
 
         if (result.exitCode !== 0) {
@@ -184,27 +181,18 @@ export const ProjectScaffoldLive = Layer.effect(
     ): Effect.Effect<void, WorkspaceCreateFailedError> =>
       Effect.gen(function* () {
         const result = yield* runCommand(bin, args, cwd).pipe(
-          Effect.catchTags({
-            SystemError: (err) =>
-              Effect.fail(
-                new WorkspaceCreateFailedError({
-                  name,
-                  step,
-                  reason:
-                    err.reason === "NotFound"
-                      ? `${bin} is not installed or not on PATH.`
-                      : err.message ?? String(err),
-                }),
-              ),
-            BadArgument: (err) =>
-              Effect.fail(
-                new WorkspaceCreateFailedError({
-                  name,
-                  step,
-                  reason: err.message ?? String(err),
-                }),
-              ),
-          }),
+          Effect.catchTag("PlatformError", (error) =>
+            Effect.fail(
+              new WorkspaceCreateFailedError({
+                name,
+                step,
+                reason:
+                  error.reason._tag === "NotFound"
+                    ? `${bin} is not installed or not on PATH.`
+                    : error.message,
+              }),
+            ),
+          ),
         );
         if (result.exitCode !== 0) {
           return yield* Effect.fail(
@@ -220,7 +208,7 @@ export const ProjectScaffoldLive = Layer.effect(
         }
       });
 
-    const createFromTemplate: ProjectScaffold["Type"]["createFromTemplate"] = (
+    const createFromTemplate: ProjectScaffold["Service"]["createFromTemplate"] = (
       name,
       parent,
       template,
@@ -350,8 +338,8 @@ export const ProjectScaffoldLive = Layer.effect(
         });
 
         const result = yield* scaffold.pipe(
-          Effect.catchAll((err) =>
-            cleanupDir(target).pipe(Effect.zipRight(Effect.fail(err))),
+          Effect.catch((err) =>
+            cleanupDir(target).pipe(Effect.andThen(Effect.fail(err))),
           ),
           Effect.exit,
         );
@@ -361,7 +349,7 @@ export const ProjectScaffoldLive = Layer.effect(
         return target;
       });
 
-    const listGithubRepos: ProjectScaffold["Type"]["listGithubRepos"] = (
+    const listGithubRepos: ProjectScaffold["Service"]["listGithubRepos"] = (
       limit,
     ) =>
       Effect.gen(function* () {
@@ -421,10 +409,10 @@ export const ProjectScaffoldLive = Layer.effect(
         return out;
       });
 
-    const ghAuthStatus: ProjectScaffold["Type"]["ghAuthStatus"] = () =>
+    const ghAuthStatus: ProjectScaffold["Service"]["ghAuthStatus"] = () =>
       runCommand("gh", ["auth", "status"], null).pipe(
         Effect.map((r) => ({ authenticated: r.exitCode === 0 })),
-        Effect.catchAll(() => Effect.succeed({ authenticated: false })),
+        Effect.catch(() => Effect.succeed({ authenticated: false })),
       );
 
     return {
@@ -438,6 +426,6 @@ export const ProjectScaffoldLive = Layer.effect(
 
 /**
  * Re-export the closed union so other server modules (e.g. handler tests)
- * can spell out template ids without re-importing from `@zuse/wire`.
+ * can spell out template ids without re-importing from `@zuse/contracts`.
  */
 export type { ProjectTemplate };

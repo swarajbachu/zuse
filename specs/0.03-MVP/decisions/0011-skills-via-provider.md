@@ -49,7 +49,7 @@ frontmatter conventions, override semantics, or hot-reload signals.
   underlying tool does the discovery and parsing; memoize consumes
   the projected `Skill` shape.
 - For Claude, the Agent SDK already does this work (`settingSources:
-  ["user", "project", "local"]` exposes commands via `init.commands`);
+["user", "project", "local"]` exposes commands via `init.commands`);
   the driver projects each entry onto our `Skill` schema.
 - For Codex, the CLI exposes `skills/list` over its RPC interface and
   emits `SkillsChangedNotification` on changes.
@@ -70,7 +70,7 @@ inherits those improvements without code changes.
 
 ## Consequences
 
-- A small `Skill` schema lives in `packages/wire/src/skill.ts` with
+- A small `Skill` schema lives in `packages/contracts/src/skill.ts` with
   the union of fields both providers report (name, scope, description,
   arguments, optional filePath, providerId). Each driver projects its
   native shape onto this; renderer code never sees provider-native
@@ -96,7 +96,7 @@ inherits those improvements without code changes.
 
 - Skill body expansion happens on the provider side. When the user
   picks a `skill` chip and submits, memoize passes a `SkillRef
-  { name, scope, args }` to the driver, which calls into the SDK or
+{ name, scope, args }` to the driver, which calls into the SDK or
   CLI to invoke the skill. Memoize never inlines skill body text
   into the prompt. This keeps memoize's behavior identical to using
   the underlying tool directly — users get the same skill semantics
@@ -143,3 +143,18 @@ Concretely for 0.03:
 - A future iteration may swap to SDK / RPC discovery (e.g. when the
   Claude SDK exposes a session-less listing) — the renderer surface
   doesn't change.
+
+## Amendment (2026-07-05): bundled first-party Zuse skill
+
+Zuse still does not own arbitrary user-authored skills. The exception is one
+first-party `zuse` skill shipped with the app, used for Zuse setup,
+repository settings, worktrees, scripts, schema URLs, and troubleshooting.
+
+The bundled skill is installed only into providers with native skill support
+that Zuse already discovers:
+
+- Claude: `~/.claude/skills/zuse/SKILL.md`
+- Codex: `~/.codex/skills/zuse/SKILL.md`
+
+Providers without a native skill surface in Zuse, such as Grok, OpenCode,
+Cursor, and Gemini, do not receive prompt-injected fallback skill text.

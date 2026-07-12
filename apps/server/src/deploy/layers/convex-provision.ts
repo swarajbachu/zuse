@@ -1,7 +1,10 @@
-import { Command, type CommandExecutor } from "@effect/platform";
 import { Effect, Stream } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 
-import { DeployStartError } from "@zuse/wire";
+import { DeployStartError } from "@zuse/contracts";
 
 /**
  * Convex provisioning + code push against the USER'S team (ADR 0022):
@@ -102,25 +105,25 @@ export const createDeployKey = (
 const decodeLines = (
   s: Stream.Stream<Uint8Array, unknown>,
 ): Stream.Stream<string, unknown> =>
-  s.pipe(Stream.decodeText("utf-8"), Stream.splitLines);
+  s.pipe(Stream.decodeText({ encoding: "utf-8" }), Stream.splitLines);
 
 /**
  * Run `npx convex deploy -y` in the app directory, feeding every output line
  * to `onLine`. Fails fast with the stderr/stdout tail on a non-zero exit.
  */
 export const runConvexDeploy = (
-  executor: CommandExecutor.CommandExecutor,
+  executor: CommandExecutor.ChildProcessSpawner["Service"],
   cwd: string,
   deployKey: string,
   onLine: (line: string) => Effect.Effect<void>,
 ): Effect.Effect<void, DeployStartError> =>
   Effect.scoped(
     Effect.gen(function* () {
-      const cmd = Command.make("npx", "convex", "deploy", "-y").pipe(
-        Command.workingDirectory(cwd),
-        Command.env({ CONVEX_DEPLOY_KEY: deployKey, CI: "1" }),
-      );
-      const proc = yield* executor.start(cmd);
+      const cmd = Command.make("npx", ["convex", "deploy", "-y"], {
+        cwd,
+        env: { CONVEX_DEPLOY_KEY: deployKey, CI: "1" },
+      });
+      const proc = yield* executor.spawn(cmd);
       const tail: string[] = [];
       const consume = (line: string) =>
         Effect.gen(function* () {
@@ -146,15 +149,17 @@ export const runConvexDeploy = (
       }
     }),
   ).pipe(
-    Effect.timeoutFail({
+    Effect.timeoutOrElse({
       duration: "10 minutes",
-      onTimeout: () =>
-        new DeployStartError({
-          reason: "convex deploy timed out after 10 minutes",
-          phase: "convex",
-        }),
+      orElse: () =>
+        Effect.fail(
+          new DeployStartError({
+            reason: "convex deploy timed out after 10 minutes",
+            phase: "convex",
+          }),
+        ),
     }),
-    Effect.catchAll((err) =>
+    Effect.catch((err) =>
       err instanceof DeployStartError
         ? Effect.fail(err)
         : Effect.fail(

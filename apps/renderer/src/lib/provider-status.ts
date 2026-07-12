@@ -1,4 +1,4 @@
-import type { AgentAvailability, ProviderId } from "@zuse/wire";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 /**
  * Visual treatment per server-reported provider status. Centralized so the
@@ -31,6 +31,13 @@ export interface ProviderSummary {
   readonly authEmail: string | null;
   /** When true, the headline is a CTA — render with stronger emphasis. */
   readonly actionable: boolean;
+}
+
+export function isInitialProviderAvailabilityLoading(
+  loading: boolean,
+  availabilityLoaded: boolean,
+): boolean {
+  return loading && !availabilityLoaded;
 }
 
 const PROVIDER_DISPLAY: Record<ProviderId, string> = {

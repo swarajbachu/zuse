@@ -1,9 +1,10 @@
 import { useEffect } from "react";
 
-import type { Command } from "@zuse/wire";
+import type { Command } from "@zuse/contracts";
 
 import type { MenuAction } from "../lib/bridge";
 import { dispatchCommand } from "../lib/commands";
+import { recordUiAction } from "../lib/diagnostics-recorder";
 import { useUiStore } from "../store/ui";
 
 /**
@@ -21,6 +22,7 @@ export function useMenuShortcuts(): void {
     if (menu === undefined) return;
 
     const handle = (action: MenuAction) => {
+      recordUiAction("menu.action", action);
       if (action === "export-diagnostics") {
         const ui = useUiStore.getState();
         ui.setSettingsSection({ kind: "diagnostics" });

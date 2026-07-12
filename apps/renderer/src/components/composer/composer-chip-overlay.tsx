@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { FolderId, WorktreeId } from "@zuse/wire";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 
 import {
   Tooltip,
@@ -9,12 +9,21 @@ import {
 } from "~/components/ui/tooltip.tsx";
 import { useUiStore } from "~/store/ui";
 
-interface HoverState {
-  readonly rect: DOMRect;
-  readonly relPath: string;
-  readonly absPath: string;
-  readonly entryKind: "file" | "directory";
-}
+type HoverState =
+  | {
+      readonly kind: "file";
+      readonly rect: DOMRect;
+      readonly relPath: string;
+      readonly absPath: string;
+      readonly entryKind: "file" | "directory";
+    }
+  | {
+      readonly kind: "image";
+      readonly rect: DOMRect;
+      readonly previewUrl: string;
+      readonly originalName: string;
+      readonly mimeType: string;
+    };
 
 const HIDE_DELAY_MS = 80;
 
@@ -24,11 +33,12 @@ const basename = (p: string): string => {
 };
 
 /**
- * Overlay that adds two behaviours to file chips inside the composer:
+ * Overlay that adds behaviours to atomic chips inside the composer:
  *
- *   - **hover** → a Base UI tooltip anchored to the chip showing
+ *   - **file hover** → a Base UI tooltip anchored to the chip showing
  *     `Open <relPath>` (or `View <relPath>` for directories).
- *   - **click** → opens the file in the right pane's file editor.
+ *   - **file click** → opens the file in the right pane's file editor.
+ *   - **image hover** → shows a constrained preview of the attachment.
  *
  * The chip widget lives inside CodeMirror's DOM (see `composer-chips.ts`)
  * so we event-delegate from the editor host rather than mounting React
@@ -60,34 +70,66 @@ export function ComposerChipOverlay({
       }
     };
 
-    const findChip = (target: EventTarget | null): HTMLElement | null => {
+    const findFileChip = (target: EventTarget | null): HTMLElement | null => {
       if (!(target instanceof HTMLElement)) return null;
       return target.closest<HTMLElement>('.fz-chip[data-kind="file"]');
     };
+    const findImageChip = (target: EventTarget | null): HTMLElement | null => {
+      if (!(target instanceof HTMLElement)) return null;
+      return target.closest<HTMLElement>('.fz-chip[data-kind="image"]');
+    };
 
     const onOver = (e: MouseEvent) => {
-      const chip = findChip(e.target);
+      const fileChip = findFileChip(e.target);
+      const imageChip = findImageChip(e.target);
+      const chip = fileChip ?? imageChip;
       if (chip === null) return;
-      const relPath = chip.dataset.relPath;
-      const absPath = chip.dataset.absPath;
-      const entryKind = chip.dataset.entryKind;
-      if (relPath === undefined || absPath === undefined) return;
       cancelHide();
-      setState({
-        rect: chip.getBoundingClientRect(),
-        relPath,
-        absPath,
-        entryKind: entryKind === "directory" ? "directory" : "file",
-      });
+      if (fileChip !== null) {
+        const relPath = fileChip.dataset.relPath;
+        const absPath = fileChip.dataset.absPath;
+        const entryKind = fileChip.dataset.entryKind;
+        if (relPath === undefined || absPath === undefined) return;
+        setState({
+          kind: "file",
+          rect: fileChip.getBoundingClientRect(),
+          relPath,
+          absPath,
+          entryKind: entryKind === "directory" ? "directory" : "file",
+        });
+        return;
+      }
+      if (imageChip !== null) {
+        const previewUrl = imageChip.dataset.previewUrl;
+        const originalName = imageChip.dataset.originalName;
+        const mimeType = imageChip.dataset.mimeType;
+        if (
+          previewUrl === undefined ||
+          previewUrl.length === 0 ||
+          originalName === undefined ||
+          mimeType === undefined ||
+          !mimeType.startsWith("image/")
+        ) {
+          return;
+        }
+        setState({
+          kind: "image",
+          rect: imageChip.getBoundingClientRect(),
+          previewUrl,
+          originalName,
+          mimeType,
+        });
+      }
     };
 
     const onOut = (e: MouseEvent) => {
-      const chip = findChip(e.target);
+      const chip = findFileChip(e.target) ?? findImageChip(e.target);
       if (chip === null) return;
       const next = e.relatedTarget;
       if (
         next instanceof HTMLElement &&
-        next.closest('.fz-chip[data-kind="file"]')
+        (next.closest('.fz-chip[data-kind="file"]') !== null ||
+          next.closest('.fz-chip[data-kind="image"]') !== null)
       ) {
         return;
       }
@@ -102,7 +144,7 @@ export function ComposerChipOverlay({
     // routes the click as needed; openFileInTab just switches the main
     // tab to "file" and the right pane reads the new state.
     const onClick = (e: MouseEvent) => {
-      const chip = findChip(e.target);
+      const chip = findFileChip(e.target);
       if (chip === null) return;
       const relPath = chip.dataset.relPath;
       const entryKind = chip.dataset.entryKind;
@@ -138,10 +180,6 @@ export function ComposerChipOverlay({
 
   if (state === null) return null;
 
-  const label =
-    state.entryKind === "directory"
-      ? `View ${state.relPath}`
-      : `Open ${state.relPath}`;
   const rect = state.rect;
 
   return (
@@ -162,7 +200,33 @@ export function ComposerChipOverlay({
           />
         }
       />
-      <TooltipPopup>{label}</TooltipPopup>
+      <TooltipPopup
+        className={
+          state.kind === "image"
+            ? "max-w-[min(24rem,calc(100vw-2rem))] p-2"
+            : undefined
+        }
+      >
+        {state.kind === "file" ? (
+          state.entryKind === "directory" ? (
+            `View ${state.relPath}`
+          ) : (
+            `Open ${state.relPath}`
+          )
+        ) : (
+          <div className="min-w-0">
+            <img
+              src={state.previewUrl}
+              alt=""
+              className="block max-h-72 max-w-full rounded-md object-contain"
+              draggable={false}
+            />
+            <div className="mt-1.5 max-w-80 truncate px-0.5 text-[11px] text-muted-foreground">
+              {state.originalName}
+            </div>
+          </div>
+        )}
+      </TooltipPopup>
     </Tooltip>
   );
 }

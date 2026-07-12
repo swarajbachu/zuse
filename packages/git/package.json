@@ -1,0 +1,34 @@
+{
+	"name": "@zuse/git",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./check-runs": "./src/check-runs.ts",
+		"./git-service": "./src/git-service.ts",
+		"./git-service-live": "./src/git-service-live.ts",
+		"./repository-locator": "./src/repository-locator.ts",
+		"./worktree-env-files": "./src/worktree/env-files.ts",
+		"./worktree-ports": "./src/worktree/ports.ts",
+		"./worktree-service": "./src/worktree/worktree-service.ts",
+		"./worktree-service-live": "./src/worktree/worktree-service-live.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit",
+		"test": "vitest run test",
+		"test:unit": "vitest run test/unit",
+		"test:integration": "vitest run test/integration"
+	},
+	"dependencies": {
+		"@zuse/contracts": "*",
+		"effect": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/platform-node": "catalog:",
+		"@zuse/sqlite": "*",
+		"@repo/typescript-config": "*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
+}

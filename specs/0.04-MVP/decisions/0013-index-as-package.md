@@ -117,7 +117,7 @@ embeddings — not about how callers reach it.
   `transformers.js`'s ONNX runtime) need rebuild handling for Electron in
   `apps/desktop`. Adds to the existing rebuild list (see ADR 0019).
 - Effect Service patterns are now expected in a non-app package. The
-  `@zuse/wire` package is contract-only; this is the first package
+  `@zuse/contracts` package is contract-only; this is the first package
   with implementation. We accept the precedent.
 
 ## Alternatives considered
@@ -137,7 +137,7 @@ embeddings — not about how callers reach it.
 - Con: premature partitioning. The engine is one concept and changes
   cross domains routinely. Splitting it forces every cross-domain change
   to negotiate package boundaries — same anti-pattern ADR 0005 warned
-  against for `@zuse/wire`.
+  against for `@zuse/contracts`.
 
 ### Fork the engine for the MCP binary
 
@@ -148,13 +148,13 @@ embeddings — not about how callers reach it.
 
 ## What we deliberately rejected
 
-- Putting the engine in `@zuse/wire`. Wire is contract-only.
+- Putting the engine in `@zuse/contracts`. Wire is contract-only.
 - Making `apps/server` a peer of the engine instead of a consumer.
 - Bundling MCP transport into the engine package — keeps the package
   transport-agnostic.
 
 ## Reference
 
-This mirrors how `@zuse/wire` is structured (one package, multiple
+This mirrors how `@zuse/contracts` is structured (one package, multiple
 consumers — main and renderer) and ADR 0007's transport-agnostic split.
 The index is the second cross-cutting package; it follows the same rule.

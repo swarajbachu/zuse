@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 
-import { Command, type CommandExecutor, type FileSystem } from "@effect/platform";
-import { Effect, Stream } from "effect";
+import { Effect, FileSystem, Stream } from "effect";
+import {
+  ChildProcess as Command,
+  ChildProcessSpawner as CommandExecutor,
+} from "effect/unstable/process";
 
-import { DeployStartError } from "@zuse/wire";
+import { DeployStartError } from "@zuse/contracts";
 
 /**
  * Collect the deployable file set from a worktree: `git ls-files` (tracked +
@@ -39,25 +42,22 @@ const collectText = (
   s: Stream.Stream<Uint8Array, unknown>,
 ): Effect.Effect<string, unknown> =>
   s.pipe(
-    Stream.decodeText("utf-8"),
-    Stream.runFold("", (acc, chunk) => acc + chunk),
+    Stream.decodeText({ encoding: "utf-8" }),
+    Stream.runFold(() => "", (acc, chunk) => acc + chunk),
   );
 
 const listFiles = (
-  executor: CommandExecutor.CommandExecutor,
+  executor: CommandExecutor.ChildProcessSpawner["Service"],
   cwd: string,
 ): Effect.Effect<ReadonlyArray<string>, DeployStartError> =>
   Effect.scoped(
     Effect.gen(function* () {
       const cmd = Command.make(
         "git",
-        "ls-files",
-        "--cached",
-        "--others",
-        "--exclude-standard",
-        "-z",
-      ).pipe(Command.workingDirectory(cwd));
-      const proc = yield* executor.start(cmd);
+        ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        { cwd },
+      );
+      const proc = yield* executor.spawn(cmd);
       const stdout = yield* collectText(proc.stdout);
       const stderr = yield* collectText(proc.stderr);
       const exitCode = yield* proc.exitCode;
@@ -72,7 +72,7 @@ const listFiles = (
       return stdout.split("\0").filter((p) => p !== "" && !isExcluded(p));
     }),
   ).pipe(
-    Effect.catchAll((err) =>
+    Effect.catch((err) =>
       err instanceof DeployStartError
         ? Effect.fail(err)
         : Effect.fail(
@@ -85,7 +85,7 @@ const listFiles = (
   );
 
 export const collectFiles = (
-  executor: CommandExecutor.CommandExecutor,
+  executor: CommandExecutor.ChildProcessSpawner["Service"],
   fs: FileSystem.FileSystem,
   cwd: string,
 ): Effect.Effect<ReadonlyArray<CollectedFile>, DeployStartError> =>
@@ -111,7 +111,7 @@ export const collectFiles = (
           }),
           // Races with the working tree (file deleted between ls-files and
           // read) drop the entry rather than failing the whole deploy.
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catch(() => Effect.succeed(null)),
         ),
       { concurrency: 16 },
     );

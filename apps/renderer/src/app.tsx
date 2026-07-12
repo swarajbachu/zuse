@@ -14,13 +14,13 @@ import { ChatSwitcher } from "./components/chat-switcher.tsx";
 import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { IndexProgressBanner } from "./components/index-progress-banner.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { ChatView } from "./components/chat-view";
 import { CostFooter } from "./components/cost-footer";
 import { FileEditor } from "./components/file-editor.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { OnboardingWizard } from "./components/onboarding/onboarding-wizard.tsx";
+import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import { RightPane } from "./components/right-pane";
@@ -34,6 +34,7 @@ import { UpdateBanner } from "./components/update-banner.tsx";
 import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
+import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { useAuthStore } from "./store/auth.ts";
@@ -42,8 +43,6 @@ import { usePermissionsStore } from "./store/permissions.ts";
 import { useProvidersStore } from "./store/providers.ts";
 import { useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
-import { hydrateSubagentsStore } from "./store/subagents.ts";
-import { useIndexStore } from "./store/code-index.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
@@ -51,8 +50,8 @@ import { useWorktreesStore } from "./store/worktrees.ts";
 const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
 
-const SIDEBAR_ANIM_MS = 200;
-const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+const SIDEBAR_ANIM_MS = 150;
+const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
 
 /**
  * Animate a collapsible side panel open/closed by driving the library's own
@@ -108,6 +107,16 @@ function useAnimatedPanelCollapse(
     if (!open && startPct > 0) lastOpenPct.current = startPct;
     const targetPct = open ? lastOpenPct.current || defaultPct : 0;
 
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (open) {
+        if (panel.isCollapsed()) panel.expand();
+        panel.resize(`${targetPct}%`);
+      } else {
+        panel.collapse();
+      }
+      return;
+    }
+
     if (Math.abs(startPct - targetPct) < 0.05) {
       if (!open && !panel.isCollapsed()) panel.collapse();
       return;
@@ -120,7 +129,7 @@ function useAnimatedPanelCollapse(
     const t0 = performance.now();
     const tick = (now: number) => {
       const t = Math.min(1, (now - t0) / SIDEBAR_ANIM_MS);
-      const v = startPct + (targetPct - startPct) * easeOutCubic(t);
+      const v = startPct + (targetPct - startPct) * easeOutQuart(t);
       panel.resize(`${v}%`);
       if (t < 1) {
         rafRef.current = requestAnimationFrame(tick);
@@ -173,24 +182,29 @@ export function App() {
   // ignores them.
   useKeybindingDispatch();
 
-  // Hydrate settings + keybindings + subagents from the on-disk config
-  // store. Each call is idempotent; subsequent emits flow through the
-  // RPC streams maintained by the stores themselves.
+  // Mirror the running-agent count to main so the before-quit guard and the
+  // "quit/restart when idle" deferrals have a live value.
+  useReportRunningAgents();
+
+  // Hydrate settings + keybindings from the on-disk config store. Each call is
+  // idempotent; subsequent emits flow through the RPC streams maintained by the
+  // stores themselves.
   const hydrateSettings = useSettingsStore((s) => s.hydrate);
   const hydrateKeybindings = useKeybindingsStore((s) => s.hydrate);
   useEffect(() => {
     void hydrateSettings();
     void hydrateKeybindings();
-    void hydrateSubagentsStore();
   }, [hydrateSettings, hydrateKeybindings]);
 
   // Probe provider availability once on boot so the "update available" launch
   // toast can fire without the user first opening settings. ProvidersPane
-  // keeps its own mount/focus refresh for live updates while settings is open.
-  const refreshProviders = useProvidersStore((s) => s.refresh);
+  // re-probes on mount while settings is open (it no longer re-polls on window
+  // focus — that read the keychain and made macOS re-prompt on every refocus
+  // for unsigned/dev builds).
+  const loadProviders = useProvidersStore((s) => s.load);
   useEffect(() => {
-    void refreshProviders();
-  }, [refreshProviders]);
+    void loadProviders();
+  }, [loadProviders]);
 
   // Mirror Electron's fullscreen state into the ui store so the top bars
   // can drop the macOS traffic-light gutter.
@@ -208,7 +222,7 @@ export function App() {
     void (async () => {
       try {
         const client = await getRpcClient();
-        await Effect.runPromise(client.ping.ping({}));
+        await Effect.runPromise(client["ping.ping"]({}));
       } catch (error) {
         if (cancelled) return;
         // eslint-disable-next-line no-console
@@ -226,6 +240,7 @@ export function App() {
   if (!onboardingCompleted) {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <OnboardingWizard />
@@ -237,6 +252,7 @@ export function App() {
   if (view === "settings") {
     return (
       <TooltipProvider>
+        <NotchTrayBridge />
         <AppearanceController />
         <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
           <SettingsPage />
@@ -247,6 +263,7 @@ export function App() {
 
   return (
     <TooltipProvider>
+      <NotchTrayBridge />
       <AppearanceController />
       <MainShell />
     </TooltipProvider>
@@ -294,16 +311,6 @@ function MainShell() {
     }
     closeFileTab();
   }, [selectedFolderId, openFile, closeFileTab]);
-
-  // Open a status subscription for the selected workspace's index. Server
-  // already triggered `ensureIndexed` on `workspace.setSelected`; this just
-  // gives the renderer something to render. `hydrate` no-ops on duplicate
-  // calls, so re-selecting the same folder doesn't re-open the stream.
-  const hydrateIndex = useIndexStore((s) => s.hydrate);
-  useEffect(() => {
-    if (selectedFolderId === null) return;
-    void hydrateIndex(selectedFolderId);
-  }, [selectedFolderId, hydrateIndex]);
 
   // Eagerly hydrate worktrees on project select so the active context can
   // resolve worktree paths without waiting for the chat composer to mount.
@@ -371,7 +378,7 @@ function MainShell() {
       >
         <Panel
           id="projects"
-          defaultSize="18%"
+          defaultSize="20%"
           // minSize 0 so the open/close tween can rest at any width down to 0
           // — the library otherwise snaps sub-minSize widths to minSize/0,
           // which turns the last stretch of the animation into a hard jump.
@@ -386,7 +393,7 @@ function MainShell() {
             if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-background">
+          <div className="flex h-full min-h-0 flex-col bg-background/40">
             <TopBarLeft />
             <div className="flex min-h-0 flex-1 flex-col">
               <ProjectsSidebar />
@@ -399,7 +406,6 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            <IndexProgressBanner />
             {showMainChrome ? (
               <MainTabs
                 projectId={selectedFolderId}
@@ -416,15 +422,22 @@ function MainShell() {
                 // All that progress is surfaced inline by `WorktreeSetupCard`
                 // at the top of the timeline, with the composer pinned at the
                 // bottom (no full-screen takeover).
-                <>
+                <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-3">
                   <ChatView sessionId={selectedSessionId} />
-                  <CostFooter sessionId={selectedSessionId} />
-                  <CliUpgradeBanner providerId={selectedSession.providerId} />
+                  <CostFooter
+                    sessionId={selectedSessionId}
+                    constrain={false}
+                  />
+                  <CliUpgradeBanner
+                    providerId={selectedSession.providerId}
+                    constrain={false}
+                  />
                   <ChatComposer
                     key={selectedSession.id}
                     session={selectedSession}
+                    constrain={false}
                   />
-                </>
+                </div>
               ) : (
                 <ChatLanding />
               )}
@@ -472,7 +485,7 @@ function MainShell() {
           // minSize 0 so the open/close tween stays smooth all the way to 0
           // (see the left panel note).
           minSize="0px"
-          maxSize="45%"
+          maxSize="55%"
           collapsible
           collapsedSize="0%"
           panelRef={rightPanelRef}
@@ -487,7 +500,7 @@ function MainShell() {
             if (open !== rightSidebarOpen) setRightSidebarOpen(open);
           }}
         >
-          <div className="flex h-full min-h-0 flex-col bg-sidebar">
+          <div className="flex h-full min-h-0 flex-col bg-background/20">
             <TopBarRight />
             <div className="flex min-h-0 flex-1 flex-col">
               <RightPane />

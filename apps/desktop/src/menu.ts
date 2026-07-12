@@ -6,7 +6,7 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 
-import type { UpdateStatus } from "@zuse/wire";
+import type { UpdateStatus } from "@zuse/contracts";
 
 import {
   triggerUpdateCheck,
@@ -18,7 +18,7 @@ import {
  * Action ids that travel from a menu click → renderer (via
  * `webContents.send("menu:action", ...)`) → the keybinding-dispatcher
  * `commands.ts` registry in the renderer. The set mirrors the menu-relevant
- * subset of `Command` in `@zuse/wire/keybindings`.
+ * subset of `Command` in `@zuse/contracts/keybindings`.
  */
 export type MenuCommand =
   | "new-chat"
@@ -60,7 +60,7 @@ export const DEFAULT_MENU_ACCELERATORS: MenuAccelerators = {
 
 const GITHUB_REPO_URL = "https://github.com/swarajbachu/zuse";
 const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
-const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new`;
+const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new?template=bug_report.yml`;
 
 /**
  * Shape of the "Check for Updates…" menu entry, derived from the current
@@ -125,12 +125,28 @@ export function installAppMenu(
   updateStatus: UpdateStatus = { kind: "idle" },
 ): void {
   const isMac = process.platform === "darwin";
-  const isDev = !app.isPackaged;
-
   const sendAction = (action: Exclude<MenuCommand, "close-tab">) => () => {
     const win = getWindow();
     if (win === null) return;
     win.webContents.send("menu:action", action);
+  };
+
+  const reloadWindow = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.reload();
+  };
+
+  const forceReloadWindow = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.reloadIgnoringCache();
+  };
+
+  const toggleDevTools = () => {
+    const win = getWindow();
+    if (win === null) return;
+    win.webContents.toggleDevTools();
   };
 
   const sendCloseTab = () => {
@@ -230,19 +246,27 @@ export function installAppMenu(
       },
       { type: "separator" },
       { role: "togglefullscreen" },
-      ...(isDev
-        ? ([
-            { type: "separator" },
-            {
-              label: "Developer",
-              submenu: [
-                { role: "reload" },
-                { role: "forceReload" },
-                { role: "toggleDevTools" },
-              ],
-            },
-          ] satisfies MenuItemConstructorOptions[])
-        : []),
+      { type: "separator" },
+      {
+        label: "Developer",
+        submenu: [
+          {
+            label: "Reload",
+            accelerator: "CmdOrCtrl+R",
+            click: reloadWindow,
+          },
+          {
+            label: "Force Reload",
+            accelerator: "CmdOrCtrl+Shift+R",
+            click: forceReloadWindow,
+          },
+          {
+            label: "Toggle Developer Tools",
+            accelerator: "CmdOrCtrl+Shift+I",
+            click: toggleDevTools,
+          },
+        ],
+      },
     ],
   };
 
@@ -272,13 +296,13 @@ export function installAppMenu(
         },
       },
       {
-        label: "Report an Issue",
+        label: "Report a Bug",
         click: () => {
           void shell.openExternal(GITHUB_ISSUE_NEW_URL);
         },
       },
       {
-        label: "Export Diagnostics…",
+        label: "Export Diagnostics for Bug Report...",
         click: sendAction("export-diagnostics"),
       },
       { type: "separator" },

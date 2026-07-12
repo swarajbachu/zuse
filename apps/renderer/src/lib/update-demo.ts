@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@zuse/wire";
+import type { UpdateStatus } from "@zuse/contracts";
 
 /**
  * Dev console helper for previewing the UpdateBanner without cutting a real

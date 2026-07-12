@@ -12,10 +12,17 @@ import {
   type SessionId,
   type ThreadGoal,
   type ThreadGoalSetInput,
-} from "@zuse/wire";
+} from "@zuse/contracts";
+import {
+  projectSessionEvent,
+  sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 
 import { formatError } from "../lib/format-error.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+  dispatchRetryableRpcCommand,
+  getRpcClient,
+} from "../lib/rpc-client.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { usePrDetailsStore } from "./pr-details.ts";
 import { usePrStateStore } from "./pr-state.ts";
@@ -122,24 +129,6 @@ export const lookupSessionProvider = (
   return undefined;
 };
 
-type GoalRpcClient = {
-  readonly session: {
-    readonly "goal.stream": (payload: {
-      readonly sessionId: SessionId;
-    }) => Stream.Stream<
-      { readonly sessionId: SessionId; readonly goal: ThreadGoal | null },
-      unknown
-    >;
-    readonly "goal.set": (payload: {
-      readonly sessionId: SessionId;
-      readonly goal: ThreadGoalSetInput;
-    }) => Effect.Effect<ThreadGoal, unknown>;
-    readonly "goal.clear": (payload: {
-      readonly sessionId: SessionId;
-    }) => Effect.Effect<void, unknown>;
-  };
-};
-
 /**
  * Live view of one session's message log. Subscribes to `messages.stream`
  * (which emits backfill rows then live ones), drops them straight into
@@ -161,7 +150,7 @@ type MessagesState = {
   readonly messagesBySession: Record<string, ReadonlyArray<Message>>;
   readonly errorBySession: Record<string, ChatError | null>;
   /**
-   * Mirror of `Session.status === "running"`, fed by the `session.streamStatus`
+   * Mirror of `Session.status === "running"`, fed by the `session.events`
    * subscription. The composer reads this for its in-flight indicator so the
    * Send/Interrupt swap stays stable across the whole tool-call loop.
    */
@@ -220,10 +209,9 @@ type MessagesState = {
   readonly retry: (sessionId: SessionId) => Promise<void>;
 };
 
-let liveFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let statusFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let queueFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
-let goalFiber: Fiber.RuntimeFiber<unknown, unknown> | null = null;
+let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let queueFiber: Fiber.Fiber<unknown, unknown> | null = null;
+let goalFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
 // Monotonic token guarding `hydrate` against re-entrancy. `hydrate` mutates the
 // module-global fibers + `liveSessionId` across two `await` points, so two
@@ -241,11 +229,12 @@ let hydrateEpoch = 0;
 // canonical server message instead of skipping it, so server-side fixups
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
-// Highest event-log `sequence` seen per session (from `MessageEnvelope`).
+// Highest durable event-log `sequence` seen per session.
 // Passed back as `sinceSequence` on resubscribe so the server replays only
 // the delta — gap-free reconnect without a full-history backfill. In-memory
 // only: a reload starts from 0 and gets the full replay, which is correct.
-const lastSequenceBySession = new Map<SessionId, number>();
+const eventCursorKey = (sessionId: SessionId): string =>
+  `renderer:active-session:${sessionId}`;
 const handoffRunningSessions = new Set<SessionId>();
 const lastStatusBySession = new Map<SessionId, SessionStatus>();
 const statusWaiters = new Map<
@@ -272,10 +261,6 @@ const stopLiveFiber = async () => {
   if (liveFiber !== null) {
     tasks.push(Effect.runPromise(Fiber.interrupt(liveFiber)));
     liveFiber = null;
-  }
-  if (statusFiber !== null) {
-    tasks.push(Effect.runPromise(Fiber.interrupt(statusFiber)));
-    statusFiber = null;
   }
   if (queueFiber !== null) {
     tasks.push(Effect.runPromise(Fiber.interrupt(queueFiber)));
@@ -413,18 +398,66 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       // cursor, so a fresh chat still gets its full replay + echo id-swap.
       const sinceSequence =
         (get().messagesBySession[sessionId]?.length ?? 0) > 0
-          ? lastSequenceBySession.get(sessionId)
+          ? sessionEventCursors.get(eventCursorKey(sessionId))
           : undefined;
+      const observeStatusEvent = (status: SessionStatus): void => {
+        if (liveSessionId !== sessionId) return;
+        const wasRunning = get().runningBySession[sessionId] === true;
+        get().observeSessionStatus(sessionId, status);
+        if (!wasRunning || status === "running") return;
+        const sessions = useSessionsStore.getState().sessionsByProject;
+        for (const list of Object.values(sessions)) {
+          const session = list.find((candidate) => candidate.id === sessionId);
+          if (session !== undefined) {
+            void usePrStateStore
+              .getState()
+              .refresh(session.projectId, session.worktreeId);
+            void usePrDetailsStore
+              .getState()
+              .refresh(session.projectId, session.worktreeId);
+            break;
+          }
+        }
+        if (status === "idle" || status === "closed") {
+          get().flushQueue(sessionId);
+        }
+      };
+      const resetOnStreamEnd = Effect.sync(() => {
+        if (liveSessionId !== sessionId) return;
+        useMessagesStore.setState((state) => {
+          if (
+            state.runningBySession[sessionId] !== true ||
+            handoffRunningSessions.has(sessionId)
+          ) {
+            return state;
+          }
+          return {
+            runningBySession: {
+              ...state.runningBySession,
+              [sessionId]: false,
+            },
+          };
+        });
+      });
       const messageProgram = Stream.runForEach(
-        client.messages.stream({ sessionId, sinceSequence }),
+        client["session.events"]({
+          sessionId,
+          afterSequence: sinceSequence,
+        }),
         (envelope) =>
           Effect.sync(() => {
-            const { sequence, message } = envelope;
+            const { sequence } = envelope;
             // Advance the cursor on EVERY envelope — including optimistic
             // echoes — before any dedup branch, so a reconnect can never
             // pass a cursor below an already-delivered row.
-            const prev = lastSequenceBySession.get(sessionId) ?? 0;
-            if (sequence > prev) lastSequenceBySession.set(sessionId, sequence);
+            sessionEventCursors.set(eventCursorKey(sessionId), sequence);
+            const projected = projectSessionEvent(envelope);
+            if (projected._tag === "status") {
+              observeStatusEvent(projected.status);
+              return;
+            }
+            if (projected._tag !== "message") return;
+            const { message } = projected;
             set((s) => {
               const current = s.messagesBySession[sessionId] ?? [];
               // The server echo of a message we inserted optimistically (same
@@ -492,7 +525,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             });
           }),
       ).pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.sync(() => {
             console.error("[messages] message stream errored", err);
             set((s) => ({
@@ -507,90 +540,18 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           }),
         ),
         Effect.ensuring(
-          Effect.sync(() => {
-            if (liveSessionId === sessionId) liveFiber = null;
-          }),
+          Effect.andThen(
+            resetOnStreamEnd,
+            Effect.sync(() => {
+              if (liveSessionId === sessionId) liveFiber = null;
+            }),
+          ),
         ),
       );
       liveFiber = Effect.runFork(messageProgram);
-      // Status mirror — keeps the composer's "running" indicator stable
-      // across the whole tool-call loop. When a turn ends we also refresh
-      // the project's PR state so freshly pushed branches recolor the
-      // branch icon without waiting for the user to click around.
-      // Reset the running flag if the status stream ever errors — otherwise
-      // a transient RPC failure (server restart, dropped connection) leaves
-      // `runningBySession[sessionId]` pinned `true`, and the composer is
-      // stuck showing Interrupt with no way back to Send.
-      //
-      // BUT skip this reset when the stream ends because we deliberately
-      // interrupted it during a session switch. In that case the OLD
-      // session may still be running on the backend — the sidebar-root
-      // `useSessionRunningSubscriptions` hook owns its state from now on
-      // and we don't want to clobber its truth with a `false`.
-      const resetOnStreamEnd = Effect.sync(() => {
-        if (liveSessionId !== sessionId) return;
-        useMessagesStore.setState((s) => {
-          if (
-            s.runningBySession[sessionId] !== true ||
-            handoffRunningSessions.has(sessionId)
-          ) {
-            return s;
-          }
-          return {
-            runningBySession: { ...s.runningBySession, [sessionId]: false },
-          };
-        });
-      });
-      const statusProgram = Stream.runForEach(
-        client.session.streamStatus({ sessionId }).pipe(
-          Stream.catchAll((err) => {
-            console.error("[messages] status stream errored", err);
-            return Stream.empty;
-          }),
-        ),
-        (event) =>
-          Effect.sync(() => {
-            // Guard: the per-active-session statusFiber gets interrupted
-            // when the user switches sessions, but its pending stream
-            // events still drain during the async interrupt cleanup. Those
-            // stale events would clobber the now-correct
-            // `runningBySession[prevSessionId]` (typically a backend
-            // `closed` emitted as the turn ends), making the prior
-            // session's sidebar loader disappear the moment you navigate
-            // away. The sidebar-root `useSessionRunningSubscriptions` hook
-            // is the canonical writer for non-active sessions — let it
-            // own those transitions.
-            if (liveSessionId !== sessionId) return;
-            const wasRunning = get().runningBySession[sessionId] === true;
-            get().observeSessionStatus(sessionId, event.status);
-            if (wasRunning && event.status !== "running") {
-              // Refresh PR state for this session's specific (project,
-              // worktree) pair — a turn that pushed commits on a worktree's
-              // branch shouldn't touch the main checkout's cache entry.
-              const sessions = useSessionsStore.getState().sessionsByProject;
-              for (const list of Object.values(sessions)) {
-                const sess = list.find((s) => s.id === sessionId);
-                if (sess !== undefined) {
-                  void usePrStateStore
-                    .getState()
-                    .refresh(sess.projectId, sess.worktreeId);
-                  void usePrDetailsStore
-                    .getState()
-                    .refresh(sess.projectId, sess.worktreeId);
-                  break;
-                }
-              }
-
-              if (event.status === "idle" || event.status === "closed") {
-                get().flushQueue(sessionId);
-              }
-            }
-          }),
-      ).pipe(Effect.ensuring(resetOnStreamEnd));
-      statusFiber = Effect.runFork(statusProgram);
       queueFiber = Effect.runFork(
         Stream.runForEach(
-          client.messages["queue.stream"]({ sessionId }),
+          client["messages.queue.stream"]({ sessionId }),
           (state) =>
             Effect.sync(() => {
               set((s) => ({
@@ -610,10 +571,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       if (goalProvider === "codex" || goalProvider === "grok") {
         goalFiber = Effect.runFork(
           Stream.runForEach(
-            (client as unknown as GoalRpcClient).session["goal.stream"]({
+            client["session.goal.stream"]({
               sessionId,
             }).pipe(
-              Stream.catchAll((err) => {
+              Stream.catch((err) => {
                 console.error("[messages] goal stream errored", err);
                 return Stream.empty;
               }),
@@ -700,7 +661,6 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       },
     }));
     try {
-      const client = await getMessagesRpcClient();
       // Pick up the per-session reasoning selection the composer's
       // ReasoningPicker persists to sessionStorage. Drivers that don't
       // implement reasoning silently ignore it; only models whose
@@ -722,7 +682,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               clientMessageId: messageId,
               ...(modelOptions !== null ? { modelOptions } : {}),
             };
-      await Effect.runPromise(client.messages.send(payload));
+      await dispatchRetryableRpcCommand(messageId, async () => {
+        const client = await getMessagesRpcClient();
+        return Effect.runPromise(client["messages.send"](payload));
+      });
       void useSessionsStore.getState().refreshOne(sessionId);
     } catch (err) {
       // Reset the optimistic running flag — otherwise a failed send leaves
@@ -749,7 +712,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     try {
       const client = await getMessagesRpcClient();
       const next = await Effect.runPromise(
-        (client as unknown as GoalRpcClient).session["goal.set"]({
+        client["session.goal.set"]({
           sessionId,
           goal,
         }),
@@ -770,7 +733,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     try {
       const client = await getMessagesRpcClient();
       await Effect.runPromise(
-        (client as unknown as GoalRpcClient).session["goal.clear"]({
+        client["session.goal.clear"]({
           sessionId,
         }),
       );
@@ -789,7 +752,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   interrupt: async (sessionId) => {
     try {
       const client = await getMessagesRpcClient();
-      await Effect.runPromise(client.messages.interrupt({ sessionId }));
+      await Effect.runPromise(client["messages.interrupt"]({ sessionId }));
     } catch (err) {
       set((s) => ({
         errorBySession: {
@@ -804,7 +767,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         const item = await Effect.runPromise(
-          client.messages["queue.add"]({ sessionId, input }),
+          client["messages.queue.add"]({ sessionId, input }),
         );
         set((s) => {
           const existing = s.queueBySession[sessionId] ?? [];
@@ -841,7 +804,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.update"]({ sessionId, queueId, input }),
+          client["messages.queue.update"]({ sessionId, queueId, input }),
         );
       } catch (err) {
         set((s) => ({
@@ -874,7 +837,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.reorder"]({ sessionId, queueIds }),
+          client["messages.queue.reorder"]({ sessionId, queueIds }),
         );
       } catch (err) {
         set((s) => ({
@@ -890,7 +853,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     void (async () => {
       try {
         const client = await getMessagesRpcClient();
-        await Effect.runPromise(client.messages["queue.flush"]({ sessionId }));
+        await Effect.runPromise(client["messages.queue.flush"]({ sessionId }));
       } catch (err) {
         handoffRunningSessions.delete(sessionId);
         set((s) => ({
@@ -915,7 +878,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         },
       }));
       const client = await getMessagesRpcClient();
-      await Effect.runPromise(client.messages["queue.resume"]({ sessionId }));
+      await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
     } catch (err) {
       handoffRunningSessions.delete(sessionId);
       set((s) => ({
@@ -940,7 +903,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         const client = await getMessagesRpcClient();
         await Effect.runPromise(
-          client.messages["queue.delete"]({ sessionId, queueId }),
+          client["messages.queue.delete"]({ sessionId, queueId }),
         );
       } catch (err) {
         set((s) => ({
@@ -980,7 +943,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }
       const client = await getMessagesRpcClient();
       await Effect.runPromise(
-        client.messages["queue.sendNow"]({ sessionId, queueId }),
+        client["messages.queue.sendNow"]({ sessionId, queueId }),
       );
     } catch (err) {
       handoffRunningSessions.delete(sessionId);
@@ -1028,6 +991,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             attachments: c.attachments,
             fileRefs: c.fileRefs,
             skillRefs: c.skillRefs,
+            annotations: c.annotations,
           }),
         );
         return;

@@ -4,7 +4,7 @@ import type {
   ConvexAuthError,
   ConvexAuthRequiredError,
   ConvexConnection,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * The user's Convex platform-OAuth connection (team scope). Owns the PKCE
@@ -27,7 +27,7 @@ export interface ConvexAuthServiceShape {
   readonly getToken: () => Effect.Effect<string, ConvexAuthRequiredError>;
 }
 
-export class ConvexAuthService extends Context.Tag("memoize/ConvexAuthService")<
+export class ConvexAuthService extends Context.Service<
   ConvexAuthService,
   ConvexAuthServiceShape
->() {}
+>()("memoize/ConvexAuthService") {}

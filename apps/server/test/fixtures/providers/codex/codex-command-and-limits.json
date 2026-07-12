@@ -1,0 +1,107 @@
+{
+  "fixtureVersion": 1,
+  "provider": "codex",
+  "translator": "codex",
+  "scenario": "command item and status notifications",
+  "source": "sanitized captured Codex app-server notifications",
+  "frames": [
+    {
+      "kind": "item",
+      "stage": "started",
+      "item": {
+        "type": "commandExecution",
+        "id": "codex-read-1",
+        "command": "sed -n '1,20p' package.json",
+        "cwd": "/fixture/repo",
+        "processId": null,
+        "source": "agent",
+        "status": "inProgress",
+        "commandActions": [
+          {
+            "type": "read",
+            "command": "sed -n '1,20p' package.json",
+            "name": "sed",
+            "path": "/fixture/repo/package.json"
+          }
+        ],
+        "aggregatedOutput": null,
+        "exitCode": null,
+        "durationMs": null
+      }
+    },
+    {
+      "kind": "item",
+      "stage": "completed",
+      "item": {
+        "type": "commandExecution",
+        "id": "codex-read-1",
+        "command": "sed -n '1,20p' package.json",
+        "cwd": "/fixture/repo",
+        "processId": 1234,
+        "source": "agent",
+        "status": "completed",
+        "commandActions": [
+          {
+            "type": "read",
+            "command": "sed -n '1,20p' package.json",
+            "name": "sed",
+            "path": "/fixture/repo/package.json"
+          }
+        ],
+        "aggregatedOutput": "{\"name\":\"fixture\"}\n",
+        "exitCode": 0,
+        "durationMs": 42
+      }
+    },
+    {
+      "kind": "status",
+      "threadId": "codex-thread-fixture",
+      "notification": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "codex-thread-fixture",
+          "turnId": "turn-fixture",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 1200,
+              "inputTokens": 1000,
+              "cachedInputTokens": 100,
+              "outputTokens": 200,
+              "reasoningOutputTokens": 0
+            },
+            "last": {
+              "totalTokens": 200,
+              "inputTokens": 150,
+              "cachedInputTokens": 0,
+              "outputTokens": 50,
+              "reasoningOutputTokens": 0
+            },
+            "modelContextWindow": 258400
+          }
+        }
+      }
+    }
+  ],
+  "expectedEvents": [
+    {
+      "_tag": "ToolUse",
+      "itemId": "codex-read-1",
+      "tool": "Read",
+      "input": { "file_path": "/fixture/repo/package.json" }
+    },
+    {
+      "_tag": "ToolResult",
+      "itemId": "codex-read-1",
+      "output": "{\"name\":\"fixture\"}\n",
+      "isError": false
+    },
+    {
+      "_tag": "ContextUsage",
+      "providerId": "codex",
+      "usedTokens": 200,
+      "windowTokens": 258400,
+      "precision": "exact",
+      "source": "Codex app-server"
+    }
+  ]
+}

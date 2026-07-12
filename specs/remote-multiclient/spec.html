@@ -140,12 +140,12 @@
     <tr><td><code>apps/desktop</code></td><td>Electron main + preload; builds with tsdown → <code>dist-electron/*.cjs</code>; owns the Electron-specific glue (windows, menus, the IPC transport).</td></tr>
     <tr><td><code>apps/server</code> (<code>@zuse/server</code>)</td><td>All backend logic as a transport-agnostic Effect library: persistence, providers/drivers, git, pty, worktrees, permissions, credentials, code-index bridge, RPC handlers.</td></tr>
     <tr><td><code>apps/renderer</code></td><td>React UI; consumes the RPC client; no durable local state.</td></tr>
-    <tr><td><code>packages/wire</code> (<code>@zuse/wire</code>)</td><td>The entire RPC surface (~100 methods) as <code>@effect/rpc</code> + Schema definitions. Transport-agnostic.</td></tr>
+    <tr><td><code>packages/contracts</code> (<code>@zuse/contracts</code>)</td><td>The entire RPC surface (~100 methods) as <code>@effect/rpc</code> + Schema definitions. Transport-agnostic.</td></tr>
     <tr><td><code>apps/web</code>, <code>apps/mcp-server</code>, <code>packages/index</code>, …</td><td>Marketing site, MCP transport for the index engine, code-index service, etc.</td></tr>
   </table>
 
   <h3 id="today-transport">Transport &amp; RPC</h3>
-  <p>The contract lives in <code>packages/wire</code> as one <code>MemoizeRpcs = RpcGroup.make(...)</code>. The transport is a <code>RpcServer.Protocol</code> implementation. Today the only implementation is Electron IPC:</p>
+  <p>The contract lives in <code>packages/contracts</code> as one <code>MemoizeRpcs = RpcGroup.make(...)</code>. The transport is a <code>RpcServer.Protocol</code> implementation. Today the only implementation is Electron IPC:</p>
   <div class="diagram"><pre>renderer (RpcClient)
    │  electronClientProtocolLayer(bridge.rpc)  ── window.zuse bridge
    ▼  ipcRenderer.send(IPC_CHANNEL, frame)
@@ -311,7 +311,7 @@ Electron main
   <p>Change inventory by area. <span class="add">green = add</span>, <span class="del">red = change/replace</span>.</p>
   <table>
     <tr><th>Area</th><th>File(s)</th><th>Change</th><th>Track</th></tr>
-    <tr><td>Wire contract</td><td><code>packages/wire/src/session.ts</code>, <code>connect.ts</code>, <code>ids.ts</code></td><td><span class="add">+ <code>MessageEnvelope</code>, optional <code>sinceSequence</code>, <code>ProviderKind</code>/<code>EnvironmentDescriptor</code>/<code>connect.*</code>, <code>EnvironmentId</code></span>. <span class="del">PR-A2: flip <code>messages.stream</code> success → <code>MessageEnvelope</code></span></td><td>PR0 ✅ / A</td></tr>
+    <tr><td>Wire contract</td><td><code>packages/contracts/src/session.ts</code>, <code>connect.ts</code>, <code>ids.ts</code></td><td><span class="add">+ <code>MessageEnvelope</code>, optional <code>sinceSequence</code>, <code>ProviderKind</code>/<code>EnvironmentDescriptor</code>/<code>connect.*</code>, <code>EnvironmentId</code></span>. <span class="del">PR-A2: flip <code>messages.stream</code> success → <code>MessageEnvelope</code></span></td><td>PR0 ✅ / A</td></tr>
     <tr><td>SQLite driver</td><td><code>apps/server/src/persistence/sqlite.ts</code>, <code>db-path.ts</code></td><td><span class="del">replace better-sqlite3 <code>SqlClient</code> with a <code>node:sqlite</code>-backed one</span></td><td>A</td></tr>
     <tr><td>Schema</td><td><code>persistence/migrations/0020_events.ts</code>, <code>migrations.ts</code></td><td><span class="add">+ <code>events</code> table, <code>messages.sequence</code> column, backfill</span></td><td>A</td></tr>
     <tr><td>Write path</td><td><code>provider/layers/message-store.ts</code></td><td><span class="add">+ <code>appendEvent</code> / <code>projectEvent</code></span>; <span class="del"><code>persistMessage</code> routes through events; <code>streamMessages</code> becomes cursor-based; <code>broadcastMessage</code> publishes envelopes</span></td><td>A</td></tr>
@@ -416,7 +416,7 @@ export const wsClientProtocolLayer = (url) =&gt;
   <p><code>ssh -G host</code> resolves config → <code>ssh user@host sh -s -- &lt;stateKey&gt;</code> pipes a launch script that picks a free port, detects Node, runs <code>zuse serve</code> on <code>127.0.0.1:&lt;port&gt;</code> under <code>~/.zuse</code>, probes HTTP readiness, prints <code>{remotePort, serverKind}</code> → the desktop opens <code>-N -L 127.0.0.1:&lt;local&gt;:127.0.0.1:&lt;remote&gt;</code> and hands the renderer <code>ws://127.0.0.1:&lt;local&gt;/rpc</code>. An Effect <code>Scope</code> finalizer tears down the forward (SIGTERM→SIGKILL) and stops the remote server on disconnect.</p>
 
   <h3>5.6 Mobile: offline &amp; reconcile</h3>
-  <p>The Expo client imports <code>MemoizeRpcs</code> from <code>@zuse/wire</code> directly (the contract is transport-agnostic — no type duplication). It caches shell/thread snapshots as JSON in <code>expo-file-system</code> and the connection catalog (host + bearer, keyed by <code>environmentId</code>) in <code>expo-secure-store</code>. On launch it renders the snapshot instantly, then opens the stream with the snapshot's highest <code>sequence</code> as <code>sinceSequence</code> and reconciles the delta.</p>
+  <p>The Expo client imports <code>MemoizeRpcs</code> from <code>@zuse/contracts</code> directly (the contract is transport-agnostic — no type duplication). It caches shell/thread snapshots as JSON in <code>expo-file-system</code> and the connection catalog (host + bearer, keyed by <code>environmentId</code>) in <code>expo-secure-store</code>. On launch it renders the snapshot instantly, then opens the stream with the snapshot's highest <code>sequence</code> as <code>sinceSequence</code> and reconciles the delta.</p>
 
   <!-- ============================ DATA MODEL ============================ -->
   <h2 id="datamodel">6 · Data model reference</h2>

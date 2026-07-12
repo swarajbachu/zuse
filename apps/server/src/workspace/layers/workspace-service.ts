@@ -1,5 +1,5 @@
-import { FileSystem } from "@effect/platform";
-import { SqlClient } from "@effect/sql";
+import { FileSystem } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { Effect, Layer } from "effect";
 import * as Path from "node:path";
 
@@ -9,9 +9,9 @@ import {
   WorkspaceDuplicatePathError,
   WorkspaceInvalidPathError,
   WorkspaceNotFoundError,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
-import { IndexRegistry } from "../../code-index/services/index-registry.ts";
+import { prepareProjectRegistration } from "../project-registration.ts";
 import { WorkspaceService } from "../services/workspace-service.ts";
 
 interface ProjectRow {
@@ -36,24 +36,8 @@ export const WorkspaceServiceLive = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const fs = yield* FileSystem.FileSystem;
-    const indexRegistry = yield* IndexRegistry;
 
-    // Kick off (or no-op into) the per-workspace code index. Fire-and-forget:
-    // the RPC returns immediately and the renderer learns about progress via
-    // `index.statusStream`. Errors are swallowed at this layer — the index
-    // surface reports its own state through the stream.
-    const triggerIndex = (path: string): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const handle = yield* indexRegistry.getHandle(path, "HEAD");
-        yield* Effect.forkDaemon(
-          Effect.tryPromise({
-            try: () => handle.ensureIndexed(),
-            catch: (cause) => new Error(`ensureIndexed failed: ${String(cause)}`),
-          }).pipe(Effect.ignore),
-        );
-      });
-
-    const list: WorkspaceService["Type"]["list"] = () =>
+    const list: WorkspaceService["Service"]["list"] = () =>
       Effect.gen(function* () {
         const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at
@@ -63,7 +47,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return rows.map(rowToFolder);
       });
 
-    const findById: WorkspaceService["Type"]["findById"] = (folderId) =>
+    const findById: WorkspaceService["Service"]["findById"] = (folderId) =>
       Effect.gen(function* () {
         const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at
@@ -74,7 +58,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return rows.length > 0 ? rowToFolder(rows[0]!) : null;
       });
 
-    const add: WorkspaceService["Type"]["add"] = (rawPath) =>
+    const add: WorkspaceService["Service"]["add"] = (rawPath) =>
       Effect.gen(function* () {
         const resolved = Path.resolve(rawPath);
 
@@ -105,6 +89,15 @@ export const WorkspaceServiceLive = Layer.effect(
           );
         }
 
+        yield* Effect.tryPromise({
+          try: () => prepareProjectRegistration(resolved),
+          catch: (cause) =>
+            new WorkspaceInvalidPathError({
+              path: resolved,
+              reason: `could not prepare project metadata: ${String(cause)}`,
+            }),
+        });
+
         const id = FolderId.make(crypto.randomUUID());
         const name = Path.basename(resolved) || resolved;
         const now = new Date();
@@ -115,20 +108,16 @@ export const WorkspaceServiceLive = Layer.effect(
           VALUES (${id}, ${resolved}, ${name}, ${nowIso}, ${nowIso})
         `.pipe(Effect.orDie);
 
-        yield* triggerIndex(resolved);
-
         return Folder.make({ id, path: resolved, name, addedAt: now });
       });
 
-    const remove: WorkspaceService["Type"]["remove"] = (folderId) =>
+    const remove: WorkspaceService["Service"]["remove"] = (folderId) =>
       Effect.gen(function* () {
         const existing = yield* sql<{ id: string }>`
           SELECT id FROM projects WHERE id = ${folderId} LIMIT 1
         `.pipe(Effect.orDie);
         if (existing.length === 0) {
-          return yield* Effect.fail(
-            new WorkspaceNotFoundError({ folderId }),
-          );
+          return yield* Effect.fail(new WorkspaceNotFoundError({ folderId }));
         }
         yield* sql`DELETE FROM projects WHERE id = ${folderId}`.pipe(
           Effect.orDie,
@@ -142,7 +131,7 @@ export const WorkspaceServiceLive = Layer.effect(
         `.pipe(Effect.orDie);
       });
 
-    const getSelected: WorkspaceService["Type"]["getSelected"] = () =>
+    const getSelected: WorkspaceService["Service"]["getSelected"] = () =>
       Effect.gen(function* () {
         const rows = yield* sql<{ value: string }>`
           SELECT value FROM app_state WHERE key = ${SELECTED_KEY} LIMIT 1
@@ -156,7 +145,7 @@ export const WorkspaceServiceLive = Layer.effect(
         return known.length > 0 ? id : null;
       });
 
-    const setSelected: WorkspaceService["Type"]["setSelected"] = (folderId) =>
+    const setSelected: WorkspaceService["Service"]["setSelected"] = (folderId) =>
       Effect.gen(function* () {
         if (folderId === null) {
           yield* sql`DELETE FROM app_state WHERE key = ${SELECTED_KEY}`.pipe(
@@ -177,14 +166,6 @@ export const WorkspaceServiceLive = Layer.effect(
           INSERT INTO app_state (key, value) VALUES (${SELECTED_KEY}, ${folderId})
           ON CONFLICT(key) DO UPDATE SET value = excluded.value
         `.pipe(Effect.orDie);
-
-        // Resolve to the folder's path and kick off (or no-op) its index.
-        const rows = yield* sql<{ path: string }>`
-          SELECT path FROM projects WHERE id = ${folderId} LIMIT 1
-        `.pipe(Effect.orDie);
-        if (rows.length > 0) {
-          yield* triggerIndex(rows[0]!.path);
-        }
       });
 
     return {

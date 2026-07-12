@@ -1,4 +1,4 @@
-import type { ChatId } from "@zuse/wire";
+import type { ChatId } from "@zuse/contracts";
 
 import {
   type TerminalInstance,

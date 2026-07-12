@@ -2,7 +2,6 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import type {
-  AgentDefinition,
   Chat,
   ChatId,
   FolderId,
@@ -12,7 +11,7 @@ import type {
   Session,
   SessionId,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -46,9 +45,7 @@ const defaultArchiveDirtyConfirm: ArchiveDirtyConfirm = () => {
 
 let archiveDirtyConfirm: ArchiveDirtyConfirm = defaultArchiveDirtyConfirm;
 
-export const setArchiveDirtyConfirm = (
-  confirm: ArchiveDirtyConfirm,
-): void => {
+export const setArchiveDirtyConfirm = (confirm: ArchiveDirtyConfirm): void => {
   archiveDirtyConfirm = confirm;
 };
 
@@ -88,8 +85,6 @@ type ChatsState = {
       readonly initialPrompt?: string;
       readonly runtimeMode?: RuntimeMode;
       readonly worktreeId?: WorktreeId | null;
-      readonly agents?: Readonly<Record<string, AgentDefinition>>;
-      readonly enableSubagents?: boolean;
       readonly permissionMode?: PermissionMode;
       readonly toolSearch?: boolean;
     },
@@ -160,13 +155,24 @@ const findChatProject = (
   return null;
 };
 
+const chatSortTime = (chat: Chat): number =>
+  (chat.updatedAt ?? chat.createdAt).getTime();
+
+const upsertChat = (
+  chats: ReadonlyArray<Chat>,
+  chat: Chat,
+): ReadonlyArray<Chat> =>
+  [chat, ...chats.filter((row) => row.id !== chat.id)].sort(
+    (a, b) => chatSortTime(b) - chatSortTime(a),
+  );
+
 /**
  * Live `chat.streamChanges` subscription per project — one long-lived fiber
  * keyed by projectId. Carries server-side chat-row patches (notably the
  * background auto-namer rewriting a new chat's title after its first
  * message) so the sidebar updates without a manual refetch.
  */
-const changeFibers = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>();
+const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const ensureChangeStream = (projectId: FolderId): void => {
   if (changeFibers.has(projectId)) return;
@@ -178,17 +184,46 @@ const ensureChangeStream = (projectId: FolderId): void => {
       Effect.flatMap(
         Effect.promise(() => getRpcClient()),
         (client) =>
-          Stream.runForEach(client.chat.streamChanges({ projectId }), (chat) =>
+          Stream.runForEach(client["chat.streamChanges"]({ projectId }), (chat) =>
             Effect.sync(() => {
+              let inserted = false;
               useChatsStore.setState((s) => {
                 const chats = s.chatsByProject[projectId];
                 if (chats === undefined) return s;
-                if (!chats.some((c) => c.id === chat.id)) return s;
+                inserted = !chats.some((c) => c.id === chat.id);
                 return {
                   chatsByProject: {
                     ...s.chatsByProject,
-                    [projectId]: chats.map((c) =>
-                      c.id === chat.id ? chat : c,
+                    [projectId]: upsertChat(chats, chat),
+                  },
+                };
+              });
+              if (inserted) {
+                void useSessionsStore.getState().hydrate(projectId);
+              }
+              const activeSessionId = chat.activeSessionId;
+              if (activeSessionId !== null) {
+                const knownSessions =
+                  useSessionsStore.getState().sessionsByProject[projectId];
+                if (
+                  knownSessions !== undefined &&
+                  !knownSessions.some((row) => row.id === activeSessionId)
+                ) {
+                  void useSessionsStore.getState().hydrate(projectId);
+                }
+              }
+              // Mirror the server-side auto-namer onto member session tabs.
+              useSessionsStore.setState((s) => {
+                const sessions = s.sessionsByProject[projectId];
+                if (sessions === undefined) return s;
+                if (!sessions.some((row) => row.chatId === chat.id)) return s;
+                return {
+                  sessionsByProject: {
+                    ...s.sessionsByProject,
+                    [projectId]: sessions.map((row) =>
+                      row.chatId === chat.id
+                        ? { ...row, title: chat.title }
+                        : row,
                     ),
                   },
                 };
@@ -218,7 +253,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       const client = await getRpcClient();
       const includeArchived = get().showArchivedByProject[projectId] === true;
       const chats = await Effect.runPromise(
-        client.chat.list({ projectId, includeArchived }),
+        client["chat.list"]({ projectId, includeArchived }),
       );
       set((s) => ({
         chatsByProject: { ...s.chatsByProject, [projectId]: chats },
@@ -242,7 +277,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const result = await Effect.runPromise(
-        client.chat.create({
+        client["chat.create"]({
           projectId,
           providerId,
           model,
@@ -250,8 +285,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
           initialPrompt: opts?.initialPrompt,
           runtimeMode: opts?.runtimeMode,
           worktreeId: opts?.worktreeId ?? null,
-          agents: opts?.agents,
-          enableSubagents: opts?.enableSubagents,
           permissionMode: opts?.permissionMode,
           toolSearch: opts?.toolSearch,
         }),
@@ -277,7 +310,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
         return {
           chatsByProject: {
             ...s.chatsByProject,
-            [projectId]: [chat, ...existing],
+            [projectId]: upsertChat(existing, chat),
           },
           selectedChatId: chat.id,
           selectedChatByProject: {
@@ -321,7 +354,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.chat.rename({ chatId, title }));
+      await Effect.runPromise(client["chat.rename"]({ chatId, title }));
       set((s) => {
         const projectId = findChatProject(s.chatsByProject, chatId);
         if (projectId === null) return {};
@@ -348,7 +381,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const chat = await Effect.runPromise(
-        client.chat.setWorktree({ chatId, worktreeId }),
+        client["chat.setWorktree"]({ chatId, worktreeId }),
       );
       set((s) => {
         const projectId = findChatProject(s.chatsByProject, chatId);
@@ -408,7 +441,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.chat.setActiveSession({ chatId, sessionId }),
+        client["chat.setActiveSession"]({ chatId, sessionId }),
       );
     } catch (err) {
       set({ error: formatError(err) });
@@ -419,7 +452,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     try {
       const client = await getRpcClient();
       const result = await Effect.runPromise(
-        client.chat.archive({ chatId, force }),
+        client["chat.archive"]({ chatId, force }),
       );
       const projectId = findChatProject(get().chatsByProject, chatId);
       if (projectId !== null) {
@@ -509,7 +542,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client.chat.unarchive({ chatId }));
+      const result = await Effect.runPromise(client["chat.unarchive"]({ chatId }));
       const projectId = findChatProject(get().chatsByProject, chatId);
       const resolvedProjectId = projectId ?? result.chat.projectId;
       set((s) => {
@@ -564,7 +597,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.chat.delete({ chatId }));
+      await Effect.runPromise(client["chat.delete"]({ chatId }));
       const projectId = findChatProject(get().chatsByProject, chatId);
       set((s) => {
         if (projectId === null) return {};
@@ -688,7 +721,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     });
     try {
       const client = await getRpcClient();
-      const updated = await Effect.runPromise(client.chat.markRead({ chatId }));
+      const updated = await Effect.runPromise(client["chat.markRead"]({ chatId }));
       set((s) => {
         const chats = s.chatsByProject[projectId] ?? [];
         return {

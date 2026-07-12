@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option, Stream } from "effect";
+import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 import * as os from "node:os";
 
 import {
@@ -7,7 +7,7 @@ import {
   type FolderId,
   type ProviderId,
   type RuntimeMode,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { ProviderService } from "./services/provider-service.ts";
 
@@ -15,18 +15,68 @@ import { ProviderService } from "./services/provider-service.ts";
 const TITLE_TIMEOUT_MS = 25_000;
 
 const PROMPT_PREFIX = [
-  "Summarize the following coding task as a SHORT title of 3 to 5 words in Title Case.",
+  "Summarize the following conversation as a SHORT title of 3 to 5 words in Title Case.",
   "Reply with ONLY the title — no quotes, no punctuation, no preamble, no explanation.",
   "Do NOT use any tools, do NOT read or write files, do NOT run commands. Just output the title text.",
   "",
-  "Task:",
+  "Conversation:",
   "",
 ].join("\n");
+
+/** Greetings / filler the auto-namer should ignore until more context arrives. */
+const TRIVIAL_USER_MESSAGE_RE =
+  /^(hi|hey|yo|hello|sup|hiya|howdy|gm|gn|thanks|thx|ok|okay|yes|no|sure|cool|nice|lol|haha|test)[\s!.?]*$/i;
+
+/**
+ * True when a lone user message is too short or conversational to name from.
+ * Used to defer auto-naming until the user sends a real task or the assistant
+ * replies.
+ */
+export const isTrivialUserMessage = (text: string): boolean => {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return true;
+  if (trimmed.length <= 3) return true;
+  return TRIVIAL_USER_MESSAGE_RE.test(trimmed);
+};
+
+/**
+ * Hold off on LLM auto-naming while the thread is only trivial user ping(s)
+ * and the assistant hasn't replied yet.
+ */
+export const shouldDeferAutoName = (
+  userTexts: readonly string[],
+  assistantTexts: readonly string[],
+): boolean => {
+  if (userTexts.length === 0) return true;
+  const combinedUser = userTexts
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .join(" ");
+  if (combinedUser.length === 0) return true;
+  if (assistantTexts.length > 0) return false;
+  if (userTexts.every(isTrivialUserMessage)) return true;
+  return false;
+};
+
+/** Render user/assistant turns into the throwaway title prompt body. */
+export const buildConversationText = (
+  turns: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly text: string }>,
+): string =>
+  turns
+    .map((turn) => {
+      const label = turn.role === "user" ? "User" : "Assistant";
+      const text = turn.text.trim();
+      if (text.length === 0) return null;
+      return `${label}: ${text}`;
+    })
+    .filter((line): line is string => line !== null)
+    .join("\n\n")
+    .slice(0, 4000);
 
 /* ──────────────────────────── pure helpers ──────────────────────────── */
 
 /**
- * First-line truncation fallback — identical in spirit to the message-store
+ * First-line truncation fallback — identical in spirit to the conversation-services
  * helper of the same shape. Used whenever the model call is unavailable
  * (offline, provider not installed) or returns nothing usable, so a chat is
  * never left on its "New chat" placeholder.
@@ -128,8 +178,8 @@ export interface GenerateTitleInput {
   readonly providerId: ProviderId;
   /** The chat's chosen model. */
   readonly model: string;
-  /** The user's first message. */
-  readonly firstMessage: string;
+  /** Recent user/assistant turns to summarize. */
+  readonly conversationText: string;
 }
 
 export interface TitleGeneratorShape {
@@ -142,10 +192,10 @@ export interface TitleGeneratorShape {
   readonly generate: (input: GenerateTitleInput) => Effect.Effect<string>;
 }
 
-export class TitleGenerator extends Context.Tag("memoize/TitleGenerator")<
+export class TitleGenerator extends Context.Service<
   TitleGenerator,
   TitleGeneratorShape
->() {}
+>()("memoize/TitleGenerator") {}
 
 export const TitleGeneratorLive = Layer.effect(
   TitleGenerator,
@@ -161,9 +211,9 @@ export const TitleGeneratorLive = Layer.effect(
 
     const generate: TitleGeneratorShape["generate"] = (input) =>
       Effect.gen(function* () {
-        const fallback = fallbackTitle(input.firstMessage);
+        const fallback = fallbackTitle(input.conversationText);
         const sid = AgentSessionId.make(`title-${crypto.randomUUID()}`);
-        const prompt = `${PROMPT_PREFIX}${input.firstMessage.slice(0, 2000)}`;
+        const prompt = `${PROMPT_PREFIX}${input.conversationText.slice(0, 4000)}`;
 
         const text = yield* Effect.gen(function* () {
           yield* provider.start(
@@ -186,8 +236,8 @@ export const TitleGeneratorLive = Layer.effect(
             Stream.filterMap((event) =>
               event._tag === "AssistantMessage" &&
               event.text.trim().length > 0
-                ? Option.some(event.text)
-                : Option.none(),
+                ? Result.succeed(event.text)
+                : Result.fail(undefined),
             ),
             Stream.take(1),
             Stream.runHead,
@@ -197,11 +247,11 @@ export const TitleGeneratorLive = Layer.effect(
           // Always tear the throwaway session down — on success, timeout, or
           // failure — so we never leak a CLI/SDK process.
           Effect.ensuring(
-            provider.close(sid).pipe(Effect.catchAll(() => Effect.void)),
+            provider.close(sid).pipe(Effect.catch(() => Effect.void)),
           ),
           Effect.timeoutOption(`${TITLE_TIMEOUT_MS} millis`),
           Effect.map((maybe) => Option.getOrElse(maybe, () => "")),
-          Effect.catchAll(() => Effect.succeed("")),
+          Effect.catch(() => Effect.succeed("")),
         );
 
         const cleaned = cleanTitle(text);

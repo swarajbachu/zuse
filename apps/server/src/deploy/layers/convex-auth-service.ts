@@ -4,7 +4,7 @@ import {
   ConvexAuthError,
   ConvexAuthRequiredError,
   ConvexConnection,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { AuthService } from "../../auth/services/auth-service.ts";
 import { AuthShell } from "../../auth/services/auth-shell.ts";
@@ -131,13 +131,13 @@ export const ConvexAuthServiceLive = Layer.effect(
 
     const readBundle = (): Effect.Effect<ConvexBundle | null> =>
       credentials.getSecret(CONVEX_OAUTH_ACCOUNT).pipe(
-        Effect.catchAll(() => Effect.succeed<string | null>(null)),
+        Effect.catch(() => Effect.succeed<string | null>(null)),
         Effect.map(parseBundle),
       );
 
     const persist = (bundle: ConvexBundle): Effect.Effect<void> =>
       credentials.setSecret(CONVEX_OAUTH_ACCOUNT, JSON.stringify(bundle)).pipe(
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.sync(() => {
             console.error("[zuse] failed to persist convex connection", cause);
           }),
@@ -175,27 +175,27 @@ export const ConvexAuthServiceLive = Layer.effect(
             codeVerifier: inflight.verifier,
             redirectUri: shell.convexRedirectUri,
           })
-          .pipe(Effect.either);
-        if (result._tag === "Left") {
+          .pipe(Effect.result);
+        if (result._tag === "Failure") {
           yield* Deferred.fail(
             inflight.deferred,
-            new ConvexAuthError({ reason: result.left.reason }),
+            new ConvexAuthError({ reason: result.failure.reason }),
           );
           return;
         }
 
-        const details = yield* fetchTokenDetails(result.right.accessToken).pipe(
-          Effect.either,
+        const details = yield* fetchTokenDetails(result.success.accessToken).pipe(
+          Effect.result,
         );
-        if (details._tag === "Left") {
-          yield* Deferred.fail(inflight.deferred, details.left);
+        if (details._tag === "Failure") {
+          yield* Deferred.fail(inflight.deferred, details.failure);
           return;
         }
 
         const bundle: ConvexBundle = {
-          accessToken: result.right.accessToken,
-          teamId: details.right.teamId,
-          teamSlug: details.right.teamSlug,
+          accessToken: result.success.accessToken,
+          teamId: details.success.teamId,
+          teamSlug: details.success.teamSlug,
           connectedAt: new Date().toISOString(),
         };
         yield* persist(bundle);
@@ -230,14 +230,26 @@ export const ConvexAuthServiceLive = Layer.effect(
         });
         yield* shell.open(
           authorizeUrl(pkce.challenge, pkce.state, shell.convexRedirectUri),
+        ).pipe(
+          Effect.mapError(
+            (err) =>
+              new ConvexAuthError({
+                reason:
+                  err instanceof Error
+                    ? err.message
+                    : "Could not open browser for Convex connect.",
+              }),
+          ),
         );
         const bundle = yield* Deferred.await(deferred).pipe(
-          Effect.timeoutFail({
+          Effect.timeoutOrElse({
             duration: CONNECT_TIMEOUT,
-            onTimeout: () =>
-              new ConvexAuthError({
-                reason: "Timed out waiting for Convex authorization.",
-              }),
+            orElse: () =>
+              Effect.fail(
+                new ConvexAuthError({
+                  reason: "Timed out waiting for Convex authorization.",
+                }),
+              ),
           }),
           Effect.ensuring(Ref.set(pending, null)),
         );
@@ -252,7 +264,7 @@ export const ConvexAuthServiceLive = Layer.effect(
     const disconnect = (): Effect.Effect<void> =>
       credentials
         .removeSecret(CONVEX_OAUTH_ACCOUNT)
-        .pipe(Effect.catchAll(() => Effect.void));
+        .pipe(Effect.catch(() => Effect.void));
 
     const getToken = (): Effect.Effect<string, ConvexAuthRequiredError> =>
       readBundle().pipe(
@@ -267,6 +279,6 @@ export const ConvexAuthServiceLive = Layer.effect(
       Effect.runFork(deliverCallback(url));
     });
 
-    return { status, connect, disconnect, getToken } as const;
+    return ConvexAuthService.of({ status, connect, disconnect, getToken });
   }),
 );

@@ -353,7 +353,7 @@ Two consumption shapes.
 Codex SDK adapters register five custom tools at session start:
 
 ```ts
-// apps/server/src/provider/drivers/claude.ts (additions)
+// packages/agents/src/drivers/claude.ts (additions)
 registerTool("code_search",     IndexService.search)
 registerTool("symbol_lookup",   IndexService.symbolLookup)
 registerTool("find_references", IndexService.findReferences)
@@ -421,7 +421,7 @@ See [ADR 0018](../decisions/0018-mcp-server-as-app.md) for why
 
 ## RPC contracts (renderer ↔ server)
 
-New methods in `packages/wire/src/index.ts`:
+New methods in `packages/contracts/src/index.ts`:
 
 ```ts
 "index.status"        // {} → { state: "idle" | "indexing" | "ready" | "error", progress?: { processed: number; total: number } }

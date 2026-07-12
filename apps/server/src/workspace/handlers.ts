@@ -1,4 +1,4 @@
-import { MemoizeRpcs } from "@zuse/wire";
+import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
 import { FileSearchService } from "./services/file-search.ts";

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import type { AppearanceMode } from "@zuse/wire";
+import type { AppearanceMode } from "@zuse/contracts";
 
 import { useSettingsStore } from "../store/settings.ts";
 

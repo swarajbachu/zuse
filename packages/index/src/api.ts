@@ -65,7 +65,7 @@ export interface IndexServiceShape {
   }) => Effect.Effect<ReadonlyArray<SymbolSummary>, IndexError>;
 }
 
-export class IndexService extends Context.Tag("memoize/IndexService")<
+export class IndexService extends Context.Service<
   IndexService,
   IndexServiceShape
->() {}
+>()("memoize/IndexService") {}

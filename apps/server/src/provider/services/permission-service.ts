@@ -8,7 +8,7 @@ import type {
   PermissionRequestNotFoundError,
   SavedDecision,
   SessionId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Bridge between provider drivers (which call `request` from inside their
@@ -69,6 +69,6 @@ export interface PermissionServiceShape {
   readonly revokeDecision: (requestId: string) => Effect.Effect<void>;
 }
 
-export class PermissionService extends Context.Tag(
+export class PermissionService extends Context.Service<PermissionService, PermissionServiceShape>()(
   "memoize/PermissionService",
-)<PermissionService, PermissionServiceShape>() {}
+) {}

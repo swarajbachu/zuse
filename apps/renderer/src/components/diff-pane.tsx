@@ -1,5 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert01Icon, ArrowRight01Icon, ArrowTurnDownIcon, Loading02Icon, MinusSignIcon, RotateLeft01Icon, Tick02Icon, Upload01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  Alert01Icon,
+  ArrowRight01Icon,
+  ArrowTurnDownIcon,
+  Loading02Icon,
+  MinusSignIcon,
+  Tick02Icon,
+  UndoIcon,
+  Upload01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { Effect } from "effect";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -9,15 +18,32 @@ import type {
   GitChange,
   GitChangeKind,
   WorktreeId,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
-import { GitInitCta } from "./git-init-cta.tsx";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useUiStore } from "../store/ui.ts";
+import { GitInitCta } from "./git-init-cta.tsx";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
+import { Button } from "./ui/button.tsx";
+import {
+  Frame,
+  FrameFooter,
+  FrameHeader,
+  FramePanel,
+  FrameTitle,
+} from "./ui/frame.tsx";
 
 const basename = (path: string): string => {
   const i = path.lastIndexOf("/");
@@ -39,6 +65,15 @@ const prFileKind = (additions: number, deletions: number): GitChangeKind => {
   if (deletions > 0 && additions === 0) return "deleted";
   return "modified";
 };
+
+type RevertRequest =
+  | { readonly type: "all" }
+  | {
+      readonly type: "file";
+      readonly path: string;
+      readonly kind: GitChangeKind;
+      readonly oldPath: string | null;
+    };
 
 /**
  * Right-pane "Changes" tab. Combines the working-tree change list (with a
@@ -89,6 +124,10 @@ export function DiffPane({
 
   // Paths the user has unchecked for the next commit (see `committable` below).
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
+  const [revertRequest, setRevertRequest] = useState<RevertRequest | null>(
+    null,
+  );
+  const [revertBusy, setRevertBusy] = useState(false);
 
   // Poll the working tree on the same 5s cadence the top bar uses for
   // `git status`, so the Changes tab stays in sync with the dirty-count badge.
@@ -124,46 +163,46 @@ export function DiffPane({
 
   const prFiles = prDetails?.files ?? [];
 
-  const revertFile = async (
+  const requestRevertFile = (
     path: string,
     kind: GitChangeKind,
     oldPath?: string | null,
   ) => {
-    const confirmText =
-      kind === "untracked"
-        ? `Delete "${basename(path)}"? It will be removed from disk.`
-        : `Revert changes to "${basename(path)}"? This discards its uncommitted changes.`;
-    if (!window.confirm(confirmText)) return;
-    try {
-      const client = await getRpcClient();
-      await Effect.runPromise(
-        client.git.revertFile({
-          folderId,
-          worktreeId,
-          path,
-          oldPath: oldPath ?? null,
-          kind,
-        }),
-      );
-      await refreshAll();
-    } catch (err) {
-      window.alert(`Couldn't revert: ${formatErr(err)}`);
-    }
+    setRevertRequest({
+      type: "file",
+      path,
+      kind,
+      oldPath: oldPath ?? null,
+    });
   };
 
-  const revertAll = async () => {
-    if (
-      !window.confirm(
-        "Revert all changes? This discards every uncommitted change and deletes untracked files. This cannot be undone.",
-      )
-    )
-      return;
+  const requestRevertAll = () => setRevertRequest({ type: "all" });
+
+  const confirmRevert = async () => {
+    const request = revertRequest;
+    if (request === null || revertBusy) return;
+    setRevertBusy(true);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.git.revertAll({ folderId, worktreeId }));
+      if (request.type === "all") {
+        await Effect.runPromise(client["git.revertAll"]({ folderId, worktreeId }));
+      } else {
+        await Effect.runPromise(
+          client["git.revertFile"]({
+            folderId,
+            worktreeId,
+            path: request.path,
+            oldPath: request.oldPath,
+            kind: request.kind,
+          }),
+        );
+      }
+      setRevertRequest(null);
       await refreshAll();
     } catch (err) {
       window.alert(`Couldn't revert: ${formatErr(err)}`);
+    } finally {
+      setRevertBusy(false);
     }
   };
 
@@ -202,11 +241,7 @@ export function DiffPane({
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-3 text-xs">
         {conflicts.length > 0 ? (
-          <Section
-            title="Conflicts"
-            counter={conflicts.length}
-            tone="warning"
-          >
+          <Section title="Conflicts" counter={conflicts.length} tone="warning">
             <p className="text-muted-foreground">
               Resolve these files, then commit. Click a file to open it.
             </p>
@@ -240,11 +275,15 @@ export function DiffPane({
             committable.length > 0 ? (
               <button
                 type="button"
-                onClick={revertAll}
+                onClick={requestRevertAll}
                 className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-destructive"
                 title="Discard every uncommitted change"
               >
-                <HugeiconsIcon icon={RotateLeft01Icon} className="size-2.5" strokeWidth={2} />
+                <HugeiconsIcon
+                  icon={UndoIcon}
+                  className="size-2.5"
+                  strokeWidth={2}
+                />
                 Revert all
               </button>
             ) : null
@@ -253,12 +292,16 @@ export function DiffPane({
           {changesErrorTag === "GitNotARepoError" ? (
             <GitInitCta folderId={folderId} worktreeId={worktreeId} />
           ) : changesError !== null ? (
-            <p className="text-destructive">Couldn't read git status: {changesError}</p>
+            <p className="text-destructive">
+              Couldn't read git status: {changesError}
+            </p>
           ) : changesLoading && changes === null ? (
             <Indicator title="Reading working tree…" />
           ) : tracked.length + untracked.length === 0 ? (
             <Indicator
-              title={conflicts.length > 0 ? "No other changes" : "Working tree clean"}
+              title={
+                conflicts.length > 0 ? "No other changes" : "Working tree clean"
+              }
               body={
                 conflicts.length > 0
                   ? "Resolve the conflicts above to continue."
@@ -270,7 +313,7 @@ export function DiffPane({
               folderId={folderId}
               worktreeId={worktreeId}
               entries={committable}
-              onRevert={revertFile}
+              onRevert={requestRevertFile}
               isSelected={(path) => !excluded.has(path)}
               onToggleSelect={togglePath}
             />
@@ -279,10 +322,14 @@ export function DiffPane({
 
         {prFiles.length > 0 ? (
           <Section
-            title={pr !== null && pr.number !== null ? `In PR #${pr.number}` : "In this PR"}
+            title={
+              pr !== null && pr.number !== null
+                ? `In PR #${pr.number}`
+                : "In this PR"
+            }
             counter={prFiles.length}
           >
-            <ul className="flex flex-col">
+            <ul className="flex flex-col divide-y divide-border/45">
               {prFiles.map((f) => (
                 <FileRow
                   key={f.path}
@@ -311,6 +358,14 @@ export function DiffPane({
         onAfterCommit={onAfterCommit}
         onAfterPush={refreshAll}
       />
+      <RevertChangesDialog
+        request={revertRequest}
+        busy={revertBusy}
+        onOpenChange={(open) => {
+          if (!open && !revertBusy) setRevertRequest(null);
+        }}
+        onConfirm={() => void confirmRevert()}
+      />
     </div>
   );
 }
@@ -336,7 +391,7 @@ function ChangeList({
 }) {
   return (
     <div className="flex flex-col">
-      <ul className="flex flex-col">
+      <ul className="flex flex-col divide-y divide-border/45">
         {entries.map((c) => (
           <FileRow
             key={c.path}
@@ -356,6 +411,69 @@ function ChangeList({
         ))}
       </ul>
     </div>
+  );
+}
+
+function RevertChangesDialog({
+  request,
+  busy,
+  onOpenChange,
+  onConfirm,
+}: {
+  request: RevertRequest | null;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const isFile = request?.type === "file";
+  const isUntracked = isFile && request.kind === "untracked";
+  const title =
+    request?.type === "all"
+      ? "Revert all changes?"
+      : isUntracked
+        ? "Delete untracked file?"
+        : "Revert file changes?";
+  const description =
+    request?.type === "all"
+      ? "This discards every uncommitted change and deletes untracked files. This cannot be undone."
+      : isUntracked
+        ? `"${basename(request.path)}" will be removed from disk. This cannot be undone.`
+        : request !== null
+          ? `Uncommitted changes in "${basename(request.path)}" will be discarded. This cannot be undone.`
+          : "";
+  const actionLabel =
+    request?.type === "all"
+      ? "Revert all"
+      : isUntracked
+        ? "Delete file"
+        : "Revert file";
+
+  return (
+    <AlertDialog open={request !== null} onOpenChange={onOpenChange}>
+      <AlertDialogPopup className="max-w-sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogClose
+            render={
+              <Button type="button" variant="ghost" disabled={busy}>
+                Cancel
+              </Button>
+            }
+          />
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Reverting..." : actionLabel}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogPopup>
+    </AlertDialog>
   );
 }
 
@@ -386,7 +504,7 @@ function FileRow({
   const renamed = oldPath !== null && oldPath !== undefined && oldPath !== path;
   const tooltip = renamed ? `${oldPath} → ${path}` : path;
   return (
-    <li className="group -mx-1 flex w-[calc(100%+0.5rem)] items-center gap-2 rounded-sm px-1.5 py-1 transition-colors hover:bg-foreground/5">
+    <li className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
       {onToggleSelect ? (
         <CheckBox
           checked={selected === true}
@@ -409,7 +527,9 @@ function FileRow({
         className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
         title={tooltip}
       >
-        {renamed ? <RenameLabel oldPath={oldPath!} newPath={path} /> : (
+        {renamed ? (
+          <RenameLabel oldPath={oldPath!} newPath={path} />
+        ) : (
           <PathLabel path={path} />
         )}
       </button>
@@ -422,9 +542,9 @@ function FileRow({
             {typeof additions === "number" &&
             typeof deletions === "number" &&
             additions > 0 &&
-            deletions > 0 ? (
-              " "
-            ) : null}
+            deletions > 0
+              ? " "
+              : null}
             {typeof deletions === "number" && deletions > 0 ? (
               <span className="text-destructive">−{deletions}</span>
             ) : null}
@@ -444,7 +564,7 @@ function FileRow({
                 : "Revert changes to this file"
             }
           >
-            <HugeiconsIcon icon={RotateLeft01Icon} className="size-3" strokeWidth={2} />
+            <HugeiconsIcon icon={UndoIcon} className="size-3" strokeWidth={2} />
           </button>
         ) : null}
         <KindBox kind={kind} />
@@ -471,7 +591,13 @@ function PathLabel({ path }: { path: string }) {
  * only shows the part that actually moved (`bar.ts → baz.ts`), with the
  * shared parent directory faded after.
  */
-function RenameLabel({ oldPath, newPath }: { oldPath: string; newPath: string }) {
+function RenameLabel({
+  oldPath,
+  newPath,
+}: {
+  oldPath: string;
+  newPath: string;
+}) {
   const oldDir = dirname(oldPath);
   const newDir = dirname(newPath);
   const oldName = basename(oldPath);
@@ -481,7 +607,10 @@ function RenameLabel({ oldPath, newPath }: { oldPath: string; newPath: string })
     <>
       <span className="flex min-w-0 items-baseline gap-1 truncate font-mono text-xs text-foreground">
         <span className="truncate">{oldName}</span>
-        <HugeiconsIcon icon={ArrowRight01Icon} className="size-3 shrink-0 text-muted-foreground" />
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          className="size-3 shrink-0 text-muted-foreground"
+        />
         <span className="truncate">{newName}</span>
       </span>
       <span className="truncate font-mono text-[11px] text-muted-foreground">
@@ -511,7 +640,11 @@ function KindBox({ kind }: { kind: GitChangeKind }) {
     case "deleted":
       return (
         <Box tone="rose">
-          <HugeiconsIcon icon={MinusSignIcon} className="size-2.5" strokeWidth={3} />
+          <HugeiconsIcon
+            icon={MinusSignIcon}
+            className="size-2.5"
+            strokeWidth={3}
+          />
         </Box>
       );
     case "modified":
@@ -526,7 +659,11 @@ function KindBox({ kind }: { kind: GitChangeKind }) {
     case "unmerged":
       return (
         <Box tone="rose">
-          <HugeiconsIcon icon={Alert01Icon} className="size-2.5" strokeWidth={2.5} />
+          <HugeiconsIcon
+            icon={Alert01Icon}
+            className="size-2.5"
+            strokeWidth={2.5}
+          />
         </Box>
       );
     case "ignored":
@@ -538,10 +675,7 @@ function KindBox({ kind }: { kind: GitChangeKind }) {
   }
 }
 
-const BOX_TONE: Record<
-  "emerald" | "rose" | "amber" | "zinc",
-  string
-> = {
+const BOX_TONE: Record<"emerald" | "rose" | "amber" | "zinc", string> = {
   emerald: "border-success text-success",
   rose: "border-destructive text-destructive",
   amber: "border-warning text-warning",
@@ -598,7 +732,11 @@ function CheckBox({
       }`}
     >
       {indeterminate ? (
-        <HugeiconsIcon icon={MinusSignIcon} className="size-2" strokeWidth={3.5} />
+        <HugeiconsIcon
+          icon={MinusSignIcon}
+          className="size-2"
+          strokeWidth={3.5}
+        />
       ) : (
         <HugeiconsIcon icon={Tick02Icon} className="size-2" strokeWidth={3.5} />
       )}
@@ -649,7 +787,7 @@ function CommitComposer({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(
-        client.git.commit({ folderId, worktreeId, message: trimmed, paths }),
+        client["git.commit"]({ folderId, worktreeId, message: trimmed, paths }),
       );
       setMessage("");
       await onAfterCommit();
@@ -666,7 +804,7 @@ function CommitComposer({
     setError(null);
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(client.git.push({ folderId, worktreeId }));
+      await Effect.runPromise(client["git.push"]({ folderId, worktreeId }));
       await onAfterPush();
     } catch (err) {
       setError(formatErr(err));
@@ -676,73 +814,87 @@ function CommitComposer({
   };
 
   return (
-    <div className="shrink-0 border-t border-border bg-foreground/[0.02] px-3 py-2">
-      <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
-        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-          <span className="truncate font-mono text-foreground">
-            {branch ?? "(detached)"}
-          </span>
-          {ahead > 0 ? (
-            <span className="font-mono text-[10px] text-info">
-              ↑{ahead}
+    <div className="shrink-0 border-t border-border bg-background/20 p-2">
+      <Frame>
+        <FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-2">
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="truncate font-mono text-foreground">
+              {branch ?? "(detached)"}
             </span>
-          ) : null}
-        </span>
-        <button
-          type="button"
-          onClick={onPush}
-          disabled={!canPush || busy !== null}
-          className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-          title={canPush ? "Push commits to origin" : "No commits ahead of upstream"}
-        >
-          {busy === "push" ? (
-            <HugeiconsIcon icon={Loading02Icon} className="size-3 animate-spin" />
-          ) : (
-            <HugeiconsIcon icon={Upload01Icon} className="size-3" />
-          )}
-          Push
-        </button>
-      </div>
-      <textarea
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            void onCommit();
-          }
-        }}
-        placeholder="Commit message"
-        rows={2}
-        disabled={!canCommit || busy === "commit"}
-        className="w-full resize-none rounded-sm border border-border bg-background px-2 py-1.5 font-mono text-[11px] text-foreground outline-none placeholder:text-muted-foreground focus:border-foreground/30 disabled:cursor-not-allowed disabled:opacity-60"
-      />
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-muted-foreground">
-          {error !== null ? (
-            <span className="text-destructive">{error}</span>
-          ) : totalCount === 0 ? (
-            <>Nothing to commit</>
-          ) : (
-            <>
-              {selectedCount} of {totalCount} selected · ⌘↵
-            </>
-          )}
-        </span>
-        <button
-          type="button"
-          onClick={onCommit}
-          disabled={!canCommit || message.trim().length === 0 || busy === "commit"}
-          className="flex items-center gap-1.5 rounded-sm bg-success/15 px-2 py-1 text-[11px] font-medium text-success transition-colors hover:bg-success/25 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {busy === "commit" ? (
-            <HugeiconsIcon icon={Loading02Icon} className="size-3 animate-spin" />
-          ) : (
-            <HugeiconsIcon icon={ArrowTurnDownIcon} className="size-3" />
-          )}
-          {selectedCount > 0 ? `Commit ${selectedCount}` : "Commit"}
-        </button>
-      </div>
+            {ahead > 0 ? (
+              <span className="font-mono text-[10px] text-info">↑{ahead}</span>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            onClick={onPush}
+            disabled={!canPush || busy !== null}
+            className="flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              canPush
+                ? "Push commits to origin"
+                : "No commits ahead of upstream"
+            }
+          >
+            {busy === "push" ? (
+              <HugeiconsIcon
+                icon={Loading02Icon}
+                className="size-3 animate-spin"
+              />
+            ) : (
+              <HugeiconsIcon icon={Upload01Icon} className="size-3" />
+            )}
+            Push
+          </button>
+        </FrameHeader>
+        <FramePanel className="p-0">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void onCommit();
+              }
+            }}
+            placeholder="Commit message"
+            rows={2}
+            disabled={!canCommit || busy === "commit"}
+            className="block min-h-16 w-full resize-none rounded-md bg-transparent px-3 py-2 font-mono text-[11px] leading-5 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </FramePanel>
+        <FrameFooter className="flex flex-row items-center justify-between gap-2 px-3 py-2">
+          <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+            {error !== null ? (
+              <span className="text-destructive">{error}</span>
+            ) : totalCount === 0 ? (
+              <>Nothing to commit</>
+            ) : (
+              <>
+                {selectedCount} of {totalCount} selected · ⌘↵
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={onCommit}
+            disabled={
+              !canCommit || message.trim().length === 0 || busy === "commit"
+            }
+            className="flex shrink-0 items-center gap-1.5 rounded-sm bg-success/15 px-2 py-1 text-[11px] font-medium text-success transition-colors hover:bg-success/25 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy === "commit" ? (
+              <HugeiconsIcon
+                icon={Loading02Icon}
+                className="size-3 animate-spin"
+              />
+            ) : (
+              <HugeiconsIcon icon={ArrowTurnDownIcon} className="size-3" />
+            )}
+            {selectedCount > 0 ? `Commit ${selectedCount}` : "Commit"}
+          </button>
+        </FrameFooter>
+      </Frame>
     </div>
   );
 }
@@ -774,16 +926,20 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <h3
+    <Frame>
+      <FrameHeader className="flex-row items-center justify-between gap-2 px-3 py-2">
+        <FrameTitle
           className={`flex items-center gap-1.5 text-[10px] uppercase tracking-wide ${
             tone === "warning" ? "text-warning" : "text-muted-foreground"
           }`}
         >
           {leading ?? null}
           {tone === "warning" ? (
-            <HugeiconsIcon icon={Alert01Icon} className="size-3" strokeWidth={2.5} />
+            <HugeiconsIcon
+              icon={Alert01Icon}
+              className="size-3"
+              strokeWidth={2.5}
+            />
           ) : null}
           {title}
           {typeof counter === "number" ? (
@@ -791,21 +947,17 @@ function Section({
               {counter}
             </span>
           ) : null}
-        </h3>
+        </FrameTitle>
         {action ?? null}
-      </div>
-      <div className="flex flex-col gap-1">{children}</div>
-    </section>
+      </FrameHeader>
+      <FramePanel className="p-0">
+        <div className="flex flex-col gap-2 px-3 py-2">{children}</div>
+      </FramePanel>
+    </Frame>
   );
 }
 
-function Indicator({
-  title,
-  body,
-}: {
-  title: string;
-  body?: string;
-}) {
+function Indicator({ title, body }: { title: string; body?: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="font-medium text-foreground">{title}</span>

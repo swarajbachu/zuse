@@ -1,10 +1,12 @@
 import { Context, type Effect, type Stream } from "effect";
 
 import type {
+  FolderId,
+  ProviderId,
   SessionId,
   SessionNotFoundError,
   Skill,
-} from "@zuse/wire";
+} from "@zuse/contracts";
 
 /**
  * Per-session skill listing, plus a live feed that re-emits the full list
@@ -16,12 +18,17 @@ export interface SkillBridgeShape {
     sessionId: SessionId,
   ) => Effect.Effect<ReadonlyArray<Skill>, SessionNotFoundError>;
 
+  readonly listForProject: (
+    projectId: FolderId,
+    providerId: ProviderId,
+  ) => Effect.Effect<ReadonlyArray<Skill>>;
+
   readonly stream: (
     sessionId: SessionId,
   ) => Stream.Stream<ReadonlyArray<Skill>, SessionNotFoundError>;
 }
 
-export class SkillBridge extends Context.Tag("memoize/SkillBridge")<
+export class SkillBridge extends Context.Service<
   SkillBridge,
   SkillBridgeShape
->() {}
+>()("memoize/SkillBridge") {}

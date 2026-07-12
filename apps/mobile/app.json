@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Zuse",
+    "slug": "zuse",
+    "scheme": "zuse",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan pairing codes for local Zuse environments.",
+        "NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      },
+      "bundleIdentifier": "com.zuse.sh",
+      "appleTeamId": "HMCST4VV42"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-font",
+      "expo-web-browser"
+    ]
+  }
+}

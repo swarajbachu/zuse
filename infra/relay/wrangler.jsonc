@@ -1,0 +1,51 @@
+{
+  // Cloudflare Worker deploy config for the relay control plane.
+  // Deploy: `bunx wrangler deploy`.  Local: `bunx wrangler dev`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zuse-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-01",
+  // Node/TCP compat so @effect/sql-pg (postgres driver) can reach Hyperdrive.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Serve the Worker at the custom domain (the `stuff.md` zone must be on this
+  // Cloudflare account). `custom_domain` provisions the DNS + cert.
+  "routes": [{ "pattern": "relay.stuff.md", "custom_domain": true }],
+
+  // Non-secret configuration. Secrets go via `wrangler secret put` (see README).
+  // RELAY_ISSUER MUST equal the public URL — it is the `iss`/`aud` of every token.
+  "vars": {
+    "RELAY_ISSUER": "https://relay.stuff.md",
+    "WORKOS_ISSUER": "https://api.workos.com",
+    "WORKOS_JWKS_URL": "https://api.workos.com/sso/jwks/client_01KWGQ818571ARFATQ3G9AR2Y2",
+    // Public key only — the matching private key is a secret (RELAY_MINT_PRIVATE_JWK).
+    "RELAY_MINT_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"A2Ig1XwHKDznhyTbPD9IVTlJpaN4YImgQadx-Gl81Bs\",\"kty\":\"OKP\"}",
+
+    // Managed Cloudflare tunnel provisioning. Set all four to enable per-Mac
+    // tunnels; leave any unset to disable (the relay then advertises the LAN
+    // endpoint the desktop sends). CF_API_TOKEN is the only secret — set it via
+    // `bunx wrangler secret put CF_API_TOKEN`.
+    //   MANAGED_TUNNEL_BASE_DOMAIN — zone apex the tunnel hostnames live under.
+    //     Keep generated hostnames one label below the zone so Cloudflare's
+    //     managed edge certificate covers them, e.g. "stuff.md" gives
+    //     "zenv-<hash>.stuff.md".
+    //   MANAGED_TUNNEL_NAMESPACE   — per-deployment prefix for tunnel + hostname.
+    //   CF_ACCOUNT_ID / CF_ZONE_ID — the account, and the DNS zone id that owns
+    //     BASE_DOMAIN.
+    "MANAGED_TUNNEL_BASE_DOMAIN": "stuff.md",
+    "MANAGED_TUNNEL_NAMESPACE": "zenv",
+    "CF_ACCOUNT_ID": "40dd16663d44dc635537be6d183af841",
+    "CF_ZONE_ID": "1ebb00c5fd61050e9f48ce1c791a29da",
+  },
+
+  // Hyperdrive fronting PlanetScale Postgres. Create with:
+  //   bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"
+  // then paste the returned id here.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "c49c02e939494a958fb5fe6805e7b0f2",
+    },
+  ],
+}

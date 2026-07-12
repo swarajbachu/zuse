@@ -1,4 +1,4 @@
-import type { ProviderId } from "@zuse/wire";
+import type { ProviderId } from "@zuse/contracts";
 
 /**
  * One slash-prefixed command surfaced in the composer popover.
