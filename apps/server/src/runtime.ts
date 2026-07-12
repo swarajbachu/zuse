@@ -21,6 +21,7 @@ import { ExternalThreadServiceLive } from "./external-thread/layers/external-thr
 import { FsServiceLive } from "./fs/layers/fs-service.ts";
 import { RepositoryLocatorLive } from "./git/repository-locator-live.ts";
 import { HandlersLayer } from "./handlers.ts";
+import { MobileServiceLive } from "./mobile/layers/mobile-service.ts";
 import { LanAuthServiceLive } from "./lan-auth/layers/lan-auth-service.ts";
 import type { LanAuthPolicy } from "./lan-auth/policy.ts";
 import {
@@ -194,6 +195,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const PtyLayer = PtyServiceLive;
+	const MobileLayer = MobileServiceLive.pipe(Layer.provide(PtyLayer));
 
 	// Global settings + user keybindings live in user-editable JSON files under
 	// ~/.zuse (or ~/.zuse-dev for dev builds), with one-time migration from
@@ -280,6 +282,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(BrowserBridgeLayer),
+		Layer.provide(MobileLayer),
 		// OpenCode session-start reads `opencodeCustomProviders` from settings to
 		// inject user-defined providers into `opencode serve`.
 		Layer.provide(ConfigStoreLayer),
@@ -423,6 +426,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		PermissionLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,
+		MobileLayer,
 		// browser.* credential RPCs read/write the keychain directly.
 		CredentialsServiceLive,
 		SkillBridgeLayer,

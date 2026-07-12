@@ -15,6 +15,7 @@ export * from "./handshake.ts";
 export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
+export * from "./mobile.ts";
 export * from "./permission.ts";
 export * from "./pairing.ts";
 export * from "./pokemon.ts";

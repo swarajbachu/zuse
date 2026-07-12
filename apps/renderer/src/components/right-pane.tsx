@@ -4,11 +4,12 @@ import {
   GitBranchIcon,
   GitCompareIcon,
   GlobeIcon,
+  SmartPhone01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Plus, X } from "lucide-react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import type { FolderId, WorktreeId } from "@zuse/contracts";
 
@@ -38,6 +39,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { BrowserPane } from "./browser-pane.tsx";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
+import { MobilePane } from "./mobile-pane.tsx";
 import { PrPane } from "./pr-pane.tsx";
 import { TerminalSlotPane } from "./terminal-pane.tsx";
 import {
@@ -48,6 +50,7 @@ import {
   MenuTrigger,
 } from "./ui/menu.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+import { useMobileStore } from "../store/mobile.ts";
 
 /**
  * Metadata for each addable panel kind: launcher/tab label, icon, and the
@@ -70,6 +73,7 @@ const PANEL_META: Record<
   changes: { label: "Changes", icon: GitCompareIcon },
   pr: { label: "PR", icon: GitPullRequestIcon },
   browser: { label: "Browser", icon: GlobeIcon },
+  mobile: { label: "Mobile", icon: SmartPhone01Icon },
 };
 
 /** Display order shared by the launcher and the "+" menu. */
@@ -79,6 +83,7 @@ const PANEL_ORDER: ReadonlyArray<PanelKind> = [
   "changes",
   "pr",
   "browser",
+  "mobile",
 ];
 
 /**
@@ -87,11 +92,16 @@ const PANEL_ORDER: ReadonlyArray<PanelKind> = [
  */
 function addableKinds(
   panels: ReadonlyArray<PanelInstance>,
+  mobileSupported: boolean,
 ): ReadonlyArray<PanelKind> {
   const openSingletons = new Set(
     panels.filter((p) => SINGLETON_PANEL_KINDS.has(p.kind)).map((p) => p.kind),
   );
-  return PANEL_ORDER.filter((k) => k === "terminal" || !openSingletons.has(k));
+  return PANEL_ORDER.filter(
+    (k) =>
+      (k !== "mobile" || mobileSupported) &&
+      (k === "terminal" || !openSingletons.has(k)),
+  );
 }
 
 /**
@@ -147,10 +157,17 @@ export function RightPane() {
   const addPanel = useUiStore((s) => s.addPanel);
   const closePanel = useUiStore((s) => s.closePanel);
   const setActive = useUiStore((s) => s.setActiveRightPanel);
+  const mobileAvailability = useMobileStore((s) => s.availability);
+  const mobileInit = useMobileStore((s) => s.init);
+  const mobileSupported = mobileAvailability?.supported === true;
 
   // Glide dock tabs when panels are opened or closed. Declared with the other
   // hooks (above the `selected === null` early return) to satisfy hook rules.
   const dockTabsRef = useAutoAnimate<HTMLDivElement>();
+
+  useEffect(() => {
+    mobileInit();
+  }, [mobileInit]);
 
   // Defensive: if the stored active id ever points at a closed panel, fall
   // back to the first one so exactly one panel body is visible.
@@ -201,6 +218,7 @@ export function RightPane() {
 
   const activePanel = panels.find((p) => p.id === effectiveActiveId) ?? null;
   const browserActive = activePanel?.kind === "browser";
+  const mobileActive = activePanel?.kind === "mobile";
 
   return (
     <aside
@@ -225,16 +243,22 @@ export function RightPane() {
               onClose={() => handleClose(panel)}
             />
           ))}
-          <AddPanelMenu addable={addableKinds(panels)} onAdd={addPanel} />
+          <AddPanelMenu
+            addable={addableKinds(panels, mobileSupported)}
+            onAdd={addPanel}
+          />
         </div>
       ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {panels.length === 0 ? (
-          <PanelLauncher addable={addableKinds(panels)} onAdd={addPanel} />
+          <PanelLauncher
+            addable={addableKinds(panels, mobileSupported)}
+            onAdd={addPanel}
+          />
         ) : null}
         {/* Non-browser panels: mount on add, kept mounted while open. */}
         {panels
-          .filter((panel) => panel.kind !== "browser")
+          .filter((panel) => panel.kind !== "browser" && panel.kind !== "mobile")
           .map((panel) => (
             <div
               key={panel.id}
@@ -259,6 +283,18 @@ export function RightPane() {
         >
           <BrowserPane />
         </div>
+        {/* Mobile is also always mounted so agent mobile events can reveal it
+            and its light event stream survives when the tab is closed. Heavy
+            frame streaming is still subscribed only while this panel is
+            active. */}
+        {mobileSupported ? (
+          <div
+            hidden={!mobileActive}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+          >
+            <MobilePane active={mobileActive} />
+          </div>
+        ) : null}
       </div>
     </aside>
   );
@@ -292,6 +328,10 @@ function PanelBody({
     case "browser":
       // Browser is rendered once, always-mounted, by RightPane (so the agent
       // command stream survives close/collapse) — never via this map.
+      return null;
+    case "mobile":
+      // Mobile follows Browser's always-mounted pattern in RightPane so agent
+      // mobile events can reveal the panel.
       return null;
   }
 }

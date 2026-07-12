@@ -27,6 +27,8 @@ import {
 import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { buildMobileTools } from "../../mobile/mobile-tools.ts";
+import { MobileService } from "../../mobile/services/mobile-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -70,6 +72,7 @@ export const ProviderServiceLive = Layer.effect(
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
+    const mobile = yield* MobileService;
     const configStore = yield* ConfigStoreService;
     const runtime = yield* Effect.context<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
@@ -407,6 +410,71 @@ export const ProviderServiceLive = Layer.effect(
                 browserBridge.send(sessionId, command),
               ),
             );
+            const mobileTools =
+              process.platform === "darwin"
+                ? buildMobileTools({
+                    availability: () =>
+                      Effect.runPromiseWith(runtime)(mobile.availability()),
+                    status: () => Effect.runPromiseWith(runtime)(mobile.status()),
+                    listDevices: () =>
+                      Effect.runPromiseWith(runtime)(mobile.listDevices()),
+                    detectProject: () =>
+                      Effect.runPromiseWith(runtime)(mobile.detectProject(cwd)),
+                    logTail: (lines) =>
+                      Effect.runPromiseWith(runtime)(mobile.logTail(lines)),
+                    screenshot: () =>
+                      Effect.runPromiseWith(runtime)(mobile.screenshot("agent")),
+                    launch: async (requested) => {
+                      const devices = await Effect.runPromiseWith(runtime)(
+                        mobile.listDevices(),
+                      );
+                      const current = await Effect.runPromiseWith(runtime)(
+                        mobile.status(),
+                      );
+                      const device =
+                        (requested !== undefined
+                          ? devices.find(
+                              (d) =>
+                                d.udid === requested ||
+                                d.name.toLowerCase() ===
+                                  requested.toLowerCase(),
+                            )
+                          : null) ??
+                        (current.device !== undefined
+                          ? devices.find((d) => d.udid === current.device?.udid)
+                          : null) ??
+                        devices.find((d) => d.name.includes("iPhone")) ??
+                        devices[0];
+                      if (device === undefined) {
+                        throw new Error("No available iOS simulators found.");
+                      }
+                      await Effect.runPromiseWith(runtime)(
+                        mobile.start(cwd, device.udid, "agent"),
+                      );
+                      const deadline = Date.now() + 10 * 60 * 1000;
+                      while (Date.now() < deadline) {
+                        const next = await Effect.runPromiseWith(runtime)(
+                          mobile.status(),
+                        );
+                        if (
+                          next.phase === "streaming" ||
+                          next.phase === "error"
+                        ) {
+                          return next;
+                        }
+                        await new Promise((resolve) =>
+                          setTimeout(resolve, 1000),
+                        );
+                      }
+                      throw new Error("Timed out waiting for mobile launch.");
+                    },
+                  })
+                : [];
+
+            const claudeTools = [
+              ...browserTools,
+              ...mobileTools,
+            ] as unknown as Parameters<typeof startClaudeSession>[8];
 
             handle = yield* startClaudeSession(
               driverInput,
@@ -417,7 +485,7 @@ export const ProviderServiceLive = Layer.effect(
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
               resumeCursor,
-              browserTools,
+              claudeTools,
               // Control-plane orchestration tools (when autonomy != off) use
               // their own provider-neutral `zuse-orchestration` MCP server.
               orchestrationTools?.claudeTools ?? [],
