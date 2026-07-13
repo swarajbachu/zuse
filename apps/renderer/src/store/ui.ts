@@ -1,6 +1,10 @@
+import type {
+  ChatId,
+  CodeAnnotation,
+  FolderId,
+  WorktreeId,
+} from "@zuse/contracts";
 import { create } from "zustand";
-
-import type { ChatId, CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 
 import { useChatsStore } from "./chats.ts";
 
@@ -47,7 +51,13 @@ export type UsageScope = "global" | "project";
  * are added from a launcher / "+" menu and closed individually, rather than
  * being a fixed tab set.
  */
-export type PanelKind = "files" | "terminal" | "changes" | "pr" | "browser";
+export type PanelKind =
+  | "files"
+  | "terminal"
+  | "changes"
+  | "pr"
+  | "plan"
+  | "browser";
 
 /**
  * Kinds that may have at most one open instance. Terminal is the only
@@ -57,6 +67,7 @@ export const SINGLETON_PANEL_KINDS: ReadonlySet<PanelKind> = new Set([
   "files",
   "changes",
   "pr",
+  "plan",
   "browser",
 ]);
 
@@ -72,6 +83,7 @@ export type PanelInstance =
   | { readonly id: string; readonly kind: "files" }
   | { readonly id: string; readonly kind: "changes" }
   | { readonly id: string; readonly kind: "pr" }
+  | { readonly id: string; readonly kind: "plan" }
   | { readonly id: string; readonly kind: "browser" }
   | { readonly id: string; readonly kind: "terminal"; readonly slot: number };
 
@@ -178,6 +190,9 @@ type UiState = {
   /** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
   readonly chatSwitcherOpen: boolean;
   readonly isFullScreen: boolean;
+  /** User preference for the fullscreen environment summary. The summary is
+   * still gated by native fullscreen and available width at render time. */
+  readonly environmentSummaryOpen: boolean;
   /** Right-dock tab layout, scoped per sidebar-chat. */
   readonly rightPanelsByChat: Record<string, ReadonlyArray<PanelInstance>>;
   readonly activeRightPanelByChat: Record<string, string | null>;
@@ -204,6 +219,8 @@ type UiState = {
   readonly setChatSwitcherOpen: (open: boolean) => void;
   readonly toggleChatSwitcher: () => void;
   readonly setFullScreen: (full: boolean) => void;
+  readonly setEnvironmentSummaryOpen: (open: boolean) => void;
+  readonly toggleEnvironmentSummary: () => void;
   /** Add a panel to the dock. Singletons that are already open are focused
    * instead of duplicated; terminals always append a new slot. */
   readonly addPanel: (kind: PanelKind) => void;
@@ -232,6 +249,28 @@ type UiState = {
 const newPanelId = (): string =>
   globalThis.crypto?.randomUUID?.() ??
   `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
+  "zuse.environmentSummary.open.v1";
+
+const initialEnvironmentSummaryOpen = (): boolean => {
+  if (typeof window === "undefined") return true;
+  try {
+    return (
+      window.localStorage.getItem(ENVIRONMENT_SUMMARY_STORAGE_KEY) !== "false"
+    );
+  } catch {
+    return true;
+  }
+};
+
+const persistEnvironmentSummaryOpen = (open: boolean): void => {
+  try {
+    window.localStorage.setItem(ENVIRONMENT_SUMMARY_STORAGE_KEY, String(open));
+  } catch {
+    // The preference remains usable for this session when storage is blocked.
+  }
+};
 
 /** Renumber terminal panels' slots to stay contiguous (0..n-1) in tab order
  * after one is removed, so they keep mapping to the owning chat's terminal
@@ -282,6 +321,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   rightSidebarOpen: false,
   chatSwitcherOpen: false,
   isFullScreen: false,
+  environmentSummaryOpen: initialEnvironmentSummaryOpen(),
   rightPanelsByChat: {},
   activeRightPanelByChat: {},
   revealedAnnotation: null,
@@ -326,6 +366,16 @@ export const useUiStore = create<UiState>((set, get) => ({
   toggleChatSwitcher: () =>
     set((s) => ({ chatSwitcherOpen: !s.chatSwitcherOpen })),
   setFullScreen: (full) => set({ isFullScreen: full }),
+  setEnvironmentSummaryOpen: (open) => {
+    persistEnvironmentSummaryOpen(open);
+    set({ environmentSummaryOpen: open });
+  },
+  toggleEnvironmentSummary: () =>
+    set((s) => {
+      const open = !s.environmentSummaryOpen;
+      persistEnvironmentSummaryOpen(open);
+      return { environmentSummaryOpen: open };
+    }),
   addPanel: (kind) =>
     set((s) => {
       const chatId = activeChatId();
