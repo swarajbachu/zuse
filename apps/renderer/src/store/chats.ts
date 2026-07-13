@@ -328,12 +328,18 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       // on the very next render.
       useSessionsStore.setState((s) => {
         const list = s.sessionsByProject[projectId] ?? [];
-        if (list.some((row) => row.id === initialSession.id)) return s;
+        // The live chat stream can hydrate this row before create() resolves.
+        // Deduplicate the row without dropping the selection transition.
+        const sessionAlreadyHydrated = list.some(
+          (row) => row.id === initialSession.id,
+        );
         return {
-          sessionsByProject: {
-            ...s.sessionsByProject,
-            [projectId]: [initialSession, ...list],
-          },
+          sessionsByProject: sessionAlreadyHydrated
+            ? s.sessionsByProject
+            : {
+                ...s.sessionsByProject,
+                [projectId]: [initialSession, ...list],
+              },
           selectedSessionId: initialSession.id,
           selectedSessionByProject: {
             ...s.selectedSessionByProject,

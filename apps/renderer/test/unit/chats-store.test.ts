@@ -5,7 +5,21 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { rpcClientFactory } = vi.hoisted(() => ({
+	rpcClientFactory: vi.fn(),
+}));
+
+vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
+	return {
+		...original,
+		getRpcClient: async () => rpcClientFactory(),
+	};
+});
 
 import {
 	archiveChatWithConfirm,
@@ -123,6 +137,24 @@ describe("chats store selection", () => {
 		expect(useUiStore.getState().activeMainTab).toBe("usage");
 		expect(useChatsStore.getState().selectedChatId).toBeNull();
 		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
+	});
+
+	it("selects a newly created session even when hydration inserted it first", async () => {
+		rpcClientFactory.mockReturnValue({
+			"chat.create": () =>
+				Effect.succeed({ chat, initialSession: session, initialMessage: null }),
+		});
+
+		const result = await useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model);
+
+		expect(result).toEqual({ chatId, initialSessionId: sessionId });
+		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
+		expect(
+			useSessionsStore.getState().selectedSessionByProject[projectId],
+		).toBe(sessionId);
 	});
 });
 
