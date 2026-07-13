@@ -1,5 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { SquareLock01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import {
+  SquareLock01Icon,
+  TaskDone01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
 import { Plus, X } from "lucide-react";
 import { useMemo } from "react";
 
@@ -18,11 +21,13 @@ import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSettingsStore } from "../store/settings.ts";
+import { useSidebarMessageStatusStore } from "../store/sidebar-message-status.ts";
 import { useUiStore } from "../store/ui.ts";
 import {
   activeChatId as deriveActiveChatId,
   orderedChatTabs,
 } from "../lib/tab-order.ts";
+import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { Spinner } from "./ui/spinner";
@@ -81,6 +86,9 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
   // Per-session running flag — drives the provider-icon → Spinner swap on
   // each tab so the user sees which session is streaming at a glance.
   const runningBySession = useMessagesStore((s) => s.runningBySession);
+  const sidebarMessagesBySession = useSidebarMessageStatusStore(
+    (s) => s.messagesBySession,
+  );
   // Sessions with a pending permission prompt. Surfaced on the tab as a lock
   // so a supervised-mode request is visible without opening the session.
   // ExitPlanMode is excluded — plan mode owns its own inline approval card.
@@ -89,6 +97,15 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
     const ids = new Set<SessionId>();
     for (const req of Object.values(requestsById)) {
       if (req.kind._tag === "Other" && req.kind.tool === "ExitPlanMode")
+        continue;
+      ids.add(req.sessionId);
+    }
+    return ids;
+  }, [requestsById]);
+  const awaitingPlanApproval = useMemo(() => {
+    const ids = new Set<SessionId>();
+    for (const req of Object.values(requestsById)) {
+      if (req.kind._tag !== "Other" || req.kind.tool !== "ExitPlanMode")
         continue;
       ids.add(req.sessionId);
     }
@@ -143,6 +160,13 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
               providerId={session.providerId}
               running={runningBySession[session.id] === true}
               awaitingPermission={awaitingPermission.has(session.id)}
+              awaitingPlanApproval={
+                awaitingPlanApproval.has(session.id) ||
+                deriveChatAttentionState(
+                  sidebarMessagesBySession[session.id] ?? [],
+                  false,
+                ) === "planReady"
+              }
               onClick={() => {
                 if (selectedSessionId !== session.id) {
                   selectSession(session.id);
@@ -302,6 +326,7 @@ function ChatTabButton({
   providerId,
   running,
   awaitingPermission,
+  awaitingPlanApproval,
   onClick,
   onClose,
 }: {
@@ -311,6 +336,7 @@ function ChatTabButton({
   providerId: ProviderId;
   running: boolean;
   awaitingPermission: boolean;
+  awaitingPlanApproval: boolean;
   onClick: () => void;
   onClose: () => void;
 }) {
@@ -328,10 +354,16 @@ function ChatTabButton({
         title={title ?? label}
         className="flex min-w-0 flex-1 items-center gap-1.5 py-0"
       >
-        {awaitingPermission ? (
+        {awaitingPlanApproval ? (
+          <span
+            className="inline-flex size-3.5 shrink-0 items-center justify-center text-emerald-300"
+            title="Plan ready to approve"
+          >
+            <HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
+          </span>
+        ) : awaitingPermission ? (
           <span
             className="inline-flex size-3.5 shrink-0 items-center justify-center text-amber-300"
-            aria-label="Waiting for permission"
             title="Waiting for permission"
           >
             <HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
