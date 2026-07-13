@@ -36,6 +36,12 @@ interface Todo {
   readonly status: TodoStatus;
 }
 
+export interface ProjectPlanSummary {
+  readonly title: string;
+  readonly done: number;
+  readonly total: number;
+}
+
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const asString = (v: unknown): string | undefined =>
@@ -200,6 +206,23 @@ const activeHeaderTodo = (todos: ReadonlyArray<Todo>): Todo | undefined =>
   todos.find((t) => t.status !== TODO_STATUS.completed) ??
   todos.at(-1);
 
+const projectPlanFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
+  const tasks = tasksFromMessages(messages);
+  if (tasks.length > 0) return tasks;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i]?.content;
+    if (content === undefined) continue;
+    if (content._tag === "tool_use" && content.tool === "TodoWrite") {
+      const parsed = parseTodosFromInput(content.input);
+      if (parsed.length > 0) return parsed;
+    } else if (content._tag === "tool_result") {
+      const parsed = parseTodosFromOutput(content.output);
+      if (parsed.length > 0) return parsed;
+    }
+  }
+  return [];
+};
+
 /**
  * "Project Plan" panel docked above the composer. Surfaces the agent's live
  * plan — reconstructed from the newer `TaskCreate`/`TaskUpdate` tools, falling
@@ -224,22 +247,7 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
     // Preferred: the newer Task tools (TaskCreate/TaskUpdate), replayed into a
     // live list. This is what current Claude (Agent SDK ≥ 0.2.x) sessions emit
     // instead of TodoWrite.
-    const tasks = tasksFromMessages(messages);
-    if (tasks.length > 0) return tasks;
-    // Fallback: legacy TodoWrite single-snapshot. Walk newest→oldest and take
-    // the first signal — Claude puts the list on the tool_use input; Grok (ACP)
-    // puts it on the tool_result output. Whichever is latest wins.
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const c = messages[i]!.content;
-      if (c._tag === "tool_use" && c.tool === "TodoWrite") {
-        const parsed = parseTodosFromInput(c.input);
-        if (parsed.length > 0) return parsed;
-      } else if (c._tag === "tool_result") {
-        const parsed = parseTodosFromOutput(c.output);
-        if (parsed.length > 0) return parsed;
-      }
-    }
-    return [];
+    return projectPlanFromMessages(messages);
   }, [messages]);
 
   if (todos.length === 0) return null;
@@ -312,6 +320,27 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
       }
     />
   );
+}
+
+/** Compact read model shared by the environment summary and Plan dock. */
+export function useProjectPlanSummary(
+  sessionId: SessionId | null,
+): ProjectPlanSummary | null {
+  const messages = useMessagesStore((s) =>
+    sessionId === null
+      ? EMPTY_MESSAGES
+      : (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
+  );
+  return useMemo(() => {
+    const todos = projectPlanFromMessages(messages);
+    if (todos.length === 0) return null;
+    const active = activeHeaderTodo(todos);
+    return {
+      title: active?.text ?? "Project plan",
+      done: todos.filter((todo) => todo.status === TODO_STATUS.completed).length,
+      total: todos.length,
+    };
+  }, [messages]);
 }
 
 function TodoStatusIcon({ status }: { status: TodoStatus }) {

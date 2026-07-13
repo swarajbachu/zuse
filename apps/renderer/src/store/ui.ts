@@ -51,7 +51,13 @@ export type UsageScope = "global" | "project";
  * are added from a launcher / "+" menu and closed individually, rather than
  * being a fixed tab set.
  */
-export type PanelKind = "files" | "terminal" | "changes" | "pr" | "browser";
+export type PanelKind =
+  | "files"
+  | "terminal"
+  | "changes"
+  | "pr"
+  | "plan"
+  | "browser";
 
 /**
  * Kinds that may have at most one open instance. Terminal is the only
@@ -61,6 +67,7 @@ export const SINGLETON_PANEL_KINDS: ReadonlySet<PanelKind> = new Set([
   "files",
   "changes",
   "pr",
+  "plan",
   "browser",
 ]);
 
@@ -76,6 +83,7 @@ export type PanelInstance =
   | { readonly id: string; readonly kind: "files" }
   | { readonly id: string; readonly kind: "changes" }
   | { readonly id: string; readonly kind: "pr" }
+  | { readonly id: string; readonly kind: "plan" }
   | { readonly id: string; readonly kind: "browser" }
   | { readonly id: string; readonly kind: "terminal"; readonly slot: number };
 
