@@ -1,5 +1,5 @@
-import { CheckListIcon } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { CheckListIcon } from "@hugeicons-pro/core-bulk-rounded";
 
 import type { SessionId } from "@zuse/contracts";
 
@@ -8,7 +8,6 @@ import {
   latestPlanText,
   saveContextFile,
 } from "../../lib/context-handoff.ts";
-import { useChatsStore } from "../../store/chats.ts";
 import { usePermissionsStore } from "../../store/permissions.ts";
 import { useSessionsStore } from "../../store/sessions.ts";
 import { toastManager } from "../ui/toast.tsx";
@@ -48,9 +47,9 @@ export function PlanApprovalTray({
   });
   const decide = usePermissionsStore((s) => s.decide);
 
-  // Hand the proposed plan off to a fresh chat that starts in build mode. The
-  // current plan-mode session is left untouched (its ExitPlanMode prompt stays
-  // open), so the user can keep iterating on the plan or discard it.
+  // Hand the proposed plan off to a fresh build-mode session in the same chat.
+  // The current plan-mode session is left untouched (its ExitPlanMode prompt
+  // stays open), so the user can keep iterating on the plan or discard it.
   const handoff = async () => {
     const source = Object.values(
       useSessionsStore.getState().sessionsByProject,
@@ -66,31 +65,36 @@ export function PlanApprovalTray({
       });
       return;
     }
-    const created = await useChatsStore
+    const created = await useSessionsStore
       .getState()
-      .create(source.projectId, source.providerId, source.model, {
-        title: `Build: ${source.title}`,
+      .create(source.chatId, source.providerId, source.model, {
         permissionMode: "default",
-        // Fresh chat in the project's main checkout — the handoff is a new
-        // conversation, not a continuation of the plan session's worktree.
-        worktreeId: null,
+        runtimeMode: source.runtimeMode,
       });
     if (created === null) {
       toastManager.add({
         title: "Handoff failed",
-        description: "Could not create the build chat.",
+        description: "Could not create the build session.",
         type: "error",
       });
       return;
     }
-    const ref = await saveContextFile(created.initialSessionId, planText);
+    const ref = await saveContextFile(created, planText);
     if (ref !== null) attachFileWhenReady(ref);
+    if (pendingRequest !== null) {
+      await decide(pendingRequest.id, { _tag: "Deny" });
+      await useSessionsStore
+        .getState()
+        .setPermissionMode(sessionId, "default");
+    } else {
+      onCancelEmulatedPlan?.();
+    }
     toastManager.add({
       title: "Plan handed off",
       description:
         ref !== null
-          ? "New chat opened in build mode with the plan attached."
-          : "New chat opened in build mode.",
+          ? "New session opened in build mode with the plan attached."
+          : "New session opened in build mode.",
       type: "success",
     });
   };
@@ -116,7 +120,7 @@ export function PlanApprovalTray({
           <button
             type="button"
             onClick={() => void handoff()}
-            title="Open a new chat in build mode with this plan attached"
+            title="Open a new session in build mode with this plan attached"
             className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
             Hand off →
