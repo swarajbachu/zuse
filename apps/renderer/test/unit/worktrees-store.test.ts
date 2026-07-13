@@ -1,7 +1,6 @@
 import {
 	type FolderId,
 	Worktree,
-	WorktreeDirtyError,
 	WorktreeId,
 	WorktreeNotFoundError,
 } from "@zuse/contracts";
@@ -35,22 +34,17 @@ const worktree = Worktree.make({
 
 let removeCalls: Array<{
 	readonly worktreeId: WorktreeId;
-	readonly force: boolean | undefined;
 }> = [];
 
 const setRemoveClient = (
 	remove: (payload: {
 		readonly worktreeId: WorktreeId;
-		readonly force: boolean | undefined;
 	}) => Effect.Effect<void, unknown>,
 ) => {
 	setWorktreesRpcClientForTest(
 		async () =>
 			({
-				"worktree.remove": (payload: {
-					readonly worktreeId: WorktreeId;
-					readonly force: boolean | undefined;
-				}) => {
+				"worktree.remove": (payload: { readonly worktreeId: WorktreeId }) => {
 					removeCalls.push(payload);
 					return remove(payload);
 				},
@@ -72,31 +66,15 @@ describe("worktrees store removal", () => {
 		});
 	});
 
-	it("classifies dirty worktree errors without showing a global error", async () => {
-		setRemoveClient(() => Effect.fail(new WorktreeDirtyError({ worktreeId })));
-
-		const result = await useWorktreesStore
-			.getState()
-			.remove(projectId, worktreeId, false);
-
-		expect(result).toEqual({
-			ok: false,
-			dirty: true,
-			reason: "Worktree has uncommitted changes.",
-		});
-		expect(useWorktreesStore.getState().error).toBeNull();
-		expect(useWorktreesStore.getState().byProject[projectId]).toHaveLength(1);
-	});
-
-	it("force-removes the row after confirmation", async () => {
+	it("removes the row after checkpointing", async () => {
 		setRemoveClient(() => Effect.void);
 
 		const result = await useWorktreesStore
 			.getState()
-			.remove(projectId, worktreeId, true);
+			.remove(projectId, worktreeId);
 
 		expect(result).toEqual({ ok: true });
-		expect(removeCalls).toEqual([{ worktreeId, force: true }]);
+		expect(removeCalls).toEqual([{ worktreeId }]);
 		expect(useWorktreesStore.getState().byProject[projectId]).toEqual([]);
 	});
 

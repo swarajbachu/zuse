@@ -7,7 +7,6 @@ import {
   useDefaultLayout,
   usePanelRef,
 } from "react-resizable-panels";
-import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
@@ -548,7 +547,6 @@ function MainShell() {
       <SidebarPeekTrigger />
       <SidebarPeekOverlay />
       <ChatSwitcher />
-      <ArchiveDirtyWorktreeDialogHost />
     </div>
   );
 }

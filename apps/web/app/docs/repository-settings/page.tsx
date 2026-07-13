@@ -25,7 +25,6 @@ export default function RepositorySettingsDocs() {
 # Add files below that should be linked from the main checkout into every Zuse worktree.
 schemaVersion = 1
 autoCreateWorktree = false
-archiveRemoveWorktree = false
 
 file_include_globs = [
   ".env",

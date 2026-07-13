@@ -46,7 +46,6 @@ describe("conversation reactor definitions", () => {
 				streamId: "chat-1",
 				event: {
 					_tag: "ChatArchiveRequested",
-					force: true,
 					requestedAt: 2,
 				},
 			}),
@@ -54,7 +53,7 @@ describe("conversation reactor definitions", () => {
 		expect(commands).toEqual([
 			{
 				streamId: "chat-1",
-				command: { _tag: "ArchiveChatWorktree", force: true },
+				command: { _tag: "ArchiveChatWorktree" },
 			},
 		]);
 	});

@@ -706,9 +706,17 @@ const ArchiveCleanupSummary = Schema.Struct({
   output: Schema.String,
 });
 
+const WorktreeCheckpointSummary = Schema.Struct({
+  archiveCommit: Schema.String,
+  checkpointCreated: Schema.Boolean,
+  archiveRef: Schema.NullOr(Schema.String),
+  branch: Schema.String,
+});
+
 export const ChatArchiveResult = Schema.Struct({
   chat: Chat,
   cleanup: Schema.NullOr(ArchiveCleanupSummary),
+  checkpoint: Schema.NullOr(WorktreeCheckpointSummary),
 });
 export type ChatArchiveResult = typeof ChatArchiveResult.Type;
 
@@ -856,11 +864,7 @@ export const ChatSetActiveSessionRpc = Rpc.make("chat.setActiveSession", {
 export const ChatArchiveRpc = Rpc.make("chat.archive", {
   payload: Schema.Struct({
     chatId: ChatId,
-    /**
-     * Force-remove the chat's worktree even when it has uncommitted or
-     * untracked changes. Callers pass `true` after confirming the discard
-     * with the user (mirrors `worktree.remove`'s `force`).
-     */
+    /** Ignored compatibility field for older clients. */
     force: Schema.optional(Schema.Boolean),
   }),
   success: ChatArchiveResult,

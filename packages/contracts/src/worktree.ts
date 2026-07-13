@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 import { PokemonSummary } from "./pokemon.ts";
@@ -75,9 +75,9 @@ export class WorktreeRemoveError extends Schema.TaggedErrorClass<WorktreeRemoveE
   { worktreeId: WorktreeId, reason: Schema.String },
 ) {}
 
-export class WorktreeDirtyError extends Schema.TaggedErrorClass<WorktreeDirtyError>()(
-  "WorktreeDirtyError",
-  { worktreeId: WorktreeId },
+export class WorktreeCheckpointError extends Schema.TaggedErrorClass<WorktreeCheckpointError>()(
+  "WorktreeCheckpointError",
+  { worktreeId: WorktreeId, reason: Schema.String },
 ) {}
 
 export class WorktreeSetupError extends Schema.TaggedErrorClass<WorktreeSetupError>()(
@@ -89,7 +89,7 @@ const WorktreeErrors = Schema.Union([
   WorktreeCreateError,
   WorktreeRemoveError,
   WorktreeNotFoundError,
-  WorktreeDirtyError,
+  WorktreeCheckpointError,
   WorktreeSetupError,
 ]);
 
@@ -161,22 +161,14 @@ export const WorktreeStartRunRpc = Rpc.make("worktree.startRun", {
   success: Schema.Struct({
     cwd: Schema.String,
     script: Schema.String,
-    env: Schema.Record(Schema.String, Schema.String ),
+    env: Schema.Record(Schema.String, Schema.String),
   }),
   error: WorktreeErrors,
 });
 
-/**
- * Remove a worktree's checkout. By default refuses to delete a dirty
- * worktree (`WorktreeDirtyError`); callers pass `force: true` after
- * confirming with the user. The branch is preserved either way — v1 doesn't
- * auto-delete branches.
- */
+/** Remove a worktree checkout after checkpointing any dirty state. */
 export const WorktreeRemoveRpc = Rpc.make("worktree.remove", {
-  payload: Schema.Struct({
-    worktreeId: WorktreeId,
-    force: Schema.optional(Schema.Boolean),
-  }),
+  payload: Schema.Struct({ worktreeId: WorktreeId }),
   success: Schema.Void,
   error: WorktreeErrors,
 });

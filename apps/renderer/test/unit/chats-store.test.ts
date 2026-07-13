@@ -23,8 +23,6 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 
 import {
 	archiveChatWithConfirm,
-	resetArchiveDirtyConfirm,
-	setArchiveDirtyConfirm,
 	useChatsStore,
 } from "../../src/store/chats.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
@@ -70,18 +68,6 @@ const session: Session = {
 	toolSearch: false,
 	createdAt: now,
 	updatedAt: now,
-};
-
-const withConfirm = async (
-	confirmed: boolean,
-	fn: () => Promise<void>,
-): Promise<void> => {
-	setArchiveDirtyConfirm(async () => confirmed);
-	try {
-		await fn();
-	} finally {
-		resetArchiveDirtyConfirm();
-	}
 };
 
 const deferred = <T>(): {
@@ -160,7 +146,6 @@ describe("chats store selection", () => {
 
 describe("archiveChatWithConfirm", () => {
 	beforeEach(() => {
-		resetArchiveDirtyConfirm();
 		useChatsStore.setState({
 			chatsByProject: { [projectId]: [chat] },
 			selectedChatId: chatId,
@@ -191,106 +176,17 @@ describe("archiveChatWithConfirm", () => {
 		).toBeUndefined();
 	});
 
-	it("retries dirty worktree archives with force after confirmation", async () => {
-		const calls: Array<boolean | undefined> = [];
+	it("clears progress and throws when archive fails", async () => {
 		useChatsStore.setState({
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return force === true
-					? ({ ok: true } as const)
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const);
-			},
-		});
-		await withConfirm(true, async () => {
-			await archiveChatWithConfirm(chatId);
+			archive: async () => ({
+				ok: false,
+				reason: "git worktree remove failed",
+			}),
 		});
 
-		expect(calls).toEqual([undefined, true]);
-	});
-
-	it("switches progress while removing a confirmed dirty worktree", async () => {
-		const forced = deferred<{ readonly ok: true }>();
-		const calls: Array<boolean | undefined> = [];
-		setArchiveDirtyConfirm(async () => true);
-		useChatsStore.setState({
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return force === true
-					? forced.promise
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const);
-			},
-		});
-
-		const run = archiveChatWithConfirm(chatId);
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(calls).toEqual([undefined, true]);
-		expect(useChatsStore.getState().archiveProgressByChat[chatId]).toBe(
-			"removing-dirty-worktree",
+		await expect(archiveChatWithConfirm(chatId)).rejects.toThrow(
+			"git worktree remove failed",
 		);
-		forced.resolve({ ok: true });
-		try {
-			await run;
-		} finally {
-			resetArchiveDirtyConfirm();
-		}
-		expect(
-			useChatsStore.getState().archiveProgressByChat[chatId],
-		).toBeUndefined();
-	});
-
-	it("stops quietly when dirty archive removal is declined", async () => {
-		const calls: Array<boolean | undefined> = [];
-		useChatsStore.setState({
-			error: null,
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return {
-					ok: false,
-					dirty: true,
-					reason: "Worktree has uncommitted changes.",
-				} as const;
-			},
-		});
-		await withConfirm(false, async () => {
-			await archiveChatWithConfirm(chatId);
-		});
-
-		expect(calls).toEqual([undefined]);
-		expect(useChatsStore.getState().error).toBeNull();
-		expect(
-			useChatsStore.getState().archiveProgressByChat[chatId],
-		).toBeUndefined();
-	});
-
-	it("clears progress and throws when forced dirty removal fails", async () => {
-		useChatsStore.setState({
-			archive: async (_chatId, force) =>
-				force === true
-					? ({
-							ok: false,
-							dirty: false,
-							reason: "git worktree remove failed",
-						} as const)
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const),
-		});
-
-		await expect(
-			withConfirm(true, async () => archiveChatWithConfirm(chatId)),
-		).rejects.toThrow("git worktree remove failed");
 		expect(
 			useChatsStore.getState().archiveProgressByChat[chatId],
 		).toBeUndefined();

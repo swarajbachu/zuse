@@ -375,7 +375,6 @@ export interface ConversationOperations {
 
 	readonly archiveChat: (
 		chatId: ChatId,
-		force: boolean,
 	) => Effect.Effect<
 		ChatArchiveResult,
 		| ChatNotFoundError

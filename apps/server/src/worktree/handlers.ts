@@ -1,7 +1,6 @@
 import { MemoizeRpcs } from "@zuse/contracts";
-import { Effect, Layer, Stream } from "effect";
-
 import { WorktreeService } from "@zuse/git/worktree-service";
+import { Effect, Layer, Stream } from "effect";
 
 const Create = MemoizeRpcs.toLayerHandler(
   "worktree.create",
@@ -37,10 +36,8 @@ const StartRun = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(WorktreeService, (svc) => svc.startRun(worktreeId)),
 );
 
-const Remove = MemoizeRpcs.toLayerHandler(
-  "worktree.remove",
-  ({ worktreeId, force }) =>
-    Effect.flatMap(WorktreeService, (svc) => svc.remove(worktreeId, force ?? false)),
+const Remove = MemoizeRpcs.toLayerHandler("worktree.remove", ({ worktreeId }) =>
+  Effect.flatMap(WorktreeService, (svc) => svc.remove(worktreeId)),
 );
 
 export const WorktreeHandlersLayer = Layer.mergeAll(

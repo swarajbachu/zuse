@@ -346,10 +346,8 @@ const ConversationRuntimeLive = Layer.effect(
 				chatArchive: handleChatArchive,
 				chatDelete: handleChatDelete,
 			});
-		const archiveChat: ConversationOperations["archiveChat"] = (
-			chatId,
-			force,
-		) => archiveChatWithReactor(chatId, force, reactorRuntime.runChatArchive);
+		const archiveChat: ConversationOperations["archiveChat"] = (chatId) =>
+			archiveChatWithReactor(chatId, reactorRuntime.runChatArchive);
 		const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
 			deleteChatWithReactor(chatId, reactorRuntime.runChatDelete);
 		yield* reactorRuntime.catchUpAll;

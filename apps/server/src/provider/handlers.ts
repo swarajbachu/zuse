@@ -292,12 +292,8 @@ const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
     ),
 );
 
-const ChatArchive = MemoizeRpcs.toLayerHandler(
-  "chat.archive",
-  ({ chatId, force }) =>
-    Effect.flatMap(ChatService, (svc) =>
-      svc.archiveChat(chatId, force ?? false),
-    ),
+const ChatArchive = MemoizeRpcs.toLayerHandler("chat.archive", ({ chatId }) =>
+  Effect.flatMap(ChatService, (svc) => svc.archiveChat(chatId)),
 );
 
 const ChatUnarchive = MemoizeRpcs.toLayerHandler(

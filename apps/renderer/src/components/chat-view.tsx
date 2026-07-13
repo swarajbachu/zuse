@@ -890,10 +890,7 @@ function ArchiveProgressOverlay({
   phase: ChatArchiveProgressPhase;
 }) {
   const label = chatArchiveProgressLabel(phase);
-  const detail =
-    phase === "removing-dirty-worktree"
-      ? "Discarding local changes and removing the checkout."
-      : "Saving the chat to archives.";
+  const detail = "Saving the chat and checkpointing its worktree.";
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/72 px-6 backdrop-blur-sm">

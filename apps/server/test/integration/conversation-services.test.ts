@@ -205,6 +205,19 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 				: (createdWorktrees.get(worktreeId as string) ?? null),
 		),
 	updateBranch: () => Effect.void,
+	archive: (worktreeId, recordCheckpoint) => {
+		const outcome = {
+			archiveCommit: "checkpoint-sha",
+			checkpointCreated: false,
+			archiveRef: null,
+			archivedContextPath: null,
+			branch: worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
+		};
+		return recordCheckpoint === undefined
+			? Effect.succeed(outcome)
+			: recordCheckpoint(outcome).pipe(Effect.as(outcome));
+	},
+	finishArchiveRemoval: () => Effect.void,
 	remove: () => Effect.void,
 	rerunSetup: () => Effect.die("not used"),
 	setupStream: () => Stream.die("not used"),
@@ -282,7 +295,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoCreateWorktree: false,
 				worktreeBaseDir: null,
 				archiveCleanupScript: null,
-				archiveRemoveWorktree: false,
 				setupScript: null,
 				runScript: null,
 				autoRunAfterSetup: false,
@@ -300,7 +312,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoCreateWorktree: patch.autoCreateWorktree ?? false,
 				worktreeBaseDir: patch.worktreeBaseDir ?? null,
 				archiveCleanupScript: patch.archiveCleanupScript ?? null,
-				archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
 				setupScript: patch.setupScript ?? null,
 				runScript: patch.runScript ?? null,
 				autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
@@ -780,12 +791,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						projectId: PROJECT_ID,
 						providerId: "claude",
 						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
 					}),
 				),
 			);
 			const result = await run(
 				Effect.flatMap(store, (service) =>
-					service.archiveChat(created.chat.id, false),
+					service.archiveChat(created.chat.id),
 				),
 			);
 			const evidence = await run(
@@ -801,16 +813,36 @@ describe("ConversationServices — chat & session lifecycle", () => {
             SELECT effect_id FROM reactor_effect_receipts
             WHERE effect_id LIKE 'reactor:chat-archive:%'
           `;
-					return { events, receipts };
+					const steps = yield* sql<{
+						readonly step: string;
+						readonly status: string;
+						readonly detail_json: string | null;
+					}>`
+            SELECT step, status, detail_json FROM reactor_effect_steps
+            WHERE step = 'worktree-checkpoint'
+          `;
+					return { events, receipts, steps };
 				}),
 			);
 
 			expect(result.chat.archivedAt).not.toBeNull();
+			expect(result.checkpoint).toEqual({
+				archiveCommit: "checkpoint-sha",
+				checkpointCreated: false,
+				archiveRef: null,
+				branch: "pikachu",
+			});
 			expect(evidence.events.map(({ type }) => type)).toEqual([
 				"ChatArchiveRequested",
 				"ChatArchived",
 			]);
 			expect(evidence.receipts).toHaveLength(1);
+			expect(evidence.steps).toHaveLength(1);
+			expect(evidence.steps[0]).toMatchObject({
+				step: "worktree-checkpoint",
+				status: "completed",
+				detail_json: expect.stringContaining("checkpoint-sha"),
+			});
 		});
 	});
 

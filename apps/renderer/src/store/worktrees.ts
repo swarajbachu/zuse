@@ -1,6 +1,3 @@
-import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
-
 import {
   type FolderId,
   Worktree,
@@ -8,6 +5,8 @@ import {
   type WorktreeId,
   type WorktreeSetupEvent,
 } from "@zuse/contracts";
+import { Effect, Fiber, Stream } from "effect";
+import { create } from "zustand";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
@@ -68,10 +67,8 @@ type WorktreesState = {
   readonly remove: (
     projectId: FolderId,
     worktreeId: WorktreeId,
-    force: boolean,
   ) => Promise<
-    | { readonly ok: true }
-    | { readonly ok: false; readonly dirty: boolean; readonly reason: string }
+    { readonly ok: true } | { readonly ok: false; readonly reason: string }
   >;
 };
 
@@ -79,23 +76,6 @@ let getWorktreesRpcClient: typeof getRpcClient = getRpcClient;
 
 export const setWorktreesRpcClientForTest = (fn: typeof getRpcClient): void => {
   getWorktreesRpcClient = fn;
-};
-
-const isWorktreeDirtyError = (err: unknown, formatted: string): boolean => {
-  if (
-    typeof err === "object" &&
-    err !== null &&
-    "_tag" in err &&
-    err._tag === "WorktreeDirtyError"
-  ) {
-    return true;
-  }
-  if (err instanceof Error && err.name === "WorktreeDirtyError") return true;
-  return (
-    formatted.includes("WorktreeDirtyError") ||
-    formatted.toLowerCase().includes("dirty") ||
-    formatted.toLowerCase().includes("uncommitted changes")
-  );
 };
 
 const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
@@ -159,7 +139,9 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     });
     try {
       const client = await getWorktreesRpcClient();
-      const list = await Effect.runPromise(client["worktree.list"]({ projectId }));
+      const list = await Effect.runPromise(
+        client["worktree.list"]({ projectId }),
+      );
       set((s) => ({
         byProject: { ...s.byProject, [projectId]: list },
         loading: (() => {
@@ -271,7 +253,9 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   startRun: async (worktreeId) => {
     try {
       const client = await getWorktreesRpcClient();
-      return await Effect.runPromise(client["worktree.startRun"]({ worktreeId }));
+      return await Effect.runPromise(
+        client["worktree.startRun"]({ worktreeId }),
+      );
     } catch (err) {
       set({ error: formatError(err) });
       return null;
@@ -313,8 +297,9 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
         };
         const fiber = Effect.runFork(
           Stream.runForEach(
-            client["worktree.setupStream"]({ worktreeId })
-              .pipe(Stream.catch(() => Stream.empty)),
+            client["worktree.setupStream"]({ worktreeId }).pipe(
+              Stream.catch(() => Stream.empty),
+            ),
             (event) => Effect.sync(() => apply(event)),
           ).pipe(
             Effect.ensuring(
@@ -336,10 +321,10 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
     setupFibers.delete(worktreeId);
     void Effect.runPromise(Fiber.interrupt(fiber));
   },
-  remove: async (projectId, worktreeId, force) => {
+  remove: async (projectId, worktreeId) => {
     try {
       const client = await getWorktreesRpcClient();
-      await Effect.runPromise(client["worktree.remove"]({ worktreeId, force }));
+      await Effect.runPromise(client["worktree.remove"]({ worktreeId }));
       get().unsubscribeSetup(worktreeId);
       set((s) => {
         const list = s.byProject[projectId] ?? [];
@@ -354,9 +339,8 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
       return { ok: true } as const;
     } catch (err) {
       const reason = formatError(err);
-      const dirty = !force && isWorktreeDirtyError(err, reason);
-      set({ error: dirty ? null : reason });
-      return { ok: false, dirty, reason } as const;
+      set({ error: reason });
+      return { ok: false, reason } as const;
     }
   },
 }));
