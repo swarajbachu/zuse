@@ -13,6 +13,7 @@
 import { pathToFileURL } from "node:url";
 
 import { NodeRuntime } from "@effect/platform-node";
+import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
 import { resolveAuthPolicy } from "./lan-auth/policy.ts";
@@ -35,7 +36,7 @@ const resolveUserData = (): string => {
 };
 
 export const runHeadlessServer = (): void => {
-	const port = Number(process.env.ZUSE_PORT ?? 8787);
+	const port = Number(process.env.ZUSE_PORT ?? DEFAULT_LOCAL_DESKTOP_PORT);
 	const host = process.env.ZUSE_HOST ?? "127.0.0.1";
 	const userData = resolveUserData();
 	const policy = resolveAuthPolicy(host);

@@ -4,6 +4,7 @@ import {
   Folder01Icon,
   GitBranchIcon,
   GitCompareIcon,
+  CheckListIcon,
   GlobeIcon,
   Robot01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
@@ -13,6 +14,7 @@ import { Plus, X } from "lucide-react";
 import { useRef } from "react";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
@@ -38,6 +40,7 @@ import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { PrPane } from "./pr-pane.tsx";
 import { SubagentsPane } from "./subagents-pane.tsx";
+import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { TerminalSlotPane } from "./terminal-pane.tsx";
 import {
   Menu,
@@ -68,6 +71,7 @@ const PANEL_META: Record<
   },
   changes: { label: "Changes", icon: GitCompareIcon },
   pr: { label: "PR", icon: GitPullRequestIcon },
+  plan: { label: "Plan", icon: CheckListIcon },
   browser: { label: "Browser", icon: GlobeIcon },
   subagents: { label: "Subagents", icon: Robot01Icon },
 };
@@ -78,6 +82,7 @@ const PANEL_ORDER: ReadonlyArray<PanelKind> = [
   "terminal",
   "changes",
   "pr",
+  "plan",
   "browser",
   "subagents",
 ];
@@ -293,6 +298,8 @@ function PanelBody({
       return <DiffPane folderId={folderId} worktreeId={worktreeId} />;
     case "pr":
       return <PrPane folderId={folderId} worktreeId={worktreeId} />;
+    case "plan":
+      return <PlanPane />;
     case "browser":
       // Browser is rendered once, always-mounted, by RightPane (so the agent
       // command stream survives close/collapse) — never via this map.
@@ -300,6 +307,16 @@ function PanelBody({
     case "subagents":
       return <SubagentsPane sessionId={sessionId} />;
   }
+}
+
+function PlanPane() {
+  const sessionId = useSessionsStore((s) => s.selectedSessionId);
+  if (sessionId === null) return null;
+  return (
+    <div className="p-3">
+      <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+    </div>
+  );
 }
 
 /**

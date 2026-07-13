@@ -3,6 +3,9 @@ import { Schema } from "effect";
 
 import { EnvironmentId } from "./ids.ts";
 
+/** Conventional loopback port for a local desktop environment. */
+export const DEFAULT_LOCAL_DESKTOP_PORT = 47837;
+
 // ---------------------------------------------------------------------------
 // Environment abstraction
 // ---------------------------------------------------------------------------

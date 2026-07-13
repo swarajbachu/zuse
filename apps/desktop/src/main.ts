@@ -52,6 +52,7 @@ import {
 	NotchTrayController,
 	type NotchTrayItem,
 } from "./notch-tray-controller.ts";
+import { resolveDesktopRelayPort } from "./relay-port.ts";
 import {
 	ensureSshEnvironment,
 	listSshHosts,
@@ -694,7 +695,10 @@ const authShell = {
 		}),
 };
 
-function createMainWindow() {
+async function createMainWindow() {
+	const relayPort = await resolveDesktopRelayPort({
+		configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
+	});
 	const isMac = process.platform === "darwin";
 	mainWindow = new BrowserWindow({
 		width: 1280,
@@ -1404,7 +1408,7 @@ function createMainWindow() {
 	const serverProtocol = electronServerProtocolLayer(
 		mainWindow.webContents,
 	).pipe(Layer.provide(RpcSerialization.layerJson));
-	const relayWsPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8787);
+	const relayWsPort = relayPort.port;
 	const relayWsProtocol = wsServerProtocolLayer({
 		port: relayWsPort,
 		host: "127.0.0.1",
@@ -1414,6 +1418,11 @@ function createMainWindow() {
 		relayWsPort,
 		userData: app.getPath("userData"),
 	});
+	if (relayPort.fellBack) {
+		appendRemoteConnectionLog("desktop.runtime.port_fallback", {
+			relayWsPort,
+		});
+	}
 
 	runtimeFiber = Effect.runFork(
 		Layer.launch(
@@ -1841,7 +1850,7 @@ void app.whenReady().then(async () => {
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
-	createMainWindow();
+	await createMainWindow();
 	if (mainWindow !== null) {
 		if (isDevelopment) {
 			// Wire the dev console helper (window.__zuseUpdateDemo) to a real
@@ -1854,7 +1863,7 @@ void app.whenReady().then(async () => {
 
 	app.on("activate", () => {
 		if (mainWindow === null) {
-			createMainWindow();
+			void createMainWindow();
 		}
 	});
 });

@@ -205,7 +205,7 @@ body,
 /* Same moss/lime identity as dark mode, lifted onto a quiet paper surface.
    Primary stays chartreuse instead of becoming a generic blue/gray light UI. */
 :root {
-  --radius: 0.5rem;
+  --radius: 0.75rem;
   --lime: hsl(72 92% 48%);
   --brand-highlight: hsl(72 92% 48%);
   --brand-highlight-muted: hsl(74 70% 58%);

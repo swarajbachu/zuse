@@ -8,6 +8,7 @@ import {
   LinkSquare01Icon,
   Loading02Icon,
   MagicWand01Icon,
+  Menu01Icon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   PanelRightCloseIcon,
@@ -22,6 +23,13 @@ import {
   ArchiveArrowDownIcon,
   GitPullRequestIcon,
 } from "@hugeicons-pro/core-solid-rounded";
+import {
+  ComposerInput,
+  type FolderId,
+  type GitBranchInfo,
+  type GitMergeMethod,
+  type WorktreeId,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import {
   type CSSProperties,
@@ -31,25 +39,10 @@ import {
   useMemo,
   useState,
 } from "react";
-
-import {
-  ComposerInput,
-  type FolderId,
-  type GitBranchInfo,
-  type GitMergeMethod,
-  type WorktreeId,
-} from "@zuse/contracts";
-
-import { getRpcClient } from "../lib/rpc-client.ts";
 import type { OpenTarget } from "../lib/bridge.ts";
-import { formatShortcut } from "../lib/shortcuts.ts";
+import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
-import {
-  GlassActionButton,
-  GlassChip,
-  type GlassTone,
-} from "./glass-action.tsx";
-import { TooltipShortcut } from "./projects-sidebar.tsx";
+import { formatShortcut } from "../lib/shortcuts.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import {
   archiveChatWithConfirm,
@@ -65,9 +58,13 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { useWorktreesStore } from "../store/worktrees.ts";
+import {
+  GlassActionButton,
+  GlassChip,
+  type GlassTone,
+} from "./glass-action.tsx";
+import { TooltipShortcut } from "./projects-sidebar.tsx";
 import { Button } from "./ui/button.tsx";
-import { ErrorBoundary } from "./ui/error-boundary.tsx";
-import { toastManager } from "./ui/toast.tsx";
 import {
   Dialog,
   DialogClose,
@@ -78,6 +75,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog.tsx";
+import { ErrorBoundary } from "./ui/error-boundary.tsx";
 import { Input } from "./ui/input.tsx";
 import {
   Menu,
@@ -87,6 +85,7 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "./ui/menu.tsx";
+import { toastManager } from "./ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /**
@@ -173,6 +172,10 @@ export function TopBarMain() {
   const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
   const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
   const isFullScreen = useUiStore((s) => s.isFullScreen);
+  const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
+  const toggleEnvironmentSummary = useUiStore(
+    (s) => s.toggleEnvironmentSummary,
+  );
   // On the empty new-chat landing (no session yet) we hide the repo/branch
   // label + open-in menu so the surface reads as a clean blank chat. The
   // sidebar toggle buttons stay.
@@ -223,7 +226,9 @@ export function TopBarMain() {
     void (async () => {
       try {
         const client = await getRpcClient();
-        const origin = await Effect.runPromise(client["git.origin"]({ folderId }));
+        const origin = await Effect.runPromise(
+          client["git.origin"]({ folderId }),
+        );
         if (cancelled) return;
         setOriginLabel(
           origin !== null ? `${origin.owner}/${origin.repo}` : null,
@@ -359,6 +364,28 @@ export function TopBarMain() {
       ) : null}
       {hasSession ? (
         <OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
+      ) : null}
+      {isFullScreen && hasSession ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                onClick={toggleEnvironmentSummary}
+                className={`${ICON_BUTTON_CLASS} ${
+                  environmentSummaryOpen
+                    ? "bg-foreground/10 text-foreground"
+                    : ""
+                }`}
+                aria-label="Toggle environment summary"
+                aria-pressed={environmentSummaryOpen}
+              >
+                <HugeiconsIcon icon={Menu01Icon} className="size-3.5" />
+              </button>
+            }
+          />
+          <TooltipPopup>Toggle environment summary</TooltipPopup>
+        </Tooltip>
       ) : null}
       <Tooltip>
         <TooltipTrigger
@@ -912,7 +939,11 @@ export function TopBarRight() {
   );
 }
 
-function TopBarRightContent() {
+export function TopBarRightContent({
+  compact = false,
+}: {
+  compact?: boolean;
+} = {}) {
   const ctx = useActiveContext();
   const folderId = ctx.status === "ready" ? ctx.folderId : null;
   const worktreeId = ctx.status === "ready" ? ctx.worktreeId : null;
@@ -942,8 +973,15 @@ function TopBarRightContent() {
   const workflow = deriveWorkflow(status, pr, canCreatePrWhenSynced);
   const agentReady = selectedSessionId !== null;
 
+  const Root = compact ? "div" : "header";
   return (
-    <header className={`${SECTION_CLASS} justify-between px-2`}>
+    <Root
+      className={
+        compact
+          ? "flex min-w-0 flex-col gap-2"
+          : `${SECTION_CLASS} justify-between px-2`
+      }
+    >
       <div className={`flex min-w-0 flex-1 items-center gap-2 ${ACTION_CLASS}`}>
         {agentReady && workflow.kind === "dirty" ? (
           <GlassChip tone="amber">
@@ -966,7 +1004,11 @@ function TopBarRightContent() {
           </>
         ) : null}
       </div>
-      <div className={`flex shrink-0 items-center gap-1 ${ACTION_CLASS}`}>
+      <div
+        className={`flex shrink-0 items-center gap-1 ${ACTION_CLASS} ${
+          compact ? "flex-wrap" : ""
+        }`}
+      >
         <RunButton />
         {workflow.kind === "dirty" ? (
           <GlassActionButton
@@ -1067,20 +1109,18 @@ function TopBarRightContent() {
         workflow.checks !== "failure" &&
         !workflow.isDraft &&
         folderId !== null ? (
-          <>
-            {workflow.checks === "pending" ? (
-              <AutoMergeToggle
-                folderId={folderId}
-                worktreeId={worktreeId}
-                enabled={workflow.autoMergeEnabled}
-              />
-            ) : (
-              <MergeButton folderId={folderId} worktreeId={worktreeId} />
-            )}
-          </>
+          workflow.checks === "pending" ? (
+            <AutoMergeToggle
+              folderId={folderId}
+              worktreeId={worktreeId}
+              enabled={workflow.autoMergeEnabled}
+            />
+          ) : (
+            <MergeButton folderId={folderId} worktreeId={worktreeId} />
+          )
         ) : null}
       </div>
-    </header>
+    </Root>
   );
 }
 
