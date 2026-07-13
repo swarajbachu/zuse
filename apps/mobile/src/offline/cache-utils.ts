@@ -1,3 +1,5 @@
+import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
+
 export const slugConnectionKey = (key: string): string =>
   key.replace(/[^a-zA-Z0-9._-]+/g, "_");
 
@@ -14,7 +16,7 @@ export const parsePairingUrl = (
     : undefined;
   return {
     host: normalized.hostname,
-    port: Number(normalized.port || "8787"),
+    port: Number(normalized.port || String(DEFAULT_LOCAL_DESKTOP_PORT)),
     token
   };
 };

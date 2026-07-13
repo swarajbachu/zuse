@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { router } from "expo-router";
+import { useMemo, useState } from "react";
 import { KeyboardAvoidingView, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -15,7 +16,7 @@ export default function ManualConnectScreen() {
   const insets = useSafeAreaInsets();
   const add = useConnectionsStore((state) => state.add);
   const [host, setHost] = useState("127.0.0.1");
-  const [port, setPort] = useState("8787");
+  const [port, setPort] = useState(String(DEFAULT_LOCAL_DESKTOP_PORT));
   const [token, setToken] = useState("");
 
   const canAdd = useMemo(
@@ -54,7 +55,7 @@ export default function ManualConnectScreen() {
             value={port}
             onChangeText={setPort}
             keyboardType="number-pad"
-            placeholder="8787"
+            placeholder={String(DEFAULT_LOCAL_DESKTOP_PORT)}
           />
           <View className="ml-4 h-px bg-border" />
           <Field

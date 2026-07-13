@@ -1,3 +1,4 @@
+import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import type { ConnectionRecord } from "~/store/connections";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
@@ -6,8 +7,9 @@ export const normalizeConnParam = (
 ): string => (Array.isArray(param) ? (param[0] ?? "") : (param ?? ""));
 
 export const parseConnectionKey = (key: string): WsProtocolOptions => {
-  const [host = "127.0.0.1", port = "8787"] = key.split(":");
-  return { host, port: Number(port) || 8787 };
+	const [host = "127.0.0.1", port = String(DEFAULT_LOCAL_DESKTOP_PORT)] =
+		key.split(":");
+	return { host, port: Number(port) || DEFAULT_LOCAL_DESKTOP_PORT };
 };
 
 export const optionsForConnection = (
