@@ -1,7 +1,6 @@
 import type { AgentItemId, Message } from "@zuse/contracts";
 
 import { groupMessages } from "./group-messages.ts";
-import { isToolActivityMessage } from "./tool-activity.ts";
 
 export type ChatTimelineRow =
   | {
@@ -30,16 +29,9 @@ export type ChatTimelineRow =
       } | null;
     }
   | {
-      readonly kind: "tool-group";
-      readonly id: string;
-      readonly messages: ReadonlyArray<Message>;
-      readonly live: boolean;
-    }
-  | {
-      readonly kind: "turn-activity";
+      readonly kind: "turn-summary";
       readonly id: string;
       readonly body: ReadonlyArray<Message>;
-      readonly totalBody: ReadonlyArray<Message>;
     }
   | {
       readonly kind: "working";
@@ -95,7 +87,10 @@ const inputScore = (input: unknown): number => {
 };
 
 const preferToolUse = (current: Message, next: Message): Message => {
-  if (current.content._tag !== "tool_use" || next.content._tag !== "tool_use") {
+  if (
+    current.content._tag !== "tool_use" ||
+    next.content._tag !== "tool_use"
+  ) {
     return current;
   }
   return inputScore(next.content.input) > inputScore(current.content.input)
@@ -123,10 +118,10 @@ export function normalizeTimelineMessages(
       continue;
     }
 
-    const existing = normalized[existingIndex];
-    if (existing !== undefined) {
-      normalized[existingIndex] = preferToolUse(existing, message);
-    }
+    normalized[existingIndex] = preferToolUse(
+      normalized[existingIndex]!,
+      message,
+    );
   }
 
   return normalized;
@@ -161,10 +156,11 @@ export function deriveChatTimelineRows({
 
   const rows: ChatTimelineRow[] = [];
 
-  for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
-    const turn = turns[turnIndex];
-    if (turn === undefined) continue;
-    const isLiveTurn = inFlight && turnIndex === turns.length - 1;
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index]!;
+    const isLastTurn = index === turns.length - 1;
+    const isLive = inFlight && isLastTurn;
+
     if (turn.user !== null) {
       rows.push({
         kind: "message",
@@ -174,6 +170,15 @@ export function deriveChatTimelineRows({
       });
     }
 
+    const hasToolCalls = turn.body.some(
+      (message) => message.content._tag === "tool_use",
+    );
+    const hasFinalText = turn.body.some(
+      (message) =>
+        message.content._tag === "assistant" &&
+        message.content.text.trim().length > 0,
+    );
+    const showSummary = !isLive && hasToolCalls && hasFinalText;
     const bodyGroups = groupMessages(turn.body);
     const planMessages = turn.body.filter(
       (message) =>
@@ -185,19 +190,26 @@ export function deriveChatTimelineRows({
         message.content._tag === "tool_use" ? [message.content.itemId] : [],
       ),
     );
-    const nonPlanToolUses = turn.body.filter(
-      (message) =>
-        message.content._tag === "tool_use" &&
-        message.content.tool !== "ExitPlanMode",
-    );
-    const finalAssistant = [...turn.body]
-      .reverse()
-      .find((message) => message.content._tag === "assistant");
-    if (
-      !isLiveTurn &&
-      nonPlanToolUses.length > 0 &&
-      finalAssistant !== undefined
-    ) {
+    const summaryBody =
+      planMessages.length === 0
+        ? turn.body
+        : turn.body.filter((message) => {
+            if (
+              message.content._tag === "tool_use" &&
+              message.content.tool === "ExitPlanMode"
+            ) {
+              return false;
+            }
+            if (
+              message.content._tag === "tool_result" &&
+              planItemIds.has(message.content.itemId)
+            ) {
+              return false;
+            }
+            return true;
+          });
+
+    if (showSummary) {
       for (const message of planMessages) {
         rows.push({
           kind: "message",
@@ -206,72 +218,16 @@ export function deriveChatTimelineRows({
           enterUser: false,
         });
       }
-      const detailBody = turn.body.filter((message) => {
-        if (message === finalAssistant) return false;
-        if (
-          message.content._tag === "tool_use" &&
-          message.content.tool === "ExitPlanMode"
-        ) {
-          return false;
-        }
-        return !(
-          message.content._tag === "tool_result" &&
-          planItemIds.has(message.content.itemId)
-        );
-      });
       rows.push({
-        kind: "turn-activity",
-        id: `turn-activity:${turn.user?.id ?? finalAssistant.id}`,
-        body: detailBody,
-        totalBody: turn.body,
-      });
-      rows.push({
-        kind: "message",
-        id: `message:${finalAssistant.id}`,
-        message: finalAssistant,
-        enterUser: false,
+        kind: "turn-summary",
+        id: `summary:${turn.user?.id ?? `turn-${index}`}`,
+        body: summaryBody,
       });
       continue;
     }
-    let pendingTools: Message[] = [];
-    const flushTools = (live = false) => {
-      if (pendingTools.length === 0) return;
-      const first = pendingTools[0];
-      if (first === undefined) return;
-      rows.push({
-        kind: "tool-group",
-        id: `tool-group:${first.id}`,
-        messages: pendingTools,
-        live,
-      });
-      pendingTools = [];
-    };
+
     for (const group of bodyGroups) {
       if (group.kind === "single") {
-        if (
-          group.message.content._tag === "tool_use" &&
-          group.message.content.tool === "ExitPlanMode"
-        ) {
-          flushTools();
-          rows.push({
-            kind: "message",
-            id: `message:${group.message.id}`,
-            message: group.message,
-            enterUser: false,
-          });
-          continue;
-        }
-        if (
-          group.message.content._tag === "tool_result" &&
-          planItemIds.has(group.message.content.itemId)
-        ) {
-          continue;
-        }
-        if (isToolActivityMessage(group.message)) {
-          pendingTools.push(group.message);
-          continue;
-        }
-        flushTools();
         rows.push({
           kind: "message",
           id: `message:${group.message.id}`,
@@ -279,7 +235,6 @@ export function deriveChatTimelineRows({
           enterUser: false,
         });
       } else {
-        flushTools();
         rows.push({
           kind: "subagent",
           id: `subagent:${group.parent.id}`,
@@ -295,7 +250,6 @@ export function deriveChatTimelineRows({
         });
       }
     }
-    flushTools(isLiveTurn);
   }
 
   if (inFlight && !awaitingPlanApproval) {

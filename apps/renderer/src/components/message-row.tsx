@@ -143,13 +143,9 @@ const formatCompactTokenDelta = (
 function MessageRowImpl({
   message,
   sessionId,
-  compact = false,
-  muted = false,
 }: {
   message: Message;
   sessionId?: SessionId;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   switch (message.content._tag) {
     case "user":
@@ -177,7 +173,6 @@ function MessageRowImpl({
         <AssistantBubble
           text={message.content.text}
           createdAt={message.createdAt}
-          compact={compact}
         />
       );
     case "thinking":
@@ -187,18 +182,10 @@ function MessageRowImpl({
           sessionId={sessionId}
           text={message.content.text}
           redacted={message.content.redacted}
-          compact={compact}
-          muted={muted}
         />
       );
     case "tool_use":
-      return (
-        <ToolUseMessageRow
-          content={message.content}
-          compact={compact}
-          muted={muted}
-        />
-      );
+      return <ToolUseMessageRow content={message.content} />;
     case "tool_result":
       return <ToolResultMessageRow content={message.content} />;
     case "user_question":
@@ -257,15 +244,11 @@ function ThinkingMessageRow({
   sessionId,
   text,
   redacted,
-  compact = false,
-  muted = false,
 }: {
   messageId: Message["id"];
   sessionId?: SessionId;
   text: string;
   redacted: boolean;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   // Shimmer while this thinking block is the live tip of a running turn.
   const pending = useMessagesStore((s) => {
@@ -275,25 +258,13 @@ function ThinkingMessageRow({
     const last = msgs[msgs.length - 1];
     return last?.id === messageId;
   });
-  return (
-    <ThinkingRow
-      text={text}
-      redacted={redacted}
-      pending={pending}
-      compact={compact}
-      muted={muted}
-    />
-  );
+  return <ThinkingRow text={text} redacted={redacted} pending={pending} />;
 }
 
 function ToolUseMessageRow({
   content,
-  compact = false,
-  muted = false,
 }: {
   content: MessageContent<"tool_use">;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   const { resultsByItemId } = useChatLookups();
   const result = resultsByItemId.get(content.itemId);
@@ -316,15 +287,7 @@ function ToolUseMessageRow({
       return <OrchestrationThreadRow variant={orch} result={result} />;
     }
   }
-  return (
-    <ToolRow
-      tool={content.tool}
-      input={content.input}
-      result={result}
-      compact={compact}
-      muted={muted}
-    />
-  );
+  return <ToolRow tool={content.tool} input={content.input} result={result} />;
 }
 
 function ToolResultMessageRow({
@@ -631,14 +594,12 @@ function UserBubble({
 function AssistantBubble({
   text,
   createdAt,
-  compact = false,
 }: {
   text: string;
   createdAt?: Date;
-  compact?: boolean;
 }) {
   return (
-    <div className={compact ? "py-1" : "px-4 py-2"}>
+    <div className="px-4 py-2">
       <div className="max-w-full">
         <MarkdownBody>{text}</MarkdownBody>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">

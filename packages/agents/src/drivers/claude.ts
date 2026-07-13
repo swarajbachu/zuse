@@ -269,6 +269,7 @@ interface PendingAgent {
 	readonly agentName: string;
 	readonly model: string;
 	readonly startedAt: number;
+	readonly background: boolean;
 	turnCount: number;
 }
 
@@ -281,6 +282,8 @@ interface TranslateState {
 	 * Keyed by the parent's tool_use id.
 	 */
 	pendingAgents: Map<string, PendingAgent>;
+	/** Maps SDK background task ids to their originating Agent tool use. */
+	backgroundTaskParents: Map<string, AgentItemId>;
 	/**
 	 * Most recent `parent_tool_use_id` seen on an SDK message. The Claude
 	 * SDK's `canUseTool` callback signature does not include a parent id,
@@ -334,6 +337,7 @@ const newTranslateState = (): TranslateState => ({
 	thinkingByIndex: new Map(),
 	emittedThinkingThisTurn: false,
 	pendingAgents: new Map(),
+	backgroundTaskParents: new Map(),
 	latestParentItemId: undefined,
 	askUserQuestionIds: new Set(),
 	exitPlanModeIds: new Set(),
@@ -648,10 +652,14 @@ const translate = (
 							typeof inputObj?.model === "string"
 								? (inputObj.model as string)
 								: "inherit";
+						const background =
+							inputObj?.run_in_background === true ||
+							inputObj?.is_background === true;
 						state.pendingAgents.set(id as string, {
 							agentName: subagentType,
 							model: requestedModel,
 							startedAt: Date.now(),
+							background,
 							turnCount: 0,
 						});
 					}
@@ -889,7 +897,7 @@ const translate = (
 					// collapsed. The summary's text is the sub-agent's final
 					// assistant message that the SDK packs into `tool_result.content`.
 					const pending = state.pendingAgents.get(id as string);
-					if (pending !== undefined) {
+					if (pending !== undefined && !pending.background) {
 						state.pendingAgents.delete(id as string);
 						out.push({
 							_tag: "SubagentSummary",
@@ -995,6 +1003,88 @@ const translate = (
 			// so a later turn that fails auth still surfaces its own card.
 			state.emittedAuthError = false;
 		}
+		return out;
+	}
+	if (msg.type === "system" && msg.subtype === "task_started") {
+		if (msg.skip_transcript === true) return [];
+		const itemId = (msg.tool_use_id ?? `task_${msg.task_id}`) as AgentItemId;
+		const existing = state.pendingAgents.get(itemId as string);
+		state.backgroundTaskParents.set(msg.task_id, itemId);
+		state.pendingAgents.set(itemId as string, {
+			agentName: msg.task_type ?? existing?.agentName ?? "agent",
+			model: existing?.model ?? "inherit",
+			startedAt: existing?.startedAt ?? Date.now(),
+			background: true,
+			turnCount: existing?.turnCount ?? 0,
+		});
+		return [
+			{
+				_tag: "ToolUse",
+				itemId,
+				tool: "Agent",
+				input: {
+					description: msg.description,
+					prompt: msg.prompt ?? msg.description,
+					subagent_type: msg.task_type ?? "agent",
+					run_in_background: true,
+					task_id: msg.task_id,
+				},
+				subagent: {
+					childSessionId: msg.task_id,
+					presentation: "detached",
+				},
+			},
+		];
+	}
+	if (msg.type === "system" && msg.subtype === "task_progress") {
+		const itemId =
+			(msg.tool_use_id as AgentItemId | undefined) ??
+			state.backgroundTaskParents.get(msg.task_id);
+		if (itemId === undefined || msg.description.trim().length === 0) return [];
+		const pending = state.pendingAgents.get(itemId as string);
+		if (pending !== undefined) pending.turnCount += 1;
+		return [
+			{
+				_tag: "AssistantMessage",
+				itemId: nextItemId(),
+				text: msg.description,
+				parentItemId: itemId,
+			},
+		];
+	}
+	if (msg.type === "system" && msg.subtype === "task_notification") {
+		if (msg.skip_transcript === true) return [];
+		const itemId =
+			(msg.tool_use_id as AgentItemId | undefined) ??
+			state.backgroundTaskParents.get(msg.task_id) ??
+			(`task_${msg.task_id}` as AgentItemId);
+		const pending = state.pendingAgents.get(itemId as string);
+		const summary = msg.summary.trim();
+		const out: AgentEvent[] = [];
+		if (summary.length > 0) {
+			out.push({
+				_tag: "AssistantMessage",
+				itemId: nextItemId(),
+				text: summary,
+				parentItemId: itemId,
+			});
+		}
+		out.push({
+			_tag: "SubagentSummary",
+			itemId,
+			agentName: pending?.agentName ?? "agent",
+			model: pending?.model ?? "inherit",
+			turns: pending?.turnCount ?? 0,
+			durationMs:
+				msg.usage?.duration_ms ??
+				(pending === undefined ? 0 : Date.now() - pending.startedAt),
+			summary,
+			isError: msg.status !== "completed",
+			childSessionId: msg.task_id,
+			presentation: "detached",
+		});
+		state.pendingAgents.delete(itemId as string);
+		state.backgroundTaskParents.delete(msg.task_id);
 		return out;
 	}
 	if ((msg as { type?: unknown }).type === "rate_limit_event") {

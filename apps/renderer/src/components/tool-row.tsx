@@ -223,7 +223,13 @@ function InlineTextHint({ value }: { value: string }) {
 }
 
 /** Soft +/− line counts for edit rows — muted but still readable as color. */
-function SoftDiffStats({ added, removed }: { added: number; removed: number }) {
+function SoftDiffStats({
+  added,
+  removed,
+}: {
+  added: number;
+  removed: number;
+}) {
   if (added <= 0 && removed <= 0) return null;
   return (
     <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
@@ -479,36 +485,6 @@ function PreBlock({ text, isError }: { text: string; isError?: boolean }) {
   );
 }
 
-function CombinedPreBlock({
-  input,
-  output,
-  isError,
-}: {
-  input: string;
-  output?: string;
-  isError?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "overflow-hidden rounded border font-mono text-[11px] text-foreground/80",
-        isError
-          ? "border-alert-error-bg bg-alert-error-bg"
-          : "border-message-rule bg-message-pre-bg",
-      )}
-    >
-      <pre className="overflow-x-auto whitespace-pre-wrap break-words px-3 py-2">
-        {input || "(empty)"}
-      </pre>
-      {output !== undefined ? (
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border-message-rule border-t px-3 py-2 text-muted-foreground">
-          {output || "(empty)"}
-        </pre>
-      ) : null}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Result extractors (per tool)
 // ---------------------------------------------------------------------------
@@ -573,8 +549,6 @@ function ExpandableIconRow({
   body,
   hasContent,
   pending = false,
-  compact = false,
-  muted = false,
 }: {
   icon: IconHandle;
   label: string;
@@ -583,20 +557,17 @@ function ExpandableIconRow({
   hasContent: boolean;
   /** True while the tool/thinking is still running — label shimmers. */
   pending?: boolean;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
   return (
-    <div className={compact ? "" : "px-4 py-0.5"}>
+    <div className="px-4 py-0.5">
       <button
         type="button"
         onClick={() => hasContent && setExpanded((e) => !e)}
         className={cn(
           "group flex w-full max-w-2xl items-center gap-2 rounded px-1.5 py-1 text-left text-xs",
           hasContent ? "cursor-pointer" : "cursor-default",
-          muted ? "opacity-65" : "",
         )}
       >
         <div className="relative grid size-4 shrink-0 place-items-center">
@@ -1372,13 +1343,11 @@ const buildToolView = (
       return {
         icon: iconForTool(tool), // will pick a heuristic icon
         label: niceLabel || "Tool",
-        fallbackBody: (
-          <CombinedPreBlock
-            input={stringifyJson(input)}
-            output={
-              result === undefined ? undefined : toResultText(result.output)
-            }
-            isError={result?.isError}
+        fallbackBody: <PreBlock text={stringifyJson(input)} />,
+        resultPanel: (result) => (
+          <PreBlock
+            text={toResultText(result.output)}
+            isError={result.isError}
           />
         ),
       };
@@ -1724,14 +1693,10 @@ export function ToolRow({
   tool,
   input,
   result,
-  compact = false,
-  muted = false,
 }: {
   tool: string;
   input: unknown;
   result?: ToolResult;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   const view = buildToolView(tool, input, result);
   const pending = result === undefined;
@@ -1783,8 +1748,6 @@ export function ToolRow({
       pending={pending}
       hasContent={sections.length > 0}
       body={sections.length > 0 ? sections : null}
-      compact={compact}
-      muted={muted}
     />
   );
 }
@@ -1793,15 +1756,11 @@ export function ThinkingRow({
   text,
   redacted,
   pending = false,
-  compact = false,
-  muted = false,
 }: {
   text: string;
   redacted: boolean;
   /** True while this thinking block is the live tip of a running turn. */
   pending?: boolean;
-  compact?: boolean;
-  muted?: boolean;
 }) {
   // Three states:
   // 1. redacted — model thought but content is policy-hidden (rare;
@@ -1833,8 +1792,6 @@ export function ThinkingRow({
       pending={pending}
       hasContent
       body={body}
-      compact={compact}
-      muted={muted}
     />
   );
 }
