@@ -8,10 +8,20 @@ import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
 import { normalizePercent, normalizeReset, unavailable } from "./shared.ts";
 
 type ClaudeWindow = { utilization?: number; resets_at?: string | number };
+type ClaudeScopedLimit = {
+  kind?: string;
+  group?: string;
+  percent?: number;
+  resets_at?: string | number;
+  scope?: {
+    model?: { id?: string | null; display_name?: string | null } | null;
+  } | null;
+};
 type ClaudePayload = Record<string, unknown> & {
   extra_usage?: { balance?: number; credits_remaining?: number };
   subscriptionType?: string;
   rate_limit_tier?: string;
+  limits?: ClaudeScopedLimit[];
 };
 
 const title = (value: string) =>
@@ -19,6 +29,13 @@ const title = (value: string) =>
     .split(/[-_]/)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+
+const slug = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
 export const parseClaudeUsagePayload = (
   payload: ClaudePayload,
@@ -46,15 +63,40 @@ export const parseClaudeUsagePayload = (
         resetsAt: normalizeReset(item.resets_at),
         windowMinutes: 10_080,
       });
-    else if (key.startsWith("seven_day_"))
+    else if (key.startsWith("seven_day_")) {
+      const model = title(key.slice(10));
       windows.push({
         id: key,
-        label: `Weekly (${title(key.slice(10))})`,
+        label: `${model} only`,
         scope: "model",
         usedPercent: normalizePercent(item.utilization),
         resetsAt: normalizeReset(item.resets_at),
         windowMinutes: 10_080,
       });
+    }
+  }
+  const modelWindowIds = new Set(
+    windows
+      .filter((window) => window.scope === "model")
+      .map((window) => slug(window.label.replace(/ only$/i, ""))),
+  );
+  for (const limit of payload.limits ?? []) {
+    if (limit.kind !== "weekly_scoped" || limit.group !== "weekly") continue;
+    const modelName = limit.scope?.model?.display_name?.trim();
+    if (!modelName) continue;
+    const modelId = slug(limit.scope?.model?.id?.trim() || modelName);
+    if (!modelId || modelWindowIds.has(modelId)) continue;
+    const usedPercent = normalizePercent(limit.percent);
+    if (usedPercent === null) continue;
+    modelWindowIds.add(modelId);
+    windows.push({
+      id: `weekly-scoped:${modelId}`,
+      label: `${modelName} only`,
+      scope: "model",
+      usedPercent,
+      resetsAt: normalizeReset(limit.resets_at),
+      windowMinutes: 10_080,
+    });
   }
   return {
     providerId: "claude",

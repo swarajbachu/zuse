@@ -77,6 +77,7 @@ import {
   useSidebarMessageStatusSubscriptions,
 } from "../store/sidebar-message-status.ts";
 import { useUiStore } from "../store/ui.ts";
+import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BranchIcon, type BranchState } from "./branch-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
@@ -499,6 +500,7 @@ function SidebarAccount() {
   const { isSignedIn, user, name, signingIn, signIn, signOut } = useAuth();
   const setView = useUiStore((s) => s.setView);
   const setSettingsSection = useUiStore((s) => s.setSettingsSection);
+  const loadUsageLimits = useUsageLimitsStore((s) => s.load);
 
   // Always render an affordance. Until auth state resolves (or whenever signed
   // out) we show "Sign in" — a brief flash to the signed-in row on cold load
@@ -512,6 +514,8 @@ function SidebarAccount() {
         render={
           <button
             type="button"
+            onPointerEnter={() => void loadUsageLimits()}
+            onFocus={() => void loadUsageLimits()}
             className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
           >
             {isSignedIn ? (

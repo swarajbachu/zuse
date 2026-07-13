@@ -18,9 +18,32 @@ describe("usage limit normalization", () => {
 		);
 		expect(result.windows).toMatchObject([
 			{ scope: "session", usedPercent: 40, windowMinutes: 300 },
-			{ label: "Weekly (Fable)", scope: "model", usedPercent: 82 },
+			{ label: "Fable only", scope: "model", usedPercent: 82 },
 		]);
 		expect(result.creditsRemaining).toBe(12);
+	});
+
+	it("discovers model-scoped Claude limits from the limits array", () => {
+		const result = parseClaudeUsagePayload({
+			five_hour: { utilization: 48 },
+			seven_day: { utilization: 65 },
+			seven_day_fable: null,
+			limits: [
+				{
+					kind: "weekly_scoped",
+					group: "weekly",
+					percent: 69,
+					resets_at: "2026-07-14T22:00:00Z",
+					scope: { model: { id: null, display_name: "Fable" } },
+				},
+			],
+		});
+
+		expect(result.windows).toMatchObject([
+			{ label: "Session", scope: "session", usedPercent: 48 },
+			{ label: "Weekly", scope: "weekly", usedPercent: 65 },
+			{ label: "Fable only", scope: "model", usedPercent: 69 },
+		]);
 	});
 
 	it("maps all Codex buckets and scopes short windows as sessions", () => {
@@ -164,7 +187,7 @@ describe("usage limit normalization", () => {
 		);
 
 		expect(result[0]?.windows).toMatchObject([
-			{ label: "Weekly (Fable)", scope: "model", usedPercent: 82 },
+			{ label: "Fable only", scope: "model", usedPercent: 82 },
 			{ label: "Weekly", scope: "weekly", usedPercent: 40 },
 		]);
 	});

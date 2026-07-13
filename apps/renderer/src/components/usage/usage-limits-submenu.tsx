@@ -85,7 +85,6 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 			state.providers.find((item) => item.providerId === providerId),
 		) ?? placeholder(providerId);
 	const loading = useUsageLimitsStore((state) => state.loading);
-	const refresh = useUsageLimitsStore((state) => state.refresh);
 	const summary = provider.windows
 		.slice()
 		.sort((a, b) => WINDOW_ORDER[a.scope] - WINDOW_ORDER[b.scope])[0];
@@ -95,11 +94,7 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 			: Math.max(0, Math.round(100 - summary.usedPercent));
 
 	return (
-		<MenuSub
-			onOpenChange={(open) => {
-				if (open) void refresh(false, providerId);
-			}}
-		>
+		<MenuSub>
 			<MenuSubTrigger>
 				<ProviderIcon providerId={providerId} className="size-3.5" />
 				<span className="min-w-0 flex-1 truncate">

@@ -4,6 +4,8 @@ import { create } from "zustand";
 import { getRpcClient } from "../lib/rpc-client.ts";
 
 let rpcClient = getRpcClient;
+let pendingLoad: Promise<void> | null = null;
+const STALE_AFTER_MS = 60_000;
 export const setUsageLimitsRpcClientForTest = (value: typeof getRpcClient) => {
   rpcClient = value;
 };
@@ -25,8 +27,20 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
   error: null,
   lastLoadedAt: null,
   load: async () => {
-    if (get().lastLoadedAt !== null) return;
-    await get().refresh(false);
+    const lastLoadedAt = get().lastLoadedAt;
+    if (lastLoadedAt !== null && Date.now() - lastLoadedAt < STALE_AFTER_MS)
+      return;
+    if (pendingLoad !== null) {
+      await pendingLoad;
+      return;
+    }
+    const load = get()
+      .refresh(false)
+      .finally(() => {
+        if (pendingLoad === load) pendingLoad = null;
+      });
+    pendingLoad = load;
+    await load;
   },
   refresh: async (force = false, providerId) => {
     set({ loading: true, error: null });
