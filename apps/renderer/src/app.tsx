@@ -304,12 +304,15 @@ function MainShell() {
   const isFullScreen = useUiStore((s) => s.isFullScreen);
   const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
   const environmentSummaryFits = useMediaQuery({ min: 1180 });
-  const showEnvironmentSummary =
+  const environmentSummaryAvailable =
     isFullScreen &&
-    environmentSummaryOpen &&
     environmentSummaryFits &&
     selectedSessionId !== null &&
     activeMainTab === "chat";
+  const showEnvironmentSummary =
+    environmentSummaryAvailable &&
+    environmentSummaryOpen &&
+    !rightSidebarOpen;
 
   // Switching projects closes the file tab — its path wouldn't resolve
   // under the new project's root anyway.
@@ -449,7 +452,27 @@ function MainShell() {
                       constrain={false}
                     />
                   </div>
-                  {showEnvironmentSummary ? <EnvironmentSummary /> : null}
+                  {environmentSummaryAvailable ? (
+                    <div
+                      className={`shrink-0 overflow-hidden transition-[width,opacity] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+                        showEnvironmentSummary
+                          ? "w-[18.75rem] opacity-100"
+                          : "w-0 opacity-0"
+                      }`}
+                      aria-hidden={!showEnvironmentSummary}
+                      inert={!showEnvironmentSummary}
+                    >
+                      <div
+                        className={`w-[18.75rem] transition-transform duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+                          showEnvironmentSummary
+                            ? "translate-x-0"
+                            : "translate-x-3"
+                        }`}
+                      >
+                        <EnvironmentSummary />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <ChatLanding />
