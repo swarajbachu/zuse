@@ -2,7 +2,7 @@ import type { ProviderId, UsageLimitWindow } from "@zuse/contracts";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-import type { SessionUsageWindow } from "./merge.ts";
+import { type SessionUsageWindow, usageWindowKey } from "./merge.ts";
 
 export const loadSessionUsageWindows = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
@@ -19,24 +19,25 @@ export const loadSessionUsageWindows = Effect.gen(function* () {
 				_tag?: string;
 			};
 			if (!value.providerId) continue;
-			const key = `${value.providerId}:${value.windowMinutes === null ? value.label : value.windowMinutes}`;
+			const window: UsageLimitWindow = {
+				id: value.id,
+				label: value.label,
+				scope:
+					value.scope ??
+					(value.windowMinutes && value.windowMinutes <= 1_440
+						? "session"
+						: "weekly"),
+				usedPercent: value.usedPercent,
+				resetsAt: value.resetsAt,
+				windowMinutes: value.windowMinutes,
+			};
+			const key = `${value.providerId}:${usageWindowKey(window)}`;
 			if (seen.has(key)) continue;
 			seen.add(key);
 			results.push({
 				providerId: value.providerId,
 				createdAt: row.created_at,
-				window: {
-					id: value.id ?? key,
-					label: value.label,
-					scope:
-						value.scope ??
-						(value.windowMinutes && value.windowMinutes <= 1_440
-							? "session"
-							: "weekly"),
-					usedPercent: value.usedPercent,
-					resetsAt: value.resetsAt,
-					windowMinutes: value.windowMinutes,
-				},
+				window: { ...window, id: window.id ?? key },
 			});
 		} catch {
 			/* Historical malformed rows are ignored. */

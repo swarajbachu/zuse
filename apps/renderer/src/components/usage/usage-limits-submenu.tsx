@@ -114,8 +114,8 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 					</span>
 				) : null}
 			</MenuSubTrigger>
-			<MenuSubPopup className="h-80 w-80">
-				<div className="min-h-full px-2 py-1.5">
+			<MenuSubPopup className="w-80">
+				<div className="px-2 py-1.5">
 					<div className="flex items-center gap-2 border-b pb-2">
 						<ProviderIcon providerId={providerId} className="size-4" />
 						<div>

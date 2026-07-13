@@ -137,6 +137,38 @@ describe("usage limit normalization", () => {
 		expect(result[0]?.windows[0]?.usedPercent).toBe(20);
 	});
 
+	it("keeps model-specific limits when a generic window is refreshed", () => {
+		const fetched = parseClaudeUsagePayload(
+			{
+				seven_day: { utilization: 35 },
+				seven_day_fable: { utilization: 82 },
+			},
+			"2026-01-01T00:00:00Z",
+		);
+		const result = mergeUsageLimits(
+			[fetched],
+			[
+				{
+					providerId: "claude",
+					createdAt: "2026-01-01T00:01:00Z",
+					window: {
+						id: "weekly-event",
+						label: "Weekly",
+						scope: "weekly",
+						usedPercent: 40,
+						resetsAt: null,
+						windowMinutes: 10_080,
+					},
+				},
+			],
+		);
+
+		expect(result[0]?.windows).toMatchObject([
+			{ label: "Weekly (Fable)", scope: "model", usedPercent: 82 },
+			{ label: "Weekly", scope: "weekly", usedPercent: 40 },
+		]);
+	});
+
 	it("parses nested framed billing values", () => {
 		const nested = Uint8Array.from([0x0a, 0x05, 0x0d, 0, 0, 72, 66]);
 		const frame = new Uint8Array(5 + nested.length);

@@ -10,6 +10,11 @@ export type SessionUsageWindow = {
 	createdAt: string;
 };
 
+export const usageWindowKey = (window: UsageLimitWindow): string =>
+	window.scope === "model"
+		? `model:${window.label.trim().toLowerCase()}`
+		: window.scope;
+
 export const mergeUsageLimits = (
 	fetched: readonly ProviderUsageLimits[],
 	events: readonly SessionUsageWindow[],
@@ -32,16 +37,8 @@ export const mergeUsageLimits = (
 			source: "session-event" as const,
 			windows: [],
 		};
-		const key =
-			event.window.windowMinutes === null
-				? `label:${event.window.label}`
-				: `window:${event.window.windowMinutes}`;
-		const windows = base.windows.filter(
-			(item) =>
-				(item.windowMinutes === null
-					? `label:${item.label}`
-					: `window:${item.windowMinutes}`) !== key,
-		);
+		const key = usageWindowKey(event.window);
+		const windows = base.windows.filter((item) => usageWindowKey(item) !== key);
 		windows.push(event.window);
 		result.set(event.providerId, {
 			...base,
