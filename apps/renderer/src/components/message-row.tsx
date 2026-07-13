@@ -30,6 +30,7 @@ import {
   orchestrationToolName,
   parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
+import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
@@ -271,7 +272,12 @@ function ToolUseMessageRow({
   if (content.tool === "ExitPlanMode") {
     return <ExitPlanModeRow input={content.input} result={result} />;
   }
-  const orch = orchestrationToolName(content.tool);
+  const normalized = normalizeToolCallEnvelope(
+    content.tool,
+    content.input,
+    result,
+  );
+  const orch = orchestrationToolName(normalized.tool);
   if (
     orch === "create_thread" ||
     orch === "create_chat" ||
@@ -279,15 +285,27 @@ function ToolUseMessageRow({
     orch === "send_to_thread"
   ) {
     const parsed =
-      result !== undefined ? parseOrchestrationResult(result.output) : null;
+      normalized.result !== undefined
+        ? parseOrchestrationResult(normalized.result.output)
+        : null;
     const renderCard =
-      result === undefined ||
-      (!result.isError && parsed !== null && typeof parsed.chatId === "string");
+      normalized.result === undefined ||
+      (!normalized.result.isError &&
+        parsed !== null &&
+        typeof parsed.chatId === "string");
     if (renderCard) {
-      return <OrchestrationThreadRow variant={orch} result={result} />;
+      return (
+        <OrchestrationThreadRow variant={orch} result={normalized.result} />
+      );
     }
   }
-  return <ToolRow tool={content.tool} input={content.input} result={result} />;
+  return (
+    <ToolRow
+      tool={orch ?? normalized.tool}
+      input={normalized.input}
+      result={normalized.result}
+    />
+  );
 }
 
 function ToolResultMessageRow({
