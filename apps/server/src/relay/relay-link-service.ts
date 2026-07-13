@@ -1,6 +1,9 @@
+import {
+  DEFAULT_LOCAL_DESKTOP_PORT,
+  RelayPaths,
+  type EnvironmentId,
+} from "@zuse/contracts";
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
-
-import { RelayPaths, type EnvironmentId } from "@zuse/contracts";
 
 import { AppPaths } from "../app-paths.ts";
 import { AuthService } from "../auth/services/auth-service.ts";
@@ -96,7 +99,7 @@ const postJson = <A>(
 
 const computeEndpoint = (config: LanAuthConfigShape) => {
   const host = config.advertisedHost ?? "127.0.0.1";
-  const port = config.port ?? 8787;
+  const port = config.port ?? DEFAULT_LOCAL_DESKTOP_PORT;
   return {
     httpBaseUrl: `http://${host}:${port}`,
     wsBaseUrl: `ws://${host}:${port}`,
@@ -105,7 +108,7 @@ const computeEndpoint = (config: LanAuthConfigShape) => {
 
 const computeOrigin = (config: LanAuthConfigShape) => ({
   localHttpHost: "127.0.0.1",
-  localHttpPort: config.port ?? 8787,
+  localHttpPort: config.port ?? DEFAULT_LOCAL_DESKTOP_PORT,
 });
 
 export const RelayLinkServiceLive: Layer.Layer<

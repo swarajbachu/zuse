@@ -1,8 +1,11 @@
-import { MessageEnvelope } from "@zuse/contracts";
+import {
+  DEFAULT_LOCAL_DESKTOP_PORT,
+  MessageEnvelope,
+} from "@zuse/contracts";
+import { Effect, Fiber, Result, Schema, Stream } from "effect";
 import { CheckCircle2, CircleAlert } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import { Effect, Fiber, Result, Schema, Stream } from "effect";
 
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
@@ -169,7 +172,10 @@ const runLiveProbe = async (
 ) => {
   try {
     const client = await Effect.runPromise(
-      getConnectionClient({ host: "127.0.0.1", port: 8787 }),
+      getConnectionClient({
+        host: "127.0.0.1",
+        port: DEFAULT_LOCAL_DESKTOP_PORT,
+      }),
     );
     const ping = await Effect.runPromise(client["ping.ping"]({}));
     const projects = await Effect.runPromise(client["workspace.list"]({}));

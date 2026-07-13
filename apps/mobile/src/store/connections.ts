@@ -1,3 +1,4 @@
+import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { Effect } from "effect";
@@ -53,7 +54,7 @@ const parseHostPort = (wsBaseUrl: string): { host: string; port: number } => {
       port: Number(url.port) || (url.protocol === "wss:" ? 443 : 80),
     };
   } catch {
-    return { host: "127.0.0.1", port: 8787 };
+    return { host: "127.0.0.1", port: DEFAULT_LOCAL_DESKTOP_PORT };
   }
 };
 
