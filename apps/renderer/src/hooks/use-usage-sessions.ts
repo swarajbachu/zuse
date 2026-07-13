@@ -1,8 +1,9 @@
-import type { FolderId, UsageSessionsPage } from "@zuse/contracts";
+import type { FolderId, ProviderId, UsageSessionsPage } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useState } from "react";
 
 import { getRpcClient } from "~/lib/rpc-client";
+import { sinceForUsagePeriod } from "~/lib/usage-period";
 import type { UsagePeriod } from "~/store/usage";
 
 export type UsageSessionSort = "tokens" | "cost" | "last-active";
@@ -11,8 +12,10 @@ export function useUsageSessions(options: {
 	readonly enabled: boolean;
 	readonly projectId: FolderId | null;
 	readonly period: UsagePeriod;
+	readonly since?: Date;
+	readonly until?: Date;
 	readonly query: string;
-	readonly providerId: string | null;
+	readonly providerId: ProviderId | null;
 	readonly sort: UsageSessionSort;
 	readonly offset: number;
 	readonly limit: number;
@@ -31,9 +34,8 @@ export function useUsageSessions(options: {
 				.then((client) =>
 					Effect.runPromise(
 						client["usage.sessions"]({
-							since: new Date(
-								Date.now() - Number.parseInt(options.period, 10) * 86_400_000,
-							),
+							since: options.since ?? sinceForUsagePeriod(options.period),
+							until: options.until,
 							projectId: options.projectId ?? undefined,
 							query: options.query.trim() || undefined,
 							providerId: options.providerId ?? undefined,
@@ -68,6 +70,8 @@ export function useUsageSessions(options: {
 		options.query,
 		options.providerId,
 		options.sort,
+		options.since,
+		options.until,
 	]);
 
 	return { page, loading, error } as const;

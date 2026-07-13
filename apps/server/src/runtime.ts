@@ -460,6 +460,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		...serverProtocols.slice(1).map(makeServerLayer),
 	);
 
-	const UsagePoller = UsageLimitsPollerLive.pipe(Layer.provide(MigratedSqlite));
+	const UsagePoller = UsageLimitsPollerLive.pipe(
+		Layer.provide(MigratedSqlite),
+		Layer.provide(AppPathsLayer),
+	);
 	return Layer.mergeAll(ServerLayer, NodeServices.layer, UsagePoller);
 };

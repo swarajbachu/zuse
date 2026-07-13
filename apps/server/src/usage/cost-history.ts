@@ -1,6 +1,6 @@
-import type { PricedUsage } from "tokenmaxer";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import type { PricedUsage } from "tokenmaxer";
 
 type Record = PricedUsage["records"][number];
 export type DailyCostRow = {
@@ -19,6 +19,23 @@ export type DailyCostRow = {
 const dayOf = (date: Date) => date.toISOString().slice(0, 10);
 const keyOf = (day: string, sourceId: string, model: string) =>
 	`${day}\0${sourceId}\0${model}`;
+
+let persistedPricedValue: PricedUsage | null = null;
+
+export const resetPersistedPricedUsageForTest = (): void => {
+	persistedPricedValue = null;
+};
+
+export const persistPricedUsageOnce = <E, R>(
+	priced: PricedUsage,
+	persist: (value: PricedUsage) => Effect.Effect<void, E, R>,
+) =>
+	Effect.gen(function* () {
+		if (persistedPricedValue === priced) return false;
+		yield* persist(priced);
+		persistedPricedValue = priced;
+		return true;
+	});
 
 export const persistDailyAggregates = (priced: PricedUsage) =>
 	Effect.gen(function* () {

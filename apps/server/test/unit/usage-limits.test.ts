@@ -2,8 +2,16 @@ import { describe, expect, it } from "vitest";
 import { mergePersistedDaily } from "../../src/usage/cost-history.ts";
 import { parseClaudeUsagePayload } from "../../src/usage/limits/claude-usage.ts";
 import { mapCodexRateLimits } from "../../src/usage/limits/codex-usage.ts";
-import { mapGeminiQuota } from "../../src/usage/limits/gemini-usage.ts";
-import { parseGrokCreditsResponse } from "../../src/usage/limits/grok-usage.ts";
+import {
+	geminiPlanLabel,
+	mapGeminiQuota,
+	projectFromResourceList,
+} from "../../src/usage/limits/gemini-usage.ts";
+import {
+	fetchGrokCreditsWithRetry,
+	mapGrokBillingResult,
+	parseGrokCreditsResponse,
+} from "../../src/usage/limits/grok-usage.ts";
 import { mergeUsageLimits } from "../../src/usage/limits/merge.ts";
 
 describe("usage limit normalization", () => {
@@ -134,6 +142,27 @@ describe("usage limit normalization", () => {
 		expect(result.windows[0]?.usedPercent).toBe(75);
 	});
 
+	it("discovers a Gemini CLI project from resource manager data", () => {
+		expect(
+			projectFromResourceList({
+				projects: [
+					{ projectId: "unrelated" },
+					{ projectId: "gen-lang-client-123" },
+				],
+			}),
+		).toBe("gen-lang-client-123");
+	});
+
+	it("labels hosted free Gemini accounts as Workspace", () => {
+		const payload = Buffer.from(JSON.stringify({ hd: "example.com" })).toString(
+			"base64url",
+		);
+		const token = `header.${payload}.signature`;
+		expect(geminiPlanLabel({ currentTier: { id: "free-tier" } }, token)).toBe(
+			"Workspace",
+		);
+	});
+
 	it("lets newer session events replace polled windows", () => {
 		const fetched = parseClaudeUsagePayload(
 			{ five_hour: { utilization: 10 } },
@@ -202,6 +231,33 @@ describe("usage limit normalization", () => {
 			Date.parse("2026-01-01T00:00:00Z"),
 		);
 		expect(parsed.usedPercent).toBe(50);
+	});
+
+	it("maps CLI billing into a monthly usage window", () => {
+		expect(
+			mapGrokBillingResult({
+				billingCycle: { billingPeriodEnd: "2026-08-01T00:00:00Z" },
+				monthlyLimit: { val: 1_000 },
+				usage: { totalUsed: { val: 250 } },
+			}),
+		).toEqual({
+			usedPercent: 25,
+			resetsAt: "2026-08-01T00:00:00Z",
+		});
+	});
+
+	it("retries transient Grok billing failures once", async () => {
+		let calls = 0;
+		const response = await fetchGrokCreditsWithRetry(
+			"https://example.test",
+			{},
+			async () => {
+				calls += 1;
+				return new Response(null, { status: calls === 1 ? 503 : 200 });
+			},
+		);
+		expect(response.status).toBe(200);
+		expect(calls).toBe(2);
 	});
 
 	it("fills only daily cost keys that have no live records", () => {

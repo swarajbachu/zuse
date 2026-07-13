@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 let reportCalls: Array<{
 	readonly forceRefresh?: boolean;
 	readonly since?: Date;
+	readonly until?: Date;
 }> = [];
 let pendingReports: Array<{
 	readonly resolve: (report: UsageOverview) => void;
@@ -21,6 +22,7 @@ setUsageRpcClientForTest(
 			"usage.overview": (payload: {
 				readonly forceRefresh?: boolean;
 				readonly since?: Date;
+				readonly until?: Date;
 			}) => {
 				reportCalls.push(payload);
 				return Effect.promise(
@@ -73,6 +75,7 @@ describe("usage store", () => {
 			refreshing: false,
 			error: null,
 			period: "7d",
+			selectedRange: null,
 			requestId: 0,
 			cache: {},
 		});
@@ -84,11 +87,11 @@ describe("usage store", () => {
 		await Promise.resolve();
 
 		expect(pendingReports).toHaveLength(2);
-		pendingReports[1]!.resolve(makeReport(2));
+		pendingReports[1]?.resolve(makeReport(2));
 		await second;
 		expect(useUsageStore.getState().report?.summary.recordCount).toBe(2);
 
-		pendingReports[0]!.resolve(makeReport(1));
+		pendingReports[0]?.resolve(makeReport(1));
 		await first;
 		expect(useUsageStore.getState().report?.summary.recordCount).toBe(2);
 	});
@@ -100,7 +103,7 @@ describe("usage store", () => {
 		await Promise.resolve();
 
 		expect(reportCalls[0]?.forceRefresh).toBe(true);
-		pendingReports[0]!.resolve(makeReport(1));
+		pendingReports[0]?.resolve(makeReport(1));
 		await request;
 	});
 
@@ -116,7 +119,7 @@ describe("usage store", () => {
 		expect(useUsageStore.getState().refreshing).toBe(true);
 		expect(reportCalls[0]?.since).toBeInstanceOf(Date);
 
-		pendingReports[0]!.resolve(makeReport(30));
+		pendingReports[0]?.resolve(makeReport(30));
 		await request;
 		expect(useUsageStore.getState().report?.summary.recordCount).toBe(30);
 		expect(useUsageStore.getState().refreshing).toBe(false);
@@ -134,7 +137,20 @@ describe("usage store", () => {
 
 		expect(useUsageStore.getState().report).toBe(cached);
 		expect(useUsageStore.getState().refreshing).toBe(true);
-		pendingReports[0]!.resolve(makeReport(91));
+		pendingReports[0]?.resolve(makeReport(91));
+		await request;
+	});
+
+	it("requests the selected timeline range", async () => {
+		const since = new Date("2026-06-10T00:00:00.000Z");
+		const until = new Date("2026-06-11T00:00:00.000Z");
+		const request = useUsageStore
+			.getState()
+			.setRange({ since, until, label: "Jun 10" }, null);
+		await Promise.resolve();
+
+		expect(reportCalls[0]).toMatchObject({ since, until });
+		pendingReports[0]?.resolve(makeReport(1));
 		await request;
 	});
 });

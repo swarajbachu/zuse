@@ -3,6 +3,7 @@ import { basename, join } from "node:path";
 import {
 	type FolderId,
 	MemoizeRpcs,
+	type ProviderId,
 	ProviderUsageLimits as ProviderUsageLimitsSchema,
 	UsageOverview as UsageOverviewSchema,
 	UsageReport as UsageReportSchema,
@@ -13,8 +14,6 @@ import { SqlClient } from "effect/unstable/sql";
 import {
 	buildUsageReport,
 	groupUsageRecords,
-	loadPricedUsage,
-	type PricedUsage,
 	type UsageSourceId,
 } from "tokenmaxer";
 
@@ -26,11 +25,17 @@ import {
 import {
 	loadAndMergePersistedDaily,
 	persistDailyAggregates,
+	persistPricedUsageOnce,
+	resetPersistedPricedUsageForTest,
 } from "./cost-history.ts";
 import { mergeUsageLimits } from "./limits/merge.ts";
 import { recordLimitSnapshots } from "./limits/recorder.ts";
 import { loadUsageLimitsCached } from "./limits/service.ts";
 import { loadSessionUsageWindows } from "./limits/session-events.ts";
+import {
+	loadPricedUsageCached,
+	resetUsageReportCacheForTest as resetPricedUsageCacheForTest,
+} from "./report-cache.ts";
 
 /** Sessions table is paginated client-side; cap the payload to the heaviest N. */
 const MAX_SESSIONS_IN_PAYLOAD = 250;
@@ -94,65 +99,12 @@ export const paginateUsageSessions = <
 		nextOffset: next < filtered.length ? next : null,
 	};
 };
-/** Re-scanning the agent log dirs on every bucket/scope switch is what makes
- * the dashboard feel laggy. Cache the priced records briefly so only the first
- * load (or a manual refresh after the TTL) touches disk. */
-const PRICED_CACHE_TTL_MS = 60_000;
-
-let pricedCache: { readonly at: number; readonly value: PricedUsage } | null =
-	null;
-let pricedInFlight: {
-	readonly forceRefresh: boolean;
-	readonly promise: Promise<PricedUsage>;
-} | null = null;
-let persistedPricedValue: PricedUsage | null = null;
-
 export const resetUsageReportCacheForTest = (): void => {
-	pricedCache = null;
-	pricedInFlight = null;
-	persistedPricedValue = null;
-};
-
-export const loadPricedUsageCached = (
-	zuseDbPath: string,
-	cacheDir: string,
-	opts: {
-		readonly forceRefresh?: boolean;
-		readonly load?: typeof loadPricedUsage;
-		readonly now?: () => number;
-	} = {},
-): Promise<PricedUsage> => {
-	const forceRefresh = opts.forceRefresh === true;
-	const now = (opts.now ?? Date.now)();
-	if (
-		!forceRefresh &&
-		pricedCache !== null &&
-		now - pricedCache.at < PRICED_CACHE_TTL_MS
-	) {
-		return Promise.resolve(pricedCache.value);
-	}
-	if (
-		pricedInFlight !== null &&
-		(!forceRefresh || pricedInFlight.forceRefresh)
-	) {
-		return pricedInFlight.promise;
-	}
-	const load = opts.load ?? loadPricedUsage;
-	const promise = load({
-		readOptions: { zuseDbPath },
-		pricing: { cacheDir },
-	})
-		.then((value) => {
-			pricedCache = { at: (opts.now ?? Date.now)(), value };
-			return value;
-		})
-		.finally(() => {
-			if (pricedInFlight?.promise === promise) {
-				pricedInFlight = null;
-			}
-		});
-	pricedInFlight = { forceRefresh, promise };
-	return promise;
+	resetPricedUsageCacheForTest();
+	resetPersistedPricedUsageForTest();
+	overviewProjectionCache.clear();
+	overviewProjectionMetrics.hits = 0;
+	overviewProjectionMetrics.misses = 0;
 };
 
 export const trimUsageReportForPayload = (
@@ -206,6 +158,29 @@ const groupUsageByProject = (
 		.slice()
 		.sort((a, b) => sessionTokens(b) - sessionTokens(a));
 
+export const prepareUsageOverviewForRpc = (
+	report: ReturnType<typeof buildUsageReport>,
+	previous: ReturnType<typeof buildUsageReport> | null,
+): typeof UsageOverviewSchema.Type =>
+	Schema.decodeUnknownSync(UsageOverviewSchema)({
+		bucket: report.bucket,
+		generatedAt: report.generatedAt.toISOString(),
+		summary: report.summary,
+		sessionCount: report.bySession.length,
+		previousSummary: previous?.summary ?? null,
+		previousSessionCount: previous?.bySession.length ?? null,
+		groups: report.groups.map(encodeUsageGroup),
+		bySource: report.bySource.map(encodeUsageGroup),
+		byModel: report.byModel.map(encodeUsageGroup),
+		byProject: groupUsageByProject(report.records).map(encodeUsageGroup),
+		previousBySource: (previous?.bySource ?? []).map(encodeUsageGroup),
+		previousByModel: (previous?.byModel ?? []).map(encodeUsageGroup),
+		previousByProject: groupUsageByProject(previous?.records ?? []).map(
+			encodeUsageGroup,
+		),
+		sources: report.sources,
+	});
+
 /**
  * Path roots that scope a report to a single codebase. Agents run in Memoize
  * worktrees at `~/.zuse/<name>-<id-prefix>/<worktree>` (not the project's
@@ -228,17 +203,21 @@ const projectPathsFor = (projectId: FolderId | undefined) =>
 		return [project.path, worktreeRoot];
 	});
 
-const loadReportForRequest = (options: {
+type UsageReportOptions = {
 	readonly bucket: "daily" | "weekly" | "monthly" | "session";
 	readonly sourceIds?: ReadonlyArray<UsageSourceId>;
-	readonly providerIds?: ReadonlyArray<string>;
+	readonly providerIds?: ReadonlyArray<ProviderId>;
 	readonly since?: Date;
 	readonly until?: Date;
 	readonly timezone?: string;
 	readonly projectId?: FolderId;
 	readonly includePossibleDuplicates?: boolean;
 	readonly forceRefresh?: boolean;
-}) =>
+};
+
+const loadUsageReportData = (
+	options: Pick<UsageReportOptions, "projectId" | "forceRefresh">,
+) =>
 	Effect.gen(function* () {
 		const paths = yield* AppPaths;
 		const projectPaths = yield* projectPathsFor(options.projectId).pipe(
@@ -252,30 +231,43 @@ const loadReportForRequest = (options: {
 				{ forceRefresh: options.forceRefresh },
 			),
 		).pipe(Effect.orDie);
-		if (persistedPricedValue !== priced) {
-			yield* persistDailyAggregates(priced).pipe(
-				Effect.catch(() => Effect.void),
-			);
-			persistedPricedValue = priced;
-		}
+		yield* persistPricedUsageOnce(priced, persistDailyAggregates).pipe(
+			Effect.catchCause((cause) =>
+				Effect.logWarning(
+					`[usage] daily aggregate persistence failed; it will retry: ${String(cause)}`,
+				),
+			),
+		);
 		const merged = yield* loadAndMergePersistedDaily(priced).pipe(
 			Effect.catch(() => Effect.succeed(priced)),
 		);
-		return buildUsageReport({
-			records: merged.records,
-			sources: merged.sources,
+		return { merged, projectPaths };
+	});
+
+const buildReportFromData = (
+	data: Effect.Success<ReturnType<typeof loadUsageReportData>>,
+	options: UsageReportOptions,
+) =>
+	buildUsageReport({
+		records: data.merged.records,
+		sources: data.merged.sources,
+		bucket: options.bucket,
+		filters: {
 			bucket: options.bucket,
-			filters: {
-				bucket: options.bucket,
-				sourceIds: options.sourceIds,
-				providerIds: options.providerIds,
-				since: options.since,
-				until: options.until,
-				timezone: options.timezone,
-				projectPaths,
-				includePossibleDuplicates: options.includePossibleDuplicates,
-			},
-		});
+			sourceIds: options.sourceIds,
+			providerIds: options.providerIds,
+			since: options.since,
+			until: options.until,
+			timezone: options.timezone,
+			projectPaths: data.projectPaths,
+			includePossibleDuplicates: options.includePossibleDuplicates,
+		},
+	});
+
+const loadReportForRequest = (options: UsageReportOptions) =>
+	Effect.gen(function* () {
+		const data = yield* loadUsageReportData(options);
+		return buildReportFromData(data, options);
 	});
 
 const UsageReport = MemoizeRpcs.toLayerHandler(
@@ -305,50 +297,88 @@ const UsageReport = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-const UsageOverview = MemoizeRpcs.toLayerHandler(
-	"usage.overview",
-	({ since, until, timezone, projectId, forceRefresh }) =>
-		Effect.gen(function* () {
-			const report = yield* loadReportForRequest({
-				bucket: "daily",
-				since,
-				until,
-				timezone,
-				projectId,
-				forceRefresh,
-			});
-			const previous =
-				since === undefined
-					? null
-					: yield* loadReportForRequest({
-							bucket: "daily",
-							since: new Date(
-								since.getTime() -
-									((until?.getTime() ?? Date.now()) - since.getTime()),
-							),
-							until: since,
-							timezone,
-							projectId,
-						});
-			return Schema.decodeUnknownSync(UsageOverviewSchema)({
-				bucket: report.bucket,
-				generatedAt: report.generatedAt.toISOString(),
-				summary: report.summary,
-				sessionCount: report.bySession.length,
-				previousSummary: previous?.summary ?? null,
-				previousSessionCount: previous?.bySession.length ?? null,
-				groups: report.groups.map(encodeUsageGroup),
-				bySource: report.bySource.map(encodeUsageGroup),
-				byModel: report.byModel.map(encodeUsageGroup),
-				byProject: groupUsageByProject(report.records).map(encodeUsageGroup),
-				previousBySource: (previous?.bySource ?? []).map(encodeUsageGroup),
-				previousByModel: (previous?.byModel ?? []).map(encodeUsageGroup),
-				previousByProject: groupUsageByProject(previous?.records ?? []).map(
-					encodeUsageGroup,
-				),
-				sources: report.sources,
-			});
-		}),
+const buildUsageOverview = (options: {
+	readonly since?: Date;
+	readonly until?: Date;
+	readonly timezone?: string;
+	readonly projectId?: FolderId;
+	readonly forceRefresh?: boolean;
+}) =>
+	Effect.gen(function* () {
+		const startedAt = performance.now();
+		const data = yield* loadUsageReportData(options);
+		const report = buildReportFromData(data, {
+			bucket: "daily",
+			since: options.since,
+			until: options.until,
+			timezone: options.timezone,
+			projectId: options.projectId,
+			forceRefresh: options.forceRefresh,
+		});
+		const previous =
+			options.since === undefined
+				? null
+				: buildReportFromData(data, {
+						bucket: "daily",
+						since: new Date(
+							options.since.getTime() -
+								((options.until?.getTime() ?? Date.now()) -
+									options.since.getTime()),
+						),
+						until: options.since,
+						timezone: options.timezone,
+						projectId: options.projectId,
+					});
+		const overview = prepareUsageOverviewForRpc(report, previous);
+		yield* Effect.logDebug(
+			`[usage] overview projected in ${Math.round(performance.now() - startedAt)}ms (${JSON.stringify(overview).length} bytes)`,
+		);
+		return overview;
+	});
+
+const overviewProjectionCache = new Map<
+	string,
+	ReturnType<typeof buildUsageOverview>
+>();
+export const overviewProjectionMetrics = { hits: 0, misses: 0 };
+const MAX_OVERVIEW_PROJECTIONS = 64;
+
+const overviewKey = (options: Parameters<typeof buildUsageOverview>[0]) =>
+	[
+		options.projectId ?? "global",
+		options.since?.toISOString() ?? "",
+		options.until?.toISOString() ?? "",
+		options.timezone ?? "",
+	].join(":");
+
+const loadUsageOverviewCached = (
+	options: Parameters<typeof buildUsageOverview>[0],
+) => {
+	if (options.forceRefresh) {
+		overviewProjectionCache.delete(overviewKey(options));
+		overviewProjectionMetrics.misses += 1;
+		return buildUsageOverview(options);
+	}
+	const key = overviewKey(options);
+	const cached = overviewProjectionCache.get(key);
+	if (cached) {
+		overviewProjectionMetrics.hits += 1;
+		return cached;
+	}
+	overviewProjectionMetrics.misses += 1;
+	const projection = Effect.runSync(
+		Effect.cachedWithTTL(buildUsageOverview(options), "60 seconds"),
+	);
+	if (overviewProjectionCache.size >= MAX_OVERVIEW_PROJECTIONS) {
+		const oldest = overviewProjectionCache.keys().next().value;
+		if (oldest !== undefined) overviewProjectionCache.delete(oldest);
+	}
+	overviewProjectionCache.set(key, projection);
+	return projection;
+};
+
+const UsageOverview = MemoizeRpcs.toLayerHandler("usage.overview", (options) =>
+	loadUsageOverviewCached(options),
 );
 
 const UsageSessions = MemoizeRpcs.toLayerHandler(
@@ -402,7 +432,13 @@ const UsageLimits = MemoizeRpcs.toLayerHandler(
 					? events
 					: events.filter((event) => event.providerId === providerId),
 			);
-			yield* recordLimitSnapshots(merged).pipe(Effect.catch(() => Effect.void));
+			yield* recordLimitSnapshots(merged).pipe(
+				Effect.catchCause((cause) =>
+					Effect.logWarning(
+						`[usage] limit snapshot persistence failed: ${String(cause)}`,
+					),
+				),
+			);
 			return {
 				providers: merged.map((provider) =>
 					Schema.decodeUnknownSync(ProviderUsageLimitsSchema)(provider),

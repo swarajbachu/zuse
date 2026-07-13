@@ -29,13 +29,14 @@ const PROVIDERS: ReadonlyArray<ProviderId> = [
 	"gemini",
 ];
 const WINDOW_ORDER = { session: 0, weekly: 1, model: 2, overall: 3 } as const;
+const PLACEHOLDER_FETCHED_AT = new Date(0).toISOString();
 
 const placeholder = (providerId: ProviderId): ProviderUsageLimits => ({
 	providerId,
 	planLabel: null,
 	windows: [],
 	creditsRemaining: null,
-	fetchedAt: new Date(0).toISOString(),
+	fetchedAt: PLACEHOLDER_FETCHED_AT,
 	source: "cache",
 	unavailableReason: "no-credentials",
 });
@@ -85,6 +86,8 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 			state.providers.find((item) => item.providerId === providerId),
 		) ?? placeholder(providerId);
 	const loading = useUsageLimitsStore((state) => state.loading);
+	const waitingForInitialData =
+		loading && provider.fetchedAt === PLACEHOLDER_FETCHED_AT;
 	const summary = provider.windows
 		.slice()
 		.sort((a, b) => WINDOW_ORDER[a.scope] - WINDOW_ORDER[b.scope])[0];
@@ -95,7 +98,7 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 
 	return (
 		<MenuSub>
-			<MenuSubTrigger>
+			<MenuSubTrigger disabled={waitingForInitialData}>
 				<ProviderIcon providerId={providerId} className="size-3.5" />
 				<span className="min-w-0 flex-1 truncate">
 					{PROVIDER_DISPLAY[providerId]}
@@ -144,7 +147,7 @@ function ProviderMenuItem({ providerId }: { providerId: ProviderId }) {
 							</span>
 						</div>
 					) : null}
-					{provider.fetchedAt !== new Date(0).toISOString() ? (
+					{provider.fetchedAt !== PLACEHOLDER_FETCHED_AT ? (
 						<div className="border-t pt-1.5 text-[10px] text-muted-foreground">
 							Updated {formatRelativeTime(provider.fetchedAt) ?? "just now"} ·{" "}
 							{provider.source === "session-event"

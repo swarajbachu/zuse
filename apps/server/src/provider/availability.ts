@@ -18,6 +18,7 @@ import {
   ChildProcess as Command,
   ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
+import { decodeJwtPayload } from "./jwt.ts";
 
 interface ProviderProbe {
   readonly providerId: ProviderId;
@@ -757,23 +758,6 @@ interface GrokAuthEntry {
  * tokens carried tier 5+.
  */
 const MIN_GROK_BUILD_TIER = 4;
-
-/** Base64url decode + parse a JWT payload (no signature verification). */
-const decodeJwtPayload = (jwt: string): Record<string, unknown> | null => {
-  try {
-    const parts = jwt.split(".");
-    if (parts.length !== 3) return null;
-    const payloadPart = parts[1];
-    if (!payloadPart) return null;
-    let b64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
-    // Pad to multiple of 4
-    b64 += "===".slice((b64.length + 3) % 4);
-    const json = Buffer.from(b64, "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-};
 
 /**
  * Best-effort extraction of a numeric `tier` claim from a JWT payload.

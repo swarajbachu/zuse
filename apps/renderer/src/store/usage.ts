@@ -3,6 +3,9 @@ import { Effect } from "effect";
 import { create } from "zustand";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { sinceForUsagePeriod, type UsagePeriod } from "../lib/usage-period.ts";
+
+export type { UsagePeriod } from "../lib/usage-period.ts";
 
 let getUsageRpcClient: typeof getRpcClient = getRpcClient;
 
@@ -10,19 +13,14 @@ export const setUsageRpcClientForTest = (fn: typeof getRpcClient): void => {
 	getUsageRpcClient = fn;
 };
 
-export type UsagePeriod = "7d" | "30d" | "90d";
-
-const PERIOD_DAYS: Record<UsagePeriod, number> = {
-	"7d": 7,
-	"30d": 30,
-	"90d": 90,
-};
-
 const cacheKey = (period: UsagePeriod, projectId: FolderId | null): string =>
 	`${projectId ?? "global"}:${period}`;
 
-const sinceFor = (period: UsagePeriod): Date =>
-	new Date(Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1_000);
+export type UsageRange = {
+	readonly since: Date;
+	readonly until: Date;
+	readonly label: string;
+};
 
 type UsageState = {
 	readonly report: UsageOverview | null;
@@ -30,6 +28,7 @@ type UsageState = {
 	readonly refreshing: boolean;
 	readonly error: string | null;
 	readonly period: UsagePeriod;
+	readonly selectedRange: UsageRange | null;
 	readonly requestId: number;
 	readonly cache: Readonly<Record<string, UsageOverview>>;
 	readonly refresh: (
@@ -41,6 +40,10 @@ type UsageState = {
 		period: UsagePeriod,
 		projectId: FolderId | null,
 	) => Promise<void>;
+	readonly setRange: (
+		range: UsageRange | null,
+		projectId: FolderId | null,
+	) => Promise<void>;
 };
 
 export const useUsageStore = create<UsageState>((set, get) => ({
@@ -49,11 +52,15 @@ export const useUsageStore = create<UsageState>((set, get) => ({
 	refreshing: false,
 	error: null,
 	period: "7d",
+	selectedRange: null,
 	requestId: 0,
 	cache: {},
 	refresh: async (projectId, opts) => {
 		const period = get().period;
-		const key = cacheKey(period, projectId);
+		const selectedRange = get().selectedRange;
+		const key = selectedRange
+			? `${cacheKey(period, projectId)}:${selectedRange.since.toISOString()}:${selectedRange.until.toISOString()}`
+			: cacheKey(period, projectId);
 		const cached = get().cache[key];
 		const visible = cached ?? get().report;
 		const requestId = get().requestId + 1;
@@ -68,7 +75,8 @@ export const useUsageStore = create<UsageState>((set, get) => ({
 			const client = await getUsageRpcClient();
 			const report = await Effect.runPromise(
 				client["usage.overview"]({
-					since: sinceFor(period),
+					since: selectedRange?.since ?? sinceForUsagePeriod(period),
+					until: selectedRange?.until,
 					projectId: projectId ?? undefined,
 					forceRefresh: opts?.forceRefresh,
 				}),
@@ -97,7 +105,11 @@ export const useUsageStore = create<UsageState>((set, get) => ({
 	},
 	setPeriod: async (period, projectId) => {
 		const cached = get().cache[cacheKey(period, projectId)];
-		set({ period, report: cached ?? get().report });
+		set({ period, selectedRange: null, report: cached ?? get().report });
+		await get().refresh(projectId);
+	},
+	setRange: async (range, projectId) => {
+		set({ selectedRange: range });
 		await get().refresh(projectId);
 	},
 }));

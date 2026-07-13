@@ -1,19 +1,23 @@
 import { UsageReport } from "@zuse/contracts";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
 	buildUsageReport,
 	makeUsageRecord,
 	type PricedUsage,
 } from "tokenmaxer";
 import { beforeEach, describe, expect, it } from "vitest";
-
 import {
-	loadPricedUsageCached,
+	persistPricedUsageOnce,
+	resetPersistedPricedUsageForTest,
+} from "../../src/usage/cost-history.ts";
+import {
 	paginateUsageSessions,
+	prepareUsageOverviewForRpc,
 	prepareUsageReportForRpc,
 	resetUsageReportCacheForTest,
 	trimUsageReportForPayload,
 } from "../../src/usage/handlers.ts";
+import { loadPricedUsageCached } from "../../src/usage/report-cache.ts";
 
 const emptyUsage = (id: string): PricedUsage => ({
 	records: [],
@@ -32,6 +36,24 @@ const emptyUsage = (id: string): PricedUsage => ({
 describe("usage report cache", () => {
 	beforeEach(() => {
 		resetUsageReportCacheForTest();
+		resetPersistedPricedUsageForTest();
+	});
+
+	it("retries daily persistence after a failed write", async () => {
+		const priced = { records: [], sources: [] };
+		let calls = 0;
+		const persist = () => {
+			calls += 1;
+			return calls === 1 ? Effect.fail(new Error("disk full")) : Effect.void;
+		};
+
+		await expect(
+			Effect.runPromise(persistPricedUsageOnce(priced, persist)),
+		).rejects.toThrow("disk full");
+		await Effect.runPromise(persistPricedUsageOnce(priced, persist));
+		await Effect.runPromise(persistPricedUsageOnce(priced, persist));
+
+		expect(calls).toBe(2);
 	});
 
 	it("coalesces concurrent cold loads", async () => {
@@ -133,6 +155,34 @@ describe("usage report cache", () => {
 		expect(trimmed.bySession).toHaveLength(250);
 		expect(trimmed.bySession[0]?.key).toBe("session-299");
 		expect(trimmed.bySession.at(-1)?.key).toBe("session-50");
+	});
+
+	it("keeps the overview projection fast and compact for large histories", () => {
+		const records = Array.from({ length: 5_000 }, (_, index) =>
+			makeUsageRecord({
+				sourceId: "zuse",
+				sourceLabel: "Zuse Alpha",
+				providerId: "codex",
+				model: `model-${index % 8}`,
+				sessionId: `session-${index}`,
+				projectPath: `/tmp/project-${index % 12}`,
+				startedAt: new Date(1_800_000_000_000 + index * 60_000),
+				counts: { inputTokens: index + 1, outputTokens: index % 100 },
+				provenance: `overview-fixture-${index}`,
+			}),
+		);
+		const startedAt = performance.now();
+		const report = buildUsageReport({
+			records,
+			sources: [],
+			bucket: "daily",
+			filters: { bucket: "daily", includePossibleDuplicates: true },
+		});
+		const overview = prepareUsageOverviewForRpc(report, null);
+		const elapsed = performance.now() - startedAt;
+
+		expect(elapsed).toBeLessThan(500);
+		expect(JSON.stringify(overview).length).toBeLessThan(100_000);
 	});
 
 	it("paginates and searches sessions before returning them", () => {

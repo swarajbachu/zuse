@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
-
+import { ProviderId } from "./agent.ts";
 import { FolderId } from "./ids.ts";
 
 export const UsageSourceId = Schema.Literals([
@@ -160,7 +160,7 @@ export const UsageSessionsRpc = Rpc.make("usage.sessions", {
 		timezone: Schema.optional(Schema.String),
 		projectId: Schema.optional(FolderId),
 		query: Schema.optional(Schema.String),
-		providerId: Schema.optional(Schema.String),
+		providerId: Schema.optional(ProviderId),
 		sort: Schema.optional(Schema.Literals(["tokens", "cost", "last-active"])),
 		offset: Schema.optional(Schema.Number),
 		limit: Schema.optional(Schema.Number),

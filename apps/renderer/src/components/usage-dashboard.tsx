@@ -20,7 +20,11 @@ import { PROVIDER_DISPLAY } from "~/lib/provider-status";
 import { usagePace } from "~/lib/usage-pace";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
-import { type UsagePeriod, useUsageStore } from "~/store/usage.ts";
+import {
+	type UsagePeriod,
+	type UsageRange,
+	useUsageStore,
+} from "~/store/usage.ts";
 import { useUsageLimitsStore } from "~/store/usage-limits";
 import {
 	cacheTokens,
@@ -121,6 +125,8 @@ export function UsageDashboard({
 	const period = useUsageStore((state) => state.period);
 	const refresh = useUsageStore((state) => state.refresh);
 	const setPeriod = useUsageStore((state) => state.setPeriod);
+	const selectedRange = useUsageStore((state) => state.selectedRange);
+	const setRange = useUsageStore((state) => state.setRange);
 	const refreshLimits = useUsageLimitsStore((state) => state.refresh);
 	const openUsage = useUiStore((state) => state.openUsage);
 
@@ -234,6 +240,8 @@ export function UsageDashboard({
 					refreshing={refreshing}
 					projectId={projectId}
 					period={period}
+					selectedRange={selectedRange}
+					onSelectRange={(range) => void setRange(range, projectId)}
 				/>
 			)}
 		</div>
@@ -282,11 +290,15 @@ function UsageReportView({
 	refreshing,
 	projectId,
 	period,
+	selectedRange,
+	onSelectRange,
 }: {
 	report: UsageOverview;
 	refreshing: boolean;
 	projectId: FolderId | null;
 	period: UsagePeriod;
+	selectedRange: UsageRange | null;
+	onSelectRange: (range: UsageRange | null) => void;
 }) {
 	const summary = report.summary;
 	const previous = report.previousSummary;
@@ -327,7 +339,11 @@ function UsageReportView({
 					<Metric key={metric.label} {...metric} />
 				))}
 			</div>
-			<UsageChart groups={report.groups} />
+			<UsageChart
+				groups={report.groups}
+				selectedRange={selectedRange}
+				onSelectRange={onSelectRange}
+			/>
 			<Contributors
 				bySource={report.bySource}
 				byModel={report.byModel}
@@ -340,6 +356,7 @@ function UsageReportView({
 				projectId={projectId}
 				period={period}
 				sessionCount={report.sessionCount}
+				selectedRange={selectedRange}
 			/>
 			<div className="flex items-center justify-between text-[10px] text-muted-foreground">
 				<span>
@@ -571,7 +588,15 @@ function metricDelta(
 }
 
 type ChartMeasure = "tokens" | "cost";
-function UsageChart({ groups }: { groups: ReadonlyArray<UsageGroup> }) {
+function UsageChart({
+	groups,
+	selectedRange,
+	onSelectRange,
+}: {
+	groups: ReadonlyArray<UsageGroup>;
+	selectedRange: UsageRange | null;
+	onSelectRange: (range: UsageRange | null) => void;
+}) {
 	const [measure, setMeasure] = useState<ChartMeasure>("tokens");
 	const [selected, setSelected] = useState<number | null>(null);
 	const visible = useMemo(() => groups.slice(-90), [groups]);
@@ -582,8 +607,19 @@ function UsageChart({ groups }: { groups: ReadonlyArray<UsageGroup> }) {
 	return (
 		<Frame>
 			<FrameHeader className="flex-row items-center justify-between px-4 py-3">
-				<FrameTitle>Usage over time</FrameTitle>
-				<div className="flex rounded-md border border-border p-0.5">
+				<div className="flex min-w-0 items-center gap-2">
+					<FrameTitle>Usage over time</FrameTitle>
+					{selectedRange ? (
+						<button
+							type="button"
+							onClick={() => onSelectRange(null)}
+							className="truncate rounded bg-accent px-2 py-1 text-[10px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-foreground/30"
+						>
+							{selectedRange.label} · Clear
+						</button>
+					) : null}
+				</div>
+				<div className="flex shrink-0 rounded-md border border-border p-0.5">
 					{(["tokens", "cost"] as const).map((value) => (
 						<button
 							key={value}
@@ -635,7 +671,17 @@ function UsageChart({ groups }: { groups: ReadonlyArray<UsageGroup> }) {
 										"group relative flex h-full min-w-[4px] flex-1 flex-col-reverse overflow-hidden rounded-t-[3px] outline-none focus-visible:ring-2 focus-visible:ring-foreground/40",
 										selected === index && "ring-1 ring-foreground/40",
 									)}
-									onClick={() => setSelected(index)}
+									onClick={() => {
+										setSelected(index);
+										const since = group.startedAt;
+										if (!since) return;
+										onSelectRange({
+											since,
+											until:
+												group.endedAt ?? new Date(since.getTime() + 86_400_000),
+											label: group.label,
+										});
+									}}
 									onFocus={() => setSelected(index)}
 									aria-label={`${group.label}: ${measure === "cost" ? formatUsd(group.costUsd) : formatTokens(totalTokens(group))}`}
 								>
@@ -814,10 +860,12 @@ function SessionsExplorer({
 	projectId,
 	period,
 	sessionCount,
+	selectedRange,
 }: {
 	projectId: FolderId | null;
 	period: UsagePeriod;
 	sessionCount: number;
+	selectedRange: UsageRange | null;
 }) {
 	const providers = useUsageLimitsStore((state) => state.providers);
 	const [open, setOpen] = useState(false);
@@ -833,6 +881,8 @@ function SessionsExplorer({
 		enabled: open,
 		projectId,
 		period,
+		since: selectedRange?.since,
+		until: selectedRange?.until,
 		query,
 		providerId,
 		sort: sortKey,
