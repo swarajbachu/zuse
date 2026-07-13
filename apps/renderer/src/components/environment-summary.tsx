@@ -160,7 +160,7 @@ export function EnvironmentSummary() {
 					) : null}
 				</span>
 				{pr?.state === "none" ? (
-					<span className="shrink-0 rounded-full border border-[var(--accent-pink)]/30 bg-[var(--accent-pink)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-pink)]">
+					<span className="shrink-0 rounded-md bg-[var(--accent-pink)] px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
 						Create PR
 					</span>
 				) : null}
