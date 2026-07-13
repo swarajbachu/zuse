@@ -16,8 +16,8 @@ import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { useMessagesStore } from "../store/messages.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { TopBarRightContent } from "./top-bar.tsx";
 import { useProjectPlanSummary } from "./composer/project-plan-tray.tsx";
 
 const rowClass =
@@ -49,7 +49,7 @@ export function EnvironmentSummary() {
 
 	const checkoutLabel =
 		ctx.rootKind === "worktree"
-			? (worktree?.name ?? "Preparing worktree…")
+			? `Worktree ${worktree?.name ?? "preparing…"}`
 			: "Main checkout";
 	const branchLabel = status?.branch ?? worktree?.branch ?? "Loading branch…";
 	const changesLabel =
@@ -93,6 +93,15 @@ export function EnvironmentSummary() {
 		}
 		return { icon: GitPullRequestIcon, label: "No pull request", className: "text-muted-foreground" };
 	})();
+	const openPullRequest = () => {
+		if (pr?.state === "none" && sessionId !== null) {
+			void useMessagesStore
+				.getState()
+				.send(sessionId, "create a pull request for this branch");
+			return;
+		}
+		revealPanel("pr");
+	};
 
 	return (
 		<aside
@@ -135,7 +144,7 @@ export function EnvironmentSummary() {
 			<button
 				type="button"
 				className={`${rowClass} hover:bg-muted/60`}
-				onClick={() => revealPanel("pr")}
+				onClick={openPullRequest}
 			>
 				<HugeiconsIcon
 					icon={prStatus.icon}
@@ -151,8 +160,8 @@ export function EnvironmentSummary() {
 					) : null}
 				</span>
 				{pr?.state === "none" ? (
-					<span className="shrink-0 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-						No PR
+					<span className="shrink-0 rounded-full border border-[var(--accent-pink)]/30 bg-[var(--accent-pink)]/10 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-pink)]">
+						Create PR
 					</span>
 				) : null}
 			</button>
@@ -169,12 +178,6 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			) : null}
-			<div className="border-t border-border/60 px-2.5 py-2">
-				<div className="mb-2 text-[11px] font-medium text-muted-foreground">
-					Status
-				</div>
-				<TopBarRightContent compact />
-			</div>
 		</aside>
 	);
 }
