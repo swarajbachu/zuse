@@ -12,7 +12,6 @@ import {
   ProviderUpdateRpc,
 } from "./agent.ts";
 import { AttachmentUploadRpc } from "./attachment.ts";
-import { ContextSaveTextRpc } from "./context.ts";
 import {
   AuthGetSessionRpc,
   AuthSessionChangesRpc,
@@ -35,7 +34,12 @@ import {
   RelayStatusRpc,
   RelayUnlinkRpc,
 } from "./connect.ts";
-import { ConnectHandshakeRpc } from "./handshake.ts";
+import { ContextSaveTextRpc } from "./context.ts";
+import { DiagnosticsExportRpc } from "./diagnostics.ts";
+import {
+  ExternalThreadsContinueRpc,
+  ExternalThreadsListRpc,
+} from "./external-thread.ts";
 import {
   FsCreateDirectoryRpc,
   FsCreateFileRpc,
@@ -48,15 +52,11 @@ import {
   FsWriteFileRpc,
 } from "./fs.ts";
 import {
-  ExternalThreadsContinueRpc,
-  ExternalThreadsListRpc,
-} from "./external-thread.ts";
-import { DiagnosticsExportRpc } from "./diagnostics.ts";
-import {
   GitBranchesRpc,
   GitChangesRpc,
   GitCommitRpc,
   GitDiffRpc,
+  GitDiffStatRpc,
   GitFixFailingChecksRpc,
   GitHeadChangedRpc,
   GitInitRpc,
@@ -64,20 +64,30 @@ import {
   GitListIssuesRpc,
   GitListPrsRpc,
   GitLogRpc,
-  GitDiffStatRpc,
   GitMarkReadyRpc,
   GitMergePrRpc,
-  GitRevertAllRpc,
-  GitRevertFileRpc,
   GitOriginRpc,
   GitPrDetailsRpc,
   GitPrStateRpc,
   GitPushRpc,
   GitRenameBranchRpc,
+  GitRevertAllRpc,
+  GitRevertFileRpc,
   GitStatusRpc,
   GitSwitchBranchRpc,
   GitUserNameRpc,
 } from "./git.ts";
+import { ConnectHandshakeRpc } from "./handshake.ts";
+import {
+  KeybindingsGetRpc,
+  KeybindingsReplaceRpc,
+  KeybindingsStreamRpc,
+} from "./keybindings.ts";
+import {
+  PairingListTokensRpc,
+  PairingRevokeTokenRpc,
+  PairingStartRpc,
+} from "./pairing.ts";
 import {
   PermissionDecideRpc,
   PermissionListDecisionsRpc,
@@ -85,29 +95,8 @@ import {
   PermissionRequestsRpc,
   PermissionRevokeDecisionRpc,
 } from "./permission.ts";
-import {
-  PairingListTokensRpc,
-  PairingRevokeTokenRpc,
-  PairingStartRpc,
-} from "./pairing.ts";
-import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PingRpc } from "./ping.ts";
-import {
-  KeybindingsGetRpc,
-  KeybindingsReplaceRpc,
-  KeybindingsStreamRpc,
-} from "./keybindings.ts";
-import {
-  RepositorySettingsGetRpc,
-  RepositorySettingsUpdateRpc,
-} from "./repository-settings.ts";
-import {
-  SettingsGetRpc,
-  SettingsMigrateLocalStorageRpc,
-  SettingsStreamRpc,
-  SettingsUpdateRpc,
-} from "./settings.ts";
-import { UsageReportRpc } from "./usage.ts";
+import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import {
   PtyCloseRpc,
   PtyOpenRpc,
@@ -116,6 +105,10 @@ import {
   PtyWriteRpc,
 } from "./pty.ts";
 import {
+  RepositorySettingsGetRpc,
+  RepositorySettingsUpdateRpc,
+} from "./repository-settings.ts";
+import {
   ChatArchiveRpc,
   ChatCreateRpc,
   ChatDeleteRpc,
@@ -123,9 +116,9 @@ import {
   ChatListRpc,
   ChatMarkReadRpc,
   ChatRenameRpc,
-  ChatStreamChangesRpc,
   ChatSetActiveSessionRpc,
   ChatSetWorktreeRpc,
+  ChatStreamChangesRpc,
   ChatUnarchiveRpc,
   MessagesInterruptRpc,
   MessagesListRpc,
@@ -146,12 +139,12 @@ import {
   SessionEventsRpc,
   SessionExportTranscriptRpc,
   SessionForkRpc,
-  SessionLatestPlanRpc,
+  SessionGetRpc,
   SessionGoalClearRpc,
   SessionGoalGetRpc,
   SessionGoalSetRpc,
   SessionGoalStreamRpc,
-  SessionGetRpc,
+  SessionLatestPlanRpc,
   SessionListRpc,
   SessionRenameRpc,
   SessionResumeRpc,
@@ -163,10 +156,18 @@ import {
   SessionUnarchiveRpc,
 } from "./session.ts";
 import {
+  SettingsGetRpc,
+  SettingsMigrateLocalStorageRpc,
+  SettingsStreamRpc,
+  SettingsUpdateRpc,
+} from "./settings.ts";
+import {
   SkillListForProjectRpc,
   SkillListRpc,
   SkillStreamRpc,
 } from "./skill.ts";
+import { UsageReportRpc } from "./usage.ts";
+import { UsageLimitsRpc } from "./usage-limits.ts";
 import {
   WorkspaceAddRpc,
   WorkspaceCloneRepoRpc,
@@ -349,6 +350,7 @@ export const MemoizeRpcs = RpcGroup.make(
   SettingsStreamRpc,
   SettingsMigrateLocalStorageRpc,
   UsageReportRpc,
+  UsageLimitsRpc,
   DiagnosticsExportRpc,
   KeybindingsGetRpc,
   KeybindingsReplaceRpc,

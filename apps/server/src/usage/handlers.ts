@@ -1,20 +1,29 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  type FolderId,
+  MemoizeRpcs,
+  ProviderUsageLimits as ProviderUsageLimitsSchema,
+  UsageReport as UsageReportSchema,
+} from "@zuse/contracts";
+import { Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { MemoizeRpcs, type FolderId } from "@zuse/contracts";
 import {
   buildUsageReport,
   loadPricedUsage,
   type PricedUsage,
   type UsageSourceId,
 } from "tokenmaxer";
-import { Effect, Layer } from "effect";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 import { AppPaths } from "../app-paths.ts";
 import {
   ensureSqliteRenameCompatibility,
   sqliteDbPath,
 } from "../persistence/db-path.ts";
+import { mergeUsageLimits } from "./limits/merge.ts";
+import { recordLimitSnapshots } from "./limits/recorder.ts";
+import { loadUsageLimitsCached } from "./limits/service.ts";
+import { loadSessionUsageWindows } from "./limits/session-events.ts";
 
 /** Sessions table is paginated client-side; cap the payload to the heaviest N. */
 const MAX_SESSIONS_IN_PAYLOAD = 250;
@@ -102,6 +111,27 @@ export const trimUsageReportForPayload = (
   return { ...report, records: [], bySession };
 };
 
+export const prepareUsageReportForRpc = (
+  report: ReturnType<typeof buildUsageReport>,
+): typeof UsageReportSchema.Type => {
+  const trimmed = trimUsageReportForPayload(report);
+  const encodeGroup = (group: (typeof trimmed.groups)[number]) => ({
+    ...group,
+    startedAt: group.startedAt?.toISOString() ?? null,
+    endedAt: group.endedAt?.toISOString() ?? null,
+  });
+  const encoded = {
+    ...trimmed,
+    generatedAt: trimmed.generatedAt.toISOString(),
+    groups: trimmed.groups.map(encodeGroup),
+    bySource: trimmed.bySource.map(encodeGroup),
+    byModel: trimmed.byModel.map(encodeGroup),
+    bySession: trimmed.bySession.map(encodeGroup),
+    records: [],
+  };
+  return Schema.decodeUnknownSync(UsageReportSchema)(encoded);
+};
+
 /**
  * Path roots that scope a report to a single codebase. Agents run in Memoize
  * worktrees at `~/.zuse/<name>-<id-prefix>/<worktree>` (not the project's
@@ -162,9 +192,36 @@ const UsageReport = MemoizeRpcs.toLayerHandler(
             includePossibleDuplicates,
           },
         });
-        return trimUsageReportForPayload(report);
+        // RPC handlers return the wire representation. tokenmaxer uses Date
+        // objects internally, so encode the report before RPC validation.
+        return prepareUsageReportForRpc(report);
       }).pipe(Effect.orDie);
     }),
 );
 
-export const UsageHandlersLayer = Layer.mergeAll(UsageReport);
+const UsageLimits = MemoizeRpcs.toLayerHandler(
+  "usage.limits",
+  ({ forceRefresh, providerId }) =>
+    Effect.gen(function* () {
+      const events = yield* loadSessionUsageWindows.pipe(
+        Effect.catch(() => Effect.succeed([])),
+      );
+      const providers = yield* Effect.tryPromise(() =>
+        loadUsageLimitsCached(forceRefresh, providerId),
+      ).pipe(Effect.orDie);
+      const merged = mergeUsageLimits(
+        providers,
+        providerId === undefined
+          ? events
+          : events.filter((event) => event.providerId === providerId),
+      );
+      yield* recordLimitSnapshots(merged).pipe(Effect.catch(() => Effect.void));
+      return {
+        providers: merged.map((provider) =>
+          Schema.decodeUnknownSync(ProviderUsageLimitsSchema)(provider),
+        ),
+      };
+    }),
+);
+
+export const UsageHandlersLayer = Layer.mergeAll(UsageReport, UsageLimits);

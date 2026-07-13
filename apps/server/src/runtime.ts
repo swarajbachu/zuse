@@ -45,6 +45,7 @@ import { RelayLinkServiceLive } from "./relay/relay-link-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
+import { UsageLimitsPollerLive } from "./usage/limits/poller.ts";
 import { FileSearchServiceLive } from "./workspace/layers/file-search.ts";
 import { ProjectScaffoldLive } from "./workspace/layers/project-scaffold-live.ts";
 import { WorkspaceServiceLive } from "./workspace/layers/workspace-service.ts";
@@ -459,5 +460,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		...serverProtocols.slice(1).map(makeServerLayer),
 	);
 
-	return Layer.mergeAll(ServerLayer, NodeServices.layer);
+	const UsagePoller = UsageLimitsPollerLive.pipe(Layer.provide(MigratedSqlite));
+	return Layer.mergeAll(ServerLayer, NodeServices.layer, UsagePoller);
 };

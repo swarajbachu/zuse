@@ -20,45 +20,45 @@ import {
   ArchiveArrowUpIcon,
   ArchiveIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { Effect, Fiber, Stream } from "effect";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-
-import {
-  type Chat,
-  type ChatId,
-  type FolderId,
-  type GitOriginInfo,
-  type ProviderId,
-  type SessionId,
-} from "@zuse/contracts";
 import {
   projectSessionEvent,
   sessionEventCursors,
 } from "@zuse/client-runtime/session-events";
-
-import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
+import type {
+  Chat,
+  ChatId,
+  FolderId,
+  GitOriginInfo,
+  ProviderId,
+  SessionId,
+} from "@zuse/contracts";
+import { Effect, Fiber, Stream } from "effect";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { BlurredEmail } from "~/components/blurred-email";
+import { TypewriterText } from "~/components/typewriter-text.tsx";
+import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
 import {
   Menu,
   MenuItem,
   MenuPopup,
   MenuSeparator,
+  MenuShortcut,
   MenuTrigger,
 } from "~/components/ui/menu";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { TypewriterText } from "~/components/typewriter-text.tsx";
 import { toastManager } from "~/components/ui/toast.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { UsageLimitsMenuItems } from "~/components/usage/usage-limits-submenu";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
+  type ChatAttentionState,
   deriveChatAttentionState,
   derivePermissionAttention,
-  type ChatAttentionState,
   mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
-import { formatShortcut } from "../lib/shortcuts.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { formatShortcut } from "../lib/shortcuts.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import {
   archiveChatWithConfirm,
@@ -66,11 +66,11 @@ import {
   isChatUnread,
   useChatsStore,
 } from "../store/chats.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
 import { gitDiffStatKey, useGitDiffStatStore } from "../store/git-diff-stat.ts";
 import { useMessagesStore } from "../store/messages.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
+import { usePermissionsStore } from "../store/permissions.ts";
+import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
   useSidebarMessageStatusStore,
@@ -483,78 +483,9 @@ export function ProjectsSidebar() {
 }
 
 function SidebarFooter() {
-  const setView = useUiStore((s) => s.setView);
-  const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-  const openUsage = useUiStore((s) => s.openUsage);
-  const activeMainTab = useUiStore((s) => s.activeMainTab);
-  const usageScope = useUiStore((s) => s.usageScope);
-  const view = useUiStore((s) => s.view);
-  const usageActive =
-    view === "chat" && activeMainTab === "usage" && usageScope === "global";
   return (
     <div className="flex flex-col gap-0.5 border-t border-sidebar-border/40 px-2 py-1.5">
       <SidebarAccount />
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              onClick={() => openUsage("global")}
-              className={cn(
-                "flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                usageActive &&
-                  "bg-sidebar-accent/60 text-sidebar-accent-foreground",
-              )}
-            >
-              <HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
-              <span>Usage</span>
-            </button>
-          }
-        />
-        <TooltipPopup side="top">Token usage across all projects</TooltipPopup>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsSection({ kind: "pokedex" });
-                setView("settings");
-              }}
-              className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-            >
-              <HugeiconsIcon icon={TaskDone01Icon} className="size-3.5" />
-              <span>Pokedex</span>
-            </button>
-          }
-        />
-        <TooltipPopup side="top">Open Pokedex</TooltipPopup>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              onClick={() => setView("settings")}
-              className={cn(
-                "flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-                view === "settings" &&
-                  "bg-sidebar-accent/60 text-sidebar-accent-foreground",
-              )}
-            >
-              <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-              <span>Settings</span>
-            </button>
-          }
-        />
-        <TooltipPopup side="top">
-          <TooltipShortcut
-            label="Open settings"
-            shortcut={formatShortcut("settings")}
-          />
-        </TooltipPopup>
-      </Tooltip>
     </div>
   );
 }
@@ -572,20 +503,6 @@ function SidebarAccount() {
   // Always render an affordance. Until auth state resolves (or whenever signed
   // out) we show "Sign in" — a brief flash to the signed-in row on cold load
   // is fine and far better than showing nothing.
-  if (!isSignedIn) {
-    return (
-      <button
-        type="button"
-        onClick={() => void signIn()}
-        disabled={signingIn}
-        className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground disabled:opacity-60"
-      >
-        <HugeiconsIcon icon={Login03Icon} className="size-3.5" />
-        <span>{signingIn ? "Signing in…" : "Sign in"}</span>
-      </button>
-    );
-  }
-
   const initial = (name || user?.email || "?").charAt(0).toUpperCase();
   const nameIsEmail = Boolean(user?.email && name === user.email);
 
@@ -597,13 +514,21 @@ function SidebarAccount() {
             type="button"
             className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
           >
-            <Avatar className="size-5 text-[9px]">
-              {user?.profilePictureUrl ? (
-                <AvatarImage src={user.profilePictureUrl} alt={name} />
-              ) : null}
-              <AvatarFallback className="text-[9px]">{initial}</AvatarFallback>
-            </Avatar>
-            {nameIsEmail && user?.email ? (
+            {isSignedIn ? (
+              <Avatar className="size-5 text-[9px]">
+                {user?.profilePictureUrl ? (
+                  <AvatarImage src={user.profilePictureUrl} alt={name} />
+                ) : null}
+                <AvatarFallback className="text-[9px]">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
+            ) : (
+              <HugeiconsIcon icon={Login03Icon} className="size-3.5" />
+            )}
+            {!isSignedIn ? (
+              <span>{signingIn ? "Signing in…" : "Sign in"}</span>
+            ) : nameIsEmail && user?.email ? (
               <BlurredEmail email={user.email} />
             ) : (
               <span className="min-w-0 flex-1 truncate text-left">{name}</span>
@@ -612,20 +537,39 @@ function SidebarAccount() {
         }
       />
       <MenuPopup side="top" align="start" className="min-w-44">
-        <MenuItem
-          onClick={() => {
-            setSettingsSection({ kind: "general" });
-            setView("settings");
-          }}
-        >
-          <HugeiconsIcon icon={UserCircleIcon} />
-          Account settings
+        {!isSignedIn ? (
+          <>
+            <MenuItem disabled={signingIn} onClick={() => void signIn()}>
+              <HugeiconsIcon icon={Login03Icon} />
+              Sign in
+            </MenuItem>
+            <MenuSeparator />
+          </>
+        ) : (
+          <MenuItem
+            onClick={() => {
+              setSettingsSection({ kind: "general" });
+              setView("settings");
+            }}
+          >
+            <HugeiconsIcon icon={UserCircleIcon} />
+            Account settings
+          </MenuItem>
+        )}
+        <UsageLimitsMenuItems />
+        <MenuItem onClick={() => setView("settings")}>
+          <HugeiconsIcon icon={Settings01Icon} />
+          Settings<MenuShortcut>{formatShortcut("settings")}</MenuShortcut>
         </MenuItem>
-        <MenuSeparator />
-        <MenuItem variant="destructive" onClick={() => void signOut()}>
-          <HugeiconsIcon icon={Logout01Icon} />
-          Sign out
-        </MenuItem>
+        {isSignedIn ? (
+          <>
+            <MenuSeparator />
+            <MenuItem variant="destructive" onClick={() => void signOut()}>
+              <HugeiconsIcon icon={Logout01Icon} />
+              Sign out
+            </MenuItem>
+          </>
+        ) : null}
       </MenuPopup>
     </Menu>
   );

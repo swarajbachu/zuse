@@ -35,6 +35,8 @@ import { Migration0031BackfillRuns } from "./migrations/0031_backfill_runs.ts";
 import { Migration0032ReactorEffectReceipts } from "./migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "./migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "./migrations/0034_tool_event_lookup.ts";
+import { Migration0035UsageLimitSnapshots } from "./migrations/0035_usage_limit_snapshots.ts";
+import { Migration0036UsageCostDaily } from "./migrations/0036_usage_cost_daily.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -86,6 +88,8 @@ const MigrationDefinitions = {
 	"0032_reactor_effect_receipts": Migration0032ReactorEffectReceipts,
 	"0033_reactor_effect_steps": Migration0033ReactorEffectSteps,
 	"0034_tool_event_lookup": Migration0034ToolEventLookup,
+	"0035_usage_limit_snapshots": Migration0035UsageLimitSnapshots,
+	"0036_usage_cost_daily": Migration0036UsageCostDaily,
 } as const;
 
 export const MigrationsLive = Layer.effectDiscard(
