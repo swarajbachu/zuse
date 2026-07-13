@@ -20,7 +20,7 @@
     },
     "apps/desktop": {
       "name": "desktop",
-      "version": "0.12.6",
+      "version": "0.13.0",
       "dependencies": {
         "electron-updater": "^6.3.9",
         "keytar": "^7.9.0",
