@@ -158,13 +158,16 @@ export const parseGrokCreditsFrame = (
 	bytes: Uint8Array,
 	now = Date.now(),
 ): { usedPercent: number | null; resetsAt: string | null } => {
-	let percent: number | null = null;
-	let reset: number | null = null;
-	const visit = (message: Uint8Array, depth: number): void => {
-		if (depth > 8) return;
+	const percents: Array<{ value: number; path: number[] }> = [];
+	const resets: Array<{ value: number; path: number[] }> = [];
+	const visit = (message: Uint8Array, path: number[]): void => {
+		if (path.length > 8) return;
 		for (let index = 0; index < message.length; ) {
 			const [tag, next] = readVarint(message, index);
 			index = next;
+			const field = tag >>> 3;
+			if (field === 0) break;
+			const nextPath = [...path, field];
 			const wire = tag & 7;
 			if (wire === 5 && index + 4 <= message.length) {
 				const value = new DataView(
@@ -172,13 +175,8 @@ export const parseGrokCreditsFrame = (
 					message.byteOffset + index,
 					4,
 				).getFloat32(0, true);
-				if (
-					Number.isFinite(value) &&
-					value >= 0 &&
-					value <= 100 &&
-					percent === null
-				)
-					percent = value;
+				if (Number.isFinite(value) && value >= 0 && value <= 100 && field === 1)
+					percents.push({ value, path: nextPath });
 				index += 4;
 			} else if (wire === 0) {
 				const [value, end] = readVarint(message, index);
@@ -188,19 +186,25 @@ export const parseGrokCreditsFrame = (
 					value <= 2_100_000_000 &&
 					value * 1_000 > now
 				)
-					reset = value;
+					resets.push({ value, path: nextPath });
 			} else if (wire === 2) {
 				const [length, end] = readVarint(message, index);
 				const finish = Math.min(message.length, end + length);
-				visit(message.subarray(end, finish), depth + 1);
+				visit(message.subarray(end, finish), nextPath);
 				index = finish;
 			} else if (wire === 1) index += 8;
 			else break;
 		}
 	};
-	visit(bytes, 0);
+	visit(bytes, []);
+	percents.sort((a, b) => a.path.length - b.path.length || a.value - b.value);
+	const preferredReset = resets.find(
+		(candidate) => candidate.path.join(".") === "1.5.1",
+	);
+	resets.sort((a, b) => a.path.length - b.path.length);
+	const reset = preferredReset?.value ?? resets[0]?.value ?? null;
 	return {
-		usedPercent: percent ?? (reset ? 0 : null),
+		usedPercent: percents[0]?.value ?? (reset ? 0 : null),
 		resetsAt: reset ? new Date(reset * 1_000).toISOString() : null,
 	};
 };
@@ -208,8 +212,13 @@ export const parseGrokCreditsFrame = (
 export const parseGrokCreditsResponse = (
 	bytes: Uint8Array,
 	now = Date.now(),
-): { usedPercent: number | null; resetsAt: string | null } => {
+): {
+	usedPercent: number | null;
+	resetsAt: string | null;
+	grpcStatus: number | null;
+} => {
 	const payloads: Uint8Array[] = [];
+	let grpcStatus: number | null = null;
 	for (let index = 0; index + 5 <= bytes.length; ) {
 		const flags = bytes[index] ?? 0;
 		const length = new DataView(
@@ -219,15 +228,25 @@ export const parseGrokCreditsResponse = (
 		).getUint32(0);
 		const start = index + 5;
 		const end = Math.min(bytes.length, start + length);
-		if ((flags & 0x80) === 0) payloads.push(bytes.subarray(start, end));
+		const frame = bytes.subarray(start, end);
+		if ((flags & 0x80) === 0) payloads.push(frame);
+		else {
+			const match = new TextDecoder()
+				.decode(frame)
+				.match(/(?:^|\r?\n)grpc-status:\s*(\d+)/i);
+			if (match?.[1]) grpcStatus = Number.parseInt(match[1], 10);
+		}
 		index = end;
 	}
-	return parseGrokCreditsFrame(
-		payloads.length > 0
-			? Uint8Array.from(payloads.flatMap((part) => [...part]))
-			: bytes,
-		now,
-	);
+	return {
+		...parseGrokCreditsFrame(
+			payloads.length > 0
+				? Uint8Array.from(payloads.flatMap((part) => [...part]))
+				: bytes,
+			now,
+		),
+		grpcStatus,
+	};
 };
 
 export const fetchGrokUsage = async (): Promise<ProviderUsageLimits> => {
@@ -267,11 +286,15 @@ export const fetchGrokUsage = async (): Promise<ProviderUsageLimits> => {
 					? "expired"
 					: "error",
 			);
-		const usage =
-			parsed ??
-			parseGrokCreditsResponse(
-				new Uint8Array(await (response as Response).arrayBuffer()),
-			);
+		const webUsage = parsed
+			? null
+			: parseGrokCreditsResponse(
+					new Uint8Array(await (response as Response).arrayBuffer()),
+				);
+		if (webUsage?.grpcStatus === 7 || webUsage?.grpcStatus === 16)
+			return unavailable("grok", "expired");
+		const usage = parsed ?? webUsage;
+		if (!usage) return unavailable("grok", "error");
 		const days = usage.resetsAt
 			? (Date.parse(usage.resetsAt) - Date.now()) / 86_400_000
 			: 0;

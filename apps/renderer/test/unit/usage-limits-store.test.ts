@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.fn();
+const historyRpc = vi.fn();
 
 const { setUsageLimitsRpcClientForTest, useUsageLimitsStore } = await import(
 	"../../src/store/usage-limits.ts"
@@ -9,7 +10,10 @@ const { setUsageLimitsRpcClientForTest, useUsageLimitsStore } = await import(
 
 setUsageLimitsRpcClientForTest(
 	async () =>
-		({ "usage.limits": rpc }) as unknown as Awaited<
+		({
+			"usage.limits": rpc,
+			"usage.limits.history": historyRpc,
+		}) as unknown as Awaited<
 			ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
 		>,
 );
@@ -17,8 +21,10 @@ setUsageLimitsRpcClientForTest(
 describe("usage limits store", () => {
 	beforeEach(() => {
 		rpc.mockReset();
+		historyRpc.mockReset();
 		useUsageLimitsStore.setState({
 			providers: [],
+			history: [],
 			loading: false,
 			error: null,
 			lastLoadedAt: null,
@@ -37,5 +43,19 @@ describe("usage limits store", () => {
 			forceRefresh: false,
 			providerId: undefined,
 		});
+	});
+
+	it("loads persisted limit history for dashboard sparklines", async () => {
+		const point = {
+			providerId: "claude" as const,
+			windowId: "five_hour",
+			capturedAt: new Date("2026-07-13T12:00:00.000Z"),
+			usedPercent: 45,
+		};
+		historyRpc.mockReturnValue(Effect.succeed({ points: [point] }));
+
+		await useUsageLimitsStore.getState().loadHistory();
+
+		expect(useUsageLimitsStore.getState().history).toEqual([point]);
 	});
 });

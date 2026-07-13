@@ -7,16 +7,13 @@ import { fetchGrokUsage } from "./grok-usage.ts";
 
 const TTL = 60_000;
 const FORCE_FLOOR = 10_000;
-export type PolledProviderId = "claude" | "codex" | "grok" | "gemini";
-const defaultFetchers: Record<
-	PolledProviderId,
-	() => Promise<ProviderUsageLimits>
-> = {
+const defaultFetchers = {
 	claude: fetchClaudeUsage,
 	codex: fetchCodexUsage,
 	grok: fetchGrokUsage,
 	gemini: fetchGeminiUsage,
-};
+} satisfies Partial<Record<ProviderId, () => Promise<ProviderUsageLimits>>>;
+export type PolledProviderId = keyof typeof defaultFetchers;
 let fetchers = { ...defaultFetchers };
 const cache = new Map<ProviderId, { at: number; value: ProviderUsageLimits }>();
 const inFlight = new Map<ProviderId, Promise<ProviderUsageLimits>>();
@@ -54,7 +51,7 @@ const loadProvider = (
 	if (effectiveForce) lastForcedAt.set(providerId, now);
 	const promise = fetchers[providerId]()
 		.then((value) => {
-			cache.set(providerId, { at: Date.now(), value });
+			cache.set(providerId, { at: now, value });
 			return value;
 		})
 		.finally(() => inFlight.delete(providerId));
@@ -89,11 +86,20 @@ export const loadUsageLimitsCached = (
 ): Promise<ProviderUsageLimits[]> => {
 	if (providerId && providerId in fetchers)
 		return loadProvider(providerId as keyof typeof fetchers, force, now).then(
-			(value) => [value],
+			(value) => {
+				if (!suppressesBackgroundPoll(value))
+					authSuppressedForPoll.delete(providerId);
+				return [value];
+			},
 		);
 	return Promise.all(
 		(Object.keys(fetchers) as Array<keyof typeof fetchers>).map((id) =>
 			loadProvider(id, force, now),
 		),
-	);
+	).then((values) => {
+		for (const value of values)
+			if (!suppressesBackgroundPoll(value))
+				authSuppressedForPoll.delete(value.providerId);
+		return values;
+	});
 };

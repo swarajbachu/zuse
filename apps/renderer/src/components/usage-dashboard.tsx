@@ -128,12 +128,14 @@ export function UsageDashboard({
 	const selectedRange = useUsageStore((state) => state.selectedRange);
 	const setRange = useUsageStore((state) => state.setRange);
 	const refreshLimits = useUsageLimitsStore((state) => state.refresh);
+	const loadLimitHistory = useUsageLimitsStore((state) => state.loadHistory);
 	const openUsage = useUiStore((state) => state.openUsage);
 
 	useEffect(() => {
 		void refresh(projectId);
 		void refreshLimits(false);
-	}, [projectId, refresh, refreshLimits]);
+		void loadLimitHistory();
+	}, [projectId, refresh, refreshLimits, loadLimitHistory]);
 
 	const forceRefresh = () => {
 		void Promise.all([
@@ -438,6 +440,7 @@ function LimitPlaceholder({
 }
 
 function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
+	const history = useUsageLimitsStore((state) => state.history);
 	const [expanded, setExpanded] = useState(false);
 	const windows = useMemo(
 		() =>
@@ -456,6 +459,19 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 	const pace = primary
 		? usagePace(primary.usedPercent, primary.resetsAt, primary.windowMinutes)
 		: null;
+	const historyValues = useMemo(
+		() =>
+			history
+				.filter(
+					(point) =>
+						point.providerId === provider.providerId &&
+						point.windowId === primary?.id &&
+						point.usedPercent !== null,
+				)
+				.slice(-24)
+				.map((point) => point.usedPercent as number),
+		[history, primary?.id, provider.providerId],
+	);
 	return (
 		<button
 			type="button"
@@ -495,6 +511,9 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 						percent={primary.usedPercent}
 						tone={(primary.usedPercent ?? 0) >= 80 ? "warning" : "default"}
 					/>
+					{historyValues.length > 1 ? (
+						<UsageSparkline values={historyValues} />
+					) : null}
 					{pace ? (
 						<div
 							className={cn(
@@ -513,6 +532,14 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 					No usage data available
 				</div>
 			)}
+			{provider.creditsRemaining !== null ? (
+				<div className="mt-2 flex items-center justify-between border-t border-border/60 pt-2 text-[10px]">
+					<span className="text-muted-foreground">Credits remaining</span>
+					<span className="font-medium tabular-nums">
+						{provider.creditsRemaining.toLocaleString()}
+					</span>
+				</div>
+			) : null}
 			{expanded && windows.length > 1 ? (
 				<div className="mt-3 space-y-2 border-t border-border/60 pt-2">
 					{windows.slice(1).map((window) => (
@@ -534,6 +561,32 @@ function LimitCard({ provider }: { provider: ProviderUsageLimits }) {
 				</div>
 			) : null}
 		</button>
+	);
+}
+
+function UsageSparkline({ values }: { values: ReadonlyArray<number> }) {
+	const points = values
+		.map((value, index) => {
+			const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100;
+			return `${x},${20 - (Math.min(100, Math.max(0, value)) / 100) * 20}`;
+		})
+		.join(" ");
+	return (
+		<svg
+			viewBox="0 0 100 20"
+			preserveAspectRatio="none"
+			className="mt-1.5 h-4 w-full overflow-visible text-primary/55"
+			aria-label="Recent usage trend"
+			role="img"
+		>
+			<polyline
+				points={points}
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				vectorEffect="non-scaling-stroke"
+			/>
+		</svg>
 	);
 }
 

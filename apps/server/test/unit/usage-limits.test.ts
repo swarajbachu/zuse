@@ -233,6 +233,20 @@ describe("usage limit normalization", () => {
 		expect(parsed.usedPercent).toBe(50);
 	});
 
+	it("surfaces gRPC-web authentication trailers", () => {
+		const payload = Uint8Array.from([0x0d, 0, 0, 72, 66]);
+		const trailer = new TextEncoder().encode("grpc-status: 16\r\n");
+		const framed = new Uint8Array(10 + payload.length + trailer.length);
+		new DataView(framed.buffer).setUint32(1, payload.length);
+		framed.set(payload, 5);
+		const trailerOffset = 5 + payload.length;
+		framed[trailerOffset] = 0x80;
+		new DataView(framed.buffer).setUint32(trailerOffset + 1, trailer.length);
+		framed.set(trailer, trailerOffset + 5);
+
+		expect(parseGrokCreditsResponse(framed).grpcStatus).toBe(16);
+	});
+
 	it("maps CLI billing into a monthly usage window", () => {
 		expect(
 			mapGrokBillingResult({

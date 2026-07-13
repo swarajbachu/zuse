@@ -1,16 +1,20 @@
 import { UsageReport } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
 	buildUsageReport,
 	makeUsageRecord,
 	type PricedUsage,
 } from "tokenmaxer";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppPaths } from "../../src/app-paths.ts";
 import {
 	persistPricedUsageOnce,
 	resetPersistedPricedUsageForTest,
 } from "../../src/usage/cost-history.ts";
 import {
+	loadUsageOverviewCached,
+	overviewProjectionMetrics,
 	paginateUsageSessions,
 	prepareUsageOverviewForRpc,
 	prepareUsageReportForRpc,
@@ -127,6 +131,39 @@ describe("usage report cache", () => {
 		const prepared = prepareUsageReportForRpc(report);
 		expect(prepared).toBeInstanceOf(UsageReport);
 		expect(() => Schema.encodeSync(UsageReport)(prepared)).not.toThrow();
+	});
+
+	it("meets cold and warm overview projection budgets", async () => {
+		const report = buildUsageReport({
+			records: [],
+			sources: [],
+			bucket: "daily",
+			filters: { bucket: "daily" },
+		});
+		const overview = prepareUsageOverviewForRpc(report, null);
+		const build = vi.fn(() =>
+			Effect.sleep("250 millis").pipe(Effect.as(overview)),
+		);
+		const options = { since: new Date("2026-07-01T00:00:00.000Z") };
+		const run = (effect: ReturnType<typeof loadUsageOverviewCached>) =>
+			Effect.runPromise(
+				effect.pipe(
+					Effect.provideService(AppPaths, { userData: "/tmp" }),
+					Effect.provideService(SqlClient.SqlClient, {} as never),
+				),
+			);
+
+		const coldStartedAt = performance.now();
+		await run(loadUsageOverviewCached(options, build));
+		const coldElapsed = performance.now() - coldStartedAt;
+		const warmStartedAt = performance.now();
+		await run(loadUsageOverviewCached(options, build));
+		const warmElapsed = performance.now() - warmStartedAt;
+
+		expect(coldElapsed).toBeLessThan(1_000);
+		expect(warmElapsed).toBeLessThan(200);
+		expect(build).toHaveBeenCalledTimes(1);
+		expect(overviewProjectionMetrics).toMatchObject({ hits: 1, misses: 1 });
 	});
 
 	it("trims raw records and caps sessions by token volume", () => {

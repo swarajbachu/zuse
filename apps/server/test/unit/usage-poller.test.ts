@@ -59,6 +59,33 @@ describe("usage limits poller", () => {
 		expect(fetchClaude).toHaveBeenCalledTimes(2);
 	});
 
+	it("resumes polling after a foreground load sees repaired credentials", async () => {
+		setUsageLimitFetcherForTest("claude", async () => ({
+			providerId: "claude",
+			planLabel: null,
+			windows: [],
+			creditsRemaining: null,
+			fetchedAt: "2026-07-13T12:00:00.000Z",
+			source: "api",
+			unavailableReason: "no-credentials",
+		}));
+		await loadUsageLimitsForPoll(["claude"], 0);
+
+		const recovered = vi.fn(async () => ({
+			providerId: "claude" as const,
+			planLabel: "Pro",
+			windows: [],
+			creditsRemaining: null,
+			fetchedAt: "2026-07-13T12:02:00.000Z",
+			source: "api" as const,
+		}));
+		setUsageLimitFetcherForTest("claude", recovered);
+		await loadUsageLimitsCached(false, "claude", 120_000);
+		await loadUsageLimitsForPoll(["claude"], 240_000);
+
+		expect(recovered).toHaveBeenCalledTimes(2);
+	});
+
 	it("persists daily costs at most once every six hours", () => {
 		const sixHours = 6 * 60 * 60 * 1_000;
 		expect(shouldPersistDailyCosts(sixHours, 0)).toBe(true);

@@ -5,6 +5,7 @@ import {
 	MemoizeRpcs,
 	type ProviderId,
 	ProviderUsageLimits as ProviderUsageLimitsSchema,
+	UsageLimitHistoryPoint as UsageLimitHistoryPointSchema,
 	UsageOverview as UsageOverviewSchema,
 	UsageReport as UsageReportSchema,
 	UsageSessionsPage as UsageSessionsPageSchema,
@@ -351,13 +352,14 @@ const overviewKey = (options: Parameters<typeof buildUsageOverview>[0]) =>
 		options.timezone ?? "",
 	].join(":");
 
-const loadUsageOverviewCached = (
+export const loadUsageOverviewCached = (
 	options: Parameters<typeof buildUsageOverview>[0],
+	build: typeof buildUsageOverview = buildUsageOverview,
 ) => {
 	if (options.forceRefresh) {
 		overviewProjectionCache.delete(overviewKey(options));
 		overviewProjectionMetrics.misses += 1;
-		return buildUsageOverview(options);
+		return build(options);
 	}
 	const key = overviewKey(options);
 	const cached = overviewProjectionCache.get(key);
@@ -367,7 +369,7 @@ const loadUsageOverviewCached = (
 	}
 	overviewProjectionMetrics.misses += 1;
 	const projection = Effect.runSync(
-		Effect.cachedWithTTL(buildUsageOverview(options), "60 seconds"),
+		Effect.cachedWithTTL(build(options), "60 seconds"),
 	);
 	if (overviewProjectionCache.size >= MAX_OVERVIEW_PROJECTIONS) {
 		const oldest = overviewProjectionCache.keys().next().value;
@@ -447,9 +449,44 @@ const UsageLimits = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
+const UsageLimitsHistory = MemoizeRpcs.toLayerHandler(
+	"usage.limits.history",
+	({ providerId, since }) =>
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			const cutoff = (
+				since ?? new Date(Date.now() - 30 * 86_400_000)
+			).toISOString();
+			const rows = providerId
+				? yield* sql<{
+						provider_id: ProviderId;
+						window_id: string;
+						captured_hour: string;
+						used_percent: number | null;
+					}>`SELECT provider_id, window_id, captured_hour, used_percent FROM usage_limit_snapshots WHERE captured_hour >= ${cutoff} AND provider_id = ${providerId} ORDER BY captured_hour ASC`
+				: yield* sql<{
+						provider_id: ProviderId;
+						window_id: string;
+						captured_hour: string;
+						used_percent: number | null;
+					}>`SELECT provider_id, window_id, captured_hour, used_percent FROM usage_limit_snapshots WHERE captured_hour >= ${cutoff} ORDER BY captured_hour ASC`;
+			return {
+				points: rows.map((row) =>
+					Schema.decodeUnknownSync(UsageLimitHistoryPointSchema)({
+						providerId: row.provider_id,
+						windowId: row.window_id,
+						capturedAt: row.captured_hour,
+						usedPercent: row.used_percent,
+					}),
+				),
+			};
+		}).pipe(Effect.orDie),
+);
+
 export const UsageHandlersLayer = Layer.mergeAll(
 	UsageReport,
 	UsageOverview,
 	UsageSessions,
 	UsageLimits,
+	UsageLimitsHistory,
 );
