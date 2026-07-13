@@ -155,7 +155,6 @@ const attachmentsWithBrowserAnnotations = (
 
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
-import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionCard } from "./permission-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { QuestionCard } from "./question-card.tsx";
@@ -206,29 +205,13 @@ export function ChatComposer({
   const inFlight = useMessagesStore(
     (s) => s.runningBySession[sessionId] === true,
   );
-  // The first message(s) sit in the queue while the worktree branches / setup
-  // runs / the provider boots — the worktrees setup stream flushes them once
-  // the tree is ready. Until then, any submit must APPEND to the queue
-  // (preserving order), never fire a live send into a not-yet-ready session.
-  // The composer is now visible throughout setup, so this path is reachable.
+  // Hold messages only while the provider is unavailable or an earlier message
+  // is already queued. Worktree setup is independent background work and must
+  // not delay an agent that has finished booting.
   const hasQueued = useMessagesStore(
     (s) => (s.queueBySession[sessionId]?.length ?? 0) > 0,
   );
-  const worktreeSetupActive = useWorktreesStore((s) => {
-    const wtId = session.worktreeId;
-    if (wtId === null) return false;
-    for (const list of Object.values(s.byProject)) {
-      const wt = (list ?? EMPTY_WORKTREES).find((w) => w.id === wtId);
-      if (wt !== undefined) {
-        // Only while setup is genuinely in flight — a `failed` status is
-        // terminal (its queue already flushed), so later messages send.
-        return wt.setupStatus === "running" || wt.setupStatus === "pending";
-      }
-    }
-    return false;
-  });
-  const holdForSetup =
-    hasQueued || worktreeSetupActive || session.status === "booting";
+  const holdForAgent = hasQueued || session.status === "booting";
   const goal = useMessagesStore((s) => s.goalBySession[sessionId] ?? null);
   const send = useMessagesStore((s) => s.send);
   const interrupt = useMessagesStore((s) => s.interrupt);
@@ -876,7 +859,7 @@ export function ChatComposer({
         ? chooseComposerSubmitRoute({
             sendPlanFeedbackNow,
             goalSendMode,
-            shouldQueue: inFlight || holdForSetup,
+            shouldQueue: inFlight || holdForAgent,
           })
         : null;
     clearComposer(view, {
@@ -916,9 +899,9 @@ export function ChatComposer({
         void send(sessionId, input, { asGoal: true });
         break;
       case "queue":
-        // Mid-turn submit — or a submit while the worktree/provider is still
-        // coming up — becomes a queue chip; auto-flushed when the turn ends,
-        // setup completes, or steered manually.
+        // Mid-turn submit — or a submit while the provider is still coming up
+        // — becomes a queue chip; auto-flushed when the turn ends or steered
+        // manually.
         queue(sessionId, input);
         break;
       case "send":
