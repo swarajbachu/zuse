@@ -143,7 +143,7 @@ export function EnvironmentSummary() {
 			</div>
 			<button
 				type="button"
-				className={`${rowClass} hover:bg-muted/60`}
+				className={`${rowClass} cursor-pointer hover:bg-muted/60`}
 				onClick={openPullRequest}
 			>
 				<HugeiconsIcon
