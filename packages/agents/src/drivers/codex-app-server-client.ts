@@ -24,6 +24,8 @@ type CodexGoalRequestMethod =
 	| "thread/goal/set"
 	| "thread/goal/clear";
 
+type CodexExperimentalRequestMethod = "collaborationMode/list";
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
 
@@ -141,7 +143,10 @@ export class CodexAppServerClient {
 	}
 
 	request<T>(
-		method: ClientRequest["method"] | CodexGoalRequestMethod,
+		method:
+			| ClientRequest["method"]
+			| CodexGoalRequestMethod
+			| CodexExperimentalRequestMethod,
 		params: unknown,
 	): Promise<T> {
 		if (this.closed) {

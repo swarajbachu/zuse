@@ -1,5 +1,6 @@
 import {
 	callOrchestrationTool,
+	ensureOrchestrationPermission,
 	MUTATING_ORCHESTRATION_TOOLS,
 	ORCHESTRATION_MCP_SERVER_NAME,
 	ORCHESTRATION_MCP_TOOLS,
@@ -9,6 +10,25 @@ import {
 import { describe, expect, test } from "vitest";
 
 describe("orchestration MCP tools", () => {
+	test("denies plan-mode mutations without requesting permission", async () => {
+		let requestCount = 0;
+		await expect(
+			ensureOrchestrationPermission(
+				"create_session",
+				{ task: "test" },
+				{
+					getPermissionMode: () => "plan",
+					getRuntimeMode: () => "full-access",
+					requestPermission: async () => {
+						requestCount += 1;
+						return { _tag: "AllowOnce" };
+					},
+				},
+			),
+		).rejects.toThrow(/blocked/i);
+		expect(requestCount).toBe(0);
+	});
+
 	test("exposes the stable provider-neutral tool set", () => {
 		expect(ORCHESTRATION_MCP_SERVER_NAME).toBe("zuse-orchestration");
 		expect(ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name)).toEqual([

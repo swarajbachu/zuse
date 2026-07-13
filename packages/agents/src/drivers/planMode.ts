@@ -2,14 +2,14 @@ import type { PermissionMode } from "@zuse/contracts";
 
 /**
  * Developer-instructions prefix that emulates plan mode for providers that
- * don't have a native equivalent. The Claude Agent SDK has `permissionMode:
- * "plan"`, Cursor's ACP has `setSessionMode("plan")`, but Codex/Grok/Gemini
- * don't expose a runtime read-only switch — so we prepend this block to the
- * user's prompt while plan mode is active.
+ * don't have a native equivalent. It is also the compatibility fallback for
+ * older app-server releases that predate native collaboration modes. ACP
+ * providers currently receive this block when their live session protocols
+ * do not expose a mode switch.
  *
- * The model is still free to ignore it, which is why we ALSO keep
- * `RuntimeMode: "approval-required"` as the safety net for any tool call
- * that wants to mutate state.
+ * The model is still free to ignore it, so the permission policy separately
+ * allows reads and rejects mutations without prompting. The instruction mainly
+ * improves UX by preventing attempted writes.
  */
 export const PLAN_MODE_INSTRUCTIONS =
 	"PLAN MODE — you are in read-only planning mode. Investigate the " +

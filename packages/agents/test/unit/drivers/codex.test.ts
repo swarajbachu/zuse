@@ -1,13 +1,17 @@
 import { execFileSync } from "node:child_process";
 import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
+	buildCodexTurnMode,
+	codexApprovalPolicy,
 	codexDetachedAgentFromSubAgentActivity,
 	codexDetachedAgentToolUse,
 	codexFinishDetachedAgent,
 	codexReasoningEffort,
+	codexSandboxPolicy,
 	codexWithDetachedParent,
 	codexWritableRootsForCwd,
 	readCodexSubAgentActivity,
+	supportsCodexNativePlanMode,
 	translateCodexCollabItem,
 	translateCodexItem,
 	translateCodexStatusNotification,
@@ -557,5 +561,85 @@ describe("codexReasoningEffort", () => {
 		expect(codexReasoningEffort("custom-model", "ultra")).toBeNull();
 		expect(codexReasoningEffort(undefined, undefined)).toBeNull();
 		expect(codexReasoningEffort("gpt-5.6-luna", "turbo")).toBeNull();
+	});
+});
+
+describe("Codex plan mode", () => {
+	it("requires both native collaboration modes in the capability response", () => {
+		expect(
+			supportsCodexNativePlanMode({
+				data: [{ mode: "plan" }, { mode: "default" }],
+			}),
+		).toBe(true);
+		expect(supportsCodexNativePlanMode({ data: [{ mode: "plan" }] })).toBe(
+			false,
+		);
+		expect(supportsCodexNativePlanMode({})).toBe(false);
+	});
+
+	it("uses native collaboration mode without rewriting the user prompt", () => {
+		expect(
+			buildCodexTurnMode({
+				permissionMode: "plan",
+				supportsNativePlanMode: true,
+				prompt: "Investigate the queue bug",
+				model: "gpt-5.5",
+				effort: "high",
+			}),
+		).toEqual({
+			promptText: "Investigate the queue bug",
+			collaborationMode: {
+				mode: "plan",
+				settings: {
+					model: "gpt-5.5",
+					reasoning_effort: "high",
+					developer_instructions: null,
+				},
+			},
+		});
+	});
+
+	it("sends native default mode when leaving plan mode", () => {
+		expect(
+			buildCodexTurnMode({
+				permissionMode: "default",
+				supportsNativePlanMode: true,
+				prompt: "Implement it",
+				model: "gpt-5.5",
+				effort: null,
+			}),
+		).toEqual({
+			promptText: "Implement it",
+			collaborationMode: {
+				mode: "default",
+				settings: {
+					model: "gpt-5.5",
+					reasoning_effort: null,
+					developer_instructions: null,
+				},
+			},
+		});
+	});
+
+	it("keeps the instruction-prefix fallback for older app servers", () => {
+		const result = buildCodexTurnMode({
+			permissionMode: "plan",
+			supportsNativePlanMode: false,
+			prompt: "Investigate the queue bug",
+			model: "gpt-5.5",
+			effort: null,
+		});
+
+		expect(result.collaborationMode).toBeUndefined();
+		expect(result.promptText).toContain("PLAN MODE");
+		expect(result.promptText).toContain("Investigate the queue bug");
+	});
+
+	it("never asks for approval while retaining a read-only sandbox", () => {
+		expect(codexApprovalPolicy("full-access", "plan")).toBe("never");
+		expect(codexSandboxPolicy("full-access", "plan", "/repo")).toEqual({
+			type: "readOnly",
+			networkAccess: false,
+		});
 	});
 });

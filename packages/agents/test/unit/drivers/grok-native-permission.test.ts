@@ -96,7 +96,7 @@ describe("Grok native ACP permission handling", () => {
 		});
 	});
 
-	it("does not silently approve plan-mode native shell permissions", async () => {
+	it("silently denies plan-mode native shell permissions", async () => {
 		const requests: Array<{ kind: PermissionKind; forcePrompt: boolean }> = [];
 		const result = await handleGrokNativePermissionRequest(
 			"tool/requestApproval",
@@ -110,13 +110,75 @@ describe("Grok native ACP permission handling", () => {
 			}),
 		);
 
+		expect(requests).toEqual([]);
+		expect(result).toMatchObject({ outcome: "denied", approved: false });
+	});
+
+	it("allows plan-mode read requests without prompting", async () => {
+		let requestCount = 0;
+		for (const params of [
+			{ tool: "read_file", path: "/repo/src/app.ts" },
+			{ tool: "web_fetch", url: "https://example.com/docs" },
+			{ tool: "Shell", command: "rg TODO src" },
+		]) {
+			const result = await handleGrokNativePermissionRequest(
+				"tool/requestApproval",
+				params,
+				makeCtx({
+					runtimeMode: "full-access",
+					permissionMode: "plan",
+					onRequest: () => {
+						requestCount += 1;
+					},
+				}),
+			);
+			expect(result).toMatchObject({ outcome: "approved", approved: true });
+		}
+		expect(requestCount).toBe(0);
+	});
+
+	it("does not infer reads from verb substrings in unknown tool names", async () => {
+		let requestCount = 0;
+		const result = await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "target_window", path: "/repo/src/app.ts" },
+			makeCtx({
+				runtimeMode: "full-access",
+				permissionMode: "plan",
+				onRequest: () => {
+					requestCount += 1;
+				},
+			}),
+		);
+
+		expect(requestCount).toBe(0);
+		expect(result).toMatchObject({ outcome: "denied", approved: false });
+	});
+
+	it("keeps sensitive plan-mode file reads behind the protected-path gate", async () => {
+		const requests: Array<{ kind: PermissionKind; forcePrompt: boolean }> = [];
+		await handleGrokNativePermissionRequest(
+			"tool/requestApproval",
+			{ tool: "read_file", path: "/repo/.env" },
+			makeCtx({
+				runtimeMode: "full-access",
+				permissionMode: "plan",
+				onRequest: (kind, forcePrompt) => {
+					requests.push({ kind, forcePrompt });
+				},
+			}),
+		);
+
 		expect(requests).toEqual([
 			{
-				kind: { _tag: "Bash", command: "bun install" },
+				kind: {
+					_tag: "Other",
+					tool: "read_file",
+					summary: "/repo/.env",
+				},
 				forcePrompt: true,
 			},
 		]);
-		expect(result).toMatchObject({ outcome: "approved", approved: true });
 	});
 
 	it("ignores unknown non-permission ACP methods", async () => {

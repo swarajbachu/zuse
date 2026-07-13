@@ -124,6 +124,9 @@ async function ensureBashPermission(
 	);
 
 	if (policy.kind === "auto-allow") return;
+	if (policy.kind === "auto-deny") {
+		throw new Error(`Command blocked in plan mode: ${command}`);
+	}
 
 	const decision = await requestPermission(
 		{ _tag: "Bash", command },

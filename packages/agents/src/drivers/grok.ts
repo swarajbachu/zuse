@@ -33,7 +33,8 @@ import { makeAcpPermissionContext } from "../kernel/acp-permission-context.ts";
 import { createAcpSession } from "../kernel/acp-session.ts";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
-import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
+import type { ToolCategory } from "../kernel/permission-policy.ts";
+import { getBashPolicy, getFsPolicy, getToolPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -327,15 +328,28 @@ const SUMMARY_KEYS = new Set([
 	"question",
 ]);
 
+type ClassifiedGrokPermission = {
+	readonly kind: PermissionKind;
+	readonly category: ToolCategory;
+	readonly path?: string;
+};
+
 const classifyGrokNativePermission = (
 	method: string,
 	params: unknown,
-): PermissionKind => {
+): ClassifiedGrokPermission => {
 	const command = firstStringByKey(params, COMMAND_KEYS);
 	const path = firstStringByKey(params, PATH_KEYS);
 	const url = firstStringByKey(params, URL_KEYS);
 	const tool = firstStringByKey(params, TOOL_KEYS) ?? method;
 	const toolKey = lower(tool);
+	const toolTokens = new Set(
+		tool
+			.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter((token) => token.length > 0),
+	);
 
 	if (
 		command !== null ||
@@ -343,44 +357,84 @@ const classifyGrokNativePermission = (
 		toolKey.includes("bash") ||
 		toolKey.includes("terminal")
 	) {
-		return { _tag: "Bash", command: command ?? tool };
+		return {
+			kind: { _tag: "Bash", command: command ?? tool },
+			category: "execute",
+		};
 	}
-	if (
-		path !== null ||
-		toolKey.includes("edit") ||
-		toolKey.includes("write") ||
-		toolKey.includes("replace") ||
-		toolKey.includes("delete") ||
-		toolKey.includes("move")
-	) {
-		return { _tag: "FileWrite", path: path ?? tool };
+	const mutates = [
+		"create",
+		"delete",
+		"edit",
+		"move",
+		"patch",
+		"post",
+		"put",
+		"replace",
+		"upload",
+		"write",
+	].some((verb) => toolTokens.has(verb));
+	if (mutates) {
+		return {
+			kind: { _tag: "FileWrite", path: path ?? url ?? tool },
+			category: "edit",
+		};
 	}
-	if (url !== null || toolKey.includes("fetch") || toolKey.includes("web")) {
-		return { _tag: "Network", url: url ?? tool };
+	const reads = [
+		"fetch",
+		"find",
+		"get",
+		"glob",
+		"grep",
+		"inspect",
+		"list",
+		"read",
+		"search",
+		"stat",
+		"view",
+		"web",
+	].some((verb) => toolTokens.has(verb));
+	if (reads) {
+		return {
+			kind:
+				url !== null
+					? { _tag: "Network", url }
+					: {
+							_tag: "Other",
+							tool,
+							summary: path ?? stringifyCompact(params),
+						},
+			category: "read",
+			...(path !== null ? { path } : {}),
+		};
+	}
+	if (path !== null) {
+		return { kind: { _tag: "FileWrite", path }, category: "edit" };
 	}
 
 	return {
-		_tag: "Other",
-		tool,
-		summary:
-			firstStringByKey(params, SUMMARY_KEYS) ??
-			command ??
-			path ??
-			url ??
-			stringifyCompact(params),
+		kind: {
+			_tag: "Other",
+			tool,
+			summary:
+				firstStringByKey(params, SUMMARY_KEYS) ?? stringifyCompact(params),
+		},
+		category: "other",
 	};
 };
 
 const nativePermissionPolicy = (
-	kind: PermissionKind,
+	permission: ClassifiedGrokPermission,
 	runtimeMode: RuntimeMode,
 	permissionMode: PermissionMode,
 ):
 	| { readonly kind: "auto-allow" }
+	| { readonly kind: "auto-deny" }
 	| {
 			readonly kind: "prompt";
 			readonly forcePrompt: boolean;
 	  } => {
+	const { kind } = permission;
 	switch (kind._tag) {
 		case "Bash":
 			return getBashPolicy(kind.command, runtimeMode, permissionMode);
@@ -388,11 +442,15 @@ const nativePermissionPolicy = (
 			return getFsPolicy("write", kind.path, runtimeMode, permissionMode);
 		case "Network":
 		case "Other":
-			if (permissionMode === "plan") {
-				return { kind: "prompt", forcePrompt: true };
+			if (permission.category === "read" && permission.path !== undefined) {
+				return getFsPolicy(
+					"read",
+					permission.path,
+					runtimeMode,
+					permissionMode,
+				);
 			}
-			if (runtimeMode === "full-access") return { kind: "auto-allow" };
-			return { kind: "prompt", forcePrompt: false };
+			return getToolPolicy(permission.category, runtimeMode, permissionMode);
 	}
 };
 
@@ -420,15 +478,16 @@ export const handleGrokNativePermissionRequest = async (
 ): Promise<unknown | null> => {
 	if (!isGrokNativePermissionMethod(method)) return null;
 
-	const kind = classifyGrokNativePermission(method, params);
+	const permission = classifyGrokNativePermission(method, params);
 	const policy = nativePermissionPolicy(
-		kind,
+		permission,
 		ctx.getRuntimeMode(),
 		ctx.getPermissionMode(),
 	);
 	if (policy.kind === "auto-allow") return grokPermissionResponse(true);
+	if (policy.kind === "auto-deny") return grokPermissionResponse(false);
 
-	const decision = await ctx.requestPermission(kind, {
+	const decision = await ctx.requestPermission(permission.kind, {
 		forcePrompt: policy.forcePrompt,
 	});
 	return grokPermissionResponse(decision._tag !== "Deny");

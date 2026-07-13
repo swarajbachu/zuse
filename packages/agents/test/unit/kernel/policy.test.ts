@@ -2,7 +2,11 @@ import {
 	isSensitivePath,
 	SENSITIVE_PATH_PATTERNS,
 } from "@zuse/agents/kernel/permission-policy";
-import { getBashPolicy, getFsPolicy } from "@zuse/agents/kernel/policy";
+import {
+	getBashPolicy,
+	getFsPolicy,
+	isReadOnlyShellCommand,
+} from "@zuse/agents/kernel/policy";
 import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -80,14 +84,14 @@ describe("getFsPolicy", () => {
 		});
 	});
 
-	it("plan mode forces a prompt for mutations even under full-access", () => {
+	it("plan mode silently denies mutations even under full-access", () => {
 		const policy = getFsPolicy(
 			"write",
 			"/repo/src/a.ts",
 			"full-access",
 			"plan",
 		);
-		expect(policy).toEqual({ kind: "prompt", forcePrompt: true });
+		expect(policy).toEqual({ kind: "auto-deny" });
 	});
 
 	it("auto-accept-edits modes auto-allow non-sensitive mutations", () => {
@@ -120,11 +124,10 @@ describe("getFsPolicy", () => {
 });
 
 describe("getBashPolicy", () => {
-	it("plan mode always forces a prompt", () => {
+	it("plan mode silently denies mutating commands", () => {
 		for (const mode of RUNTIME_MODES) {
 			expect(getBashPolicy("rm -rf /", mode, "plan")).toEqual({
-				kind: "prompt",
-				forcePrompt: true,
+				kind: "auto-deny",
 			});
 		}
 	});
@@ -153,12 +156,41 @@ describe("getBashPolicy", () => {
 		});
 	});
 
-	it("plan mode wins over full-access", () => {
+	it("plan mode permits conservative inspection under full-access", () => {
 		const mode: RuntimeMode = "full-access";
 		const perm: PermissionMode = "plan";
 		expect(getBashPolicy("ls", mode, perm)).toEqual({
-			kind: "prompt",
-			forcePrompt: true,
+			kind: "auto-allow",
 		});
+	});
+
+	it("rejects shell composition, mutating variants, and sensitive reads", () => {
+		for (const command of [
+			"rg TODO | xargs rm",
+			"rg --pre 'touch /tmp/out' pattern",
+			"rg --ignore-file=.env TODO",
+			"find . -delete",
+			"sed -i s/a/b/ app.ts",
+			"sed -n 'w /tmp/out' README.md",
+			"tree -o /tmp/tree.txt",
+			"cat .env",
+			"git checkout main",
+		]) {
+			expect(isReadOnlyShellCommand(command)).toBe(false);
+			expect(getBashPolicy(command, "full-access", "plan")).toEqual({
+				kind: "auto-deny",
+			});
+		}
+	});
+
+	it("allows common read-only codebase inspection", () => {
+		for (const command of [
+			"rg TODO src",
+			"ls -la src",
+			"head -80 README.md",
+			"cat package.json",
+		]) {
+			expect(isReadOnlyShellCommand(command)).toBe(true);
+		}
 	});
 });
