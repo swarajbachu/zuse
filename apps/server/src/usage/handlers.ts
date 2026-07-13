@@ -214,10 +214,16 @@ type UsageReportOptions = {
 	readonly projectId?: FolderId;
 	readonly includePossibleDuplicates?: boolean;
 	readonly forceRefresh?: boolean;
+	readonly loadPriced?: NonNullable<
+		Parameters<typeof loadPricedUsageCached>[2]
+	>["load"];
 };
 
 const loadUsageReportData = (
-	options: Pick<UsageReportOptions, "projectId" | "forceRefresh">,
+	options: Pick<
+		UsageReportOptions,
+		"projectId" | "forceRefresh" | "loadPriced"
+	>,
 ) =>
 	Effect.gen(function* () {
 		const paths = yield* AppPaths;
@@ -229,7 +235,7 @@ const loadUsageReportData = (
 			loadPricedUsageCached(
 				sqliteDbPath(paths.userData),
 				join(paths.userData, "tokenmaxer"),
-				{ forceRefresh: options.forceRefresh },
+				{ forceRefresh: options.forceRefresh, load: options.loadPriced },
 			),
 		).pipe(Effect.orDie);
 		yield* persistPricedUsageOnce(priced, persistDailyAggregates).pipe(
@@ -304,6 +310,9 @@ const buildUsageOverview = (options: {
 	readonly timezone?: string;
 	readonly projectId?: FolderId;
 	readonly forceRefresh?: boolean;
+	readonly loadPriced?: NonNullable<
+		Parameters<typeof loadPricedUsageCached>[2]
+	>["load"];
 }) =>
 	Effect.gen(function* () {
 		const startedAt = performance.now();
@@ -354,12 +363,11 @@ const overviewKey = (options: Parameters<typeof buildUsageOverview>[0]) =>
 
 export const loadUsageOverviewCached = (
 	options: Parameters<typeof buildUsageOverview>[0],
-	build: typeof buildUsageOverview = buildUsageOverview,
 ) => {
 	if (options.forceRefresh) {
 		overviewProjectionCache.delete(overviewKey(options));
 		overviewProjectionMetrics.misses += 1;
-		return build(options);
+		return buildUsageOverview(options);
 	}
 	const key = overviewKey(options);
 	const cached = overviewProjectionCache.get(key);
@@ -369,7 +377,7 @@ export const loadUsageOverviewCached = (
 	}
 	overviewProjectionMetrics.misses += 1;
 	const projection = Effect.runSync(
-		Effect.cachedWithTTL(build(options), "60 seconds"),
+		Effect.cachedWithTTL(buildUsageOverview(options), "60 seconds"),
 	);
 	if (overviewProjectionCache.size >= MAX_OVERVIEW_PROJECTIONS) {
 		const oldest = overviewProjectionCache.keys().next().value;

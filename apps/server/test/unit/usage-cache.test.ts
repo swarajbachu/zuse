@@ -1,12 +1,17 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { UsageReport } from "@zuse/contracts";
-import { Effect, Schema } from "effect";
+import { layer as nodeSqliteLayer } from "@zuse/sqlite";
+import { Effect, ManagedRuntime, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
 	buildUsageReport,
+	loadPricedUsage,
 	makeUsageRecord,
 	type PricedUsage,
 } from "tokenmaxer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
 import {
 	persistPricedUsageOnce,
@@ -134,36 +139,67 @@ describe("usage report cache", () => {
 	});
 
 	it("meets cold and warm overview projection budgets", async () => {
-		const report = buildUsageReport({
-			records: [],
-			sources: [],
-			bucket: "daily",
-			filters: { bucket: "daily" },
-		});
-		const overview = prepareUsageOverviewForRpc(report, null);
-		const build = vi.fn(() =>
-			Effect.sleep("250 millis").pipe(Effect.as(overview)),
+		const directory = mkdtempSync(join(tmpdir(), "usage-overview-benchmark-"));
+		const previousClaudeConfig = process.env.CLAUDE_CONFIG_DIR;
+		process.env.CLAUDE_CONFIG_DIR = directory;
+		const projectDirectory = join(directory, "projects", "fixture");
+		mkdirSync(projectDirectory, { recursive: true });
+		writeFileSync(
+			join(projectDirectory, "session.jsonl"),
+			JSON.stringify({
+				timestamp: "2026-07-10T10:00:00.000Z",
+				message: {
+					id: "message-1",
+					model: "claude-opus-4-8",
+					usage: { input_tokens: 100, output_tokens: 20 },
+				},
+			}),
 		);
-		const options = { since: new Date("2026-07-01T00:00:00.000Z") };
-		const run = (effect: ReturnType<typeof loadUsageOverviewCached>) =>
-			Effect.runPromise(
-				effect.pipe(
-					Effect.provideService(AppPaths, { userData: "/tmp" }),
-					Effect.provideService(SqlClient.SqlClient, {} as never),
-				),
+		const runtime = ManagedRuntime.make(
+			nodeSqliteLayer({
+				filename: join(directory, "zuse.sqlite"),
+				disableWAL: true,
+			}),
+		);
+		try {
+			await runtime.runPromise(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TABLE usage_cost_daily (day TEXT NOT NULL, source_id TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, cache_creation_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, cost_usd REAL, cost_status TEXT NOT NULL, record_count INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(day, source_id, model))`;
+				}),
 			);
+			const options = {
+				since: new Date("2026-07-01T00:00:00.000Z"),
+				loadPriced: (input: Parameters<typeof loadPricedUsage>[0]) =>
+					loadPricedUsage({
+						...input,
+						readOptions: { sourceIds: ["claude"] },
+						pricing: { ...input?.pricing, offline: true },
+					}),
+			};
+			const run = (effect: ReturnType<typeof loadUsageOverviewCached>) =>
+				runtime.runPromise(
+					effect.pipe(Effect.provideService(AppPaths, { userData: directory })),
+				);
 
-		const coldStartedAt = performance.now();
-		await run(loadUsageOverviewCached(options, build));
-		const coldElapsed = performance.now() - coldStartedAt;
-		const warmStartedAt = performance.now();
-		await run(loadUsageOverviewCached(options, build));
-		const warmElapsed = performance.now() - warmStartedAt;
+			const coldStartedAt = performance.now();
+			const cold = await run(loadUsageOverviewCached(options));
+			const coldElapsed = performance.now() - coldStartedAt;
+			const warmStartedAt = performance.now();
+			await run(loadUsageOverviewCached(options));
+			const warmElapsed = performance.now() - warmStartedAt;
 
-		expect(coldElapsed).toBeLessThan(1_000);
-		expect(warmElapsed).toBeLessThan(200);
-		expect(build).toHaveBeenCalledTimes(1);
-		expect(overviewProjectionMetrics).toMatchObject({ hits: 1, misses: 1 });
+			expect(cold.summary.recordCount).toBe(1);
+			expect(coldElapsed).toBeLessThan(1_000);
+			expect(warmElapsed).toBeLessThan(200);
+			expect(overviewProjectionMetrics).toMatchObject({ hits: 1, misses: 1 });
+		} finally {
+			await runtime.dispose();
+			if (previousClaudeConfig === undefined)
+				delete process.env.CLAUDE_CONFIG_DIR;
+			else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfig;
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("trims raw records and caps sessions by token volume", () => {
