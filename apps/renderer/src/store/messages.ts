@@ -29,9 +29,18 @@ import { usePrStateStore } from "./pr-state.ts";
 import { useSessionsStore } from "./sessions.ts";
 
 let getMessagesRpcClient: typeof getRpcClient = getRpcClient;
+let dispatchMessagesRpcCommand: typeof dispatchRetryableRpcCommand =
+  dispatchRetryableRpcCommand;
+const queueFlushTails = new Map<SessionId, Promise<void>>();
 
 export const setMessagesRpcClientForTest = (fn: typeof getRpcClient): void => {
   getMessagesRpcClient = fn;
+};
+
+export const setMessagesRpcCommandDispatcherForTest = (
+  fn: typeof dispatchRetryableRpcCommand,
+): void => {
+  dispatchMessagesRpcCommand = fn;
 };
 
 /**
@@ -779,6 +788,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             },
           };
         });
+        // Probe the durable queue after the add completes. The server ignores
+        // flushes while the provider is booting or a turn is running, but this
+        // closes the opposite race: provider-ready can arrive just before the
+        // queued row is persisted, leaving no later status edge to drain it.
+        get().flushQueue(sessionId);
       } catch (err) {
         set((s) => ({
           errorBySession: {
@@ -850,11 +864,21 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     })();
   },
   flushQueue: (sessionId) => {
-    void (async () => {
-      try {
-        const client = await getMessagesRpcClient();
-        await Effect.runPromise(client["messages.queue.flush"]({ sessionId }));
-      } catch (err) {
+    const previous = queueFlushTails.get(sessionId) ?? Promise.resolve();
+    const commandId = `queue-flush:${sessionId}:${crypto.randomUUID()}`;
+    const current = previous
+      .catch(() => undefined)
+      .then(() =>
+        dispatchMessagesRpcCommand(commandId, async () => {
+          const client = await getMessagesRpcClient();
+          return Effect.runPromise(
+            client["messages.queue.flush"]({ sessionId }),
+          );
+        }),
+      );
+    queueFlushTails.set(sessionId, current);
+    void current
+      .catch((err) => {
         handoffRunningSessions.delete(sessionId);
         set((s) => ({
           errorBySession: {
@@ -863,8 +887,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           },
           runningBySession: { ...s.runningBySession, [sessionId]: false },
         }));
-      }
-    })();
+      })
+      .finally(() => {
+        if (queueFlushTails.get(sessionId) === current) {
+          queueFlushTails.delete(sessionId);
+        }
+      });
   },
   resumeQueue: async (sessionId) => {
     try {
