@@ -804,10 +804,10 @@ export const SessionForkRpc = Rpc.make("session.fork", {
 });
 
 /**
- * Live feed of chat-row changes (title / worktree binding) for one project.
- * Carries only live patches — no backfill — so the renderer keeps its
- * `chat.list` snapshot and patches it as updates arrive (e.g. the background
- * auto-namer rewriting a new chat's title after its first message).
+ * Snapshot-plus-live feed of chat rows for one project. Each subscription
+ * first emits the current non-archived chats, then carries live patches. The
+ * server subscribes before reading the snapshot, so reconnecting clients cannot
+ * miss a chat/session mutation in the handoff between backfill and live events.
  */
 export const ChatStreamChangesRpc = Rpc.make("chat.streamChanges", {
   payload: Schema.Struct({ projectId: FolderId }),

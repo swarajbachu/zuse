@@ -953,6 +953,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			expect(child.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(child.chatId).toBe(parent.chat.id);
+			const replayed = await run(
+				Effect.flatMap(store, (s) =>
+					s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.filter((chat) => chat.id === parent.chat.id),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.timeout(1_000),
+					),
+				),
+			);
+			expect(replayed.map((chat) => chat.activeSessionId as string)).toEqual([
+				created.sessionId,
+			]);
 		});
 	});
 
@@ -1004,6 +1017,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
 			expect(providerStartInputs.at(-1)?.model).toBe(defaultModelFor("codex"));
+			const replayed = await run(
+				Effect.flatMap(store, (s) =>
+					s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.filter((chat) => (chat.id as string) === created.chatId),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.timeout(1_000),
+					),
+				),
+			);
+			expect(replayed.map((chat) => chat.activeSessionId as string)).toEqual([
+				created.sessionId,
+			]);
 		});
 	});
 
@@ -1043,9 +1069,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 					});
-					const streamFiber = yield* s
-						.streamChatChanges(PROJECT_ID)
-						.pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
+					const streamFiber = yield* s.streamChatChanges(PROJECT_ID).pipe(
+						Stream.filter(
+							(chat) =>
+								chat.id === created.chat.id &&
+								chat.activeSessionId !== created.initialSession.id,
+						),
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.forkChild,
+					);
 					yield* Effect.sleep("10 millis");
 					const session = yield* s.createSession({
 						chatId: created.chat.id,

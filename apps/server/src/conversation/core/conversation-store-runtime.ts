@@ -175,10 +175,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	// Single hub for chat-row changes (create / title / worktree binding).
 	// Chats are few and updates rare, so one project-filtered hub keeps it
-	// simple. The renderer seeds
-	// from `chat.list`; this stream carries live changes after subscription,
-	// so a Zuse-orchestrated spawn appears in the sidebar without
-	// requiring a full app reload.
+	// simple. `streamChatChanges` subscribes to this hub before reading its SQL
+	// snapshot, closing the backfill-to-live gap for orchestrated creates.
 	const chatChangesHub = yield* PubSub.unbounded<Chat>();
 	const broadcastChat = (chat: Chat): Effect.Effect<void> =>
 		PubSub.publish(chatChangesHub, chat).pipe(Effect.asVoid);

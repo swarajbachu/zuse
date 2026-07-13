@@ -195,6 +195,23 @@ describe("connection supervisor", () => {
 		]);
 	});
 
+	test("accepts only one stream failure report per connected generation", async () => {
+		const harness = makeHarness();
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		expect(entry.reportFailure(new Error("first stream failed"), 1)).toBe(true);
+		expect(entry.reportFailure(new Error("sibling stream failed"), 1)).toBe(
+			false,
+		);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			generation: 1,
+			attempt: 1,
+		});
+		expect(harness.scheduled).toHaveLength(1);
+	});
+
 	test("owns stable-id command redispatch across reconnects", async () => {
 		const harness = makeHarness({
 			isRetryableCommandError: (cause) =>
