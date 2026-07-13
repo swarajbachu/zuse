@@ -68,6 +68,9 @@ async function ensureFsPermission(
 	if (policy.kind === "auto-allow") {
 		return;
 	}
+	if (policy.kind === "auto-deny") {
+		throw new Error(`Filesystem ${op} blocked in plan mode: ${targetPath}`);
+	}
 
 	// Build the canonical FileWrite kind (we treat create/delete/move as
 	// "write" style mutations for the permission system in Phase 1).

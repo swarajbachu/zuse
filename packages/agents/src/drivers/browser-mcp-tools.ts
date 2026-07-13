@@ -6,6 +6,7 @@ import type {
 	PermissionMode,
 	RuntimeMode,
 } from "@zuse/contracts";
+import { getToolPolicy } from "../kernel/policy.ts";
 
 import type { BrowserSend } from "./browser-tools.ts";
 import {
@@ -501,9 +502,17 @@ export const ensureBrowserPermission = async (
 ): Promise<void> => {
 	if (READ_ONLY_BROWSER_TOOLS.has(name)) return;
 
-	const forcePrompt =
-		name === "browser_login" || opts.getPermissionMode() === "plan";
-	if (!forcePrompt && opts.getRuntimeMode() === "full-access") return;
+	const policy = getToolPolicy(
+		"other",
+		opts.getRuntimeMode(),
+		opts.getPermissionMode(),
+	);
+	if (policy.kind === "auto-deny") {
+		throw new Error(`Browser action blocked in plan mode: ${name}.`);
+	}
+
+	const forcePrompt = name === "browser_login";
+	if (!forcePrompt && policy.kind === "auto-allow") return;
 
 	const decision = await opts.requestPermission(
 		{

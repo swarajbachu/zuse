@@ -23,7 +23,7 @@ describe("decidePermission", () => {
 		).toBe(expected);
 	});
 
-	test("keeps plan mode read-only and always prompts to exit", () => {
+	test("keeps plan mode read-only, denies mutations, and prompts only to exit", () => {
 		expect(
 			decidePermission({
 				runtimeMode: "full-access",
@@ -39,7 +39,7 @@ describe("decidePermission", () => {
 				category: "execute",
 				sensitive: false,
 			}),
-		).toBe("prompt");
+		).toBe("deny");
 		expect(
 			decidePermission({
 				runtimeMode: "full-access",
