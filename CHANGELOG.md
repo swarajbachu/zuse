@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0]
+
+### Changed
+- Fix new agent startup loader race (#329)
+- Improve tool activity and subagent inspection (#325)
+- Improve usage limits and reporting (#328)
+- Add fullscreen environment summary (#327)
+- Prevent desktop relay port collisions (#326)
+- Build production-shaped test suite (#324)
+- Complete provider runtime and durable migration (#323)
+- Complete durable runtime ownership cutovers (#322)
+- Move Git/worktree into packages and harden durable domain dispatch (#321)
+- Build the Effect 4 backend foundation and CQRS core (#320)
+- Remove orchestration prefixes from provider prompts (#319)
+
 ## [0.12.6]
 
 ### Changed
