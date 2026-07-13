@@ -34,7 +34,10 @@ export type ConnectionDiagnostic = {
 
 export type ConnectionSupervisorEntry<Client> = {
 	readonly getClient: () => Effect.Effect<Client, ClientConnectionError>;
-	readonly reportFailure: (cause: unknown) => void;
+	readonly reportFailure: (
+		cause: unknown,
+		expectedGeneration?: number,
+	) => boolean;
 	readonly dispatchCommand: <A>(
 		commandId: string,
 		operation: (client: Client) => Promise<A>,
@@ -166,11 +169,25 @@ class SupervisorEntryImpl<Options, Client>
 		});
 	}
 
-	reportFailure(cause: unknown): void {
-		if (this.removed) return;
+	reportFailure(cause: unknown, expectedGeneration?: number): boolean {
+		if (this.removed) return false;
+		if (
+			expectedGeneration !== undefined &&
+			(this.state.status !== "connected" ||
+				this.state.generation !== expectedGeneration)
+		) {
+			this.diagnostic("failure.ignored", {
+				reason: messageOf(cause),
+				expectedGeneration,
+				actualGeneration: this.state.generation,
+				status: this.state.status,
+			});
+			return false;
+		}
 		this.diagnostic("failure.reported", { reason: messageOf(cause) });
 		this.invalidateClient();
 		this.markFailure(cause);
+		return true;
 	}
 
 	dispatchCommand<A>(

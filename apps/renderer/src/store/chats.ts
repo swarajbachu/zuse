@@ -14,7 +14,11 @@ import type {
 } from "@zuse/contracts";
 
 import { toastManager } from "../components/ui/toast.tsx";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+  getRpcClient,
+  reportRendererRpcStreamFailure,
+  subscribeRendererRpcConnection,
+} from "../lib/rpc-client.ts";
 import { formatError } from "../lib/format-error.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
@@ -167,72 +171,134 @@ const upsertChat = (
   );
 
 /**
- * Live `chat.streamChanges` subscription per project — one long-lived fiber
- * keyed by projectId. Carries server-side chat-row patches (notably the
- * background auto-namer rewriting a new chat's title after its first
- * message) so the sidebar updates without a manual refetch.
+ * Snapshot-plus-live `chat.streamChanges` subscription per project — one
+ * long-lived fiber keyed by projectId. Carries server-side chat rows (notably
+ * orchestrated creates and background auto-name updates) so the sidebar stays
+ * reconciled without a manual refetch.
  */
 const changeFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const changeGenerations = new Map<string, number>();
+const changeConnectionSubscriptions = new Map<string, () => void>();
+const changeLifecycles = new Map<string, number>();
 
-const ensureChangeStream = (projectId: FolderId): void => {
-  if (changeFibers.has(projectId)) return;
-  // Reserve the slot synchronously so concurrent hydrate() calls don't race
-  // two subscriptions onto the same project.
-  changeFibers.set(
-    projectId,
-    Effect.runFork(
-      Effect.flatMap(
-        Effect.promise(() => getRpcClient()),
-        (client) =>
-          Stream.runForEach(client["chat.streamChanges"]({ projectId }), (chat) =>
-            Effect.sync(() => {
-              let inserted = false;
-              useChatsStore.setState((s) => {
-                const chats = s.chatsByProject[projectId];
-                if (chats === undefined) return s;
-                inserted = !chats.some((c) => c.id === chat.id);
-                return {
-                  chatsByProject: {
-                    ...s.chatsByProject,
-                    [projectId]: upsertChat(chats, chat),
-                  },
-                };
-              });
-              if (inserted) {
-                void useSessionsStore.getState().hydrate(projectId);
-              }
-              const activeSessionId = chat.activeSessionId;
-              if (activeSessionId !== null) {
-                const knownSessions =
-                  useSessionsStore.getState().sessionsByProject[projectId];
-                if (
-                  knownSessions !== undefined &&
-                  !knownSessions.some((row) => row.id === activeSessionId)
-                ) {
-                  void useSessionsStore.getState().hydrate(projectId);
-                }
-              }
-              // Mirror the server-side auto-namer onto member session tabs.
-              useSessionsStore.setState((s) => {
-                const sessions = s.sessionsByProject[projectId];
-                if (sessions === undefined) return s;
-                if (!sessions.some((row) => row.chatId === chat.id)) return s;
-                return {
-                  sessionsByProject: {
-                    ...s.sessionsByProject,
-                    [projectId]: sessions.map((row) =>
-                      row.chatId === chat.id
-                        ? { ...row, title: chat.title }
-                        : row,
-                    ),
-                  },
-                };
-              });
-            }),
-          ),
+const currentChangeLifecycle = (projectId: FolderId): number =>
+  changeLifecycles.get(projectId) ?? 0;
+
+const applyChatChange = (
+  projectId: FolderId,
+  lifecycle: number,
+  chat: Chat,
+): void => {
+  if (currentChangeLifecycle(projectId) !== lifecycle) return;
+  let inserted = false;
+  useChatsStore.setState((s) => {
+    if (currentChangeLifecycle(projectId) !== lifecycle) return s;
+    const chats = s.chatsByProject[projectId];
+    if (chats === undefined) return s;
+    inserted = !chats.some((c) => c.id === chat.id);
+    return {
+      chatsByProject: {
+        ...s.chatsByProject,
+        [projectId]: upsertChat(chats, chat),
+      },
+    };
+  });
+  const activeSessionId = chat.activeSessionId;
+  const knownSessions =
+    useSessionsStore.getState().sessionsByProject[projectId];
+  const activeSessionMissing =
+    activeSessionId !== null &&
+    knownSessions !== undefined &&
+    !knownSessions.some((row) => row.id === activeSessionId);
+  if (inserted || activeSessionMissing) {
+    void useSessionsStore.getState().hydrate(projectId);
+  }
+  // Mirror the server-side auto-namer onto member session tabs.
+  useSessionsStore.setState((s) => {
+    const sessions = s.sessionsByProject[projectId];
+    if (sessions === undefined) return s;
+    if (!sessions.some((row) => row.chatId === chat.id)) return s;
+    return {
+      sessionsByProject: {
+        ...s.sessionsByProject,
+        [projectId]: sessions.map((row) =>
+          row.chatId === chat.id ? { ...row, title: chat.title } : row,
+        ),
+      },
+    };
+  });
+};
+
+const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
+  function* (
+    projectId: FolderId,
+    generation: number,
+    lifecycle: number,
+  ): Effect.fn.Return<void> {
+    const clientResult = yield* Effect.tryPromise(() => getRpcClient()).pipe(
+      Effect.result,
+    );
+    if (
+      changeGenerations.get(projectId) !== generation ||
+      currentChangeLifecycle(projectId) !== lifecycle
+    )
+      return;
+    if (clientResult._tag === "Failure") {
+      reportRendererRpcStreamFailure(generation, clientResult.failure);
+      return;
+    }
+    const streamResult = yield* Stream.runForEach(
+      clientResult.success["chat.streamChanges"]({ projectId }),
+      (chat) => Effect.sync(() => applyChatChange(projectId, lifecycle, chat)),
+    ).pipe(Effect.result);
+    if (
+      changeGenerations.get(projectId) !== generation ||
+      currentChangeLifecycle(projectId) !== lifecycle
+    )
+      return;
+    reportRendererRpcStreamFailure(
+      generation,
+      streamResult._tag === "Failure"
+        ? streamResult.failure
+        : new Error("chat change stream completed unexpectedly"),
+    );
+  },
+);
+
+const ensureChangeStream = (projectId: FolderId, lifecycle: number): void => {
+  if (currentChangeLifecycle(projectId) !== lifecycle) return;
+  if (changeConnectionSubscriptions.has(projectId)) return;
+  const unsubscribe = subscribeRendererRpcConnection((snapshot) => {
+    if (currentChangeLifecycle(projectId) !== lifecycle) return;
+    if (snapshot.status !== "connected") return;
+    if (changeGenerations.get(projectId) === snapshot.generation) return;
+    changeGenerations.set(projectId, snapshot.generation);
+    const previous = changeFibers.get(projectId);
+    if (previous !== undefined) {
+      void Effect.runPromise(Fiber.interrupt(previous)).catch(() => {});
+    }
+    changeFibers.set(
+      projectId,
+      Effect.runFork(
+        runChatChangeStream(projectId, snapshot.generation, lifecycle),
       ),
-    ),
-  );
+    );
+  });
+  changeConnectionSubscriptions.set(projectId, unsubscribe);
+};
+
+export const stopChatChangeStream = async (
+  projectId: FolderId,
+): Promise<void> => {
+  changeLifecycles.set(projectId, currentChangeLifecycle(projectId) + 1);
+  changeConnectionSubscriptions.get(projectId)?.();
+  changeConnectionSubscriptions.delete(projectId);
+  changeGenerations.delete(projectId);
+  const fiber = changeFibers.get(projectId);
+  changeFibers.delete(projectId);
+  if (fiber !== undefined) {
+    await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+  }
 };
 
 export const useChatsStore = create<ChatsState>((set, get) => ({
@@ -245,6 +311,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
   archiveProgressByChat: {},
   error: null,
   hydrate: async (projectId) => {
+    const lifecycle = currentChangeLifecycle(projectId);
     set((s) => ({
       loadingByProject: { ...s.loadingByProject, [projectId]: true },
       error: null,
@@ -255,18 +322,26 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
       const chats = await Effect.runPromise(
         client["chat.list"]({ projectId, includeArchived }),
       );
+      if (currentChangeLifecycle(projectId) !== lifecycle) return;
       set((s) => ({
         chatsByProject: { ...s.chatsByProject, [projectId]: chats },
         loadingByProject: { ...s.loadingByProject, [projectId]: false },
       }));
-      // Begin (or keep) the live change subscription now that the list is
-      // seeded — patches only land for chats already in the list.
-      ensureChangeStream(projectId);
     } catch (err) {
+      if (currentChangeLifecycle(projectId) !== lifecycle) return;
       set((s) => ({
+        chatsByProject:
+          s.chatsByProject[projectId] === undefined
+            ? { ...s.chatsByProject, [projectId]: [] }
+            : s.chatsByProject,
         error: formatError(err),
         loadingByProject: { ...s.loadingByProject, [projectId]: false },
       }));
+    } finally {
+      // The stream has its own subscribe-before-snapshot backfill, so start it
+      // even when the initial list RPC fails. The shared connection supervisor
+      // controls retry/backoff and announces the next usable generation.
+      ensureChangeStream(projectId, lifecycle);
     }
   },
   create: async (projectId, providerId, model, opts) => {
@@ -548,7 +623,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     set({ error: null });
     try {
       const client = await getRpcClient();
-      const result = await Effect.runPromise(client["chat.unarchive"]({ chatId }));
+      const result = await Effect.runPromise(
+        client["chat.unarchive"]({ chatId }),
+      );
       const projectId = findChatProject(get().chatsByProject, chatId);
       const resolvedProjectId = projectId ?? result.chat.projectId;
       set((s) => {
@@ -727,7 +804,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
     });
     try {
       const client = await getRpcClient();
-      const updated = await Effect.runPromise(client["chat.markRead"]({ chatId }));
+      const updated = await Effect.runPromise(
+        client["chat.markRead"]({ chatId }),
+      );
       set((s) => {
         const chats = s.chatsByProject[projectId] ?? [];
         return {

@@ -3,6 +3,7 @@ import {
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
 import {
+	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
 } from "@zuse/client-runtime/supervisor";
@@ -114,6 +115,21 @@ export const getRpcClient = (): Promise<MemoizeClient> =>
 export const reportRendererRpcFailure = (cause: unknown): void => {
 	getRendererEntry().reportFailure(cause);
 };
+
+/** Report a long-lived stream failure once for the connection that owned it. */
+export const reportRendererRpcStreamFailure = (
+	generation: number,
+	cause: unknown,
+): boolean => getRendererEntry().reportFailure(cause, generation);
+
+/**
+ * Observe the shared renderer connection lifecycle. Long-lived RPC streams use
+ * the generation edge to resubscribe without implementing their own retry loop
+ * or bypassing the supervisor's bounded exponential backoff.
+ */
+export const subscribeRendererRpcConnection = (
+	listener: (snapshot: ConnectionSnapshot) => void,
+): (() => void) => getRendererEntry().subscribe(listener);
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,

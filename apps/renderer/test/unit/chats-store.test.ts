@@ -1,15 +1,23 @@
+import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
 import type {
 	Chat,
 	ChatId,
+	Folder,
 	FolderId,
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect, Stream } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { rpcClientFactory } = vi.hoisted(() => ({
+const {
+	reportRendererRpcStreamFailure,
+	rpcClientFactory,
+	subscribeRendererRpcConnection,
+} = vi.hoisted(() => ({
+	reportRendererRpcStreamFailure: vi.fn(),
 	rpcClientFactory: vi.fn(),
+	subscribeRendererRpcConnection: vi.fn(),
 }));
 
 vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
@@ -18,6 +26,8 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	return {
 		...original,
 		getRpcClient: async () => rpcClientFactory(),
+		reportRendererRpcStreamFailure,
+		subscribeRendererRpcConnection,
 	};
 });
 
@@ -25,6 +35,7 @@ import {
 	archiveChatWithConfirm,
 	resetArchiveDirtyConfirm,
 	setArchiveDirtyConfirm,
+	stopChatChangeStream,
 	useChatsStore,
 } from "../../src/store/chats.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
@@ -36,6 +47,16 @@ const chatId = "chat-1" as ChatId;
 const sessionId = "session-1" as SessionId;
 const now = new Date("2026-06-21T00:00:00.000Z");
 const initialChatsState = useChatsStore.getInitialState();
+
+const reconnectProjectId = "proj-reconnect" as FolderId;
+const reconnectChatId = "chat-reconnect" as ChatId;
+const reconnectSessionId = "session-reconnect" as SessionId;
+const reconnectFolder = {
+	id: reconnectProjectId,
+	path: "/tmp/proj-reconnect",
+	name: "Reconnect",
+	addedAt: now,
+} as Folder;
 
 const chat: Chat = {
 	id: chatId,
@@ -70,6 +91,20 @@ const session: Session = {
 	toolSearch: false,
 	createdAt: now,
 	updatedAt: now,
+};
+
+const reconnectChat: Chat = {
+	...chat,
+	id: reconnectChatId,
+	projectId: reconnectProjectId,
+	activeSessionId: reconnectSessionId,
+};
+
+const reconnectSession: Session = {
+	...session,
+	id: reconnectSessionId,
+	projectId: reconnectProjectId,
+	chatId: reconnectChatId,
 };
 
 const withConfirm = async (
@@ -155,6 +190,111 @@ describe("chats store selection", () => {
 		expect(
 			useSessionsStore.getState().selectedSessionByProject[projectId],
 		).toBe(sessionId);
+	});
+});
+
+describe("chats store live changes", () => {
+	afterEach(async () => {
+		await stopChatChangeStream(reconnectProjectId);
+	});
+
+	it("reconnects a completed change stream and reconciles its snapshot", async () => {
+		let streamAttempts = 0;
+		let observeConnection: ((snapshot: ConnectionSnapshot) => void) | undefined;
+		const unsubscribeConnection = vi.fn(() => {
+			observeConnection = undefined;
+		});
+		const listSessions = vi.fn(() => Effect.succeed([reconnectSession]));
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			observeConnection = listener;
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return unsubscribeConnection;
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": () => Effect.fail(new Error("initial list failed")),
+			"chat.streamChanges": () => {
+				streamAttempts += 1;
+				return streamAttempts === 1
+					? Stream.fail(new Error("connection dropped"))
+					: Stream.make(reconnectChat);
+			},
+			"session.list": listSessions,
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useSessionsStore.setState({ sessionsByProject: {} });
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() =>
+			expect(reportRendererRpcStreamFailure).toHaveBeenCalledWith(
+				1,
+				expect.any(Error),
+			),
+		);
+		expect(observeConnection).toBeDefined();
+		observeConnection?.({
+			key: "renderer",
+			status: "connected",
+			generation: 2,
+			attempt: 0,
+			error: null,
+		});
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId],
+			).toEqual([reconnectChat]),
+		);
+
+		expect(streamAttempts).toBe(2);
+		expect(
+			useSessionsStore.getState().sessionsByProject[reconnectProjectId],
+		).toEqual([reconnectSession]);
+		expect(listSessions).toHaveBeenCalledTimes(1);
+		await stopChatChangeStream(reconnectProjectId);
+		expect(unsubscribeConnection).toHaveBeenCalledTimes(1);
+		expect(observeConnection).toBeUndefined();
+	});
+
+	it("does not restore chat state or its stream when hydration settles after workspace removal", async () => {
+		const listResult = deferred<ReadonlyArray<Chat>>();
+		const listChats = vi.fn(() => Effect.promise(() => listResult.promise));
+		subscribeRendererRpcConnection.mockClear();
+		rpcClientFactory.mockReturnValue({
+			"chat.list": listChats,
+			"chat.streamChanges": () => Stream.make(reconnectChat),
+			"workspace.remove": () => Effect.void,
+			"workspace.setSelected": () => Effect.void,
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useWorkspaceStore.setState({
+			folders: [reconnectFolder],
+			selectedFolderId: reconnectProjectId,
+			error: null,
+		});
+
+		const hydration = useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(listChats).toHaveBeenCalledTimes(1));
+		await useWorkspaceStore.getState().remove(reconnectProjectId);
+		listResult.resolve([reconnectChat]);
+		await hydration;
+
+		expect(
+			useChatsStore.getState().chatsByProject[reconnectProjectId],
+		).toBeUndefined();
+		expect(subscribeRendererRpcConnection).not.toHaveBeenCalled();
 	});
 });
 

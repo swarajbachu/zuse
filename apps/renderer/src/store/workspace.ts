@@ -141,6 +141,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(client["workspace.remove"]({ folderId }));
+      const { stopChatChangeStream } = await import("./chats.ts");
+      await stopChatChangeStream(folderId);
       const nextSelected = (() => {
         const s = get();
         const folders = s.folders.filter((f) => f.id !== folderId);
@@ -151,7 +153,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         set({ folders, selectedFolderId });
         return { selectedFolderId, changed: s.selectedFolderId === folderId };
       })();
-      if (nextSelected.changed) await persistSelection(nextSelected.selectedFolderId);
+      if (nextSelected.changed)
+        await persistSelection(nextSelected.selectedFolderId);
     } catch (err) {
       set({ error: formatError(err) });
     }
