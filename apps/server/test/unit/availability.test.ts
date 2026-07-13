@@ -292,6 +292,16 @@ describe("selectCliPathCandidate", () => {
 		).toBeNull();
 	});
 
+	it("skips managed Codex shims owned by other desktop apps too", () => {
+		expect(
+			selectCliPathCandidate("codex", [
+				"/Users/me/Library/Application Support/com.example.app/./bin/codex",
+				"/Users/me/Library/Application Support/com.example.app/agent-binaries/codex/0.144.0/codex",
+				"/Users/me/.nvm/versions/node/v24.18.0/bin/codex",
+			]),
+		).toBe("/Users/me/.nvm/versions/node/v24.18.0/bin/codex");
+	});
+
 	it("keeps first PATH match for non-Codex providers", () => {
 		expect(
 			selectCliPathCandidate("claude", [

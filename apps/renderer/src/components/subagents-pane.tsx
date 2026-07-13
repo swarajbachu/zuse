@@ -4,13 +4,11 @@ import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo } from "react";
 
 import { groupMessages, type RenderGroup } from "~/lib/group-messages";
-import { isToolActivityMessage } from "~/lib/tool-activity";
 import { useChatsStore } from "~/store/chats";
 import { useMessagesStore } from "~/store/messages";
 import { useUiStore } from "~/store/ui";
 
 import { MessageRow } from "./message-row";
-import { ToolGroup } from "./tool-group";
 
 type DetachedGroup = Extract<RenderGroup, { readonly kind: "subagent" }> & {
   readonly childSessionId: string;
@@ -164,25 +162,7 @@ function SubagentTranscript({
 }: {
   readonly messages: ReadonlyArray<Message>;
 }) {
-  const rows: React.ReactNode[] = [];
-  let tools: Message[] = [];
-  const flush = () => {
-    if (tools.length === 0) return;
-    const batch = tools;
-    tools = [];
-    const first = batch[0];
-    if (first !== undefined) {
-      rows.push(<ToolGroup key={`tools:${first.id}`} messages={batch} />);
-    }
-  };
-  for (const message of messages) {
-    if (isToolActivityMessage(message)) {
-      tools.push(message);
-      continue;
-    }
-    flush();
-    rows.push(<MessageRow key={message.id} message={message} />);
-  }
-  flush();
-  return rows;
+  return messages.map((message) => (
+    <MessageRow key={message.id} message={message} />
+  ));
 }

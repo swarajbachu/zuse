@@ -442,12 +442,12 @@ const isHomebrewPath = (p: string): boolean =>
   p.startsWith("/opt/homebrew/bin/") ||
   p.startsWith("/usr/local/bin/");
 
+// Desktop apps that bundle a managed Codex binary place it under their
+// Application Support directory. These copies may omit sibling helpers such
+// as `codex-code-mode-host`, so they must not be selected as the user's CLI.
 const isManagedCodexShimPath = (p: string): boolean =>
-  p.endsWith("/application support/app.memoize.desktop/bin/codex") ||
-  (p.includes(
-    "/application support/app.memoize.desktop/agent-binaries/codex/",
-  ) &&
-    p.endsWith("/codex"));
+  /\/application support\/[^/]+\/bin\/codex$/.test(p) ||
+  (p.includes("/agent-binaries/codex/") && p.endsWith("/codex"));
 
 // A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's
 // "retire old dir" rename step when a prior install left files behind (common
