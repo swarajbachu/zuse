@@ -140,7 +140,7 @@ export function UsageDashboard({
 	const forceRefresh = () => {
 		void Promise.all([
 			refresh(projectId, { forceRefresh: true }),
-			refreshLimits(true),
+			refreshLimits(true).then(loadLimitHistory),
 		]);
 	};
 
