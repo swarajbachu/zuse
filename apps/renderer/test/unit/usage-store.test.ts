@@ -1,13 +1,13 @@
-import type { UsageReport } from "@zuse/contracts";
+import type { UsageOverview } from "@zuse/contracts";
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it } from "vitest";
 
 let reportCalls: Array<{
-	readonly bucket?: string;
 	readonly forceRefresh?: boolean;
+	readonly since?: Date;
 }> = [];
 let pendingReports: Array<{
-	readonly resolve: (report: UsageReport) => void;
+	readonly resolve: (report: UsageOverview) => void;
 	readonly reject: (error: unknown) => void;
 }> = [];
 
@@ -18,14 +18,14 @@ const { setUsageRpcClientForTest, useUsageStore } = await import(
 setUsageRpcClientForTest(
 	async () =>
 		({
-			"usage.report": (payload: {
-				readonly bucket?: string;
+			"usage.overview": (payload: {
 				readonly forceRefresh?: boolean;
+				readonly since?: Date;
 			}) => {
 				reportCalls.push(payload);
 				return Effect.promise(
 					() =>
-						new Promise<UsageReport>((resolve, reject) => {
+						new Promise<UsageOverview>((resolve, reject) => {
 							pendingReports.push({ resolve, reject });
 						}),
 				);
@@ -35,7 +35,7 @@ setUsageRpcClientForTest(
 		>,
 );
 
-const makeReport = (recordCount: number): UsageReport =>
+const makeReport = (recordCount: number): UsageOverview =>
 	({
 		bucket: "daily",
 		generatedAt: new Date("2026-06-21T00:00:00.000Z"),
@@ -53,10 +53,15 @@ const makeReport = (recordCount: number): UsageReport =>
 		groups: [],
 		bySource: [],
 		byModel: [],
-		bySession: [],
-		records: [],
+		byProject: [],
+		previousBySource: [],
+		previousByModel: [],
+		previousByProject: [],
+		sessionCount: recordCount,
+		previousSummary: null,
+		previousSessionCount: null,
 		sources: [],
-	}) as UsageReport;
+	}) as UsageOverview;
 
 describe("usage store", () => {
 	beforeEach(() => {
@@ -65,9 +70,11 @@ describe("usage store", () => {
 		useUsageStore.setState({
 			report: null,
 			loading: false,
+			refreshing: false,
 			error: null,
-			bucket: "daily",
+			period: "7d",
 			requestId: 0,
+			cache: {},
 		});
 	});
 
@@ -94,6 +101,40 @@ describe("usage store", () => {
 
 		expect(reportCalls[0]?.forceRefresh).toBe(true);
 		pendingReports[0]!.resolve(makeReport(1));
+		await request;
+	});
+
+	it("keeps cached content visible while a period refresh is pending", async () => {
+		const initial = makeReport(7);
+		useUsageStore.setState({ report: initial });
+
+		const request = useUsageStore.getState().setPeriod("30d", null);
+		await Promise.resolve();
+
+		expect(useUsageStore.getState().report).toBe(initial);
+		expect(useUsageStore.getState().loading).toBe(false);
+		expect(useUsageStore.getState().refreshing).toBe(true);
+		expect(reportCalls[0]?.since).toBeInstanceOf(Date);
+
+		pendingReports[0]!.resolve(makeReport(30));
+		await request;
+		expect(useUsageStore.getState().report?.summary.recordCount).toBe(30);
+		expect(useUsageStore.getState().refreshing).toBe(false);
+	});
+
+	it("reuses a cached period immediately before revalidating", async () => {
+		const cached = makeReport(90);
+		useUsageStore.setState({
+			report: makeReport(7),
+			cache: { "global:90d": cached },
+		});
+
+		const request = useUsageStore.getState().setPeriod("90d", null);
+		await Promise.resolve();
+
+		expect(useUsageStore.getState().report).toBe(cached);
+		expect(useUsageStore.getState().refreshing).toBe(true);
+		pendingReports[0]!.resolve(makeReport(91));
 		await request;
 	});
 });

@@ -166,7 +166,7 @@ import {
   SkillListRpc,
   SkillStreamRpc,
 } from "./skill.ts";
-import { UsageReportRpc } from "./usage.ts";
+import { UsageOverviewRpc, UsageReportRpc, UsageSessionsRpc } from "./usage.ts";
 import { UsageLimitsRpc } from "./usage-limits.ts";
 import {
   WorkspaceAddRpc,
@@ -350,6 +350,8 @@ export const MemoizeRpcs = RpcGroup.make(
   SettingsStreamRpc,
   SettingsMigrateLocalStorageRpc,
   UsageReportRpc,
+  UsageOverviewRpc,
+  UsageSessionsRpc,
   UsageLimitsRpc,
   DiagnosticsExportRpc,
   KeybindingsGetRpc,

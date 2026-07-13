@@ -460,6 +460,7 @@ function MainShell() {
               {activeMainTab === "usage" && (
                 <UsageDashboard
                   projectId={usageScope === "project" ? selectedFolderId : null}
+                  availableProjectId={selectedFolderId}
                   scopeLabel={
                     usageScope === "project"
                       ? (selectedFolder?.name ?? "This project")

@@ -536,7 +536,7 @@ function SidebarAccount() {
           </button>
         }
       />
-      <MenuPopup side="top" align="start" className="min-w-44">
+      <MenuPopup side="top" align="start" className="w-64">
         {!isSignedIn ? (
           <>
             <MenuItem disabled={signingIn} onClick={() => void signIn()}>

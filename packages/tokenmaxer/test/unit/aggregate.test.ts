@@ -101,6 +101,33 @@ describe("tokenmaxer aggregation", () => {
 		]);
 	});
 
+	it("filters records by provider independently of their log source", () => {
+		const records = ["claude", "codex"].map((providerId) =>
+			makeUsageRecord({
+				sourceId: "zuse",
+				sourceLabel: "Zuse Alpha",
+				providerId,
+				model: `${providerId}-model`,
+				sessionId: `${providerId}-session`,
+				startedAt: "2026-06-21T00:00:00.000Z",
+				counts: { inputTokens: 10, outputTokens: 5 },
+				provenance: "fixture",
+			}),
+		);
+
+		const report = buildUsageReport({
+			records,
+			sources: [],
+			bucket: "session",
+			filters: { providerIds: ["codex"], includePossibleDuplicates: true },
+		});
+
+		expect(report.summary.recordCount).toBe(1);
+		expect(report.bySession.map((session) => session.key)).toEqual([
+			"codex-session",
+		]);
+	});
+
 	it("marks duplicate-looking rows and excludes them by default", () => {
 		const base = makeUsageRecord({
 			sourceId: "zuse",
