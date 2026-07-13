@@ -485,6 +485,36 @@ function PreBlock({ text, isError }: { text: string; isError?: boolean }) {
   );
 }
 
+function CombinedPreBlock({
+  input,
+  output,
+  isError,
+}: {
+  input: string;
+  output?: string;
+  isError?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded border font-mono text-[11px] text-foreground/80",
+        isError
+          ? "border-alert-error-bg bg-alert-error-bg"
+          : "border-message-rule bg-message-pre-bg",
+      )}
+    >
+      <pre className="overflow-x-auto whitespace-pre-wrap break-words px-3 py-2">
+        {input || "(empty)"}
+      </pre>
+      {output !== undefined ? (
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border-message-rule border-t px-3 py-2 text-muted-foreground">
+          {output || "(empty)"}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Result extractors (per tool)
 // ---------------------------------------------------------------------------
@@ -660,7 +690,9 @@ const buildToolView = (
     case "Run":
     case "run":
     case "run_shell_command":
-    case "run_terminal_cmd": {
+    case "run_terminal_cmd":
+    case "run_terminal_command":
+    case "Run Terminal Command": {
       const cmd =
         asString(obj.command) ??
         asString(obj.cmd) ??
@@ -685,15 +717,20 @@ const buildToolView = (
       return {
         icon: TerminalIcon,
         label,
-        inputPanel: cmd !== null ? <TerminalBlock command={cmd} /> : undefined,
-        resultPanel: (result) => (
-          <TerminalBlock
-            output={toResultText(result.output) || "(no output)"}
-            isError={result.isError}
-          />
-        ),
         fallbackBody:
-          cmd === null ? <PreBlock text={stringifyJson(input)} /> : undefined,
+          cmd === null ? (
+            <PreBlock text={stringifyJson(input)} />
+          ) : (
+            <TerminalBlock
+              command={cmd}
+              output={
+                result === undefined
+                  ? undefined
+                  : toResultText(result.output) || "(no output)"
+              }
+              isError={result?.isError}
+            />
+          ),
       };
     }
 
@@ -1336,11 +1373,13 @@ const buildToolView = (
       return {
         icon: iconForTool(tool), // will pick a heuristic icon
         label: niceLabel || "Tool",
-        fallbackBody: <PreBlock text={stringifyJson(input)} />,
-        resultPanel: (result) => (
-          <PreBlock
-            text={toResultText(result.output)}
-            isError={result.isError}
+        fallbackBody: (
+          <CombinedPreBlock
+            input={stringifyJson(input)}
+            output={
+              result === undefined ? undefined : toResultText(result.output)
+            }
+            isError={result?.isError}
           />
         ),
       };

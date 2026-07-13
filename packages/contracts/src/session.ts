@@ -219,6 +219,12 @@ const ToolUseContent = Schema.TaggedStruct("tool_use", {
   tool: Schema.String,
   input: Schema.Unknown,
   parentItemId: Schema.optional(AgentItemId),
+  subagent: Schema.optional(
+    Schema.Struct({
+      childSessionId: Schema.String,
+      presentation: Schema.Literals(["inline", "detached"]),
+    }),
+  ),
 });
 
 const ToolResultContent = Schema.TaggedStruct("tool_result", {
@@ -253,6 +259,8 @@ const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
   durationMs: Schema.Number,
   summary: Schema.String,
   isError: Schema.Boolean,
+  childSessionId: Schema.optional(Schema.String),
+  presentation: Schema.optional(Schema.Literals(["inline", "detached"])),
 });
 
 /**

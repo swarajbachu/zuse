@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ComputerTerminal01Icon,
   Folder01Icon,
@@ -5,22 +6,19 @@ import {
   GitCompareIcon,
   CheckListIcon,
   GlobeIcon,
+  Robot01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { Plus, X } from "lucide-react";
 import { useRef } from "react";
-
-import type { FolderId, WorktreeId } from "@zuse/contracts";
-
-import { useAutoAnimate } from "../lib/use-auto-animate.ts";
-
 import { formatShortcut } from "../lib/shortcuts.ts";
-import { useRegisterPane } from "../store/pane-focus.ts";
+import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import {
@@ -41,6 +39,7 @@ import { BrowserPane } from "./browser-pane.tsx";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { PrPane } from "./pr-pane.tsx";
+import { SubagentsPane } from "./subagents-pane.tsx";
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { TerminalSlotPane } from "./terminal-pane.tsx";
 import {
@@ -74,6 +73,7 @@ const PANEL_META: Record<
   pr: { label: "PR", icon: GitPullRequestIcon },
   plan: { label: "Plan", icon: CheckListIcon },
   browser: { label: "Browser", icon: GlobeIcon },
+  subagents: { label: "Subagents", icon: Robot01Icon },
 };
 
 /** Display order shared by the launcher and the "+" menu. */
@@ -84,6 +84,7 @@ const PANEL_ORDER: ReadonlyArray<PanelKind> = [
   "pr",
   "plan",
   "browser",
+  "subagents",
 ];
 
 /**
@@ -250,6 +251,7 @@ export function RightPane() {
                 panel={panel}
                 folderId={selected.id}
                 worktreeId={worktreeId}
+                sessionId={ctx.status === "ready" ? ctx.sessionId : null}
               />
             </div>
           ))}
@@ -273,10 +275,12 @@ function PanelBody({
   panel,
   folderId,
   worktreeId,
+  sessionId,
 }: {
   panel: PanelInstance;
   folderId: FolderId;
   worktreeId: WorktreeId | null;
+  sessionId: import("@zuse/contracts").SessionId | null;
 }) {
   switch (panel.kind) {
     case "files":
@@ -300,6 +304,8 @@ function PanelBody({
       // Browser is rendered once, always-mounted, by RightPane (so the agent
       // command stream survives close/collapse) — never via this map.
       return null;
+    case "subagents":
+      return <SubagentsPane sessionId={sessionId} />;
   }
 }
 
@@ -433,9 +439,8 @@ function PanelTab({
         <span className="truncate">{label}</span>
         {badge}
       </button>
-      <span
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         aria-label={`Close ${label}`}
         onClick={(e) => {
           e.stopPropagation();
@@ -451,7 +456,7 @@ function PanelTab({
         className="flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground/60 opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
       >
         <X className="size-3" strokeWidth={1.8} />
-      </span>
+      </button>
     </div>
   );
 }

@@ -413,6 +413,12 @@ const ToolUseEvent = Schema.TaggedStruct("ToolUse", {
   tool: Schema.String,
   input: Schema.Unknown,
   parentItemId: Schema.optional(AgentItemId),
+  subagent: Schema.optional(
+    Schema.Struct({
+      childSessionId: Schema.String,
+      presentation: Schema.Literals(["inline", "detached"]),
+    }),
+  ),
 });
 
 const ToolResultEvent = Schema.TaggedStruct("ToolResult", {
@@ -451,6 +457,8 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
   durationMs: Schema.Number,
   summary: Schema.String,
   isError: Schema.Boolean,
+  childSessionId: Schema.optional(Schema.String),
+  presentation: Schema.optional(Schema.Literals(["inline", "detached"])),
 });
 
 /**

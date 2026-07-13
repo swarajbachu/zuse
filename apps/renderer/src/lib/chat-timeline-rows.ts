@@ -17,6 +17,8 @@ export type ChatTimelineRow =
       readonly agentName: string;
       readonly prompt: string;
       readonly modelRequested: string | undefined;
+      readonly childSessionId: string | undefined;
+      readonly presentation: "inline" | "detached";
       readonly children: ReadonlyArray<Message>;
       readonly summary: {
         readonly text: string;
@@ -241,6 +243,8 @@ export function deriveChatTimelineRows({
           agentName: group.agentName,
           prompt: group.prompt,
           modelRequested: group.modelRequested,
+          childSessionId: group.childSessionId,
+          presentation: group.presentation,
           children: group.children,
           summary: group.summary,
         });

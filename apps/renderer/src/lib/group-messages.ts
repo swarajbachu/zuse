@@ -9,6 +9,8 @@ export type RenderGroup =
       readonly agentName: string;
       readonly prompt: string;
       readonly modelRequested: string | undefined;
+      readonly childSessionId: string | undefined;
+      readonly presentation: "inline" | "detached";
       readonly children: ReadonlyArray<Message>;
       readonly summary: {
         readonly text: string;
@@ -134,6 +136,8 @@ export function groupMessages(
         agentName,
         prompt,
         modelRequested,
+        childSessionId: c.subagent?.childSessionId,
+        presentation: c.subagent?.presentation ?? "inline",
         children: childrenByParent.get(c.itemId) ?? [],
         summary,
       });

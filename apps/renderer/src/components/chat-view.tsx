@@ -866,6 +866,8 @@ function TimelineRow({
             agentName={row.agentName}
             prompt={row.prompt}
             modelRequested={row.modelRequested}
+            childSessionId={row.childSessionId}
+            presentation={row.presentation}
             children={row.children}
             summary={row.summary}
           />

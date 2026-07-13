@@ -404,9 +404,87 @@ const codexTranscriptMessages = (cursor: string) =>
             }
             continue;
           }
-          for (const event of translateCodexItem(item, "completed")) {
-            const content = eventToContent(event);
-            if (content !== null) out.push(content);
+          if (
+            item.type === "collabAgentToolCall" &&
+            item.tool === "spawnAgent"
+          ) {
+            const childSessionId = item.receiverThreadIds[0];
+            if (childSessionId === undefined) continue;
+            const parentItemId =
+              item.id as import("@zuse/contracts").AgentItemId;
+            const childResponse = yield* Effect.tryPromise({
+              try: () =>
+                app.request<ThreadReadResponse>("thread/read", {
+                  threadId: childSessionId,
+                  includeTurns: true,
+                }),
+              catch: () => null,
+            });
+            const childThread = childResponse?.thread ?? null;
+            const agentName =
+              childThread?.name ??
+              childThread?.agentNickname ??
+              item.prompt?.split("\n", 1)[0]?.slice(0, 80) ??
+              "Subagent";
+            out.push({
+              _tag: "tool_use",
+              itemId: parentItemId,
+              tool: "Agent",
+              input: {
+                prompt: item.prompt ?? "",
+                description: agentName,
+                model: item.model ?? "inherit",
+              },
+              subagent: { childSessionId, presentation: "detached" },
+            });
+            let summary = "";
+            let durationMs = 0;
+            let turns = 0;
+            let isError = false;
+            for (const childTurn of childThread?.turns ?? []) {
+              turns += 1;
+              durationMs += childTurn.durationMs ?? 0;
+              isError ||= childTurn.status === "failed";
+              for (const childItem of childTurn.items) {
+                if (childItem.type === "userMessage") continue;
+                for (const phase of ["started", "completed"] as const) {
+                  for (const event of translateCodexItem(childItem, phase)) {
+                    const nested =
+                      event._tag === "AssistantMessage" ||
+                      event._tag === "Thinking" ||
+                      event._tag === "ToolUse" ||
+                      event._tag === "ToolResult"
+                        ? { ...event, parentItemId }
+                        : null;
+                    if (nested === null) continue;
+                    if (nested._tag === "AssistantMessage") {
+                      summary = nested.text;
+                    }
+                    const content = eventToContent(nested);
+                    if (content !== null) out.push(content);
+                  }
+                }
+              }
+            }
+            out.push({
+              _tag: "subagent_summary",
+              itemId: parentItemId,
+              agentName,
+              model: item.model ?? "inherit",
+              turns,
+              durationMs,
+              summary,
+              isError,
+              childSessionId,
+              presentation: "detached",
+            });
+            continue;
+          }
+          for (const phase of ["started", "completed"] as const) {
+            for (const event of translateCodexItem(item, phase)) {
+              const content = eventToContent(event);
+              if (content !== null) out.push(content);
+            }
           }
         }
         if (turn.status === "failed" && turn.error !== null) {

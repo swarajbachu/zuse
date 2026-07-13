@@ -1,8 +1,14 @@
 import { execFileSync } from "node:child_process";
 import type { ThreadItem } from "@zuse/agents/codex-generated/v2/ThreadItem";
 import {
+	codexDetachedAgentFromSubAgentActivity,
+	codexDetachedAgentToolUse,
+	codexFinishDetachedAgent,
 	codexReasoningEffort,
+	codexWithDetachedParent,
 	codexWritableRootsForCwd,
+	readCodexSubAgentActivity,
+	translateCodexCollabItem,
 	translateCodexItem,
 	translateCodexStatusNotification,
 } from "@zuse/agents/drivers/codex";
@@ -19,6 +25,91 @@ const only = <T extends AgentEvent["_tag"]>(
 	expect(tags(events)).toEqual([tag]);
 	return events[0] as Extract<AgentEvent, { _tag: T }>;
 };
+
+describe("Codex subAgentActivity items", () => {
+	// Shape captured from a live codex 0.144.1 app-server: spawn_agent surfaces
+	// on the parent thread as an item/completed subAgentActivity notification.
+	const capturedStart = {
+		type: "subAgentActivity",
+		id: "call_MmBpqT9m0rI5n89NEKXVuvjO",
+		kind: "started",
+		agentThreadId: "019f5975-4e1e-7703-89e2-22e71b282230",
+		agentPath: "/root/probe_child",
+	};
+
+	it("parses the captured item shape", () => {
+		expect(readCodexSubAgentActivity(capturedStart)).toEqual({
+			id: "call_MmBpqT9m0rI5n89NEKXVuvjO",
+			kind: "started",
+			agentThreadId: "019f5975-4e1e-7703-89e2-22e71b282230",
+			agentPath: "/root/probe_child",
+		});
+	});
+
+	it("rejects other item types and malformed activities", () => {
+		expect(readCodexSubAgentActivity(null)).toBeNull();
+		expect(
+			readCodexSubAgentActivity({ type: "agentMessage", text: "hi" }),
+		).toBeNull();
+		expect(
+			readCodexSubAgentActivity({
+				type: "subAgentActivity",
+				id: "call_1",
+				kind: "exploded",
+				agentThreadId: "t1",
+				agentPath: "/root/x",
+			}),
+		).toBeNull();
+	});
+
+	it("creates a detached agent keyed by the child thread id", () => {
+		const activity = readCodexSubAgentActivity(capturedStart);
+		expect(activity).not.toBeNull();
+		if (activity === null) return;
+		const agent = codexDetachedAgentFromSubAgentActivity(activity);
+		expect(agent.childSessionId).toBe("019f5975-4e1e-7703-89e2-22e71b282230");
+		expect(agent.agentName).toBe("probe_child");
+		expect(codexDetachedAgentToolUse(agent)).toMatchObject({
+			_tag: "ToolUse",
+			itemId: "call_MmBpqT9m0rI5n89NEKXVuvjO",
+			tool: "Agent",
+			input: { description: "probe_child" },
+			subagent: {
+				childSessionId: "019f5975-4e1e-7703-89e2-22e71b282230",
+				presentation: "detached",
+			},
+		});
+	});
+
+	it("routes child output into the detached run and finishes once", () => {
+		const activity = readCodexSubAgentActivity(capturedStart);
+		if (activity === null) throw new Error("expected activity");
+		const agent = codexDetachedAgentFromSubAgentActivity(activity);
+		const nested = codexWithDetachedParent(
+			{
+				_tag: "AssistantMessage",
+				itemId: "m1" as AgentItemId,
+				text: "hi",
+			},
+			agent,
+		);
+		expect(nested).toMatchObject({
+			_tag: "AssistantMessage",
+			parentItemId: "call_MmBpqT9m0rI5n89NEKXVuvjO",
+		});
+		const summary = codexFinishDetachedAgent(agent, false, 1200);
+		expect(summary).toMatchObject({
+			_tag: "SubagentSummary",
+			agentName: "probe_child",
+			summary: "hi",
+			durationMs: 1200,
+			isError: false,
+			childSessionId: "019f5975-4e1e-7703-89e2-22e71b282230",
+			presentation: "detached",
+		});
+		expect(codexFinishDetachedAgent(agent, false)).toBeNull();
+	});
+});
 
 describe("translateCodexItem", () => {
 	it("maps a parsed read command to the canonical Read row", () => {
@@ -231,6 +322,52 @@ describe("translateCodexItem", () => {
 		expect(ev.afterTokens).toBeNull();
 		expect(ev.status).toBe("completed");
 		expect(ev.durationMs).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe("translateCodexCollabItem", () => {
+	it("creates a detached Agent row for a spawned child thread", () => {
+		const item: Extract<ThreadItem, { type: "collabAgentToolCall" }> = {
+			type: "collabAgentToolCall",
+			id: "spawn-1",
+			tool: "spawnAgent",
+			status: "inProgress",
+			senderThreadId: "parent-thread",
+			receiverThreadIds: ["child-thread"],
+			prompt: "Review the renderer",
+			model: "gpt-5.5",
+			reasoningEffort: "high",
+			agentsStates: {},
+		};
+
+		expect(translateCodexCollabItem(item, "started")).toEqual([
+			expect.objectContaining({
+				_tag: "ToolUse",
+				itemId: "spawn-1",
+				tool: "Agent",
+				subagent: {
+					childSessionId: "child-thread",
+					presentation: "detached",
+				},
+			}),
+		]);
+		expect(translateCodexCollabItem(item, "completed")).toEqual([]);
+	});
+
+	it("does not create duplicate rows for collaboration control calls", () => {
+		const item: Extract<ThreadItem, { type: "collabAgentToolCall" }> = {
+			type: "collabAgentToolCall",
+			id: "wait-1",
+			tool: "wait",
+			status: "completed",
+			senderThreadId: "parent-thread",
+			receiverThreadIds: ["child-thread"],
+			prompt: null,
+			model: null,
+			reasoningEffort: null,
+			agentsStates: {},
+		};
+		expect(translateCodexCollabItem(item, "started")).toEqual([]);
 	});
 });
 

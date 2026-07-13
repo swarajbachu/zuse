@@ -228,6 +228,8 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
                 agentName={group.agentName}
                 prompt={group.prompt}
                 modelRequested={group.modelRequested}
+                childSessionId={group.childSessionId}
+                presentation={group.presentation}
                 children={group.children}
                 summary={group.summary}
               />

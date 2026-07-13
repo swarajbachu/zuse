@@ -57,7 +57,8 @@ export type PanelKind =
   | "changes"
   | "pr"
   | "plan"
-  | "browser";
+  | "browser"
+  | "subagents";
 
 /**
  * Kinds that may have at most one open instance. Terminal is the only
@@ -69,6 +70,7 @@ export const SINGLETON_PANEL_KINDS: ReadonlySet<PanelKind> = new Set([
   "pr",
   "plan",
   "browser",
+  "subagents",
 ]);
 
 /**
@@ -85,6 +87,7 @@ export type PanelInstance =
   | { readonly id: string; readonly kind: "pr" }
   | { readonly id: string; readonly kind: "plan" }
   | { readonly id: string; readonly kind: "browser" }
+  | { readonly id: string; readonly kind: "subagents" }
   | { readonly id: string; readonly kind: "terminal"; readonly slot: number };
 
 /**
@@ -196,6 +199,7 @@ type UiState = {
   /** Right-dock tab layout, scoped per sidebar-chat. */
   readonly rightPanelsByChat: Record<string, ReadonlyArray<PanelInstance>>;
   readonly activeRightPanelByChat: Record<string, string | null>;
+  readonly selectedSubagentByChat: Record<string, string | null>;
   readonly revealedAnnotation: RevealedAnnotation | null;
   readonly setActiveMainTab: (tab: MainTab) => void;
   /** Open the Usage dashboard in the main pane at the given scope. */
@@ -242,6 +246,8 @@ type UiState = {
    * Replaces the old `setRightSidebarOpen(true) + setActiveRightTab(kind)`
    * pairs. For terminals, focuses an existing one or adds a new slot. */
   readonly revealPanel: (kind: PanelKind) => void;
+  readonly revealSubagent: (childSessionId: string) => void;
+  readonly selectSubagent: (childSessionId: string | null) => void;
   readonly revealAnnotation: (annotation: CodeAnnotation) => void;
   readonly clearRevealedAnnotation: () => void;
 };
@@ -324,6 +330,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   environmentSummaryOpen: initialEnvironmentSummaryOpen(),
   rightPanelsByChat: {},
   activeRightPanelByChat: {},
+  selectedSubagentByChat: {},
   revealedAnnotation: null,
   setActiveMainTab: (tab) => set({ activeMainTab: tab }),
   openUsage: (scope) =>
@@ -433,7 +440,13 @@ export const useUiStore = create<UiState>((set, get) => ({
         s.rightPanelsByChat;
       const { [chatId]: _droppedActive, ...activeRightPanelByChat } =
         s.activeRightPanelByChat;
-      return { rightPanelsByChat, activeRightPanelByChat };
+      const { [chatId]: _droppedSubagent, ...selectedSubagentByChat } =
+        s.selectedSubagentByChat;
+      return {
+        rightPanelsByChat,
+        activeRightPanelByChat,
+        selectedSubagentByChat,
+      };
     }),
   revealPanel: (kind) => {
     const s = get();
@@ -453,6 +466,28 @@ export const useUiStore = create<UiState>((set, get) => ({
     }
     // No panel of this kind yet — add one (terminals add a fresh slot).
     s.addPanel(kind);
+  },
+  revealSubagent: (childSessionId) => {
+    const chatId = activeChatId();
+    if (chatId === null) return;
+    set((s) => ({
+      rightSidebarOpen: true,
+      selectedSubagentByChat: {
+        ...s.selectedSubagentByChat,
+        [chatId]: childSessionId,
+      },
+    }));
+    get().revealPanel("subagents");
+  },
+  selectSubagent: (childSessionId) => {
+    const chatId = activeChatId();
+    if (chatId === null) return;
+    set((s) => ({
+      selectedSubagentByChat: {
+        ...s.selectedSubagentByChat,
+        [chatId]: childSessionId,
+      },
+    }));
   },
   revealAnnotation: (annotation) =>
     set((s) => ({

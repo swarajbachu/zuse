@@ -850,6 +850,156 @@ export const translateCodexItem = (
 	}
 };
 
+export const translateCodexCollabItem = (
+	item: Extract<ThreadItem, { readonly type: "collabAgentToolCall" }>,
+	phase: "started" | "completed",
+): ReadonlyArray<AgentEvent> => {
+	if (phase !== "started" || item.tool !== "spawnAgent") return [];
+	const childSessionId = item.receiverThreadIds[0];
+	if (childSessionId === undefined) return [];
+	const agentName = item.prompt?.split("\n", 1)[0]?.slice(0, 80) || "Subagent";
+	return [
+		{
+			_tag: "ToolUse",
+			itemId: item.id as AgentItemId,
+			tool: "Agent",
+			input: {
+				prompt: item.prompt ?? "",
+				description: agentName,
+				model: item.model ?? "inherit",
+			},
+			subagent: { childSessionId, presentation: "detached" },
+		},
+	];
+};
+
+/**
+ * Codex ≥0.144 reports sub-agent lifecycle on the parent thread as
+ * `subAgentActivity` thread items carrying the child's real thread id.
+ * (The raw `spawn_agent` function calls only stream when a thread opts into
+ * `experimentalRawEvents`, and `collabAgentToolCall` no longer surfaces
+ * spawns.) The generated ThreadItem union predates this variant, so narrow
+ * it from unknown here.
+ */
+export type CodexSubAgentActivity = {
+	readonly id: string;
+	readonly kind: "started" | "interacted" | "interrupted";
+	readonly agentThreadId: string;
+	readonly agentPath: string;
+};
+
+export const readCodexSubAgentActivity = (
+	item: unknown,
+): CodexSubAgentActivity | null => {
+	if (item === null || typeof item !== "object") return null;
+	const raw = item as Record<string, unknown>;
+	if (raw.type !== "subAgentActivity") return null;
+	if (
+		typeof raw.id !== "string" ||
+		typeof raw.agentThreadId !== "string" ||
+		typeof raw.agentPath !== "string" ||
+		(raw.kind !== "started" &&
+			raw.kind !== "interacted" &&
+			raw.kind !== "interrupted")
+	) {
+		return null;
+	}
+	return {
+		id: raw.id,
+		kind: raw.kind,
+		agentThreadId: raw.agentThreadId,
+		agentPath: raw.agentPath,
+	};
+};
+
+export type CodexDetachedAgent = {
+	readonly parentItemId: AgentItemId;
+	readonly childSessionId: string;
+	readonly prompt: string;
+	readonly model: string;
+	readonly startedAt: number;
+	agentName: string;
+	turns: number;
+	lastText: string;
+	finished: boolean;
+};
+
+export const codexDetachedAgentFromSubAgentActivity = (
+	activity: CodexSubAgentActivity,
+): CodexDetachedAgent => {
+	const agentName = activity.agentPath.split("/").at(-1) || "Subagent";
+	return {
+		parentItemId: activity.id as AgentItemId,
+		childSessionId: activity.agentThreadId,
+		prompt: agentName,
+		model: "inherit",
+		startedAt: Date.now(),
+		agentName,
+		turns: 0,
+		lastText: "",
+		finished: false,
+	};
+};
+
+export const codexDetachedAgentToolUse = (
+	agent: CodexDetachedAgent,
+): AgentEvent => ({
+	_tag: "ToolUse",
+	itemId: agent.parentItemId,
+	tool: "Agent",
+	input: {
+		prompt: agent.prompt,
+		description: agent.agentName,
+		model: agent.model,
+	},
+	subagent: {
+		childSessionId: agent.childSessionId,
+		presentation: "detached",
+	},
+});
+
+export const codexWithDetachedParent = (
+	event: AgentEvent,
+	agent: CodexDetachedAgent,
+): AgentEvent | null => {
+	switch (event._tag) {
+		case "AssistantMessage":
+			agent.lastText = event.text;
+			return { ...event, parentItemId: agent.parentItemId };
+		case "Thinking":
+		case "ToolResult":
+		case "PermissionRequest":
+			return { ...event, parentItemId: agent.parentItemId };
+		case "ToolUse":
+			return { ...event, parentItemId: agent.parentItemId };
+		case "UsageDelta":
+			return { ...event, parentItemId: agent.parentItemId };
+		default:
+			return null;
+	}
+};
+
+export const codexFinishDetachedAgent = (
+	agent: CodexDetachedAgent,
+	isError: boolean,
+	durationMs?: number | null,
+): AgentEvent | null => {
+	if (agent.finished) return null;
+	agent.finished = true;
+	return {
+		_tag: "SubagentSummary",
+		itemId: agent.parentItemId,
+		agentName: agent.agentName,
+		model: agent.model,
+		turns: Math.max(1, agent.turns),
+		durationMs: durationMs ?? Math.max(0, Date.now() - agent.startedAt),
+		summary: agent.lastText,
+		isError,
+		childSessionId: agent.childSessionId,
+		presentation: "detached",
+	};
+};
+
 export const translateCodexStatusNotification = (
 	notification: ServerNotification,
 	activeThreadId: string | null,
@@ -943,6 +1093,27 @@ export const startCodexSession = (
 		let modelFastTier: boolean | null = null;
 		const latestContextTokensByThread = new Map<string, number>();
 		const pendingCompactionsByThread = new Map<string, CompactSnapshot>();
+		const detachedAgentsByThread = new Map<string, CodexDetachedAgent>();
+
+		const handleSubAgentActivity = (
+			item: unknown,
+		): ReadonlyArray<AgentEvent> | null => {
+			const activity = readCodexSubAgentActivity(item);
+			if (activity === null) return null;
+			if (activity.kind === "started") {
+				if (detachedAgentsByThread.has(activity.agentThreadId)) return [];
+				const agent = codexDetachedAgentFromSubAgentActivity(activity);
+				detachedAgentsByThread.set(activity.agentThreadId, agent);
+				return [codexDetachedAgentToolUse(agent)];
+			}
+			if (activity.kind === "interrupted") {
+				const agent = detachedAgentsByThread.get(activity.agentThreadId);
+				if (agent === undefined) return [];
+				const summary = codexFinishDetachedAgent(agent, true);
+				return summary === null ? [] : [summary];
+			}
+			return [];
+		};
 
 		type QuestionWaiter = {
 			readonly questionIds: ReadonlyArray<string>;
@@ -1580,6 +1751,33 @@ export const startCodexSession = (
 
 			switch (notification.method) {
 				case "thread/started":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.thread.id,
+						);
+						if (child !== undefined) {
+							child.agentName =
+								notification.params.thread.name ??
+								notification.params.thread.agentNickname ??
+								child.agentName;
+							return [
+								{
+									_tag: "ToolUse",
+									itemId: child.parentItemId,
+									tool: "Agent",
+									input: {
+										prompt: child.prompt,
+										description: child.agentName,
+										model: child.model,
+									},
+									subagent: {
+										childSessionId: child.childSessionId,
+										presentation: "detached",
+									},
+								},
+							];
+						}
+					}
 					activeThreadId = notification.params.thread.id;
 					return [
 						{
@@ -1589,10 +1787,32 @@ export const startCodexSession = (
 						},
 					];
 				case "turn/started":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							child.turns += 1;
+							return [];
+						}
+					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = notification.params.turn.id;
 					return [{ _tag: "Status", status: "running" }];
 				case "turn/completed":
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							const summary = codexFinishDetachedAgent(
+								child,
+								notification.params.turn.status === "failed",
+								notification.params.turn.durationMs,
+							);
+							return summary === null ? [] : [summary];
+						}
+					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = null;
 					return [{ _tag: "Status", status: "idle" }];
@@ -1613,7 +1833,47 @@ export const startCodexSession = (
 					if (notification.params.threadId !== activeThreadId) return [];
 					return [{ _tag: "GoalCleared" }];
 				case "item/started":
-					if (notification.params.threadId !== activeThreadId) return [];
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							return translateCodexItem(
+								notification.params.item,
+								"started",
+							).flatMap((event) => {
+								const nested = codexWithDetachedParent(event, child);
+								return nested === null ? [] : [nested];
+							});
+						}
+						if (notification.params.threadId !== activeThreadId) return [];
+						if (notification.params.item.type === "collabAgentToolCall") {
+							const item = notification.params.item;
+							if (item.tool !== "spawnAgent") return [];
+							const childSessionId = item.receiverThreadIds[0];
+							if (childSessionId === undefined) return [];
+							const agent: CodexDetachedAgent = {
+								parentItemId: item.id as AgentItemId,
+								childSessionId,
+								prompt: item.prompt ?? "",
+								model: item.model ?? "inherit",
+								startedAt: Date.now(),
+								agentName:
+									item.prompt?.split("\n", 1)[0]?.slice(0, 80) || "Subagent",
+								turns: 0,
+								lastText: "",
+								finished: false,
+							};
+							detachedAgentsByThread.set(childSessionId, agent);
+							return translateCodexCollabItem(item, "started");
+						}
+						{
+							const activityEvents = handleSubAgentActivity(
+								notification.params.item,
+							);
+							if (activityEvents !== null) return activityEvents;
+						}
+					}
 					{
 						const translated = translateCodexItem(
 							notification.params.item,
@@ -1627,7 +1887,29 @@ export const startCodexSession = (
 						return translated;
 					}
 				case "item/completed":
-					if (notification.params.threadId !== activeThreadId) return [];
+					{
+						const child = detachedAgentsByThread.get(
+							notification.params.threadId,
+						);
+						if (child !== undefined) {
+							return translateCodexItem(
+								notification.params.item,
+								"completed",
+							).flatMap((event) => {
+								const nested = codexWithDetachedParent(event, child);
+								return nested === null ? [] : [nested];
+							});
+						}
+						if (notification.params.threadId !== activeThreadId) return [];
+						if (notification.params.item.type === "collabAgentToolCall")
+							return [];
+						{
+							const activityEvents = handleSubAgentActivity(
+								notification.params.item,
+							);
+							if (activityEvents !== null) return activityEvents;
+						}
+					}
 					{
 						const compactMetadata =
 							notification.params.item.type === "contextCompaction"
