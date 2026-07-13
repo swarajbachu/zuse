@@ -5,6 +5,7 @@
       {
         "title": "Changed",
         "items": [
+          "Refine plan handoff sessions (#331)",
           "Fix new agent startup loader race (#329)",
           "Improve tool activity and subagent inspection (#325)",
           "Improve usage limits and reporting (#328)",

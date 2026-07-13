@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.13.0]
 
 ### Changed
+- Refine plan handoff sessions (#331)
 - Fix new agent startup loader race (#329)
 - Improve tool activity and subagent inspection (#325)
 - Improve usage limits and reporting (#328)
