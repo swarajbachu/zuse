@@ -67,6 +67,24 @@ describe("usage limit normalization", () => {
 		]);
 	});
 
+	it("keeps weekly usage when Codex omits the session limit and label", () => {
+		const result = mapCodexRateLimits({
+			rateLimitsByLimitId: {
+				codex: {
+					limitName: null,
+					primary: { usedPercent: 19, windowDurationMins: 10_080 },
+					secondary: null,
+					planType: "prolite",
+				},
+			},
+		});
+
+		expect(result.windows).toMatchObject([
+			{ label: "Weekly", scope: "weekly", usedPercent: 19 },
+		]);
+		expect(result.planLabel).toBe("prolite");
+	});
+
 	it("reads Codex plan and credits from the rate-limit snapshot", () => {
 		const result = mapCodexRateLimits({
 			rateLimits: {
