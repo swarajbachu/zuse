@@ -40,7 +40,7 @@ export function isInitialProviderAvailabilityLoading(
   return loading && !availabilityLoaded;
 }
 
-const PROVIDER_DISPLAY: Record<ProviderId, string> = {
+export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
   claude: "Claude Code",
   codex: "Codex",
   grok: "Grok",
@@ -136,7 +136,9 @@ export function getProviderSummary(
       headline: "Available",
       detail:
         a.statusMessage ??
-        (a.hasApiKey ? "API key set." : "Credentials found — not yet verified."),
+        (a.hasApiKey
+          ? "API key set."
+          : "Credentials found — not yet verified."),
       authEmail: null,
       actionable: false,
     };

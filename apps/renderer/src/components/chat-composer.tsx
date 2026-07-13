@@ -1,3 +1,4 @@
+import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
@@ -14,16 +15,12 @@ import {
   Tick01Icon,
   Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import type { EditorView } from "@codemirror/view";
-import { Effect } from "effect";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-
 import {
-  ComposerInput,
-  findModelDescriptor,
+  type BooleanOptionDescriptor,
   type BrowserAnnotation,
   type ComposerAnnotation,
-  type BooleanOptionDescriptor,
+  ComposerInput,
+  findModelDescriptor,
   type Message,
   type PermissionMode,
   type PermissionRequest,
@@ -34,11 +31,10 @@ import {
   type SessionId,
   type ThreadGoal,
 } from "@zuse/contracts";
-import { ModelPicker } from "./model-picker.tsx";
-
-import { Card, CardPanel } from "~/components/ui/card";
-import { Frame, FrameFooter } from "~/components/ui/frame";
+import { Effect } from "effect";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
+import { Card, CardPanel } from "~/components/ui/card";
 import {
   Dialog,
   DialogDescription,
@@ -48,67 +44,8 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { Frame, FrameFooter } from "~/components/ui/frame";
 import { Input } from "~/components/ui/input";
-import { Textarea } from "~/components/ui/textarea";
-import {
-  composerDoc,
-  createComposerView,
-  reconfigureComposerKeymap,
-  replaceWithChip,
-  restoreComposerChips,
-  setComposerDoc,
-  type ActiveTrigger,
-} from "~/lib/codemirror/composer";
-import { getRpcClient } from "~/lib/rpc-client";
-import { readStorageWithLegacy } from "~/lib/storage-keys";
-import { useKeybindingsStore } from "../store/keybindings";
-import {
-  addChipEffect,
-  allChips,
-  clearChipsEffect,
-  updateImageChipEffect,
-} from "~/lib/codemirror/composer-chips";
-import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
-import {
-  annotationsForSession,
-  useAnnotationsStore,
-} from "../store/annotations.ts";
-import { useAttachmentsStore } from "../store/attachments.ts";
-import { useComposerBridge } from "../store/composer-bridge.ts";
-import { usePaneFocus } from "../store/pane-focus.ts";
-import {
-  composerDraftKeyForSession,
-  useComposerDraftsStore,
-} from "../store/composer-drafts.ts";
-import { cn, formatCompactNumber } from "~/lib/utils";
-import {
-  chooseComposerSubmitRoute,
-  findPendingPlanApprovalRequest,
-  hasEmulatedPlanAwaitingAction,
-  providerUsesEmulatedPlanMode,
-  shouldSendPlanFeedbackNow,
-} from "~/lib/plan-feedback-routing";
-import {
-  matchBuiltin,
-  type BuiltinCommand,
-} from "../composer/builtin-commands.ts";
-import type {
-  PendingDraftAttachment,
-  PendingDraftContextFile,
-} from "../composer/draft-attachments.ts";
-import { parseComposerInput } from "../composer/segment-parser.ts";
-import { AnnotationTray } from "./composer/annotation-tray.tsx";
-import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
-import { FileTagPopover } from "./composer/file-tag-popover.tsx";
-import {
-  EMULATED_PLAN_APPROVAL_PROMPT,
-  PlanApprovalTray,
-} from "./composer/plan-approval-tray.tsx";
-import { ContextTray } from "./composer/context-tray.tsx";
-import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
-import { QueueTray } from "./composer/queue-tray.tsx";
-import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
-import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import {
   Menu,
   MenuGroup,
@@ -120,18 +57,80 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "~/components/ui/menu";
+import { Textarea } from "~/components/ui/textarea";
 import {
   Tooltip,
   TooltipPopup,
   TooltipProvider,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
+import {
+  type ActiveTrigger,
+  composerDoc,
+  createComposerView,
+  reconfigureComposerKeymap,
+  replaceWithChip,
+  restoreComposerChips,
+  setComposerDoc,
+} from "~/lib/codemirror/composer";
+import {
+  addChipEffect,
+  allChips,
+  clearChipsEffect,
+  updateImageChipEffect,
+} from "~/lib/codemirror/composer-chips";
+import {
+  chooseComposerSubmitRoute,
+  findPendingPlanApprovalRequest,
+  hasEmulatedPlanAwaitingAction,
+  providerUsesEmulatedPlanMode,
+  shouldSendPlanFeedbackNow,
+} from "~/lib/plan-feedback-routing";
+import { getRpcClient } from "~/lib/rpc-client";
+import { readStorageWithLegacy } from "~/lib/storage-keys";
+import { cn, formatCompactNumber } from "~/lib/utils";
+import {
+  type BuiltinCommand,
+  matchBuiltin,
+} from "../composer/builtin-commands.ts";
+import type {
+  PendingDraftAttachment,
+  PendingDraftContextFile,
+} from "../composer/draft-attachments.ts";
+import { parseComposerInput } from "../composer/segment-parser.ts";
+import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
+import {
+  annotationsForSession,
+  useAnnotationsStore,
+} from "../store/annotations.ts";
+import { useAttachmentsStore } from "../store/attachments.ts";
+import { useComposerBridge } from "../store/composer-bridge.ts";
+import {
+  composerDraftKeyForSession,
+  useComposerDraftsStore,
+} from "../store/composer-drafts.ts";
+import { useKeybindingsStore } from "../store/keybindings";
 import { useMessagesStore } from "../store/messages.ts";
 import { useOpencodeInventory } from "../store/opencode-inventory.ts";
+import { usePaneFocus } from "../store/pane-focus.ts";
+import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
-import { usePermissionsStore } from "../store/permissions.ts";
 import { useSkillsStore } from "../store/skills.ts";
+import { AnnotationTray } from "./composer/annotation-tray.tsx";
+import { ComposerChipOverlay } from "./composer/composer-chip-overlay.tsx";
+import { ContextTray } from "./composer/context-tray.tsx";
+import { FileTagPopover } from "./composer/file-tag-popover.tsx";
+import {
+  EMULATED_PLAN_APPROVAL_PROMPT,
+  PlanApprovalTray,
+} from "./composer/plan-approval-tray.tsx";
+import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
+import { QueueTray } from "./composer/queue-tray.tsx";
+import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
+import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
+import { ModelPicker } from "./model-picker.tsx";
+import { resetLabel, StickMeter } from "./usage/usage-meter.tsx";
 
 const isBrowserAnnotation = (
   annotation: ComposerAnnotation,
@@ -153,12 +152,13 @@ const attachmentsWithBrowserAnnotations = (
   }
   return next;
 };
+
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { PermissionCard } from "./permission-card.tsx";
-import { QuestionCard } from "./question-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
+import { QuestionCard } from "./question-card.tsx";
 
 const MIN_HEIGHT = 56;
 const MAX_HEIGHT = 240;
@@ -975,10 +975,7 @@ export function ChatComposer({
     <TooltipProvider delay={0}>
       {showCard ? (
         <div
-          className={cn(
-            "shrink-0 pb-3 pt-2",
-            constrain ? "px-3" : undefined,
-          )}
+          className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}
         >
           <div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
             {headPermission !== undefined ? (
@@ -998,10 +995,7 @@ export function ChatComposer({
       ) : null}
       <div
         data-pane="composer"
-        className={cn(
-          "shrink-0 pb-3 pt-2",
-          constrain ? "px-3" : undefined,
-        )}
+        className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}
         style={showCard ? { display: "none" } : undefined}
         aria-hidden={showCard || undefined}
       >
@@ -1823,30 +1817,6 @@ const formatTokens = (value: number): string => {
     : `${formatted}`;
 };
 
-const resetLabel = (iso: string | null): string | null => {
-  if (iso === null) return null;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return null;
-  const now = new Date();
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-  const time = new Intl.DateTimeFormat([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(date);
-  // Same day → just the time; otherwise prefix the day so "resets 20 Jun
-  // 08:00" still tells you when, not only which day.
-  if (sameDay) return time;
-  const day = new Intl.DateTimeFormat([], {
-    day: "numeric",
-    month: "short",
-  }).format(date);
-  return `${day} ${time}`;
-};
-
 /**
  * Mini donut gauge for the composer status trigger. The faint track is the
  * full window; the bright arc fills clockwise from the top with the percent
@@ -1881,41 +1851,6 @@ function ContextRing({ percent }: { percent: number | null }) {
         />
       ) : null}
     </svg>
-  );
-}
-
-function StickMeter({
-  percent,
-  tone = "default",
-}: {
-  readonly percent: number | null;
-  readonly tone?: "default" | "warning";
-}) {
-  const segments = 38;
-  const clamped = percent === null ? 0 : Math.min(Math.max(percent, 0), 100);
-  const filled = percent === null ? 0 : Math.ceil((clamped / 100) * segments);
-  return (
-    <div
-      className="grid h-4 grid-cols-[repeat(38,minmax(0,1fr))] gap-0.5"
-      aria-hidden
-    >
-      {Array.from({ length: segments }, (_, index) => {
-        const active = index < filled;
-        return (
-          <div
-            key={index}
-            className={cn(
-              "rounded-[2px] transition-colors",
-              active
-                ? tone === "warning"
-                  ? "bg-amber-300/65"
-                  : "bg-primary/70"
-                : "bg-muted-foreground/16",
-            )}
-          />
-        );
-      })}
-    </div>
   );
 }
 
