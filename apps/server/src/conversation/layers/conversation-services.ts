@@ -257,9 +257,11 @@ const ConversationRuntimeLive = Layer.effect(
 			currentTimestamp,
 			createSession,
 			broadcastChat,
+			chatChangesHub,
 			dispatchChatCommand,
 		});
-		const { lookupChat, listChats, getChat, createChat } = chatOperations;
+		const { lookupChat, listChats, getChat, streamChatChanges, createChat } =
+			chatOperations;
 
 		const transcriptOperations = makeTranscriptOperations({
 			sql,
@@ -283,7 +285,6 @@ const ConversationRuntimeLive = Layer.effect(
 			lookupChat,
 			lookupSession,
 			broadcastChat,
-			chatChangesHub,
 			reactorEffects,
 			titleGen,
 			sessionDomain,
@@ -291,8 +292,7 @@ const ConversationRuntimeLive = Layer.effect(
 			git,
 			configStore,
 		});
-		const { renameChat, markChatRead, streamChatChanges, autoNameChat } =
-			autoNameOperations;
+		const { renameChat, markChatRead, autoNameChat } = autoNameOperations;
 		const { handleProviderStart, handleProviderStop, handleAutoName } =
 			makeProviderReactorHandlers({
 				reactorEffects,

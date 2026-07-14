@@ -1,6 +1,6 @@
 import { type Chat, type ChatId, ChatNotFoundError } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
-import { Effect } from "effect";
+import { Effect, PubSub, Stream } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type {
 	ConversationOperations,
@@ -19,6 +19,7 @@ export interface ChatOperationsOptions {
 	readonly currentTimestamp: Effect.Effect<number>;
 	readonly createSession: ConversationOperations["createSession"];
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
+	readonly chatChangesHub: PubSub.PubSub<Chat>;
 	readonly dispatchChatCommand: (
 		chatId: ChatId,
 		command: ChatCommand,
@@ -32,6 +33,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		currentTimestamp,
 		createSession,
 		broadcastChat,
+		chatChangesHub,
 		dispatchChatCommand,
 	} = options;
 	const lookupChat = (chatId: ChatId): Effect.Effect<Chat, ChatNotFoundError> =>
@@ -72,6 +74,23 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 
 	const getChat: ConversationOperations["getChat"] = (chatId) =>
 		lookupChat(chatId);
+
+	const streamChatChanges: ConversationOperations["streamChatChanges"] = (
+		projectId,
+	) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				const sub = yield* PubSub.subscribe(chatChangesHub);
+				// Subscribe before reading the snapshot. A mutation that lands during
+				// the query is present in the snapshot, queued in the subscription, or
+				// both; renderer upserts make the duplicate harmless.
+				const snapshot = yield* listChats(projectId, false);
+				const live = Stream.fromSubscription(sub).pipe(
+					Stream.filter((chat) => chat.projectId === projectId),
+				);
+				return Stream.concat(Stream.fromIterable(snapshot), live);
+			}),
+		);
 
 	/**
 	 * Create a chat row AND its initial session in one effect. Both rows
@@ -156,5 +175,5 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			return { chat, initialSession, initialMessage };
 		});
 
-	return { lookupChat, listChats, getChat, createChat };
+	return { lookupChat, listChats, getChat, streamChatChanges, createChat };
 };

@@ -16,6 +16,7 @@ import {
 	type AgentSessionId,
 	AgentSessionStartError,
 	type AttachmentRef,
+	defaultModelFor,
 	type FileRef,
 	findModelDescriptor,
 	type PermissionDecision,
@@ -118,11 +119,55 @@ export const codexReasoningEffort = (
 		: null;
 };
 
-const codexApprovalPolicy = (
+export interface CodexCollaborationMode {
+	readonly mode: "plan" | "default";
+	readonly settings: {
+		readonly model: string;
+		readonly reasoning_effort: CodexReasoningEffort | null;
+		readonly developer_instructions: null;
+	};
+}
+
+/**
+ * Build the model-visible mode payload for one Codex turn. Current app-server
+ * releases expose native collaboration modes. Older compatible releases keep
+ * the instruction-prefix fallback until they can be upgraded.
+ */
+export const buildCodexTurnMode = (input: {
+	readonly permissionMode: PermissionMode;
+	readonly supportsNativePlanMode: boolean;
+	readonly prompt: string;
+	readonly model: string;
+	readonly effort: CodexReasoningEffort | null;
+}): {
+	readonly promptText: string;
+	readonly collaborationMode?: CodexCollaborationMode;
+} => {
+	if (!input.supportsNativePlanMode) {
+		return {
+			promptText: applyPlanModePrefix(input.permissionMode, input.prompt),
+		};
+	}
+
+	const mode = input.permissionMode === "plan" ? "plan" : "default";
+	return {
+		promptText: input.prompt,
+		collaborationMode: {
+			mode,
+			settings: {
+				model: input.model,
+				reasoning_effort: input.effort ?? (mode === "plan" ? "medium" : null),
+				developer_instructions: null,
+			},
+		},
+	};
+};
+
+export const codexApprovalPolicy = (
 	runtimeMode: RuntimeMode,
 	permissionMode: PermissionMode,
 ): AskForApproval => {
-	if (permissionMode === "plan") return "untrusted";
+	if (permissionMode === "plan") return "never";
 	switch (runtimeMode) {
 		case "approval-required":
 			return "untrusted";
@@ -193,7 +238,7 @@ export const codexWritableRootsForCwd = (
 	]);
 };
 
-const toSandboxPolicy = (
+export const codexSandboxPolicy = (
 	runtimeMode: RuntimeMode,
 	permissionMode: PermissionMode,
 	cwd: string,
@@ -325,6 +370,44 @@ const probeModelFastTier = async (
 			(entry) => entry.id === activeModel || entry.model === activeModel,
 		) ?? response.data.find((entry) => entry.isDefault);
 	return model === undefined ? null : modelAdvertisesFastTier(model);
+};
+
+export const supportsCodexNativePlanMode = (value: unknown): boolean => {
+	if (value === null || typeof value !== "object") return false;
+	const data = (value as { readonly data?: unknown }).data;
+	if (!Array.isArray(data)) return false;
+	const modes = new Set(
+		data.flatMap((item) =>
+			item !== null &&
+			typeof item === "object" &&
+			typeof (item as { readonly mode?: unknown }).mode === "string"
+				? [(item as { readonly mode: string }).mode]
+				: [],
+		),
+	);
+	return modes.has("plan") && modes.has("default");
+};
+
+const probeNativePlanMode = async (
+	app: CodexAppServerClient,
+): Promise<boolean> => {
+	try {
+		const response = await app.request<unknown>("collaborationMode/list", {});
+		return supportsCodexNativePlanMode(response);
+	} catch (cause) {
+		const message = cause instanceof Error ? cause.message : String(cause);
+		if (
+			!/method (?:not found|unknown)|unknown method|unsupported method/i.test(
+				message,
+			)
+		) {
+			console.warn(
+				"[codex] native plan-mode probe failed; using fallback",
+				cause,
+			);
+		}
+		return false;
+	}
 };
 
 const toolIdentifierPart = (value: string): string =>
@@ -1078,6 +1161,7 @@ export const startCodexSession = (
 		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
+		let activeModel = input.model ?? defaultModelFor("codex");
 		let activeThreadId = resumeCursor;
 		let currentTurnId: string | null = null;
 		let latestDiff = "";
@@ -1176,6 +1260,10 @@ export const startCodexSession = (
 				"[codex] API key credential present; app-server uses Codex CLI auth",
 			);
 		}
+
+		const supportsNativePlanMode = yield* Effect.promise(() =>
+			probeNativePlanMode(app),
+		);
 
 		let browserMcpBridge: Awaited<
 			ReturnType<typeof startBrowserMcpBridge>
@@ -1322,29 +1410,32 @@ export const startCodexSession = (
 				// "Fork chat": branch the source thread into a NEW thread so the
 				// original transcript stays intact. The forked thread id becomes this
 				// session's cursor via the SessionCursor emit below.
-				const forked = await app.request<{ thread: { id: string } }>(
-					"thread/fork",
-					{
-						threadId: activeThreadId,
-						...commonThreadParams,
-					},
-				);
+				const forked = await app.request<{
+					thread: { id: string };
+					model?: string;
+				}>("thread/fork", {
+					threadId: activeThreadId,
+					...commonThreadParams,
+				});
 				activeThreadId = forked.thread.id;
+				if (forked.model !== undefined) activeModel = forked.model;
 			} else if (activeThreadId !== null) {
-				const resumed = await app.request<{ thread: { id: string } }>(
-					"thread/resume",
-					{
-						threadId: activeThreadId,
-						...commonThreadParams,
-					},
-				);
+				const resumed = await app.request<{
+					thread: { id: string };
+					model?: string;
+				}>("thread/resume", {
+					threadId: activeThreadId,
+					...commonThreadParams,
+				});
 				activeThreadId = resumed.thread.id;
+				if (resumed.model !== undefined) activeModel = resumed.model;
 			} else {
-				const started = await app.request<{ thread: { id: string } }>(
-					"thread/start",
-					commonThreadParams,
-				);
+				const started = await app.request<{
+					thread: { id: string };
+					model?: string;
+				}>("thread/start", commonThreadParams);
 				activeThreadId = started.thread.id;
+				if (started.model !== undefined) activeModel = started.model;
 			}
 			emit({
 				_tag: "SessionCursor",
@@ -1368,7 +1459,7 @@ export const startCodexSession = (
 			// authoritative per-model gate enforced at turn time (see `runTurn`).
 			// Best-effort — a failure leaves `modelFastTier` null (trust the FE).
 			try {
-				modelFastTier = await probeModelFastTier(app, input.model ?? null);
+				modelFastTier = await probeModelFastTier(app, activeModel);
 			} catch (cause) {
 				console.warn("[codex] fast-tier probe failed", cause);
 			}
@@ -1460,10 +1551,19 @@ export const startCodexSession = (
 			if (commandHandled) return;
 
 			emit({ _tag: "Status", status: "running" });
-			// Plan-mode emulation: Codex has no native "plan" runtime mode, so
-			// prepend a developer-instructions block while plan mode is active.
-			// The sandbox policy still gates writes, so this is belt-and-braces.
-			const basePromptText = applyPlanModePrefix(currentMode, text);
+			// Reasoning effort is part of native collaboration-mode settings because
+			// that payload takes precedence over the top-level turn fields.
+			const effort = codexReasoningEffort(
+				input.model,
+				input.modelOptions?.["reasoning"],
+			);
+			const turnMode = buildCodexTurnMode({
+				permissionMode: currentMode,
+				supportsNativePlanMode,
+				prompt: text,
+				model: activeModel,
+				effort,
+			});
 			const promptHints = [
 				...(browserHintPending ? [browserMcpPromptHint()] : []),
 				...(orchestrationHintPending && orchestrationTools !== null
@@ -1472,18 +1572,10 @@ export const startCodexSession = (
 			];
 			const promptText =
 				promptHints.length > 0
-					? `${promptHints.join("\n\n")}\n\n${basePromptText}`
-					: basePromptText;
+					? `${promptHints.join("\n\n")}\n\n${turnMode.promptText}`
+					: turnMode.promptText;
 			browserHintPending = false;
 			orchestrationHintPending = false;
-			// Reasoning effort: forwarded from FE picker via
-			// `input.modelOptions.reasoning`. Each model's wire descriptor limits
-			// the picker to the tiers it supports; the selected literal is then
-			// forwarded unchanged to Codex.
-			const effort = codexReasoningEffort(
-				input.model,
-				input.modelOptions?.["reasoning"],
-			);
 			// Fast mode: the `fastMode` per-model boolean knob maps onto Codex's
 			// `serviceTier: "fast"` (the 1.5× speed tier). The FE only shows the
 			// toggle when the CLI version + static model catalog allow it; the live
@@ -1511,10 +1603,13 @@ export const startCodexSession = (
 				],
 				cwd,
 				approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
-				sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
+				sandboxPolicy: codexSandboxPolicy(getRuntimeMode(), currentMode, cwd),
 				model: input.model ?? null,
 				...(effort !== null ? { effort } : {}),
 				...(fastMode ? { serviceTier: "fast" } : {}),
+				...(turnMode.collaborationMode !== undefined
+					? { collaborationMode: turnMode.collaborationMode }
+					: {}),
 			});
 			currentTurnId = turn.turn.id;
 		};
@@ -1683,23 +1778,14 @@ export const startCodexSession = (
 					}
 					return true;
 				case "init":
-					emit({ _tag: "Status", status: "running" });
-					await app.request("turn/start", {
-						threadId: activeThreadId,
-						input: [
-							{
-								type: "text",
-								text:
-									args.length > 0
-										? `Initialize repository instructions. ${args}`
-										: "Initialize or update AGENTS.md with concise project instructions for Codex.",
-								text_elements: [],
-							},
-						],
-						cwd,
-						approvalPolicy: codexApprovalPolicy(getRuntimeMode(), currentMode),
-						sandboxPolicy: toSandboxPolicy(getRuntimeMode(), currentMode, cwd),
-					});
+					await runTurn(
+						args.length > 0
+							? `Initialize repository instructions. ${args}`
+							: "Initialize or update AGENTS.md with concise project instructions for Codex.",
+						[],
+						[],
+						[],
+					);
 					return true;
 				case "ps":
 				case "stop":
@@ -1971,6 +2057,9 @@ export const startCodexSession = (
 					if (policy.kind === "auto-allow") {
 						return { decision: "accept" };
 					}
+					if (policy.kind === "auto-deny") {
+						return { decision: "decline" };
+					}
 					emit({
 						_tag: "PermissionRequest",
 						itemId: p.itemId as AgentItemId,
@@ -1996,6 +2085,9 @@ export const startCodexSession = (
 					if (policy.kind === "auto-allow") {
 						return { decision: "accept" };
 					}
+					if (policy.kind === "auto-deny") {
+						return { decision: "decline" };
+					}
 					emit({
 						_tag: "PermissionRequest",
 						itemId: p.itemId as AgentItemId,
@@ -2011,7 +2103,10 @@ export const startCodexSession = (
 				}
 				case "item/permissions/requestApproval": {
 					const p = request.params;
-					if (currentMode !== "plan" && getRuntimeMode() === "full-access") {
+					if (currentMode === "plan") {
+						return { permissions: {}, scope: "turn" };
+					}
+					if (getRuntimeMode() === "full-access") {
 						return { permissions: {}, scope: "session" };
 					}
 					emit({

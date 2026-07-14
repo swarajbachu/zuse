@@ -13,9 +13,7 @@ import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { useChatsStore } from "./chats.ts";
-import { useMessagesStore } from "./messages.ts";
 import { useRepositorySettingsStore } from "./repository-settings.ts";
-import { useSessionsStore } from "./sessions.ts";
 
 /** Rarities worth interrupting the user with a one-off unlock toast. */
 const NOTABLE_RARITIES: ReadonlySet<string> = new Set([
@@ -52,7 +50,7 @@ type WorktreesState = {
   /**
    * Drain a worktree's live `setupStream`, patching `setupStatus`/`setupOutput`
    * as events arrive. Idempotent; auto-stops when setup completes. On a
-   * terminal status it kicks `maybeAutoRun` + flushes queued messages.
+   * terminal status it kicks `maybeAutoRun`.
    */
   readonly subscribeSetup: (
     projectId: FolderId,
@@ -108,22 +106,6 @@ const setupFibers = new Map<WorktreeId, Fiber.Fiber<unknown, unknown>>();
 const subscribingSetup = new Set<WorktreeId>();
 
 const TERMINAL_SETUP = new Set(["succeeded", "failed", "skipped"]);
-
-/**
- * Once setup reaches a terminal status, flush any messages queued against
- * sessions bound to this worktree — this is what makes the first message wait
- * for setup before the agent runs. Flush regardless of success/failure so a
- * failed setup never strands the user's message.
- */
-const flushQueuedForWorktree = (worktreeId: WorktreeId): void => {
-  const sessions = useSessionsStore.getState().sessionsByProject;
-  const flush = useMessagesStore.getState().flushQueue;
-  for (const list of Object.values(sessions)) {
-    for (const session of list) {
-      if (session.worktreeId === worktreeId) flush(session.id);
-    }
-  }
-};
 
 export const useWorktreesStore = create<WorktreesState>((set, get) => ({
   byProject: {},
@@ -198,7 +180,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
         });
       }
       // Setup now runs detached on the server; follow it live and let the
-      // stream's terminal-status handler fire maybeAutoRun + flush.
+      // stream's terminal-status handler fire maybeAutoRun.
       get().subscribeSetup(projectId, wt.id);
       return wt;
     } catch (err) {
@@ -292,7 +274,6 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
               (w) => w.id === worktreeId,
             );
             if (wt !== undefined) void maybeAutoRun(projectId, wt);
-            flushQueuedForWorktree(worktreeId);
           }
         };
         const fiber = Effect.runFork(

@@ -43,11 +43,15 @@ const promptOrDeny = (canPrompt: boolean | undefined): PermissionVerdict =>
 	canPrompt === false ? "deny" : "prompt";
 
 export const decidePermission = (input: PermissionInput): PermissionVerdict => {
-	if (input.sensitive || input.category === "exit-plan") {
+	if (input.category === "exit-plan") {
 		return promptOrDeny(input.canPrompt);
 	}
 	if (input.permissionMode === "plan") {
-		return input.category === "read" ? "allow" : promptOrDeny(input.canPrompt);
+		if (input.category !== "read") return "deny";
+		return input.sensitive ? promptOrDeny(input.canPrompt) : "allow";
+	}
+	if (input.sensitive) {
+		return promptOrDeny(input.canPrompt);
 	}
 	if (input.category === "read") return "allow";
 	if (input.permissionMode === "acceptEdits" && input.category === "edit") {

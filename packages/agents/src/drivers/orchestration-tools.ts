@@ -6,6 +6,7 @@ import type {
 	RuntimeMode,
 } from "@zuse/contracts";
 import { z } from "zod";
+import { getToolPolicy } from "../kernel/policy.ts";
 import {
 	booleanProp,
 	type JsonSchemaObject,
@@ -401,8 +402,16 @@ export const ensureOrchestrationPermission = async (
 	if (!isOrchestrationToolName(name)) throw new Error(`Unknown tool: ${name}`);
 	if (!MUTATING_ORCHESTRATION_TOOLS.has(name)) return;
 
-	const forcePrompt = opts.getPermissionMode() === "plan";
-	if (!forcePrompt && opts.getRuntimeMode() === "full-access") return;
+	const policy = getToolPolicy(
+		"delegate",
+		opts.getRuntimeMode(),
+		opts.getPermissionMode(),
+	);
+	if (policy.kind === "auto-deny") {
+		throw new Error(`Orchestration action blocked in plan mode: ${name}.`);
+	}
+
+	if (policy.kind === "auto-allow") return;
 
 	const decision = await opts.requestPermission(
 		{
@@ -410,7 +419,7 @@ export const ensureOrchestrationPermission = async (
 			tool: name,
 			summary: permissionSummary(name, args),
 		},
-		{ forcePrompt },
+		{ forcePrompt: false },
 	);
 	if (decision._tag === "Deny") {
 		throw new Error(`Permission denied for ${name}.`);

@@ -321,9 +321,8 @@ export function ChatLanding() {
   // Driven by the real ChatComposer (draft mode): it hands back the parsed
   // input (file refs / attachments / skills / annotations intact) and whether
   // goal mode was on. We create the worktree + chat with the draft's chosen
-  // provider/model/runtime/permission, carry the model options over, then
-  // queue the message (held until setup completes, or flushed immediately when
-  // there's no worktree). Identical sequencing to the old textarea submit.
+  // provider/model/runtime/permission, carry the model options over, then send
+  // as soon as the provider is ready. Worktree setup continues independently.
   const handleDraftSubmit = async (
     input: ComposerInput,
     opts: {
@@ -442,29 +441,9 @@ export function ChatLanding() {
     if (opts.asGoal && goalSupported) {
       void send(sessionId, finalInput, { asGoal: true });
     } else {
-      useMessagesStore.getState().queue(sessionId, finalInput);
-      // With no worktree there's nothing to wait for — flush now. With a
-      // worktree, the setup stream flushes the queue on its terminal status —
-      // UNLESS setup already finished (a reused "In use" worktree, or an eager
-      // checkout that completed before this send), in which case that event has
-      // already passed, so flush manually.
-      const setupDone =
-        worktreeId === null ||
-        (() => {
-          const wt = (
-            useWorktreesStore.getState().byProject[selectedFolderId] ??
-            EMPTY_WORKTREES
-          ).find((w) => w.id === worktreeId);
-          return (
-            wt === undefined ||
-            wt.setupStatus === "succeeded" ||
-            wt.setupStatus === "skipped" ||
-            wt.setupStatus === "failed"
-          );
-        })();
-      if (setupDone) {
-        useMessagesStore.getState().flushQueue(sessionId);
-      }
+      // `create()` returns only after the provider handshake completes, so the
+      // agent can begin even when the detached setup script is still running.
+      void send(sessionId, finalInput);
     }
     setCreateSource(null);
     useSessionsStore.getState().clearDraft();

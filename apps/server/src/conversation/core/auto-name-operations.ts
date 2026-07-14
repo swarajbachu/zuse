@@ -8,7 +8,7 @@ import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { GitServiceShape } from "@zuse/git/git-service";
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
-import { Effect, PubSub, Stream } from "effect";
+import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
@@ -32,7 +32,6 @@ export interface AutoNameOperationsOptions {
 	readonly lookupChat: ConversationOperations["getChat"];
 	readonly lookupSession: ConversationOperations["getSession"];
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
-	readonly chatChangesHub: PubSub.PubSub<Chat>;
 	readonly reactorEffects: ReturnType<typeof makeReactorEffectJournal>;
 	readonly titleGen: TitleGeneratorShape;
 	readonly sessionDomain: SessionDomainApi;
@@ -49,7 +48,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 		lookupChat,
 		lookupSession,
 		broadcastChat,
-		chatChangesHub,
 		reactorEffects,
 		titleGen,
 		sessionDomain,
@@ -91,18 +89,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 			});
 			return yield* lookupChat(chatId);
 		});
-
-	const streamChatChanges: ConversationOperations["streamChatChanges"] = (
-		projectId,
-	) =>
-		Stream.unwrap(
-			Effect.gen(function* () {
-				const sub = yield* PubSub.subscribe(chatChangesHub);
-				return Stream.fromSubscription(sub).pipe(
-					Stream.filter((chat) => chat.projectId === projectId),
-				);
-			}),
-		);
 
 	/**
 	 * LLM auto-name: summarize recent user/assistant turns into a short title
@@ -245,7 +231,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 		renameChatWithCommandId,
 		renameChat,
 		markChatRead,
-		streamChatChanges,
 		autoNameChat,
 	};
 };
