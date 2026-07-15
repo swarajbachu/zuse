@@ -325,6 +325,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const LinearLayer = LinearServiceLive.pipe(
 		Layer.provide(CredentialsServiceLive),
 		Layer.provide(AuthShellLayer),
+		Layer.provide(AttachmentLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
 	);

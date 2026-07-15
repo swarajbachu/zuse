@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
+import { AttachmentRef } from "./composer.ts";
 import { SessionId } from "./session.ts";
 
 export class LinearConnection extends Schema.Class<LinearConnection>(
@@ -99,6 +100,7 @@ export const LinearPrepareContextRpc = Rpc.make("linear.prepareContext", {
 	}),
 	success: Schema.Struct({
 		files: Schema.Array(LinearContextFile),
+		attachments: Schema.Array(AttachmentRef),
 		warnings: Schema.Array(LinearContextWarning),
 	}),
 	error: LinearIntegrationError,

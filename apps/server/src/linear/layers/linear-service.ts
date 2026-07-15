@@ -2,7 +2,9 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import {
+	AttachmentRef,
 	LinearConnection,
 	LinearContextFile,
 	LinearContextWarning,
@@ -290,15 +292,47 @@ const validatePublicImageUrl = async (url: URL): Promise<void> => {
 	}
 };
 
+const IMAGE_TYPES = [
+	{ mime: "image/png", acceptedMimes: ["image/png"], extensions: ["png"] },
+	{
+		mime: "image/jpeg",
+		acceptedMimes: ["image/jpeg", "image/jpg"],
+		extensions: ["jpg", "jpeg"],
+	},
+	{ mime: "image/gif", acceptedMimes: ["image/gif"], extensions: ["gif"] },
+	{
+		mime: "image/webp",
+		acceptedMimes: ["image/webp"],
+		extensions: ["webp"],
+	},
+	{
+		mime: "image/avif",
+		acceptedMimes: ["image/avif"],
+		extensions: ["avif"],
+	},
+	{
+		mime: "image/svg+xml",
+		acceptedMimes: ["image/svg+xml"],
+		extensions: ["svg"],
+	},
+] as const;
+
 const imageExtension = (mime: string): string | null => {
 	const base = mime.split(";")[0]?.trim().toLowerCase();
-	if (base === "image/png") return "png";
-	if (base === "image/jpeg" || base === "image/jpg") return "jpg";
-	if (base === "image/gif") return "gif";
-	if (base === "image/webp") return "webp";
-	if (base === "image/avif") return "avif";
-	if (base === "image/svg+xml") return "svg";
-	return null;
+	return (
+		IMAGE_TYPES.find((type) =>
+			type.acceptedMimes.some((candidate) => candidate === base),
+		)?.extensions[0] ?? null
+	);
+};
+
+const imageMimeFromPath = (path: string): string | null => {
+	const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+	return (
+		IMAGE_TYPES.find((type) =>
+			type.extensions.some((candidate) => candidate === ext),
+		)?.mime ?? null
+	);
 };
 
 export const LinearServiceLive = Layer.effect(
@@ -309,6 +343,7 @@ export const LinearServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const pathSvc = yield* Path.Path;
 		const sql = yield* SqlClient.SqlClient;
+		const attachmentService = yield* AttachmentService;
 		const refreshLocks = new Map<string, Semaphore.Semaphore>();
 		let pending: PendingConnect | null = null;
 		const fetcher: LinearFetch = globalThis.fetch.bind(globalThis);
@@ -738,6 +773,7 @@ export const LinearServiceLive = Layer.effect(
 						fail("Could not resolve the session workspace."),
 					);
 				const files: LinearContextFile[] = [];
+				const attachments: AttachmentRef[] = [];
 				const warnings: LinearContextWarning[] = [];
 				const connections = yield* listConnections();
 				for (const ref of input.issues) {
@@ -866,9 +902,46 @@ export const LinearServiceLive = Layer.effect(
 						),
 						{ concurrency: 3 },
 					);
+					const attachmentWarnings: string[] = [];
+					for (const relPath of new Set(imageCache.values())) {
+						const mimeType = imageMimeFromPath(relPath);
+						if (mimeType === null) continue;
+						const absPath = pathSvc.join(dir, relPath);
+						const bytes = yield* fs.readFile(absPath).pipe(Effect.result);
+						if (bytes._tag === "Failure") {
+							attachmentWarnings.push(
+								`Downloaded image could not be attached to the agent: ${relPath}`,
+							);
+							continue;
+						}
+						const originalName = `${safeSegment(ref.identifier).toUpperCase()}-${pathSvc.basename(relPath)}`;
+						const uploaded = yield* attachmentService
+							.upload(
+								input.sessionId,
+								bytes.success,
+								mimeType,
+								originalName,
+								cwd,
+							)
+							.pipe(Effect.result);
+						if (uploaded._tag === "Failure") {
+							attachmentWarnings.push(
+								`Downloaded image could not be attached to the agent: ${relPath}`,
+							);
+							continue;
+						}
+						attachments.push(
+							AttachmentRef.make({
+								id: uploaded.success.id,
+								mimeType: uploaded.success.mimeType,
+								originalName,
+							}),
+						);
+					}
 					const imageWarnings = [
 						...description.warnings,
 						...commentResults.flatMap((comment) => comment.warnings),
+						...attachmentWarnings,
 					];
 					for (const message of imageWarnings)
 						warnings.push(LinearContextWarning.make({ issue: ref, message }));
@@ -894,7 +967,7 @@ export const LinearServiceLive = Layer.effect(
 						}),
 					);
 				}
-				return { files, warnings };
+				return { files, attachments, warnings };
 			},
 		);
 

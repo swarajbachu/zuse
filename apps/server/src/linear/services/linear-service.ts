@@ -1,4 +1,5 @@
 import type {
+	AttachmentRef,
 	LinearConnection,
 	LinearContextFile,
 	LinearContextWarning,
@@ -51,6 +52,7 @@ export interface LinearServiceShape {
 	}) => Effect.Effect<
 		{
 			readonly files: ReadonlyArray<LinearContextFile>;
+			readonly attachments: ReadonlyArray<AttachmentRef>;
 			readonly warnings: ReadonlyArray<LinearContextWarning>;
 		},
 		LinearIntegrationError

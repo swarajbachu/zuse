@@ -7,7 +7,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import {
   type ChatId,
-  ComposerInput,
+  type ComposerInput,
   defaultModelFor,
   type FolderId,
   type LinearIssueSummary,
@@ -43,6 +43,7 @@ import {
   type PendingDraftAttachment,
   type PendingDraftContextFile,
 } from "~/composer/draft-attachments";
+import { applyPreparedLinearContext } from "~/composer/linear-context-input";
 import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
 import { saveContextFile } from "~/lib/context-handoff";
 import { getRpcClient } from "~/lib/rpc-client";
@@ -374,19 +375,7 @@ export function ChatLanding() {
           .join(" · "),
       });
     }
-    const withPreamble = ComposerInput.make({
-      ...input,
-      text: [
-        "For the selected Linear tickets: move active work into an appropriate started state, post useful progress and completion comments, and only mark work complete after relevant verification. Ask for mutation permission when required.",
-        input.text,
-      ]
-        .filter((part) => part.trim().length > 0)
-        .join("\n\n"),
-    });
-    return prepared.files.reduce(
-      (current, file) => appendContextFileRef(current, file),
-      withPreamble,
-    );
+    return applyPreparedLinearContext(input, prepared);
   };
 
   // Driven by the real ChatComposer (draft mode): it hands back the parsed
