@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.14.0",
+    "sections": [
+      {
+        "title": "Changed",
+        "items": [
+          "Fix New Chat from usage and archive views (#344)",
+          "Restore and preview archived chats safely (#335)",
+          "Fix realtime orchestration updates (#333)",
+          "Start agents independently of workspace setup (#334)",
+          "Use native plan modes without permission churn (#332)"
+        ]
+      }
+    ]
+  },
+  {
     "version": "0.13.0",
     "sections": [
       {

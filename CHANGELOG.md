@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0]
+
+### Changed
+- Fix New Chat from usage and archive views (#344)
+- Restore and preview archived chats safely (#335)
+- Fix realtime orchestration updates (#333)
+- Start agents independently of workspace setup (#334)
+- Use native plan modes without permission churn (#332)
+
 ## [0.13.0]
 
 ### Changed
