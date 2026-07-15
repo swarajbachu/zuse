@@ -98,6 +98,10 @@ const makeHarness = (
 				Effect.sync(() => {
 					stored = null;
 				}),
+			getIntegration: () => Effect.succeed(null),
+			setIntegration: () => Effect.void,
+			removeIntegration: () => Effect.void,
+			listIntegrationAccounts: () => Effect.succeed([]),
 		}),
 	);
 	const AuthShellLayer = Layer.succeed(

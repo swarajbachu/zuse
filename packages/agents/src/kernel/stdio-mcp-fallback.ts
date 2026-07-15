@@ -10,6 +10,10 @@ import {
 	startBrowserMcpBridge,
 } from "../drivers/acp/browser-mcp-bridge.ts";
 import {
+	type LinearMcpBridge,
+	startLinearMcpBridge,
+} from "../drivers/acp/linear-mcp-bridge.ts";
+import {
 	type OrchestrationMcpBridge,
 	startOrchestrationMcpBridge,
 } from "../drivers/acp/orchestration-mcp-bridge.ts";
@@ -43,6 +47,7 @@ export const makeStdioMcpFallback = (
 ): StdioMcpFallback => {
 	let browser: BrowserMcpBridge | null = null;
 	let orchestration: OrchestrationMcpBridge | null = null;
+	let linear: LinearMcpBridge | null = null;
 
 	const ensure = async () => {
 		browser ??= await startBrowserMcpBridge({
@@ -61,9 +66,22 @@ export const makeStdioMcpFallback = (
 				getPermissionMode: options.getPermissionMode,
 			});
 		}
+		if (
+			options.orchestrationTools?.linearTools !== undefined &&
+			linear === null
+		) {
+			linear = await startLinearMcpBridge({
+				deps: options.orchestrationTools.linearTools.deps,
+				command: options.command,
+				requestPermission: options.requestPermission,
+				getRuntimeMode: options.getRuntimeMode,
+				getPermissionMode: options.getPermissionMode,
+			});
+		}
 		return [
 			browser.serverConfig,
 			...(orchestration === null ? [] : [orchestration.serverConfig]),
+			...(linear === null ? [] : [linear.serverConfig]),
 		];
 	};
 
@@ -72,14 +90,17 @@ export const makeStdioMcpFallback = (
 		projectConfigToml: () => [
 			...(browser === null ? [] : [browser.projectConfigToml]),
 			...(orchestration === null ? [] : [orchestration.projectConfigToml]),
+			...(linear === null ? [] : [linear.projectConfigToml]),
 		],
 		close: async () => {
 			await Promise.all([
 				...(browser === null ? [] : [browser.close()]),
 				...(orchestration === null ? [] : [orchestration.close()]),
+				...(linear === null ? [] : [linear.close()]),
 			]);
 			browser = null;
 			orchestration = null;
+			linear = null;
 		},
 	};
 };

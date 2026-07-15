@@ -109,6 +109,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		attachProvider,
 		setStatus,
 		startSubscription,
+		linearTools,
 		broadcastChat,
 		beginTurn,
 		persistMessage,
@@ -182,6 +183,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		attachProvider,
 		setStatus,
 		startSubscription,
+		linearTools,
 	});
 
 	const createSession: ConversationOperations["createSession"] = (

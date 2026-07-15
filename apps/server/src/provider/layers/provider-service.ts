@@ -421,6 +421,7 @@ export const ProviderServiceLive = Layer.effect(
               // Control-plane orchestration tools (when autonomy != off) use
               // their own provider-neutral `zuse-orchestration` MCP server.
               orchestrationTools?.claudeTools ?? [],
+              orchestrationTools?.linearTools?.claudeTools ?? [],
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native

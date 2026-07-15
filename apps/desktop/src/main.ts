@@ -42,6 +42,7 @@ if (
 }
 
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
+import { isLinearContextImagePath } from "./linear-context-image.ts";
 import {
 	DEFAULT_MENU_ACCELERATORS,
 	installAppMenu,
@@ -197,8 +198,23 @@ const isAuthDeepLink = (arg: string): boolean =>
 
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];
+let deliverLinearUrl: ((url: string) => void) | null = null;
+let pendingLinearUrls: string[] = [];
 
 const handleAuthCallback = (url: string): void => {
+	let isLinear = false;
+	try {
+		const parsed = new URL(url);
+		isLinear =
+			parsed.pathname === "/linear/callback" || parsed.hostname === "linear";
+	} catch {
+		// Invalid callback URLs are delivered to the account flow and rejected there.
+	}
+	if (isLinear) {
+		if (deliverLinearUrl !== null) deliverLinearUrl(url);
+		else pendingLinearUrls.push(url);
+		return;
+	}
 	if (deliverAuthUrl !== null) {
 		deliverAuthUrl(url);
 	} else {
@@ -251,7 +267,10 @@ const startAuthLoopback = async (): Promise<void> => {
 			res.end();
 			return;
 		}
-		if (parsed.pathname !== "/callback") {
+		if (
+			parsed.pathname !== "/callback" &&
+			parsed.pathname !== "/linear/callback"
+		) {
 			res.writeHead(404);
 			res.end("Not found");
 			return;
@@ -667,6 +686,9 @@ const authShell = {
 	get redirectUri() {
 		return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/callback`;
 	},
+	get linearRedirectUri() {
+		return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/linear/callback`;
+	},
 	open: (url: string) =>
 		Effect.tryPromise({
 			try: async () => {
@@ -691,6 +713,13 @@ const authShell = {
 			deliverAuthUrl = handler;
 			const queued = pendingAuthUrls;
 			pendingAuthUrls = [];
+			for (const url of queued) handler(url);
+		}),
+	onLinearCallbackUrl: (handler: (url: string) => void) =>
+		Effect.sync(() => {
+			deliverLinearUrl = handler;
+			const queued = pendingLinearUrls;
+			pendingLinearUrls = [];
 			for (const url of queued) handler(url);
 		}),
 };
@@ -1502,6 +1531,7 @@ async function createMainWindow() {
  */
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
+const LINEAR_CONTEXT_HOST = "linear-context";
 
 const MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -1510,6 +1540,7 @@ const MIME_BY_EXT: Record<string, string> = {
 	webp: "image/webp",
 	gif: "image/gif",
 	avif: "image/avif",
+	svg: "image/svg+xml",
 };
 
 type AssetFilenameCache = {
@@ -1619,6 +1650,28 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === LINEAR_CONTEXT_HOST) {
+			try {
+				const requestedPath = decodeURIComponent(url.pathname);
+				const realPath = await fs.realpath(requestedPath);
+				if (!isLinearContextImagePath(realPath)) {
+					return new Response(null, { status: 403 });
+				}
+				const ext = Path.extname(realPath).slice(1).toLowerCase();
+				const mime = MIME_BY_EXT[ext];
+				if (mime === undefined) return new Response(null, { status: 415 });
+				const response = await net.fetch(pathToFileURL(realPath).toString());
+				const headers = new Headers(response.headers);
+				headers.set("content-type", mime);
+				headers.set("cache-control", "private, max-age=3600");
+				return new Response(response.body, {
+					status: response.status,
+					headers,
+				});
+			} catch {
+				return new Response(null, { status: 404 });
+			}
+		}
 		if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
 			return new Response(null, { status: 404 });
 		}

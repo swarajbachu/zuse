@@ -541,6 +541,9 @@ export const startGeminiSession = (
 					...(orchestrationTools === null
 						? []
 						: [mcpGatewaySession.httpServerConfigs.orchestration]),
+					...(orchestrationTools?.linearTools === undefined
+						? []
+						: [mcpGatewaySession.httpServerConfigs.linear]),
 				];
 				return createAcpSession({
 					request,

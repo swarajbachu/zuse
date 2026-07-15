@@ -905,7 +905,11 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
   if (state.kind === "markdown") {
     return (
       <div className="min-h-0 flex-1 overflow-auto px-8 py-6">
-        <MarkdownBody className="mx-auto max-w-3xl" children={state.content} />
+        <MarkdownBody
+          baseHref={state.baseHref}
+          className="mx-auto max-w-3xl"
+          children={state.content}
+        />
       </div>
     );
   }

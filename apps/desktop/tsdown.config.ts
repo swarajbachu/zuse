@@ -11,8 +11,10 @@ const repoRoot = resolve(__dirname, "..", "..");
 // bun's automatic `.env` loading doesn't reach it. Read .env files ourselves
 // so both dev (`tsdown --watch`) and packaged builds inline the public WorkOS
 // client id. A real shell/CI env var always wins.
-const resolveWorkosClientId = (): string => {
-  if (process.env.WORKOS_CLIENT_ID) return process.env.WORKOS_CLIENT_ID;
+const resolveClientId = (
+  name: "WORKOS_CLIENT_ID" | "LINEAR_CLIENT_ID",
+): string => {
+  if (process.env[name]) return process.env[name];
   const envPaths = [
     resolve(process.cwd(), ".env"),
     resolve(__dirname, ".env"),
@@ -21,7 +23,7 @@ const resolveWorkosClientId = (): string => {
   for (const envPath of envPaths) {
     if (!existsSync(envPath)) continue;
     for (const line of readFileSync(envPath, "utf8").split("\n")) {
-      const match = line.match(/^\s*WORKOS_CLIENT_ID\s*=\s*(.*?)\s*$/);
+      const match = line.match(new RegExp(`^\\s*${name}\\s*=\\s*(.*?)\\s*$`));
       if (match?.[1] !== undefined) {
         return match[1].replace(/^["']|["']$/g, "");
       }
@@ -30,7 +32,8 @@ const resolveWorkosClientId = (): string => {
   return "";
 };
 
-const WORKOS_CLIENT_ID = resolveWorkosClientId();
+const WORKOS_CLIENT_ID = resolveClientId("WORKOS_CLIENT_ID");
+const LINEAR_CLIENT_ID = resolveClientId("LINEAR_CLIENT_ID");
 
 const shared = {
   format: "cjs" as const,
@@ -44,6 +47,7 @@ const shared = {
   // Dev: `export WORKOS_CLIENT_ID=client_… ` before `bun run dev`.
   define: {
     "process.env.WORKOS_CLIENT_ID": JSON.stringify(WORKOS_CLIENT_ID),
+    "process.env.LINEAR_CLIENT_ID": JSON.stringify(LINEAR_CLIENT_ID),
   },
   // Workspace packages ship as raw .ts source — bundle them in instead of
   // letting Node try to require() the .ts file at runtime.
@@ -114,6 +118,20 @@ export default defineConfig([
     entry: {
       "orchestration-mcp-child":
         "../../packages/agents/src/drivers/acp/orchestration-mcp-child.ts",
+    },
+    deps: {
+      alwaysBundle: [
+        "@zuse/contracts",
+        "@zuse/agents",
+        "@modelcontextprotocol/sdk",
+      ],
+    },
+  },
+  {
+    ...shared,
+    entry: {
+      "linear-mcp-child":
+        "../../packages/agents/src/drivers/acp/linear-mcp-child.ts",
     },
     deps: {
       alwaysBundle: [

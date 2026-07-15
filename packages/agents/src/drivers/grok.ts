@@ -1123,6 +1123,9 @@ export const startGrokSession = (
 				...(orchestrationTools === null
 					? []
 					: [mcpGatewaySession.httpServerConfigs.orchestration]),
+				...(orchestrationTools?.linearTools === undefined
+					? []
+					: [mcpGatewaySession.httpServerConfigs.linear]),
 			];
 			const acquisition = await createAcpSession({
 				request,
