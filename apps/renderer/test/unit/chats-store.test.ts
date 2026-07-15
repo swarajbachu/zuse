@@ -14,10 +14,16 @@ const {
 	reportRendererRpcStreamFailure,
 	rpcClientFactory,
 	subscribeRendererRpcConnection,
+	toastAdd,
 } = vi.hoisted(() => ({
 	reportRendererRpcStreamFailure: vi.fn(),
 	rpcClientFactory: vi.fn(),
 	subscribeRendererRpcConnection: vi.fn(),
+	toastAdd: vi.fn(),
+}));
+
+vi.mock("../../src/components/ui/toast.tsx", () => ({
+	toastManager: { add: toastAdd },
 }));
 
 vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
@@ -285,6 +291,7 @@ describe("chats store live changes", () => {
 
 describe("archiveChatWithConfirm", () => {
 	beforeEach(() => {
+		toastAdd.mockClear();
 		useChatsStore.setState({
 			chatsByProject: { [projectId]: [chat] },
 			selectedChatId: chatId,
@@ -329,5 +336,33 @@ describe("archiveChatWithConfirm", () => {
 		expect(
 			useChatsStore.getState().archiveProgressByChat[chatId],
 		).toBeUndefined();
+	});
+
+	it("shows a concise toast after a successful archive", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({
+					chat: archivedChat,
+					cleanup: null,
+					checkpoint: {
+						archiveCommit: "checkpoint-sha",
+						checkpointCreated: true,
+						archiveRef: null,
+						branch: "feature",
+					},
+				}),
+			"chat.list": () => Effect.succeed([archivedChat]),
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		const result = await useChatsStore.getState().archive(chatId);
+
+		expect(result).toEqual({ ok: true });
+		expect(toastAdd).toHaveBeenCalledTimes(1);
+		expect(toastAdd).toHaveBeenCalledWith({
+			type: "success",
+			title: "Archived",
+		});
 	});
 });

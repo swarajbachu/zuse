@@ -13,12 +13,12 @@ import { Effect, Fiber, Stream } from "effect";
 import { create } from "zustand";
 
 import { toastManager } from "../components/ui/toast.tsx";
+import { formatError } from "../lib/format-error.ts";
 import {
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
-import { formatError } from "../lib/format-error.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useTerminalsStore } from "./terminals.ts";
@@ -508,13 +508,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			const result = await Effect.runPromise(
 				client["chat.archive"]({ chatId }),
 			);
-			if (result.checkpoint?.checkpointCreated) {
-				toastManager.add({
-					type: "success",
-					title: "Uncommitted changes saved",
-					description: `Saved uncommitted changes to branch ${result.checkpoint.branch}`,
-				});
-			}
+			toastManager.add({ type: "success", title: "Archived" });
 			const projectId = findChatProject(get().chatsByProject, chatId);
 			if (projectId !== null) {
 				set((s) => {
