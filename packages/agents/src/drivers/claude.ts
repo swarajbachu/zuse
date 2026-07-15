@@ -44,6 +44,11 @@ import {
 	startCompactSnapshot,
 } from "./compact.ts";
 import {
+	type buildLinearTools,
+	LINEAR_MCP_SERVER_NAME,
+	LINEAR_MCP_TOOLS,
+} from "./linear-tools.ts";
+import {
 	type buildOrchestrationTools,
 	ORCHESTRATION_MCP_SERVER_NAME,
 	ORCHESTRATION_MCP_TOOLS,
@@ -1411,6 +1416,7 @@ export type GetRuntimeMode = () => RuntimeMode;
 
 type BrowserSdkTool = ReturnType<typeof buildBrowserTools>[number];
 type OrchestrationSdkTool = ReturnType<typeof buildOrchestrationTools>[number];
+type LinearSdkTool = ReturnType<typeof buildLinearTools>[number];
 
 export const startClaudeSession = (
 	input: StartSessionInput,
@@ -1428,6 +1434,7 @@ export const startClaudeSession = (
 	// separate server name (`zuse-orchestration`) so Claude, Codex, and Grok see
 	// the same MCP surface and smoke-test instructions.
 	orchestrationTools: ReadonlyArray<OrchestrationSdkTool> = [],
+	linearTools: ReadonlyArray<LinearSdkTool> = [],
 ): Effect.Effect<
 	ClaudeSessionHandle,
 	AgentSessionStartError,
@@ -1638,6 +1645,14 @@ export const startClaudeSession = (
 						tools: [...orchestrationTools],
 						alwaysLoad: !(input.toolSearch ?? false),
 					});
+		const linearMcpServer =
+			linearTools.length === 0
+				? null
+				: createSdkMcpServer({
+						name: LINEAR_MCP_SERVER_NAME,
+						tools: [...linearTools],
+						alwaysLoad: !(input.toolSearch ?? false),
+					});
 
 		const env = applyClaudeWorktreeEnv(
 			scrubInheritedClaudeMarkers(process.env),
@@ -1663,6 +1678,9 @@ export const startClaudeSession = (
 						"Agent",
 						ASK_USER_QUESTION_FQN,
 						...ORCHESTRATION_TOOL_FQNS,
+						...LINEAR_MCP_TOOLS.map(
+							(tool) => `mcp__${LINEAR_MCP_SERVER_NAME}__${tool.name}`,
+						),
 					],
 				} as Pick<Options, "agents" | "allowedTools">)
 			: {};
@@ -1675,10 +1693,10 @@ export const startClaudeSession = (
 		const disallowedTools: ReadonlyArray<string> = [
 			SDK_BUILTIN_ASK_USER_QUESTION,
 		];
-		const initialPermissionMode = input.permissionMode ?? "default";
+		let currentPermissionMode = input.permissionMode ?? "default";
 		const initialSdkPermissionMode = runtimeModeToSdkPermissionMode(
 			getRuntimeMode(),
-			initialPermissionMode,
+			currentPermissionMode,
 		);
 		const options: Options = {
 			cwd,
@@ -1707,6 +1725,9 @@ export const startClaudeSession = (
 				...(orchestrationMcpServer === null
 					? {}
 					: { [ORCHESTRATION_MCP_SERVER_NAME]: orchestrationMcpServer }),
+				...(linearMcpServer === null
+					? {}
+					: { [LINEAR_MCP_SERVER_NAME]: linearMcpServer }),
 			},
 			permissionMode: initialSdkPermissionMode,
 			...(initialSdkPermissionMode === "bypassPermissions"
@@ -1748,6 +1769,21 @@ export const startClaudeSession = (
 			// `PermissionService`. The renderer's toast eventually fulfills the
 			// promise this awaits.
 			canUseTool: async (toolName, toolInput) => {
+				const isLinearRead =
+					toolName.endsWith("__linear_search_issues") ||
+					toolName.endsWith("__linear_get_issue");
+				const isLinearMutation =
+					toolName.endsWith("__linear_add_comment") ||
+					toolName.endsWith("__linear_update_issue");
+				if (isLinearRead) {
+					return { behavior: "allow", updatedInput: toolInput };
+				}
+				if (isLinearMutation && currentPermissionMode === "plan") {
+					return {
+						behavior: "deny",
+						message: "Issue mutations are unavailable in plan mode.",
+					};
+				}
 				const policy = policyFor(toolName, toolInput, getRuntimeMode());
 				// One-line debug so if the auto-allow ever misses (e.g. SDK
 				// changes the MCP-tool naming convention) we can see the
@@ -1962,6 +1998,7 @@ export const startClaudeSession = (
 				}).pipe(
 					Effect.tap(() =>
 						Effect.sync(() => {
+							currentPermissionMode = mode;
 							Queue.offerUnsafe(events, {
 								_tag: "PermissionModeChanged",
 								mode,

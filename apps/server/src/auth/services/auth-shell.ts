@@ -1,6 +1,5 @@
-import { Context, type Effect } from "effect";
-
 import type { AuthFlowError } from "@zuse/contracts";
+import { Context, type Effect } from "effect";
 
 /**
  * The host-shell seam for the OAuth deep-link flow — the auth analogue of
@@ -19,13 +18,17 @@ import type { AuthFlowError } from "@zuse/contracts";
  */
 export interface AuthShellShape {
   readonly redirectUri: string;
+  /** Optional native-integration callback route served by the same host. */
+  readonly linearRedirectUri?: string;
   readonly open: (url: string) => Effect.Effect<void, AuthFlowError>;
   readonly onCallbackUrl: (
     handler: (url: string) => void,
   ) => Effect.Effect<void>;
+  readonly onLinearCallbackUrl?: (
+    handler: (url: string) => void,
+  ) => Effect.Effect<void>;
 }
 
-export class AuthShell extends Context.Service<
-  AuthShell,
-  AuthShellShape
->()("memoize/AuthShell") {}
+export class AuthShell extends Context.Service<AuthShell, AuthShellShape>()(
+  "memoize/AuthShell",
+) {}

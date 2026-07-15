@@ -197,8 +197,23 @@ const isAuthDeepLink = (arg: string): boolean =>
 
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];
+let deliverLinearUrl: ((url: string) => void) | null = null;
+let pendingLinearUrls: string[] = [];
 
 const handleAuthCallback = (url: string): void => {
+	let isLinear = false;
+	try {
+		const parsed = new URL(url);
+		isLinear =
+			parsed.pathname === "/linear/callback" || parsed.hostname === "linear";
+	} catch {
+		// Invalid callback URLs are delivered to the account flow and rejected there.
+	}
+	if (isLinear) {
+		if (deliverLinearUrl !== null) deliverLinearUrl(url);
+		else pendingLinearUrls.push(url);
+		return;
+	}
 	if (deliverAuthUrl !== null) {
 		deliverAuthUrl(url);
 	} else {
@@ -251,7 +266,10 @@ const startAuthLoopback = async (): Promise<void> => {
 			res.end();
 			return;
 		}
-		if (parsed.pathname !== "/callback") {
+		if (
+			parsed.pathname !== "/callback" &&
+			parsed.pathname !== "/linear/callback"
+		) {
 			res.writeHead(404);
 			res.end("Not found");
 			return;
@@ -667,6 +685,9 @@ const authShell = {
 	get redirectUri() {
 		return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/callback`;
 	},
+	get linearRedirectUri() {
+		return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/linear/callback`;
+	},
 	open: (url: string) =>
 		Effect.tryPromise({
 			try: async () => {
@@ -691,6 +712,13 @@ const authShell = {
 			deliverAuthUrl = handler;
 			const queued = pendingAuthUrls;
 			pendingAuthUrls = [];
+			for (const url of queued) handler(url);
+		}),
+	onLinearCallbackUrl: (handler: (url: string) => void) =>
+		Effect.sync(() => {
+			deliverLinearUrl = handler;
+			const queued = pendingLinearUrls;
+			pendingLinearUrls = [];
 			for (const url of queued) handler(url);
 		}),
 };

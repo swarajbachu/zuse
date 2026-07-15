@@ -41,6 +41,7 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 					scopes: {
 						browser: true,
 						orchestration: options.orchestrationTools !== null,
+						linear: options.orchestrationTools?.linearTools !== undefined,
 					},
 					ctx: {
 						browser: {
@@ -54,6 +55,16 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 							: {
 									orchestration: {
 										deps: options.orchestrationTools.deps,
+										requestPermission: options.requestPermission,
+										getRuntimeMode: options.getRuntimeMode,
+										getPermissionMode: options.getPermissionMode,
+									},
+								}),
+						...(options.orchestrationTools?.linearTools === undefined
+							? {}
+							: {
+									linear: {
+										deps: options.orchestrationTools.linearTools.deps,
 										requestPermission: options.requestPermission,
 										getRuntimeMode: options.getRuntimeMode,
 										getPermissionMode: options.getPermissionMode,

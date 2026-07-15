@@ -8,6 +8,7 @@ import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
 import { GitHandlersLayer } from "./git/handlers.ts";
 import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
+import { LinearHandlersLayer } from "./linear/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
 import { ProviderHandlersLayer } from "./provider/handlers.ts";
@@ -30,6 +31,7 @@ export const HandlersLayer = Layer.mergeAll(
   LanAuthHandlersLayer,
   RelayHandlersLayer,
   AuthHandlersLayer,
+  LinearHandlersLayer,
   WorkspaceHandlersLayer,
   PtyHandlersLayer,
   GitHandlersLayer,

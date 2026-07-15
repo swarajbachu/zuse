@@ -22,6 +22,7 @@ export type View = "chat" | "settings";
 export type SettingsSection =
   | { readonly kind: "general" }
   | { readonly kind: "providers" }
+  | { readonly kind: "integrations" }
   | { readonly kind: "workspace" }
   | { readonly kind: "devices" }
   | { readonly kind: "pokedex" }

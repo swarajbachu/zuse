@@ -27,6 +27,7 @@ import {
 	LanAuthConfig,
 	type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
+import { LinearServiceLive } from "./linear/layers/linear-service.ts";
 import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -321,6 +322,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const RelayActivityPublisherLayer = RelayActivityPublisherLive.pipe(
 		Layer.provide(LanAuthLayer),
 	);
+	const LinearLayer = LinearServiceLive.pipe(
+		Layer.provide(CredentialsServiceLive),
+		Layer.provide(AuthShellLayer),
+		Layer.provide(MigratedSqlite),
+		Layer.provide(NodeServices.layer),
+	);
 
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
 		Layer.provide(ConversationState.layer),
@@ -334,6 +341,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),
 		Layer.provide(RelayActivityPublisherLayer),
+		Layer.provide(LinearLayer),
 		Layer.provide(ProjectorCatchup),
 		Layer.provide(SessionDomainLayer),
 		Layer.provide(ChatDomainLayer),
@@ -377,7 +385,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(SessionStoreLive),
 		Layer.provide(AuthShellLayer),
 	);
-
 	// RelayLinkService orchestrates the desktop's self-registration with the
 	// account relay (challenge → Ed25519 proof → link → persist → heartbeat). It
 	// reuses the environment identity (LanAuthService) and the WorkOS token
@@ -431,6 +438,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		LanAuthLayer,
 		RelayLinkLayer,
 		ExternalThreadLayer,
+		LinearLayer,
 		FolderPickerLayer,
 	);
 

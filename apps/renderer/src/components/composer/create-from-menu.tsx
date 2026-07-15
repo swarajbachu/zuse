@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
   GitBranchIcon,
@@ -5,17 +6,17 @@ import {
   RecordIcon,
   Search01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Effect } from "effect";
-import { useEffect, useMemo, useRef, useState } from "react";
-
 import type {
   FolderId,
   GitBranchInfo,
   GitIssueSummary,
   GitPrSummary,
+  LinearConnection,
+  LinearIssueSummary,
   WorktreeId,
 } from "@zuse/contracts";
+import { Effect } from "effect";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PopoverPrimitive } from "~/components/ui/popover";
 import { getRpcClient } from "~/lib/rpc-client.ts";
@@ -45,9 +46,14 @@ export type CreateFromSelection =
       readonly kind: "issue";
       readonly number: number;
       readonly title: string;
+    }
+  | {
+      readonly kind: "linear";
+      readonly issues: ReadonlyArray<LinearIssueSummary>;
+      readonly mode: "combined" | "separate";
     };
 
-type Tab = "prs" | "branches" | "issues";
+type Tab = "prs" | "branches" | "issues" | "linear";
 
 interface Row {
   readonly key: string;
@@ -63,6 +69,7 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "prs", label: "PRs" },
   { id: "branches", label: "Branches" },
   { id: "issues", label: "Issues" },
+  { id: "linear", label: "Linear" },
 ];
 
 export interface CreateFromMenuProps {
@@ -89,6 +96,17 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   const [issues, setIssues] = useState<ReadonlyArray<GitIssueSummary> | null>(
     null,
   );
+  const [linearConnections, setLinearConnections] =
+    useState<ReadonlyArray<LinearConnection> | null>(null);
+  const [linearIssues, setLinearIssues] =
+    useState<ReadonlyArray<LinearIssueSummary> | null>(null);
+  const [linearWorkspaceId, setLinearWorkspaceId] = useState("");
+  const [selectedLinear, setSelectedLinear] = useState<
+    ReadonlyMap<string, LinearIssueSummary>
+  >(new Map());
+  const [linearMode, setLinearMode] = useState<"combined" | "separate" | null>(
+    null,
+  );
   const [worktreesLoadedForOpen, setWorktreesLoadedForOpen] = useState(false);
   // branch name → worktreeId, for the "In use" badge + reuse behaviour.
   const [worktreeByBranch, setWorktreeByBranch] = useState<
@@ -104,6 +122,42 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
     setWorktreeByBranch(new Map());
     setWorktreesLoadedForOpen(false);
   }, [folderId]);
+
+  useEffect(() => {
+    if (!open || tab !== "linear") return;
+    let cancelled = false;
+    const timer = window.setTimeout(
+      () => {
+        void (async () => {
+          try {
+            const client = await getRpcClient();
+            if (linearConnections === null) {
+              const connections = await Effect.runPromise(
+                client["linear.listConnections"]({}),
+              );
+              if (!cancelled) setLinearConnections(connections);
+            }
+            const result = await Effect.runPromise(
+              client["linear.listIssues"]({
+                ...(query.trim() === "" ? {} : { query: query.trim() }),
+                ...(linearWorkspaceId === ""
+                  ? {}
+                  : { workspaceIds: [linearWorkspaceId] }),
+              }),
+            );
+            if (!cancelled) setLinearIssues(result.issues);
+          } catch {
+            if (!cancelled) setLinearIssues([]);
+          }
+        })();
+      },
+      query.trim() === "" ? 0 : 250,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, tab, query, linearWorkspaceId, linearConnections]);
 
   useEffect(() => {
     if (!open) {
@@ -159,7 +213,8 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   const loading =
     (tab === "prs" && prs === null) ||
     (tab === "branches" && branches === null) ||
-    (tab === "issues" && issues === null);
+    (tab === "issues" && issues === null) ||
+    (tab === "linear" && linearIssues === null);
 
   const rows = useMemo<ReadonlyArray<Row>>(() => {
     if (tab === "prs") {
@@ -206,22 +261,25 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
           };
         });
     }
-    return (issues ?? []).map((issue) => ({
-      key: `is:${issue.number}`,
-      icon: RecordIcon,
-      lead: `#${issue.number}`,
-      label: issue.title,
-      inUse: false,
-      selection: { kind: "issue", number: issue.number, title: issue.title },
-      haystack: `${issue.number} ${issue.title} ${issue.author}`,
-    }));
+    if (tab === "issues")
+      return (issues ?? []).map((issue) => ({
+        key: `is:${issue.number}`,
+        icon: RecordIcon,
+        lead: `#${issue.number}`,
+        label: issue.title,
+        inUse: false,
+        selection: { kind: "issue", number: issue.number, title: issue.title },
+        haystack: `${issue.number} ${issue.title} ${issue.author}`,
+      }));
+    return [];
   }, [tab, prs, branches, issues, worktreeByBranch]);
 
   const filtered = useMemo(() => {
+    if (tab === "linear") return [];
     const q = query.trim().toLowerCase();
     if (q.length === 0) return rows;
     return rows.filter((r) => r.haystack.toLowerCase().includes(q));
-  }, [rows, query]);
+  }, [rows, query, tab]);
 
   useEffect(() => setHighlight(0), [filtered]);
 
@@ -232,6 +290,23 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (tab === "linear") {
+      const issue = (linearIssues ?? [])[highlight];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const count = linearIssues?.length ?? 0;
+        if (count > 0)
+          setHighlight((value) =>
+            e.key === "ArrowDown"
+              ? (value + 1) % count
+              : (value - 1 + count) % count,
+          );
+      } else if ((e.key === "Enter" || e.key === " ") && issue !== undefined) {
+        e.preventDefault();
+        toggleLinear(issue);
+      }
+      return;
+    }
     if (filtered.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -244,6 +319,30 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
       const row = filtered[highlight];
       if (row !== undefined) confirm(row);
     }
+  };
+
+  const linearKey = (issue: LinearIssueSummary) =>
+    `${issue.workspaceId}:${issue.issueId}`;
+  const toggleLinear = (issue: LinearIssueSummary) => {
+    setSelectedLinear((current) => {
+      const next = new Map(current);
+      const key = linearKey(issue);
+      if (next.has(key)) next.delete(key);
+      else next.set(key, issue);
+      return next;
+    });
+  };
+
+  const confirmLinear = () => {
+    if (selectedLinear.size === 0 || linearMode === null) return;
+    onSelect({
+      kind: "linear",
+      issues: [...selectedLinear.values()],
+      mode: linearMode,
+    });
+    setOpen(false);
+    setSelectedLinear(new Map());
+    setLinearMode(null);
   };
 
   return (
@@ -262,7 +361,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
           "hover:bg-accent data-[popup-open]:bg-accent",
           folderId === null && "pointer-events-none opacity-50",
         )}
-        aria-label="Create from an existing PR, branch, or issue"
+        aria-label="Create from an existing PR, branch, or issue tracker ticket"
       >
         <HugeiconsIcon
           icon={GitPullRequestIcon}
@@ -294,7 +393,9 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                 placeholder={
                   tab === "branches"
                     ? "Search by name"
-                    : "Search by title, number, or author"
+                    : tab === "linear"
+                      ? "Search ticker or title"
+                      : "Search by title, number, or author"
                 }
                 className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
@@ -319,11 +420,86 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                 </button>
               ))}
             </div>
+            {tab === "linear" && (linearConnections?.length ?? 0) > 1 && (
+              <div className="border-b border-border/50 px-3 py-2">
+                <select
+                  aria-label="Filter by Linear workspace"
+                  value={linearWorkspaceId}
+                  onChange={(event) => setLinearWorkspaceId(event.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">All workspaces</option>
+                  {linearConnections?.map((connection) => (
+                    <option
+                      key={connection.workspaceId}
+                      value={connection.workspaceId}
+                    >
+                      {connection.workspaceName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="max-h-80 min-h-24 overflow-y-auto py-1">
               {loading ? (
                 <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                   Loading…
                 </div>
+              ) : tab === "linear" && (linearConnections?.length ?? 0) === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                  Connect a Linear workspace in Settings → Integrations.
+                </div>
+              ) : tab === "linear" ? (
+                (linearIssues ?? []).length === 0 ? (
+                  <div className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    {query.trim() === ""
+                      ? "No assigned open issues."
+                      : "No matching issues."}
+                  </div>
+                ) : (
+                  (linearIssues ?? []).map((issue, index) => {
+                    const checked = selectedLinear.has(linearKey(issue));
+                    const active = index === highlight;
+                    return (
+                      <label
+                        key={linearKey(issue)}
+                        onMouseEnter={() => setHighlight(index)}
+                        className={cn(
+                          "flex w-full items-center gap-3 px-3 py-2 text-left transition-colors",
+                          active ? "bg-accent" : "hover:bg-muted",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLinear(issue)}
+                          aria-label={`Select ${issue.identifier}: ${issue.title}`}
+                          className="sr-only"
+                        />
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "grid size-4 shrink-0 place-items-center rounded border text-[10px]",
+                            checked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border",
+                          )}
+                        >
+                          {checked ? "✓" : ""}
+                        </span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          {issue.identifier}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {issue.title}
+                        </span>
+                        <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">
+                          {issue.workspaceName}
+                        </span>
+                      </label>
+                    );
+                  })
+                )
               ) : filtered.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-muted-foreground">
                   {tab === "branches"
@@ -366,6 +542,37 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                 })
               )}
             </div>
+            {tab === "linear" && (
+              <div className="flex items-center gap-2 border-t border-border/50 px-3 py-2">
+                <span className="mr-auto text-xs text-muted-foreground">
+                  {selectedLinear.size} selected
+                </span>
+                {(["combined", "separate"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={linearMode === mode}
+                    onClick={() => setLinearMode(mode)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1.5 text-xs capitalize",
+                      linearMode === mode
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={selectedLinear.size === 0 || linearMode === null}
+                  onClick={confirmLinear}
+                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-40"
+                >
+                  Stage
+                </button>
+              </div>
+            )}
           </PopoverPrimitive.Popup>
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>

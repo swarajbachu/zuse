@@ -1,5 +1,5 @@
-import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert01Icon,
   ArrowLeft01Icon,
@@ -18,54 +18,54 @@ import {
   Tick01Icon,
   VolumeHighIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-
-import { Effect } from "effect";
-
-import { getRpcClient } from "../lib/rpc-client.ts";
-
 import {
   type AppearanceMode,
   type BranchNamingStyle,
-  MODELS_BY_PROVIDER,
   type CompletionSoundPreset,
   type Folder,
   type FolderId,
+  MODELS_BY_PROVIDER,
   type ProviderId,
   type RuntimeMode,
   visibleModelsForProvider,
 } from "@zuse/contracts";
+import { Effect } from "effect";
+import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
 import {
   formatRelativeTime,
   useRelativeTimeTick,
 } from "~/lib/use-relative-time.ts";
-import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
-import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
-import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import { useAuth } from "../hooks/use-auth.ts";
 import {
   COMPLETION_SOUND_PRESETS,
   playCompletionSound,
   prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
-import { useAuth } from "../hooks/use-auth.ts";
+import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
+import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import { getRpcClient } from "../lib/rpc-client.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
-import { useUiStore, type SettingsSection } from "../store/ui.ts";
+import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
+import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
+import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
+import { Card } from "./ui/card.tsx";
+import { Frame, FrameFooter, FrameHeader } from "./ui/frame.tsx";
 import {
   Select,
   SelectItem,
@@ -74,8 +74,6 @@ import {
   SelectValue,
 } from "./ui/select.tsx";
 import { Switch } from "./ui/switch";
-import { Frame, FrameFooter, FrameHeader } from "./ui/frame.tsx";
-import { Card } from "./ui/card.tsx";
 
 const PROVIDER_LABEL: Record<ProviderId, string> = {
   claude: "Claude Code",
@@ -111,6 +109,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     label: "Workspace",
     Icon: GitBranchIcon,
     section: { kind: "workspace" },
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    Icon: GlobeIcon,
+    section: { kind: "integrations" },
   },
   {
     id: "devices",
@@ -325,6 +329,13 @@ function SectionTitle({
           "Verify what's installed, signed in, and which subscription each provider runs on.",
       };
     }
+    if (section.kind === "integrations") {
+      return {
+        title: "Integrations",
+        subtitle:
+          "Connect issue workspaces and bring tickets into new sessions.",
+      };
+    }
     if (section.kind === "devices") {
       return {
         title: "Devices",
@@ -404,6 +415,7 @@ function SectionTitle({
 function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "general") return <GeneralPane />;
   if (section.kind === "providers") return <ProvidersPane />;
+  if (section.kind === "integrations") return <LinearIntegrationsPane />;
   if (section.kind === "workspace") return <WorkspacePane />;
   if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;
@@ -2022,5 +2034,5 @@ export function ensureValidDefaultsForRuntime(
   };
 }
 
-export { PROVIDER_LABEL };
 export type { FolderId };
+export { PROVIDER_LABEL };

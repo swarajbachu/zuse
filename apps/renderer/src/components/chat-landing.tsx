@@ -5,28 +5,20 @@ import {
   FolderAddIcon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
-
-import { Effect } from "effect";
-
 import {
-  type ComposerInput,
+  type ChatId,
+  ComposerInput,
   defaultModelFor,
   type FolderId,
+  type LinearIssueSummary,
   type ProviderId,
+  type SessionId,
   type WorktreeCreateSource,
   type WorktreeId,
 } from "@zuse/contracts";
-
-import { cn } from "~/lib/utils";
-import {
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from "~/components/ui/menu";
+import { Effect } from "effect";
+import { X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   Frame,
   FrameFooter,
@@ -34,9 +26,16 @@ import {
   FramePanel,
   FrameTitle,
 } from "~/components/ui/frame";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "~/components/ui/menu";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Spinner } from "~/components/ui/spinner";
-import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
+import { toastManager } from "~/components/ui/toast.tsx";
 import {
   appendContextFileRef,
   finalizeDraftAttachments,
@@ -44,26 +43,28 @@ import {
   type PendingDraftAttachment,
   type PendingDraftContextFile,
 } from "~/composer/draft-attachments";
+import { resolveAutoWorktreeId } from "~/lib/auto-worktree";
+import { saveContextFile } from "~/lib/context-handoff";
+import { getRpcClient } from "~/lib/rpc-client";
+import { cn } from "~/lib/utils";
+import { useAttachmentsStore } from "~/store/attachments";
 import { useChatsStore } from "~/store/chats";
+import { useComposerBridge } from "~/store/composer-bridge";
+import { composerDraftKeyForLanding } from "~/store/composer-drafts";
+import { useExternalThreadsStore } from "~/store/external-threads";
 import { useMessagesStore } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
-import { useExternalThreadsStore } from "~/store/external-threads";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
-import { useAttachmentsStore } from "~/store/attachments";
-import { composerDraftKeyForLanding } from "~/store/composer-drafts";
-import { useComposerBridge } from "~/store/composer-bridge";
-import { saveContextFile } from "~/lib/context-handoff";
-import { getRpcClient } from "~/lib/rpc-client";
+import { ChatComposer } from "./chat-composer.tsx";
 import {
   CreateFromMenu,
   type CreateFromSelection,
 } from "./composer/create-from-menu.tsx";
-import { ChatComposer } from "./chat-composer.tsx";
-import { PROVIDER_LABEL } from "./settings-page";
 import { ProviderIcon } from "./provider-icons";
+import { PROVIDER_LABEL } from "./settings-page";
 import { SetupCardView } from "./worktree-setup-card.tsx";
 
 /**
@@ -198,6 +199,10 @@ export function ChatLanding() {
       readonly markdown: string;
       readonly title: string;
     } | null;
+    readonly linear: {
+      readonly issues: ReadonlyArray<LinearIssueSummary>;
+      readonly mode: "combined" | "separate";
+    } | null;
   } | null>(null);
   const [creatingSource, setCreatingSource] = useState(false);
 
@@ -262,6 +267,24 @@ export function ChatLanding() {
   ): Promise<void> => {
     if (selectedFolderId === null || creatingSource) return;
     setSubmitError(null);
+    if (sel.kind === "linear") {
+      const identifiers = sel.issues
+        .map((issue) => issue.identifier)
+        .join(", ");
+      setCreateSource({
+        kind: "linear",
+        worktreeId: null,
+        label: identifiers,
+        issue: null,
+        linear: { issues: sel.issues, mode: sel.mode },
+      });
+      const generated =
+        sel.mode === "combined"
+          ? `Implement ${identifiers} together in one pull request. Work through every selected ticket and verify the combined result.`
+          : `Implement each selected Linear ticket in its own session and pull request. Verify each ticket before completing it.`;
+      useComposerBridge.getState().insertText?.(generated);
+      return;
+    }
     if (sel.kind === "issue") {
       try {
         const client = await getRpcClient();
@@ -276,6 +299,7 @@ export function ChatLanding() {
           worktreeId: null,
           label: `#${sel.number}`,
           issue: { markdown: res.markdown, title: res.title || sel.title },
+          linear: null,
         });
         // Prefill the composer with an editable default the user can rewrite.
         const insert = useComposerBridge.getState().insertText;
@@ -297,6 +321,7 @@ export function ChatLanding() {
         worktreeId: sel.existingWorktreeId,
         label,
         issue: null,
+        linear: null,
       });
       return;
     }
@@ -315,7 +340,53 @@ export function ChatLanding() {
       );
       return;
     }
-    setCreateSource({ kind: sel.kind, worktreeId: wt.id, label, issue: null });
+    setCreateSource({
+      kind: sel.kind,
+      worktreeId: wt.id,
+      label,
+      issue: null,
+      linear: null,
+    });
+  };
+
+  const prepareLinearInput = async (
+    sessionId: SessionId,
+    issues: ReadonlyArray<LinearIssueSummary>,
+    input: ComposerInput,
+  ): Promise<ComposerInput> => {
+    const client = await getRpcClient();
+    const prepared = await Effect.runPromise(
+      client["linear.prepareContext"]({
+        sessionId,
+        issues: issues.map((issue) => ({
+          workspaceId: issue.workspaceId,
+          issueId: issue.issueId,
+          identifier: issue.identifier,
+        })),
+      }),
+    );
+    if (prepared.warnings.length > 0) {
+      toastManager.add({
+        type: "error",
+        title: "Some Linear context was incomplete",
+        description: prepared.warnings
+          .map((warning) => warning.message)
+          .join(" · "),
+      });
+    }
+    const withPreamble = ComposerInput.make({
+      ...input,
+      text: [
+        "For the selected Linear tickets: move active work into an appropriate started state, post useful progress and completion comments, and only mark work complete after relevant verification. Ask for mutation permission when required.",
+        input.text,
+      ]
+        .filter((part) => part.trim().length > 0)
+        .join("\n\n"),
+    });
+    return prepared.files.reduce(
+      (current, file) => appendContextFileRef(current, file),
+      withPreamble,
+    );
   };
 
   // Driven by the real ChatComposer (draft mode): it hands back the parsed
@@ -340,6 +411,120 @@ export function ChatLanding() {
     setPendingPrompt(
       input.text.trim().length > 0 ? input.text.trim() : "New chat",
     );
+    if (
+      createSource?.linear?.mode === "separate" &&
+      createSource.linear.issues.length > 0
+    ) {
+      const issues = createSource.linear.issues;
+      const successes: Array<{
+        chatId: ChatId;
+        sessionId: SessionId;
+      }> = [];
+      const failures: string[] = [];
+      let cursor = 0;
+      const launchOne = async (issue: LinearIssueSummary) => {
+        const worktreeId = await resolveAutoWorktreeId(selectedFolderId);
+        const result = await create(
+          selectedFolderId,
+          draft.providerId,
+          draft.model,
+          {
+            title: `${issue.identifier} ${issue.title}`,
+            runtimeMode: draft.runtimeMode,
+            permissionMode: draft.permissionMode,
+            worktreeId,
+          },
+        );
+        if (result === null) {
+          failures.push(`${issue.identifier}: couldn't create session`);
+          return;
+        }
+        migrateModelOptions(DRAFT_SESSION_ID, result.initialSessionId);
+        try {
+          let ticketInput = await prepareLinearInput(
+            result.initialSessionId,
+            [issue],
+            input,
+          );
+          const uploadRoot =
+            worktreeId === null
+              ? (selectedFolder?.path ?? null)
+              : ((
+                  useWorktreesStore.getState().byProject[selectedFolderId] ??
+                  EMPTY_WORKTREES
+                ).find((worktree) => worktree.id === worktreeId)?.path ??
+                selectedFolder?.path ??
+                null);
+          ticketInput = await finalizeDraftContextFiles(
+            ticketInput,
+            opts.pendingContextFiles,
+            async (pending) => {
+              const saved = await Effect.runPromise(
+                (await getRpcClient())["context.saveText"]({
+                  sessionId: result.initialSessionId,
+                  text: pending.text,
+                  ext: pending.ext,
+                  ...(uploadRoot ? { rootPath: uploadRoot } : {}),
+                }),
+              );
+              return { relPath: saved.relPath, absPath: saved.absPath };
+            },
+          );
+          ticketInput = await finalizeDraftAttachments(
+            ticketInput,
+            opts.pendingAttachments,
+            (pending) =>
+              uploadOne(
+                result.initialSessionId,
+                pending.file,
+                uploadRoot ?? undefined,
+              ),
+          );
+          void send(result.initialSessionId, ticketInput, {
+            asGoal: opts.asGoal && goalSupported,
+          });
+          successes.push({
+            chatId: result.chatId,
+            sessionId: result.initialSessionId,
+          });
+        } catch (error) {
+          failures.push(
+            `${issue.identifier}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      };
+      const workers = Array.from(
+        { length: Math.min(3, issues.length) },
+        async () => {
+          while (cursor < issues.length) {
+            const issue = issues[cursor++];
+            if (issue !== undefined) await launchOne(issue);
+          }
+        },
+      );
+      await Promise.all(workers);
+      for (const pending of opts.pendingAttachments) {
+        if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+      }
+      if (failures.length > 0) {
+        toastManager.add({
+          type: "error",
+          title: `${failures.length} Linear session${failures.length === 1 ? "" : "s"} failed`,
+          description: failures.join(" · "),
+        });
+      }
+      const first = successes[0];
+      if (first === undefined) {
+        setSubmitError("Couldn't start any of the selected Linear tickets.");
+        setSubmitting(false);
+        return;
+      }
+      useChatsStore.getState().select(first.chatId);
+      useSessionsStore.getState().select(first.sessionId);
+      setCreateSource(null);
+      useSessionsStore.getState().clearDraft();
+      return;
+    }
     // A "Create from…" PR/branch already checked out (or reused) a worktree —
     // pin the chat to it. Otherwise fall back to the normal auto-worktree.
     const worktreeId =
@@ -378,6 +563,21 @@ export function ChatLanding() {
       const ref = await saveContextFile(sessionId, createSource.issue.markdown);
       if (ref !== null) {
         finalInput = appendContextFileRef(input, ref);
+      }
+    }
+    if (createSource?.linear?.mode === "combined") {
+      try {
+        finalInput = await prepareLinearInput(
+          sessionId,
+          createSource.linear.issues,
+          finalInput,
+        );
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Linear context could not be fully prepared",
+          description: error instanceof Error ? error.message : String(error),
+        });
       }
     }
     const uploadRoot = (() => {
@@ -526,22 +726,66 @@ export function ChatLanding() {
                 />
                 <div className="flex min-w-0 items-center gap-1.5">
                   {createSource !== null && (
-                    <span className="flex min-w-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground">
-                      {createSource.kind === "issue" ? (
+                    <span className="flex min-w-0 items-center gap-1 overflow-x-auto">
+                      {createSource.linear !== null ? (
+                        createSource.linear.issues.map((issue) => (
+                          <span
+                            key={`${issue.workspaceId}:${issue.issueId}`}
+                            className="flex shrink-0 items-center gap-1 rounded-md bg-muted/60 py-1 pl-2 pr-1 text-[11px] text-muted-foreground"
+                          >
+                            <span>{issue.identifier}</span>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${issue.identifier}`}
+                              onClick={() =>
+                                setCreateSource((current) => {
+                                  if (
+                                    current?.linear === null ||
+                                    current === null
+                                  )
+                                    return current;
+                                  const issues = current.linear.issues.filter(
+                                    (candidate) =>
+                                      candidate.workspaceId !==
+                                        issue.workspaceId ||
+                                      candidate.issueId !== issue.issueId,
+                                  );
+                                  return issues.length === 0
+                                    ? null
+                                    : {
+                                        ...current,
+                                        label: issues
+                                          .map(
+                                            (candidate) => candidate.identifier,
+                                          )
+                                          .join(", "),
+                                        linear: { ...current.linear, issues },
+                                      };
+                                })
+                              }
+                              className="rounded p-0.5 hover:bg-muted hover:text-foreground"
+                            >
+                              <X className="size-3" strokeWidth={2} />
+                            </button>
+                          </span>
+                        ))
+                      ) : createSource.kind === "issue" ? (
                         <span>Issue {createSource.label} attached</span>
                       ) : (
                         <span className="max-w-[16rem] truncate">
                           {createSource.label}
                         </span>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => setCreateSource(null)}
-                        aria-label="Clear create-from source"
-                        className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
-                      >
-                        <X className="size-3" strokeWidth={2} />
-                      </button>
+                      {createSource.linear === null && (
+                        <button
+                          type="button"
+                          onClick={() => setCreateSource(null)}
+                          aria-label="Clear create-from source"
+                          className="shrink-0 rounded p-0.5 hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="size-3" strokeWidth={2} />
+                        </button>
+                      )}
                     </span>
                   )}
                   {creatingSource && (

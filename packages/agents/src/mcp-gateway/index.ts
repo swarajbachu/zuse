@@ -20,6 +20,15 @@ import {
 	handleBrowserTool,
 } from "../drivers/browser-mcp-tools.ts";
 import {
+	callLinearTool,
+	ensureLinearToolPermission,
+	isLinearToolName,
+	LINEAR_MCP_SERVER_NAME,
+	LINEAR_MCP_TOOLS,
+	type LinearPermissionOptions,
+	type LinearToolDeps,
+} from "../drivers/linear-tools.ts";
+import {
 	callOrchestrationTool,
 	ensureOrchestrationPermission,
 	isOrchestrationToolName,
@@ -36,12 +45,14 @@ const MAX_LIFETIME_MS = 8 * 60 * 60 * 1_000;
 
 const BROWSER_PATH = `/mcp/${BROWSER_MCP_SERVER_NAME}`;
 const ORCHESTRATION_PATH = `/mcp/${ORCHESTRATION_MCP_SERVER_NAME}`;
+const LINEAR_PATH = `/mcp/${LINEAR_MCP_SERVER_NAME}`;
 
 export interface McpGatewaySessionContext {
 	readonly browser?: BrowserMcpToolOptions;
 	readonly orchestration?: OrchestrationPermissionOptions & {
 		readonly deps: OrchestrationToolDeps;
 	};
+	readonly linear?: LinearPermissionOptions & { readonly deps: LinearToolDeps };
 }
 
 export interface McpGatewayIssueInput {
@@ -49,6 +60,7 @@ export interface McpGatewayIssueInput {
 	readonly scopes: {
 		readonly browser: boolean;
 		readonly orchestration: boolean;
+		readonly linear?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 }
@@ -58,14 +70,17 @@ export interface McpGatewaySession {
 	readonly endpoints: {
 		readonly browser: string;
 		readonly orchestration: string;
+		readonly linear: string;
 	};
 	readonly httpServerConfigs: {
 		readonly browser: AcpHttpMcpServerConfig;
 		readonly orchestration: AcpHttpMcpServerConfig;
+		readonly linear: AcpHttpMcpServerConfig;
 	};
 	readonly codexServerConfigs: {
 		readonly browser: CodexHttpMcpServerConfig;
 		readonly orchestration: CodexHttpMcpServerConfig;
+		readonly linear: CodexHttpMcpServerConfig;
 	};
 	readonly close: () => Promise<void>;
 }
@@ -94,6 +109,7 @@ interface RegistryRecord {
 	readonly scopes: {
 		readonly browser: boolean;
 		readonly orchestration: boolean;
+		readonly linear?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 	readonly lastUsedAt: number;
@@ -120,7 +136,7 @@ export const parseMcpBearerAuthorization = (
 ): string | null => {
 	if (authorization === undefined) return null;
 	const match = /^Bearer ([A-Za-z0-9_-]+)$/u.exec(authorization);
-	return match ? match[1]! : null;
+	return match?.[1] ?? null;
 };
 
 const pruneExpired = (now = Date.now()): void => {
@@ -134,7 +150,7 @@ const pruneExpired = (now = Date.now()): void => {
 
 const resolveRecord = (
 	rawToken: string,
-	scope: "browser" | "orchestration",
+	scope: "browser" | "orchestration" | "linear",
 ): RegistryRecord | null => {
 	pruneExpired();
 	const hash = tokenHash(rawToken);
@@ -251,10 +267,43 @@ const buildOrchestrationServer = (
 	return server;
 };
 
+const buildLinearServer = (
+	ctx: LinearPermissionOptions & { readonly deps: LinearToolDeps },
+): Server => {
+	const server = new Server(
+		{ name: LINEAR_MCP_SERVER_NAME, version: "0.0.1" },
+		{ capabilities: { tools: {} } },
+	);
+	server.setRequestHandler(ListToolsRequestSchema, async () => ({
+		tools: LINEAR_MCP_TOOLS.map((definition) => ({
+			name: definition.name,
+			description: definition.description,
+			inputSchema: definition.inputSchema,
+		})),
+	}));
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		const name = request.params.name;
+		if (!isLinearToolName(name)) {
+			return {
+				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
+				isError: true,
+			};
+		}
+		const args = asJsonObject(request.params.arguments ?? {});
+		try {
+			await ensureLinearToolPermission(name, args, ctx);
+			return await callLinearTool(ctx.deps, name, args);
+		} catch (cause) {
+			return toolResultFromError(name, cause);
+		}
+	});
+	return server;
+};
+
 const handleMcpRequest = async (
 	req: IncomingMessage,
 	res: ServerResponse,
-	scope: "browser" | "orchestration",
+	scope: "browser" | "orchestration" | "linear",
 	record: RegistryRecord,
 ): Promise<void> => {
 	const mcpServer =
@@ -262,9 +311,13 @@ const handleMcpRequest = async (
 			? record.ctx.browser === undefined
 				? null
 				: buildBrowserServer(record.ctx.browser)
-			: record.ctx.orchestration === undefined
-				? null
-				: buildOrchestrationServer(record.ctx.orchestration);
+			: scope === "orchestration"
+				? record.ctx.orchestration === undefined
+					? null
+					: buildOrchestrationServer(record.ctx.orchestration)
+				: record.ctx.linear === undefined
+					? null
+					: buildLinearServer(record.ctx.linear);
 	if (mcpServer === null) {
 		writeText(res, 404, "not found");
 		return;
@@ -288,7 +341,9 @@ const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 				? "browser"
 				: path === ORCHESTRATION_PATH
 					? "orchestration"
-					: null;
+					: path === LINEAR_PATH
+						? "linear"
+						: null;
 		if (scope === null) {
 			writeText(res, 404, "not found");
 			return;
@@ -366,10 +421,11 @@ export const issueMcpGatewaySession = async (
 	recordsByHash.set(hash, record);
 	const browser = `http://127.0.0.1:${port}${BROWSER_PATH}`;
 	const orchestration = `http://127.0.0.1:${port}${ORCHESTRATION_PATH}`;
+	const linear = `http://127.0.0.1:${port}${LINEAR_PATH}`;
 	const authorizationHeader = `Bearer ${token}`;
 	return {
 		token,
-		endpoints: { browser, orchestration },
+		endpoints: { browser, orchestration, linear },
 		httpServerConfigs: {
 			browser: {
 				type: "http",
@@ -383,6 +439,12 @@ export const issueMcpGatewaySession = async (
 				url: orchestration,
 				headers: [{ name: "Authorization", value: authorizationHeader }],
 			},
+			linear: {
+				type: "http",
+				name: LINEAR_MCP_SERVER_NAME,
+				url: linear,
+				headers: [{ name: "Authorization", value: authorizationHeader }],
+			},
 		},
 		codexServerConfigs: {
 			browser: {
@@ -392,6 +454,11 @@ export const issueMcpGatewaySession = async (
 			},
 			orchestration: {
 				url: orchestration,
+				bearer_token_env_var: "ZUSE_MCP_TOKEN",
+				enabled: true,
+			},
+			linear: {
+				url: linear,
 				bearer_token_env_var: "ZUSE_MCP_TOKEN",
 				enabled: true,
 			},

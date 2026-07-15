@@ -31,6 +31,12 @@ const browserAccountFor = (origin: string): string =>
  * installation — signing in overwrites it, signing out deletes it.
  */
 const WORKOS_SESSION_ACCOUNT = "workos:session";
+const integrationPrefix = (integration: string): string =>
+	`integration:${integration}:`;
+const integrationAccountFor = (
+	integration: string,
+	accountId: string,
+): string => `${integrationPrefix(integration)}${accountId}`;
 
 const normalizeOrigin = (input: string): string => {
 	try {
@@ -280,5 +286,35 @@ export const CredentialsServiceLive = Layer.succeed(
 			tryKeychain("*", () =>
 				keytar.deletePassword(SERVICE_NAME, WORKOS_SESSION_ACCOUNT),
 			).pipe(Effect.asVoid),
+		getIntegration: (integration, accountId) =>
+			tryKeychain("*", () =>
+				keytar.getPassword(
+					SERVICE_NAME,
+					integrationAccountFor(integration, accountId),
+				),
+			),
+		setIntegration: (integration, accountId, value) =>
+			tryKeychain("*", () =>
+				keytar.setPassword(
+					SERVICE_NAME,
+					integrationAccountFor(integration, accountId),
+					value,
+				),
+			),
+		removeIntegration: (integration, accountId) =>
+			tryKeychain("*", () =>
+				keytar.deletePassword(
+					SERVICE_NAME,
+					integrationAccountFor(integration, accountId),
+				),
+			).pipe(Effect.asVoid),
+		listIntegrationAccounts: (integration) =>
+			tryKeychain("*", async () => {
+				const prefix = integrationPrefix(integration);
+				return (await keytar.findCredentials(SERVICE_NAME))
+					.map(({ account }) => account)
+					.filter((account) => account.startsWith(prefix))
+					.map((account) => account.slice(prefix.length));
+			}),
 	}),
 );

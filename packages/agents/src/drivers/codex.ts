@@ -37,6 +37,7 @@ import type { GoalCapableSessionHandle } from "../kernel/driver.ts";
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { startBrowserMcpBridge } from "./acp/browser-mcp-bridge.ts";
+import { startLinearMcpBridge } from "./acp/linear-mcp-bridge.ts";
 import { startOrchestrationMcpBridge } from "./acp/orchestration-mcp-bridge.ts";
 import {
 	BROWSER_MCP_SERVER_NAME,
@@ -51,6 +52,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
+import { LINEAR_MCP_SERVER_NAME } from "./linear-tools.ts";
 import {
 	ORCHESTRATION_MCP_SERVER_NAME,
 	type OrchestrationSessionTools,
@@ -68,6 +70,7 @@ const SUPPORTED_CODEX_IMAGE_MIME = new Set([
 const MANAGED_MCP_SERVER_NAMES = new Set([
 	BROWSER_MCP_SERVER_NAME,
 	ORCHESTRATION_MCP_SERVER_NAME,
+	LINEAR_MCP_SERVER_NAME,
 ]);
 
 export type RequestPermission = (
@@ -1271,6 +1274,9 @@ export const startCodexSession = (
 		let orchestrationMcpBridge: Awaited<
 			ReturnType<typeof startOrchestrationMcpBridge>
 		> | null = null;
+		let linearMcpBridge: Awaited<
+			ReturnType<typeof startLinearMcpBridge>
+		> | null = null;
 
 		const expectCodexMcpServers = async (
 			names: ReadonlyArray<string>,
@@ -1304,10 +1310,20 @@ export const startCodexSession = (
 					mergeStrategy: "replace",
 				});
 			}
+			if (orchestrationTools?.linearTools !== undefined) {
+				await app.request("config/value/write", {
+					keyPath: `mcp_servers.${JSON.stringify(LINEAR_MCP_SERVER_NAME)}`,
+					value: mcpGatewaySession.codexServerConfigs.linear,
+					mergeStrategy: "replace",
+				});
+			}
 			await app.request("config/mcpServer/reload", undefined);
 			await expectCodexMcpServers([
 				BROWSER_MCP_SERVER_NAME,
 				...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
+				...(orchestrationTools?.linearTools === undefined
+					? []
+					: [LINEAR_MCP_SERVER_NAME]),
 			]);
 			console.info(`[mcp-gateway] session ${sessionId} connected via http`);
 		};
@@ -1364,10 +1380,27 @@ export const startCodexSession = (
 					orchestrationMcpBridge.serverConfig,
 				);
 			}
+			if (orchestrationTools?.linearTools !== undefined) {
+				linearMcpBridge = await startLinearMcpBridge({
+					deps: orchestrationTools.linearTools.deps,
+					command: orchestrationMcpCommand ?? browserMcpCommand,
+					requestPermission: (kind, options) =>
+						requestPermission(sessionId, kind, options),
+					getRuntimeMode,
+					getPermissionMode: () => currentMode,
+				});
+				await writeStdioServer(
+					LINEAR_MCP_SERVER_NAME,
+					linearMcpBridge.serverConfig,
+				);
+			}
 			await app.request("config/mcpServer/reload", undefined);
 			await expectCodexMcpServers([
 				BROWSER_MCP_SERVER_NAME,
 				...(orchestrationTools === null ? [] : [ORCHESTRATION_MCP_SERVER_NAME]),
+				...(orchestrationTools?.linearTools === undefined
+					? []
+					: [LINEAR_MCP_SERVER_NAME]),
 			]);
 			console.info(
 				`[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
@@ -2253,6 +2286,9 @@ export const startCodexSession = (
 					closed = true;
 					if (orchestrationMcpBridge !== null) {
 						void orchestrationMcpBridge.close();
+					}
+					if (linearMcpBridge !== null) {
+						void linearMcpBridge.close();
 					}
 					if (browserMcpBridge !== null) {
 						void browserMcpBridge.close();

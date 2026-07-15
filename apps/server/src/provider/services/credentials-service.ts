@@ -1,6 +1,5 @@
-import { Context, type Effect } from "effect";
-
 import type { ProviderId } from "@zuse/contracts";
+import { Context, type Effect } from "effect";
 
 import type { CredentialsError } from "../errors.ts";
 
@@ -41,7 +40,10 @@ export interface CredentialsServiceShape {
   ) => Effect.Effect<void, CredentialsError>;
   readonly getBrowser: (
     origin: string,
-  ) => Effect.Effect<{ username: string; password: string } | null, CredentialsError>;
+  ) => Effect.Effect<
+    { username: string; password: string } | null,
+    CredentialsError
+  >;
   readonly removeBrowser: (
     origin: string,
   ) => Effect.Effect<void, CredentialsError>;
@@ -57,13 +59,35 @@ export interface CredentialsServiceShape {
    * `memoize` service. The tokens NEVER leave the server — only the AuthService
    * reads this; the renderer sees a redacted `AuthState` over the wire.
    */
-  readonly getWorkosSession: () => Effect.Effect<string | null, CredentialsError>;
+  readonly getWorkosSession: () => Effect.Effect<
+    string | null,
+    CredentialsError
+  >;
   readonly setWorkosSession: (
     bundleJson: string,
   ) => Effect.Effect<void, CredentialsError>;
   readonly removeWorkosSession: () => Effect.Effect<void, CredentialsError>;
+
+  /** Secret JSON bundles for native third-party integrations. */
+  readonly getIntegration: (
+    integration: string,
+    accountId: string,
+  ) => Effect.Effect<string | null, CredentialsError>;
+  readonly setIntegration: (
+    integration: string,
+    accountId: string,
+    value: string,
+  ) => Effect.Effect<void, CredentialsError>;
+  readonly removeIntegration: (
+    integration: string,
+    accountId: string,
+  ) => Effect.Effect<void, CredentialsError>;
+  readonly listIntegrationAccounts: (
+    integration: string,
+  ) => Effect.Effect<ReadonlyArray<string>, CredentialsError>;
 }
 
-export class CredentialsService extends Context.Service<CredentialsService, CredentialsServiceShape>()(
-  "memoize/CredentialsService",
-) {}
+export class CredentialsService extends Context.Service<
+  CredentialsService,
+  CredentialsServiceShape
+>()("memoize/CredentialsService") {}
