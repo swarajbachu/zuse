@@ -1,6 +1,6 @@
 import type { ProviderId } from "@zuse/contracts";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AuthServiceLive } from "../../src/auth/layers/auth-service.ts";
 import type { SessionBundle } from "../../src/auth/layers/workos.ts";
@@ -13,6 +13,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
 	globalThis.fetch = originalFetch;
+	vi.useRealTimers();
 });
 
 const jwtWithExp = (expMs: number): string => {
@@ -164,6 +165,45 @@ const mockAuthenticate = (
 };
 
 describe("AuthService WorkOS refresh", () => {
+	it("proactively refreshes a five-minute production token before it expires", async () => {
+		vi.useFakeTimers();
+		const now = new Date("2026-07-15T00:00:00.000Z");
+		vi.setSystemTime(now);
+		const initial = makeBundle({
+			accessToken: jwtWithExp(now.getTime() + 5 * 60_000),
+			refreshToken: "production-refresh",
+			expiresAt: now.getTime() + 5 * 60_000,
+			refreshedAt: now.getTime(),
+		});
+		const nextAccessToken = jwtWithExp(now.getTime() + 10 * 60_000);
+		const calls = mockAuthenticate(() =>
+			Response.json({
+				access_token: nextAccessToken,
+				refresh_token: "rotated-production-refresh",
+				user: { id: "user_123", email: "user@example.com" },
+			}),
+		);
+		const harness = makeHarness(initial);
+		try {
+			const state = await harness.run(
+				Effect.flatMap(AuthService, (svc) => svc.getSession()),
+			);
+			expect(state._tag).toBe("SignedIn");
+			expect(calls).toHaveLength(0);
+
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(calls).toHaveLength(1);
+			expect(harness.readStored()?.refreshToken).toBe(
+				"rotated-production-refresh",
+			);
+			expect(harness.readStored()?.accessToken).toBe(nextAccessToken);
+		} finally {
+			await harness.dispose();
+		}
+	});
+
 	it("refreshes an expired access token and persists the rotated refresh token", async () => {
 		const old = makeBundle({
 			accessToken: jwtWithExp(Date.now() - 5 * 60_000),

@@ -33,6 +33,8 @@ import {
 
 /** Refresh when the access token is within this window of expiry. */
 const REFRESH_SKEW_MS = 60_000;
+/** Re-check often enough to cover production's five-minute access tokens. */
+const REFRESH_POLL_INTERVAL = "30 seconds";
 const FORCE_REFRESH_SKIP_MS = 10 * 60_000;
 
 /** How long `signIn` waits for the browser callback before giving up. */
@@ -374,8 +376,8 @@ export const AuthServiceLive = Layer.effect(
       refreshIfPresent(true).pipe(
         Effect.andThen(
           Effect.repeat(
-            refreshIfPresent(true),
-            Schedule.spaced("45 minutes").pipe(Schedule.jittered),
+            refreshIfPresent(false),
+            Schedule.spaced(REFRESH_POLL_INTERVAL),
           ),
         ),
         Effect.catch(() => Effect.void),
