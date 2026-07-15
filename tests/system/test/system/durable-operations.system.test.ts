@@ -140,16 +140,8 @@ describe("durable RPC operations", () => {
 				session.client["worktree.create"]({ projectId: folder.id }),
 			);
 			writeFileSync(join(worktree.path, "dirty.txt"), "dirty\n");
-			await expect(
-				Effect.runPromise(
-					session.client["worktree.remove"]({ worktreeId: worktree.id }),
-				),
-			).rejects.toBeDefined();
 			await Effect.runPromise(
-				session.client["worktree.remove"]({
-					worktreeId: worktree.id,
-					force: true,
-				}),
+				session.client["worktree.remove"]({ worktreeId: worktree.id }),
 			);
 
 			const payload = {

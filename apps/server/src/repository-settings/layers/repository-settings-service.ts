@@ -1,9 +1,6 @@
-import { SqlClient } from "effect/unstable/sql";
-import { Effect, Layer } from "effect";
-import * as fsSync from "node:fs";
 import { randomBytes } from "node:crypto";
+import * as fsSync from "node:fs";
 import * as Path from "node:path";
-
 import {
   type FolderId,
   type ProviderId,
@@ -12,6 +9,8 @@ import {
   type RepositorySettingsPatch,
   type RuntimeMode,
 } from "@zuse/contracts";
+import { Effect, Layer } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 
 import { RepositorySettingsService } from "../services/repository-settings-service.ts";
 
@@ -23,7 +22,6 @@ interface Row {
   readonly auto_create_worktree: number;
   readonly worktree_base_dir: string | null;
   readonly archive_cleanup_script: string | null;
-  readonly archive_remove_worktree: number;
   readonly setup_script: string | null;
   readonly run_script: string | null;
   readonly auto_run_after_setup: number;
@@ -63,7 +61,6 @@ const emptyFileSettings = (): RepositorySettingsFile => ({
   autoCreateWorktree: false,
   worktreeBaseDir: null,
   archiveCleanupScript: null,
-  archiveRemoveWorktree: false,
   setupScript: null,
   runScript: null,
   autoRunAfterSetup: false,
@@ -209,11 +206,6 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
         );
       } else if (key === "worktreeBaseDir") {
         settings.worktreeBaseDir = parseTomlNullableString(value);
-      } else if (key === "archiveRemoveWorktree") {
-        settings.archiveRemoveWorktree = parseTomlBoolean(
-          value,
-          settings.archiveRemoveWorktree,
-        );
       } else if (key === "file_include_globs" && value.trim().startsWith("[")) {
         pendingArrayKey = "file_include_globs";
         pendingArrayRaw = value;
@@ -292,10 +284,6 @@ const coerceJsonSettings = (
         : obj.archiveCleanupScript === null
           ? null
           : fallback.archiveCleanupScript,
-    archiveRemoveWorktree:
-      typeof obj.archiveRemoveWorktree === "boolean"
-        ? obj.archiveRemoveWorktree
-        : fallback.archiveRemoveWorktree,
     setupScript:
       typeof obj.setupScript === "string"
         ? cleanScript(obj.setupScript)
@@ -374,7 +362,6 @@ const writeTomlSettings = (
     `defaultRuntimeMode = ${tomlNullableString(settings.defaultRuntimeMode)}`,
     `autoCreateWorktree = ${settings.autoCreateWorktree ? "true" : "false"}`,
     `worktreeBaseDir = ${tomlNullableString(settings.worktreeBaseDir)}`,
-    `archiveRemoveWorktree = ${settings.archiveRemoveWorktree ? "true" : "false"}`,
     "",
     ...tomlStringArray(
       "file_include_globs",
@@ -417,7 +404,6 @@ const fileToSettings = (
     autoCreateWorktree: file.autoCreateWorktree,
     worktreeBaseDir: file.worktreeBaseDir,
     archiveCleanupScript: cleanScript(file.archiveCleanupScript),
-    archiveRemoveWorktree: file.archiveRemoveWorktree,
     setupScript: cleanScript(file.setupScript),
     runScript: cleanScript(file.runScript),
     autoRunAfterSetup: file.autoRunAfterSetup,
@@ -435,7 +421,6 @@ const settingsToFile = (
   autoCreateWorktree: settings.autoCreateWorktree,
   worktreeBaseDir: settings.worktreeBaseDir,
   archiveCleanupScript: cleanScript(settings.archiveCleanupScript),
-  archiveRemoveWorktree: settings.archiveRemoveWorktree,
   setupScript: cleanScript(settings.setupScript),
   runScript: cleanScript(settings.runScript),
   autoRunAfterSetup: settings.autoRunAfterSetup,
@@ -461,7 +446,6 @@ const rowToFile = (
     worktreeBaseDir: row.worktree_base_dir ?? fallback.worktreeBaseDir,
     archiveCleanupScript:
       cleanScript(row.archive_cleanup_script) ?? fallback.archiveCleanupScript,
-    archiveRemoveWorktree: row.archive_remove_worktree === 1,
     setupScript: cleanScript(row.setup_script) ?? fallback.setupScript,
     runScript: cleanScript(row.run_script) ?? fallback.runScript,
     autoRunAfterSetup:
@@ -502,8 +486,6 @@ const applyPatch = (
       "archiveCleanupScript" in patch
         ? cleanScript(patch.archiveCleanupScript)
         : current.archiveCleanupScript,
-    archiveRemoveWorktree:
-      patch.archiveRemoveWorktree ?? current.archiveRemoveWorktree,
     setupScript:
       "setupScript" in patch
         ? cleanScript(patch.setupScript)
@@ -530,12 +512,6 @@ export const RepositorySettingsServiceLive = Layer.effect(
       yield* sql`
         ALTER TABLE repository_settings
           ADD COLUMN archive_cleanup_script TEXT
-      `.pipe(Effect.orDie);
-    }
-    if (!hasColumn("archive_remove_worktree")) {
-      yield* sql`
-        ALTER TABLE repository_settings
-          ADD COLUMN archive_remove_worktree INTEGER NOT NULL DEFAULT 0
       `.pipe(Effect.orDie);
     }
     if (!hasColumn("setup_script")) {
@@ -575,7 +551,7 @@ export const RepositorySettingsServiceLive = Layer.effect(
       sql<Row>`
         SELECT project_id, default_provider_id, default_model,
                default_runtime_mode, auto_create_worktree, worktree_base_dir,
-               archive_cleanup_script, archive_remove_worktree,
+               archive_cleanup_script,
                setup_script, run_script, auto_run_after_setup,
                environment_variables_json
         FROM repository_settings

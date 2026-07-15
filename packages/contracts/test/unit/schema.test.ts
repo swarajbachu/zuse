@@ -785,7 +785,6 @@ describe("RepositorySettingsFile round-trip", () => {
 			autoCreateWorktree: true,
 			worktreeBaseDir: "/tmp/worktrees",
 			archiveCleanupScript: "rm -rf node_modules",
-			archiveRemoveWorktree: true,
 			setupScript: "bun install",
 			runScript: "bun dev",
 			autoRunAfterSetup: true,

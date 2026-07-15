@@ -135,12 +135,8 @@ export function RepositorySettings({ projectId }: { projectId: FolderId }) {
       <WorktreeSection
         projectId={projectId}
         autoCreate={settings.autoCreateWorktree}
-        archiveRemoveWorktree={settings.archiveRemoveWorktree}
         onAutoCreateChange={(value) =>
           void update(projectId, { autoCreateWorktree: value })
-        }
-        onArchiveRemoveWorktreeChange={(value) =>
-          void update(projectId, { archiveRemoveWorktree: value })
         }
       />
     </>
@@ -382,24 +378,17 @@ function RuntimeModeOverrideSection({
 function WorktreeSection({
   projectId,
   autoCreate,
-  archiveRemoveWorktree,
   onAutoCreateChange,
-  onArchiveRemoveWorktreeChange,
 }: {
   projectId: FolderId;
   autoCreate: boolean;
-  archiveRemoveWorktree: boolean;
   onAutoCreateChange: (v: boolean) => void;
-  onArchiveRemoveWorktreeChange: (v: boolean) => void;
 }) {
   const worktrees = useWorktreesStore(
     (s) => s.byProject[projectId] ?? EMPTY_WORKTREES,
   );
   const refresh = useWorktreesStore((s) => s.refresh);
   const remove = useWorktreesStore((s) => s.remove);
-  const [pendingDirtyId, setPendingDirtyId] = useState<
-    (typeof worktrees)[number]["id"] | null
-  >(null);
   const [removingId, setRemovingId] = useState<
     (typeof worktrees)[number]["id"] | null
   >(null);
@@ -417,23 +406,13 @@ function WorktreeSection({
     [worktrees],
   );
 
-  const onRemove = async (
-    worktreeId: (typeof worktrees)[number]["id"],
-    force: boolean,
-  ) => {
+  const onRemove = async (worktreeId: (typeof worktrees)[number]["id"]) => {
     if (removingId !== null) return;
     setRemovingId(worktreeId);
     setPendingError(null);
     try {
-      const result = await remove(projectId, worktreeId, force);
-      if (result.ok) {
-        setPendingDirtyId(null);
-        return;
-      }
-      if (result.dirty) {
-        setPendingDirtyId(worktreeId);
-        return;
-      }
+      const result = await remove(projectId, worktreeId);
+      if (result.ok) return;
       setPendingError(result.reason);
     } finally {
       setRemovingId(null);
@@ -455,17 +434,6 @@ function WorktreeSection({
         description={`When on, the composer's workspace picker pre-selects a fresh worktree. You can still flip back to "Current checkout" before sending the first message.`}
         action={
           <Switch checked={autoCreate} onCheckedChange={onAutoCreateChange} />
-        }
-      />
-
-      <SettingsRow
-        title="Remove worktree on archive"
-        description="After the archive script succeeds, remove the checkout from disk while preserving the branch."
-        action={
-          <Switch
-            checked={archiveRemoveWorktree}
-            onCheckedChange={onArchiveRemoveWorktreeChange}
-          />
         }
       />
 
@@ -498,37 +466,16 @@ function WorktreeSection({
                     </span>
                   </span>
                 </div>
-                {pendingDirtyId === wt.id ? (
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="destructive-outline"
-                      size="sm"
-                      loading={removingId === wt.id}
-                      onClick={() => void onRemove(wt.id, true)}
-                    >
-                      Force remove
-                    </Button>
-                    <Button
-                      variant="settings"
-                      size="sm"
-                      disabled={removingId === wt.id}
-                      onClick={() => setPendingDirtyId(null)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="settings"
-                    size="sm"
-                    loading={removingId === wt.id}
-                    onClick={() => void onRemove(wt.id, false)}
-                    title="Remove this worktree from disk (branch stays)"
-                  >
-                    <HugeiconsIcon icon={Delete02Icon} className="size-3" />
-                    Remove
-                  </Button>
-                )}
+                <Button
+                  variant="settings"
+                  size="sm"
+                  loading={removingId === wt.id}
+                  onClick={() => void onRemove(wt.id)}
+                  title="Remove the checkout; uncommitted changes are saved to its branch"
+                >
+                  <HugeiconsIcon icon={Delete02Icon} className="size-3" />
+                  Remove
+                </Button>
               </li>
             ))}
           </ul>
@@ -536,12 +483,7 @@ function WorktreeSection({
       </div>
 
       <div className="px-4 py-3">
-        {pendingDirtyId !== null ? (
-          <p className="text-xs leading-relaxed text-amber-400">
-            {sorted.find((wt) => wt.id === pendingDirtyId)?.name ?? "Worktree"}{" "}
-            has uncommitted changes. Force-remove to discard them.
-          </p>
-        ) : pendingError !== null ? (
+        {pendingError !== null ? (
           <p className="text-xs leading-relaxed text-red-400">{pendingError}</p>
         ) : (
           <p className="text-xs leading-relaxed text-muted-foreground">
@@ -629,7 +571,7 @@ function ScriptsSection({
       />
       <ScriptEditor
         title="Archive script"
-        description="Runs before a worktree-backed chat is archived"
+        description="Optional hook that runs before the archive checkpoint"
         value={archiveScript}
         placeholder={'rm -rf node_modules .next\npkill -f "next dev" || true'}
         onChange={onArchiveScriptChange}

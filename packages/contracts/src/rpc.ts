@@ -109,6 +109,7 @@ import {
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
 import {
+	ChatArchivePreviewRpc,
 	ChatArchiveRpc,
 	ChatCreateRpc,
 	ChatDeleteRpc,
@@ -273,6 +274,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderOpencodeRemoveCustomRpc,
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
+	ChatArchivePreviewRpc,
 	ChatListRpc,
 	ChatGetRpc,
 	ChatCreateRpc,

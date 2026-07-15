@@ -1,12 +1,18 @@
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
+import {
+	cp as copyPath,
+	mkdir as makeDirectory,
+	rm as removePath,
+	rename as renamePath,
+} from "node:fs/promises";
 import * as os from "node:os";
 import * as Path from "node:path";
 import {
 	type FolderId,
 	Worktree,
+	WorktreeCheckpointError,
 	WorktreeCreateError,
-	WorktreeDirtyError,
 	WorktreeId,
 	WorktreeNotFoundError,
 	WorktreeRemoveError,
@@ -23,6 +29,7 @@ import {
 	FileSystem,
 	Layer,
 	Queue,
+	Schedule,
 	Stream,
 } from "effect";
 import {
@@ -39,6 +46,7 @@ import {
 	WorktreeNameAllocator,
 } from "./ports.ts";
 import {
+	type WorktreeArchiveOutcome,
 	type WorktreeRestoreSnapshot,
 	WorktreeService,
 } from "./worktree-service.ts";
@@ -786,44 +794,321 @@ export const WorktreeServiceLive = Layer.effect(
 				);
 			});
 
-		const remove: WorktreeService["Service"]["remove"] = (worktreeId, force) =>
-			Effect.gen(function* () {
-				const row = yield* get(worktreeId);
-				if (row === null) {
-					return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
-				}
-				const folder = yield* projects.find(row.projectId);
-				if (folder === null) {
-					// Project gone; just drop the row and let disk be.
-					yield* sql`DELETE FROM worktrees WHERE id = ${worktreeId}`.pipe(
-						Effect.orDie,
-					);
-					return;
-				}
+		const checkpointCommitArgs = (worktreeId: WorktreeId) => [
+			"commit",
+			"-m",
+			"zuse: archive checkpoint",
+			"-m",
+			`Zuse-Archive-Checkpoint: ${worktreeId}`,
+			"--no-verify",
+			"--no-gpg-sign",
+		];
 
-				const args = ["worktree", "remove"] as string[];
-				if (force) args.push("--force");
-				args.push(row.path);
-				const result = yield* runGit(folder.path, args).pipe(Effect.result);
-				if (result._tag === "Failure") {
-					const lower = result.failure.toLowerCase();
-					if (
-						!force &&
-						(lower.includes("contains modified or untracked files") ||
-							lower.includes("is dirty") ||
-							lower.includes("has changes"))
-					) {
-						return yield* Effect.fail(new WorktreeDirtyError({ worktreeId }));
+		const isMissingIdentity = (reason: string): boolean => {
+			const lower = reason.toLowerCase();
+			return (
+				lower.includes("author identity unknown") ||
+				lower.includes("please tell me who you are") ||
+				lower.includes("unable to auto-detect email address")
+			);
+		};
+
+		const moveDirectory = (source: string, destination: string) =>
+			Effect.tryPromise({
+				try: async () => {
+					await makeDirectory(Path.dirname(destination), { recursive: true });
+					try {
+						await renamePath(source, destination);
+					} catch (error) {
+						if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+						await copyPath(source, destination, { recursive: true });
+						await removePath(source, { recursive: true, force: true });
 					}
+				},
+				catch: (error) =>
+					error instanceof Error ? error.message : String(error),
+			});
+
+		const archivedContextDestination = (worktree: Worktree): string =>
+			Path.join(Path.dirname(worktree.path), "archived", worktree.id);
+
+		const deleteCheckoutAndRow = (
+			row: Worktree,
+			folderPath: string,
+		): Effect.Effect<void, WorktreeRemoveError> =>
+			Effect.gen(function* () {
+				const gitRemoval = yield* runGit(folderPath, [
+					"worktree",
+					"remove",
+					"--force",
+					"--force",
+					row.path,
+				]).pipe(Effect.result);
+				if (gitRemoval._tag === "Failure") {
+					const fallback = yield* fs
+						.remove(row.path, { recursive: true, force: true })
+						.pipe(
+							Effect.retry({
+								times: 4,
+								schedule: Schedule.exponential("50 millis"),
+							}),
+							Effect.result,
+						);
+					if (fallback._tag === "Failure") {
+						return yield* Effect.fail(
+							new WorktreeRemoveError({
+								worktreeId: row.id,
+								reason: `${gitRemoval.failure}; filesystem cleanup failed: ${fallback.failure.message}`,
+							}),
+						);
+					}
+				}
+				yield* runGit(folderPath, ["worktree", "prune"]).pipe(
+					Effect.mapError(
+						(reason) => new WorktreeRemoveError({ worktreeId: row.id, reason }),
+					),
+				);
+				const pathStillExists = yield* fs
+					.exists(row.path)
+					.pipe(Effect.orElseSucceed(() => false));
+				if (pathStillExists) {
 					return yield* Effect.fail(
-						new WorktreeRemoveError({ worktreeId, reason: result.failure }),
+						new WorktreeRemoveError({
+							worktreeId: row.id,
+							reason: `worktree path still exists after removal: ${row.path}`,
+						}),
 					);
 				}
-
-				yield* sql`DELETE FROM worktrees WHERE id = ${worktreeId}`.pipe(
+				yield* sql`DELETE FROM worktrees WHERE id = ${row.id}`.pipe(
 					Effect.orDie,
 				);
 			});
+
+		const checkpointAndDelete = Effect.fn(
+			"WorktreeService.checkpointAndDelete",
+		)(function* (
+			worktreeId: WorktreeId,
+			recordCheckpoint?: (
+				outcome: WorktreeArchiveOutcome,
+			) => Effect.Effect<void, WorktreeCheckpointError>,
+		) {
+			const row = yield* get(worktreeId);
+			if (row === null) {
+				return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
+			}
+			const folder = yield* projects.find(row.projectId);
+			if (folder === null) {
+				return yield* Effect.fail(
+					new WorktreeRemoveError({ worktreeId, reason: "project not found" }),
+				);
+			}
+
+			const status = yield* runGit(row.path, ["status", "--porcelain"]).pipe(
+				Effect.mapError(
+					(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+				),
+			);
+			let checkpointCreated = status.trim().length > 0;
+			if (!checkpointCreated) {
+				const currentBody = yield* runGit(row.path, [
+					"show",
+					"-s",
+					"--format=%B",
+					"HEAD",
+				]).pipe(Effect.result);
+				checkpointCreated =
+					currentBody._tag === "Success" &&
+					currentBody.success.includes(
+						`Zuse-Archive-Checkpoint: ${worktreeId}`,
+					);
+			}
+			if (status.trim().length > 0) {
+				yield* runGit(row.path, ["add", "-A"]).pipe(
+					Effect.mapError(
+						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+					),
+				);
+				const committed = yield* runGit(
+					row.path,
+					checkpointCommitArgs(worktreeId),
+				).pipe(Effect.result);
+				if (committed._tag === "Failure") {
+					if (!isMissingIdentity(committed.failure)) {
+						return yield* Effect.fail(
+							new WorktreeCheckpointError({
+								worktreeId,
+								reason: committed.failure,
+							}),
+						);
+					}
+					yield* runGit(row.path, [
+						"-c",
+						"user.name=Zuse",
+						"-c",
+						"user.email=zuse@localhost",
+						...checkpointCommitArgs(worktreeId),
+					]).pipe(
+						Effect.mapError(
+							(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+						),
+					);
+				}
+			}
+
+			const archiveCommit = (yield* runGit(row.path, [
+				"rev-parse",
+				"HEAD",
+			]).pipe(
+				Effect.mapError(
+					(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+				),
+			)).trim();
+			const symbolicBranch = yield* runGit(row.path, [
+				"symbolic-ref",
+				"--quiet",
+				"--short",
+				"HEAD",
+			]).pipe(Effect.result);
+			let archiveRef: string | null = null;
+			if (symbolicBranch._tag === "Success") {
+				const branch = symbolicBranch.success.trim();
+				const branchCommit = (yield* runGit(folder.path, [
+					"rev-parse",
+					`refs/heads/${branch}`,
+				]).pipe(
+					Effect.mapError(
+						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+					),
+				)).trim();
+				if (branchCommit !== archiveCommit) {
+					return yield* Effect.fail(
+						new WorktreeCheckpointError({
+							worktreeId,
+							reason: `branch ${branch} does not point at checkpoint ${archiveCommit}`,
+						}),
+					);
+				}
+			} else {
+				archiveRef = `refs/zuse/archive/${worktreeId}`;
+				yield* runGit(folder.path, [
+					"update-ref",
+					archiveRef,
+					archiveCommit,
+				]).pipe(
+					Effect.mapError(
+						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+					),
+				);
+			}
+
+			const contextSource = Path.join(row.path, ".context");
+			const contextDestination = archivedContextDestination(row);
+			const sourceExists = yield* fs
+				.exists(contextSource)
+				.pipe(Effect.orElseSucceed(() => false));
+			let archivedContextPath: string | null = null;
+			if (sourceExists) {
+				const entries = yield* fs
+					.readDirectory(contextSource)
+					.pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
+				if (entries.length > 0) {
+					const destinationExists = yield* fs
+						.exists(contextDestination)
+						.pipe(Effect.orElseSucceed(() => false));
+					if (destinationExists) {
+						return yield* Effect.fail(
+							new WorktreeCheckpointError({
+								worktreeId,
+								reason: `archived context already exists: ${contextDestination}`,
+							}),
+						);
+					}
+					yield* moveDirectory(contextSource, contextDestination).pipe(
+						Effect.mapError(
+							(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+						),
+					);
+					archivedContextPath = contextDestination;
+					const attachmentRewrite = yield* sql`
+            UPDATE attachments
+            SET abs_path = replace(abs_path, ${contextSource}, ${contextDestination})
+            WHERE abs_path IS NOT NULL AND abs_path LIKE ${`${contextSource}/%`}
+					`.pipe(Effect.result);
+					if (attachmentRewrite._tag === "Failure") {
+						yield* moveDirectory(contextDestination, contextSource).pipe(
+							Effect.mapError(
+								(rollbackReason) =>
+									new WorktreeCheckpointError({
+										worktreeId,
+										reason: `attachment path update failed and context rollback failed: ${rollbackReason}`,
+									}),
+							),
+						);
+						return yield* Effect.fail(
+							new WorktreeCheckpointError({
+								worktreeId,
+								reason: `attachment path update failed: ${String(attachmentRewrite.failure)}`,
+							}),
+						);
+					}
+				}
+			} else {
+				const destinationExists = yield* fs
+					.exists(contextDestination)
+					.pipe(Effect.orElseSucceed(() => false));
+				if (destinationExists) archivedContextPath = contextDestination;
+			}
+
+			const outcome = {
+				archiveCommit,
+				checkpointCreated,
+				archiveRef,
+				archivedContextPath,
+				branch: row.branch,
+			} satisfies WorktreeArchiveOutcome;
+			if (recordCheckpoint !== undefined) {
+				const recorded = yield* recordCheckpoint(outcome).pipe(Effect.result);
+				if (recorded._tag === "Failure") {
+					if (archivedContextPath !== null) {
+						yield* sql`
+              UPDATE attachments
+              SET abs_path = replace(abs_path, ${archivedContextPath}, ${contextSource})
+              WHERE abs_path IS NOT NULL
+                AND abs_path LIKE ${`${archivedContextPath}/%`}
+            `.pipe(Effect.orDie);
+						yield* moveDirectory(archivedContextPath, contextSource).pipe(
+							Effect.mapError(
+								(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+							),
+						);
+					}
+					return yield* Effect.fail(recorded.failure);
+				}
+			}
+
+			yield* deleteCheckoutAndRow(row, folder.path);
+			return outcome;
+		});
+
+		const archive: WorktreeService["Service"]["archive"] = checkpointAndDelete;
+		const finishArchiveRemoval: WorktreeService["Service"]["finishArchiveRemoval"] =
+			(worktreeId) =>
+				Effect.gen(function* () {
+					const row = yield* get(worktreeId);
+					if (row === null) return;
+					const folder = yield* projects.find(row.projectId);
+					if (folder === null) {
+						return yield* Effect.fail(
+							new WorktreeRemoveError({
+								worktreeId,
+								reason: "project not found",
+							}),
+						);
+					}
+					yield* deleteCheckoutAndRow(row, folder.path);
+				});
+		const remove: WorktreeService["Service"]["remove"] = (worktreeId) =>
+			checkpointAndDelete(worktreeId).pipe(Effect.asVoid);
 
 		const restore: WorktreeService["Service"]["restore"] = (
 			snapshot: WorktreeRestoreSnapshot,
@@ -854,11 +1139,12 @@ export const WorktreeServiceLive = Layer.effect(
 					);
 				}
 
+				const restoreRef = snapshot.archiveRef ?? snapshot.branch;
 				const branchExists = yield* runGit(folder.path, [
 					"rev-parse",
 					"--verify",
 					"--quiet",
-					`refs/heads/${snapshot.branch}`,
+					snapshot.archiveRef ?? `refs/heads/${snapshot.branch}`,
 				]).pipe(
 					Effect.map(() => true),
 					Effect.catch(() => Effect.succeed(false)),
@@ -867,17 +1153,22 @@ export const WorktreeServiceLive = Layer.effect(
 					return yield* Effect.fail(
 						new WorktreeRemoveError({
 							worktreeId: snapshot.id,
-							reason: `branch not found: ${snapshot.branch}`,
+							reason: `restore ref not found: ${restoreRef}`,
 						}),
 					);
 				}
 
-				const result = yield* runGit(folder.path, [
-					"worktree",
-					"add",
-					snapshot.path,
-					snapshot.branch,
-				]).pipe(Effect.result);
+				const addArgs =
+					snapshot.archiveRef === null || snapshot.archiveRef === undefined
+						? ["worktree", "add", snapshot.path, snapshot.branch]
+						: [
+								"worktree",
+								"add",
+								"--detach",
+								snapshot.path,
+								snapshot.archiveRef,
+							];
+				const result = yield* runGit(folder.path, addArgs).pipe(Effect.result);
 				if (result._tag === "Failure") {
 					return yield* Effect.fail(
 						new WorktreeRemoveError({
@@ -887,31 +1178,163 @@ export const WorktreeServiceLive = Layer.effect(
 					);
 				}
 
+				let shouldResetCheckpoint = false;
+				if (
+					snapshot.checkpointCreated &&
+					snapshot.archiveCommit !== undefined
+				) {
+					const tip = (yield* runGit(snapshot.path, ["rev-parse", "HEAD"]).pipe(
+						Effect.mapError(
+							(reason) =>
+								new WorktreeRemoveError({ worktreeId: snapshot.id, reason }),
+						),
+					)).trim();
+					if (tip === snapshot.archiveCommit) {
+						const body = yield* runGit(snapshot.path, [
+							"show",
+							"-s",
+							"--format=%B",
+							"HEAD",
+						]).pipe(
+							Effect.mapError(
+								(reason) =>
+									new WorktreeRemoveError({ worktreeId: snapshot.id, reason }),
+							),
+						);
+						shouldResetCheckpoint = body.includes(
+							`Zuse-Archive-Checkpoint: ${snapshot.id}`,
+						);
+					}
+				}
+
+				const archivedContextPath = snapshot.archivedContextPath ?? null;
+				const restoredContextPath = Path.join(snapshot.path, ".context");
+				let contextRestored = false;
+				if (archivedContextPath !== null) {
+					yield* moveDirectory(archivedContextPath, restoredContextPath).pipe(
+						Effect.mapError(
+							(reason) =>
+								new WorktreeRemoveError({ worktreeId: snapshot.id, reason }),
+						),
+					);
+					contextRestored = true;
+					const attachmentRestore = yield* sql`
+            UPDATE attachments
+            SET abs_path = replace(abs_path, ${archivedContextPath}, ${restoredContextPath})
+            WHERE abs_path IS NOT NULL
+              AND abs_path LIKE ${`${archivedContextPath}/%`}
+					`.pipe(Effect.result);
+					if (attachmentRestore._tag === "Failure") {
+						yield* moveDirectory(restoredContextPath, archivedContextPath).pipe(
+							Effect.ignore,
+						);
+						yield* runGit(folder.path, [
+							"worktree",
+							"remove",
+							"--force",
+							"--force",
+							snapshot.path,
+						]).pipe(Effect.ignore);
+						yield* runGit(folder.path, ["worktree", "prune"]).pipe(
+							Effect.ignore,
+						);
+						return yield* Effect.fail(
+							new WorktreeRemoveError({
+								worktreeId: snapshot.id,
+								reason: `attachment path update failed: ${String(attachmentRestore.failure)}`,
+							}),
+						);
+					}
+				}
+				const rollbackRestore = Effect.gen(function* () {
+					yield* sql`DELETE FROM worktrees WHERE id = ${snapshot.id}`.pipe(
+						Effect.ignore,
+					);
+					if (contextRestored && archivedContextPath !== null) {
+						yield* sql`
+              UPDATE attachments
+              SET abs_path = replace(abs_path, ${restoredContextPath}, ${archivedContextPath})
+              WHERE abs_path IS NOT NULL
+                AND abs_path LIKE ${`${restoredContextPath}/%`}
+            `.pipe(Effect.ignore);
+						yield* moveDirectory(restoredContextPath, archivedContextPath).pipe(
+							Effect.ignore,
+						);
+					}
+					yield* runGit(folder.path, [
+						"worktree",
+						"remove",
+						"--force",
+						"--force",
+						snapshot.path,
+					]).pipe(Effect.ignore);
+					yield* runGit(folder.path, ["worktree", "prune"]).pipe(Effect.ignore);
+				});
+
 				const createdAtIso = snapshot.createdAt.toISOString();
-				yield* sql`
+				const inserted = yield* sql`
           INSERT INTO worktrees
             (id, project_id, path, name, branch, base_branch, created_at,
              setup_status, setup_output)
           VALUES
             (${snapshot.id}, ${snapshot.projectId}, ${snapshot.path},
              ${snapshot.name}, ${snapshot.branch}, ${snapshot.baseBranch},
-             ${createdAtIso}, 'skipped', '')
-        `.pipe(Effect.orDie);
+			     ${createdAtIso}, 'pending', '')
+        `.pipe(Effect.result);
+				if (inserted._tag === "Failure") {
+					yield* rollbackRestore;
+					return yield* Effect.fail(
+						new WorktreeRemoveError({
+							worktreeId: snapshot.id,
+							reason: `worktree row restore failed: ${String(inserted.failure)}`,
+						}),
+					);
+				}
 
-				return Worktree.make({
-					id: snapshot.id,
-					projectId: snapshot.projectId,
-					path: snapshot.path,
-					name: snapshot.name,
-					branch: snapshot.branch,
-					baseBranch: snapshot.baseBranch,
-					createdAt: snapshot.createdAt,
-					setupStatus: "skipped",
-					setupOutput: "",
-					setupStartedAt: null,
-					setupFinishedAt: null,
-					pokemon: null,
-				});
+				if (shouldResetCheckpoint) {
+					const reset = yield* runGit(snapshot.path, [
+						"reset",
+						"--mixed",
+						"HEAD~1",
+					]).pipe(Effect.result);
+					if (reset._tag === "Failure") {
+						yield* rollbackRestore;
+						return yield* Effect.fail(
+							new WorktreeRemoveError({
+								worktreeId: snapshot.id,
+								reason: reset.failure,
+							}),
+						);
+					}
+				}
+
+				if (snapshot.archiveRef !== null && snapshot.archiveRef !== undefined) {
+					const deletedRef = yield* runGit(folder.path, [
+						"update-ref",
+						"-d",
+						snapshot.archiveRef,
+					]).pipe(Effect.result);
+					if (deletedRef._tag === "Failure") {
+						yield* rollbackRestore;
+						return yield* Effect.fail(
+							new WorktreeRemoveError({
+								worktreeId: snapshot.id,
+								reason: deletedRef.failure,
+							}),
+						);
+					}
+				}
+				const restored = yield* get(snapshot.id);
+				if (restored === null) {
+					return yield* Effect.fail(
+						new WorktreeRemoveError({
+							worktreeId: snapshot.id,
+							reason: "restored worktree row could not be loaded",
+						}),
+					);
+				}
+				yield* Effect.forkDetach(runSetupSafely(snapshot.id));
+				return restored;
 			});
 
 		const setupEnv = (
@@ -1166,6 +1589,8 @@ export const WorktreeServiceLive = Layer.effect(
 			list,
 			get,
 			updateBranch,
+			archive,
+			finishArchiveRemoval,
 			remove,
 			restore,
 			rerunSetup,

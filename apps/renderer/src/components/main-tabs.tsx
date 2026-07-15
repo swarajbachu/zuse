@@ -192,13 +192,6 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
             onClose={closeFileTab}
           />
         )}
-        {activeMainTab === "archives" && (
-          <TabButton
-            active
-            onClick={() => setActiveMainTab("archives")}
-            label="Archived"
-          />
-        )}
       </div>
       <div className="flex-1" />
     </header>

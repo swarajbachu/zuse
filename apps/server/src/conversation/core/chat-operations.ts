@@ -1,4 +1,9 @@
-import { type Chat, type ChatId, ChatNotFoundError } from "@zuse/contracts";
+import {
+	type Chat,
+	type ChatId,
+	ChatNotArchivedError,
+	ChatNotFoundError,
+} from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import { Effect, PubSub, Stream } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -12,6 +17,8 @@ import {
 	chatFromRow,
 	type MessageRow,
 	messageFromRow,
+	type SessionRow,
+	sessionFromRow,
 } from "./conversation-records.ts";
 
 export interface ChatOperationsOptions {
@@ -74,6 +81,25 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 
 	const getChat: ConversationOperations["getChat"] = (chatId) =>
 		lookupChat(chatId);
+
+	const getArchivePreview: ConversationOperations["getArchivePreview"] =
+		Effect.fn("ChatOperations.getArchivePreview")(function* (chatId) {
+			const chat = yield* lookupChat(chatId);
+			if (chat.archivedAt === null) {
+				return yield* new ChatNotArchivedError({ chatId });
+			}
+			const rows = yield* sql<SessionRow>`
+        SELECT id, project_id, title, provider_id, model, status,
+               archived_at, cursor, resume_strategy, runtime_mode,
+               agents_json, worktree_id, chat_id, forked_from_session_id,
+               forked_from_message_id, permission_mode, tool_search,
+               created_at, updated_at
+        FROM sessions
+        WHERE chat_id = ${chatId}
+        ORDER BY created_at ASC
+      `.pipe(Effect.orDie);
+			return { chat, sessions: rows.map(sessionFromRow) };
+		});
 
 	const streamChatChanges: ConversationOperations["streamChatChanges"] = (
 		projectId,
@@ -175,5 +201,12 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			return { chat, initialSession, initialMessage };
 		});
 
-	return { lookupChat, listChats, getChat, streamChatChanges, createChat };
+	return {
+		lookupChat,
+		listChats,
+		getChat,
+		getArchivePreview,
+		streamChatChanges,
+		createChat,
+	};
 };

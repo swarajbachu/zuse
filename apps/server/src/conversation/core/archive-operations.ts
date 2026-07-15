@@ -8,11 +8,15 @@ import {
 	type FolderId,
 	SessionId,
 	type Worktree,
+	WorktreeCheckpointError,
 	WorktreeId,
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionCommand } from "@zuse/domain/core/commands";
-import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
+import type {
+	WorktreeArchiveOutcome,
+	WorktreeServiceShape,
+} from "@zuse/git/worktree-service";
 import { Effect, Ref, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
@@ -35,6 +39,35 @@ import type { ConversationStateApi } from "./conversation-state.ts";
 const decodeArchiveCleanupDetail = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(Schema.Struct({ output: Schema.String })),
 );
+
+const WorktreeArchiveOutcomeSchema = Schema.Struct({
+	archiveCommit: Schema.String,
+	checkpointCreated: Schema.Boolean,
+	archiveRef: Schema.NullOr(Schema.String),
+	archivedContextPath: Schema.NullOr(Schema.String),
+	branch: Schema.String,
+});
+const WorktreeCheckpointJournalDetailSchema = Schema.Struct({
+	id: Schema.String,
+	projectId: Schema.String,
+	path: Schema.String,
+	name: Schema.String,
+	branch: Schema.String,
+	baseBranch: Schema.String,
+	createdAt: Schema.String,
+	outcome: WorktreeArchiveOutcomeSchema,
+});
+const decodeWorktreeCheckpointJournalDetail = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(WorktreeCheckpointJournalDetailSchema),
+);
+const checkpointSummary = (
+	outcome: WorktreeArchiveOutcome,
+): NonNullable<ChatArchiveResult["checkpoint"]> => ({
+	archiveCommit: outcome.archiveCommit,
+	checkpointCreated: outcome.checkpointCreated,
+	archiveRef: outcome.archiveRef,
+	branch: outcome.branch,
+});
 
 export interface ArchiveOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -153,15 +186,35 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					});
 				});
 
-		const performChatArchive = (
-			chatId: ChatId,
-			force: boolean,
-			commandId: string,
-		) =>
+		const performChatArchive = (chatId: ChatId, commandId: string) =>
 			Effect.gen(function* () {
 				const chat = yield* lookupChat(chatId);
 				if (chat.archivedAt !== null) {
-					return { chat, cleanup: null };
+					const completedSteps = yield* sql<{
+						readonly detail_json: string | null;
+					}>`
+            SELECT detail_json FROM reactor_effect_steps
+            WHERE effect_id = ${commandId}
+              AND step = 'worktree-checkpoint'
+              AND status = 'completed'
+            LIMIT 1
+          `.pipe(Effect.orDie);
+					const detailJson = completedSteps[0]?.detail_json;
+					const checkpoint =
+						detailJson === undefined || detailJson === null
+							? null
+							: yield* decodeWorktreeCheckpointJournalDetail(detailJson).pipe(
+									Effect.map((detail) => checkpointSummary(detail.outcome)),
+									Effect.mapError(
+										(cause) =>
+											new ChatArchiveWorktreeError({
+												chatId,
+												reason: `Stored checkpoint result is invalid: ${String(cause)}`,
+											}),
+									),
+								);
+					yield* reactorEffects.complete(commandId);
+					return { chat, cleanup: null, checkpoint };
 				}
 
 				const settings = yield* repositorySettings.get(chat.projectId);
@@ -169,7 +222,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					chat.worktreeId === null
 						? null
 						: yield* worktrees.get(chat.worktreeId);
-				const snapshot =
+				let baseSnapshot =
 					worktree === null
 						? null
 						: {
@@ -181,8 +234,45 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 								baseBranch: worktree.baseBranch,
 								createdAt: worktree.createdAt.toISOString(),
 							};
-				const snapshotJson =
-					snapshot === null ? null : JSON.stringify(snapshot);
+				let checkpointOutcome: WorktreeArchiveOutcome | null = null;
+				const checkpointSteps =
+					chat.worktreeId === null
+						? []
+						: yield* sql<{
+								readonly status: "started" | "completed";
+								readonly detail_json: string | null;
+							}>`
+                SELECT status, detail_json FROM reactor_effect_steps
+                WHERE effect_id = ${commandId} AND step = 'worktree-checkpoint'
+                LIMIT 1
+              `.pipe(Effect.orDie);
+				const checkpointStep = checkpointSteps[0];
+				if (
+					checkpointStep?.status === "completed" &&
+					checkpointStep.detail_json !== null
+				) {
+					const detail = yield* decodeWorktreeCheckpointJournalDetail(
+						checkpointStep.detail_json,
+					).pipe(
+						Effect.mapError(
+							(cause) =>
+								new ChatArchiveWorktreeError({
+									chatId,
+									reason: `Stored checkpoint result is invalid: ${String(cause)}`,
+								}),
+						),
+					);
+					baseSnapshot ??= {
+						id: WorktreeId.make(detail.id),
+						projectId: detail.projectId as FolderId,
+						path: detail.path,
+						name: detail.name,
+						branch: detail.branch,
+						baseBranch: detail.baseBranch,
+						createdAt: detail.createdAt,
+					};
+					checkpointOutcome = detail.outcome;
+				}
 
 				const liveSessions = yield* sql<{ readonly id: string }>`
           SELECT id FROM sessions
@@ -270,8 +360,55 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					cleanup = { ran: false, output: "" };
 				}
 
-				if (worktree !== null && settings.archiveRemoveWorktree) {
-					yield* worktrees.remove(worktree.id, force).pipe(
+				if (worktree !== null && checkpointOutcome === null) {
+					if (checkpointStep === undefined) {
+						yield* sql`
+                INSERT INTO reactor_effect_steps
+                  (effect_id, step, status, detail_json, updated_at)
+                VALUES
+                  (${commandId}, 'worktree-checkpoint', 'started',
+                   ${JSON.stringify(baseSnapshot)},
+                   ${new Date().toISOString()})
+              `.pipe(Effect.orDie);
+					}
+					checkpointOutcome = yield* worktrees
+						.archive(worktree.id, (outcome) =>
+							sql`
+                UPDATE reactor_effect_steps
+                SET status = 'completed',
+                    detail_json = ${JSON.stringify({
+											...baseSnapshot,
+											outcome,
+										})},
+                    updated_at = ${new Date().toISOString()}
+                WHERE effect_id = ${commandId} AND step = 'worktree-checkpoint'
+              `.pipe(
+								Effect.asVoid,
+								Effect.mapError(
+									(error) =>
+										new WorktreeCheckpointError({
+											worktreeId: worktree.id,
+											reason: `checkpoint journal update failed: ${String(error)}`,
+										}),
+								),
+							),
+						)
+						.pipe(
+							Effect.mapError(
+								(err) =>
+									new ChatArchiveWorktreeError({
+										chatId,
+										reason:
+											"reason" in err && typeof err.reason === "string"
+												? err.reason
+												: err._tag,
+									}),
+							),
+						);
+				} else if (worktree !== null && checkpointOutcome !== null) {
+					// The checkpoint journal is durable before checkout deletion. If the
+					// process stopped in between, finish the idempotent removal now.
+					yield* worktrees.finishArchiveRemoval(worktree.id).pipe(
 						Effect.mapError(
 							(err) =>
 								new ChatArchiveWorktreeError({
@@ -284,6 +421,27 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						),
 					);
 				}
+				if (
+					chat.worktreeId !== null &&
+					worktree === null &&
+					checkpointOutcome === null
+				) {
+					return yield* Effect.fail(
+						new ChatArchiveWorktreeError({
+							chatId,
+							reason:
+								"checkpoint step was interrupted before its outcome was recorded",
+						}),
+					);
+				}
+
+				const snapshotJson =
+					baseSnapshot === null
+						? null
+						: JSON.stringify({
+								...baseSnapshot,
+								...(checkpointOutcome ?? {}),
+							});
 
 				const archivedAt = yield* currentTimestamp;
 				yield* Effect.forEach(
@@ -304,7 +462,14 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					},
 					`${commandId}:archive`,
 				);
-				const result = { chat: yield* lookupChat(chatId), cleanup };
+				const result = {
+					chat: yield* lookupChat(chatId),
+					cleanup,
+					checkpoint:
+						checkpointOutcome === null
+							? null
+							: checkpointSummary(checkpointOutcome),
+				};
 				yield* reactorEffects.complete(commandId);
 				return result;
 			});
@@ -312,6 +477,40 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 		const chatArchiveResults = yield* Ref.make<
 			ReadonlyMap<ChatId, ChatArchiveResult>
 		>(new Map());
+		const replayCompletedArchiveResult = (chatId: ChatId, commandId: string) =>
+			Effect.gen(function* () {
+				const steps = yield* sql<{ readonly detail_json: string | null }>`
+          SELECT detail_json FROM reactor_effect_steps
+          WHERE effect_id = ${commandId}
+            AND step = 'worktree-checkpoint'
+            AND status = 'completed'
+          LIMIT 1
+        `.pipe(Effect.orDie);
+				const detailJson = steps[0]?.detail_json;
+				if (detailJson === undefined || detailJson === null) {
+					return {
+						chat: yield* lookupChat(chatId),
+						cleanup: null,
+						checkpoint: null,
+					};
+				}
+				const detail = yield* decodeWorktreeCheckpointJournalDetail(
+					detailJson,
+				).pipe(
+					Effect.mapError(
+						(cause) =>
+							new ChatArchiveWorktreeError({
+								chatId,
+								reason: `Stored checkpoint result is invalid: ${String(cause)}`,
+							}),
+					),
+				);
+				return {
+					chat: yield* lookupChat(chatId),
+					cleanup: null,
+					checkpoint: checkpointSummary(detail.outcome),
+				};
+			});
 		const handleChatArchive: ConversationReactorHandlers["chatArchive"] = (
 			reactorInput,
 		) =>
@@ -321,12 +520,8 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					reactorInput.commandId,
 				);
 				const result = completed
-					? { chat: yield* lookupChat(chatId), cleanup: null }
-					: yield* performChatArchive(
-							chatId,
-							reactorInput.command.force,
-							reactorInput.commandId,
-						);
+					? yield* replayCompletedArchiveResult(chatId, reactorInput.commandId)
+					: yield* performChatArchive(chatId, reactorInput.commandId);
 				yield* Ref.update(chatArchiveResults, (current) => {
 					const next = new Map(current);
 					next.set(chatId, result);
@@ -336,15 +531,14 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 
 		const archiveChatWithReactor = (
 			chatId: Parameters<ConversationOperations["archiveChat"]>[0],
-			force: Parameters<ConversationOperations["archiveChat"]>[1],
 			runChatArchive: ConversationReactorRuntime["runChatArchive"],
 		) =>
 			Effect.gen(function* () {
 				const chat = yield* lookupChat(chatId);
-				if (chat.archivedAt !== null) return { chat, cleanup: null };
+				if (chat.archivedAt !== null)
+					return { chat, cleanup: null, checkpoint: null };
 				yield* dispatchChatCommand(chatId, {
 					_tag: "RequestArchiveChat",
-					force,
 					requestedAt: yield* currentTimestamp,
 				});
 				yield* runChatArchive;
@@ -383,7 +577,10 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					if (existing !== null) {
 						restoredWorktree = existing;
 						restoredWorktreeId = existing.id;
-					} else if (chatRow.worktree_id === null) {
+					} else {
+						// The archived snapshot is authoritative. A stale worktree_id can
+						// outlive checkout removal when SQLite foreign-key cleanup has not
+						// run yet; skipping restore here silently routes the chat to main.
 						restoredWorktree = yield* worktrees
 							.restore({
 								id: WorktreeId.make(snapshot.id),
@@ -393,6 +590,10 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 								branch: snapshot.branch,
 								baseBranch: snapshot.baseBranch,
 								createdAt: new Date(snapshot.createdAt),
+								archiveCommit: snapshot.archiveCommit,
+								checkpointCreated: snapshot.checkpointCreated,
+								archiveRef: snapshot.archiveRef,
+								archivedContextPath: snapshot.archivedContextPath,
 							})
 							.pipe(
 								Effect.mapError(
@@ -415,21 +616,29 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 				});
 				const archivedSessions = yield* sql<{
 					readonly id: string;
-					readonly worktree_id: string | null;
 				}>`
-          SELECT id, worktree_id FROM sessions WHERE chat_id = ${chatId}
+          SELECT id FROM sessions WHERE chat_id = ${chatId}
         `.pipe(Effect.orDie);
 				for (const row of archivedSessions) {
 					const sessionId = SessionId.make(row.id);
-					if (
-						restoredWorktreeId !== null &&
-						row.worktree_id !== restoredWorktreeId
-					) {
+					if (restoredWorktreeId !== null) {
+						// Always record the binding in the session event stream. The raw
+						// SQL foreign key may temporarily appear correct after recreating a
+						// worktree with the same id while the session projector still holds
+						// the null produced by checkout removal.
 						yield* dispatchSessionCommand(sessionId, {
 							_tag: "SetWorktree",
 							worktreeId: restoredWorktreeId,
 							updatedAt: unarchivedAt,
 						});
+						// Worktree removal clears the read-model FK directly, outside the
+						// event stream. If domain state already remembers this same id, the
+						// idempotent command above emits no event, so explicitly repair the
+						// projection to the value a full event replay would produce.
+						yield* sql`
+              UPDATE sessions SET worktree_id = ${restoredWorktreeId}
+              WHERE id = ${sessionId}
+            `.pipe(Effect.orDie);
 					}
 					if (chatRow.archived_at !== null) {
 						yield* dispatchSessionCommand(sessionId, {

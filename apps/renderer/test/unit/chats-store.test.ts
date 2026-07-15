@@ -14,10 +14,16 @@ const {
 	reportRendererRpcStreamFailure,
 	rpcClientFactory,
 	subscribeRendererRpcConnection,
+	toastAdd,
 } = vi.hoisted(() => ({
 	reportRendererRpcStreamFailure: vi.fn(),
 	rpcClientFactory: vi.fn(),
 	subscribeRendererRpcConnection: vi.fn(),
+	toastAdd: vi.fn(),
+}));
+
+vi.mock("../../src/components/ui/toast.tsx", () => ({
+	toastManager: { add: toastAdd },
 }));
 
 vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
@@ -31,10 +37,9 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
+import { useArchivePreviewStore } from "../../src/store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
-	resetArchiveDirtyConfirm,
-	setArchiveDirtyConfirm,
 	stopChatChangeStream,
 	useChatsStore,
 } from "../../src/store/chats.ts";
@@ -93,6 +98,21 @@ const session: Session = {
 	updatedAt: now,
 };
 
+const nextChatId = "chat-2" as ChatId;
+const nextSessionId = "session-2" as SessionId;
+const nextChat: Chat = {
+	...chat,
+	id: nextChatId,
+	title: "Next chat",
+	activeSessionId: nextSessionId,
+};
+const nextSession: Session = {
+	...session,
+	id: nextSessionId,
+	chatId: nextChatId,
+	title: "Next session",
+};
+
 const reconnectChat: Chat = {
 	...chat,
 	id: reconnectChatId,
@@ -106,19 +126,6 @@ const reconnectSession: Session = {
 	projectId: reconnectProjectId,
 	chatId: reconnectChatId,
 };
-
-const withConfirm = async (
-	confirmed: boolean,
-	fn: () => Promise<void>,
-): Promise<void> => {
-	setArchiveDirtyConfirm(async () => confirmed);
-	try {
-		await fn();
-	} finally {
-		resetArchiveDirtyConfirm();
-	}
-};
-
 const deferred = <T>(): {
 	readonly promise: Promise<T>;
 	readonly resolve: (value: T) => void;
@@ -300,7 +307,8 @@ describe("chats store live changes", () => {
 
 describe("archiveChatWithConfirm", () => {
 	beforeEach(() => {
-		resetArchiveDirtyConfirm();
+		toastAdd.mockClear();
+		useArchivePreviewStore.setState(useArchivePreviewStore.getInitialState());
 		useChatsStore.setState({
 			chatsByProject: { [projectId]: [chat] },
 			selectedChatId: chatId,
@@ -331,108 +339,185 @@ describe("archiveChatWithConfirm", () => {
 		).toBeUndefined();
 	});
 
-	it("retries dirty worktree archives with force after confirmation", async () => {
-		const calls: Array<boolean | undefined> = [];
+	it("clears progress and throws when archive fails", async () => {
 		useChatsStore.setState({
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return force === true
-					? ({ ok: true } as const)
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const);
-			},
-		});
-		await withConfirm(true, async () => {
-			await archiveChatWithConfirm(chatId);
+			archive: async () => ({
+				ok: false,
+				reason: "git worktree remove failed",
+			}),
 		});
 
-		expect(calls).toEqual([undefined, true]);
-	});
-
-	it("switches progress while removing a confirmed dirty worktree", async () => {
-		const forced = deferred<{ readonly ok: true }>();
-		const calls: Array<boolean | undefined> = [];
-		setArchiveDirtyConfirm(async () => true);
-		useChatsStore.setState({
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return force === true
-					? forced.promise
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const);
-			},
-		});
-
-		const run = archiveChatWithConfirm(chatId);
-		await Promise.resolve();
-		await Promise.resolve();
-
-		expect(calls).toEqual([undefined, true]);
-		expect(useChatsStore.getState().archiveProgressByChat[chatId]).toBe(
-			"removing-dirty-worktree",
+		await expect(archiveChatWithConfirm(chatId)).rejects.toThrow(
+			"git worktree remove failed",
 		);
-		forced.resolve({ ok: true });
-		try {
-			await run;
-		} finally {
-			resetArchiveDirtyConfirm();
-		}
 		expect(
 			useChatsStore.getState().archiveProgressByChat[chatId],
 		).toBeUndefined();
 	});
 
-	it("stops quietly when dirty archive removal is declined", async () => {
-		const calls: Array<boolean | undefined> = [];
+	it("shows a concise toast after a successful archive", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({
+					chat: archivedChat,
+					cleanup: null,
+					checkpoint: {
+						archiveCommit: "checkpoint-sha",
+						checkpointCreated: true,
+						archiveRef: null,
+						branch: "feature",
+					},
+				}),
+			"chat.list": () => Effect.succeed([archivedChat]),
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		const result = await useChatsStore.getState().archive(chatId);
+
+		expect(result).toEqual({ ok: true });
+		expect(toastAdd).toHaveBeenCalledTimes(1);
+		expect(toastAdd).toHaveBeenCalledWith({
+			type: "success",
+			title: "Archived",
+		});
+	});
+
+	it("moves the archived chat into its folder and selects the next live chat", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
 		useChatsStore.setState({
+			chatsByProject: { [projectId]: [chat, nextChat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [session, nextSession] },
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [projectId]: sessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await archiveChatWithConfirm(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
+			[archivedChat],
+		);
+	});
+
+	it("selects the previous live chat when there is no next sibling", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [nextChat, chat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [nextSession, session] },
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [projectId]: sessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await useChatsStore.getState().archive(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+	});
+
+	it("returns to the new-chat landing when the project has no live sibling", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [chat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await useChatsStore.getState().archive(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
+	});
+});
+
+describe("chat unarchive", () => {
+	beforeEach(() => {
+		useArchivePreviewStore.setState(useArchivePreviewStore.getInitialState());
+		useArchivePreviewStore.getState().upsertChat({ ...chat, archivedAt: now });
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [] },
+			selectedChatId: null,
+			selectedChatByProject: { [projectId]: null },
 			error: null,
-			archive: async (_chatId, force) => {
-				calls.push(force);
-				return {
-					ok: false,
-					dirty: true,
-					reason: "Worktree has uncommitted changes.",
-				} as const;
-			},
 		});
-		await withConfirm(false, async () => {
-			await archiveChatWithConfirm(chatId);
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [] },
+			selectedSessionId: null,
+			selectedSessionByProject: { [projectId]: null },
 		});
-
-		expect(calls).toEqual([undefined]);
-		expect(useChatsStore.getState().error).toBeNull();
-		expect(
-			useChatsStore.getState().archiveProgressByChat[chatId],
-		).toBeUndefined();
 	});
 
-	it("clears progress and throws when forced dirty removal fails", async () => {
-		useChatsStore.setState({
-			archive: async (_chatId, force) =>
-				force === true
-					? ({
-							ok: false,
-							dirty: false,
-							reason: "git worktree remove failed",
-						} as const)
-					: ({
-							ok: false,
-							dirty: true,
-							reason: "Worktree has uncommitted changes.",
-						} as const),
+	it("deduplicates restore clicks and returns the exact restored chat", async () => {
+		const restore = deferred<{
+			chat: Chat;
+			sessions: ReadonlyArray<Session>;
+			worktree: null;
+		}>();
+		const unarchive = vi.fn(() => Effect.tryPromise(() => restore.promise));
+		rpcClientFactory.mockReturnValue({ "chat.unarchive": unarchive });
+
+		const first = useChatsStore.getState().unarchive(chatId);
+		const second = useChatsStore.getState().unarchive(chatId);
+
+		await vi.waitFor(() => expect(unarchive).toHaveBeenCalledTimes(1));
+		expect(useArchivePreviewStore.getState().restoringByChat[chatId]).toBe(
+			true,
+		);
+		restore.resolve({ chat, sessions: [session], worktree: null });
+
+		await expect(first).resolves.toMatchObject({ ok: true, chat });
+		await expect(second).resolves.toMatchObject({ ok: true, chat });
+		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
+		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
+			[],
+		);
+		expect(useUiStore.getState().activeMainTab).toBe("chat");
+	});
+
+	it("keeps the archived chat available when restore fails", async () => {
+		rpcClientFactory.mockReturnValue({
+			"chat.unarchive": () => Effect.fail(new Error("Path already exists")),
 		});
 
-		await expect(
-			withConfirm(true, async () => archiveChatWithConfirm(chatId)),
-		).rejects.toThrow("git worktree remove failed");
+		const result = await useChatsStore.getState().unarchive(chatId);
+
+		expect(result).toEqual({ ok: false, reason: "Path already exists" });
 		expect(
-			useChatsStore.getState().archiveProgressByChat[chatId],
-		).toBeUndefined();
+			useArchivePreviewStore.getState().chatsByProject[projectId],
+		).toHaveLength(1);
+		expect(useArchivePreviewStore.getState().restoreErrorByChat[chatId]).toBe(
+			"Path already exists",
+		);
 	});
 });

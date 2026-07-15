@@ -1,9 +1,9 @@
 import type {
 	FolderId,
 	Worktree,
+	WorktreeCheckpointError,
 	WorktreeCreateError,
 	WorktreeCreateSource,
-	WorktreeDirtyError,
 	WorktreeId,
 	WorktreeNotFoundError,
 	WorktreeRemoveError,
@@ -20,6 +20,18 @@ export interface WorktreeRestoreSnapshot {
 	readonly branch: string;
 	readonly baseBranch: string;
 	readonly createdAt: Date;
+	readonly archiveCommit?: string;
+	readonly checkpointCreated?: boolean;
+	readonly archiveRef?: string | null;
+	readonly archivedContextPath?: string | null;
+}
+
+export interface WorktreeArchiveOutcome {
+	readonly archiveCommit: string;
+	readonly checkpointCreated: boolean;
+	readonly archiveRef: string | null;
+	readonly archivedContextPath: string | null;
+	readonly branch: string;
 }
 
 export interface WorktreeServiceShape {
@@ -42,12 +54,23 @@ export interface WorktreeServiceShape {
 		worktreeId: WorktreeId,
 		branch: string,
 	) => Effect.Effect<void>;
+	readonly archive: (
+		worktreeId: WorktreeId,
+		recordCheckpoint?: (
+			outcome: WorktreeArchiveOutcome,
+		) => Effect.Effect<void, WorktreeCheckpointError>,
+	) => Effect.Effect<
+		WorktreeArchiveOutcome,
+		WorktreeNotFoundError | WorktreeCheckpointError | WorktreeRemoveError
+	>;
+	readonly finishArchiveRemoval: (
+		worktreeId: WorktreeId,
+	) => Effect.Effect<void, WorktreeRemoveError>;
 	readonly remove: (
 		worktreeId: WorktreeId,
-		force: boolean,
 	) => Effect.Effect<
 		void,
-		WorktreeNotFoundError | WorktreeDirtyError | WorktreeRemoveError
+		WorktreeNotFoundError | WorktreeCheckpointError | WorktreeRemoveError
 	>;
 	readonly rerunSetup: (
 		worktreeId: WorktreeId,

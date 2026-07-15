@@ -238,6 +238,12 @@ const ChatGet = MemoizeRpcs.toLayerHandler("chat.get", ({ chatId }) =>
   Effect.flatMap(ChatService, (svc) => svc.getChat(chatId)),
 );
 
+const ChatArchivePreview = MemoizeRpcs.toLayerHandler(
+  "chat.archivePreview",
+  ({ chatId }) =>
+    Effect.flatMap(ChatService, (svc) => svc.getArchivePreview(chatId)),
+);
+
 const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
   Effect.flatMap(ChatService, (svc) =>
     svc.createChat({
@@ -292,12 +298,8 @@ const ChatSetActiveSession = MemoizeRpcs.toLayerHandler(
     ),
 );
 
-const ChatArchive = MemoizeRpcs.toLayerHandler(
-  "chat.archive",
-  ({ chatId, force }) =>
-    Effect.flatMap(ChatService, (svc) =>
-      svc.archiveChat(chatId, force ?? false),
-    ),
+const ChatArchive = MemoizeRpcs.toLayerHandler("chat.archive", ({ chatId }) =>
+  Effect.flatMap(ChatService, (svc) => svc.archiveChat(chatId)),
 );
 
 const ChatUnarchive = MemoizeRpcs.toLayerHandler(
@@ -695,6 +697,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionDelete,
   ChatList,
   ChatGet,
+  ChatArchivePreview,
   ChatCreate,
   ChatRename,
   ChatMarkRead,

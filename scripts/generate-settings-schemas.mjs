@@ -98,7 +98,6 @@ writeSchema("repository-settings.schema.json", {
     defaultRuntimeMode: nullableEnum(runtimeModes),
     autoCreateWorktree: { type: "boolean" },
     worktreeBaseDir: nullableString,
-    archiveRemoveWorktree: { type: "boolean" },
     file_include_globs: {
       anyOf: [
         {

@@ -11,7 +11,6 @@ const TAG_MESSAGES: Record<string, string> = {
   GitFolderNotFoundError: "Project folder not found.",
   GitNotInstalledError: "Git is not installed.",
   FsFolderNotFoundError: "Project folder not found.",
-  WorktreeDirtyError: "Worktree has uncommitted changes.",
   WorktreeNotFoundError: "Worktree not found.",
 };
 

@@ -98,11 +98,6 @@ const writeRepoSettings = (
 	);
 };
 
-const readRepoSettings = (repoPath: string): RepositorySettingsFile =>
-	JSON.parse(
-		readFileSync(settingsPath(repoPath), "utf8"),
-	) as RepositorySettingsFile;
-
 const readRepoSettingsToml = (repoPath: string): string =>
 	readFileSync(tomlSettingsPath(repoPath), "utf8");
 
@@ -131,14 +126,14 @@ describe("RepositorySettingsService repository file persistence", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`
-            INSERT INTO repository_settings
-              (project_id, default_provider_id, default_model,
-               default_runtime_mode, auto_create_worktree, worktree_base_dir,
-               archive_cleanup_script, archive_remove_worktree, setup_script,
-               run_script, auto_run_after_setup, environment_variables_json)
-            VALUES
-              (${PROJECT_ID}, 'codex', 'gpt-5-codex', 'full-access', 1,
-               '/tmp/worktrees', 'echo archive', 1, 'bun install',
+			INSERT INTO repository_settings
+			  (project_id, default_provider_id, default_model,
+			   default_runtime_mode, auto_create_worktree, worktree_base_dir,
+			   archive_cleanup_script, setup_script,
+			   run_script, auto_run_after_setup, environment_variables_json)
+			VALUES
+			  (${PROJECT_ID}, 'codex', 'gpt-5-codex', 'full-access', 1,
+			   '/tmp/worktrees', 'echo archive', 'bun install',
                'bun dev', 1, '{"NODE_ENV":"development"}')
           `;
 				}),
@@ -159,7 +154,6 @@ describe("RepositorySettingsService repository file persistence", () => {
 
 			expect(settings.defaultProviderId).toBe("codex");
 			expect(settings.autoCreateWorktree).toBe(true);
-			expect(settings.archiveRemoveWorktree).toBe(true);
 			expect(settings.environmentVariables.NODE_ENV).toBe("development");
 			expect(existsSync(tomlSettingsPath(repoPath))).toBe(true);
 			expect(readRepoSettingsToml(repoPath)).toContain('run = "bun dev"');

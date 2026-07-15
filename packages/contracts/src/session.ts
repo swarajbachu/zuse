@@ -664,6 +664,11 @@ export class ChatNotFoundError extends Schema.TaggedErrorClass<ChatNotFoundError
   { chatId: ChatId },
 ) {}
 
+export class ChatNotArchivedError extends Schema.TaggedErrorClass<ChatNotArchivedError>()(
+  "ChatNotArchivedError",
+  { chatId: ChatId },
+) {}
+
 /**
  * Raised by `chat.setWorktree` when any session in the chat already has a
  * recorded user message. Worktrees are immutable past the first message —
@@ -706,9 +711,17 @@ const ArchiveCleanupSummary = Schema.Struct({
   output: Schema.String,
 });
 
+const WorktreeCheckpointSummary = Schema.Struct({
+  archiveCommit: Schema.String,
+  checkpointCreated: Schema.Boolean,
+  archiveRef: Schema.NullOr(Schema.String),
+  branch: Schema.String,
+});
+
 export const ChatArchiveResult = Schema.Struct({
   chat: Chat,
   cleanup: Schema.NullOr(ArchiveCleanupSummary),
+  checkpoint: Schema.NullOr(WorktreeCheckpointSummary),
 });
 export type ChatArchiveResult = typeof ChatArchiveResult.Type;
 
@@ -718,6 +731,12 @@ export const ChatUnarchiveResult = Schema.Struct({
   worktree: Schema.NullOr(Worktree),
 });
 export type ChatUnarchiveResult = typeof ChatUnarchiveResult.Type;
+
+export const ChatArchivePreview = Schema.Struct({
+  chat: Chat,
+  sessions: Schema.Array(Session),
+});
+export type ChatArchivePreview = typeof ChatArchivePreview.Type;
 
 export const ChatListRpc = Rpc.make("chat.list", {
   payload: Schema.Struct({
@@ -731,6 +750,12 @@ export const ChatGetRpc = Rpc.make("chat.get", {
   payload: Schema.Struct({ chatId: ChatId }),
   success: Chat,
   error: ChatNotFoundError,
+});
+
+export const ChatArchivePreviewRpc = Rpc.make("chat.archivePreview", {
+  payload: Schema.Struct({ chatId: ChatId }),
+  success: ChatArchivePreview,
+  error: Schema.Union([ChatNotFoundError, ChatNotArchivedError]),
 });
 
 /**
@@ -856,11 +881,7 @@ export const ChatSetActiveSessionRpc = Rpc.make("chat.setActiveSession", {
 export const ChatArchiveRpc = Rpc.make("chat.archive", {
   payload: Schema.Struct({
     chatId: ChatId,
-    /**
-     * Force-remove the chat's worktree even when it has uncommitted or
-     * untracked changes. Callers pass `true` after confirming the discard
-     * with the user (mirrors `worktree.remove`'s `force`).
-     */
+    /** Ignored compatibility field for older clients. */
     force: Schema.optional(Schema.Boolean),
   }),
   success: ChatArchiveResult,

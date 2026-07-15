@@ -72,6 +72,10 @@ export interface ArchivedWorktreeSnapshot {
 	readonly branch: string;
 	readonly baseBranch: string;
 	readonly createdAt: string;
+	readonly archiveCommit?: string;
+	readonly checkpointCreated?: boolean;
+	readonly archiveRef?: string | null;
+	readonly archivedContextPath?: string | null;
 }
 
 const ArchivedWorktreeSnapshotSchema = Schema.Struct({
@@ -82,6 +86,10 @@ const ArchivedWorktreeSnapshotSchema = Schema.Struct({
 	branch: Schema.String,
 	baseBranch: Schema.String,
 	createdAt: Schema.String,
+	archiveCommit: Schema.optional(Schema.String),
+	checkpointCreated: Schema.optional(Schema.Boolean),
+	archiveRef: Schema.optional(Schema.NullOr(Schema.String)),
+	archivedContextPath: Schema.optional(Schema.NullOr(Schema.String)),
 });
 const decodeArchivedWorktreeSnapshot = Schema.decodeUnknownOption(
 	Schema.fromJsonString(ArchivedWorktreeSnapshotSchema),

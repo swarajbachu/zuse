@@ -187,6 +187,19 @@ const makeRuntime = (
 				worktreeId === FIXTURE_WORKTREE_ID ? makeTestWorktree() : null,
 			),
 		updateBranch: () => Effect.void,
+		archive: (_worktreeId, recordCheckpoint) => {
+			const outcome = {
+				archiveCommit: "checkpoint-sha",
+				checkpointCreated: false,
+				archiveRef: null,
+				archivedContextPath: null,
+				branch: "fixture",
+			};
+			return recordCheckpoint === undefined
+				? Effect.succeed(outcome)
+				: recordCheckpoint(outcome).pipe(Effect.as(outcome));
+		},
+		finishArchiveRemoval: () => Effect.void,
 		remove: () => Effect.void,
 		rerunSetup: () => Effect.die("not used"),
 		setupStream: () => Stream.die("not used"),
@@ -205,7 +218,6 @@ const makeRuntime = (
 					autoCreateWorktree: false,
 					worktreeBaseDir: null,
 					archiveCleanupScript: null,
-					archiveRemoveWorktree: false,
 					setupScript: null,
 					runScript: null,
 					autoRunAfterSetup: false,
@@ -223,7 +235,6 @@ const makeRuntime = (
 					autoCreateWorktree: patch.autoCreateWorktree ?? false,
 					worktreeBaseDir: patch.worktreeBaseDir ?? null,
 					archiveCleanupScript: patch.archiveCleanupScript ?? null,
-					archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
 					setupScript: patch.setupScript ?? null,
 					runScript: patch.runScript ?? null,
 					autoRunAfterSetup: patch.autoRunAfterSetup ?? false,

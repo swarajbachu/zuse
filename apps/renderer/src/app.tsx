@@ -7,7 +7,6 @@ import {
   useDefaultLayout,
   usePanelRef,
 } from "react-resizable-panels";
-import { ArchiveDirtyWorktreeDialogHost } from "./components/archive-dirty-worktree-dialog.tsx";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
@@ -362,6 +361,7 @@ function MainShell() {
   // always has a way back to the projects panel + the window drag region).
   const showMainChrome =
     selectedSessionId !== null || openFile !== null || !leftSidebarOpen;
+  const showMainTabs = showMainChrome && activeMainTab !== "archives";
 
   // Persist the three-pane layout in localStorage so widths survive reloads.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -419,7 +419,7 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            {showMainChrome ? (
+            {showMainTabs ? (
               <MainTabs
                 projectId={selectedFolderId}
                 emptyLabel={emptyTabLabel}
@@ -548,7 +548,6 @@ function MainShell() {
       <SidebarPeekTrigger />
       <SidebarPeekOverlay />
       <ChatSwitcher />
-      <ArchiveDirtyWorktreeDialogHost />
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { ProviderId, RuntimeMode } from "./agent.ts";
 import { FolderId } from "./ids.ts";
@@ -33,17 +33,10 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
    * bound to a worktree. Empty/null means archive without cleanup.
    */
   archiveCleanupScript: Schema.NullOr(Schema.String),
-  /**
-   * When true, Memoize removes the chat's git worktree after a successful
-   * archive cleanup script. The branch is preserved and unarchive restores
-   * the checkout from the archived metadata.
-   */
-  archiveRemoveWorktree: Schema.Boolean,
   setupScript: Schema.NullOr(Schema.String),
   runScript: Schema.NullOr(Schema.String),
   autoRunAfterSetup: Schema.Boolean,
-  environmentVariables: Schema.Record(Schema.String, Schema.String,
-  ),
+  environmentVariables: Schema.Record(Schema.String, Schema.String),
   /**
    * Newline-separated gitignore-style patterns for local files that should be
    * linked into every Zuse worktree from the main checkout. Empty means "use
@@ -64,12 +57,11 @@ export const RepositorySettingsPatch = Schema.Struct({
   autoCreateWorktree: Schema.optional(Schema.Boolean),
   worktreeBaseDir: Schema.optional(Schema.NullOr(Schema.String)),
   archiveCleanupScript: Schema.optional(Schema.NullOr(Schema.String)),
-  archiveRemoveWorktree: Schema.optional(Schema.Boolean),
   setupScript: Schema.optional(Schema.NullOr(Schema.String)),
   runScript: Schema.optional(Schema.NullOr(Schema.String)),
   autoRunAfterSetup: Schema.optional(Schema.Boolean),
   environmentVariables: Schema.optional(
-    Schema.Record(Schema.String, Schema.String ),
+    Schema.Record(Schema.String, Schema.String),
   ),
   fileIncludeGlobs: Schema.optional(Schema.String),
 });
@@ -87,12 +79,10 @@ export const RepositorySettingsFile = Schema.Struct({
   autoCreateWorktree: Schema.Boolean,
   worktreeBaseDir: Schema.NullOr(Schema.String),
   archiveCleanupScript: Schema.NullOr(Schema.String),
-  archiveRemoveWorktree: Schema.Boolean,
   setupScript: Schema.NullOr(Schema.String),
   runScript: Schema.NullOr(Schema.String),
   autoRunAfterSetup: Schema.Boolean,
-  environmentVariables: Schema.Record(Schema.String, Schema.String,
-  ),
+  environmentVariables: Schema.Record(Schema.String, Schema.String),
   fileIncludeGlobs: Schema.String,
 });
 export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;

@@ -127,6 +127,8 @@ let failProviderStart = false;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
+let archivedWorktreeIds = new Set<string>();
+let restoredWorktreeCount = 0;
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
@@ -200,16 +202,44 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 	list: () => Effect.succeed([...createdWorktrees.values()]),
 	get: (worktreeId) =>
 		Effect.succeed(
-			worktreeId === TEST_WORKTREE_ID
-				? testWorktree
-				: (createdWorktrees.get(worktreeId as string) ?? null),
+			archivedWorktreeIds.has(worktreeId as string)
+				? null
+				: worktreeId === TEST_WORKTREE_ID
+					? testWorktree
+					: (createdWorktrees.get(worktreeId as string) ?? null),
 		),
 	updateBranch: () => Effect.void,
+	archive: (worktreeId, recordCheckpoint) => {
+		const outcome = {
+			archiveCommit: "checkpoint-sha",
+			checkpointCreated: false,
+			archiveRef: null,
+			archivedContextPath: null,
+			branch: worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
+		};
+		const markRemoved = Effect.sync(() => {
+			archivedWorktreeIds.add(worktreeId as string);
+		});
+		return recordCheckpoint === undefined
+			? markRemoved.pipe(Effect.as(outcome))
+			: recordCheckpoint(outcome).pipe(
+					Effect.andThen(markRemoved),
+					Effect.as(outcome),
+				);
+	},
+	finishArchiveRemoval: () => Effect.void,
 	remove: () => Effect.void,
 	rerunSetup: () => Effect.die("not used"),
 	setupStream: () => Stream.die("not used"),
 	startRun: () => Effect.die("not used"),
-	restore: () => Effect.die("not used"),
+	restore: (snapshot) =>
+		Effect.sync(() => {
+			restoredWorktreeCount += 1;
+			archivedWorktreeIds.delete(snapshot.id as string);
+			return snapshot.id === TEST_WORKTREE_ID
+				? testWorktree
+				: (createdWorktrees.get(snapshot.id as string) ?? testWorktree);
+		}),
 });
 
 // The first-message auto-namer may fire for chats with a worktree. Tests here
@@ -282,7 +312,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoCreateWorktree: false,
 				worktreeBaseDir: null,
 				archiveCleanupScript: null,
-				archiveRemoveWorktree: false,
 				setupScript: null,
 				runScript: null,
 				autoRunAfterSetup: false,
@@ -300,7 +329,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoCreateWorktree: patch.autoCreateWorktree ?? false,
 				worktreeBaseDir: patch.worktreeBaseDir ?? null,
 				archiveCleanupScript: patch.archiveCleanupScript ?? null,
-				archiveRemoveWorktree: patch.archiveRemoveWorktree ?? false,
 				setupScript: patch.setupScript ?? null,
 				runScript: patch.runScript ?? null,
 				autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
@@ -468,6 +496,8 @@ beforeEach(() => {
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
+	archivedWorktreeIds = new Set();
+	restoredWorktreeCount = 0;
 });
 
 describe("ConversationServices migrations", () => {
@@ -780,12 +810,13 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						projectId: PROJECT_ID,
 						providerId: "claude",
 						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
 					}),
 				),
 			);
 			const result = await run(
 				Effect.flatMap(store, (service) =>
-					service.archiveChat(created.chat.id, false),
+					service.archiveChat(created.chat.id),
 				),
 			);
 			const evidence = await run(
@@ -801,16 +832,193 @@ describe("ConversationServices — chat & session lifecycle", () => {
             SELECT effect_id FROM reactor_effect_receipts
             WHERE effect_id LIKE 'reactor:chat-archive:%'
           `;
-					return { events, receipts };
+					const steps = yield* sql<{
+						readonly step: string;
+						readonly status: string;
+						readonly detail_json: string | null;
+					}>`
+            SELECT step, status, detail_json FROM reactor_effect_steps
+            WHERE step = 'worktree-checkpoint'
+          `;
+					return { events, receipts, steps };
 				}),
 			);
 
 			expect(result.chat.archivedAt).not.toBeNull();
+			expect(result.checkpoint).toEqual({
+				archiveCommit: "checkpoint-sha",
+				checkpointCreated: false,
+				archiveRef: null,
+				branch: "pikachu",
+			});
 			expect(evidence.events.map(({ type }) => type)).toEqual([
 				"ChatArchiveRequested",
 				"ChatArchived",
 			]);
 			expect(evidence.receipts).toHaveLength(1);
+			expect(evidence.steps).toHaveLength(1);
+			expect(evidence.steps[0]).toMatchObject({
+				step: "worktree-checkpoint",
+				status: "completed",
+				detail_json: expect.stringContaining("checkpoint-sha"),
+			});
+		});
+	});
+
+	it("restores the archived worktree without replacing other live chats", async () => {
+		await withRuntime(async (run) => {
+			const other = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Existing main chat",
+						initialPrompt: "Keep the main chat history",
+					}),
+				),
+			);
+			const archived = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Worktree chat",
+						worktreeId: TEST_WORKTREE_ID,
+						initialPrompt: "Keep the worktree chat history",
+					}),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(archived.chat.id),
+				),
+			);
+			// Worktree deletion clears the SQL foreign key, but the session event
+			// state still remembers the original id. This projection drift is the
+			// production failure mode that previously routed restore into main.
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+            UPDATE sessions SET worktree_id = NULL
+            WHERE id = ${archived.initialSession.id}
+          `;
+				}),
+			);
+			const restored = await run(
+				Effect.flatMap(store, (service) =>
+					service.unarchiveChat(archived.chat.id),
+				),
+			);
+			const liveChats = await run(
+				Effect.flatMap(store, (service) =>
+					service.listChats(PROJECT_ID, false),
+				),
+			);
+			const liveSessions = await run(
+				Effect.flatMap(store, (service) =>
+					service.listSessions(PROJECT_ID, false),
+				),
+			);
+			const otherMessages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(other.initialSession.id),
+				),
+			);
+			const restoredMessages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(archived.initialSession.id),
+				),
+			);
+
+			expect(restoredWorktreeCount).toBe(1);
+			expect(restored.worktree?.id).toBe(TEST_WORKTREE_ID);
+			expect(restored.chat.worktreeId).toBe(TEST_WORKTREE_ID);
+			expect(restored.sessions.map((session) => session.worktreeId)).toEqual([
+				TEST_WORKTREE_ID,
+			]);
+			expect(liveChats.map((chat) => chat.id)).toEqual(
+				expect.arrayContaining([other.chat.id, archived.chat.id]),
+			);
+			expect(liveSessions.map((session) => session.id)).toEqual(
+				expect.arrayContaining([
+					other.initialSession.id,
+					archived.initialSession.id,
+				]),
+			);
+			expect(otherMessages).toHaveLength(1);
+			expect(restoredMessages).toHaveLength(1);
+		});
+	});
+
+	it("returns the archived chat with only its original sessions for preview", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Preview me",
+					}),
+				),
+			);
+			const secondSession = await run(
+				Effect.flatMap(store, (service) =>
+					service.createSession({
+						chatId: created.chat.id,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Second tab",
+					}),
+				),
+			);
+			const other = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Other chat",
+					}),
+				),
+			);
+			const liveAttempt = await run(
+				Effect.result(
+					Effect.flatMap(store, (service) =>
+						service.getArchivePreview(created.chat.id),
+					),
+				),
+			);
+			expect(liveAttempt).toMatchObject({
+				_tag: "Failure",
+				failure: { _tag: "ChatNotArchivedError", chatId: created.chat.id },
+			});
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+			const preview = await run(
+				Effect.flatMap(store, (service) =>
+					service.getArchivePreview(created.chat.id),
+				),
+			);
+
+			expect(preview.chat.id).toBe(created.chat.id);
+			expect(preview.chat.title).toBe("Preview me");
+			expect(preview.chat.archivedAt).not.toBeNull();
+			expect(preview.sessions.map((session) => session.id)).toEqual([
+				created.initialSession.id,
+				secondSession.id,
+			]);
+			expect(preview.sessions).not.toContainEqual(
+				expect.objectContaining({ id: other.initialSession.id }),
+			);
 		});
 	});
 

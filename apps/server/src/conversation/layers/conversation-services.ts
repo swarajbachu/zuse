@@ -145,6 +145,30 @@ const ConversationRuntimeLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
+		// Worktree deletion can null the sessions read-model FK without emitting
+		// a session-domain event. Reconcile live members from their owning chat at
+		// startup so records affected by an interrupted or older restore heal on
+		// the next launch instead of silently starting providers in main.
+		yield* sql`
+      UPDATE sessions
+      SET worktree_id = (
+        SELECT c.worktree_id
+        FROM chats c
+        INNER JOIN worktrees w ON w.id = c.worktree_id
+        WHERE c.id = sessions.chat_id
+          AND c.archived_at IS NULL
+      )
+      WHERE archived_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM chats c
+          INNER JOIN worktrees w ON w.id = c.worktree_id
+          WHERE c.id = sessions.chat_id
+            AND c.archived_at IS NULL
+            AND sessions.worktree_id IS NOT c.worktree_id
+        )
+    `.pipe(Effect.orDie);
+
 		/**
 		 * Resolve the cwd a session should run in. NULL `worktreeId` falls
 		 * through to the project's main checkout (handled by `provider.start`
@@ -260,8 +284,14 @@ const ConversationRuntimeLive = Layer.effect(
 			chatChangesHub,
 			dispatchChatCommand,
 		});
-		const { lookupChat, listChats, getChat, streamChatChanges, createChat } =
-			chatOperations;
+		const {
+			lookupChat,
+			listChats,
+			getChat,
+			getArchivePreview,
+			streamChatChanges,
+			createChat,
+		} = chatOperations;
 
 		const transcriptOperations = makeTranscriptOperations({
 			sql,
@@ -346,10 +376,8 @@ const ConversationRuntimeLive = Layer.effect(
 				chatArchive: handleChatArchive,
 				chatDelete: handleChatDelete,
 			});
-		const archiveChat: ConversationOperations["archiveChat"] = (
-			chatId,
-			force,
-		) => archiveChatWithReactor(chatId, force, reactorRuntime.runChatArchive);
+		const archiveChat: ConversationOperations["archiveChat"] = (chatId) =>
+			archiveChatWithReactor(chatId, reactorRuntime.runChatArchive);
 		const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
 			deleteChatWithReactor(chatId, reactorRuntime.runChatDelete);
 		yield* reactorRuntime.catchUpAll;
@@ -427,6 +455,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const chatService = {
 			listChats,
 			getChat,
+			getArchivePreview,
 			createChat,
 			renameChat,
 			markChatRead,

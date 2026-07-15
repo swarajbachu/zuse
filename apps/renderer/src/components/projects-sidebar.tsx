@@ -60,6 +60,7 @@ import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
+import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import {
   archiveChatWithConfirm,
   chatArchiveProgressLabel,
@@ -626,6 +627,7 @@ function ProjectGroup({
 
   const openArchives = () => {
     onSelect();
+    void useArchivePreviewStore.getState().showList(id);
     setView("chat");
     setActiveMainTab("archives");
   };
