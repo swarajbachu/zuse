@@ -872,6 +872,10 @@ const LOGIN_HINT: Record<ProviderId, string> = {
  * don't need prop drilling.
  */
 export function createNewSession(projectId: FolderId): void {
+  // The landing lives on the chat tab. Return there before clearing the
+  // selection so creating a chat from Usage or Archives is immediately
+  // visible instead of leaving that takeover surface mounted.
+  useUiStore.getState().setActiveMainTab("chat");
   // Select the project first (synchronous: `workspace.select` sets
   // `selectedFolderId` before awaiting persistence), then clear the chat +
   // session selection for it. `chats.select(null)` cascades into

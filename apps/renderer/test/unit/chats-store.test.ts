@@ -37,6 +37,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
+import { createNewSession } from "../../src/components/projects-sidebar.tsx";
 import { useArchivePreviewStore } from "../../src/store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
@@ -171,12 +172,15 @@ describe("chats store selection", () => {
 		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
 	});
 
-	it("does not force the chat surface when clearing selection", () => {
-		useUiStore.setState({ activeMainTab: "usage" });
+	it.each([
+		"usage",
+		"archives",
+	] as const)("opens the new-chat landing from %s", (activeMainTab) => {
+		useUiStore.setState({ activeMainTab });
 
-		useChatsStore.getState().select(null);
+		createNewSession(projectId);
 
-		expect(useUiStore.getState().activeMainTab).toBe("usage");
+		expect(useUiStore.getState().activeMainTab).toBe("chat");
 		expect(useChatsStore.getState().selectedChatId).toBeNull();
 		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
 	});
