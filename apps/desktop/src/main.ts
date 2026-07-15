@@ -42,6 +42,7 @@ if (
 }
 
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
+import { isLinearContextImagePath } from "./linear-context-image.ts";
 import {
 	DEFAULT_MENU_ACCELERATORS,
 	installAppMenu,
@@ -1530,6 +1531,7 @@ async function createMainWindow() {
  */
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
+const LINEAR_CONTEXT_HOST = "linear-context";
 
 const MIME_BY_EXT: Record<string, string> = {
 	png: "image/png",
@@ -1538,6 +1540,7 @@ const MIME_BY_EXT: Record<string, string> = {
 	webp: "image/webp",
 	gif: "image/gif",
 	avif: "image/avif",
+	svg: "image/svg+xml",
 };
 
 type AssetFilenameCache = {
@@ -1647,6 +1650,28 @@ const registerZuseProtocol = (): void => {
 
 	const handleAssetRequest = async (request: Request) => {
 		const url = new URL(request.url);
+		if (url.host === LINEAR_CONTEXT_HOST) {
+			try {
+				const requestedPath = decodeURIComponent(url.pathname);
+				const realPath = await fs.realpath(requestedPath);
+				if (!isLinearContextImagePath(realPath)) {
+					return new Response(null, { status: 403 });
+				}
+				const ext = Path.extname(realPath).slice(1).toLowerCase();
+				const mime = MIME_BY_EXT[ext];
+				if (mime === undefined) return new Response(null, { status: 415 });
+				const response = await net.fetch(pathToFileURL(realPath).toString());
+				const headers = new Headers(response.headers);
+				headers.set("content-type", mime);
+				headers.set("cache-control", "private, max-age=3600");
+				return new Response(response.body, {
+					status: response.status,
+					headers,
+				});
+			} catch {
+				return new Response(null, { status: 404 });
+			}
+		}
 		if (url.host !== ATTACHMENTS_HOST && url.host !== POKEMON_HOST) {
 			return new Response(null, { status: 404 });
 		}

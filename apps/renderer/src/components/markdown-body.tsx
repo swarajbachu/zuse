@@ -15,9 +15,10 @@ import {
   type ReactNode,
   type PointerEvent,
 } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -25,6 +26,7 @@ import { useWorktreesStore } from "~/store/worktrees";
 
 import { CodeBlock } from "./code-block.tsx";
 import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { Button } from "./ui/button.tsx";
 import {
   Dialog,
   DialogDescription,
@@ -32,7 +34,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog.tsx";
-import { Button } from "./ui/button.tsx";
 
 const languageFromClassName = (className: unknown): string | undefined => {
   if (typeof className !== "string") return undefined;
@@ -411,9 +412,11 @@ function MermaidDiagram({ source }: { source: string }) {
 export function MarkdownBody({
   children,
   className,
+  baseHref,
 }: {
   children: string;
   className?: string;
+  baseHref?: string;
 }) {
   const { folderId, worktreeId } = useFileChipContext();
   const openFileInTab = useUiStore((s) => s.openFileInTab);
@@ -431,6 +434,14 @@ export function MarkdownBody({
     <div className={cn("fz-prose", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={(value, property, node) =>
+          resolveMarkdownPreviewUrl(
+            value,
+            property,
+            node.tagName,
+            baseHref,
+          ) ?? defaultUrlTransform(value)
+        }
         components={{
           a: ({ href, children, ...rest }) => (
             <a

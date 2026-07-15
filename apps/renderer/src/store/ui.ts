@@ -6,7 +6,14 @@ import type {
 } from "@zuse/contracts";
 import { create } from "zustand";
 
+import {
+  defaultFileViewForName,
+  isPreviewableFileName,
+} from "~/lib/file-preview";
+
 import { useChatsStore } from "./chats.ts";
+
+export { isPreviewableFileName } from "~/lib/file-preview";
 
 /**
  * Top-level renderer view. The settings page replaces the chat surface in the
@@ -98,22 +105,6 @@ export type PanelInstance =
  * per entry point.
  */
 export type FileView = "edit" | "diff" | "preview";
-
-const PREVIEWABLE_EXTENSIONS = new Set([
-  ".htm",
-  ".html",
-  ".markdown",
-  ".md",
-  ".mdown",
-  ".mkd",
-]);
-
-export const isPreviewableFileName = (name: string): boolean => {
-  const lower = name.toLowerCase();
-  const dot = lower.lastIndexOf(".");
-  if (dot === -1) return false;
-  return PREVIEWABLE_EXTENSIONS.has(lower.slice(dot));
-};
 
 const coerceFileView = (
   file: { readonly kind: "text" | "external"; readonly name: string },
@@ -343,7 +334,10 @@ export const useUiStore = create<UiState>((set, get) => ({
           ? file
           : {
               ...file,
-              view: coerceFileView(file, file.view ?? "edit"),
+              view: coerceFileView(
+                file,
+                file.view ?? defaultFileViewForName(file.name),
+              ),
             },
       activeMainTab: "file",
       fileDirty: false,
