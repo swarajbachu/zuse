@@ -664,6 +664,11 @@ export class ChatNotFoundError extends Schema.TaggedErrorClass<ChatNotFoundError
   { chatId: ChatId },
 ) {}
 
+export class ChatNotArchivedError extends Schema.TaggedErrorClass<ChatNotArchivedError>()(
+  "ChatNotArchivedError",
+  { chatId: ChatId },
+) {}
+
 /**
  * Raised by `chat.setWorktree` when any session in the chat already has a
  * recorded user message. Worktrees are immutable past the first message —
@@ -727,6 +732,12 @@ export const ChatUnarchiveResult = Schema.Struct({
 });
 export type ChatUnarchiveResult = typeof ChatUnarchiveResult.Type;
 
+export const ChatArchivePreview = Schema.Struct({
+  chat: Chat,
+  sessions: Schema.Array(Session),
+});
+export type ChatArchivePreview = typeof ChatArchivePreview.Type;
+
 export const ChatListRpc = Rpc.make("chat.list", {
   payload: Schema.Struct({
     projectId: FolderId,
@@ -739,6 +750,12 @@ export const ChatGetRpc = Rpc.make("chat.get", {
   payload: Schema.Struct({ chatId: ChatId }),
   success: Chat,
   error: ChatNotFoundError,
+});
+
+export const ChatArchivePreviewRpc = Rpc.make("chat.archivePreview", {
+  payload: Schema.Struct({ chatId: ChatId }),
+  success: ChatArchivePreview,
+  error: Schema.Union([ChatNotFoundError, ChatNotArchivedError]),
 });
 
 /**

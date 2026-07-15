@@ -59,6 +59,7 @@ function SubagentRowImpl({
   presentation,
   children,
   summary,
+  readOnly = false,
 }: {
   readonly agentToolUseId: AgentItemId;
   readonly agentName: string;
@@ -74,6 +75,7 @@ function SubagentRowImpl({
     readonly model: string;
     readonly isError: boolean;
   } | null;
+  readonly readOnly?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const revealSubagent = useUiStore((state) => state.revealSubagent);
@@ -111,7 +113,11 @@ function SubagentRowImpl({
       <button
         type="button"
         onClick={() => {
-          if (presentation === "detached" && childSessionId !== undefined) {
+          if (
+            !readOnly &&
+            presentation === "detached" &&
+            childSessionId !== undefined
+          ) {
             revealSubagent(childSessionId);
             return;
           }
@@ -149,12 +155,12 @@ function SubagentRowImpl({
           <span className="min-w-0 truncate">{trailingMeta}</span>
         </span>
       </button>
-      {expanded && presentation === "inline" ? (
+      {expanded && (presentation === "inline" || readOnly) ? (
         <div className="ml-7 mt-1 border-l border-border/60 pl-3">
           <PromptRow text={prompt} />
           <div className="flex flex-col">
             {children.map((m) => (
-              <MessageRow key={m.id} message={m} />
+              <MessageRow key={m.id} message={m} readOnly={readOnly} />
             ))}
           </div>
           {summary !== null && summary.text.length > 0 ? (

@@ -4,11 +4,13 @@ import type {
 	AttachmentRef,
 	Chat,
 	ChatAlreadyStartedError,
+	ChatArchivePreview,
 	ChatArchiveResult,
 	ChatArchiveScriptError,
 	ChatArchiveTimeoutError,
 	ChatArchiveWorktreeError,
 	ChatId,
+	ChatNotArchivedError,
 	ChatNotFoundError,
 	ChatUnarchiveResult,
 	ComposerAnnotation,
@@ -266,6 +268,13 @@ export interface ConversationOperations {
 
 	readonly getChat: (chatId: ChatId) => Effect.Effect<Chat, ChatNotFoundError>;
 
+	readonly getArchivePreview: (
+		chatId: ChatId,
+	) => Effect.Effect<
+		ChatArchivePreview,
+		ChatNotFoundError | ChatNotArchivedError
+	>;
+
 	/**
 	 * Creates the chat row AND its initial session in one transaction.
 	 * Returns both so the renderer lands directly on the new session, plus
@@ -513,6 +522,7 @@ export type ChatServiceShape = Pick<
 	ConversationOperations,
 	| "listChats"
 	| "getChat"
+	| "getArchivePreview"
 	| "createChat"
 	| "renameChat"
 	| "markChatRead"

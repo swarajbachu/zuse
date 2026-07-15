@@ -37,6 +37,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	};
 });
 
+import { useArchivePreviewStore } from "../../src/store/archive-preview.ts";
 import {
 	archiveChatWithConfirm,
 	stopChatChangeStream,
@@ -95,6 +96,21 @@ const session: Session = {
 	toolSearch: false,
 	createdAt: now,
 	updatedAt: now,
+};
+
+const nextChatId = "chat-2" as ChatId;
+const nextSessionId = "session-2" as SessionId;
+const nextChat: Chat = {
+	...chat,
+	id: nextChatId,
+	title: "Next chat",
+	activeSessionId: nextSessionId,
+};
+const nextSession: Session = {
+	...session,
+	id: nextSessionId,
+	chatId: nextChatId,
+	title: "Next session",
 };
 
 const reconnectChat: Chat = {
@@ -292,6 +308,7 @@ describe("chats store live changes", () => {
 describe("archiveChatWithConfirm", () => {
 	beforeEach(() => {
 		toastAdd.mockClear();
+		useArchivePreviewStore.setState(useArchivePreviewStore.getInitialState());
 		useChatsStore.setState({
 			chatsByProject: { [projectId]: [chat] },
 			selectedChatId: chatId,
@@ -364,5 +381,143 @@ describe("archiveChatWithConfirm", () => {
 			type: "success",
 			title: "Archived",
 		});
+	});
+
+	it("moves the archived chat into its folder and selects the next live chat", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [chat, nextChat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [session, nextSession] },
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [projectId]: sessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await archiveChatWithConfirm(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
+			[archivedChat],
+		);
+	});
+
+	it("selects the previous live chat when there is no next sibling", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [nextChat, chat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [nextSession, session] },
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [projectId]: sessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([nextChat]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await useChatsStore.getState().archive(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBe(nextChatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(nextSessionId);
+	});
+
+	it("returns to the new-chat landing when the project has no live sibling", async () => {
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [chat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () =>
+				Effect.succeed({ chat: archivedChat, cleanup: null, checkpoint: null }),
+			"chat.list": () => Effect.succeed([]),
+			"chat.streamChanges": () => Stream.empty,
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		await useChatsStore.getState().archive(chatId);
+
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
+	});
+});
+
+describe("chat unarchive", () => {
+	beforeEach(() => {
+		useArchivePreviewStore.setState(useArchivePreviewStore.getInitialState());
+		useArchivePreviewStore.getState().upsertChat({ ...chat, archivedAt: now });
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [] },
+			selectedChatId: null,
+			selectedChatByProject: { [projectId]: null },
+			error: null,
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [] },
+			selectedSessionId: null,
+			selectedSessionByProject: { [projectId]: null },
+		});
+	});
+
+	it("deduplicates restore clicks and returns the exact restored chat", async () => {
+		const restore = deferred<{
+			chat: Chat;
+			sessions: ReadonlyArray<Session>;
+			worktree: null;
+		}>();
+		const unarchive = vi.fn(() => Effect.tryPromise(() => restore.promise));
+		rpcClientFactory.mockReturnValue({ "chat.unarchive": unarchive });
+
+		const first = useChatsStore.getState().unarchive(chatId);
+		const second = useChatsStore.getState().unarchive(chatId);
+
+		await vi.waitFor(() => expect(unarchive).toHaveBeenCalledTimes(1));
+		expect(useArchivePreviewStore.getState().restoringByChat[chatId]).toBe(
+			true,
+		);
+		restore.resolve({ chat, sessions: [session], worktree: null });
+
+		await expect(first).resolves.toMatchObject({ ok: true, chat });
+		await expect(second).resolves.toMatchObject({ ok: true, chat });
+		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
+		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
+		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
+			[],
+		);
+		expect(useUiStore.getState().activeMainTab).toBe("chat");
+	});
+
+	it("keeps the archived chat available when restore fails", async () => {
+		rpcClientFactory.mockReturnValue({
+			"chat.unarchive": () => Effect.fail(new Error("Path already exists")),
+		});
+
+		const result = await useChatsStore.getState().unarchive(chatId);
+
+		expect(result).toEqual({ ok: false, reason: "Path already exists" });
+		expect(
+			useArchivePreviewStore.getState().chatsByProject[projectId],
+		).toHaveLength(1);
+		expect(useArchivePreviewStore.getState().restoreErrorByChat[chatId]).toBe(
+			"Path already exists",
+		);
 	});
 });

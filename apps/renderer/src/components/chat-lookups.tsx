@@ -1,6 +1,5 @@
+import type { AgentItemId, Message, UserQuestionAnswer } from "@zuse/contracts";
 import { createContext, useContext } from "react";
-
-import type { AgentItemId, UserQuestionAnswer } from "@zuse/contracts";
 
 export interface ToolResultRecord {
   readonly output: unknown;
@@ -38,3 +37,38 @@ export function ChatLookupsProvider({
 }
 
 export const useChatLookups = () => useContext(ChatLookupsContext);
+
+export function deriveChatLookups(
+  messages: ReadonlyArray<Message>,
+): ChatLookups {
+  const seenUseIds = new Set<AgentItemId>();
+  const resultsByItemId = new Map<AgentItemId, ToolResultRecord>();
+  const seenQuestionIds = new Set<AgentItemId>();
+  const answersByItemId = new Map<
+    AgentItemId,
+    ReadonlyArray<UserQuestionAnswer>
+  >();
+
+  for (const message of messages) {
+    if (message.content._tag === "tool_use") {
+      seenUseIds.add(message.content.itemId);
+    } else if (
+      message.content._tag === "tool_result" &&
+      seenUseIds.has(message.content.itemId)
+    ) {
+      resultsByItemId.set(message.content.itemId, {
+        output: message.content.output,
+        isError: message.content.isError,
+      });
+    } else if (message.content._tag === "user_question") {
+      seenQuestionIds.add(message.content.itemId);
+    } else if (
+      message.content._tag === "user_question_answer" &&
+      seenQuestionIds.has(message.content.itemId)
+    ) {
+      answersByItemId.set(message.content.itemId, message.content.answers);
+    }
+  }
+
+  return { resultsByItemId, answersByItemId };
+}

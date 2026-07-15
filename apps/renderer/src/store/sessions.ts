@@ -1,13 +1,9 @@
-import { Effect } from "effect";
-import { create } from "zustand";
-
-import { Session } from "@zuse/contracts";
 import type {
   AgentItemId,
   ChatId,
+  FolderId,
   ForkDestination,
   ForkMode,
-  FolderId,
   MessageId,
   PermissionMode,
   ProviderId,
@@ -16,9 +12,11 @@ import type {
   UserQuestionAnswer,
   WorktreeId,
 } from "@zuse/contracts";
-
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { Session } from "@zuse/contracts";
+import { Effect } from "effect";
+import { create } from "zustand";
 import { formatError } from "../lib/format-error.ts";
+import { getRpcClient } from "../lib/rpc-client.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
@@ -42,7 +40,6 @@ type SessionsState = {
    * PR badge, terminal cwd, and the chat all swap together.
    */
   readonly selectedSessionByProject: Record<string, SessionId | null>;
-  readonly showArchivedByProject: Record<string, boolean>;
   readonly loadingByProject: Record<string, boolean>;
   /**
    * Per-chat in-flight flag for `create()`. Drives the tab-strip "+"
@@ -154,7 +151,6 @@ type SessionsState = {
   readonly remove: (sessionId: SessionId) => Promise<void>;
   readonly resume: (sessionId: SessionId) => Promise<boolean>;
   readonly select: (sessionId: SessionId | null) => void;
-  readonly toggleShowArchived: (projectId: FolderId) => void;
 };
 
 /**
@@ -179,7 +175,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   sessionsByProject: {},
   selectedSessionId: null,
   selectedSessionByProject: {},
-  showArchivedByProject: {},
   loadingByProject: {},
   creatingByChat: {},
   draftSession: null,
@@ -217,10 +212,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }));
     try {
       const client = await getRpcClient();
-      const includeArchived =
-        get().showArchivedByProject[projectId] === true;
       const sessions = await Effect.runPromise(
-        client["session.list"]({ projectId, includeArchived }),
+        client["session.list"]({ projectId }),
       );
       set((s) => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
@@ -567,9 +560,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       set((s) => {
         if (projectId === null) return {};
         const sessions = s.sessionsByProject[projectId] ?? [];
-        const perProject = s.selectedSessionByProject[projectId] === sessionId
-          ? { ...s.selectedSessionByProject, [projectId]: null }
-          : s.selectedSessionByProject;
+        const perProject =
+          s.selectedSessionByProject[projectId] === sessionId
+            ? { ...s.selectedSessionByProject, [projectId]: null }
+            : s.selectedSessionByProject;
         return {
           sessionsByProject: {
             ...s.sessionsByProject,
@@ -669,7 +663,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     // session whose hydrate is still in flight).
     const sessionRow =
       projectId !== null
-        ? get().sessionsByProject[projectId]?.find((row) => row.id === sessionId)
+        ? get().sessionsByProject[projectId]?.find(
+            (row) => row.id === sessionId,
+          )
         : undefined;
     if (sessionRow !== undefined) {
       // Lazy require to dodge an import cycle with chats.ts which depends
@@ -689,15 +685,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       void useWorkspaceStore.getState().select(projectId);
     }
   },
-  toggleShowArchived: (projectId) => {
-    set((s) => ({
-      showArchivedByProject: {
-        ...s.showArchivedByProject,
-        [projectId]: !s.showArchivedByProject[projectId],
-      },
-    }));
-    void get().hydrate(projectId);
-  },
 }));
 
 // Mirror `selectedSessionId` from the active project's per-project slot.
@@ -708,7 +695,9 @@ useWorkspaceStore.subscribe((ws, prev) => {
   if (ws.selectedFolderId === prev.selectedFolderId) return;
   const slot =
     ws.selectedFolderId !== null
-      ? useSessionsStore.getState().selectedSessionByProject[ws.selectedFolderId] ?? null
+      ? (useSessionsStore.getState().selectedSessionByProject[
+          ws.selectedFolderId
+        ] ?? null)
       : null;
   if (useSessionsStore.getState().selectedSessionId !== slot) {
     useSessionsStore.setState({ selectedSessionId: slot });

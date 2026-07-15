@@ -1,19 +1,23 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import {
   ArchiveArrowUpIcon,
   ArchiveIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { useEffect, useMemo, useState } from "react";
-import { Effect } from "effect";
+import type { Chat, FolderId, Message, Session } from "@zuse/contracts";
+import { useEffect, useMemo } from "react";
 
-import type { Chat, FolderId } from "@zuse/contracts";
-
-import { getRpcClient } from "../lib/rpc-client.ts";
+import { cn } from "../lib/utils.ts";
+import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import { useChatsStore } from "../store/chats.ts";
-import { useUiStore } from "../store/ui.ts";
+import { ArchivedChatTimeline } from "./archived-chat-timeline.tsx";
+import { ProviderIcon } from "./provider-icons.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
+import { Spinner } from "./ui/spinner.tsx";
+
+const EMPTY_CHATS: ReadonlyArray<Chat> = [];
+const EMPTY_SESSIONS: ReadonlyArray<Session> = [];
+const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const formatDate = (date: Date): string =>
   date.toLocaleDateString(undefined, {
@@ -30,150 +34,247 @@ export function ArchivedChatsPage({
   projectId: FolderId | null;
   projectName: string;
 }) {
-  const [query, setQuery] = useState("");
-  const [archived, setArchived] = useState<ReadonlyArray<Chat>>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const unarchive = useChatsStore((s) => s.unarchive);
-  const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
-
-  const load = async () => {
-    if (projectId === null) {
-      setArchived([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const client = await getRpcClient();
-      const chats = await Effect.runPromise(
-        client["chat.list"]({ projectId, includeArchived: true }),
-      );
-      setArchived(
-        chats
-          .filter((chat) => chat.archivedAt !== null)
-          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()),
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const archivedChats = useArchivePreviewStore((state) =>
+    projectId === null
+      ? EMPTY_CHATS
+      : (state.chatsByProject[projectId] ?? EMPTY_CHATS),
+  );
+  const selectedChatId = useArchivePreviewStore((state) =>
+    projectId === null
+      ? null
+      : (state.selectedChatByProject[projectId] ?? null),
+  );
+  const projectLoading = useArchivePreviewStore((state) =>
+    projectId === null ? false : state.loadingByProject[projectId] === true,
+  );
+  const projectError = useArchivePreviewStore((state) =>
+    projectId === null ? null : (state.errorByProject[projectId] ?? null),
+  );
+  const selectedChat = useMemo(
+    () => archivedChats.find((chat) => chat.id === selectedChatId) ?? null,
+    [archivedChats, selectedChatId],
+  );
+  const preview = useArchivePreviewStore((state) =>
+    selectedChatId === null ? undefined : state.previewsByChat[selectedChatId],
+  );
+  const previewLoading = useArchivePreviewStore((state) =>
+    selectedChatId === null
+      ? false
+      : state.previewLoadingByChat[selectedChatId] === true,
+  );
+  const previewError = useArchivePreviewStore((state) =>
+    selectedChatId === null
+      ? null
+      : (state.errorByChat[selectedChatId] ?? null),
+  );
+  const sessions = preview?.sessions ?? EMPTY_SESSIONS;
+  const selectedSessionId = useArchivePreviewStore((state) =>
+    selectedChatId === null
+      ? null
+      : (state.selectedSessionByChat[selectedChatId] ?? null),
+  );
+  const selectedSession = useMemo(
+    () => sessions.find((session) => session.id === selectedSessionId) ?? null,
+    [sessions, selectedSessionId],
+  );
+  const messages = useArchivePreviewStore((state) =>
+    selectedSessionId === null
+      ? EMPTY_MESSAGES
+      : (state.messagesBySession[selectedSessionId] ?? EMPTY_MESSAGES),
+  );
+  const messagesLoading = useArchivePreviewStore((state) =>
+    selectedSessionId === null
+      ? false
+      : state.messagesLoadingBySession[selectedSessionId] === true,
+  );
+  const messagesError = useArchivePreviewStore((state) =>
+    selectedSessionId === null
+      ? null
+      : (state.errorBySession[selectedSessionId] ?? null),
+  );
+  const restoring = useArchivePreviewStore((state) =>
+    selectedChatId === null
+      ? false
+      : state.restoringByChat[selectedChatId] === true,
+  );
+  const restoreError = useArchivePreviewStore((state) =>
+    selectedChatId === null
+      ? null
+      : (state.restoreErrorByChat[selectedChatId] ?? null),
+  );
+  const loadProject = useArchivePreviewStore((state) => state.loadProject);
+  const openChat = useArchivePreviewStore((state) => state.openChat);
+  const selectSession = useArchivePreviewStore((state) => state.selectSession);
+  const unarchive = useChatsStore((state) => state.unarchive);
 
   useEffect(() => {
-    void load();
-  }, [projectId]);
+    if (projectId !== null) void loadProject(projectId);
+  }, [loadProject, projectId]);
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle.length === 0) return archived;
-    return archived.filter((chat) => chat.title.toLowerCase().includes(needle));
-  }, [archived, query]);
-
-  const onRestore = async (chat: Chat) => {
-    await unarchive(chat.id);
-    setArchived((rows) => rows.filter((row) => row.id !== chat.id));
-    setActiveMainTab("chat");
-  };
+  if (projectId === null) {
+    return <CenteredState text="Select a project to view archived chats." />;
+  }
+  if (selectedChat === null) {
+    if (projectLoading) {
+      return <CenteredState text="Loading archived chats…" loading />;
+    }
+    if (projectError !== null) {
+      return (
+        <CenteredState
+          text={projectError}
+          action="Retry"
+          onAction={() => void loadProject(projectId, true)}
+        />
+      );
+    }
+    return (
+      <CenteredState
+        text={
+          archivedChats.length === 0
+            ? `No archived chats in ${projectName}.`
+            : "Choose a chat from the Archived folder to preview it."
+        }
+      />
+    );
+  }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background/55">
-      <div className="border-b border-border/50 px-8 py-5">
-        <div className="flex items-center gap-3">
-          <HugeiconsIcon
-            icon={ArchiveIcon}
-            className="size-5 text-muted-foreground"
-          />
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold text-foreground">
-              Archived chats
-            </h1>
-            <p className="truncate text-xs text-muted-foreground">
-              {projectName}
-            </p>
-          </div>
+    <section className="flex min-h-0 flex-1 flex-col bg-background/55">
+      <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/50 px-5">
+        <HugeiconsIcon
+          icon={ArchiveIcon}
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-medium text-foreground">
+            {selectedChat.title}
+          </h1>
+          <p className="truncate text-[11px] text-muted-foreground">
+            Archived{" "}
+            {formatDate(selectedChat.archivedAt ?? selectedChat.updatedAt)}
+          </p>
         </div>
-        <label className="mt-5 flex h-9 max-w-xl items-center gap-2 rounded-md border border-border/70 bg-background px-3 text-sm">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            placeholder="Filter archived chats..."
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-          />
-        </label>
+      </header>
+
+      {preview !== undefined && sessions.length > 0 ? (
+        <nav
+          aria-label="Archived chat sessions"
+          className="flex h-11 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-border/50 px-3"
+        >
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              onClick={() => void selectSession(selectedChat.id, session.id)}
+              className={cn(
+                "flex min-w-0 max-w-56 items-center gap-2 border-b-2 px-3 text-xs outline-none transition-colors duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none",
+                session.id === selectedSessionId
+                  ? "border-foreground text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+              aria-current={
+                session.id === selectedSessionId ? "page" : undefined
+              }
+            >
+              <ProviderIcon
+                providerId={session.providerId}
+                className="size-3.5"
+              />
+              <span className="truncate">{session.title}</span>
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1 px-3">
+        <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col">
+          {previewLoading ? (
+            <CenteredState text="Loading archived chat…" loading />
+          ) : previewError !== null ? (
+            <CenteredState
+              text={previewError}
+              action="Retry"
+              onAction={() => void openChat(selectedChat)}
+            />
+          ) : selectedSession === null ? (
+            <CenteredState text="This archived chat has no sessions to preview." />
+          ) : messagesLoading ? (
+            <CenteredState text="Loading transcript…" loading />
+          ) : messagesError !== null ? (
+            <CenteredState
+              text={messagesError}
+              action="Retry"
+              onAction={() =>
+                void selectSession(selectedChat.id, selectedSession.id)
+              }
+            />
+          ) : messages.length === 0 ? (
+            <CenteredState text="No messages in this session." />
+          ) : (
+            <ArchivedChatTimeline
+              projectId={projectId}
+              sessionId={selectedSession.id}
+              messages={messages}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
-        {projectId === null ? (
-          <EmptyState text="Select a repository to view archived chats." />
-        ) : loading ? (
-          <EmptyState text="Loading archived chats..." loading />
-        ) : error !== null ? (
-          <EmptyState text={error} />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            text={
-              query.trim().length > 0
-                ? "No archived chats match that filter."
-                : "No archived chats in this repository."
-            }
+      <footer className="shrink-0 border-t border-border/60 bg-background/92 px-4 py-3 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+          <HugeiconsIcon
+            icon={ArchiveIcon}
+            className="size-4 shrink-0 text-muted-foreground"
           />
-        ) : (
-          <ul className="flex flex-col divide-y divide-border/45">
-            {filtered.map((chat) => (
-              <li
-                key={chat.id}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-1 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {chat.title}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Archived{" "}
-                    {chat.archivedAt === null
-                      ? formatDate(chat.updatedAt)
-                      : formatDate(chat.archivedAt)}
-                  </p>
-                </div>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {formatDate(chat.updatedAt)}
-                </span>
-                <Button
-                  variant="settings"
-                  size="sm"
-                  onClick={() => void onRestore(chat)}
-                >
-                  <HugeiconsIcon
-                    icon={ArchiveArrowUpIcon}
-                    className="size-3.5"
-                  />
-                  Unarchive
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground">
+              This chat is archived.
+            </p>
+            {restoreError !== null ? (
+              <p className="mt-0.5 truncate text-[11px] text-destructive">
+                {restoreError}
+              </p>
+            ) : null}
+          </div>
+          <Button
+            variant="settings"
+            size="sm"
+            disabled={restoring}
+            onClick={() => void unarchive(selectedChat.id)}
+            className="min-h-11 min-w-28"
+          >
+            {restoring ? (
+              <Spinner className="size-3.5" />
+            ) : (
+              <HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
+            )}
+            {restoring ? "Unarchiving…" : restoreError ? "Retry" : "Unarchive"}
+          </Button>
+        </div>
+      </footer>
+    </section>
   );
 }
 
-function EmptyState({
+function CenteredState({
   text,
   loading = false,
+  action,
+  onAction,
 }: {
-  text: string;
-  loading?: boolean;
+  readonly text: string;
+  readonly loading?: boolean;
+  readonly action?: string;
+  readonly onAction?: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-64 items-center justify-center text-sm text-muted-foreground">
-      {loading ? <ShimmerText>{text}</ShimmerText> : text}
+    <div className="flex h-full min-h-64 flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
+      {loading ? <ShimmerText>{text}</ShimmerText> : <p>{text}</p>}
+      {action !== undefined && onAction !== undefined ? (
+        <Button variant="outline" size="sm" onClick={onAction}>
+          {action}
+        </Button>
+      ) : null}
     </div>
   );
 }

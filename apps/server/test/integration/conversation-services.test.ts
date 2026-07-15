@@ -846,6 +846,74 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("returns the archived chat with only its original sessions for preview", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Preview me",
+					}),
+				),
+			);
+			const secondSession = await run(
+				Effect.flatMap(store, (service) =>
+					service.createSession({
+						chatId: created.chat.id,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Second tab",
+					}),
+				),
+			);
+			const other = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Other chat",
+					}),
+				),
+			);
+			const liveAttempt = await run(
+				Effect.result(
+					Effect.flatMap(store, (service) =>
+						service.getArchivePreview(created.chat.id),
+					),
+				),
+			);
+			expect(liveAttempt).toMatchObject({
+				_tag: "Failure",
+				failure: { _tag: "ChatNotArchivedError", chatId: created.chat.id },
+			});
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+			const preview = await run(
+				Effect.flatMap(store, (service) =>
+					service.getArchivePreview(created.chat.id),
+				),
+			);
+
+			expect(preview.chat.id).toBe(created.chat.id);
+			expect(preview.chat.title).toBe("Preview me");
+			expect(preview.chat.archivedAt).not.toBeNull();
+			expect(preview.sessions.map((session) => session.id)).toEqual([
+				created.initialSession.id,
+				secondSession.id,
+			]);
+			expect(preview.sessions).not.toContainEqual(
+				expect.objectContaining({ id: other.initialSession.id }),
+			);
+		});
+	});
+
 	it("deletes chats through the durable deletion reactor", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(

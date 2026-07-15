@@ -1,33 +1,26 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import {
+  type MouseEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type MouseEvent,
 } from "react";
-
-import type {
-  AgentItemId,
-  Message,
-  MessageId,
-  SessionId,
-  UserQuestionAnswer,
-} from "@zuse/contracts";
 
 import {
   CHAT_LIST_ANCHOR_OFFSET,
   resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
 import {
+  type ChatTimelineRow,
   deriveChatTimelineRows,
   resolveLatestUserMessageId,
   rowAnchorMessageId,
-  type ChatTimelineRow,
 } from "../lib/chat-timeline-rows.ts";
 import {
   getAnchoredTurnMetrics,
@@ -37,31 +30,27 @@ import {
   type TimelineScrollMode,
 } from "../lib/timeline-scroll-anchoring.ts";
 import {
-  chatArchiveProgressLabel,
   type ChatArchiveProgressPhase,
+  chatArchiveProgressLabel,
   useChatsStore,
 } from "../store/chats.ts";
-import { useRegisterPane } from "../store/pane-focus.ts";
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
+import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { useForkMenu } from "./fork-menu.tsx";
-import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
-import {
-  ErrorBubble,
-  MessageRow,
-  type ToolResultRecord,
-} from "./message-row.tsx";
-import { ChatLookupsProvider } from "./chat-lookups.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
+import { ErrorBubble, MessageRow } from "./message-row.tsx";
+import { NextUnreadButton } from "./next-unread-button.tsx";
 import { SubagentRow } from "./subagent-row.tsx";
 import { TurnSummary } from "./turn-summary.tsx";
-import { NextUnreadButton } from "./next-unread-button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
+import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
 // `[]` from a Zustand selector each call breaks `useSyncExternalStore`'s
@@ -182,8 +171,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 
   const listRef = useRef<LegendListRef | null>(null);
   const scrollElementRef = useRef<HTMLDivElement | null>(null);
-  const timelineScrollModeRef =
-    useRef<TimelineScrollMode>("following-end");
+  const timelineScrollModeRef = useRef<TimelineScrollMode>("following-end");
   const activeTimelineAnchorIndexRef = useRef<number | null>(null);
   const lastAnchoredUserMessageIdRef = useRef<string | null>(null);
   const latestUserMessageIdRef = useRef<string | null>(latestUserMessageId);
@@ -278,7 +266,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
         const list = listRef.current;
         if (!list) return;
 
-        void list.scrollToEnd({ animated: remainingAttempts === 8 && animated });
+        void list.scrollToEnd({
+          animated: remainingAttempts === 8 && animated,
+        });
 
         if (remainingAttempts <= 0) return;
         requestAnimationFrame(() => {
@@ -632,7 +622,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     const frame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         if (
-          liveFollowGenerationRef.current !== userNavigationGenerationRef.current
+          liveFollowGenerationRef.current !==
+          userNavigationGenerationRef.current
         ) {
           return;
         }
@@ -669,66 +660,17 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
       cancelAnimationFrame(frame);
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
     };
-  }, [getActiveTimelineTurnMetrics, rows, timelineRealContentOverflowsViewport]);
+  }, [
+    getActiveTimelineTurnMetrics,
+    rows,
+    timelineRealContentOverflowsViewport,
+  ]);
 
-  // Pair tool_result rows back to their originating tool_use by AgentItemId.
-  // The driver assigns the SDK's tool_use id to both events, so each
-  // ToolRow can render its own result inline. We only record results that
-  // have a preceding tool_use in this transcript so true orphans (e.g. a
-  // dropped tool_use event) still fall through to a standalone error row
-  // in MessageRow rather than disappearing silently.
-  const resultsByItemId = useMemo(() => {
-    const seenUseIds = new Set<AgentItemId>();
-    const map = new Map<AgentItemId, ToolResultRecord>();
-    for (const m of messages) {
-      if (m.content._tag === "tool_use") {
-        seenUseIds.add(m.content.itemId);
-      } else if (
-        m.content._tag === "tool_result" &&
-        seenUseIds.has(m.content.itemId)
-      ) {
-        map.set(m.content.itemId, {
-          output: m.content.output,
-          isError: m.content.isError,
-        });
-      }
-    }
-    return map;
-  }, [messages]);
-
-  // Pair `user_question_answer` rows back to their originating
-  // `user_question` by itemId so the `UserInputRow` can render Q + A as one
-  // accordion. Mirrors `resultsByItemId`. Pending (unanswered) questions
-  // stay absent from this map — `MessageRow` returns null for them and the
-  // composer slot owns the live interaction.
-  const answersByItemId = useMemo(() => {
-    const seenQuestionIds = new Set<AgentItemId>();
-    const map = new Map<AgentItemId, ReadonlyArray<UserQuestionAnswer>>();
-    for (const m of messages) {
-      if (m.content._tag === "user_question") {
-        seenQuestionIds.add(m.content.itemId);
-      } else if (
-        m.content._tag === "user_question_answer" &&
-        seenQuestionIds.has(m.content.itemId)
-      ) {
-        map.set(m.content.itemId, m.content.answers);
-      }
-    }
-    return map;
-  }, [messages]);
-
-  const chatLookups = useMemo(
-    () => ({ resultsByItemId, answersByItemId }),
-    [resultsByItemId, answersByItemId],
-  );
+  const chatLookups = useMemo(() => deriveChatLookups(messages), [messages]);
 
   const renderTimelineRow = useCallback(
     ({ item }: { item: ChatTimelineRow }) => (
-      <TimelineRow
-        row={item}
-        sessionId={sessionId}
-        onFork={forkMenu.openAt}
-      />
+      <TimelineRow row={item} sessionId={sessionId} onFork={forkMenu.openAt} />
     ),
     [forkMenu.openAt, sessionId],
   );

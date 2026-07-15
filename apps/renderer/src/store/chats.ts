@@ -1,6 +1,8 @@
 import type {
 	Chat,
+	ChatArchiveResult,
 	ChatId,
+	ChatUnarchiveResult,
 	FolderId,
 	PermissionMode,
 	ProviderId,
@@ -19,6 +21,7 @@ import {
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import { useArchivePreviewStore } from "./archive-preview.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useTerminalsStore } from "./terminals.ts";
@@ -27,6 +30,12 @@ import { useWorkspaceStore } from "./workspace.ts";
 import { useWorktreesStore } from "./worktrees.ts";
 
 export type ChatArchiveProgressPhase = "archiving";
+
+export type ChatUnarchiveOutcome =
+	| ({ readonly ok: true } & ChatUnarchiveResult)
+	| { readonly ok: false; readonly reason: string };
+
+const unarchivePromises = new Map<ChatId, Promise<ChatUnarchiveOutcome>>();
 
 export const chatArchiveProgressLabel = (
 	_phase: ChatArchiveProgressPhase,
@@ -47,7 +56,6 @@ type ChatsState = {
 	/** Mirror of `selectedChatByProject[selectedFolderId]`. */
 	readonly selectedChatId: ChatId | null;
 	readonly selectedChatByProject: Record<string, ChatId | null>;
-	readonly showArchivedByProject: Record<string, boolean>;
 	readonly loadingByProject: Record<string, boolean>;
 	/** Per-project in-flight flag for `create()`. Drives the sidebar
 	 * "New chat" button's icon swap (SquarePen → Spinner). */
@@ -90,7 +98,7 @@ type ChatsState = {
 		phase: ChatArchiveProgressPhase,
 	) => void;
 	readonly clearArchiveProgress: (chatId: ChatId) => void;
-	readonly unarchive: (chatId: ChatId) => Promise<void>;
+	readonly unarchive: (chatId: ChatId) => Promise<ChatUnarchiveOutcome>;
 	readonly remove: (chatId: ChatId) => Promise<void>;
 	readonly select: (chatId: ChatId | null) => void;
 	/**
@@ -104,7 +112,6 @@ type ChatsState = {
 	 * unread the instant its agent finishes a turn, without a chat re-hydrate.
 	 */
 	readonly noteChatActivity: (chatId: ChatId) => void;
-	readonly toggleShowArchived: (projectId: FolderId) => void;
 };
 
 /**
@@ -278,7 +285,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	chatsByProject: {},
 	selectedChatId: null,
 	selectedChatByProject: {},
-	showArchivedByProject: {},
 	loadingByProject: {},
 	creatingByProject: {},
 	archiveProgressByChat: {},
@@ -291,10 +297,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}));
 		try {
 			const client = await getRpcClient();
-			const includeArchived = get().showArchivedByProject[projectId] === true;
-			const chats = await Effect.runPromise(
-				client["chat.list"]({ projectId, includeArchived }),
-			);
+			const chats = await Effect.runPromise(client["chat.list"]({ projectId }));
 			if (currentChangeLifecycle(projectId) !== lifecycle) return;
 			set((s) => ({
 				chatsByProject: { ...s.chatsByProject, [projectId]: chats },
@@ -503,71 +506,73 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 	},
 	archive: async (chatId) => {
 		set({ error: null });
+		const projectIdBeforeArchive = findChatProject(
+			get().chatsByProject,
+			chatId,
+		);
+		const selectedAtStart = get().selectedChatId === chatId;
+		const liveChatsBefore =
+			projectIdBeforeArchive === null
+				? []
+				: (get().chatsByProject[projectIdBeforeArchive] ?? []).filter(
+						(chat) => chat.archivedAt === null,
+					);
+		const archivedIndex = liveChatsBefore.findIndex(
+			(chat) => chat.id === chatId,
+		);
+		const fallbackChatId =
+			archivedIndex < 0
+				? null
+				: (liveChatsBefore[archivedIndex + 1]?.id ??
+					liveChatsBefore[archivedIndex - 1]?.id ??
+					null);
+		let result: ChatArchiveResult;
 		try {
 			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["chat.archive"]({ chatId }),
-			);
-			toastManager.add({ type: "success", title: "Archived" });
-			const projectId = findChatProject(get().chatsByProject, chatId);
-			if (projectId !== null) {
-				set((s) => {
-					const chats = s.chatsByProject[projectId] ?? [];
-					return {
-						chatsByProject: {
-							...s.chatsByProject,
-							[projectId]: chats.map((chat) =>
-								chat.id === chatId ? result.chat : chat,
-							),
-						},
-					};
-				});
-			}
-			if (projectId !== null) await get().hydrate(projectId);
-			if (projectId !== null) {
-				await useWorktreesStore.getState().refresh(projectId);
-			}
-			// Drop the chat from the active selection so the chat surface clears.
-			set((s) => {
-				const wasSelected = s.selectedChatId === chatId;
-				const clearPerProject =
-					projectId !== null && s.selectedChatByProject[projectId] === chatId;
-				if (!wasSelected && !clearPerProject) return s;
-				return {
-					selectedChatId: wasSelected ? null : s.selectedChatId,
-					selectedChatByProject: clearPerProject
-						? { ...s.selectedChatByProject, [projectId!]: null }
-						: s.selectedChatByProject,
-				};
-			});
-			// Also drop the matching sessions from the renderer cache so the
-			// tab strip empties immediately.
-			useSessionsStore.setState((s) => {
-				if (projectId === null) return s;
-				const list = s.sessionsByProject[projectId] ?? [];
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[projectId]: list.filter((row) => row.chatId !== chatId),
-					},
-					selectedSessionId:
-						s.selectedSessionId !== null &&
-						list.find((row) => row.id === s.selectedSessionId)?.chatId ===
-							chatId
-							? null
-							: s.selectedSessionId,
-				};
-			});
-			// Tear down the chat's terminals (closing their PTYs) and drop its dock
-			// layout so an archived chat leaks no shells or tab state.
-			useTerminalsStore.getState().disposeChat(chatId);
-			useUiStore.getState().clearChatPanels(chatId);
-			return { ok: true } as const;
+			result = await Effect.runPromise(client["chat.archive"]({ chatId }));
 		} catch (err) {
 			const reason = formatError(err);
 			set({ error: reason });
 			return { ok: false, reason } as const;
 		}
+
+		// The RPC is the commit point. Reconcile every local store synchronously
+		// before starting optional refresh work so the archived live view cannot
+		// linger or turn a successful mutation into a reported failure.
+		toastManager.add({ type: "success", title: "Archived" });
+		const projectId = projectIdBeforeArchive ?? result.chat.projectId;
+		useArchivePreviewStore.getState().upsertChat(result.chat);
+		set((s) => {
+			const chats = s.chatsByProject[projectId] ?? [];
+			return {
+				chatsByProject: {
+					...s.chatsByProject,
+					[projectId]: chats.filter((chat) => chat.id !== chatId),
+				},
+			};
+		});
+		useSessionsStore.setState((s) => {
+			const list = s.sessionsByProject[projectId] ?? [];
+			return {
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectId]: list.filter((row) => row.chatId !== chatId),
+				},
+				selectedSessionId:
+					s.selectedSessionId !== null &&
+					list.find((row) => row.id === s.selectedSessionId)?.chatId === chatId
+						? null
+						: s.selectedSessionId,
+			};
+		});
+		if (selectedAtStart && get().selectedChatId === chatId) {
+			get().select(fallbackChatId);
+		}
+		useTerminalsStore.getState().disposeChat(chatId);
+		useUiStore.getState().clearChatPanels(chatId);
+		void get().hydrate(projectId);
+		void useWorktreesStore.getState().refresh(projectId);
+		return { ok: true } as const;
 	},
 	setArchiveProgress: (chatId, phase) => {
 		set((s) => ({
@@ -585,62 +590,79 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			return { archiveProgressByChat: next };
 		});
 	},
-	unarchive: async (chatId) => {
-		set({ error: null });
-		try {
-			const client = await getRpcClient();
-			const result = await Effect.runPromise(
-				client["chat.unarchive"]({ chatId }),
-			);
-			const projectId = findChatProject(get().chatsByProject, chatId);
-			const resolvedProjectId = projectId ?? result.chat.projectId;
-			set((s) => {
-				const chats = s.chatsByProject[resolvedProjectId] ?? [];
-				const nextChats = chats.some((chat) => chat.id === chatId)
-					? chats.map((chat) => (chat.id === chatId ? result.chat : chat))
-					: [result.chat, ...chats];
-				return {
-					chatsByProject: {
-						...s.chatsByProject,
-						[resolvedProjectId]: nextChats,
-					},
-					selectedChatId: result.chat.id,
-					selectedChatByProject: {
-						...s.selectedChatByProject,
-						[resolvedProjectId]: result.chat.id,
-					},
-				};
-			});
-			useSessionsStore.setState((s) => {
-				const existing = s.sessionsByProject[resolvedProjectId] ?? [];
-				const restoredIds = new Set(result.sessions.map((row) => row.id));
-				const landingId =
-					result.chat.activeSessionId !== null &&
-					restoredIds.has(result.chat.activeSessionId)
-						? result.chat.activeSessionId
-						: (result.sessions[0]?.id ?? null);
-				return {
-					sessionsByProject: {
-						...s.sessionsByProject,
-						[resolvedProjectId]: [
-							...result.sessions,
-							...existing.filter((row) => !restoredIds.has(row.id)),
-						],
-					},
-					selectedSessionId: landingId ?? s.selectedSessionId,
-					selectedSessionByProject: {
-						...s.selectedSessionByProject,
-						[resolvedProjectId]: landingId,
-					},
-				};
-			});
-			if (result.worktree !== null) {
-				await useWorktreesStore.getState().refresh(resolvedProjectId);
+	unarchive: (chatId) => {
+		const pending = unarchivePromises.get(chatId);
+		if (pending !== undefined) return pending;
+		const run = (async (): Promise<ChatUnarchiveOutcome> => {
+			set({ error: null });
+			const archives = useArchivePreviewStore.getState();
+			archives.setRestoring(chatId, true);
+			archives.setRestoreError(chatId, null);
+			try {
+				const client = await getRpcClient();
+				const result = await Effect.runPromise(
+					client["chat.unarchive"]({ chatId }),
+				);
+				const projectId = findChatProject(get().chatsByProject, chatId);
+				const resolvedProjectId = projectId ?? result.chat.projectId;
+				set((s) => {
+					const chats = s.chatsByProject[resolvedProjectId] ?? [];
+					const nextChats = chats.some((chat) => chat.id === chatId)
+						? chats.map((chat) => (chat.id === chatId ? result.chat : chat))
+						: [result.chat, ...chats];
+					return {
+						chatsByProject: {
+							...s.chatsByProject,
+							[resolvedProjectId]: nextChats,
+						},
+						selectedChatId: result.chat.id,
+						selectedChatByProject: {
+							...s.selectedChatByProject,
+							[resolvedProjectId]: result.chat.id,
+						},
+					};
+				});
+				useSessionsStore.setState((s) => {
+					const existing = s.sessionsByProject[resolvedProjectId] ?? [];
+					const restoredIds = new Set(result.sessions.map((row) => row.id));
+					const landingId =
+						result.chat.activeSessionId !== null &&
+						restoredIds.has(result.chat.activeSessionId)
+							? result.chat.activeSessionId
+							: (result.sessions[0]?.id ?? null);
+					return {
+						sessionsByProject: {
+							...s.sessionsByProject,
+							[resolvedProjectId]: [
+								...result.sessions,
+								...existing.filter((row) => !restoredIds.has(row.id)),
+							],
+						},
+						selectedSessionId: landingId ?? s.selectedSessionId,
+						selectedSessionByProject: {
+							...s.selectedSessionByProject,
+							[resolvedProjectId]: landingId,
+						},
+					};
+				});
+				useArchivePreviewStore.getState().removeChat(chatId, resolvedProjectId);
+				useUiStore.getState().setActiveMainTab("chat");
+				if (result.worktree !== null) {
+					void useWorktreesStore.getState().refresh(resolvedProjectId);
+				}
+				return { ok: true, ...result } as const;
+			} catch (err) {
+				const reason = formatError(err);
+				set({ error: reason });
+				useArchivePreviewStore.getState().setRestoreError(chatId, reason);
+				return { ok: false, reason } as const;
+			} finally {
+				useArchivePreviewStore.getState().setRestoring(chatId, false);
+				unarchivePromises.delete(chatId);
 			}
-			if (projectId !== null) await get().hydrate(projectId);
-		} catch (err) {
-			set({ error: formatError(err) });
-		}
+		})();
+		unarchivePromises.set(chatId, run);
+		return run;
 	},
 	remove: async (chatId) => {
 		set({ error: null });
@@ -806,15 +828,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				},
 			};
 		}),
-	toggleShowArchived: (projectId) => {
-		set((s) => ({
-			showArchivedByProject: {
-				...s.showArchivedByProject,
-				[projectId]: !s.showArchivedByProject[projectId],
-			},
-		}));
-		void get().hydrate(projectId);
-	},
 }));
 
 /** Archive a chat while exposing progress to every archive entry point. */

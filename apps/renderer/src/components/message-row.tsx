@@ -1,3 +1,4 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AlertCircleIcon,
   ArrowDown01Icon,
@@ -9,9 +10,6 @@ import {
   Settings01Icon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { RefreshCw as RefreshIcon } from "lucide-react";
-import { memo, useEffect, useState } from "react";
 import type {
   AttachmentRef,
   BrowserAnnotation,
@@ -24,6 +22,8 @@ import type {
   SessionId,
   SkillRef,
 } from "@zuse/contracts";
+import { RefreshCw as RefreshIcon } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 
 import { getFileIconUrl } from "~/lib/icons/material-icons";
 import {
@@ -35,17 +35,16 @@ import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import {
+  type ChatError,
   classifyMessage,
   lookupSessionProvider,
   useMessagesStore,
-  type ChatError,
 } from "~/store/messages";
 import { useProvidersStore } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
-
-import { CopyButton } from "./copy-button.tsx";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import { useChatLookups } from "./chat-lookups.tsx";
+import { CopyButton } from "./copy-button.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 
@@ -67,6 +66,7 @@ const browserAnnotationMeta = (annotation: BrowserAnnotation): string => {
     return `Browser · ${count}`;
   }
 };
+
 import { MarkdownBody } from "./markdown-body.tsx";
 import {
   ExitPlanModeRow,
@@ -144,9 +144,11 @@ const formatCompactTokenDelta = (
 function MessageRowImpl({
   message,
   sessionId,
+  readOnly = false,
 }: {
   message: Message;
   sessionId?: SessionId;
+  readOnly?: boolean;
 }) {
   switch (message.content._tag) {
     case "user":
@@ -180,7 +182,7 @@ function MessageRowImpl({
       return (
         <ThinkingMessageRow
           messageId={message.id}
-          sessionId={sessionId}
+          sessionId={readOnly ? undefined : sessionId}
           text={message.content.text}
           redacted={message.content.redacted}
         />
@@ -210,6 +212,7 @@ function MessageRowImpl({
     case "usage_limit":
       return null;
     case "error":
+      if (readOnly) return <ToolErrorRow output={message.content.message} />;
       // Classify so an auth failure (expired OAuth / 401 / "Please run
       // /login") gets the "Sign in to {provider}" headline + inline login
       // button rather than a bare generic error.
@@ -703,7 +706,7 @@ const parseRateLimit = (text: string): RateLimitInfo | null => {
     text.match(
       /(?:try|see|check)\s+again\s+at\s+(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s*(?:\([^)]+\)|[A-Z][A-Za-z_/-]*(?:\s+time)?))?)/i,
     ) ??
-    text.match(/reset(?:s|ing)?(?:\s+at)?\s+(\d{4}-\d{2}-\d{2}[T0-9:.Z+\-]*)/i);
+    text.match(/reset(?:s|ing)?(?:\s+at)?\s+(\d{4}-\d{2}-\d{2}[T0-9:.Z+-]*)/i);
 
   const lower = text.toLowerCase();
   const period: RateLimitInfo["period"] = lower.includes("monthly")

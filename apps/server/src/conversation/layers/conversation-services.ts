@@ -260,8 +260,14 @@ const ConversationRuntimeLive = Layer.effect(
 			chatChangesHub,
 			dispatchChatCommand,
 		});
-		const { lookupChat, listChats, getChat, streamChatChanges, createChat } =
-			chatOperations;
+		const {
+			lookupChat,
+			listChats,
+			getChat,
+			getArchivePreview,
+			streamChatChanges,
+			createChat,
+		} = chatOperations;
 
 		const transcriptOperations = makeTranscriptOperations({
 			sql,
@@ -425,6 +431,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const chatService = {
 			listChats,
 			getChat,
+			getArchivePreview,
 			createChat,
 			renameChat,
 			markChatRead,
