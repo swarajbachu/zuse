@@ -1,8 +1,8 @@
 import {
-	ArrowUpIcon,
+	ArrowUp02Icon,
 	CancelCircleIcon,
 	CloudOffIcon,
-	Square01Icon,
+	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
@@ -379,7 +379,7 @@ export const Composer = ({
 					value={text}
 					onChangeText={setText}
 				/>
-				<View className="flex-row items-center gap-2">
+				<View className="flex-row items-end gap-2">
 					{modelValue === null ? null : (
 						<>
 							<ComposerSettingsMenu
@@ -388,14 +388,16 @@ export const Composer = ({
 								onChange={(next) => void changeModelMode(next)}
 							/>
 							<View className="min-w-0 flex-1" />
-							<ComposerModelMenu
-								value={modelValue}
-								editable
-								onChange={(next) => void changeModelMode(next)}
-								availableProviders={availableProviders}
-								canChangeProvider={fresh}
-								canChangeReasoning={fresh}
-							/>
+							<View className="h-11 justify-end pb-2">
+								<ComposerModelMenu
+									value={modelValue}
+									editable
+									onChange={(next) => void changeModelMode(next)}
+									availableProviders={availableProviders}
+									canChangeProvider={fresh}
+									canChangeReasoning={fresh}
+								/>
+							</View>
 						</>
 					)}
 					{showInterrupt ? (
@@ -405,12 +407,9 @@ export const Composer = ({
 							className="h-11 w-11 rounded-2xl px-0"
 							disabled={busy || !online}
 							onPress={interrupt}
+							accessibilityLabel="Stop response"
 						>
-							<HugeIcon
-								icon={Square01Icon}
-								size={15}
-								color={colors.fg as string}
-							/>
+							<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
 						</Button>
 					) : null}
 					<Button
@@ -419,12 +418,13 @@ export const Composer = ({
 						className="h-11 w-11 rounded-2xl px-0"
 						disabled={!canSend}
 						onPress={submit}
+						accessibilityLabel={online ? "Send message" : "Queue message"}
 					>
 						{busy ? (
 							<ActivityIndicator color={colors.bg} />
 						) : online ? (
 							<HugeIcon
-								icon={ArrowUpIcon}
+								icon={ArrowUp02Icon}
 								size={18}
 								color={colors.bg as string}
 							/>
