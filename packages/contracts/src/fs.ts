@@ -152,8 +152,8 @@ export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
 /**
  * The shape returned by `fs.readFile`. Text files come back with their
  * UTF-8 contents and the modification time used as an optimistic-concurrency
- * token by `fs.writeFile`. Files that fail UTF-8 decoding return as
- * `kind: "binary"` so the editor can render a placeholder instead of mojibake.
+ * token by `fs.writeFile`. Files that fail UTF-8 decoding return their bytes as
+ * `kind: "binary"` so supported formats can be previewed without another read.
  */
 export const FsFileContent = Schema.Union([
   Schema.Struct({
@@ -164,6 +164,7 @@ export const FsFileContent = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("binary"),
+    bytes: Schema.Uint8ArrayFromBase64,
     size: Schema.Number,
   }),
 ]);

@@ -284,7 +284,7 @@ export const FsServiceLive = Layer.effect(
             size,
           };
         } catch {
-          return { kind: "binary" as const, size };
+          return { kind: "binary" as const, bytes, size };
         }
       });
 
@@ -492,7 +492,7 @@ export const FsServiceLive = Layer.effect(
             size,
           };
         } catch {
-          return { kind: "binary" as const, size };
+          return { kind: "binary" as const, bytes, size };
         }
       });
 

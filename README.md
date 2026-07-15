@@ -60,6 +60,7 @@ A chat-first desktop app for developers who work with AI coding agents. Wraps Cl
 - File tree with Material Icon Theme file-type icons
 - Click-to-open any file in the main pane
 - CodeMirror 6 editor — TS/TSX, JS, JSON, Markdown, HTML, CSS, Python, Rust, Go
+- Inline previews for PNG, JPEG, GIF, WebP, and AVIF images
 - `Cmd+S` to save, mtime-based optimistic concurrency
 
 ### Layout & UI

@@ -7,6 +7,10 @@ import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 import { cn } from "~/lib/utils";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { classifyGit } from "../lib/git-rpc.ts";
+import {
+  bytesForImageContent,
+  imageMimeForFile,
+} from "../lib/image-preview.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { GitInitCta } from "./git-init-cta.tsx";
 import {
@@ -155,6 +159,10 @@ export function FileEditor() {
     return <ImageBody src={openFile.src} name={openFile.name} />;
   }
 
+  if (imageMimeForFile(openFile.name) !== null) {
+    return <FileImageBody openFile={openFile} />;
+  }
+
   const canPreview = isPreviewableFileName(openFile.name);
   // External files have no git/folder context, so they're edit/preview only.
   const isExternal = openFile.kind === "external";
@@ -203,6 +211,74 @@ function ImageBody({ src, name }: { src: string; name: string }) {
       />
     </div>
   );
+}
+
+type FileImageState =
+  | { status: "loading" }
+  | { status: "ready"; src: string }
+  | { status: "error"; reason: string };
+
+/** Loads project and external images through the same path-validated fs RPC
+ * as the editor, then gives the browser a short-lived local object URL. */
+function FileImageBody({ openFile }: { openFile: EditableFile }) {
+  const [state, setState] = useState<FileImageState>({ status: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setState({ status: "loading" });
+
+    void (async () => {
+      try {
+        const client = await getRpcClient();
+        const result =
+          openFile.kind === "external"
+            ? await Effect.runPromise(
+                client["fs.readExternalFile"]({ path: openFile.absPath }),
+              )
+            : await Effect.runPromise(
+                client["fs.readFile"]({
+                  folderId: openFile.folderId,
+                  path: openFile.path,
+                  worktreeId: openFile.worktreeId,
+                }),
+              );
+        if (cancelled) return;
+        const mimeType = imageMimeForFile(openFile.name);
+        if (mimeType === null) return;
+        const bytes = bytesForImageContent(result);
+        objectUrl = URL.createObjectURL(
+          new Blob([bytes.slice().buffer], { type: mimeType }),
+        );
+        setState({ status: "ready", src: objectUrl });
+      } catch (err) {
+        if (!cancelled) {
+          setState({ status: "error", reason: formatError(err) });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
+    };
+  }, [openFile]);
+
+  if (state.status === "loading") {
+    return (
+      <Placeholder>
+        <ShimmerText>Loading image…</ShimmerText>
+      </Placeholder>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <Placeholder>
+        <span className="text-destructive">{state.reason}</span>
+      </Placeholder>
+    );
+  }
+  return <ImageBody src={state.src} name={openFile.name} />;
 }
 
 // ---------------------------------------------------------------------------
