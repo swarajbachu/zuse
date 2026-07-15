@@ -1,6 +1,6 @@
 import { PgClient } from "@effect/sql-pg";
 import { Effect, Layer, Redacted } from "effect";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import { AccountIdentityLive } from "./account-identity.ts";
 import * as Config from "./config.ts";
 import { makeRelay } from "./index.ts";
@@ -56,8 +56,11 @@ const managedTunnelConfig = (
 	};
 };
 
-// Build the runtime once per isolate, not per request.
-let relay: ReturnType<typeof makeRelay> | undefined;
+export const hyperdrivePoolConfig = (connectionString: string): PoolConfig => ({
+	connectionString,
+	max: 1,
+	connectionTimeoutMillis: 5_000,
+});
 
 const build = (env: Env): ReturnType<typeof makeRelay> => {
 	const configLayer = Config.layer({
@@ -75,12 +78,7 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 		PgClient.fromPool({
 			acquire: Effect.acquireRelease(
 				Effect.sync(
-					() =>
-						new Pool({
-							connectionString: env.HYPERDRIVE.connectionString,
-							max: 1,
-							maxUses: 1,
-						}),
+					() => new Pool(hyperdrivePoolConfig(env.HYPERDRIVE.connectionString)),
 				),
 				(pool) => Effect.promise(() => pool.end()),
 			),
@@ -98,8 +96,14 @@ const build = (env: Env): ReturnType<typeof makeRelay> => {
 };
 
 export default {
-	fetch(request: Request, env: Env): Promise<Response> {
-		relay ??= build(env);
-		return relay.fetch(request);
+	async fetch(request: Request, env: Env): Promise<Response> {
+		// Cloudflare recommends request-scoped database clients for Hyperdrive.
+		// A shared max-one pool stranded concurrent mobile auth requests.
+		const relay = build(env);
+		try {
+			return await relay.fetch(request);
+		} finally {
+			await relay.dispose();
+		}
 	},
 };

@@ -22,10 +22,33 @@ import { normalizeRelayError } from "./relay-errors";
  * register) take a relay-minted access token + a fresh DPoP proof per request.
  */
 
-let accessToken: {
+type RelayAuthState = {
+	accessToken: {
+		readonly token: string;
+		readonly expiresAtMs: number;
+	} | null;
+	refresh: Promise<string> | null;
+	epoch: number;
+};
+
+const relayAuthStateKey = Symbol.for("@zuse/mobile/relay-auth-state");
+const relayAuthGlobal = globalThis as typeof globalThis & {
+	[relayAuthStateKey]?: RelayAuthState;
+};
+const existingRelayAuthState = relayAuthGlobal[relayAuthStateKey];
+const relayAuthState: RelayAuthState = existingRelayAuthState ?? {
+	accessToken: null,
+	refresh: null,
+	epoch: 0,
+};
+if (existingRelayAuthState === undefined) {
+	relayAuthGlobal[relayAuthStateKey] = relayAuthState;
+}
+
+type CachedAccessToken = {
 	readonly token: string;
 	readonly expiresAtMs: number;
-} | null = null;
+};
 
 const decodeList = Schema.decodeUnknownPromise(RelayEnvironmentList);
 const decodeStatus = Schema.decodeUnknownPromise(RelayEnvironmentStatus);
@@ -42,13 +65,7 @@ const relayError = async (
 	return new Error(normalizeRelayError(response.status, text, prefix));
 };
 
-const ensureAccessToken = async (): Promise<string> => {
-	if (accessToken !== null && accessToken.expiresAtMs - Date.now() > 30_000) {
-		logConnectionDiagnostic("relay.dpop_token.cache_hit", {
-			expiresAtMs: accessToken.expiresAtMs,
-		});
-		return accessToken.token;
-	}
+const refreshAccessToken = async (epoch: number): Promise<string> => {
 	logConnectionDiagnostic("relay.dpop_token.refresh.start");
 	const workosToken = await getWorkosToken();
 	const target = url(RelayPaths.dpopToken);
@@ -67,15 +84,40 @@ const ensureAccessToken = async (): Promise<string> => {
 		throw error;
 	}
 	const grant = await decodeAccess(await response.json());
-	accessToken = {
+	if (epoch !== relayAuthState.epoch) {
+		throw new Error("relay_access_token_reset");
+	}
+	const token: CachedAccessToken = {
 		token: grant.accessToken,
 		expiresAtMs: Date.now() + grant.expiresIn,
 	};
+	relayAuthState.accessToken = token;
 	logConnectionDiagnostic("relay.dpop_token.refresh.ok", {
 		expiresIn: grant.expiresIn,
-		expiresAtMs: accessToken.expiresAtMs,
+		expiresAtMs: token.expiresAtMs,
 	});
 	return grant.accessToken;
+};
+
+const ensureAccessToken = async (): Promise<string> => {
+	const cached = relayAuthState.accessToken;
+	if (cached !== null && cached.expiresAtMs - Date.now() > 30_000) {
+		logConnectionDiagnostic("relay.dpop_token.cache_hit", {
+			expiresAtMs: cached.expiresAtMs,
+		});
+		return cached.token;
+	}
+	if (relayAuthState.refresh !== null) {
+		logConnectionDiagnostic("relay.dpop_token.refresh.join");
+		return relayAuthState.refresh;
+	}
+	const refresh = refreshAccessToken(relayAuthState.epoch);
+	relayAuthState.refresh = refresh;
+	try {
+		return await refresh;
+	} finally {
+		if (relayAuthState.refresh === refresh) relayAuthState.refresh = null;
+	}
 };
 
 const dpopFetch = async (path: string, method: string): Promise<Response> => {
@@ -192,5 +234,7 @@ export const deleteAccount = async (): Promise<void> => {
 
 export const resetRelayAccessToken = (): void => {
 	logConnectionDiagnostic("relay.dpop_token.reset");
-	accessToken = null;
+	relayAuthState.epoch += 1;
+	relayAuthState.accessToken = null;
+	relayAuthState.refresh = null;
 };
