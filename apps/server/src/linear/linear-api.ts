@@ -42,15 +42,15 @@ const ASSIGNED_ISSUES_DOCUMENT = `query ZuseLinearIssues($first: Int!, $after: S
   }
 }`;
 
-const SEARCH_ISSUES_DOCUMENT = `query ZuseLinearIssueSearch($query: String!, $first: Int!, $after: String) {
-  issueSearch(query: $query, first: $first, after: $after) {
+const SEARCH_ISSUES_DOCUMENT = `query ZuseLinearIssueSearch($first: Int!, $after: String, $filter: IssueFilter) {
+  issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {
     ${ISSUE_SUMMARY_FIELDS}
   }
 }`;
 
 export interface LinearIssueListRequest {
 	readonly document: string;
-	readonly rootField: "issues" | "issueSearch";
+	readonly rootField: "issues";
 	readonly variables: Readonly<Record<string, unknown>>;
 }
 
@@ -63,8 +63,12 @@ export const makeLinearIssueListRequest = (input: {
 	if (query.length > 0) {
 		return {
 			document: SEARCH_ISSUES_DOCUMENT,
-			rootField: "issueSearch",
-			variables: { first: 50, after: input.after, query },
+			rootField: "issues",
+			variables: {
+				first: 50,
+				after: input.after,
+				filter: { searchableContent: { contains: query } },
+			},
 		};
 	}
 	return {

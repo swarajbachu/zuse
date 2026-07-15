@@ -8,20 +8,20 @@ import {
 } from "../../src/linear/linear-api.ts";
 
 describe("Linear API boundary", () => {
-	it("uses workspace-wide issue search for non-empty queries", () => {
+	it("uses public workspace-wide issue filtering for non-empty queries", () => {
 		const request = makeLinearIssueListRequest({
 			query: "  new test  ",
 			viewerId: "viewer-1",
 			after: "cursor-1",
 		});
-		expect(request.rootField).toBe("issueSearch");
-		expect(request.document).toContain("issueSearch(");
+		expect(request.rootField).toBe("issues");
+		expect(request.document).toContain("issues(");
+		expect(request.document).not.toContain("issueSearch(");
 		expect(request.variables).toEqual({
 			first: 50,
 			after: "cursor-1",
-			query: "new test",
+			filter: { searchableContent: { contains: "new test" } },
 		});
-		expect(request.variables).not.toHaveProperty("filter");
 	});
 
 	it("keeps the empty issue list scoped to the viewer's open work", () => {
