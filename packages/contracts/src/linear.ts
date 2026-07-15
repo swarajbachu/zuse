@@ -31,8 +31,11 @@ export class LinearIssueSummary extends Schema.Class<LinearIssueSummary>(
 	identifier: Schema.String,
 	title: Schema.String,
 	state: Schema.String,
+	stateType: Schema.String,
+	stateColor: Schema.NullOr(Schema.String),
 	priority: Schema.Number,
 	assignee: Schema.NullOr(Schema.String),
+	assigneeAvatarUrl: Schema.NullOr(Schema.String),
 	labels: Schema.Array(Schema.String),
 	updatedAt: Schema.DateFromString,
 }) {}

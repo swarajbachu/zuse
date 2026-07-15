@@ -1,8 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowDown01Icon,
+  CancelCircleIcon,
+  CheckmarkCircle01Icon,
+  CircleDashedIcon,
   GitBranchIcon,
   GitPullRequestIcon,
+  Progress03Icon,
   RecordIcon,
   Search01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -18,6 +22,11 @@ import type {
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "~/components/ui/avatar.tsx";
 import { Button } from "~/components/ui/button.tsx";
 import { PopoverPrimitive } from "~/components/ui/popover";
 import { getRpcClient } from "~/lib/rpc-client.ts";
@@ -74,6 +83,31 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: "linear", label: "Linear" },
 ];
 
+const linearStateIcon = (stateType: string) => {
+  switch (stateType) {
+    case "started":
+      return Progress03Icon;
+    case "completed":
+      return CheckmarkCircle01Icon;
+    case "canceled":
+      return CancelCircleIcon;
+    case "backlog":
+    case "triage":
+      return CircleDashedIcon;
+    default:
+      return RecordIcon;
+  }
+};
+
+const assigneeInitials = (name: string): string =>
+  name
+    .trim()
+    .split(/\s+/u)
+    .slice(0, 2)
+    .map((part) => part[0] ?? "")
+    .join("")
+    .toUpperCase();
+
 export interface CreateFromMenuProps {
   readonly folderId: FolderId | null;
   readonly onSelect: (selection: CreateFromSelection) => void;
@@ -104,6 +138,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
     useState<ReadonlyArray<LinearConnection> | null>(null);
   const [linearIssues, setLinearIssues] =
     useState<ReadonlyArray<LinearIssueSummary> | null>(null);
+  const [linearError, setLinearError] = useState<string | null>(null);
   const [linearWorkspaceId, setLinearWorkspaceId] = useState("");
   const [selectedLinear, setSelectedLinear] = useState<
     ReadonlyMap<string, LinearIssueSummary>
@@ -134,6 +169,8 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   useEffect(() => {
     if (!open || tab !== "linear") return;
     let cancelled = false;
+    setLinearIssues(null);
+    setLinearError(null);
     const timer = window.setTimeout(
       () => {
         void (async () => {
@@ -153,9 +190,19 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                   : { workspaceIds: [linearWorkspaceId] }),
               }),
             );
-            if (!cancelled) setLinearIssues(result.issues);
-          } catch {
-            if (!cancelled) setLinearIssues([]);
+            if (!cancelled) {
+              setLinearIssues(result.issues);
+              setLinearError(null);
+            }
+          } catch (cause) {
+            if (!cancelled) {
+              setLinearIssues([]);
+              setLinearError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Could not search Linear issues.",
+              );
+            }
           }
         })();
       },
@@ -469,6 +516,13 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                     Open integrations
                   </Button>
                 </div>
+              ) : tab === "linear" && linearError !== null ? (
+                <div
+                  role="alert"
+                  className="px-3 py-6 text-center text-sm text-destructive"
+                >
+                  {linearError}
+                </div>
               ) : tab === "linear" ? (
                 (linearIssues ?? []).length === 0 ? (
                   <div className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -507,12 +561,49 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                         >
                           {checked ? "✓" : ""}
                         </span>
+                        <span
+                          role="img"
+                          aria-label={`Status: ${issue.state || "Unknown"}`}
+                          title={issue.state || "Unknown status"}
+                          className={cn(
+                            "grid size-4 shrink-0 place-items-center",
+                            issue.stateColor === null && "text-muted-foreground",
+                          )}
+                          style={
+                            issue.stateColor === null
+                              ? undefined
+                              : { color: issue.stateColor }
+                          }
+                        >
+                          <HugeiconsIcon
+                            aria-hidden="true"
+                            icon={linearStateIcon(issue.stateType)}
+                            className="size-3.5"
+                          />
+                        </span>
                         <span className="shrink-0 font-mono text-xs text-muted-foreground">
                           {issue.identifier}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {issue.title}
                         </span>
+                        {issue.assignee !== null && (
+                          <Avatar
+                            aria-label={`Assigned to ${issue.assignee}`}
+                            title={`Assigned to ${issue.assignee}`}
+                            className="size-5 border border-border/60"
+                          >
+                            {issue.assigneeAvatarUrl !== null && (
+                              <AvatarImage
+                                src={issue.assigneeAvatarUrl}
+                                alt=""
+                              />
+                            )}
+                            <AvatarFallback className="text-[8px]">
+                              {assigneeInitials(issue.assignee)}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
                         <span className="max-w-24 shrink-0 truncate text-xs text-muted-foreground">
                           {issue.workspaceName}
                         </span>

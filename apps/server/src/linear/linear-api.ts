@@ -26,6 +26,61 @@ export class LinearApiError extends Error {
 	}
 }
 
+const ISSUE_SUMMARY_FIELDS = `
+  nodes {
+    id identifier title priority updatedAt url
+    state { name type color }
+    assignee { name avatarUrl }
+    labels { nodes { name } }
+  }
+  pageInfo { hasNextPage endCursor }
+`;
+
+const ASSIGNED_ISSUES_DOCUMENT = `query ZuseLinearIssues($first: Int!, $after: String, $filter: IssueFilter) {
+  issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {
+    ${ISSUE_SUMMARY_FIELDS}
+  }
+}`;
+
+const SEARCH_ISSUES_DOCUMENT = `query ZuseLinearIssueSearch($query: String!, $first: Int!, $after: String) {
+  issueSearch(query: $query, first: $first, after: $after) {
+    ${ISSUE_SUMMARY_FIELDS}
+  }
+}`;
+
+export interface LinearIssueListRequest {
+	readonly document: string;
+	readonly rootField: "issues" | "issueSearch";
+	readonly variables: Readonly<Record<string, unknown>>;
+}
+
+export const makeLinearIssueListRequest = (input: {
+	readonly query: string;
+	readonly viewerId: string;
+	readonly after: string | null;
+}): LinearIssueListRequest => {
+	const query = input.query.trim();
+	if (query.length > 0) {
+		return {
+			document: SEARCH_ISSUES_DOCUMENT,
+			rootField: "issueSearch",
+			variables: { first: 50, after: input.after, query },
+		};
+	}
+	return {
+		document: ASSIGNED_ISSUES_DOCUMENT,
+		rootField: "issues",
+		variables: {
+			first: 50,
+			after: input.after,
+			filter: {
+				assignee: { id: { eq: input.viewerId } },
+				state: { type: { nin: ["completed", "canceled"] } },
+			},
+		},
+	};
+};
+
 export const linearGraphql = async <A>(
 	fetcher: LinearFetch,
 	accessToken: string,

@@ -26,8 +26,11 @@ describe("Linear wire contracts", () => {
 			identifier: "ENG-123",
 			title: "First",
 			state: "Todo",
+			stateType: "unstarted",
+			stateColor: "#6b7280",
 			priority: 2,
 			assignee: "Ada",
+			assigneeAvatarUrl: "https://example.com/ada.png",
 			labels: [],
 			updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 		});
@@ -40,6 +43,30 @@ describe("Linear wire contracts", () => {
 		expect(`${first.workspaceId}:${first.issueId}`).not.toBe(
 			`${second.workspaceId}:${second.issueId}`,
 		);
+	});
+
+	it("preserves issue status and assignee presentation metadata", () => {
+		const decoded = Schema.decodeUnknownSync(LinearIssueSummary)({
+			workspaceId: "workspace-1",
+			workspaceName: "Acme",
+			issueId: "issue-1",
+			identifier: "ENG-123",
+			title: "First",
+			state: "In Progress",
+			stateType: "started",
+			stateColor: "#f59e0b",
+			priority: 2,
+			assignee: "Ada Lovelace",
+			assigneeAvatarUrl: "https://example.com/ada.png",
+			labels: [],
+			updatedAt: "2026-01-01T00:00:00.000Z",
+		});
+		const encoded = Schema.encodeSync(LinearIssueSummary)(decoded);
+		expect(encoded).toMatchObject({
+			stateType: "started",
+			stateColor: "#f59e0b",
+			assigneeAvatarUrl: "https://example.com/ada.png",
+		});
 	});
 
 	it("never includes OAuth tokens in renderer-visible connections", () => {

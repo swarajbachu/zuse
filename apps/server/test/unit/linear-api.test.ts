@@ -2,11 +2,43 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	linearGraphql,
+	makeLinearIssueListRequest,
 	renderLinearIssueMarkdown,
 	rewriteMarkdownImages,
 } from "../../src/linear/linear-api.ts";
 
 describe("Linear API boundary", () => {
+	it("uses workspace-wide issue search for non-empty queries", () => {
+		const request = makeLinearIssueListRequest({
+			query: "  new test  ",
+			viewerId: "viewer-1",
+			after: "cursor-1",
+		});
+		expect(request.rootField).toBe("issueSearch");
+		expect(request.document).toContain("issueSearch(");
+		expect(request.variables).toEqual({
+			first: 50,
+			after: "cursor-1",
+			query: "new test",
+		});
+		expect(request.variables).not.toHaveProperty("filter");
+	});
+
+	it("keeps the empty issue list scoped to the viewer's open work", () => {
+		const request = makeLinearIssueListRequest({
+			query: "",
+			viewerId: "viewer-1",
+			after: null,
+		});
+		expect(request.rootField).toBe("issues");
+		expect(request.variables).toMatchObject({
+			filter: {
+				assignee: { id: { eq: "viewer-1" } },
+				state: { type: { nin: ["completed", "canceled"] } },
+			},
+		});
+	});
+
 	it("rejects GraphQL partial errors even when HTTP succeeds", async () => {
 		const fetcher = vi.fn(
 			async () =>

@@ -21,6 +21,7 @@ import {
 	type LinearFetch,
 	type LinearIssueDocument,
 	linearGraphql,
+	makeLinearIssueListRequest,
 	renderLinearIssueMarkdown,
 	rewriteMarkdownImages,
 } from "../linear-api.ts";
@@ -72,8 +73,15 @@ interface IssueSummaryPayload {
 	readonly title: string;
 	readonly priority?: number | null;
 	readonly updatedAt: string;
-	readonly state?: { readonly name?: string | null } | null;
-	readonly assignee?: { readonly name?: string | null } | null;
+	readonly state?: {
+		readonly name?: string | null;
+		readonly type?: string | null;
+		readonly color?: string | null;
+	} | null;
+	readonly assignee?: {
+		readonly name?: string | null;
+		readonly avatarUrl?: string | null;
+	} | null;
 	readonly labels?: {
 		readonly nodes?: ReadonlyArray<{ readonly name: string }>;
 	};
@@ -203,13 +211,6 @@ const exchangeToken = async (
 
 const VIEWER_QUERY = `query ZuseLinearViewer {
   viewer { id name email organization { id name urlKey } }
-}`;
-
-const ISSUES_QUERY = `query ZuseLinearIssues($first: Int!, $after: String, $filter: IssueFilter) {
-  issues(first: $first, after: $after, filter: $filter, orderBy: updatedAt) {
-    nodes { id identifier title priority updatedAt url state { name type } assignee { name } labels { nodes { name } } }
-    pageInfo { hasNextPage endCursor }
-  }
 }`;
 
 const ISSUE_QUERY = `query ZuseLinearIssue($id: String!) {
@@ -574,36 +575,37 @@ export const LinearServiceLive = Layer.effect(
 				selected.map((connection) =>
 					Effect.gen(function* () {
 						const bundle = yield* freshBundle(connection.workspaceId);
-						const query = input.query?.trim() ?? "";
-						const filter =
-							query.length === 0
-								? {
-										assignee: { id: { eq: bundle.viewerId } },
-										state: { type: { nin: ["completed", "canceled"] } },
-									}
-								: {
-										or: [
-											{ title: { containsIgnoreCase: query } },
-											{ identifier: { containsIgnoreCase: query } },
-										],
-									};
-						const data = yield* graphql<{
-							issues: {
-								nodes: ReadonlyArray<IssueSummaryPayload>;
-								pageInfo: { hasNextPage: boolean; endCursor: string | null };
-							};
-						}>(connection.workspaceId, ISSUES_QUERY, {
-							first: 50,
+						const request = makeLinearIssueListRequest({
+							query: input.query ?? "",
+							viewerId: bundle.viewerId,
 							after: cursorByWorkspace[connection.workspaceId] ?? null,
-							filter,
 						});
+						const data = yield* graphql<
+							Partial<
+								Record<
+									"issues" | "issueSearch",
+									{
+										nodes: ReadonlyArray<IssueSummaryPayload>;
+										pageInfo: {
+											hasNextPage: boolean;
+											endCursor: string | null;
+										};
+									}
+								>
+							>
+						>(connection.workspaceId, request.document, request.variables);
+						const issueConnection = data[request.rootField];
+						if (issueConnection === undefined)
+							return yield* Effect.fail(
+								fail("Linear returned no issue connection."),
+							);
 						return {
 							workspaceId: connection.workspaceId,
 							error: null as string | null,
-							endCursor: data.issues.pageInfo.hasNextPage
-								? data.issues.pageInfo.endCursor
+							endCursor: issueConnection.pageInfo.hasNextPage
+								? issueConnection.pageInfo.endCursor
 								: null,
-							issues: data.issues.nodes.map((issue) =>
+							issues: issueConnection.nodes.map((issue) =>
 								LinearIssueSummary.make({
 									workspaceId: connection.workspaceId,
 									workspaceName: connection.workspaceName,
@@ -611,8 +613,11 @@ export const LinearServiceLive = Layer.effect(
 									identifier: issue.identifier,
 									title: issue.title,
 									state: issue.state?.name ?? "",
+									stateType: issue.state?.type ?? "",
+									stateColor: issue.state?.color ?? null,
 									priority: issue.priority ?? 0,
 									assignee: issue.assignee?.name ?? null,
+									assigneeAvatarUrl: issue.assignee?.avatarUrl ?? null,
 									labels: (issue.labels?.nodes ?? []).map(
 										(label) => label.name,
 									),
