@@ -361,6 +361,7 @@ function MainShell() {
   // always has a way back to the projects panel + the window drag region).
   const showMainChrome =
     selectedSessionId !== null || openFile !== null || !leftSidebarOpen;
+  const showMainTabs = showMainChrome && activeMainTab !== "archives";
 
   // Persist the three-pane layout in localStorage so widths survive reloads.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -418,7 +419,7 @@ function MainShell() {
             {showMainChrome ? <TopBarMain /> : null}
             <UpdateBanner />
             <ProviderUpdatesToast />
-            {showMainChrome ? (
+            {showMainTabs ? (
               <MainTabs
                 projectId={selectedFolderId}
                 emptyLabel={emptyTabLabel}

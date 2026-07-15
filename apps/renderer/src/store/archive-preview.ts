@@ -37,7 +37,7 @@ type ArchivePreviewState = {
 	readonly errorBySession: Record<string, string | null>;
 	readonly restoreErrorByChat: Record<string, string | null>;
 	readonly loadProject: (projectId: FolderId, force?: boolean) => Promise<void>;
-	readonly showList: (projectId: FolderId) => void;
+	readonly showList: (projectId: FolderId) => Promise<void>;
 	readonly openChat: (chat: Chat) => Promise<void>;
 	readonly selectSession: (
 		chatId: ChatId,
@@ -217,13 +217,14 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 				projectLoads.set(projectId, run);
 				return run;
 			},
-			showList: (projectId) => {
+			showList: async (projectId) => {
 				set((state) => ({
 					selectedChatByProject: {
 						...state.selectedChatByProject,
 						[projectId]: null,
 					},
 				}));
+				await get().loadProject(projectId, true);
 			},
 			openChat: (chat) => {
 				useUiStore.getState().setActiveMainTab("archives");

@@ -627,7 +627,7 @@ function ProjectGroup({
 
   const openArchives = () => {
     onSelect();
-    useArchivePreviewStore.getState().showList(id);
+    void useArchivePreviewStore.getState().showList(id);
     setView("chat");
     setActiveMainTab("archives");
   };

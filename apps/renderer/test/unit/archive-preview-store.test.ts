@@ -112,6 +112,7 @@ describe("archive preview store", () => {
 
 	it("opens the original active session and loads its static transcript", async () => {
 		const listMessages = vi.fn(() => Effect.succeed([message]));
+		const listChats = vi.fn(() => Effect.succeed([archivedChat]));
 		rpcClientFactory.mockReturnValue({
 			"chat.archivePreview": () =>
 				Effect.succeed({
@@ -119,6 +120,7 @@ describe("archive preview store", () => {
 					sessions: [firstSession, secondSession],
 				}),
 			"messages.list": listMessages,
+			"chat.list": listChats,
 		});
 
 		await useArchivePreviewStore.getState().openChat(archivedChat);
@@ -130,13 +132,17 @@ describe("archive preview store", () => {
 		expect(state.messagesBySession[secondSessionId]).toEqual([message]);
 		expect(listMessages).toHaveBeenCalledTimes(1);
 
-		useArchivePreviewStore.getState().showList(projectId);
+		await useArchivePreviewStore.getState().showList(projectId);
 		expect(
 			useArchivePreviewStore.getState().selectedChatByProject[projectId],
 		).toBeNull();
 		expect(useArchivePreviewStore.getState().previewsByChat[chatId]).toEqual({
 			chat: archivedChat,
 			sessions: [firstSession, secondSession],
+		});
+		expect(listChats).toHaveBeenCalledWith({
+			projectId,
+			includeArchived: true,
 		});
 	});
 
@@ -160,6 +166,31 @@ describe("archive preview store", () => {
 		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
 			[archivedChat],
 		);
+	});
+
+	it("refreshes the catalog when returning to the archived chats page", async () => {
+		const recentChat = {
+			...archivedChat,
+			id: "chat-recent" as ChatId,
+			title: "Recently archived",
+		};
+		const listChats = vi.fn(() => Effect.succeed([recentChat, archivedChat]));
+		rpcClientFactory.mockReturnValue({ "chat.list": listChats });
+		useArchivePreviewStore.setState({
+			chatsByProject: { [projectId]: [archivedChat] },
+			loadedByProject: { [projectId]: true },
+			selectedChatByProject: { [projectId]: chatId },
+		});
+
+		await useArchivePreviewStore.getState().showList(projectId);
+
+		expect(listChats).toHaveBeenCalledTimes(1);
+		expect(useArchivePreviewStore.getState().chatsByProject[projectId]).toEqual(
+			[recentChat, archivedChat],
+		);
+		expect(
+			useArchivePreviewStore.getState().selectedChatByProject[projectId],
+		).toBeNull();
 	});
 
 	it("does not resurrect preview data when restore wins an in-flight load", async () => {

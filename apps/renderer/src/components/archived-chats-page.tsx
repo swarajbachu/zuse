@@ -135,7 +135,7 @@ export function ArchivedChatsPage({
           );
     return (
       <section className="flex min-h-0 flex-1 flex-col bg-background/55">
-        <header className="shrink-0 border-b border-border/50 px-8 py-5">
+        <header className="shrink-0 border-b border-border/50 px-8 py-4">
           <div className="flex items-center gap-3">
             <HugeiconsIcon
               icon={ArchiveIcon}
@@ -188,22 +188,17 @@ export function ArchivedChatsPage({
                   <button
                     type="button"
                     onClick={() => void openChat(chat)}
-                    className="flex min-h-14 w-full items-center gap-4 rounded-md px-3 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
+                    className="flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
                   >
                     <HugeiconsIcon
                       icon={ArchiveIcon}
-                      className="size-4 shrink-0 text-muted-foreground"
+                      className="size-3.5 shrink-0 text-muted-foreground"
                     />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {chat.title}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        Archived {formatDate(chat.archivedAt ?? chat.updatedAt)}
-                      </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+                      {chat.title}
                     </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      Preview
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                      Archived {formatDate(chat.archivedAt ?? chat.updatedAt)}
                     </span>
                   </button>
                 </li>
@@ -220,7 +215,7 @@ export function ArchivedChatsPage({
       <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/50 px-5">
         <button
           type="button"
-          onClick={() => showList(projectId)}
+          onClick={() => void showList(projectId)}
           aria-label="Back to archived chats"
           className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted/45 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
         >
