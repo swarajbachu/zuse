@@ -82,9 +82,9 @@ minimal editor.
 
 - Server caps reads at 5 MB; over the cap returns `FsTooLargeError`.
 - Server attempts UTF-8 decode; if it fails, returns
-  `{ kind: "binary", size }`.
-- Editor renders a "Binary file (N bytes)" placeholder; `Cmd+S` is
-  no-oped while in binary mode.
+  `{ kind: "binary", bytes, size }`.
+- Supported raster images render inline. Other binary files retain the
+  "Binary file (N bytes)" placeholder; `Cmd+S` is no-oped in binary mode.
 
 ## RPC contracts
 
@@ -94,7 +94,7 @@ Added to `packages/contracts/src/fs.ts`:
 // fs.readFile
 payload: { folderId, path }
 success: { kind: "text", content, mtime, size }
-       | { kind: "binary", size }
+       | { kind: "binary", bytes, size }
 error:   FsFolderNotFoundError | FsPathOutsideError
        | FsReadError | FsTooLargeError
 
@@ -176,7 +176,8 @@ A5. Edit and `Cmd+S` writes to disk; dirty-dot clears; `git diff`
 A6. External edit + in-app `Cmd+S` produces a conflict toast and
     preserves the user's in-editor changes.
 
-A7. Opening a `.png` shows the binary placeholder; `Cmd+S` is a no-op.
+A7. Opening a supported raster image shows it inline without exposing its
+    local path to the renderer.
 
 A8. Switching projects in the left sidebar closes the file tab and
     selects the chat tab.

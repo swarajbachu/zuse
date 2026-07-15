@@ -9,6 +9,7 @@ import {
 	defaultModelEnabledByProvider,
 	defaultModelFor,
 	GitBranchInfo,
+	FsFileContent,
 	isModelVisible,
 	Message,
 	MODELS_BY_PROVIDER,
@@ -35,6 +36,16 @@ const roundTrip = <A, I>(schema: Schema.Codec<A, I>, encoded: I): void => {
 	const reEncoded = Schema.encodeSync(schema)(decoded);
 	expect(reEncoded).toEqual(encoded);
 };
+
+describe("FsFileContent round-trip", () => {
+	it("preserves binary bytes over the wire", () => {
+		roundTrip(FsFileContent, {
+			kind: "binary",
+			bytes: "AAEC/w==",
+			size: 4,
+		});
+	});
+});
 
 describe("AgentEvent round-trips", () => {
 	const cases: ReadonlyArray<{ name: string; encoded: unknown }> = [
