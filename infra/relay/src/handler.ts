@@ -498,7 +498,18 @@ export const handleRequest = (
 				),
 			),
 		),
-		Effect.catchDefect(() =>
-			Effect.succeed(json({ error: "internal_error" }, 500)),
+		Effect.catchDefect((defect) =>
+			Effect.sync(() => {
+				const url = new URL(request.url);
+				console.error("[zuse-relay] unhandled request defect", {
+					method: request.method,
+					path: url.pathname,
+					defect:
+						defect instanceof Error
+							? { name: defect.name, message: defect.message }
+							: String(defect),
+				});
+				return json({ error: "internal_error" }, 500);
+			}),
 		),
 	);

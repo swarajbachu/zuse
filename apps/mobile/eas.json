@@ -7,15 +7,24 @@
 		"development": {
 			"developmentClient": true,
 			"distribution": "internal",
+			"env": {
+				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KWGQ818571ARFATQ3G9AR2Y2"
+			},
 			"ios": {
 				"simulator": false
 			}
 		},
 		"preview": {
-			"distribution": "internal"
+			"distribution": "internal",
+			"env": {
+				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KWGQ818571ARFATQ3G9AR2Y2"
+			}
 		},
 		"production": {
-			"autoIncrement": true
+			"autoIncrement": true,
+			"env": {
+				"EXPO_PUBLIC_WORKOS_CLIENT_ID": "client_01KWGQ818571ARFATQ3G9AR2Y2"
+			}
 		}
 	},
 	"submit": {

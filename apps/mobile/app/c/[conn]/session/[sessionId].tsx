@@ -35,6 +35,7 @@ import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { isFreshChat } from "~/lib/composer-state";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	normalizeConnParam,
 	optionsForConnection,
@@ -102,6 +103,7 @@ function ThreadScreen() {
 	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
 	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+	const retryConnection = useConnectionRuntimeStore((state) => state.retry);
 	const connectionSnapshot = useConnectionRuntimeStore(
 		(state) => state.snapshotsByConnection[connKey],
 	);
@@ -193,9 +195,10 @@ function ThreadScreen() {
 	const transportOnline = connectionSnapshot?.status === "connected";
 	const connectionProblem =
 		connectionSnapshot?.status === "blockedAuth" ||
-		connectionSnapshot?.status === "offline" ||
 		connectionSnapshot?.status === "error"
 			? connectionSnapshot.error
+				? connectionErrorMessage(connectionSnapshot.error)
+				: "Connection unavailable. Retry from the status above."
 			: null;
 
 	// Drain the outbox in order while the transport is online. This runs both
@@ -616,6 +619,8 @@ function ThreadScreen() {
 					status={sessionStatus}
 					fresh={fresh}
 					online={transportOnline}
+					connectionStatus={connectionSnapshot?.status}
+					onRetryConnection={() => retryConnection(connKey, options)}
 					bottomInset={insets.bottom}
 				/>
 			)}

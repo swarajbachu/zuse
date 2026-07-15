@@ -4,6 +4,7 @@ import {
 	CloudOffIcon,
 	Square01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
+import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
 	extractFileChanges,
 	groupTimelineTurns,
@@ -72,6 +73,8 @@ export const Composer = ({
 	status,
 	fresh,
 	online,
+	connectionStatus,
+	onRetryConnection,
 	bottomInset = 0,
 }: {
 	connKey: string;
@@ -81,6 +84,8 @@ export const Composer = ({
 	status?: SessionStatus;
 	fresh: boolean;
 	online: boolean;
+	connectionStatus?: ConnectionStatus;
+	onRetryConnection?: () => void;
 	bottomInset?: number;
 }) => {
 	const [text, setText] = useState("");
@@ -286,7 +291,25 @@ export const Composer = ({
 			style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
 		>
 			<View className="min-h-11 flex-row flex-wrap items-center justify-center gap-2 pb-2">
-				{!online ? <StatusPill label="Reconnecting" tone="warning" /> : null}
+				{!online ? (
+					<StatusPill
+						label={
+							connectionStatus === "error"
+								? "Connection unavailable · Retry"
+								: connectionStatus === "blockedAuth"
+									? "Sign in required"
+									: connectionStatus === "offline"
+										? "Offline"
+										: connectionStatus === "connecting"
+											? "Connecting"
+											: "Reconnecting"
+						}
+						tone={connectionStatus === "error" ? "danger" : "warning"}
+						onPress={
+							connectionStatus === "error" ? onRetryConnection : undefined
+						}
+					/>
+				) : null}
 				{queuedCount > 0 ? (
 					<StatusPill
 						label={`${queuedCount} queued${queueSending ? " · sending" : queueError ? " · retry" : ""}`}

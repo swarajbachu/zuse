@@ -21,6 +21,7 @@ const deferred = <A>() => {
 
 const makeHarness = (input?: {
 	online?: boolean;
+	maxAutomaticAttempts?: number;
 	prepareOptions?: (options: Options) => Promise<Options>;
 	createClient?: (options: Options) => Promise<{
 		readonly client: Client;
@@ -37,6 +38,7 @@ const makeHarness = (input?: {
 	const supervisor = createConnectionSupervisor<Options, Client>({
 		keyOf: (options) => options.key,
 		isOnline: () => online,
+		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		isRetryableCommandError: input?.isRetryableCommandError,
 		createClient:
@@ -172,6 +174,42 @@ describe("connection supervisor", () => {
 		entry.retryNow();
 		await runClient(entry.getClient());
 		expect(entry.snapshot().status).toBe("connected");
+	});
+
+	test("stops automatic retries at the configured limit and resets on manual retry", async () => {
+		let available = false;
+		const harness = makeHarness({
+			maxAutomaticAttempts: 2,
+			createClient: async () => {
+				if (!available) throw new Error("socket did not open");
+				return { client: { id: 1 }, dispose: async () => undefined };
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+
+		await expect(runClient(entry.getClient())).rejects.toThrow(
+			"socket did not open",
+		);
+		harness.scheduled[0]?.fn();
+		await waitUntil(() => entry.snapshot().status === "error");
+
+		expect(entry.snapshot()).toMatchObject({
+			status: "error",
+			attempt: 2,
+		});
+		expect(harness.scheduled).toHaveLength(1);
+		await expect(runClient(entry.getClient())).rejects.toThrow(
+			"socket did not open",
+		);
+		expect(harness.scheduled).toHaveLength(1);
+
+		available = true;
+		entry.retryNow();
+		await waitUntil(() => entry.snapshot().status === "connected");
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			attempt: 0,
+		});
 	});
 
 	test("refreshes prepared options before reconnecting", async () => {

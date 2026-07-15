@@ -1,5 +1,5 @@
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
-import { Layer } from "effect";
+import { type Duration, Layer } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Socket } from "effect/unstable/socket";
 import { withWireProtocolVersion } from "./connection.ts";
@@ -11,6 +11,14 @@ export type WsProtocolOptions = {
 	readonly port: number;
 	readonly token?: string | null;
 	readonly wsBaseUrl?: string | null;
+};
+
+export type WsProtocolLayerOptions = {
+	readonly openTimeout?: Duration.Input;
+	readonly makeWebSocket?: (
+		url: string,
+		protocols?: string | Array<string>,
+	) => globalThis.WebSocket;
 };
 
 export const connectionKey = (host: string, port: number): string =>
@@ -30,13 +38,19 @@ export const authenticatedWsUrl = (options: WsProtocolOptions): string => {
 
 export const wsClientProtocolLayer = (
 	endpoint: string | WsProtocolOptions,
+	options?: WsProtocolLayerOptions,
 ): Layer.Layer<RpcClient.Protocol> =>
 	RpcClient.layerProtocolSocket().pipe(
 		Layer.provide(
 			Socket.layerWebSocket(
 				typeof endpoint === "string" ? endpoint : authenticatedWsUrl(endpoint),
+				{ openTimeout: options?.openTimeout },
 			),
 		),
-		Layer.provide(Socket.layerWebSocketConstructorGlobal),
+		Layer.provide(
+			options?.makeWebSocket === undefined
+				? Socket.layerWebSocketConstructorGlobal
+				: Layer.succeed(Socket.WebSocketConstructor, options.makeWebSocket),
+		),
 		Layer.provide(RpcSerialization.layerJson),
 	);

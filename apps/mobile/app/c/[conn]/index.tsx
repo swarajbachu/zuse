@@ -6,6 +6,7 @@ import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListSection } from "~/components/ui/list";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	normalizeConnParam,
 	optionsForConnection,
@@ -102,16 +103,19 @@ export default function SessionsScreen() {
 						connect the computer again.
 					</Text>
 				) : null}
-				{errorByConnection[connKey] ? (
+				{errorByConnection[connKey] &&
+				(connectionSnapshot === undefined ||
+					connectionSnapshot.status === "error" ||
+					connectionSnapshot.status === "blockedAuth") ? (
 					<Text selectable className="px-4 font-sans text-[13px] text-danger">
-						{errorByConnection[connKey]}
+						{connectionErrorMessage(errorByConnection[connKey])}
 					</Text>
 				) : null}
 				{(connectionSnapshot?.status === "blockedAuth" ||
 					connectionSnapshot?.status === "error") &&
 				connectionSnapshot.error ? (
 					<Text selectable className="px-4 font-sans text-[13px] text-danger">
-						{connectionSnapshot.error}
+						{connectionErrorMessage(connectionSnapshot.error)}
 					</Text>
 				) : null}
 

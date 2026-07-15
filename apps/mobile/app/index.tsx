@@ -28,6 +28,7 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { PresenceDot } from "~/components/ui/presence-dot";
 import { cn } from "~/lib/cn";
+import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
 import { githubOwnerAvatarUrl } from "~/lib/display-names";
 import { selectionTap, successTap } from "~/lib/haptics";
@@ -84,6 +85,9 @@ export default function HomeScreen() {
 		connect,
 	} = useEnvironmentsStore();
 	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+	const connectionSnapshots = useConnectionRuntimeStore(
+		(state) => state.snapshotsByConnection,
+	);
 	const {
 		bundlesByConnection,
 		statusBySession,
@@ -170,7 +174,13 @@ export default function HomeScreen() {
 		environmentsLoading ||
 		Object.values(loadingByConnection).some(Boolean);
 	const connectionError =
-		Object.values(errorByConnection).find(Boolean) ?? null;
+		Object.entries(errorByConnection).find(([key, error]) => {
+			if (!error) return false;
+			const status = connectionSnapshots[key]?.status;
+			return (
+				status === undefined || status === "error" || status === "blockedAuth"
+			);
+		})?.[1] ?? null;
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
 		selectionTap();
@@ -339,7 +349,7 @@ export default function HomeScreen() {
 							selectable
 							className="font-sans text-sm leading-5 text-danger"
 						>
-							{environmentsError ?? connectionError}
+							{connectionErrorMessage(environmentsError ?? connectionError)}
 						</Text>
 					</View>
 				) : null}
