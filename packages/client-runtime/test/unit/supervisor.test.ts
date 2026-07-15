@@ -250,6 +250,30 @@ describe("connection supervisor", () => {
 		expect(harness.scheduled).toHaveLength(1);
 	});
 
+	test("ignores duplicate failure reports while a retry is already owned", async () => {
+		const harness = makeHarness({
+			createClient: async () => {
+				throw new Error("socket did not open");
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+
+		await expect(runClient(entry.getClient())).rejects.toThrow(
+			"socket did not open",
+		);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 1,
+		});
+
+		expect(entry.reportFailure(new Error("same failed client"))).toBe(false);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 1,
+		});
+		expect(harness.scheduled).toHaveLength(1);
+	});
+
 	test("owns stable-id command redispatch across reconnects", async () => {
 		const harness = makeHarness({
 			isRetryableCommandError: (cause) =>

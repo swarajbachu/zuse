@@ -173,6 +173,13 @@ class SupervisorEntryImpl<Options, Client>
 
 	reportFailure(cause: unknown, expectedGeneration?: number): boolean {
 		if (this.removed) return false;
+		if (expectedGeneration === undefined && this.state.status !== "connected") {
+			this.diagnostic("failure.ignored", {
+				reason: messageOf(cause),
+				status: this.state.status,
+			});
+			return false;
+		}
 		if (
 			expectedGeneration !== undefined &&
 			(this.state.status !== "connected" ||
