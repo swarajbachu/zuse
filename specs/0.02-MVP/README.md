@@ -18,8 +18,8 @@ click-to-open, and a minimal editor that can save changes back to disk.
   Rust/Go), dirty-dot indicator, `Cmd/Ctrl+S` to save.
 - **Conflict-aware writes** via mtime-based optimistic concurrency: the
   server rejects writes if the file changed on disk since we read it.
-- **Binary / oversize guard**: files >5 MB or non-UTF-8 render a placeholder
-  instead of garbled text.
+- **Image preview and binary guard**: supported raster images render inline;
+  other non-UTF-8 files and files over 5 MB render a placeholder.
 
 ## What's deliberately deferred
 
