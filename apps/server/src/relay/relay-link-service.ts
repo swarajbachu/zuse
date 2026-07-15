@@ -1,7 +1,7 @@
 import {
   DEFAULT_LOCAL_DESKTOP_PORT,
-  RelayPaths,
   type EnvironmentId,
+  RelayPaths,
 } from "@zuse/contracts";
 import { Clock, Context, Data, Effect, Fiber, Layer, Ref } from "effect";
 
@@ -11,8 +11,8 @@ import { buildAdvertisedEndpoints } from "../lan-auth/advertised-endpoints.ts";
 import { defaultEnvironmentLabel } from "../lan-auth/environment-label.ts";
 import {
   LanAuthConfig,
-  LanAuthService,
   type LanAuthConfigShape,
+  LanAuthService,
 } from "../lan-auth/services/lan-auth-service.ts";
 import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
@@ -165,6 +165,19 @@ export const RelayLinkServiceLive: Layer.Layer<
       yield* Ref.set(heartbeatRef, null);
     });
 
+    const reconcileTunnelOrigin = (input: {
+      readonly relayUrl: string;
+      readonly environmentId: EnvironmentId;
+      readonly credential: string;
+    }) =>
+      postJson<{ readonly ok: boolean }>(
+        `${input.relayUrl}${RelayPaths.heartbeat(input.environmentId)}`,
+        {
+          bearer: input.credential,
+          body: { origin: computeOrigin(config) },
+        },
+      );
+
     // Resume heartbeating (and the managed-tunnel connector) on boot if linked.
     const existing = yield* auth
       .getRelayConfig()
@@ -176,12 +189,30 @@ export const RelayLinkServiceLive: Layer.Layer<
         hasConnectorToken: existing.connectorToken !== undefined,
         tunnelHostname: existing.tunnelHostname ?? null,
       });
-      yield* startHeartbeat({
-        relayUrl: existing.relayUrl,
-        environmentId: existing.environmentId,
-        credential: existing.environmentCredential,
-      });
       if (existing.connectorToken !== undefined) {
+        // The desktop's HTTP port can change between app versions or dev
+        // launches. Repair the existing tunnel ingress before starting its
+        // connector so a successful WebSocket upgrade always reaches this
+        // runtime rather than whatever now owns the old port.
+        yield* log("service.existing_tunnel_reconcile", {
+          environmentId: existing.environmentId,
+          origin: computeOrigin(config),
+        });
+        yield* reconcileTunnelOrigin({
+          relayUrl: existing.relayUrl,
+          environmentId: existing.environmentId,
+          credential: existing.environmentCredential,
+        }).pipe(
+          Effect.tap(() => log("service.existing_tunnel_reconcile.ok")),
+          Effect.tapError((error) =>
+            log("service.existing_tunnel_reconcile.fail", {
+              reason: error.reason,
+            }),
+          ),
+          // Non-fatal on boot: presence and LAN access must still work while
+          // the relay or tunnel control plane is temporarily unavailable.
+          Effect.ignore,
+        );
         // Non-fatal on boot: if cloudflared is missing the desktop still works
         // on LAN; the tunnel just won't come up until relinked.
         yield* log("service.existing_tunnel_start");
@@ -193,6 +224,11 @@ export const RelayLinkServiceLive: Layer.Layer<
           Effect.ignore,
         );
       }
+      yield* startHeartbeat({
+        relayUrl: existing.relayUrl,
+        environmentId: existing.environmentId,
+        credential: existing.environmentCredential,
+      });
     }
 
     return RelayLinkService.of({
@@ -203,8 +239,7 @@ export const RelayLinkServiceLive: Layer.Layer<
             hasLabel: input.label !== undefined && input.label.length > 0,
           });
           // Give relay-listed environments the same human name as LAN clients.
-          const label =
-            input.label ?? (yield* defaultEnvironmentLabel());
+          const label = input.label ?? (yield* defaultEnvironmentLabel());
           const token = yield* authService
             .getAccessToken()
             .pipe(

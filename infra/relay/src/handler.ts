@@ -62,6 +62,26 @@ const isActivityKind = (value: unknown): value is ActivityKind =>
 	value === "error" ||
 	value === "running";
 
+const isLoopbackOrigin = (
+	value: unknown,
+): value is {
+	readonly localHttpHost: "127.0.0.1";
+	readonly localHttpPort: number;
+} => {
+	if (value === null || typeof value !== "object") return false;
+	const origin = value as {
+		readonly localHttpHost?: unknown;
+		readonly localHttpPort?: unknown;
+	};
+	return (
+		origin.localHttpHost === "127.0.0.1" &&
+		typeof origin.localHttpPort === "number" &&
+		Number.isInteger(origin.localHttpPort) &&
+		origin.localHttpPort >= 1 &&
+		origin.localHttpPort <= 65_535
+	);
+};
+
 const SENSITIVE_ACTIVITY_KEYS = new Set([
 	"chatBytes",
 	"command",
@@ -424,7 +444,42 @@ const route = (
 		);
 		if (method === "POST" && heartbeatMatch !== null) {
 			const environmentId = decodeURIComponent(heartbeatMatch[1] ?? "");
-			yield* requireEnvironmentCredential(request, environmentId);
+			const principal = yield* requireEnvironmentCredential(
+				request,
+				environmentId,
+			);
+			const hasJsonBody = request.headers
+				.get("content-type")
+				?.toLowerCase()
+				.includes("application/json");
+			if (hasJsonBody === true) {
+				const body = yield* readJson<{ readonly origin?: unknown }>(request);
+				if (!isLoopbackOrigin(body.origin)) {
+					return yield* Effect.fail(badRequest("invalid_tunnel_origin"));
+				}
+				const environment = yield* store.getEnvironment(environmentId);
+				if (
+					environment === null ||
+					environment.accountId !== principal.accountId
+				) {
+					return yield* Effect.fail(notFound());
+				}
+				const tunnel = yield* ManagedTunnelProvider;
+				if (!tunnel.enabled) {
+					return yield* Effect.fail(badRequest("managed_tunnel_disabled"));
+				}
+				const provisioned = yield* tunnel.provision({
+					accountId: principal.accountId,
+					environmentId,
+					origin: body.origin,
+				});
+				yield* store.setTunnelAllocation(environmentId, {
+					tunnelHostname: provisioned.tunnelHostname,
+					tunnelId: provisioned.tunnelId,
+					dnsRecordId: provisioned.dnsRecordId,
+					tunnelStatus: "ready",
+				});
+			}
 			yield* store.touchEnvironment(environmentId, nowMs);
 			return json({ ok: true });
 		}
