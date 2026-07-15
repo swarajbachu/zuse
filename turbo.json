@@ -6,12 +6,12 @@
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
 			// Turbo runs in strict env mode: env vars not listed here are stripped
-			// from the task before it runs. tsdown inlines the public WorkOS client
-			// id from process.env.WORKOS_CLIENT_ID at build time, so it must survive
-			// into the build task (CI supplies it; empty locally is fine). Listing it
-			// under `env` also makes it part of the cache key, so changing the id
-			// busts stale build output.
-			"env": ["WORKOS_CLIENT_ID"],
+			// from the task before it runs. tsdown reads public OAuth client ids from
+			// process.env at build time, so they must
+			// survive into the build task (CI supplies them; empty locally is fine).
+			// Listing them under `env` also makes them part of the cache key, so
+			// changing either id busts stale build output.
+			"env": ["WORKOS_CLIENT_ID", "LINEAR_CLIENT_ID"],
 			"outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-electron/**"]
 		},
 		"lint": {
