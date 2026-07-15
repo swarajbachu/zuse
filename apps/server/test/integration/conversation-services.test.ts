@@ -896,6 +896,18 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					service.archiveChat(archived.chat.id),
 				),
 			);
+			// Worktree deletion clears the SQL foreign key, but the session event
+			// state still remembers the original id. This projection drift is the
+			// production failure mode that previously routed restore into main.
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+            UPDATE sessions SET worktree_id = NULL
+            WHERE id = ${archived.initialSession.id}
+          `;
+				}),
+			);
 			const restored = await run(
 				Effect.flatMap(store, (service) =>
 					service.unarchiveChat(archived.chat.id),

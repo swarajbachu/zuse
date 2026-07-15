@@ -616,21 +616,29 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 				});
 				const archivedSessions = yield* sql<{
 					readonly id: string;
-					readonly worktree_id: string | null;
 				}>`
-          SELECT id, worktree_id FROM sessions WHERE chat_id = ${chatId}
+          SELECT id FROM sessions WHERE chat_id = ${chatId}
         `.pipe(Effect.orDie);
 				for (const row of archivedSessions) {
 					const sessionId = SessionId.make(row.id);
-					if (
-						restoredWorktreeId !== null &&
-						row.worktree_id !== restoredWorktreeId
-					) {
+					if (restoredWorktreeId !== null) {
+						// Always record the binding in the session event stream. The raw
+						// SQL foreign key may temporarily appear correct after recreating a
+						// worktree with the same id while the session projector still holds
+						// the null produced by checkout removal.
 						yield* dispatchSessionCommand(sessionId, {
 							_tag: "SetWorktree",
 							worktreeId: restoredWorktreeId,
 							updatedAt: unarchivedAt,
 						});
+						// Worktree removal clears the read-model FK directly, outside the
+						// event stream. If domain state already remembers this same id, the
+						// idempotent command above emits no event, so explicitly repair the
+						// projection to the value a full event replay would produce.
+						yield* sql`
+              UPDATE sessions SET worktree_id = ${restoredWorktreeId}
+              WHERE id = ${sessionId}
+            `.pipe(Effect.orDie);
 					}
 					if (chatRow.archived_at !== null) {
 						yield* dispatchSessionCommand(sessionId, {

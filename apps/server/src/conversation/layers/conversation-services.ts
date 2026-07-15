@@ -145,6 +145,30 @@ const ConversationRuntimeLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
+		// Worktree deletion can null the sessions read-model FK without emitting
+		// a session-domain event. Reconcile live members from their owning chat at
+		// startup so records affected by an interrupted or older restore heal on
+		// the next launch instead of silently starting providers in main.
+		yield* sql`
+      UPDATE sessions
+      SET worktree_id = (
+        SELECT c.worktree_id
+        FROM chats c
+        INNER JOIN worktrees w ON w.id = c.worktree_id
+        WHERE c.id = sessions.chat_id
+          AND c.archived_at IS NULL
+      )
+      WHERE archived_at IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM chats c
+          INNER JOIN worktrees w ON w.id = c.worktree_id
+          WHERE c.id = sessions.chat_id
+            AND c.archived_at IS NULL
+            AND sessions.worktree_id IS NOT c.worktree_id
+        )
+    `.pipe(Effect.orDie);
+
 		/**
 		 * Resolve the cwd a session should run in. NULL `worktreeId` falls
 		 * through to the project's main checkout (handled by `provider.start`
