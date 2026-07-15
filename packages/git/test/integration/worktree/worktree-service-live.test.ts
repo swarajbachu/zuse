@@ -347,6 +347,9 @@ describe("WorktreeServiceLive", () => {
 		if (outcome.archivedContextPath === null) {
 			throw new Error("archived context path was not recorded");
 		}
+		expect(outcome.archivedContextPath).toBe(
+			join(worktreeRoot, "archived", created.id),
+		);
 		const archivedFile = join(outcome.archivedContextPath, "files", "note.txt");
 		expect(readFileSync(archivedFile, "utf8")).toBe("context survives\n");
 		const archivedRows = await runSql(

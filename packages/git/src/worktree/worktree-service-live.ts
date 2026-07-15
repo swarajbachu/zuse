@@ -830,13 +830,7 @@ export const WorktreeServiceLive = Layer.effect(
 			});
 
 		const archivedContextDestination = (worktree: Worktree): string =>
-			Path.join(
-				os.homedir(),
-				".zuse",
-				"archived-contexts",
-				worktree.projectId.slice(0, 8),
-				`${worktree.name}-${worktree.id.slice(0, 8)}`,
-			);
+			Path.join(Path.dirname(worktree.path), "archived", worktree.id);
 
 		const deleteCheckoutAndRow = (
 			row: Worktree,
