@@ -300,8 +300,8 @@ export function ArchivedChatsPage({
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-border/60 bg-background/92 px-4 py-3 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-3">
+      <footer className="shrink-0 border-t border-border/60 bg-background/92 px-4 py-2 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-4xl items-center gap-2.5">
           <HugeiconsIcon
             icon={ArchiveIcon}
             className="size-4 shrink-0 text-muted-foreground"
@@ -321,7 +321,6 @@ export function ArchivedChatsPage({
             size="sm"
             disabled={restoring}
             onClick={() => void unarchive(selectedChat.id)}
-            className="min-h-11 min-w-28"
           >
             {restoring ? (
               <Spinner className="size-3.5" />
