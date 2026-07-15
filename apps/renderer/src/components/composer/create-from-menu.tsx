@@ -108,9 +108,7 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   const [selectedLinear, setSelectedLinear] = useState<
     ReadonlyMap<string, LinearIssueSummary>
   >(new Map());
-  const [linearMode, setLinearMode] = useState<"combined" | "separate" | null>(
-    null,
-  );
+  const [separateLinearThreads, setSeparateLinearThreads] = useState(false);
   const [worktreesLoadedForOpen, setWorktreesLoadedForOpen] = useState(false);
   // branch name → worktreeId, for the "In use" badge + reuse behaviour.
   const [worktreeByBranch, setWorktreeByBranch] = useState<
@@ -344,15 +342,18 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   };
 
   const confirmLinear = () => {
-    if (selectedLinear.size === 0 || linearMode === null) return;
+    if (selectedLinear.size === 0) return;
     onSelect({
       kind: "linear",
       issues: [...selectedLinear.values()],
-      mode: linearMode,
+      mode:
+        selectedLinear.size > 1 && separateLinearThreads
+          ? "separate"
+          : "combined",
     });
     setOpen(false);
     setSelectedLinear(new Map());
-    setLinearMode(null);
+    setSeparateLinearThreads(false);
   };
 
   return (
@@ -566,25 +567,22 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                 <span className="mr-auto text-xs text-muted-foreground">
                   {selectedLinear.size} selected
                 </span>
-                {(["combined", "separate"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={linearMode === mode}
-                    onClick={() => setLinearMode(mode)}
-                    className={cn(
-                      "rounded-md border px-2.5 py-1.5 text-xs capitalize",
-                      linearMode === mode
-                        ? "border-primary bg-primary/10 text-foreground"
-                        : "border-border text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    {mode}
-                  </button>
-                ))}
+                {selectedLinear.size > 1 && (
+                  <label className="flex min-h-8 cursor-pointer select-none items-center gap-2 rounded-md px-1 text-xs text-muted-foreground pointer-coarse:min-h-11">
+                    <input
+                      type="checkbox"
+                      checked={separateLinearThreads}
+                      onChange={(event) =>
+                        setSeparateLinearThreads(event.target.checked)
+                      }
+                      className="size-4 shrink-0 cursor-pointer accent-primary"
+                    />
+                    <span>Separate threads</span>
+                  </label>
+                )}
                 <button
                   type="button"
-                  disabled={selectedLinear.size === 0 || linearMode === null}
+                  disabled={selectedLinear.size === 0}
                   onClick={confirmLinear}
                   className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-40"
                 >
