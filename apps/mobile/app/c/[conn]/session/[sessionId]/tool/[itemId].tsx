@@ -17,6 +17,7 @@ import {
 } from "react-native";
 
 import { connectionSessionKey } from "~/lib/session-key";
+import { selectSessionMessages } from "~/lib/session-messages";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
 import { useMobileMessagesStore } from "~/store/messages";
 import { colors } from "~/theme";
@@ -44,8 +45,8 @@ export default function ToolDetailScreen() {
 		filePath?: string;
 	}>();
 	const key = connectionSessionKey(conn, sessionId as SessionId);
-	const messages = useMobileMessagesStore(
-		(state) => state.messagesBySession[key] ?? [],
+	const messages = useMobileMessagesStore((state) =>
+		selectSessionMessages(state.messagesBySession, key),
 	);
 	const tool = messages.find(
 		(message) =>

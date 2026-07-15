@@ -34,6 +34,7 @@ import {
 } from "~/lib/composer-state";
 import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
+import { selectSessionMessages } from "~/lib/session-messages";
 import {
 	flushServerQueue,
 	interruptSession,
@@ -94,8 +95,8 @@ export const Composer = ({
 	);
 	const queueError = useOutboxStore((state) => state.errorBySession[stateKey]);
 	const enqueue = useOutboxStore((state) => state.enqueue);
-	const messages = useMobileMessagesStore(
-		(state) => state.messagesBySession[stateKey] ?? [],
+	const messages = useMobileMessagesStore((state) =>
+		selectSessionMessages(state.messagesBySession, stateKey),
 	);
 	const currentActivity = useMemo(() => {
 		const turn = groupTimelineTurns(messages).at(-1);

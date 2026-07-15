@@ -44,6 +44,7 @@ import { visibleConnectionLabel } from "~/lib/display-names";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
+import { selectSessionMessages } from "~/lib/session-messages";
 import {
 	answerQuestion,
 	flushServerQueue,
@@ -67,9 +68,6 @@ const EMPTY_PENDING: ReturnType<
 const EMPTY_QUEUED: ReturnType<
 	typeof useOutboxStore.getState
 >["queuedBySession"][string] = [];
-const EMPTY_MESSAGES: ReturnType<
-	typeof useMobileMessagesStore.getState
->["messagesBySession"][string] = [];
 
 export default function ThreadScreenRoute() {
 	return (
@@ -122,9 +120,13 @@ function ThreadScreen() {
 		);
 		return record?.label ?? visibleConnectionLabel(undefined, connKey);
 	}, [connections, connKey]);
-	const { messagesBySession, errorBySession, hydrate } =
-		useMobileMessagesStore();
-	const rawMessages = messagesBySession[stateKey] ?? EMPTY_MESSAGES;
+	const rawMessages = useMobileMessagesStore((state) =>
+		selectSessionMessages(state.messagesBySession, stateKey),
+	);
+	const errorBySession = useMobileMessagesStore(
+		(state) => state.errorBySession,
+	);
+	const hydrate = useMobileMessagesStore((state) => state.hydrate);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const detail = selectSessionChat(bundles, normalizedSessionId);

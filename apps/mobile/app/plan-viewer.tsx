@@ -4,6 +4,7 @@ import { ScrollView, Text, View } from "react-native";
 
 import { Markdown } from "~/components/messages/markdown";
 import { connectionSessionKey } from "~/lib/session-key";
+import { selectSessionMessages } from "~/lib/session-messages";
 import { useMobileMessagesStore } from "~/store/messages";
 
 export default function PlanViewerScreen() {
@@ -13,11 +14,11 @@ export default function PlanViewerScreen() {
 		messageId?: string;
 		itemId?: string;
 	}>();
-	const messages = useMobileMessagesStore(
-		(state) =>
-			state.messagesBySession[
-				connectionSessionKey(conn, sessionId as SessionId)
-			] ?? [],
+	const messages = useMobileMessagesStore((state) =>
+		selectSessionMessages(
+			state.messagesBySession,
+			connectionSessionKey(conn, sessionId as SessionId),
+		),
 	);
 	const target = messages.find(
 		(message) =>
