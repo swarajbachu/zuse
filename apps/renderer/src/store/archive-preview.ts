@@ -22,7 +22,6 @@ type ArchivePreviewState = {
 	readonly chatsByProject: Record<string, ReadonlyArray<Chat>>;
 	readonly loadedByProject: Record<string, boolean>;
 	readonly loadingByProject: Record<string, boolean>;
-	readonly folderExpandedByProject: Record<string, boolean>;
 	readonly selectedChatByProject: Record<string, ChatId | null>;
 	readonly previewsByChat: Record<string, ArchivePreview | undefined>;
 	readonly previewLoadingByChat: Record<string, boolean>;
@@ -38,8 +37,7 @@ type ArchivePreviewState = {
 	readonly errorBySession: Record<string, string | null>;
 	readonly restoreErrorByChat: Record<string, string | null>;
 	readonly loadProject: (projectId: FolderId, force?: boolean) => Promise<void>;
-	readonly setFolderExpanded: (projectId: FolderId, expanded: boolean) => void;
-	readonly openFolder: (projectId: FolderId) => Promise<void>;
+	readonly showList: (projectId: FolderId) => void;
 	readonly openChat: (chat: Chat) => Promise<void>;
 	readonly selectSession: (
 		chatId: ChatId,
@@ -145,7 +143,6 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 			chatsByProject: {},
 			loadedByProject: {},
 			loadingByProject: {},
-			folderExpandedByProject: {},
 			selectedChatByProject: {},
 			previewsByChat: {},
 			previewLoadingByChat: {},
@@ -220,17 +217,13 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 				projectLoads.set(projectId, run);
 				return run;
 			},
-			setFolderExpanded: (projectId, expanded) => {
+			showList: (projectId) => {
 				set((state) => ({
-					folderExpandedByProject: {
-						...state.folderExpandedByProject,
-						[projectId]: expanded,
+					selectedChatByProject: {
+						...state.selectedChatByProject,
+						[projectId]: null,
 					},
 				}));
-			},
-			openFolder: async (projectId) => {
-				get().setFolderExpanded(projectId, true);
-				await get().loadProject(projectId);
 			},
 			openChat: (chat) => {
 				useUiStore.getState().setActiveMainTab("archives");

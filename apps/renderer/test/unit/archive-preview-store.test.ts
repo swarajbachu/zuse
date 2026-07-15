@@ -129,6 +129,15 @@ describe("archive preview store", () => {
 		expect(state.selectedSessionByChat[chatId]).toBe(secondSessionId);
 		expect(state.messagesBySession[secondSessionId]).toEqual([message]);
 		expect(listMessages).toHaveBeenCalledTimes(1);
+
+		useArchivePreviewStore.getState().showList(projectId);
+		expect(
+			useArchivePreviewStore.getState().selectedChatByProject[projectId],
+		).toBeNull();
+		expect(useArchivePreviewStore.getState().previewsByChat[chatId]).toEqual({
+			chat: archivedChat,
+			sessions: [firstSession, secondSession],
+		});
 	});
 
 	it("reconciles a project load that races an archive mutation", async () => {

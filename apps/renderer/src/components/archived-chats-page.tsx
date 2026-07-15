@@ -1,10 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  ArrowLeft01Icon,
+  Search01Icon,
+} from "@hugeicons-pro/core-bulk-rounded";
+import {
   ArchiveArrowUpIcon,
   ArchiveIcon,
 } from "@hugeicons-pro/core-solid-rounded";
 import type { Chat, FolderId, Message, Session } from "@zuse/contracts";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../lib/utils.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
@@ -39,6 +43,7 @@ export function ArchivedChatsPage({
       ? EMPTY_CHATS
       : (state.chatsByProject[projectId] ?? EMPTY_CHATS),
   );
+  const [query, setQuery] = useState("");
   const selectedChatId = useArchivePreviewStore((state) =>
     projectId === null
       ? null
@@ -46,6 +51,9 @@ export function ArchivedChatsPage({
   );
   const projectLoading = useArchivePreviewStore((state) =>
     projectId === null ? false : state.loadingByProject[projectId] === true,
+  );
+  const projectLoaded = useArchivePreviewStore((state) =>
+    projectId === null ? false : state.loadedByProject[projectId] === true,
   );
   const projectError = useArchivePreviewStore((state) =>
     projectId === null ? null : (state.errorByProject[projectId] ?? null),
@@ -103,6 +111,7 @@ export function ArchivedChatsPage({
       : (state.restoreErrorByChat[selectedChatId] ?? null),
   );
   const loadProject = useArchivePreviewStore((state) => state.loadProject);
+  const showList = useArchivePreviewStore((state) => state.showList);
   const openChat = useArchivePreviewStore((state) => state.openChat);
   const selectSession = useArchivePreviewStore((state) => state.selectSession);
   const unarchive = useChatsStore((state) => state.unarchive);
@@ -111,36 +120,112 @@ export function ArchivedChatsPage({
     if (projectId !== null) void loadProject(projectId);
   }, [loadProject, projectId]);
 
+  useEffect(() => setQuery(""), [projectId]);
+
   if (projectId === null) {
     return <CenteredState text="Select a project to view archived chats." />;
   }
   if (selectedChat === null) {
-    if (projectLoading) {
-      return <CenteredState text="Loading archived chats…" loading />;
-    }
-    if (projectError !== null) {
-      return (
-        <CenteredState
-          text={projectError}
-          action="Retry"
-          onAction={() => void loadProject(projectId, true)}
-        />
-      );
-    }
+    const needle = query.trim().toLowerCase();
+    const filteredChats =
+      needle.length === 0
+        ? archivedChats
+        : archivedChats.filter((chat) =>
+            chat.title.toLowerCase().includes(needle),
+          );
     return (
-      <CenteredState
-        text={
-          archivedChats.length === 0
-            ? `No archived chats in ${projectName}.`
-            : "Choose a chat from the Archived folder to preview it."
-        }
-      />
+      <section className="flex min-h-0 flex-1 flex-col bg-background/55">
+        <header className="shrink-0 border-b border-border/50 px-8 py-5">
+          <div className="flex items-center gap-3">
+            <HugeiconsIcon
+              icon={ArchiveIcon}
+              className="size-5 text-muted-foreground"
+            />
+            <div className="min-w-0">
+              <h1 className="truncate text-lg font-semibold text-foreground">
+                Archived chats
+              </h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {projectName}
+              </p>
+            </div>
+          </div>
+          <label className="mt-5 flex min-h-11 max-w-xl items-center gap-2 rounded-md border border-border/70 bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring">
+            <HugeiconsIcon
+              icon={Search01Icon}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            <span className="sr-only">Filter archived chats</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Filter archived chats…"
+              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-8 py-5">
+          {projectError !== null ? (
+            <CenteredState
+              text={projectError}
+              action="Retry"
+              onAction={() => void loadProject(projectId, true)}
+            />
+          ) : projectLoading || !projectLoaded ? (
+            <CenteredState text="Loading archived chats…" loading />
+          ) : filteredChats.length === 0 ? (
+            <CenteredState
+              text={
+                needle.length > 0
+                  ? "No archived chats match that filter."
+                  : `No archived chats in ${projectName}.`
+              }
+            />
+          ) : (
+            <ul className="mx-auto flex w-full max-w-4xl flex-col divide-y divide-border/45">
+              {filteredChats.map((chat) => (
+                <li key={chat.id}>
+                  <button
+                    type="button"
+                    onClick={() => void openChat(chat)}
+                    className="flex min-h-14 w-full items-center gap-4 rounded-md px-3 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
+                  >
+                    <HugeiconsIcon
+                      icon={ArchiveIcon}
+                      className="size-4 shrink-0 text-muted-foreground"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {chat.title}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Archived {formatDate(chat.archivedAt ?? chat.updatedAt)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      Preview
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
     );
   }
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background/55">
       <header className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/50 px-5">
+        <button
+          type="button"
+          onClick={() => showList(projectId)}
+          aria-label="Back to archived chats"
+          className="grid size-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-muted/45 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+        >
+          <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+        </button>
         <HugeiconsIcon
           icon={ArchiveIcon}
           className="size-4 shrink-0 text-muted-foreground"

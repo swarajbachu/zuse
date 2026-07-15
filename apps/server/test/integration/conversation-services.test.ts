@@ -127,6 +127,8 @@ let failProviderStart = false;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
+let archivedWorktreeIds = new Set<string>();
+let restoredWorktreeCount = 0;
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
@@ -200,9 +202,11 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 	list: () => Effect.succeed([...createdWorktrees.values()]),
 	get: (worktreeId) =>
 		Effect.succeed(
-			worktreeId === TEST_WORKTREE_ID
-				? testWorktree
-				: (createdWorktrees.get(worktreeId as string) ?? null),
+			archivedWorktreeIds.has(worktreeId as string)
+				? null
+				: worktreeId === TEST_WORKTREE_ID
+					? testWorktree
+					: (createdWorktrees.get(worktreeId as string) ?? null),
 		),
 	updateBranch: () => Effect.void,
 	archive: (worktreeId, recordCheckpoint) => {
@@ -213,16 +217,29 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 			archivedContextPath: null,
 			branch: worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
 		};
+		const markRemoved = Effect.sync(() => {
+			archivedWorktreeIds.add(worktreeId as string);
+		});
 		return recordCheckpoint === undefined
-			? Effect.succeed(outcome)
-			: recordCheckpoint(outcome).pipe(Effect.as(outcome));
+			? markRemoved.pipe(Effect.as(outcome))
+			: recordCheckpoint(outcome).pipe(
+					Effect.andThen(markRemoved),
+					Effect.as(outcome),
+				);
 	},
 	finishArchiveRemoval: () => Effect.void,
 	remove: () => Effect.void,
 	rerunSetup: () => Effect.die("not used"),
 	setupStream: () => Stream.die("not used"),
 	startRun: () => Effect.die("not used"),
-	restore: () => Effect.die("not used"),
+	restore: (snapshot) =>
+		Effect.sync(() => {
+			restoredWorktreeCount += 1;
+			archivedWorktreeIds.delete(snapshot.id as string);
+			return snapshot.id === TEST_WORKTREE_ID
+				? testWorktree
+				: (createdWorktrees.get(snapshot.id as string) ?? testWorktree);
+		}),
 });
 
 // The first-message auto-namer may fire for chats with a worktree. Tests here
@@ -479,6 +496,8 @@ beforeEach(() => {
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
+	archivedWorktreeIds = new Set();
+	restoredWorktreeCount = 0;
 });
 
 describe("ConversationServices migrations", () => {
@@ -843,6 +862,83 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				status: "completed",
 				detail_json: expect.stringContaining("checkpoint-sha"),
 			});
+		});
+	});
+
+	it("restores the archived worktree without replacing other live chats", async () => {
+		await withRuntime(async (run) => {
+			const other = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Existing main chat",
+						initialPrompt: "Keep the main chat history",
+					}),
+				),
+			);
+			const archived = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						title: "Worktree chat",
+						worktreeId: TEST_WORKTREE_ID,
+						initialPrompt: "Keep the worktree chat history",
+					}),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(archived.chat.id),
+				),
+			);
+			const restored = await run(
+				Effect.flatMap(store, (service) =>
+					service.unarchiveChat(archived.chat.id),
+				),
+			);
+			const liveChats = await run(
+				Effect.flatMap(store, (service) =>
+					service.listChats(PROJECT_ID, false),
+				),
+			);
+			const liveSessions = await run(
+				Effect.flatMap(store, (service) =>
+					service.listSessions(PROJECT_ID, false),
+				),
+			);
+			const otherMessages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(other.initialSession.id),
+				),
+			);
+			const restoredMessages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(archived.initialSession.id),
+				),
+			);
+
+			expect(restoredWorktreeCount).toBe(1);
+			expect(restored.worktree?.id).toBe(TEST_WORKTREE_ID);
+			expect(restored.chat.worktreeId).toBe(TEST_WORKTREE_ID);
+			expect(restored.sessions.map((session) => session.worktreeId)).toEqual([
+				TEST_WORKTREE_ID,
+			]);
+			expect(liveChats.map((chat) => chat.id)).toEqual(
+				expect.arrayContaining([other.chat.id, archived.chat.id]),
+			);
+			expect(liveSessions.map((session) => session.id)).toEqual(
+				expect.arrayContaining([
+					other.initialSession.id,
+					archived.initialSession.id,
+				]),
+			);
+			expect(otherMessages).toHaveLength(1);
+			expect(restoredMessages).toHaveLength(1);
 		});
 	});
 

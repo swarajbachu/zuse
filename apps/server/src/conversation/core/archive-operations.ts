@@ -577,7 +577,10 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					if (existing !== null) {
 						restoredWorktree = existing;
 						restoredWorktreeId = existing.id;
-					} else if (chatRow.worktree_id === null) {
+					} else {
+						// The archived snapshot is authoritative. A stale worktree_id can
+						// outlive checkout removal when SQLite foreign-key cleanup has not
+						// run yet; skipping restore here silently routes the chat to main.
 						restoredWorktree = yield* worktrees
 							.restore({
 								id: WorktreeId.make(snapshot.id),

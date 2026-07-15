@@ -345,22 +345,6 @@ export function ProjectsSidebar() {
 
   const chatsByProject = useChatsStore((s) => s.chatsByProject);
   const hydrateChats = useChatsStore((s) => s.hydrate);
-  const archivedChatsByProject = useArchivePreviewStore(
-    (s) => s.chatsByProject,
-  );
-  const archivedLoadedByProject = useArchivePreviewStore(
-    (s) => s.loadedByProject,
-  );
-  const archivedLoadingByProject = useArchivePreviewStore(
-    (s) => s.loadingByProject,
-  );
-  const archivedFolderExpandedByProject = useArchivePreviewStore(
-    (s) => s.folderExpandedByProject,
-  );
-  const loadArchivedProject = useArchivePreviewStore((s) => s.loadProject);
-  const setArchivedFolderExpanded = useArchivePreviewStore(
-    (s) => s.setFolderExpanded,
-  );
 
   const [origins, setOrigins] = useState<Record<string, GitOriginInfo | null>>(
     {},
@@ -388,9 +372,6 @@ export function ProjectsSidebar() {
       if (!expanded[folder.id]) continue;
       if (!(folder.id in chatsByProject)) void hydrateChats(folder.id);
       if (!(folder.id in sessionsByProject)) void hydrateSessions(folder.id);
-      if (archivedLoadedByProject[folder.id] !== true) {
-        void loadArchivedProject(folder.id);
-      }
     }
   }, [
     expanded,
@@ -399,8 +380,6 @@ export function ProjectsSidebar() {
     sessionsByProject,
     hydrateChats,
     hydrateSessions,
-    archivedLoadedByProject,
-    loadArchivedProject,
   ]);
 
   // Eagerly hydrate the (lightweight) chat list for EVERY project, regardless
@@ -493,23 +472,9 @@ export function ProjectsSidebar() {
             origin={origins[folder.id] ?? null}
             isExpanded={expanded[folder.id] === true}
             chats={chatsByProject[folder.id] ?? []}
-            archivedChats={archivedChatsByProject[folder.id] ?? []}
-            archivedLoading={archivedLoadingByProject[folder.id] === true}
-            archivedFolderExpanded={
-              archivedFolderExpandedByProject[folder.id] === true
-            }
             projectSessions={sessionsByProject[folder.id] ?? []}
             onSelect={() => void select(folder.id)}
             onToggleExpanded={() => onToggleExpanded(folder.id)}
-            onExpand={() =>
-              setExpanded((prev) => ({ ...prev, [folder.id]: true }))
-            }
-            onToggleArchivedFolder={() =>
-              setArchivedFolderExpanded(
-                folder.id,
-                archivedFolderExpandedByProject[folder.id] !== true,
-              )
-            }
             onRemove={() => void remove(folder.id)}
           />
         ))}
@@ -622,14 +587,9 @@ function ProjectGroup({
   origin,
   isExpanded,
   chats,
-  archivedChats,
-  archivedLoading,
-  archivedFolderExpanded,
   projectSessions,
   onSelect,
   onToggleExpanded,
-  onExpand,
-  onToggleArchivedFolder,
   onRemove,
 }: {
   id: FolderId;
@@ -638,9 +598,6 @@ function ProjectGroup({
   origin: GitOriginInfo | null;
   isExpanded: boolean;
   chats: ReadonlyArray<Chat>;
-  archivedChats: ReadonlyArray<Chat>;
-  archivedLoading: boolean;
-  archivedFolderExpanded: boolean;
   projectSessions: ReadonlyArray<{
     readonly id: SessionId;
     readonly chatId: ChatId;
@@ -648,8 +605,6 @@ function ProjectGroup({
   }>;
   onSelect: () => void;
   onToggleExpanded: () => void;
-  onExpand: () => void;
-  onToggleArchivedFolder: () => void;
   onRemove: () => void;
 }) {
   const displayName = origin?.repo ?? name;
@@ -672,8 +627,7 @@ function ProjectGroup({
 
   const openArchives = () => {
     onSelect();
-    onExpand();
-    useArchivePreviewStore.getState().setFolderExpanded(id, true);
+    useArchivePreviewStore.getState().showList(id);
     setView("chat");
     setActiveMainTab("archives");
   };
@@ -825,7 +779,7 @@ function ProjectGroup({
 
       <li className="list-none" hidden={!isExpanded}>
         <ul ref={chatListRef} className="flex flex-col gap-0.5">
-          {visibleChats.length === 0 && archivedChats.length === 0 && (
+          {visibleChats.length === 0 && (
             <li className="px-12 py-1 text-[11px] text-muted-foreground">
               No chats yet.
             </li>
@@ -833,99 +787,9 @@ function ProjectGroup({
           {visibleChats.map((chat) => (
             <ChatRow key={chat.id} chat={chat} />
           ))}
-          {archivedChats.length > 0 ? (
-            <ArchivedChatFolder
-              projectId={id}
-              chats={archivedChats}
-              expanded={archivedFolderExpanded}
-              onToggle={onToggleArchivedFolder}
-              onSelectProject={onSelect}
-            />
-          ) : archivedLoading ? (
-            <li className="flex h-9 items-center gap-2 px-12 text-[11px] text-muted-foreground">
-              <Spinner className="size-3" />
-              Loading archived chats…
-            </li>
-          ) : null}
         </ul>
       </li>
     </Fragment>
-  );
-}
-
-function ArchivedChatFolder({
-  projectId,
-  chats,
-  expanded,
-  onToggle,
-  onSelectProject,
-}: {
-  projectId: FolderId;
-  chats: ReadonlyArray<Chat>;
-  expanded: boolean;
-  onToggle: () => void;
-  onSelectProject: () => void;
-}) {
-  const selectedChatId = useArchivePreviewStore(
-    (state) => state.selectedChatByProject[projectId] ?? null,
-  );
-  const activeMainTab = useUiStore((state) => state.activeMainTab);
-  const openChat = useArchivePreviewStore((state) => state.openChat);
-  const chevron = expanded ? ArrowDown01Icon : ArrowRight01Icon;
-
-  return (
-    <li className="list-none">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-xs text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
-      >
-        <HugeiconsIcon icon={chevron} className="ml-3 size-3.5 shrink-0" />
-        <HugeiconsIcon icon={ArchiveIcon} className="size-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-left tabular-nums">
-          Archived · {chats.length}
-        </span>
-      </button>
-      {expanded ? (
-        <ul className="flex flex-col gap-0.5">
-          {chats.map((chat) => {
-            const selected =
-              activeMainTab === "archives" && selectedChatId === chat.id;
-            return (
-              <li key={chat.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectProject();
-                    void openChat(chat);
-                  }}
-                  className={cn(
-                    "flex min-h-11 w-full items-center gap-2 rounded-md pl-12 pr-3 text-xs outline-none transition-colors duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none",
-                    selected
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-accent-foreground",
-                  )}
-                  aria-current={selected ? "page" : undefined}
-                  title={chat.title}
-                >
-                  <HugeiconsIcon
-                    icon={ArchiveIcon}
-                    className="size-3.5 shrink-0"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    {chat.title}
-                  </span>
-                  <span className="shrink-0 text-[10px] tabular-nums">
-                    {formatRelative(chat.archivedAt ?? chat.updatedAt)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </li>
   );
 }
 
