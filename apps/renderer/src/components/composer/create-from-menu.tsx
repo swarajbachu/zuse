@@ -18,9 +18,11 @@ import type {
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "~/components/ui/button.tsx";
 import { PopoverPrimitive } from "~/components/ui/popover";
 import { getRpcClient } from "~/lib/rpc-client.ts";
 import { cn } from "~/lib/utils";
+import { useUiStore } from "~/store/ui.ts";
 
 /**
  * What the "Create from…" picker hands back to the Chat Lander. PRs + branches
@@ -84,6 +86,8 @@ export interface CreateFromMenuProps {
  * chat against that PR/branch (checkout) or issue (attach + prefill).
  */
 export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
+  const setView = useUiStore((state) => state.setView);
+  const setSettingsSection = useUiStore((state) => state.setSettingsSection);
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("prs");
   const [query, setQuery] = useState("");
@@ -114,6 +118,12 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
   >(new Map());
 
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const openIntegrations = () => {
+    setOpen(false);
+    setSettingsSection({ kind: "integrations" });
+    setView("settings");
+  };
 
   useEffect(() => {
     setPrs(null);
@@ -446,8 +456,17 @@ export function CreateFromMenu({ folderId, onSelect }: CreateFromMenuProps) {
                   Loading…
                 </div>
               ) : tab === "linear" && (linearConnections?.length ?? 0) === 0 ? (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-                  Connect a Linear workspace in Settings → Integrations.
+                <div className="flex min-h-24 flex-col items-center justify-center gap-3 px-3 py-5 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Connect a workspace to start from Linear issues.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={openIntegrations}
+                  >
+                    Open integrations
+                  </Button>
                 </div>
               ) : tab === "linear" ? (
                 (linearIssues ?? []).length === 0 ? (
