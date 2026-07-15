@@ -5,6 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import { getRpcClient } from "~/lib/rpc-client.ts";
 import { Button } from "../ui/button.tsx";
 import { Card } from "../ui/card.tsx";
+import {
+	Frame,
+	FrameDescription,
+	FrameFooter,
+	FrameHeader,
+	FrameTitle,
+} from "../ui/frame.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 
 export function LinearIntegrationsPane() {
@@ -66,71 +73,88 @@ export function LinearIntegrationsPane() {
 			setBusy(null);
 		}
 	};
+	const hasConnections = connections !== null && connections.length > 0;
 
 	return (
-		<div className="flex flex-col gap-4">
-			<Card className="flex items-center justify-between gap-4 p-4">
-				<div className="min-w-0">
-					<h2 className="text-sm font-medium">Linear</h2>
-					<p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-						Select tickets when creating a chat. Ticket details, comments, and
-						images are copied into the session workspace.
+		<Frame>
+			<FrameHeader className="gap-1 px-4 py-3">
+				<FrameTitle>Linear</FrameTitle>
+				<FrameDescription>
+					Select tickets when creating a chat. Ticket details, comments, and
+					images are copied into the session workspace.
+				</FrameDescription>
+			</FrameHeader>
+
+			<Card className="mx-1 overflow-hidden rounded-md">
+				{error !== null && (
+					<p
+						role="alert"
+						className="border-b border-border/60 px-4 py-3 text-xs text-destructive"
+					>
+						{error}
 					</p>
-				</div>
-				<Button
-					type="button"
-					onClick={() => void connect()}
-					disabled={busy !== null}
-				>
-					{busy === "connect" && <Spinner className="mr-2 size-3.5" />}
-					Add workspace
-				</Button>
+				)}
+
+				{connections === null ? (
+					<div className="grid min-h-32 place-items-center">
+						<Spinner className="size-4 text-muted-foreground" />
+					</div>
+				) : connections.length === 0 ? (
+					<div className="flex min-h-36 flex-col items-center justify-center gap-3 p-6 text-center">
+						<p className="text-sm text-muted-foreground">
+							No Linear workspaces connected yet.
+						</p>
+						<Button
+							type="button"
+							onClick={() => void connect()}
+							disabled={busy !== null}
+							loading={busy === "connect"}
+						>
+							Connect workspace
+						</Button>
+					</div>
+				) : (
+					<div className="divide-y divide-border/60">
+						{connections.map((connection) => (
+							<div
+								key={connection.workspaceId}
+								className="flex items-center justify-between gap-4 p-4"
+							>
+								<div className="min-w-0">
+									<p className="truncate text-sm font-medium">
+										{connection.workspaceName}
+									</p>
+									<p className="truncate text-xs text-muted-foreground">
+										{connection.viewerName} · {connection.viewerEmail}
+									</p>
+								</div>
+								<Button
+									type="button"
+									variant="outline"
+									disabled={busy !== null}
+									loading={busy === connection.workspaceId}
+									onClick={() => void disconnect(connection)}
+								>
+									Disconnect
+								</Button>
+							</div>
+						))}
+					</div>
+				)}
 			</Card>
 
-			{error !== null && (
-				<p role="alert" className="text-xs text-destructive">
-					{error}
-				</p>
+			{hasConnections && (
+				<FrameFooter className="flex justify-end px-4 py-3">
+					<Button
+						type="button"
+						onClick={() => void connect()}
+						disabled={busy !== null}
+						loading={busy === "connect"}
+					>
+						Add workspace
+					</Button>
+				</FrameFooter>
 			)}
-
-			{connections === null ? (
-				<div className="grid min-h-24 place-items-center">
-					<Spinner className="size-4 text-muted-foreground" />
-				</div>
-			) : connections.length === 0 ? (
-				<p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-					No Linear workspaces connected yet.
-				</p>
-			) : (
-				<div className="flex flex-col gap-2">
-					{connections.map((connection) => (
-						<Card
-							key={connection.workspaceId}
-							className="flex items-center justify-between gap-4 p-4"
-						>
-							<div className="min-w-0">
-								<p className="truncate text-sm font-medium">
-									{connection.workspaceName}
-								</p>
-								<p className="truncate text-xs text-muted-foreground">
-									{connection.viewerName} · {connection.viewerEmail}
-								</p>
-							</div>
-							<Button
-								type="button"
-								variant="outline"
-								disabled={busy !== null}
-								onClick={() => void disconnect(connection)}
-							>
-								{busy === connection.workspaceId && (
-									<Spinner className="mr-2 size-3.5" />
-								)}
-								Disconnect
-							</Button>
-						</Card>
-					))}
-				</div>
-			)}
-		</div>
+		</Frame>
 	);
 }
