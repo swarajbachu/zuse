@@ -400,28 +400,28 @@ export const Composer = ({
 							</View>
 						</>
 					)}
-					{showInterrupt ? (
-						<Button
-							size="sm"
-							variant="secondary"
-							className="h-11 w-11 rounded-2xl px-0"
-							disabled={busy || !online}
-							onPress={interrupt}
-							accessibilityLabel="Stop response"
-						>
-							<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
-						</Button>
-					) : null}
 					<Button
 						size="sm"
-						variant={online ? "primary" : "secondary"}
+						variant={
+							showInterrupt ? "secondary" : online ? "primary" : "secondary"
+						}
 						className="h-11 w-11 rounded-2xl px-0"
-						disabled={!canSend}
-						onPress={submit}
-						accessibilityLabel={online ? "Send message" : "Queue message"}
+						disabled={showInterrupt ? busy || !online : !canSend}
+						onPress={showInterrupt ? interrupt : submit}
+						accessibilityLabel={
+							showInterrupt
+								? "Stop response"
+								: online
+									? "Send message"
+									: "Queue message"
+						}
 					>
 						{busy ? (
-							<ActivityIndicator color={colors.bg} />
+							<ActivityIndicator
+								color={showInterrupt ? colors.fg : colors.bg}
+							/>
+						) : showInterrupt ? (
+							<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
 						) : online ? (
 							<HugeIcon
 								icon={ArrowUp02Icon}
