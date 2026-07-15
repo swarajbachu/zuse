@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert01Icon,
   ArrowLeft01Icon,
+  ConnectIcon,
   Delete02Icon,
   DocumentAttachmentIcon,
   Folder01Icon,
@@ -113,7 +114,7 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
   {
     id: "integrations",
     label: "Integrations",
-    Icon: GlobeIcon,
+    Icon: ConnectIcon,
     section: { kind: "integrations" },
   },
   {
