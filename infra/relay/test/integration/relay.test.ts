@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
+	AccountIdentity,
 	ManagedTunnelProviderLive,
 	makeRelay,
 	PushDelivery,
@@ -64,6 +65,7 @@ let pushCalls: ReadonlyArray<{
 	readonly title?: string;
 	readonly target: string;
 }>[];
+let identityDeletes: string[];
 
 const makeLayer = async (
 	managedTunnel?: Config.ManagedTunnelConfig,
@@ -88,12 +90,22 @@ const makeLayer = async (
 			},
 		}),
 	);
+	const accountIdentityLayer = Layer.succeed(
+		AccountIdentity,
+		AccountIdentity.of({
+			deleteUser: (accountId) =>
+				Effect.sync(() => {
+					identityDeletes.push(accountId);
+				}),
+		}),
+	);
 	return Layer.mergeAll(
 		configLayer,
 		WorkosVerifierTest,
 		RelayStoreMemory,
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		pushLayer,
+		accountIdentityLayer,
 	);
 };
 
@@ -175,6 +187,7 @@ const mintAccess = async (
 
 beforeEach(async () => {
 	pushCalls = [];
+	identityDeletes = [];
 	relay = makeRelay(await makeLayer());
 });
 
@@ -245,6 +258,32 @@ describe("@zuse/relay", () => {
 			new Request(`${RELAY_ISSUER}/v1/environments`, { method: "GET" }),
 		);
 		expect(res.status).toBe(401);
+	});
+
+	test("deletes account-owned relay data and remains idempotent", async () => {
+		const { credential } = await linkEnvironment({
+			account: "user_delete",
+			environmentId: "env_delete",
+		});
+		const request = () =>
+			relay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/account`, {
+					method: "DELETE",
+					headers: { authorization: "Bearer test-token:user_delete" },
+				}),
+			);
+
+		expect((await request()).status).toBe(200);
+		expect((await request()).status).toBe(200);
+		expect(identityDeletes).toEqual(["user_delete", "user_delete"]);
+
+		const list = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				headers: { authorization: "Bearer test-token:user_delete" },
+			}),
+		);
+		expect((await list.json()).environments).toHaveLength(0);
+		expect((await heartbeat("env_delete", credential)).status).toBe(401);
 	});
 
 	test("scopes environments by account — cross-account access is denied", async () => {
@@ -572,7 +611,7 @@ describe("@zuse/relay managed tunnel", () => {
 			};
 			expect(body.connectorToken).toBe("connector-token-xyz");
 			expect(body.tunnelHostname).toBe(
-				"zenv-" + body.tunnelHostname!.split("-")[1],
+				`zenv-${body.tunnelHostname?.split("-")[1]}`,
 			);
 			expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
 

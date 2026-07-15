@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 
-import { CommandDispatcher } from "./command-dispatch.js";
-import type { ClientSession } from "./connection.js";
+import { CommandDispatcher } from "./command-dispatch";
+import type { ClientSession } from "./connection";
 
 export type ConnectionStatus =
 	| "offline"

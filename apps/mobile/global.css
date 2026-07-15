@@ -1,26 +1,56 @@
-@import 'tailwindcss';
-@import 'uniwind';
+@import "tailwindcss";
+@import "uniwind";
+
+:root {
+	--app-background: #ffffff;
+	--app-foreground: #171717;
+	--app-card: #f2f2f7;
+	--app-card-elevated: #ffffff;
+	--app-muted: #e5e5ea;
+	--app-muted-foreground: #6b6b70;
+	--app-border: rgba(60, 60, 67, 0.22);
+	--app-primary: #34c759;
+	--app-primary-foreground: #ffffff;
+	--app-danger: #d93f4c;
+	--app-warning: #c76f00;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--app-background: hsl(72 5% 6%);
+		--app-foreground: hsl(72 4% 92%);
+		--app-card: hsl(72 4% 13%);
+		--app-card-elevated: hsl(72 4% 16%);
+		--app-muted: hsl(72 4% 20%);
+		--app-muted-foreground: hsl(72 2% 64%);
+		--app-border: rgba(255, 255, 255, 0.1);
+		--app-primary: hsl(72 98% 54%);
+		--app-primary-foreground: hsl(72 5% 6%);
+		--app-danger: hsl(2 86% 64%);
+		--app-warning: hsl(42 93% 56%);
+	}
+}
 
 @theme {
-  --color-background: hsl(72 5% 6%);
-  --color-foreground: hsl(72 4% 92%);
-  --color-card: hsl(72 4% 13%);
-  --color-card-elevated: hsl(72 4% 16%);
-  --color-muted: hsl(72 4% 20%);
-  --color-muted-foreground: hsl(72 2% 64%);
-  --color-border: rgba(255, 255, 255, 0.1);
-  --color-primary: hsl(72 98% 54%);
-  --color-primary-foreground: hsl(72 5% 6%);
-  --color-danger: hsl(2 86% 64%);
-  --color-warning: hsl(42 93% 56%);
+  --color-background: var(--app-background);
+  --color-foreground: var(--app-foreground);
+  --color-card: var(--app-card);
+  --color-card-elevated: var(--app-card-elevated);
+  --color-muted: var(--app-muted);
+  --color-muted-foreground: var(--app-muted-foreground);
+  --color-border: var(--app-border);
+  --color-primary: var(--app-primary);
+  --color-primary-foreground: var(--app-primary-foreground);
+  --color-danger: var(--app-danger);
+  --color-warning: var(--app-warning);
   /* Live-presence tones, shared by the pulsing dot (bg-presence-*). The halo
      reuses the same tone at a lower, animated opacity. */
   --color-presence-online: hsl(72 98% 54%);
   --color-presence-offline: hsl(72 2% 64%);
   --color-presence-checking: hsl(42 93% 56%);
   --color-presence-error: hsl(2 86% 64%);
-  --font-sans: 'Inter_400Regular';
-  --font-sans-medium: 'Inter_600SemiBold';
-  --font-sans-bold: 'Inter_700Bold';
+  --font-sans: 'System';
+  --font-sans-medium: 'System';
+  --font-sans-bold: 'System';
   --font-mono: 'GeistMono_400Regular';
 }

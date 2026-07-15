@@ -14,6 +14,7 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
 		"secret": "wrangler secret put RELAY_MINT_PRIVATE_JWK",
+		"secret:workos": "wrangler secret put WORKOS_API_KEY",
 		"secret:cf": "wrangler secret put CF_API_TOKEN",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy"

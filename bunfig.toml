@@ -1,0 +1,5 @@
+[install]
+# Native mobile packages must resolve to one physical installation. Bun's
+# isolated linker can materialize peer-context copies that CocoaPods sees as
+# duplicate native modules in a workspace.
+linker = "hoisted"
