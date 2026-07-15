@@ -36,12 +36,6 @@ interface Todo {
   readonly status: TodoStatus;
 }
 
-export interface ProjectPlanSummary {
-  readonly title: string;
-  readonly done: number;
-  readonly total: number;
-}
-
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
 const asString = (v: unknown): string | undefined =>
@@ -122,7 +116,10 @@ const parseTaskCreated = (
 ): { id: string; subject: string } | null => {
   const m = outputToString(output).match(/Task #(\d+) created[^:]*:\s*(.+)/i);
   if (m === null) return null;
-  return { id: m[1]!, subject: m[2]!.trim() };
+  const id = m[1];
+  const subject = m[2];
+  if (id === undefined || subject === undefined) return null;
+  return { id, subject: subject.trim() };
 };
 
 const parseTaskUpdate = (
@@ -322,27 +319,6 @@ export function ProjectPlanTray({ sessionId }: { sessionId: SessionId }) {
   );
 }
 
-/** Compact read model shared by the environment summary and Plan dock. */
-export function useProjectPlanSummary(
-  sessionId: SessionId | null,
-): ProjectPlanSummary | null {
-  const messages = useMessagesStore((s) =>
-    sessionId === null
-      ? EMPTY_MESSAGES
-      : (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
-  );
-  return useMemo(() => {
-    const todos = projectPlanFromMessages(messages);
-    if (todos.length === 0) return null;
-    const active = activeHeaderTodo(todos);
-    return {
-      title: active?.text ?? "Project plan",
-      done: todos.filter((todo) => todo.status === TODO_STATUS.completed).length,
-      total: todos.length,
-    };
-  }, [messages]);
-}
-
 function TodoStatusIcon({ status }: { status: TodoStatus }) {
   if (status === TODO_STATUS.completed) {
     return (
@@ -359,6 +335,7 @@ function TodoStatusIcon({ status }: { status: TodoStatus }) {
   }
   return (
     <span
+      role="img"
       className="size-3 rounded-full border border-dashed border-muted-foreground/50"
       aria-label="Pending"
     />

@@ -2727,6 +2727,93 @@ describe("ConversationServices — fork & transcript export", () => {
 		});
 	});
 
+	it("latestPlan returns a native ExitPlanMode plan", async () => {
+		await withRuntime(async (run) => {
+			const chat = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "plan it",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.importExternalMessages(chat.initialSession.id, [
+						{
+							_tag: "tool_use",
+							itemId: "plan-tool" as never,
+							tool: "ExitPlanMode",
+							input: { plan: "# Native plan" },
+						},
+					]),
+				),
+			);
+			const plan = await run(
+				Effect.flatMap(store, (s) => s.latestPlan(chat.initialSession.id)),
+			);
+			expect(plan).toBe("# Native plan");
+		});
+	});
+
+	it("latestPlan returns tagged assistant Markdown", async () => {
+		await withRuntime(async (run) => {
+			const chat = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.5",
+						initialPrompt: "plan it",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.importExternalMessages(chat.initialSession.id, [
+						{
+							_tag: "assistant",
+							text: "<proposed_plan>\n# Codex plan\n</proposed_plan>",
+						},
+					]),
+				),
+			);
+			const plan = await run(
+				Effect.flatMap(store, (s) => s.latestPlan(chat.initialSession.id)),
+			);
+			expect(plan).toBe("# Codex plan");
+		});
+	});
+
+	it("latestPlan recognizes an older unmarked Codex plan awaiting feedback", async () => {
+		await withRuntime(async (run) => {
+			const chat = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.5",
+						initialPrompt: "plan it",
+						permissionMode: "plan",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.importExternalMessages(chat.initialSession.id, [
+						{ _tag: "assistant", text: "# Existing Codex plan" },
+					]),
+				),
+			);
+			const plan = await run(
+				Effect.flatMap(store, (s) => s.latestPlan(chat.initialSession.id)),
+			);
+			expect(plan).toBe("# Existing Codex plan");
+		});
+	});
+
 	it("forks to a brand-new sidebar chat", async () => {
 		await withRuntime(async (run) => {
 			const chat = await run(

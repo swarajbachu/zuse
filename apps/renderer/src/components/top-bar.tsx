@@ -365,7 +365,7 @@ export function TopBarMain() {
       {hasSession ? (
         <OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
       ) : null}
-      {isFullScreen && hasSession ? (
+      {hasSession ? (
         <Tooltip>
           <TooltipTrigger
             render={

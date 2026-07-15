@@ -2,6 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckListIcon } from "@hugeicons-pro/core-bulk-rounded";
 
 import type { SessionId } from "@zuse/contracts";
+import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
 
 import {
   attachFileWhenReady,
@@ -13,8 +14,7 @@ import { useSessionsStore } from "../../store/sessions.ts";
 import { toastManager } from "../ui/toast.tsx";
 import { TrayPill } from "./tray-pill.tsx";
 
-export const EMULATED_PLAN_APPROVAL_PROMPT =
-  "Implement the proposed plan now. Make the code changes.";
+export const EMULATED_PLAN_APPROVAL_PROMPT = PLAN_APPROVAL_PROMPT;
 
 /**
  * Pinned "Review plan" bar docked above the composer. The proposed plan still

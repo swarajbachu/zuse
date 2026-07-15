@@ -6,6 +6,7 @@ import {
 	type Session,
 	SessionStartError,
 } from "@zuse/contracts";
+import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type {
@@ -94,26 +95,27 @@ export const makeTranscriptOperations = (
 
 	const latestPlan: ConversationOperations["latestPlan"] = (sessionId) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
+			const session = yield* lookupSession(sessionId);
 			const rows = yield* sql<MessageRow>`
 				SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
 				FROM messages
-				WHERE session_id = ${sessionId} AND kind = 'tool_use'
+				WHERE session_id = ${sessionId} AND kind IN ('tool_use', 'assistant')
 				ORDER BY created_at DESC, sequence DESC
 			`.pipe(Effect.orDie);
 			for (const row of rows) {
 				const content = messageFromRow(row).content;
-				if (content._tag !== "tool_use" || content.tool !== "ExitPlanMode") {
-					continue;
-				}
-				const input = content.input;
+				const markdown = proposedPlanMarkdownFromContent(content);
+				if (markdown !== null) return markdown;
+				// Compatibility for plan items persisted before providers preserved
+				// their semantic marker. Codex remains in plan mode while the final
+				// plan awaits feedback, and its newest assistant row is that plan.
 				if (
-					typeof input === "object" &&
-					input !== null &&
-					"plan" in input &&
-					typeof (input as { plan?: unknown }).plan === "string"
+					session.providerId === "codex" &&
+					session.permissionMode === "plan" &&
+					content._tag === "assistant" &&
+					content.text.trim().length > 0
 				) {
-					return (input as { plan: string }).plan;
+					return content.text.trim();
 				}
 			}
 			return null;

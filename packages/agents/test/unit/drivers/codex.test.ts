@@ -4,6 +4,7 @@ import {
 	buildCodexTurnMode,
 	codexApprovalPolicy,
 	codexDetachedAgentFromSubAgentActivity,
+	codexDetachedAgentFromRawSpawn,
 	codexDetachedAgentToolUse,
 	codexFinishDetachedAgent,
 	codexReasoningEffort,
@@ -115,7 +116,51 @@ describe("Codex subAgentActivity items", () => {
 	});
 });
 
+describe("Codex raw collaboration calls", () => {
+	it("creates a detached agent from the captured spawn call and output", () => {
+		const agent = codexDetachedAgentFromRawSpawn(
+			"call_qxjx50XLFx5PllZaUN24C6Sd",
+			JSON.stringify({
+				agent_type: "default",
+				message: "Reply with hi and hello",
+			}),
+			JSON.stringify({
+				agent_id: "019f66b9-6fe8-7002-a0ae-b1d823574628",
+				nickname: "Raman",
+			}),
+			100,
+		);
+
+		expect(agent).toMatchObject({
+			parentItemId: "call_qxjx50XLFx5PllZaUN24C6Sd",
+			childSessionId: "019f66b9-6fe8-7002-a0ae-b1d823574628",
+			agentName: "Raman",
+			prompt: "Reply with hi and hello",
+			model: "inherit",
+			startedAt: 100,
+		});
+	});
+
+	it("ignores malformed spawn outputs", () => {
+		expect(
+			codexDetachedAgentFromRawSpawn("call_1", "{}", "not json"),
+		).toBeNull();
+	});
+});
+
 describe("translateCodexItem", () => {
+	it("preserves dedicated plan items as marked assistant messages", () => {
+		const item: ThreadItem = {
+			type: "plan",
+			id: "plan1",
+			text: "# Proposed plan",
+		};
+
+		const event = only(translateCodexItem(item, "completed"), "AssistantMessage");
+		expect(event.text).toBe("# Proposed plan");
+		expect(event.isPlan).toBe(true);
+	});
+
 	it("maps a parsed read command to the canonical Read row", () => {
 		const item: ThreadItem = {
 			type: "commandExecution",

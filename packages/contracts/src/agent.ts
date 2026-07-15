@@ -361,6 +361,8 @@ const CapabilitiesEvent = Schema.TaggedStruct("Capabilities", {
 const AssistantMessageEvent = Schema.TaggedStruct("AssistantMessage", {
   itemId: AgentItemId,
   text: Schema.String,
+  /** True when the provider emitted a dedicated final plan item. */
+  isPlan: Schema.optional(Schema.Boolean),
   // `parentItemId` is set when this message originated inside a sub-agent —
   // the value is the parent's `Agent` tool_use itemId so the renderer can
   // group nested rows under one collapsible wrapper. Absent for top-level.

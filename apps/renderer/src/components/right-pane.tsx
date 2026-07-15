@@ -1,26 +1,28 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  CheckListIcon,
   ComputerTerminal01Icon,
   Folder01Icon,
   GitBranchIcon,
   GitCompareIcon,
-  CheckListIcon,
   GlobeIcon,
-  Robot01Icon,
+  MagicWand01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
-import type { FolderId, WorktreeId } from "@zuse/contracts";
+import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
+import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
-import { useSessionsStore } from "../store/sessions.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
+import { useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useSessionsStore } from "../store/sessions.ts";
 import {
   EMPTY_TERMINALS,
   terminalsKey,
@@ -38,9 +40,9 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { BrowserPane } from "./browser-pane.tsx";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
+import { MarkdownBody } from "./markdown-body.tsx";
 import { PrPane } from "./pr-pane.tsx";
 import { SubagentsPane } from "./subagents-pane.tsx";
-import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { TerminalSlotPane } from "./terminal-pane.tsx";
 import {
   Menu,
@@ -73,19 +75,31 @@ const PANEL_META: Record<
   pr: { label: "PR", icon: GitPullRequestIcon },
   plan: { label: "Plan", icon: CheckListIcon },
   browser: { label: "Browser", icon: GlobeIcon },
-  subagents: { label: "Subagents", icon: Robot01Icon },
+  subagents: { label: "Subagents", icon: MagicWand01Icon },
 };
 
-/** Display order shared by the launcher and the "+" menu. */
-const PANEL_ORDER: ReadonlyArray<PanelKind> = [
+/** Primary surfaces shown in the empty launcher and standard add menu. */
+const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
   "files",
-  "terminal",
-  "changes",
   "pr",
-  "plan",
+  "changes",
+  "terminal",
   "browser",
-  "subagents",
 ];
+
+const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
+
+const latestAssistantText = (
+  messages: ReadonlyArray<Message>,
+): string | null => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index]?.content;
+    if (content?._tag !== "assistant") continue;
+    const text = content.text.trim();
+    return text.length > 0 ? text : null;
+  }
+  return null;
+};
 
 /**
  * Kinds the user can still add: every kind, minus singletons that are
@@ -97,7 +111,9 @@ function addableKinds(
   const openSingletons = new Set(
     panels.filter((p) => SINGLETON_PANEL_KINDS.has(p.kind)).map((p) => p.kind),
   );
-  return PANEL_ORDER.filter((k) => k === "terminal" || !openSingletons.has(k));
+  return PRIMARY_PANEL_ORDER.filter(
+    (k) => k === "terminal" || !openSingletons.has(k),
+  );
 }
 
 /**
@@ -136,6 +152,33 @@ export function RightPane() {
   // Dock layout + terminals are scoped to the selected sidebar chat, so each
   // chat keeps its own open tabs and running shells.
   const chatId = useChatsStore((s) => s.selectedChatId);
+  const sessionId = useSessionsStore((s) => s.selectedSessionId);
+  const session = useSessionsStore((s) => {
+    if (sessionId === null) return null;
+    for (const list of Object.values(s.sessionsByProject)) {
+      const match = list.find((candidate) => candidate.id === sessionId);
+      if (match !== undefined) return match;
+    }
+    return null;
+  });
+  const messages = useMessagesStore((s) =>
+    sessionId === null
+      ? EMPTY_MESSAGES
+      : (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
+  );
+  const isRunning = useMessagesStore((s) =>
+    sessionId === null ? false : s.runningBySession[sessionId] === true,
+  );
+  const planMarkdown = useMemo(
+    () =>
+      latestProposedPlanMarkdown(messages) ??
+      (session?.providerId === "codex" &&
+      session.permissionMode === "plan" &&
+      !isRunning
+        ? latestAssistantText(messages)
+        : null),
+    [isRunning, messages, session?.permissionMode, session?.providerId],
+  );
   // Terminal tab titles are sourced from the chat's terminal list (slot →
   // instance) so multiple terminal tabs read "zsh", "zsh 2".
   const termList = useTerminalsStore((s) =>
@@ -160,10 +203,17 @@ export function RightPane() {
 
   // Defensive: if the stored active id ever points at a closed panel, fall
   // back to the first one so exactly one panel body is visible.
+  // A plan panel belongs to the selected session's final output. Keep its
+  // persisted layout slot, but do not expose an empty tab while another
+  // session in the same chat has no proposed plan.
+  const visiblePanels =
+    planMarkdown === null
+      ? panels.filter((panel) => panel.kind !== "plan")
+      : panels;
   const effectiveActiveId =
-    activeId !== null && panels.some((p) => p.id === activeId)
+    activeId !== null && visiblePanels.some((p) => p.id === activeId)
       ? activeId
-      : (panels[0]?.id ?? null);
+      : (visiblePanels[0]?.id ?? null);
 
   // Closing a terminal tab also drops (and kills) its backing PTY instance
   // for the chat (the store action is layout-only — it can't know the chat
@@ -205,8 +255,15 @@ export function RightPane() {
     );
   }
 
-  const activePanel = panels.find((p) => p.id === effectiveActiveId) ?? null;
+  const activePanel =
+    visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
   const browserActive = activePanel?.kind === "browser";
+  const addPanelMenu = (
+    <AddPanelMenu
+      addable={addableKinds(panels)}
+      onAdd={addPanel}
+    />
+  );
 
   return (
     <aside
@@ -215,12 +272,12 @@ export function RightPane() {
       tabIndex={-1}
       className="flex h-full min-h-0 w-full flex-col outline-none"
     >
-      {panels.length > 0 ? (
+      {visiblePanels.length > 0 ? (
         <div
           ref={dockTabsRef}
           className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1 text-xs"
         >
-          {panels.map((panel) => (
+          {visiblePanels.map((panel) => (
             <PanelTab
               key={panel.id}
               active={panel.id === effectiveActiveId}
@@ -231,15 +288,19 @@ export function RightPane() {
               onClose={() => handleClose(panel)}
             />
           ))}
-          <AddPanelMenu addable={addableKinds(panels)} onAdd={addPanel} />
+          {addPanelMenu}
         </div>
       ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {panels.length === 0 ? (
-          <PanelLauncher addable={addableKinds(panels)} onAdd={addPanel} />
+        {visiblePanels.length === 0 ? (
+          <PanelLauncher
+            actions={addPanelMenu}
+            addable={addableKinds(panels)}
+            onAdd={addPanel}
+          />
         ) : null}
         {/* Non-browser panels: mount on add, kept mounted while open. */}
-        {panels
+        {visiblePanels
           .filter((panel) => panel.kind !== "browser")
           .map((panel) => (
             <div
@@ -251,7 +312,8 @@ export function RightPane() {
                 panel={panel}
                 folderId={selected.id}
                 worktreeId={worktreeId}
-                sessionId={ctx.status === "ready" ? ctx.sessionId : null}
+                sessionId={sessionId}
+                planMarkdown={planMarkdown}
               />
             </div>
           ))}
@@ -276,11 +338,13 @@ function PanelBody({
   folderId,
   worktreeId,
   sessionId,
+  planMarkdown,
 }: {
   panel: PanelInstance;
   folderId: FolderId;
   worktreeId: WorktreeId | null;
   sessionId: import("@zuse/contracts").SessionId | null;
+  planMarkdown: string | null;
 }) {
   switch (panel.kind) {
     case "files":
@@ -299,7 +363,7 @@ function PanelBody({
     case "pr":
       return <PrPane folderId={folderId} worktreeId={worktreeId} />;
     case "plan":
-      return <PlanPane />;
+      return <PlanPane markdown={planMarkdown} />;
     case "browser":
       // Browser is rendered once, always-mounted, by RightPane (so the agent
       // command stream survives close/collapse) — never via this map.
@@ -309,12 +373,11 @@ function PanelBody({
   }
 }
 
-function PlanPane() {
-  const sessionId = useSessionsStore((s) => s.selectedSessionId);
-  if (sessionId === null) return null;
+function PlanPane({ markdown }: { readonly markdown: string | null }) {
+  if (markdown === null) return null;
   return (
-    <div className="p-3">
-      <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <MarkdownBody className="mx-auto max-w-3xl">{markdown}</MarkdownBody>
     </div>
   );
 }
@@ -325,14 +388,17 @@ function PlanPane() {
  * no panels have been added yet.
  */
 function PanelLauncher({
+  actions,
   addable,
   onAdd,
 }: {
+  actions: React.ReactNode;
   addable: ReadonlyArray<PanelKind>;
   onAdd: (kind: PanelKind) => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-3">
+    <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center px-3">
+      <div className="absolute right-3 top-3">{actions}</div>
       <div className="flex w-full max-w-md flex-col gap-1.5">
         {addable.map((kind) => {
           const meta = PANEL_META[kind];
@@ -385,23 +451,28 @@ function AddPanelMenu({
         />
         <TooltipPopup>Add panel</TooltipPopup>
       </Tooltip>
-      <MenuPopup align="end" className="min-w-44 p-1">
-        {addable.map((kind) => {
-          const meta = PANEL_META[kind];
-          return (
-            <MenuItem
-              key={kind}
-              onClick={() => onAdd(kind)}
-              className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
-            >
-              <HugeiconsIcon icon={meta.icon} className="size-3.5 opacity-80" />
-              <span className="min-w-0 flex-1 truncate">{meta.label}</span>
-              {meta.shortcut !== undefined && meta.shortcut !== "" ? (
-                <MenuShortcut>{meta.shortcut}</MenuShortcut>
-              ) : null}
-            </MenuItem>
-          );
-        })}
+      <MenuPopup align="end" className="w-72 p-1">
+        {addable.length > 0
+          ? addable.map((kind) => {
+              const meta = PANEL_META[kind];
+              return (
+                <MenuItem
+                  key={kind}
+                  onClick={() => onAdd(kind)}
+                  className="flex w-full items-center gap-2.5 rounded px-2 py-1.5 text-sm hover:bg-sidebar-accent"
+                >
+                  <HugeiconsIcon
+                    icon={meta.icon}
+                    className="size-3.5 opacity-80"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{meta.label}</span>
+                  {meta.shortcut !== undefined && meta.shortcut !== "" ? (
+                    <MenuShortcut>{meta.shortcut}</MenuShortcut>
+                  ) : null}
+                </MenuItem>
+              );
+            })
+          : null}
       </MenuPopup>
     </Menu>
   );

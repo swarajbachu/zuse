@@ -1022,7 +1022,9 @@ export function ChatComposer({
                   />
                 ) : null}
                 <ContextTray sessionId={sessionId} />
-                <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+                {!inPlanMode ? (
+                  <ProjectPlanTray key={sessionId} sessionId={sessionId} />
+                ) : null}
                 <QueueTray sessionId={sessionId} />
               </div>
             ) : null}

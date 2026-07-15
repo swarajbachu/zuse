@@ -198,6 +198,8 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 
 const AssistantContent = Schema.TaggedStruct("assistant", {
   text: Schema.String,
+  /** Preserves a provider's dedicated final-plan item through persistence. */
+  isPlan: Schema.optional(Schema.Boolean),
   parentItemId: Schema.optional(AgentItemId),
 });
 

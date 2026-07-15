@@ -37,6 +37,7 @@
 		"@legendapp/list": "3.2.0",
 		"@lezer/highlight": "^1.2.0",
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"@pierre/diffs": "^1.1.22",
 		"@xterm/addon-fit": "^0.10.0",
 		"@xterm/addon-webgl": "^0.18.0",

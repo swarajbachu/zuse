@@ -21,6 +21,25 @@ export type RenderGroup =
       } | null;
     };
 
+export type DetachedSubagentGroup = Extract<
+  RenderGroup,
+  { readonly kind: "subagent" }
+> & {
+  readonly childSessionId: string;
+};
+
+/** Detached subagents in transcript order, shared by the pane and shortcuts. */
+export const detachedSubagentGroups = (
+  messages: ReadonlyArray<Message>,
+): DetachedSubagentGroup[] =>
+  groupMessages(messages).flatMap((group) =>
+    group.kind === "subagent" &&
+    group.presentation === "detached" &&
+    group.childSessionId !== undefined
+      ? [{ ...group, childSessionId: group.childSessionId }]
+      : [],
+  );
+
 export const isAgentToolUse = (m: Message): boolean =>
   (() => {
     if (
