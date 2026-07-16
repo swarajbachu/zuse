@@ -28,6 +28,20 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 - When making UI or UX decisions, explicitly use the `emil-design-engineering` skill. It helps keep the product fast, accessible, consistent, and polished.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues; external pull requests are not a triage request surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the standard `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This monorepo uses a multi-context domain-documentation layout. See `docs/agents/domain.md`.
+
 ## Workspace Boundaries
 
 - `apps/desktop` owns the Electron shell and native desktop integration; `apps/renderer` owns the desktop UI; `apps/server` owns backend composition, transports, persistence wiring, sessions, and IPC.
