@@ -159,6 +159,7 @@ export const makeProviderSessionRuntime = (
 					session.cursor,
 					() => state.runtimeMode(session.id),
 					orchestrationTools,
+					session.providerEventCursor ?? null,
 				)
 				.pipe(
 					Effect.mapError((error) =>

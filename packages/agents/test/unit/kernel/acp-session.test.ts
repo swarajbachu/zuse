@@ -31,6 +31,38 @@ describe("ACP session acquisition", () => {
 		});
 	});
 
+	it("passes the committed provider event cursor through session/load", async () => {
+		const request = vi.fn(async () => ({ sessionId: "provider-cursor" }));
+		await createAcpSession({
+			...baseOptions,
+			request,
+			resumeCursor: "provider-cursor",
+			providerEventCursor: "provider-cursor-41",
+		});
+		expect(request).toHaveBeenCalledWith("session/load", {
+			sessionId: "provider-cursor",
+			cwd: "/tmp/project",
+			mcpServers: [],
+			_meta: { cursor: "provider-cursor-41" },
+		});
+	});
+
+	it("does not silently downgrade MCP transport when no fallback is configured", async () => {
+		const request = vi.fn(async () => {
+			throw new Error("native HTTP MCP rejected");
+		});
+		await expect(
+			createAcpSession({
+				cwd: "/tmp/project",
+				sessionId: "session-1",
+				providerLabel: "Provider",
+				httpServers: [{ type: "http" }],
+				request,
+			}),
+		).rejects.toThrow("native HTTP MCP rejected");
+		expect(request).toHaveBeenCalledOnce();
+	});
+
 	it("creates a replacement session when the saved cursor is unavailable", async () => {
 		const request = vi.fn(async (method: string) => {
 			if (method === "session/load") throw new Error("cursor expired");
@@ -43,6 +75,8 @@ describe("ACP session acquisition", () => {
 				...baseOptions,
 				request,
 				resumeCursor: "expired",
+				shouldReplaceMissingSession: (cause) =>
+					cause instanceof Error && cause.message === "cursor expired",
 			}),
 		).resolves.toEqual({ sessionId: "replacement", resumed: false });
 		expect(request.mock.calls.map(([method]) => method)).toEqual([

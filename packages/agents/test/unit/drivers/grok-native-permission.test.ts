@@ -34,6 +34,9 @@ describe("Grok native ACP permission handling", () => {
 		expect(isGrokNativePermissionMethod("tool/requestApproval")).toBe(true);
 		expect(isGrokNativePermissionMethod("tool/canUseTool")).toBe(true);
 		expect(isGrokNativePermissionMethod("fs/read_file")).toBe(false);
+		expect(isGrokNativePermissionMethod("_x.ai/request_approval_magic")).toBe(
+			false,
+		);
 	});
 
 	it("auto-approves native shell permissions in full-access without prompting", async () => {
@@ -93,6 +96,24 @@ describe("Grok native ACP permission handling", () => {
 			outcome: "denied",
 			approved: false,
 			allowed: false,
+		});
+	});
+
+	it("selects an offered ACP permission option by ID", async () => {
+		const result = await handleGrokNativePermissionRequest(
+			"session/request_permission",
+			{
+				toolCall: { title: "Run command", rawInput: { command: "pwd" } },
+				options: [
+					{ optionId: "yes-once", kind: "allow_once" },
+					{ optionId: "no-once", kind: "reject_once" },
+				],
+			},
+			makeCtx({ runtimeMode: "full-access" }),
+		);
+
+		expect(result).toEqual({
+			outcome: { outcome: "selected", optionId: "yes-once" },
 		});
 	});
 

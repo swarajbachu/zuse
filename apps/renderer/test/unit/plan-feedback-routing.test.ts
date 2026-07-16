@@ -52,7 +52,7 @@ describe("plan feedback routing", () => {
 	it("treats Claude as native and every other provider as emulated", () => {
 		expect(providerUsesEmulatedPlanMode("claude")).toBe(false);
 		expect(providerUsesEmulatedPlanMode("codex")).toBe(true);
-		expect(providerUsesEmulatedPlanMode("grok")).toBe(true);
+		expect(providerUsesEmulatedPlanMode("grok")).toBe(false);
 		expect(providerUsesEmulatedPlanMode("gemini")).toBe(true);
 		expect(providerUsesEmulatedPlanMode("cursor")).toBe(true);
 	});

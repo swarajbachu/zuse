@@ -122,12 +122,17 @@ export const makeConversationGoalOperations = (
 			Effect.gen(function* () {
 				const session = yield* ensureSession(sessionId);
 				const goal = yield* setWithLiveProvider(session, goalInput);
-				yield* options.state.publish(sessionId, goal);
+				// Grok acknowledges the command before publishing its authoritative
+				// goal_updated notification. Keep the stream notification-driven so an
+				// accepted command cannot be mistaken for a provider state transition.
+				if (session.providerId !== "grok") {
+					yield* options.state.publish(sessionId, goal);
+				}
 				return goal;
 			}),
 		clearGoal: (sessionId) =>
 			Effect.gen(function* () {
-				yield* ensureSession(sessionId);
+				const session = yield* ensureSession(sessionId);
 				yield* options.provider
 					.clearGoal(sessionId)
 					.pipe(
@@ -136,7 +141,9 @@ export const makeConversationGoalOperations = (
 							sessionNotFound(sessionId),
 						),
 					);
-				yield* options.state.publish(sessionId, null);
+				if (session.providerId !== "grok") {
+					yield* options.state.publish(sessionId, null);
+				}
 			}),
 		streamGoal: (sessionId) =>
 			Stream.unwrap(

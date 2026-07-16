@@ -44,6 +44,11 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		cursor: string,
 		strategy: ResumeStrategy,
+		providerEventCursor?: string,
+	) => Effect.Effect<void>;
+	readonly releaseProviderEventCursor?: (
+		sessionId: SessionId,
+		cursor: string,
 	) => Effect.Effect<void>;
 	readonly setPermissionMode: (
 		sessionId: SessionId,
@@ -138,12 +143,17 @@ export const makeConversationEventRuntime = Effect.fn(
 				if (existing !== undefined) yield* Fiber.interrupt(existing.fiber);
 				const providerId = yield* options.providerId(sessionId);
 				const token = {};
+				let pendingProviderEventCursor: string | undefined;
 				const ready = yield* Deferred.make<void>();
 				const fiber = yield* Effect.forkIn(
 					Deferred.await(ready).pipe(
 						Effect.andThen(
 							Stream.runForEach(options.events(sessionId), (event) =>
 								Effect.gen(function* () {
+									if (event._tag === "ProviderNotificationMetadata") {
+										pendingProviderEventCursor = event.eventId;
+										return;
+									}
 									if (event._tag === "Status") {
 										if (
 											event.status === "running" ||
@@ -184,7 +194,13 @@ export const makeConversationEventRuntime = Effect.fn(
 											sessionId,
 											event.cursor,
 											event.strategy,
+											event.providerEventCursor,
 										);
+										if (
+											event.providerEventCursor !== undefined &&
+											event.providerEventCursor === pendingProviderEventCursor
+										)
+											pendingProviderEventCursor = undefined;
 										return;
 									}
 									if (event._tag === "PermissionModeChanged") {
@@ -248,6 +264,14 @@ export const makeConversationEventRuntime = Effect.fn(
 						),
 						Effect.catchCause((cause) =>
 							Effect.gen(function* () {
+								if (pendingProviderEventCursor !== undefined) {
+									yield* (
+										options.releaseProviderEventCursor?.(
+											sessionId,
+											pendingProviderEventCursor,
+										) ?? Effect.void
+									).pipe(Effect.catch(() => Effect.void));
+								}
 								yield* Effect.logDebug(
 									"[ConversationEvents] event stream ended",
 								);

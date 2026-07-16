@@ -12,6 +12,7 @@ import {
 	Session,
 	SessionAlreadyStartedError,
 	SessionId,
+	SessionNotFoundError,
 	SessionStartError,
 	type WorktreeId,
 } from "@zuse/contracts";
@@ -493,6 +494,50 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				.pipe(Effect.catch(() => Effect.void));
 		});
 
+	const respondToPlan: ConversationOperations["respondToPlan"] = (
+		sessionId,
+		toolCallId,
+		outcome,
+		feedback,
+	) =>
+		Effect.gen(function* () {
+			yield* lookupSession(sessionId);
+			const respond = provider.respondToPlan;
+			if (respond === undefined) {
+				return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+			}
+			yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
+				Effect.catchTag("AgentSessionNotFoundError", () =>
+					Effect.fail(new SessionNotFoundError({ sessionId })),
+				),
+			);
+			const persisted = yield* persistMessage(sessionId, {
+				_tag: "tool_result",
+				itemId: toolCallId,
+				output: {
+					outcome,
+					...(feedback === undefined ? {} : { feedback }),
+				},
+				isError: false,
+			});
+			yield* ndjsonAppend(sessionId, persisted);
+		});
+
+	const updateMcpServers: ConversationOperations["updateMcpServers"] = (
+		sessionId,
+		servers,
+	) =>
+		Effect.gen(function* () {
+			yield* lookupSession(sessionId);
+			const update = provider.updateMcpServers;
+			if (update === undefined) return;
+			yield* update(sessionId, servers).pipe(
+				Effect.catchTag("AgentSessionNotFoundError", () =>
+					Effect.fail(new SessionNotFoundError({ sessionId })),
+				),
+			);
+		});
+
 	const ensureSessionNotStarted = (sessionId: SessionId) =>
 		sql<{ readonly id: string }>`
       SELECT id FROM messages
@@ -623,6 +668,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		setRuntimeMode,
 		setPermissionMode,
 		answerQuestion,
+		respondToPlan,
+		updateMcpServers,
 		setWorktree,
 		setModel,
 		setProvider,

@@ -7,15 +7,11 @@ import type {
 } from "@zuse/contracts";
 
 /**
- * Whether a provider drives plan mode through the transcript-shape heuristic
- * rather than a native `ExitPlanMode` permission request. Claude is the only
- * provider whose driver emits a real `ExitPlanMode` permission; every other
- * provider (Codex / Grok / Gemini / Cursor / opencode) emulates plan mode via
- * a developer-instructions prefix, so we infer "plan is ready" from the
- * transcript instead.
+ * Whether a provider still drives plan mode through the transcript-shape
+ * heuristic. Native plan interactions are authoritative for Claude and Grok.
  */
 export const providerUsesEmulatedPlanMode = (providerId: ProviderId): boolean =>
-  providerId !== "claude";
+	providerId !== "claude" && providerId !== "grok";
 
 export const isPlanApprovalRequest = (
   req: PermissionRequest,

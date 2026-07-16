@@ -25,6 +25,7 @@ import type {
 	MessageId,
 	MessageOrigin,
 	PermissionMode,
+	PlanApprovalOutcome,
 	ProviderId,
 	QueuedMessage,
 	QueueState,
@@ -233,6 +234,18 @@ export interface ConversationOperations {
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly respondToPlan: (
+		sessionId: SessionId,
+		toolCallId: AgentItemId,
+		outcome: PlanApprovalOutcome,
+		feedback?: string,
+	) => Effect.Effect<void, SessionNotFoundError>;
+
+	readonly updateMcpServers: (
+		sessionId: SessionId,
+		servers: ReadonlyArray<unknown>,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
 	/**
@@ -507,6 +520,8 @@ export type SessionServiceShape = Pick<
 	| "setRuntimeMode"
 	| "setPermissionMode"
 	| "answerQuestion"
+	| "respondToPlan"
+	| "updateMcpServers"
 	| "setWorktree"
 	| "archiveSession"
 	| "unarchiveSession"

@@ -5,8 +5,6 @@ import {
 	isRedundantShellDescription,
 } from "@zuse/contracts";
 
-import { isIgnorableGrokAuthNoise } from "./grok-auth-noise.ts";
-
 /**
  * Shared translator for Agent Client Protocol (ACP) `session/update` frames.
  * Lifted out of grok.ts / gemini.ts / cursor.ts which each carried a near-
@@ -885,6 +883,10 @@ const extractErrorDetail = (u: Record<string, unknown>): string | null => {
 	for (const f of fields) {
 		const v = u[f];
 		if (typeof v === "string" && v.length > 0) return v;
+		if (v !== null && typeof v === "object") {
+			const nested = (v as Record<string, unknown>).message;
+			if (typeof nested === "string" && nested.length > 0) return nested;
+		}
 	}
 	return null;
 };
@@ -1740,10 +1742,6 @@ export const createAcpTranslator = (
 										? `${providerLabel} agent reported an error with no detail.`
 										: `${providerLabel} agent error: ${serialized}`;
 								})();
-					if (provider === "grok" && isIgnorableGrokAuthNoise(message)) {
-						trace(provider, `ignored auth noise: ${safePreview(message)}`);
-						return [];
-					}
 					return [{ _tag: "Error", message }];
 				}
 

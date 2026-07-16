@@ -7,6 +7,7 @@ import {
 	deriveLatestAdvisory,
 	grokAuthTestHelpers,
 	MIN_CODEX_CLI_VERSION,
+	MIN_GROK_CLI_VERSION,
 	parseCliVersion,
 	resolveCodexCapabilities,
 	selectCliPathCandidate,
@@ -70,6 +71,21 @@ describe("compareCliVersion", () => {
 	it("detects an older-than-minimum codex CLI", () => {
 		const old = parseCliVersion("codex-cli 0.27.0")!;
 		expect(compareCliVersion(old, MIN_CODEX_CLI_VERSION)).toBeLessThan(0);
+	});
+
+	it("enforces the native ACP floor for Grok", () => {
+		expect(
+			compareCliVersion(
+				parseCliVersion("grok 0.2.100 (abc)")!,
+				MIN_GROK_CLI_VERSION,
+			),
+		).toBeLessThan(0);
+		expect(
+			compareCliVersion(
+				parseCliVersion("grok 0.2.101 (abc)")!,
+				MIN_GROK_CLI_VERSION,
+			),
+		).toBe(0);
 	});
 });
 

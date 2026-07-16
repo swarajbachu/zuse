@@ -36,6 +36,7 @@ interface SessionRow {
 	readonly provider_id: string;
 	readonly model: string;
 	readonly cursor: string | null;
+	readonly provider_event_cursor?: string | null;
 	readonly resume_strategy: string;
 	readonly runtime_mode: string;
 	readonly agents_json: string | null;
@@ -61,6 +62,7 @@ interface MessageRow {
 }
 
 export type SqlSessionReadRecord = SessionReadRecord & {
+	readonly providerEventCursor: string | null;
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly title: string;
 	readonly providerId: string;
@@ -97,6 +99,7 @@ const sessionRecord = Effect.fn("SqlSessionQueries.sessionRecord")(function* (
 		providerId: row.provider_id,
 		model: row.model,
 		cursor: row.cursor,
+		providerEventCursor: row.provider_event_cursor ?? null,
 		resumeStrategy: row.resume_strategy,
 		runtimeMode: row.runtime_mode,
 		agentsJson: row.agents_json,
@@ -132,13 +135,6 @@ const messageRecord = Effect.fn("SqlSessionQueries.messageRecord")(function* (
 	} satisfies MessageReadRecord;
 });
 
-const SESSION_COLUMNS = `
-	id, chat_id, project_id, title, status, provider_id, model, cursor,
-	resume_strategy, runtime_mode, agents_json, worktree_id,
-	forked_from_session_id, forked_from_message_id, permission_mode,
-	tool_search, archived_at, created_at, updated_at
-`;
-
 export interface SqlSessionQueriesApi {
 	readonly list: (
 		input: SessionListInput,
@@ -162,7 +158,7 @@ export const makeSqlSessionQueries = (
 ): SqlSessionQueriesApi => {
 	const get = Effect.fn("SqlSessionQueries.get")(function* (sessionId: string) {
 		const rows = yield* sql.unsafe<SessionRow>(
-			`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ? LIMIT 1`,
+			"SELECT * FROM sessions WHERE id = ? LIMIT 1",
 			[sessionId],
 		);
 		const row = rows[0];
@@ -189,7 +185,7 @@ export const makeSqlSessionQueries = (
 	) {
 		const archived = input.includeArchived === true;
 		const rows = yield* sql.unsafe<SessionRow>(
-			`SELECT ${SESSION_COLUMNS} FROM sessions
+			`SELECT * FROM sessions
 			 WHERE project_id = ? AND (? = 1 OR archived_at IS NULL)
 			 ORDER BY updated_at DESC, id ASC`,
 			[input.projectId, archived ? 1 : 0],

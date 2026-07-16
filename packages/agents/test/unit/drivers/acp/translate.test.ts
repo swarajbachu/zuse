@@ -736,13 +736,13 @@ describe("createAcpTranslator — per-provider quirks & errors", () => {
 		).toEqual([]);
 	});
 
-	it("ignores transient Grok auth-noise error frames", () => {
+	it("surfaces structured provider auth failures instead of suppressing them", () => {
 		expect(
 			translateAcpSessionUpdate(
 				{ sessionUpdate: "error", message: "Auth(AuthorizationRequired)" },
 				"grok",
 			),
-		).toEqual([]);
+		).toEqual([{ _tag: "Error", message: "Auth(AuthorizationRequired)" }]);
 	});
 
 	it("surfaces a real error frame as an Error event", () => {

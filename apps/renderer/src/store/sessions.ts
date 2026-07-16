@@ -6,6 +6,7 @@ import type {
   ForkMode,
   MessageId,
   PermissionMode,
+	PlanApprovalOutcome,
   ProviderId,
   RuntimeMode,
   SessionId,
@@ -134,6 +135,12 @@ type SessionsState = {
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
   ) => Promise<void>;
+	readonly respondToPlan: (
+		sessionId: SessionId,
+		toolCallId: AgentItemId,
+		outcome: PlanApprovalOutcome,
+		feedback?: string,
+	) => Promise<boolean>;
   /**
    * Switch the session's provider and model. Allowed only before the first
    * user message — server returns `SessionAlreadyStartedError` otherwise,
@@ -477,6 +484,23 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       set({ error: formatError(err) });
     }
   },
+	respondToPlan: async (sessionId, toolCallId, outcome, feedback) => {
+		try {
+			const client = await getRpcClient();
+			await Effect.runPromise(
+				client["session.plan.respond"]({
+					sessionId,
+					toolCallId,
+					outcome,
+					...(feedback === undefined ? {} : { feedback }),
+				}),
+			);
+			return true;
+		} catch (error) {
+			set({ error: formatError(error) });
+			return false;
+		}
+	},
   setProvider: async (sessionId, providerId, model) => {
     const draft = get().draftSession;
     if (draft !== null && draft.id === sessionId) {
