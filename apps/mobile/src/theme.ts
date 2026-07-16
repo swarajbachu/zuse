@@ -70,6 +70,10 @@ export const colors = {
 	diffAdded: "#269a3b",
 	diffRemoved: "#d93f4c",
 	diffHunk: "#a63aa5",
+	// Filled add/remove row backgrounds (like the web diff). Low-alpha tints read
+	// correctly over both light and dark surfaces.
+	diffAddedBg: "rgba(38,154,59,0.14)",
+	diffRemovedBg: "rgba(217,63,76,0.14)",
 } as const;
 
 export const spacing = {

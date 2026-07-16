@@ -11,7 +11,8 @@
 		"test": "vitest run test",
 		"test:unit": "vitest run test/unit",
 		"test:integration": "vitest run test/integration --passWithNoTests",
-		"android": "expo run:android"
+		"android": "expo run:android",
+		"gen:file-icons": "node scripts/gen-file-icons.mjs"
 	},
 	"expo": {
 		"install": {
@@ -81,6 +82,7 @@
 		"babel-preset-expo": "~57.0.0",
 		"eslint": "catalog:",
 		"eslint-config-expo": "~57.0.0",
+		"material-icon-theme": "^5.30.0",
 		"typescript": "catalog:",
 		"vitest": "catalog:"
 	}

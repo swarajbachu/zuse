@@ -7,7 +7,14 @@ import {
 import type { Message } from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
 import { router } from "expo-router";
-import { ChevronDown, ChevronRight, Copy, Share2 } from "lucide-react-native";
+import {
+	ChevronDown,
+	ChevronRight,
+	Copy,
+	MessageSquare,
+	Share2,
+	Wrench,
+} from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
 
@@ -57,6 +64,15 @@ export function TurnRow({
 		)
 		.join("\n\n");
 
+	const toolCount = turn.body.filter(
+		(message) => message.content._tag === "tool_use",
+	).length;
+	const messageCount = turn.body.filter(
+		(message) =>
+			message.content._tag === "thinking" ||
+			message.content._tag === "assistant",
+	).length;
+
 	const fileTargets = useMemo(() => {
 		const byPath = new Map<string, { file: FileChange; itemId: string }>();
 		for (const message of turn.body) {
@@ -83,66 +99,87 @@ export function TurnRow({
 		return [...byPath.values()];
 	}, [turn.body]);
 
+	// A completed turn with tool activity AND a final answer collapses like the
+	// desktop: a summary header on top (tool/message counts), the activity hidden
+	// behind it, and the final assistant text always visible below. Anything else
+	// (the live/streaming turn, a plain answer, or a turn still mid-flight)
+	// renders every row inline in order.
+	const showSummary = !live && toolCount > 0 && assistantText.length > 0;
+
+	if (!showSummary) {
+		return (
+			<View className="gap-1 py-1">
+				{turn.user === null ? null : (
+					<MessageRow message={turn.user} ctx={context} />
+				)}
+				{turn.body.map((message, index) => (
+					<MessageRow
+						key={message.id}
+						message={message}
+						ctx={context}
+						isLast={live && index === turn.body.length - 1}
+					/>
+				))}
+			</View>
+		);
+	}
+
 	return (
 		<View className="gap-1 py-1">
 			{turn.user === null ? null : (
 				<MessageRow message={turn.user} ctx={context} />
 			)}
-			{live
-				? turn.body.map((message, index) => (
-						<MessageRow
-							key={message.id}
-							message={message}
-							ctx={context}
-							isLast={index === turn.body.length - 1}
-						/>
-					))
-				: null}
-			{live
-				? null
-				: narrative.map((message) => (
-						<MessageRow key={message.id} message={message} ctx={context} />
-					))}
-			{live
-				? null
-				: utility.map((message) => (
-						<MessageRow key={message.id} message={message} ctx={context} />
-					))}
 
-			{!live && activityMessages.length > 0 ? (
-				<View className="px-2 pt-1">
-					<Pressable
-						accessibilityRole="button"
-						accessibilityState={{ expanded: activityOpen }}
-						onPress={() => setActivityOpen((open) => !open)}
-						className="min-h-11 flex-row items-center gap-2 py-2 active:opacity-60"
-					>
-						<Text className="font-sans text-[15px] text-muted-foreground">
-							{durationLabel(turn.durationMs)}
-						</Text>
-						{activity.agents > 0 ? (
-							<Text className="font-sans text-[13px] text-muted-foreground">
-								· {activity.agents} {activity.agents === 1 ? "agent" : "agents"}
-							</Text>
-						) : null}
-						<View className="flex-1" />
-						{activityOpen ? (
-							<ChevronDown size={16} color={colors.secondaryFg} />
-						) : (
-							<ChevronRight size={16} color={colors.secondaryFg} />
-						)}
-					</Pressable>
+			<View className="px-2 pt-1">
+				<Pressable
+					accessibilityRole="button"
+					accessibilityState={{ expanded: activityOpen }}
+					onPress={() => setActivityOpen((open) => !open)}
+					className="min-h-11 flex-row items-center gap-3 py-2 active:opacity-60"
+				>
 					{activityOpen ? (
-						<View className="border-t border-border pt-1">
-							{activityMessages.map((message) => (
-								<MessageRow key={message.id} message={message} ctx={context} />
-							))}
+						<ChevronDown size={16} color={colors.secondaryFg} />
+					) : (
+						<ChevronRight size={16} color={colors.secondaryFg} />
+					)}
+					<View className="flex-row items-center gap-1.5">
+						<Wrench size={13} color={colors.secondaryFg} />
+						<Text
+							className="font-sans text-[13px] text-muted-foreground"
+							style={{ fontVariant: ["tabular-nums"] }}
+						>
+							{toolCount} {toolCount === 1 ? "tool call" : "tool calls"}
+						</Text>
+					</View>
+					{messageCount > 0 ? (
+						<View className="flex-row items-center gap-1.5">
+							<MessageSquare size={13} color={colors.secondaryFg} />
+							<Text
+								className="font-sans text-[13px] text-muted-foreground"
+								style={{ fontVariant: ["tabular-nums"] }}
+							>
+								{messageCount}
+							</Text>
 						</View>
 					) : null}
-				</View>
-			) : null}
+				</Pressable>
+				{activityOpen ? (
+					<View className="border-t border-border pt-1">
+						{activityMessages.map((message) => (
+							<MessageRow key={message.id} message={message} ctx={context} />
+						))}
+					</View>
+				) : null}
+			</View>
 
-			{!live && fileTargets.length > 0 ? (
+			{utility.map((message) => (
+				<MessageRow key={message.id} message={message} ctx={context} />
+			))}
+			{narrative.map((message) => (
+				<MessageRow key={message.id} message={message} ctx={context} />
+			))}
+
+			{fileTargets.length > 0 ? (
 				<View className="px-2 pt-1">
 					<Pressable
 						accessibilityRole="button"
@@ -214,28 +251,30 @@ export function TurnRow({
 				</View>
 			) : null}
 
-			{!live && assistantText.length > 0 ? (
-				<View className="flex-row gap-1 px-2 pt-1">
-					<Pressable
-						accessibilityRole="button"
-						accessibilityLabel="Copy response"
-						hitSlop={8}
-						className="h-11 w-11 items-center justify-center active:opacity-60"
-						onPress={() => Clipboard.setStringAsync(assistantText)}
-					>
-						<Copy size={17} color={colors.secondaryFg} />
-					</Pressable>
-					<Pressable
-						accessibilityRole="button"
-						accessibilityLabel="Share response"
-						hitSlop={8}
-						className="h-11 w-11 items-center justify-center active:opacity-60"
-						onPress={() => Share.share({ message: assistantText })}
-					>
-						<Share2 size={17} color={colors.secondaryFg} />
-					</Pressable>
-				</View>
-			) : null}
+			<View className="flex-row items-center gap-1 px-2 pt-1">
+				<Text className="font-sans text-[12px] text-muted-foreground">
+					{durationLabel(turn.durationMs)}
+				</Text>
+				<View className="flex-1" />
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Copy response"
+					hitSlop={8}
+					className="h-11 w-11 items-center justify-center active:opacity-60"
+					onPress={() => Clipboard.setStringAsync(assistantText)}
+				>
+					<Copy size={17} color={colors.secondaryFg} />
+				</Pressable>
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Share response"
+					hitSlop={8}
+					className="h-11 w-11 items-center justify-center active:opacity-60"
+					onPress={() => Share.share({ message: assistantText })}
+				>
+					<Share2 size={17} color={colors.secondaryFg} />
+				</Pressable>
+			</View>
 		</View>
 	);
 }

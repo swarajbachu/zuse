@@ -24,6 +24,7 @@ import {
 } from "lucide-react-native";
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
+import { FileIcon } from "~/components/ui/file-icon";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
 import { captureMobileError } from "~/lib/crash-reporting";
@@ -37,10 +38,7 @@ import {
 } from "~/lib/tool-presentation";
 import { colors } from "~/theme";
 import { Markdown } from "./markdown";
-import {
-	PendingUserInputCard,
-	type QuestionAnswer,
-} from "./pending-user-input-card";
+import type { QuestionAnswer } from "./pending-user-input-card";
 
 /** Extra context the stream provides so question rows can render statefully. */
 export type MessageRowContext = {
@@ -160,15 +158,12 @@ const MessageRowContent = ({
 		case "context_usage":
 			return null;
 		case "user_question":
+			// A pending question is answered from the composer slot (see the
+			// thread screen), so it renders nowhere in the transcript until it's
+			// answered — then it collapses into scrollback. Matches the web app.
 			return ctx.answeredQuestionIds.has(content.itemId) ? (
 				<AnsweredQuestion questions={content.questions} />
-			) : (
-				<PendingUserInputCard
-					itemId={content.itemId}
-					questions={content.questions}
-					onSubmit={ctx.onAnswerQuestion}
-				/>
-			);
+			) : null;
 		case "user_question_answer":
 			return (
 				<AnswerBubble
@@ -384,7 +379,7 @@ const ToolUseRow = ({
 							style={{ borderCurve: "continuous" }}
 						>
 							<View className="flex-row items-center gap-2">
-								<FilePenLine size={14} color={colors.accent} />
+								<FileIcon path={summary.path} size={16} />
 								<Text
 									className="min-w-0 flex-1 font-mono text-xs text-foreground"
 									numberOfLines={1}

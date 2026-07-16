@@ -1,5 +1,9 @@
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
-import type { SessionId, UserQuestion } from "@zuse/contracts";
+import type {
+	PermissionRequest,
+	SessionId,
+	UserQuestion,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
@@ -30,10 +34,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Composer } from "~/components/composer";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
+import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
 import { TurnRow } from "~/components/messages/turn-row";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { GlassSurface } from "~/components/ui/glass-surface";
-import { ShimmerText } from "~/components/ui/shimmer-text";
+import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { isFreshChat } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -137,12 +142,7 @@ function ThreadScreen() {
 		useSessionsStore((state) => state.statusBySession[stateKey]) ??
 		detail?.session.status;
 	const fresh = isFreshChat(messages);
-	const lastMessageTag = messages[messages.length - 1]?.content._tag;
-	// Show a "Working" shimmer only before the first tool/assistant row streams
-	// in — i.e. the last thing on screen is still the user's message.
-	const showWorking =
-		sessionStatus === "running" &&
-		(lastMessageTag === "user" || lastMessageTag === "user_rich");
+	const sessionRunning = sessionStatus === "running";
 
 	const hydratePermissions = usePermissionsStore((state) => state.hydrate);
 	const decidePermission = usePermissionsStore((state) => state.decide);
@@ -269,6 +269,42 @@ function ThreadScreen() {
 		return null;
 	})();
 
+	// Bottom-slot precedence (matches web): a permission or an unanswered
+	// question fully replaces the composer; plan review replaces it only when
+	// neither is pending. Permission outranks question because the agent is
+	// already mid-tool-call. ExitPlanMode is split out from real permissions.
+	const planRequest =
+		pending.find(
+			(request) =>
+				request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode",
+		) ?? null;
+	const permissionRequests = pending.filter(
+		(request) =>
+			!(request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode"),
+	);
+	const headPermission = permissionRequests[0] ?? null;
+	const pendingQuestion = useMemo(() => {
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const content = messages[index]?.content;
+			if (
+				content?._tag === "user_question" &&
+				!answeredQuestionIds.has(content.itemId)
+			) {
+				return { itemId: content.itemId, questions: content.questions };
+			}
+		}
+		return null;
+	}, [messages, answeredQuestionIds]);
+
+	// The live "working" row shows the whole time the agent runs, but not while a
+	// prompt takeover (permission / question / plan) owns the bottom slot.
+	const workingActive =
+		sessionRunning &&
+		headPermission === null &&
+		pendingQuestion === null &&
+		planRequest === null;
+	const workingSince = turns.at(-1)?.startedAt.getTime() ?? Date.now();
+
 	const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
 		(itemId, answers) =>
 			options === null
@@ -375,6 +411,103 @@ function ThreadScreen() {
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	}, [archiveChat, chatId, connKey, options]);
 
+	// One bottom accessory for both real permission prompts and plan review
+	// (`withPlan`). Rendered in the composer's slot — it replaces the composer.
+	const renderPromptAccessory = (
+		requests: readonly PermissionRequest[],
+		withPlan: boolean,
+	) =>
+		options === null ? null : (
+			<LivePermissionAccessory
+				requests={requests}
+				bottomInset={insets.bottom}
+				onDecide={(request, decision) =>
+					decidePermission(
+						connKey,
+						options,
+						normalizedSessionId,
+						request.id,
+						decision,
+					)
+				}
+				onDenyWithMessage={async (request, message) => {
+					await decidePermission(
+						connKey,
+						options,
+						normalizedSessionId,
+						request.id,
+						{ _tag: "Deny" },
+					);
+					// Queue the typed guidance as the next user message (the Deny wire
+					// decision carries no text of its own).
+					await Effect.runPromise(
+						queueMessage({
+							connection: options,
+							sessionId: normalizedSessionId,
+							input: makeTextInput(message),
+						}),
+					).catch(() => {});
+					await Effect.runPromise(
+						flushServerQueue({
+							connection: options,
+							sessionId: normalizedSessionId,
+						}),
+					).catch(() => {});
+				}}
+				planText={withPlan ? pendingPlan?.plan : undefined}
+				onOpenPlan={
+					withPlan && pendingPlan !== null
+						? () =>
+								router.push({
+									pathname: "/plan-viewer",
+									params: {
+										conn: connKey,
+										sessionId: normalizedSessionId,
+										itemId: pendingPlan.itemId,
+									},
+								})
+						: undefined
+				}
+				onHandoffPlan={
+					withPlan
+						? async (request) => {
+								if (
+									pendingPlan === null ||
+									detail?.chat === undefined ||
+									detail.session.model.trim().length === 0
+								) {
+									throw new Error("This plan cannot be handed off yet.");
+								}
+								const session = await createSession(connKey, options, {
+									chatId: detail.chat.id,
+									providerId: detail.session.providerId,
+									model: detail.session.model,
+									runtimeMode: detail.session.runtimeMode,
+									permissionMode: "default",
+									initialPrompt: `Implement this approved plan.\n\n${pendingPlan.plan}`,
+								});
+								try {
+									await decidePermission(
+										connKey,
+										options,
+										normalizedSessionId,
+										request.id,
+										{ _tag: "Deny" },
+									);
+								} catch (cause) {
+									await archiveSession(connKey, options, session.id);
+									throw cause;
+								}
+								router.replace({
+									pathname: "/c/[conn]/session/[sessionId]",
+									params: { conn: connKey, sessionId: session.id },
+								});
+							}
+						: undefined
+				}
+			/>
+		);
+
 	return (
 		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
 			<Stack.Screen
@@ -469,15 +602,9 @@ function ThreadScreen() {
 					) : null
 				}
 				ListFooterComponent={
-					showWorking || queued.length > 0 ? (
+					workingActive || queued.length > 0 ? (
 						<View className="pt-1">
-							{showWorking ? (
-								<View className="px-2 py-1.5">
-									<ShimmerText className="font-sans text-[13px] text-muted-foreground">
-										Working
-									</ShimmerText>
-								</View>
-							) : null}
+							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 							{queued.map((item) => (
 								<QueuedBubble
 									key={item.clientId}
@@ -524,93 +651,22 @@ function ThreadScreen() {
 					</Pressable>
 				</Animated.View>
 			) : null}
-			{options === null || pending.length === 0 ? null : (
-				<LivePermissionAccessory
-					requests={pending}
-					bottomInset={0}
-					onDecide={(request, decision) =>
-						decidePermission(
-							connKey,
-							options,
-							normalizedSessionId,
-							request.id,
-							decision,
-						)
-					}
-					onDenyWithMessage={async (request, message) => {
-						await decidePermission(
-							connKey,
-							options,
-							normalizedSessionId,
-							request.id,
-							{ _tag: "Deny" },
-						);
-						// Queue the typed guidance as the next user message (the Deny wire
-						// decision carries no text of its own).
-						await Effect.runPromise(
-							queueMessage({
-								connection: options,
-								sessionId: normalizedSessionId,
-								input: makeTextInput(message),
-							}),
-						).catch(() => {});
-						await Effect.runPromise(
-							flushServerQueue({
-								connection: options,
-								sessionId: normalizedSessionId,
-							}),
-						).catch(() => {});
-					}}
-					planText={pendingPlan?.plan}
-					onOpenPlan={
-						pendingPlan === null
-							? undefined
-							: () =>
-									router.push({
-										pathname: "/plan-viewer",
-										params: {
-											conn: connKey,
-											sessionId: normalizedSessionId,
-											itemId: pendingPlan.itemId,
-										},
-									})
-					}
-					onHandoffPlan={async (request) => {
-						if (
-							pendingPlan === null ||
-							detail?.chat === undefined ||
-							detail.session.model.trim().length === 0
-						) {
-							throw new Error("This plan cannot be handed off yet.");
-						}
-						const session = await createSession(connKey, options, {
-							chatId: detail.chat.id,
-							providerId: detail.session.providerId,
-							model: detail.session.model,
-							runtimeMode: detail.session.runtimeMode,
-							permissionMode: "default",
-							initialPrompt: `Implement this approved plan.\n\n${pendingPlan.plan}`,
-						});
-						try {
-							await decidePermission(
-								connKey,
-								options,
-								normalizedSessionId,
-								request.id,
-								{ _tag: "Deny" },
-							);
-						} catch (cause) {
-							await archiveSession(connKey, options, session.id);
-							throw cause;
-						}
-						router.replace({
-							pathname: "/c/[conn]/session/[sessionId]",
-							params: { conn: connKey, sessionId: session.id },
-						});
-					}}
-				/>
-			)}
-			{options === null ? null : (
+			{options === null ? null : headPermission !== null ? (
+				renderPromptAccessory(permissionRequests, false)
+			) : pendingQuestion !== null ? (
+				<View
+					className="px-3 pt-2"
+					style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
+				>
+					<PendingUserInputCard
+						itemId={pendingQuestion.itemId}
+						questions={pendingQuestion.questions}
+						onSubmit={onAnswerQuestion}
+					/>
+				</View>
+			) : planRequest !== null ? (
+				renderPromptAccessory([planRequest], true)
+			) : (
 				<Composer
 					connKey={connKey}
 					connection={options}
