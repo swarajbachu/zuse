@@ -6,22 +6,25 @@ import { Data } from "effect";
  * boundary should emit; `code` is the machine-readable body `{ error: code }`.
  */
 export class RelayError extends Data.TaggedError("RelayError")<{
-  readonly code: string;
-  readonly status: number;
-  readonly detail?: string;
+	readonly code: string;
+	readonly status: number;
+	readonly detail?: string;
 }> {}
 
 export const unauthorized = (code: string, detail?: string): RelayError =>
-  new RelayError({ code, status: 401, detail });
+	new RelayError({ code, status: 401, detail });
 
 export const forbidden = (code: string, detail?: string): RelayError =>
-  new RelayError({ code, status: 403, detail });
+	new RelayError({ code, status: 403, detail });
 
 export const notFound = (code = "not_found", detail?: string): RelayError =>
-  new RelayError({ code, status: 404, detail });
+	new RelayError({ code, status: 404, detail });
 
 export const badRequest = (code: string, detail?: string): RelayError =>
-  new RelayError({ code, status: 400, detail });
+	new RelayError({ code, status: 400, detail });
 
 export const gone = (code: string, detail?: string): RelayError =>
-  new RelayError({ code, status: 410, detail });
+	new RelayError({ code, status: 410, detail });
+
+export const serviceUnavailable = (code: string, detail?: string): RelayError =>
+	new RelayError({ code, status: 503, detail });

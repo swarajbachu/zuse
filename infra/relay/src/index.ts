@@ -1,14 +1,15 @@
-import { Layer, ManagedRuntime } from "effect";
+import { type Layer, ManagedRuntime } from "effect";
 
 import { handleRequest, type RelayContext } from "./handler.ts";
 
+export * from "./account-identity.ts";
+export { RELAY_SCOPES } from "./auth.ts";
 export * from "./config.ts";
 export * from "./errors.ts";
 export * from "./managed-tunnel.ts";
 export * from "./push.ts";
 export * from "./store.ts";
 export * from "./workos.ts";
-export { RELAY_SCOPES } from "./auth.ts";
 
 /**
  * Build a `fetch`-style handler bound to a relay layer graph. The layer must
@@ -18,14 +19,14 @@ export { RELAY_SCOPES } from "./auth.ts";
  * Postgres store + live WorkOS verifier (see worker.ts).
  */
 export const makeRelay = (
-  layer: Layer.Layer<RelayContext>,
+	layer: Layer.Layer<RelayContext>,
 ): {
-  readonly fetch: (request: Request) => Promise<Response>;
-  readonly dispose: () => Promise<void>;
+	readonly fetch: (request: Request) => Promise<Response>;
+	readonly dispose: () => Promise<void>;
 } => {
-  const runtime = ManagedRuntime.make(layer);
-  return {
-    fetch: (request) => runtime.runPromise(handleRequest(request)),
-    dispose: () => runtime.dispose(),
-  };
+	const runtime = ManagedRuntime.make(layer);
+	return {
+		fetch: (request) => runtime.runPromise(handleRequest(request)),
+		dispose: () => runtime.dispose(),
+	};
 };

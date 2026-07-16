@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
 import {
+	AccountIdentity,
 	ManagedTunnelProviderLive,
 	makeRelay,
 	PushDelivery,
@@ -64,6 +65,7 @@ let pushCalls: ReadonlyArray<{
 	readonly title?: string;
 	readonly target: string;
 }>[];
+let identityDeletes: string[];
 
 const makeLayer = async (
 	managedTunnel?: Config.ManagedTunnelConfig,
@@ -88,12 +90,22 @@ const makeLayer = async (
 			},
 		}),
 	);
+	const accountIdentityLayer = Layer.succeed(
+		AccountIdentity,
+		AccountIdentity.of({
+			deleteUser: (accountId) =>
+				Effect.sync(() => {
+					identityDeletes.push(accountId);
+				}),
+		}),
+	);
 	return Layer.mergeAll(
 		configLayer,
 		WorkosVerifierTest,
 		RelayStoreMemory,
 		ManagedTunnelProviderLive.pipe(Layer.provide(configLayer)),
 		pushLayer,
+		accountIdentityLayer,
 	);
 };
 
@@ -175,6 +187,7 @@ const mintAccess = async (
 
 beforeEach(async () => {
 	pushCalls = [];
+	identityDeletes = [];
 	relay = makeRelay(await makeLayer());
 });
 
@@ -245,6 +258,32 @@ describe("@zuse/relay", () => {
 			new Request(`${RELAY_ISSUER}/v1/environments`, { method: "GET" }),
 		);
 		expect(res.status).toBe(401);
+	});
+
+	test("deletes account-owned relay data and remains idempotent", async () => {
+		const { credential } = await linkEnvironment({
+			account: "user_delete",
+			environmentId: "env_delete",
+		});
+		const request = () =>
+			relay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/account`, {
+					method: "DELETE",
+					headers: { authorization: "Bearer test-token:user_delete" },
+				}),
+			);
+
+		expect((await request()).status).toBe(200);
+		expect((await request()).status).toBe(200);
+		expect(identityDeletes).toEqual(["user_delete", "user_delete"]);
+
+		const list = await relay.fetch(
+			new Request(`${RELAY_ISSUER}/v1/environments`, {
+				headers: { authorization: "Bearer test-token:user_delete" },
+			}),
+		);
+		expect((await list.json()).environments).toHaveLength(0);
+		expect((await heartbeat("env_delete", credential)).status).toBe(401);
 	});
 
 	test("scopes environments by account — cross-account access is denied", async () => {
@@ -478,7 +517,7 @@ const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
  * expects and records every call so deprovision can be asserted.
  */
 const stubCloudflare = () => {
-	const calls: Array<{ method: string; path: string }> = [];
+	const calls: Array<{ method: string; path: string; body?: unknown }> = [];
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = (async (
 		input: Request | string | URL,
@@ -487,7 +526,11 @@ const stubCloudflare = () => {
 		const url = typeof input === "string" ? input : input.toString();
 		const method = (init?.method ?? "GET").toUpperCase();
 		const path = new URL(url).pathname + new URL(url).search;
-		calls.push({ method, path });
+		calls.push({
+			method,
+			path,
+			body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+		});
 		const ok = (result: unknown) =>
 			new Response(JSON.stringify({ success: true, result }), { status: 200 });
 		if (path.includes("/cfd_tunnel/") && path.includes("/token")) {
@@ -572,7 +615,7 @@ describe("@zuse/relay managed tunnel", () => {
 			};
 			expect(body.connectorToken).toBe("connector-token-xyz");
 			expect(body.tunnelHostname).toBe(
-				"zenv-" + body.tunnelHostname!.split("-")[1],
+				`zenv-${body.tunnelHostname?.split("-")[1]}`,
 			);
 			expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
 
@@ -625,6 +668,69 @@ describe("@zuse/relay managed tunnel", () => {
 				}),
 			);
 			expect((await list.json()).environments).toHaveLength(0);
+		} finally {
+			cf.restore();
+		}
+	});
+
+	test("an authenticated heartbeat reconciles a changed desktop origin", async () => {
+		const cf = stubCloudflare();
+		try {
+			relay = makeRelay(await makeLayer(FAKE_TUNNEL));
+			const linked = await linkWithTunnel("user_a", "env_t");
+			const { environmentCredential } = (await linked.json()) as {
+				environmentCredential: string;
+			};
+			const res = await relay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/environments/env_t/heartbeat`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${environmentCredential}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						origin: { localHttpHost: "127.0.0.1", localHttpPort: 8788 },
+					}),
+				}),
+			);
+			expect(res.status).toBe(200);
+			expect(
+				cf.calls.some(
+					(call) =>
+						call.method === "PUT" &&
+						call.path.includes("/configurations") &&
+						JSON.stringify(call.body).includes("http://127.0.0.1:8788"),
+				),
+			).toBe(true);
+		} finally {
+			cf.restore();
+		}
+	});
+
+	test("origin reconciliation rejects non-loopback targets", async () => {
+		const cf = stubCloudflare();
+		try {
+			relay = makeRelay(await makeLayer(FAKE_TUNNEL));
+			const linked = await linkWithTunnel("user_a", "env_t");
+			const { environmentCredential } = (await linked.json()) as {
+				environmentCredential: string;
+			};
+			const callsBefore = cf.calls.length;
+			const res = await relay.fetch(
+				new Request(`${RELAY_ISSUER}/v1/environments/env_t/heartbeat`, {
+					method: "POST",
+					headers: {
+						authorization: `Bearer ${environmentCredential}`,
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						origin: { localHttpHost: "10.0.0.8", localHttpPort: 8788 },
+					}),
+				}),
+			);
+			expect(res.status).toBe(400);
+			expect((await res.json()).error).toBe("invalid_tunnel_origin");
+			expect(cf.calls).toHaveLength(callsBefore);
 		} finally {
 			cf.restore();
 		}

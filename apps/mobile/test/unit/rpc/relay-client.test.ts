@@ -34,4 +34,14 @@ describe("relay client errors", () => {
 			),
 		).toBe("relay_connect_401:invalid_dpop_proof");
 	});
+
+	test("keeps safe machine errors for server failures", () => {
+		expect(
+			normalizeRelayError(
+				500,
+				JSON.stringify({ error: "internal_error" }),
+				"relay_connect",
+			),
+		).toBe("relay_connect_500:internal_error");
+	});
 });

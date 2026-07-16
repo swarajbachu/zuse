@@ -13,6 +13,7 @@ import {
 	logConnectionProblem,
 } from "./connection-diagnostics";
 import { ConnectionFailed } from "./errors";
+import { makeMobileWebSocket } from "./mobile-websocket";
 import { connectEnvironment } from "./relay-client";
 import { type WsProtocolOptions, wsClientProtocolLayer } from "./ws-protocol";
 
@@ -37,7 +38,12 @@ const makeClientSession = (options: WsProtocolOptions) => {
 		port: options.port,
 		hasToken: options.token !== undefined && options.token !== null,
 	});
-	const protocolLayer = wsClientProtocolLayer(options).pipe(Layer.orDie);
+	const protocolLayer = wsClientProtocolLayer(options, {
+		// Managed environments can cold-start behind the tunnel. The native
+		// default of ten seconds was too aggressive on physical devices.
+		openTimeout: "25 seconds",
+		makeWebSocket: makeMobileWebSocket,
+	}).pipe(Layer.orDie);
 	return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
 		perform: (client, hello) => client["connect.handshake"](hello),
@@ -80,6 +86,7 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		validateClient: (client) =>
 			Effect.runPromise(client["connect.describe"]().pipe(Effect.asVoid)),
 		isOnline: () => currentOnline,
+		maxAutomaticAttempts: 6,
 		schedule: (delayMs, fn) => {
 			const timer = setTimeout(fn, delayMs);
 			return () => clearTimeout(timer);

@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 
-import { CommandDispatcher } from "./command-dispatch.js";
-import type { ClientSession } from "./connection.js";
+import { CommandDispatcher } from "./command-dispatch";
+import type { ClientSession } from "./connection";
 
 export type ConnectionStatus =
 	| "offline"
@@ -59,6 +59,8 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly schedule: (delayMs: number, fn: () => void) => () => void;
 	readonly classifyError?: (cause: unknown) => "auth" | "transient";
 	readonly isRetryableCommandError?: (cause: unknown) => boolean;
+	/** Stop background retry churn after this many consecutive failures. */
+	readonly maxAutomaticAttempts?: number;
 	readonly onDiagnostic?: (diagnostic: ConnectionDiagnostic) => void;
 };
 
@@ -171,6 +173,13 @@ class SupervisorEntryImpl<Options, Client>
 
 	reportFailure(cause: unknown, expectedGeneration?: number): boolean {
 		if (this.removed) return false;
+		if (expectedGeneration === undefined && this.state.status !== "connected") {
+			this.diagnostic("failure.ignored", {
+				reason: messageOf(cause),
+				status: this.state.status,
+			});
+			return false;
+		}
 		if (
 			expectedGeneration !== undefined &&
 			(this.state.status !== "connected" ||
@@ -217,6 +226,11 @@ class SupervisorEntryImpl<Options, Client>
 			return;
 		}
 		this.invalidateClient();
+		this.emit({
+			status: this.state.generation === 0 ? "connecting" : "reconnecting",
+			attempt: 0,
+			error: null,
+		});
 		void this.ensureClient().catch(() => undefined);
 	}
 
@@ -252,6 +266,14 @@ class SupervisorEntryImpl<Options, Client>
 		if (!this.deps.isOnline()) {
 			this.emit({ status: "offline", error: null });
 			throw new Error("offline");
+		}
+		if (
+			this.state.status === "blockedAuth" ||
+			(this.state.status === "error" &&
+				this.state.attempt >=
+					(this.deps.maxAutomaticAttempts ?? Number.POSITIVE_INFINITY))
+		) {
+			throw new Error(this.state.error ?? "connection unavailable");
 		}
 		if (this.client !== null) return this.client;
 		if (this.inFlight !== null) return this.inFlight;
@@ -320,6 +342,16 @@ class SupervisorEntryImpl<Options, Client>
 			return;
 		}
 		const attempt = this.state.attempt + 1;
+		const maxAttempts =
+			this.deps.maxAutomaticAttempts ?? Number.POSITIVE_INFINITY;
+		if (attempt >= maxAttempts) {
+			this.emit({ status: "error", attempt, error: messageOf(cause) });
+			this.diagnostic("retry.exhausted", {
+				attempt,
+				reason: messageOf(cause),
+			});
+			return;
+		}
 		this.emit({ status: "reconnecting", attempt, error: messageOf(cause) });
 		const delay = Math.min(
 			MAX_BACKOFF_MS,

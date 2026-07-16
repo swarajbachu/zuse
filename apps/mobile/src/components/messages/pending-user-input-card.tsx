@@ -1,119 +1,284 @@
 import type { UserQuestion } from "@zuse/contracts";
-import { useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Send, X } from "lucide-react-native";
+import { useMemo, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
-import { Button } from "~/components/ui/button";
-import { cn } from "~/lib/cn";
+import { colors } from "~/theme";
 
 export type QuestionAnswer = {
-  questionIndex: number;
-  selected: readonly number[];
-  other?: string;
+	questionIndex: number;
+	selected: readonly number[];
+	other?: string;
 };
 
-/**
- * Inline card for an `AskUserQuestion` prompt — option pills (single- or
- * multi-select per question) plus a free-text "Other" field. Not a modal: it
- * lives in the message stream and submits via the session answer RPC.
- */
+type Draft = { selected: readonly number[]; other: string };
+
+const preservedDrafts = new Map<string, readonly Draft[]>();
+
+const emptyDraft = (): Draft => ({ selected: [], other: "" });
+
+const complete = (
+	questions: readonly UserQuestion[],
+	drafts: readonly Draft[],
+) =>
+	questions.every(
+		(_, index) =>
+			(drafts[index]?.selected.length ?? 0) > 0 ||
+			(drafts[index]?.other.trim().length ?? 0) > 0,
+	);
+
 export const PendingUserInputCard = ({
-  itemId,
-  questions,
-  onSubmit
+	itemId,
+	questions,
+	onSubmit,
 }: {
-  itemId: string;
-  questions: readonly UserQuestion[];
-  onSubmit: (itemId: string, answers: readonly QuestionAnswer[]) => void | Promise<void>;
+	itemId: string;
+	questions: readonly UserQuestion[];
+	onSubmit: (
+		itemId: string,
+		answers: readonly QuestionAnswer[],
+	) => void | Promise<void>;
 }) => {
-  const [selected, setSelected] = useState<number[][]>(() => questions.map(() => []));
-  const [other, setOther] = useState<string[]>(() => questions.map(() => ""));
-  const [submitting, setSubmitting] = useState(false);
+	const [activeIndex, setActiveIndex] = useState(0);
+	const [drafts, setDrafts] = useState<readonly Draft[]>(
+		() => preservedDrafts.get(itemId) ?? questions.map(emptyDraft),
+	);
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const active = questions[activeIndex];
+	const draft = drafts[activeIndex] ?? emptyDraft();
+	const isComplete = useMemo(
+		() => complete(questions, drafts),
+		[drafts, questions],
+	);
 
-  const toggle = (qi: number, oi: number, multi: boolean) => {
-    setSelected((prev) =>
-      prev.map((picks, index) => {
-        if (index !== qi) return picks;
-        if (!multi) return picks.includes(oi) ? [] : [oi];
-        return picks.includes(oi) ? picks.filter((value) => value !== oi) : [...picks, oi];
-      })
-    );
-  };
+	if (active === undefined) return null;
 
-  const answerable = questions.every(
-    (_, qi) => (selected[qi] ?? []).length > 0 || (other[qi] ?? "").trim().length > 0
-  );
+	const submitWith = async (nextDrafts: readonly Draft[]) => {
+		if (submitting || !complete(questions, nextDrafts)) return;
+		setSubmitting(true);
+		setError(null);
+		try {
+			await onSubmit(
+				itemId,
+				nextDrafts.map((item, questionIndex) => ({
+					questionIndex,
+					selected: item.selected,
+					...(item.other.trim().length > 0 ? { other: item.other.trim() } : {}),
+				})),
+			);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			setSubmitting(false);
+		}
+	};
 
-  const submit = async () => {
-    if (!answerable || submitting) return;
-    setSubmitting(true);
-    try {
-      const answers: QuestionAnswer[] = questions.map((_, qi) => {
-        const trimmed = (other[qi] ?? "").trim();
-        return {
-          questionIndex: qi,
-          selected: selected[qi] ?? [],
-          ...(trimmed.length > 0 ? { other: trimmed } : {})
-        };
-      });
-      await onSubmit(itemId, answers);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+	const commit = (next: Draft, advance: boolean) => {
+		const nextDrafts = drafts.map((item, index) =>
+			index === activeIndex ? next : item,
+		);
+		setDrafts(nextDrafts);
+		preservedDrafts.set(itemId, nextDrafts);
+		if (!advance) return;
+		if (activeIndex === questions.length - 1) {
+			void submitWith(nextDrafts);
+		} else {
+			setActiveIndex((index) => index + 1);
+		}
+	};
 
-  return (
-    <View className="px-3 py-1.5">
-      <View
-        style={{ borderCurve: "continuous" }}
-        className="rounded-2xl border border-primary/40 bg-card px-3 py-3"
-      >
-        <Text className="font-sans-medium text-xs text-primary">Question</Text>
-        {questions.map((question, qi) => (
-          <View key={`${itemId}-${qi}`} className={qi > 0 ? "mt-4" : "mt-1"}>
-            <Text className="font-sans-medium text-sm text-foreground">{question.question}</Text>
-            <View className="mt-2 flex-row flex-wrap gap-2">
-              {question.options.map((option, oi) => {
-                const active = (selected[qi] ?? []).includes(oi);
-                return (
-                  <Pressable
-                    key={`${itemId}-${qi}-${oi}`}
-                    onPress={() => toggle(qi, oi, question.multiSelect === true)}
-                    style={{ borderCurve: "continuous" }}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 active:opacity-80",
-                      active ? "border-primary bg-primary" : "border-border bg-card-elevated"
-                    )}
-                  >
-                    <Text
-                      className={cn(
-                        "font-sans text-[13px]",
-                        active ? "text-primary-foreground" : "text-foreground"
-                      )}
-                    >
-                      {option}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <TextInput
-              className="mt-2 min-h-9 rounded-xl border border-border bg-card-elevated px-3 py-2 font-sans text-[15px] text-foreground"
-              style={{ borderCurve: "continuous" }}
-              placeholder="Other…"
-              placeholderTextColor="hsl(72 4% 56%)"
-              value={other[qi]}
-              onChangeText={(value) =>
-                setOther((prev) => prev.map((entry, index) => (index === qi ? value : entry)))
-              }
-            />
-          </View>
-        ))}
-        <View className="mt-3 flex-row justify-end">
-          <Button size="sm" disabled={!answerable || submitting} onPress={submit}>
-            Submit
-          </Button>
-        </View>
-      </View>
-    </View>
-  );
+	const toggle = (optionIndex: number) => {
+		if (active.multiSelect === true) {
+			const selected = draft.selected.includes(optionIndex)
+				? draft.selected.filter((index) => index !== optionIndex)
+				: [...draft.selected, optionIndex];
+			commit({ ...draft, selected }, false);
+			return;
+		}
+		commit({ selected: [optionIndex], other: "" }, true);
+	};
+
+	const dismiss = async () => {
+		if (submitting) return;
+		setSubmitting(true);
+		setError(null);
+		try {
+			await onSubmit(
+				itemId,
+				questions.map((_, questionIndex) => ({
+					questionIndex,
+					selected: [],
+				})),
+			);
+			preservedDrafts.delete(itemId);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			setSubmitting(false);
+		}
+	};
+
+	return (
+		<View className="px-2 py-2">
+			<View
+				className="rounded-2xl border border-border bg-card px-4 py-4"
+				style={{ borderCurve: "continuous" }}
+			>
+				<View className="flex-row items-start gap-3">
+					<Text
+						selectable
+						className="min-w-0 flex-1 font-sans-medium text-[17px] leading-6 text-foreground"
+					>
+						{active.question}
+					</Text>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Dismiss question"
+						disabled={submitting}
+						className="h-11 w-11 items-center justify-center active:opacity-60"
+						onPress={() => void dismiss()}
+					>
+						<X size={18} color={colors.secondaryFg} />
+					</Pressable>
+				</View>
+
+				<View className="pt-2">
+					{active.options.map((option, optionIndex) => {
+						const selected = draft.selected.includes(optionIndex);
+						return (
+							<Pressable
+								key={`${itemId}:${active.question}:${option}`}
+								accessibilityRole={active.multiSelect ? "checkbox" : "radio"}
+								accessibilityState={{ checked: selected }}
+								disabled={submitting}
+								className="min-h-12 flex-row items-center gap-3 rounded-xl px-2 active:opacity-60"
+								style={{
+									backgroundColor: selected
+										? colors.cardElevated
+										: "transparent",
+								}}
+								onPress={() => toggle(optionIndex)}
+							>
+								<Text
+									className="w-5 text-right font-sans text-[12px] text-muted-foreground"
+									style={{ fontVariant: ["tabular-nums"] }}
+								>
+									{optionIndex + 1}
+								</Text>
+								<Text
+									selectable
+									className="min-w-0 flex-1 font-sans text-[15px] leading-5 text-foreground"
+								>
+									{option}
+								</Text>
+								{selected ? <Check size={17} color={colors.accent} /> : null}
+							</Pressable>
+						);
+					})}
+					<View className="min-h-12 flex-row items-center gap-3 px-2">
+						<Text className="w-5 text-right font-sans text-[12px] text-muted-foreground">
+							0
+						</Text>
+						<TextInput
+							accessibilityLabel="Other answer"
+							className="min-h-11 min-w-0 flex-1 font-sans text-[16px] text-foreground"
+							placeholder="Type another answer…"
+							placeholderTextColor={colors.tertiaryFg}
+							returnKeyType="done"
+							editable={!submitting}
+							value={draft.other}
+							onChangeText={(other) => commit({ selected: [], other }, false)}
+							onSubmitEditing={() => {
+								const other = draft.other.trim();
+								if (other.length > 0) commit({ selected: [], other }, true);
+							}}
+						/>
+					</View>
+				</View>
+
+				{error === null ? null : (
+					<Text
+						selectable
+						className="pt-2 font-sans text-[13px] leading-5 text-danger"
+					>
+						{error}
+					</Text>
+				)}
+
+				<View className="min-h-12 flex-row items-center pt-2">
+					{questions.length > 1 ? (
+						<>
+							<QuestionNav
+								label="Previous question"
+								disabled={activeIndex === 0 || submitting}
+								onPress={() =>
+									setActiveIndex((index) => Math.max(0, index - 1))
+								}
+								direction="previous"
+							/>
+							<Text
+								className="px-2 font-sans text-[12px] text-muted-foreground"
+								style={{ fontVariant: ["tabular-nums"] }}
+							>
+								{activeIndex + 1} of {questions.length}
+							</Text>
+							<QuestionNav
+								label="Next question"
+								disabled={activeIndex === questions.length - 1 || submitting}
+								onPress={() =>
+									setActiveIndex((index) =>
+										Math.min(questions.length - 1, index + 1),
+									)
+								}
+								direction="next"
+							/>
+						</>
+					) : null}
+					<View className="flex-1" />
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel="Submit answers"
+						accessibilityState={{ disabled: !isComplete || submitting }}
+						disabled={!isComplete || submitting}
+						className="h-11 w-11 items-center justify-center rounded-full active:opacity-60"
+						style={{
+							backgroundColor: isComplete ? colors.fg : colors.cardElevated,
+							opacity: submitting ? 0.45 : 1,
+						}}
+						onPress={() => void submitWith(drafts)}
+					>
+						<Send
+							size={17}
+							color={isComplete ? colors.bg : colors.tertiaryFg}
+						/>
+					</Pressable>
+				</View>
+			</View>
+		</View>
+	);
 };
+
+function QuestionNav({
+	label,
+	disabled,
+	onPress,
+	direction,
+}: {
+	label: string;
+	disabled: boolean;
+	onPress: () => void;
+	direction: "previous" | "next";
+}) {
+	const Icon = direction === "previous" ? ArrowLeft : ArrowRight;
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel={label}
+			disabled={disabled}
+			className="h-11 w-11 items-center justify-center active:opacity-60"
+			style={{ opacity: disabled ? 0.3 : 1 }}
+			onPress={onPress}
+		>
+			<Icon size={17} color={colors.secondaryFg} />
+		</Pressable>
+	);
+}

@@ -1,6 +1,7 @@
 export {
 	authenticatedWsUrl,
 	connectionKey,
+	type WsProtocolLayerOptions,
 	type WsProtocolOptions,
 	wsClientProtocolLayer,
 	wsUrl,

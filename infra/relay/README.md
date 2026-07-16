@@ -28,6 +28,7 @@ data path** — chat traffic goes directly phone ↔ laptop.
 | `POST /v1/client/environment-links` | WorkOS bearer | verify Ed25519 proof, mint env credential, provision managed tunnel |
 | `POST /v1/client/environment-unlink` | WorkOS bearer | deprovision the managed tunnel + remove the environment |
 | `GET  /v1/environments` | WorkOS bearer | list the account's environments |
+| `DELETE /v1/account` | WorkOS bearer | delete relay data, tunnels, devices, and the identity account |
 | `POST /v1/client/dpop-token` | WorkOS bearer + DPoP | mint a DPoP-bound access token |
 | `POST /v1/environments/{id}/status` | DPoP | presence (online/offline) |
 | `POST /v1/environments/{id}/connect` | DPoP | mint a short-lived connect token |
@@ -58,7 +59,7 @@ connect, cross-account isolation, proof forgery, and replay rejection.
    ```
 3. **Hyperdrive**: `bunx wrangler hyperdrive create zuse-relay-db --connection-string="postgres://…"`
    and paste the id into `wrangler.jsonc`.
-4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`.
+4. **WorkOS**: set `WORKOS_JWKS_URL` (`https://api.workos.com/sso/jwks/<client_id>`) and `WORKOS_ISSUER`. Set the server-side account-deletion key with `bun run secret:workos` (`wrangler secret put WORKOS_API_KEY`); the mobile deletion flow deliberately fails closed when this secret is absent.
 5. **Managed Cloudflare tunnel** (optional — enables reach-from-anywhere; leave off for LAN-only):
    - In `wrangler.jsonc` set `MANAGED_TUNNEL_BASE_DOMAIN` (the CF zone apex),
      `MANAGED_TUNNEL_NAMESPACE`, `CF_ACCOUNT_ID`, and `CF_ZONE_ID` (the base domain's zone id).

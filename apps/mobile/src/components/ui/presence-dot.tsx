@@ -1,14 +1,15 @@
 import { useEffect } from "react";
-import { View } from "react-native";
+import { type ColorValue, View } from "react-native";
 import Animated, {
-  cancelAnimation,
-  Easing,
-  useAnimatedStyle,
-  useReducedMotion,
-  useSharedValue,
-  withRepeat,
-  withTiming,
+	cancelAnimation,
+	Easing,
+	useAnimatedStyle,
+	useReducedMotion,
+	useSharedValue,
+	withRepeat,
+	withTiming,
 } from "react-native-reanimated";
+import { colors } from "~/theme";
 
 export type PresenceTone = "online" | "offline" | "checking" | "error";
 
@@ -16,11 +17,11 @@ export type PresenceTone = "online" | "offline" | "checking" | "error";
 // kept as plain strings here because the animated halo/core are styled inline
 // (RN inline styles can't read CSS custom properties). The halo reuses the same
 // tone at a lower, animated opacity rather than a separate translucent color.
-const TONE: Record<PresenceTone, string> = {
-  online: "hsl(72 98% 54%)",
-  offline: "hsl(72 2% 64%)",
-  checking: "hsl(42 93% 56%)",
-  error: "hsl(2 86% 64%)",
+const TONE: Record<PresenceTone, ColorValue> = {
+	online: colors.success,
+	offline: colors.secondaryFg,
+	checking: colors.warning,
+	error: colors.danger,
 };
 
 /**
@@ -30,73 +31,73 @@ const TONE: Record<PresenceTone, string> = {
  * away. Respects Reduce Motion (renders a static dot).
  */
 export function PresenceDot({
-  tone,
-  pulse,
-  size = 10,
+	tone,
+	pulse,
+	size = 10,
 }: {
-  readonly tone: PresenceTone;
-  readonly pulse: boolean;
-  readonly size?: number;
+	readonly tone: PresenceTone;
+	readonly pulse: boolean;
+	readonly size?: number;
 }) {
-  const reducedMotion = useReducedMotion();
-  const active = pulse && !reducedMotion;
-  const progress = useSharedValue(0);
+	const reducedMotion = useReducedMotion();
+	const active = pulse && !reducedMotion;
+	const progress = useSharedValue(0);
 
-  const dotSize = size;
-  const haloSize = dotSize + 4;
-  const containerSize = haloSize + 4;
-  const color = TONE[tone];
+	const dotSize = size;
+	const haloSize = dotSize + 4;
+	const containerSize = haloSize + 4;
+	const color = TONE[tone];
 
-  useEffect(() => {
-    if (active) {
-      progress.value = withRepeat(
-        withTiming(1, { duration: 1100, easing: Easing.out(Easing.cubic) }),
-        -1,
-        false
-      );
-      return;
-    }
-    cancelAnimation(progress);
-    progress.value = withTiming(0, {
-      duration: 180,
-      easing: Easing.out(Easing.quad),
-    });
-  }, [active, progress]);
+	useEffect(() => {
+		if (active) {
+			progress.value = withRepeat(
+				withTiming(1, { duration: 1100, easing: Easing.out(Easing.cubic) }),
+				-1,
+				false,
+			);
+			return;
+		}
+		cancelAnimation(progress);
+		progress.value = withTiming(0, {
+			duration: 180,
+			easing: Easing.out(Easing.quad),
+		});
+	}, [active, progress]);
 
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: active ? 0.14 + (1 - progress.value) * 0.3 : 0,
-    transform: [{ scale: 0.78 + progress.value * 1.16 }],
-  }));
+	const haloStyle = useAnimatedStyle(() => ({
+		opacity: active ? 0.14 + (1 - progress.value) * 0.3 : 0,
+		transform: [{ scale: 0.78 + progress.value * 1.16 }],
+	}));
 
-  return (
-    <View
-      style={{
-        width: containerSize,
-        height: containerSize,
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <Animated.View
-        style={[
-          haloStyle,
-          {
-            position: "absolute",
-            width: haloSize,
-            height: haloSize,
-            borderRadius: haloSize / 2,
-            backgroundColor: color,
-          },
-        ]}
-      />
-      <View
-        style={{
-          width: dotSize,
-          height: dotSize,
-          borderRadius: dotSize / 2,
-          backgroundColor: color,
-        }}
-      />
-    </View>
-  );
+	return (
+		<View
+			style={{
+				width: containerSize,
+				height: containerSize,
+				alignItems: "center",
+				justifyContent: "center",
+			}}
+		>
+			<Animated.View
+				style={[
+					haloStyle,
+					{
+						position: "absolute",
+						width: haloSize,
+						height: haloSize,
+						borderRadius: haloSize / 2,
+						backgroundColor: color,
+					},
+				]}
+			/>
+			<View
+				style={{
+					width: dotSize,
+					height: dotSize,
+					borderRadius: dotSize / 2,
+					backgroundColor: color,
+				}}
+			/>
+		</View>
+	);
 }

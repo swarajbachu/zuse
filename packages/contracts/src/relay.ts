@@ -20,40 +20,41 @@ import { EnvironmentId } from "./ids.ts";
 
 /** Paths, centralised so client + relay never drift. */
 export const RelayPaths = {
-  linkChallenges: "/v1/client/environment-link-challenges",
-  links: "/v1/client/environment-links",
-  /** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
-  unlink: "/v1/client/environment-unlink",
-  environments: "/v1/environments",
-  dpopToken: "/v1/client/dpop-token",
-  devices: "/v1/mobile/devices",
-  status: (environmentId: string) =>
-    `/v1/environments/${encodeURIComponent(environmentId)}/status`,
-  connect: (environmentId: string) =>
-    `/v1/environments/${encodeURIComponent(environmentId)}/connect`,
-  heartbeat: (environmentId: string) =>
-    `/v1/environments/${encodeURIComponent(environmentId)}/heartbeat`,
-  agentActivity: (environmentId: string) =>
-    `/v1/environments/${encodeURIComponent(environmentId)}/agent-activity`,
+	linkChallenges: "/v1/client/environment-link-challenges",
+	links: "/v1/client/environment-links",
+	/** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
+	unlink: "/v1/client/environment-unlink",
+	environments: "/v1/environments",
+	dpopToken: "/v1/client/dpop-token",
+	devices: "/v1/mobile/devices",
+	account: "/v1/account",
+	status: (environmentId: string) =>
+		`/v1/environments/${encodeURIComponent(environmentId)}/status`,
+	connect: (environmentId: string) =>
+		`/v1/environments/${encodeURIComponent(environmentId)}/connect`,
+	heartbeat: (environmentId: string) =>
+		`/v1/environments/${encodeURIComponent(environmentId)}/heartbeat`,
+	agentActivity: (environmentId: string) =>
+		`/v1/environments/${encodeURIComponent(environmentId)}/agent-activity`,
 } as const;
 
 /** DPoP access-token scopes the relay recognises. */
 export const RelayScope = Schema.Literals([
-  "environment:status",
-  "environment:connect",
-  "mobile:registration",
+	"environment:status",
+	"environment:connect",
+	"mobile:registration",
 ]);
 export type RelayScope = typeof RelayScope.Type;
 
 // --- link challenge (desktop, WorkOS bearer) ---------------------------------
 
 export class RelayLinkChallenge extends Schema.Class<RelayLinkChallenge>(
-  "RelayLinkChallenge",
+	"RelayLinkChallenge",
 )({
-  challengeId: Schema.String,
-  challenge: Schema.String,
-  relayIssuer: Schema.String,
-  expiresAt: Schema.Number,
+	challengeId: Schema.String,
+	challenge: Schema.String,
+	relayIssuer: Schema.String,
+	expiresAt: Schema.Number,
 }) {}
 
 // --- link (desktop, WorkOS bearer) -------------------------------------------
@@ -63,55 +64,55 @@ export class RelayLinkChallenge extends Schema.Class<RelayLinkChallenge>(
 // the relay can verify this and every later proof.
 
 export class RelayLinkRequest extends Schema.Class<RelayLinkRequest>(
-  "RelayLinkRequest",
+	"RelayLinkRequest",
 )({
-  challengeId: Schema.String,
-  proof: Schema.String,
-  environmentId: EnvironmentId,
-  /** The environment's Ed25519 public key, as a JWK JSON string. */
-  environmentPublicKey: Schema.String,
-  providerKind: ProviderKind,
-  endpoint: EnvironmentEndpoint,
-  label: Schema.optional(Schema.String),
+	challengeId: Schema.String,
+	proof: Schema.String,
+	environmentId: EnvironmentId,
+	/** The environment's Ed25519 public key, as a JWK JSON string. */
+	environmentPublicKey: Schema.String,
+	providerKind: ProviderKind,
+	endpoint: EnvironmentEndpoint,
+	label: Schema.optional(Schema.String),
 }) {}
 
 export class RelayLinkResponse extends Schema.Class<RelayLinkResponse>(
-  "RelayLinkResponse",
+	"RelayLinkResponse",
 )({
-  environmentId: EnvironmentId,
-  endpoint: EnvironmentEndpoint,
-  relayIssuer: Schema.String,
-  /** Plaintext per-environment credential (`zenv_…`); the relay stores only its hash. */
-  environmentCredential: Schema.String,
-  /** Relay Ed25519 public key (JWK JSON) for verifying minted tokens. */
-  mintPublicKey: Schema.String,
+	environmentId: EnvironmentId,
+	endpoint: EnvironmentEndpoint,
+	relayIssuer: Schema.String,
+	/** Plaintext per-environment credential (`zenv_…`); the relay stores only its hash. */
+	environmentCredential: Schema.String,
+	/** Relay Ed25519 public key (JWK JSON) for verifying minted tokens. */
+	mintPublicKey: Schema.String,
 }) {}
 
 // --- discovery (mobile/desktop, WorkOS bearer) -------------------------------
 
 export class RelayEnvironmentRecord extends Schema.Class<RelayEnvironmentRecord>(
-  "RelayEnvironmentRecord",
+	"RelayEnvironmentRecord",
 )({
-  environmentId: EnvironmentId,
-  label: Schema.optional(Schema.String),
-  providerKind: ProviderKind,
-  endpoint: Schema.optional(EnvironmentEndpoint),
-  linkedAt: Schema.Number,
+	environmentId: EnvironmentId,
+	label: Schema.optional(Schema.String),
+	providerKind: ProviderKind,
+	endpoint: Schema.optional(EnvironmentEndpoint),
+	linkedAt: Schema.Number,
 }) {}
 
 export class RelayEnvironmentList extends Schema.Class<RelayEnvironmentList>(
-  "RelayEnvironmentList",
+	"RelayEnvironmentList",
 )({
-  environments: Schema.Array(RelayEnvironmentRecord),
+	environments: Schema.Array(RelayEnvironmentRecord),
 }) {}
 
 // --- dpop token exchange (WorkOS bearer + DPoP proof) ------------------------
 
 export class RelayAccessToken extends Schema.Class<RelayAccessToken>(
-  "RelayAccessToken",
+	"RelayAccessToken",
 )({
-  accessToken: Schema.String,
-  expiresIn: Schema.Number,
+	accessToken: Schema.String,
+	expiresIn: Schema.Number,
 }) {}
 
 // --- presence (mobile, DPoP) -------------------------------------------------
@@ -120,30 +121,30 @@ export const RelayPresence = Schema.Literals(["online", "offline"]);
 export type RelayPresence = typeof RelayPresence.Type;
 
 export class RelayEnvironmentStatus extends Schema.Class<RelayEnvironmentStatus>(
-  "RelayEnvironmentStatus",
+	"RelayEnvironmentStatus",
 )({
-  status: RelayPresence,
-  endpoint: EnvironmentEndpoint,
-  checkedAt: Schema.Number,
+	status: RelayPresence,
+	endpoint: EnvironmentEndpoint,
+	checkedAt: Schema.Number,
 }) {}
 
 // --- connect (mobile, DPoP) --------------------------------------------------
 
 export class RelayConnectGrant extends Schema.Class<RelayConnectGrant>(
-  "RelayConnectGrant",
+	"RelayConnectGrant",
 )({
-  endpoint: EnvironmentEndpoint,
-  connectToken: Schema.String,
-  expiresAt: Schema.Number,
+	endpoint: EnvironmentEndpoint,
+	connectToken: Schema.String,
+	expiresAt: Schema.Number,
 }) {}
 
 // --- device registration (mobile, DPoP) --------------------------------------
 
 export class RelayDeviceRegistration extends Schema.Class<RelayDeviceRegistration>(
-  "RelayDeviceRegistration",
+	"RelayDeviceRegistration",
 )({
-  deviceId: Schema.String,
-  platform: Schema.Literals(["ios", "android", "web"]),
-  pushToken: Schema.optional(Schema.String),
-  dpopJwk: Schema.optional(Schema.Unknown),
+	deviceId: Schema.String,
+	platform: Schema.Literals(["ios", "android", "web"]),
+	pushToken: Schema.optional(Schema.String),
+	dpopJwk: Schema.optional(Schema.Unknown),
 }) {}
