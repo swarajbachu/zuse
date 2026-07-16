@@ -3,7 +3,6 @@ import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   ClipboardIcon,
-  Robot01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -15,6 +14,7 @@ import { CopyButton } from "./copy-button.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
 import { MessageRow } from "./message-row.tsx";
 import { Spinner } from "./ui/spinner";
+import { SubagentAvatar } from "./subagent-identity";
 
 const MODEL_LABEL: Record<string, string> = {
   "claude-sonnet-5": "Sonnet 5",
@@ -128,23 +128,21 @@ function SubagentRowImpl({
           "hover:bg-muted/40 cursor-pointer",
         )}
       >
-        <div className="relative grid size-4 shrink-0 place-items-center">
+        <div className="relative grid size-5 shrink-0 place-items-center">
           {showActivityLoader ? (
-            <Spinner
-              className="size-3.5 text-muted-foreground"
-              aria-label="Agent running"
-            />
+            <>
+              <SubagentAvatar name={agentName} size="sm" />
+              <Spinner
+                className="absolute -inset-0.5 size-6 text-muted-foreground"
+                aria-label="Agent running"
+              />
+            </>
           ) : (
-            <HugeiconsIcon
-              icon={Robot01Icon}
-              strokeWidth={2}
-              aria-hidden="true"
-              className="size-3.5 text-muted-foreground"
-            />
+            <SubagentAvatar name={agentName} size="sm" />
           )}
         </div>
         <span className="shrink-0 font-medium text-foreground/90">
-          Agent · {agentName}
+          {agentName}
         </span>
         <span
           className={cn(

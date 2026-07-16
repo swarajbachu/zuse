@@ -300,11 +300,9 @@ function MainShell() {
   const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
   const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
   const setRightSidebarOpen = useUiStore((s) => s.setRightSidebarOpen);
-  const isFullScreen = useUiStore((s) => s.isFullScreen);
   const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
   const environmentSummaryFits = useMediaQuery({ min: 1180 });
   const environmentSummaryAvailable =
-    isFullScreen &&
     environmentSummaryFits &&
     selectedSessionId !== null &&
     activeMainTab === "chat";

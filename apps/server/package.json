@@ -35,6 +35,7 @@
 		"@zuse/pokemon-data": "*",
 		"@zuse/sqlite": "*",
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"effect": "catalog:",
 		"fuzzysort": "catalog:",
 		"jose": "^6.2.3",

@@ -664,6 +664,41 @@ interface CodexToolTranslationLogger {
 	) => void;
 }
 
+interface CodexRawProtocolLogger {
+	readonly path: string;
+	readonly append: (
+		direction: "server_notification" | "server_request",
+		payload: unknown,
+	) => void;
+}
+
+const createCodexRawProtocolLogger = (
+	cwd: string,
+	sessionId: AgentSessionId,
+): CodexRawProtocolLogger => {
+	const dir = join(cwd, ".context");
+	const path = join(dir, `codex-raw.${sessionId}.log`);
+	return {
+		path,
+		append: (direction, payload) => {
+			try {
+				mkdirSync(dir, { recursive: true });
+				appendFileSync(
+					path,
+					`${JSON.stringify({
+						ts: new Date().toISOString(),
+						provider: "codex",
+						direction,
+						payload,
+					})}\n`,
+				);
+			} catch {
+				// Diagnostics must never interfere with the provider session.
+			}
+		},
+	};
+};
+
 const createCodexToolTranslationLogger = (
 	cwd: string,
 	sessionId: AgentSessionId,
@@ -808,7 +843,12 @@ export const translateCodexItem = (
 		case "plan":
 			if (phase !== "completed") return [];
 			return [
-				{ _tag: "AssistantMessage", itemId: nextItemId(), text: item.text },
+				{
+					_tag: "AssistantMessage",
+					itemId: nextItemId(),
+					text: item.text,
+					isPlan: true,
+				},
 			];
 		case "reasoning": {
 			if (phase !== "completed") return [];
@@ -1027,6 +1067,47 @@ export const codexDetachedAgentFromSubAgentActivity = (
 	};
 };
 
+export const codexDetachedAgentFromRawSpawn = (
+	callId: string,
+	argumentsJson: string,
+	output: unknown,
+	startedAt = Date.now(),
+): CodexDetachedAgent | null => {
+	try {
+		const input = JSON.parse(argumentsJson) as Record<string, unknown>;
+		const outputText =
+			typeof output === "string"
+				? output
+				: Array.isArray(output)
+					? output
+						.map((item) => {
+							if (item === null || typeof item !== "object") return "";
+							const record = item as Record<string, unknown>;
+							return typeof record.text === "string" ? record.text : "";
+						})
+						.join("")
+					: "";
+		const result = JSON.parse(outputText) as Record<string, unknown>;
+		if (typeof result.agent_id !== "string") return null;
+		const requestedType =
+			typeof input.agent_type === "string" ? input.agent_type : "Subagent";
+		return {
+			parentItemId: callId as AgentItemId,
+			childSessionId: result.agent_id,
+			prompt: typeof input.message === "string" ? input.message : "",
+			model: typeof input.model === "string" ? input.model : "inherit",
+			startedAt,
+			agentName:
+				typeof result.nickname === "string" ? result.nickname : requestedType,
+			turns: 0,
+			lastText: "",
+			finished: false,
+		};
+	} catch {
+		return null;
+	}
+};
+
 export const codexDetachedAgentToolUse = (
 	agent: CodexDetachedAgent,
 ): AgentEvent => ({
@@ -1163,6 +1244,7 @@ export const startCodexSession = (
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
 		const statusLog = createCodexStatusLogger(cwd, sessionId);
+		const rawProtocolLog = createCodexRawProtocolLogger(cwd, sessionId);
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let activeModel = input.model ?? defaultModelFor("codex");
 		let activeThreadId = resumeCursor;
@@ -1181,6 +1263,10 @@ export const startCodexSession = (
 		const latestContextTokensByThread = new Map<string, number>();
 		const pendingCompactionsByThread = new Map<string, CompactSnapshot>();
 		const detachedAgentsByThread = new Map<string, CodexDetachedAgent>();
+		const pendingRawSpawns = new Map<
+			string,
+			{ readonly argumentsJson: string; readonly startedAt: number }
+		>();
 
 		const handleSubAgentActivity = (
 			item: unknown,
@@ -1236,6 +1322,7 @@ export const startCodexSession = (
 					codexPath,
 					env: { ...process.env, ZUSE_MCP_TOKEN: mcpGatewaySession.token },
 					onNotification: (notification) => {
+						rawProtocolLog.append("server_notification", notification);
 						for (const event of translateNotification(notification))
 							emit(event);
 					},
@@ -1436,6 +1523,7 @@ export const startCodexSession = (
 			sandbox: toSandboxMode(getRuntimeMode(), currentMode),
 			serviceName: "zuse",
 			developerInstructions: input.workspaceInstructions ?? null,
+			experimentalRawEvents: true,
 		};
 
 		const startOrResume = async (): Promise<void> => {
@@ -2067,6 +2155,34 @@ export const startCodexSession = (
 						statusLog.append(notification, translated);
 						return translated;
 					}
+				case "rawResponseItem/completed": {
+					if (notification.params.threadId !== activeThreadId) return [];
+					const item = notification.params.item;
+					if (
+						item.type === "function_call" &&
+						item.namespace === "multi_agent_v1" &&
+						item.name === "spawn_agent"
+					) {
+						pendingRawSpawns.set(item.call_id, {
+							argumentsJson: item.arguments,
+							startedAt: Date.now(),
+						});
+						return [];
+					}
+					if (item.type !== "function_call_output") return [];
+					const pendingSpawn = pendingRawSpawns.get(item.call_id);
+					if (pendingSpawn === undefined) return [];
+					pendingRawSpawns.delete(item.call_id);
+					const agent = codexDetachedAgentFromRawSpawn(
+						item.call_id,
+						pendingSpawn.argumentsJson,
+						item.output,
+						pendingSpawn.startedAt,
+					);
+					if (agent === null) return [];
+					detachedAgentsByThread.set(agent.childSessionId, agent);
+					return [codexDetachedAgentToolUse(agent)];
+				}
 				case "thread/compacted":
 					statusLog.append(notification, []);
 					return [];
@@ -2082,6 +2198,7 @@ export const startCodexSession = (
 		async function handleServerRequest(
 			request: ServerRequest,
 		): Promise<unknown> {
+			rawProtocolLog.append("server_request", request);
 			switch (request.method) {
 				case "item/commandExecution/requestApproval": {
 					const p = request.params;

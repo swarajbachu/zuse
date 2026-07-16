@@ -1,6 +1,6 @@
-import { Effect } from "effect";
-
 import type { SessionId } from "@zuse/contracts";
+import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
+import { Effect } from "effect";
 
 import { useComposerBridge } from "../store/composer-bridge.ts";
 import { useMessagesStore } from "../store/messages.ts";
@@ -15,21 +15,7 @@ type ContextRef = { readonly relPath: string; readonly absPath: string };
 export const latestPlanText = (sessionId: SessionId): string | null => {
   const messages = useMessagesStore.getState().messagesBySession[sessionId];
   if (messages === undefined) return null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const c = messages[i]!.content;
-    if (c._tag === "tool_use" && c.tool === "ExitPlanMode") {
-      const input = c.input;
-      if (
-        typeof input === "object" &&
-        input !== null &&
-        "plan" in input &&
-        typeof (input as { plan?: unknown }).plan === "string"
-      ) {
-        return (input as { plan: string }).plan;
-      }
-    }
-  }
-  return null;
+  return latestProposedPlanMarkdown(messages);
 };
 
 /** Write text into the session workspace's `.context/files/` as a `.md` file. */

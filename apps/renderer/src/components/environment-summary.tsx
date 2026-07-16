@@ -10,7 +10,11 @@ import {
 	Tick02Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
+import type { Message } from "@zuse/contracts";
+import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
+import { useMemo } from "react";
 
+import { detachedSubagentGroups } from "../lib/group-messages.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
@@ -18,10 +22,21 @@ import { useUiStore } from "../store/ui.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { useProjectPlanSummary } from "./composer/project-plan-tray.tsx";
+import { SubagentAvatar } from "./subagent-identity.tsx";
 
 const rowClass =
 	"group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
+const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
+
+const latestAssistantText = (messages: ReadonlyArray<Message>): string | null => {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const content = messages[index]?.content;
+		if (content?._tag !== "assistant") continue;
+		const text = content.text.trim();
+		return text.length > 0 ? text : null;
+	}
+	return null;
+};
 
 export function EnvironmentSummary() {
 	const ctx = useActiveContext();
@@ -34,8 +49,35 @@ export function EnvironmentSummary() {
 		folderId ? (s.byKey[prStateKey(folderId, worktreeId)] ?? null) : null,
 	);
 	const revealPanel = useUiStore((s) => s.revealPanel);
+	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
-	const plan = useProjectPlanSummary(sessionId);
+	const session = useSessionsStore((s) => {
+		if (sessionId === null) return null;
+		for (const sessions of Object.values(s.sessionsByProject)) {
+			const match = sessions.find((candidate) => candidate.id === sessionId);
+			if (match !== undefined) return match;
+		}
+		return null;
+	});
+	const messages = useMessagesStore((s) =>
+		sessionId === null
+			? EMPTY_MESSAGES
+			: (s.messagesBySession[sessionId] ?? EMPTY_MESSAGES),
+	);
+	const isRunning = useMessagesStore((s) =>
+		sessionId === null ? false : s.runningBySession[sessionId] === true,
+	);
+	const planAvailable = useMemo(
+		() =>
+			latestProposedPlanMarkdown(messages) !== null ||
+			(session?.providerId === "codex" &&
+				session.permissionMode === "plan" &&
+				!isRunning &&
+				latestAssistantText(messages) !== null),
+		[isRunning, messages, session?.permissionMode, session?.providerId],
+	);
+	const subagents = useMemo(() => detachedSubagentGroups(messages), [messages]);
+	const activeSubagents = subagents.filter((group) => group.summary === null).length;
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -165,18 +207,45 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</button>
-			{plan !== null ? (
+			{planAvailable ? (
 				<button
 					type="button"
 					className={`${rowClass} hover:bg-muted/60`}
 					onClick={() => revealPanel("plan")}
 				>
 					<HugeiconsIcon icon={CheckListIcon} className="size-4 shrink-0 text-primary" />
-					<span className="min-w-0 flex-1 truncate">{plan.title}</span>
-					<span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-						{plan.done}/{plan.total}
-					</span>
+					<span className="min-w-0 flex-1 truncate">Plan</span>
 				</button>
+			) : null}
+			{subagents.length > 0 ? (
+				<section className="mx-2 mt-2 border-border/70 border-t px-0.5 pb-1 pt-3">
+					<h3 className="mb-2 text-xs font-medium text-muted-foreground">
+						Subagents
+					</h3>
+					<button
+						type="button"
+						className="flex min-h-9 w-full items-center gap-2 rounded-lg px-1.5 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+						onClick={() => {
+							selectSubagent(null);
+							revealPanel("subagents");
+						}}
+					>
+						<span className="flex shrink-0 items-center gap-1">
+							{subagents.slice(0, 4).map((group) => (
+								<SubagentAvatar
+									key={group.childSessionId}
+									name={group.agentName}
+									size="sm"
+								/>
+							))}
+						</span>
+						<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+							{activeSubagents > 0
+								? `${activeSubagents} active`
+								: `${subagents.length} done`}
+						</span>
+					</button>
+				</section>
 			) : null}
 		</aside>
 	);

@@ -6,6 +6,7 @@
 	"exports": {
 		"./drainable-worker": "./src/drainable-worker.ts",
 		"./keyed-worker": "./src/keyed-worker.ts",
+		"./proposed-plan": "./src/proposed-plan.ts",
 		"./push-bus": "./src/push-bus.ts",
 		"./readiness": "./src/readiness.ts",
 		"./reaper": "./src/reaper.ts"
