@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { cn } from "~/lib/cn";
 import {
 	describePermissionKind,
 	permissionQuestion,
@@ -84,69 +85,50 @@ export function LivePermissionAccessory({
 				style={{ paddingBottom: Math.max(bottomInset, 8) }}
 				className="px-3 pt-2"
 			>
-				<GlassSurface style={{ padding: 14, gap: 10 }}>
-					<Text className="font-sans-medium text-[12px] uppercase text-primary">
+				<GlassSurface style={{ padding: 16, gap: 12 }}>
+					<Text className="font-sans-medium text-[12px] uppercase tracking-wide text-primary">
 						Review plan{countLabel}
 					</Text>
-					<Text
-						selectable
-						className="font-sans-bold text-[17px] leading-6 text-foreground"
-					>
-						The agent is ready to start building.
+					<Text className="font-sans-bold text-[17px] leading-6 text-foreground">
+						Approve to start building
 					</Text>
 					{planText ? (
 						<Pressable
 							accessibilityRole="button"
 							onPress={() => onOpenPlan?.(request)}
-							className="min-h-12 justify-center rounded-xl border border-border bg-card px-3 active:opacity-60"
+							className="min-h-12 flex-row items-center justify-between rounded-xl border border-border bg-card px-4 active:opacity-60"
 							style={{ borderCurve: "continuous" }}
 						>
-							<Text className="font-sans-medium text-[14px] text-foreground">
-								Open proposed plan
+							<Text className="font-sans-medium text-[15px] text-foreground">
+								View proposed plan
+							</Text>
+							<Text className="font-sans text-[14px] text-muted-foreground">
+								Open
 							</Text>
 						</Pressable>
 					) : null}
-					{error === null ? null : (
-						<Text
-							selectable
-							className="font-sans text-[13px] leading-5 text-danger"
-						>
-							{error}
-						</Text>
-					)}
-					<Pressable
-						accessibilityRole="button"
-						disabled={busy}
+					{error === null ? null : <ErrorText message={error} />}
+					<PrimaryButton
+						label="Approve and build"
+						busy={busy}
 						onPress={() => decide({ _tag: "AllowOnce" })}
-						className="h-12 items-center justify-center rounded-full bg-foreground active:opacity-80"
-						style={{ opacity: busy ? 0.45 : 1 }}
-					>
-						<Text className="font-sans-medium text-[16px] text-background">
-							Approve and build
-						</Text>
-					</Pressable>
+					/>
 					<View className="flex-row gap-2">
-						<Pressable
-							accessibilityRole="button"
-							disabled={busy}
-							onPress={() => decide({ _tag: "Deny" })}
-							className="h-11 flex-1 items-center justify-center rounded-full active:opacity-60"
-						>
-							<Text className="font-sans-medium text-[14px] text-muted-foreground">
-								Keep planning
-							</Text>
-						</Pressable>
+						<View className="flex-1">
+							<SecondaryButton
+								label="Keep planning"
+								busy={busy}
+								onPress={() => decide({ _tag: "Deny" })}
+							/>
+						</View>
 						{onHandoffPlan === undefined ? null : (
-							<Pressable
-								accessibilityRole="button"
-								disabled={busy}
-								onPress={() => void run(() => onHandoffPlan(request))}
-								className="h-11 flex-1 items-center justify-center rounded-full active:opacity-60"
-							>
-								<Text className="font-sans-medium text-[14px] text-muted-foreground">
-									Hand off
-								</Text>
-							</Pressable>
+							<View className="flex-1">
+								<SecondaryButton
+									label="Hand off"
+									busy={busy}
+									onPress={() => void run(() => onHandoffPlan(request))}
+								/>
+							</View>
 						)}
 					</View>
 				</GlassSurface>
@@ -160,14 +142,8 @@ export function LivePermissionAccessory({
 			style={{ paddingBottom: Math.max(bottomInset, 8) }}
 			className="px-3 pt-2"
 		>
-			<GlassSurface
-				style={{
-					paddingHorizontal: 14,
-					paddingVertical: 14,
-					gap: 12,
-				}}
-			>
-				<Text className="font-sans-medium text-[12px] uppercase text-primary">
+			<GlassSurface style={{ padding: 16, gap: 12 }}>
+				<Text className="font-sans-medium text-[12px] uppercase tracking-wide text-primary">
 					Permission{countLabel}
 				</Text>
 				<Text className="font-sans-bold text-[16px] leading-5 text-foreground">
@@ -194,60 +170,93 @@ export function LivePermissionAccessory({
 						{detail}
 					</Text>
 				)}
-				{error === null ? null : (
-					<Text
-						selectable
-						className="font-sans text-[13px] leading-5 text-danger"
-					>
-						{error}
-					</Text>
-				)}
-				<Pressable
-					accessibilityRole="button"
-					disabled={busy}
+				{error === null ? null : <ErrorText message={error} />}
+				<PrimaryButton
+					label="Allow"
+					busy={busy}
 					onPress={() => decide({ _tag: "AllowOnce" })}
-					className="h-12 items-center justify-center rounded-full bg-foreground active:opacity-80"
-					style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
-				>
-					<Text className="font-sans-medium text-[16px] text-background">
-						Approve
-					</Text>
-				</Pressable>
+				/>
 				{request.forcePrompt ? null : (
-					<Pressable
-						accessibilityRole="button"
-						disabled={busy}
+					<SecondaryButton
+						label="Always allow"
+						busy={busy}
 						onPress={() => decide({ _tag: "AllowForSession" })}
-						className="h-11 items-center justify-center rounded-full active:opacity-70"
-					>
-						<Text className="font-sans-medium text-[15px] text-muted-foreground">
-							Always approve
-						</Text>
-					</Pressable>
-				)}
-				<View className="flex-row items-center gap-2">
-					<TextInput
-						className="h-11 min-w-0 flex-1 rounded-full bg-card px-4 font-sans text-[15px] text-foreground"
-						placeholder="Tell the agent what to do"
-						placeholderTextColor={colors.tertiaryFg}
-						value={denyText}
-						onChangeText={setDenyText}
-						editable={!busy}
-						style={{ borderCurve: "continuous" }}
 					/>
-					<Pressable
-						accessibilityRole="button"
-						disabled={busy}
-						onPress={deny}
-						hitSlop={8}
-						className="px-3 py-2 active:opacity-70"
-					>
-						<Text className="font-sans-medium text-[15px] text-danger">
-							Deny
-						</Text>
-					</Pressable>
-				</View>
+				)}
+				<TextInput
+					className="min-h-11 rounded-xl bg-card px-4 py-2.5 font-sans text-[15px] text-foreground"
+					placeholder="Add a note to deny with (optional)"
+					placeholderTextColor={colors.tertiaryFg}
+					value={denyText}
+					onChangeText={setDenyText}
+					editable={!busy}
+					multiline
+					style={{ borderCurve: "continuous" }}
+				/>
+				<SecondaryButton
+					label={denyText.trim().length > 0 ? "Send & deny" : "Deny"}
+					busy={busy}
+					danger
+					onPress={deny}
+				/>
 			</GlassSurface>
 		</View>
 	);
 }
+
+const ErrorText = ({ message }: { message: string }) => (
+	<Text selectable className="font-sans text-[13px] leading-5 text-danger">
+		{message}
+	</Text>
+);
+
+const PrimaryButton = ({
+	label,
+	busy,
+	onPress,
+}: {
+	label: string;
+	busy: boolean;
+	onPress: () => void;
+}) => (
+	<Pressable
+		accessibilityRole="button"
+		disabled={busy}
+		onPress={onPress}
+		className="h-12 items-center justify-center rounded-xl bg-foreground active:opacity-80"
+		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
+	>
+		<Text className="font-sans-medium text-[16px] text-background">
+			{label}
+		</Text>
+	</Pressable>
+);
+
+const SecondaryButton = ({
+	label,
+	busy,
+	danger,
+	onPress,
+}: {
+	label: string;
+	busy: boolean;
+	danger?: boolean;
+	onPress: () => void;
+}) => (
+	<Pressable
+		accessibilityRole="button"
+		disabled={busy}
+		onPress={onPress}
+		className="h-11 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
+	>
+		<Text
+			className={cn(
+				"font-sans-medium text-[15px]",
+				danger ? "text-danger" : "text-foreground",
+			)}
+		>
+			{label}
+		</Text>
+	</Pressable>
+);

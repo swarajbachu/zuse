@@ -1,6 +1,5 @@
 import {
 	ArrowUp02Icon,
-	CancelCircleIcon,
 	CloudOffIcon,
 	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
@@ -14,6 +13,8 @@ import {
 	Message,
 	type MessageContent,
 	MessageId,
+	type PermissionMode,
+	type RuntimeMode,
 	type Session,
 	type SessionId,
 	type SessionStatus,
@@ -21,7 +22,8 @@ import {
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { ListTodo, X } from "lucide-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
 	Pressable,
@@ -33,7 +35,11 @@ import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
-import { availableProviderIds } from "~/lib/model-options";
+import {
+	availableProviderIds,
+	modelOptionsForProvider,
+	reasoningValueForModel,
+} from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
@@ -56,11 +62,11 @@ import {
 } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { colors } from "~/theme";
-import {
-	ComposerModelMenu,
-	ComposerSettingsMenu,
-	type ModelModeValue,
-} from "./model-mode-menu";
+import { ComposerApprovalMenu } from "./composer-approval-menu";
+import { ComposerPlusMenu } from "./composer-plus-menu";
+import type { ModelModeValue } from "./model-mode-menu";
+import { ModelSheet } from "./model-sheet";
+import { ProviderLogo } from "./provider-logo";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
 import { HugeIcon } from "./ui/huge-icon";
@@ -90,6 +96,12 @@ export const Composer = ({
 }) => {
 	const [text, setText] = useState("");
 	const [busy, setBusy] = useState(false);
+	const [focused, setFocused] = useState(false);
+	const [modelSheetOpen, setModelSheetOpen] = useState(false);
+	// Only auto-focus the input when the user taps the collapsed pill — never when
+	// the bar auto-expands (e.g. opening a running session) so the keyboard
+	// doesn't pop unexpectedly.
+	const shouldAutoFocus = useRef(false);
 	const stateKey = connectionSessionKey(connKey, sessionId);
 
 	const queuedCount = useOutboxStore(
@@ -156,6 +168,16 @@ export const Composer = ({
 					runtimeMode: session.runtimeMode,
 					permissionMode: session.permissionMode,
 				};
+	const planMode = modelValue?.permissionMode === "plan";
+	// Collapse to a compact pill when the composer is idle: not focused, empty,
+	// and the agent isn't running. Any of those expands it to the full bar.
+	const expanded =
+		focused || text.trim().length > 0 || showInterrupt || modelSheetOpen;
+
+	const fileCount = currentActivity?.files.length ?? 0;
+	const agentCount = currentActivity?.agents ?? 0;
+	const hasPills =
+		!online || queuedCount > 0 || fileCount > 0 || agentCount > 0;
 
 	const submit = async () => {
 		if (!canSend) return;
@@ -285,159 +307,189 @@ export const Composer = ({
 		}
 	};
 
+	const setRuntimeMode = (runtimeMode: RuntimeMode) => {
+		if (modelValue === null) return;
+		void changeModelMode({ ...modelValue, runtimeMode });
+	};
+	const setPermissionMode = (permissionMode: PermissionMode) => {
+		if (modelValue === null) return;
+		void changeModelMode({ ...modelValue, permissionMode });
+	};
+
 	return (
 		<View
 			className="px-3 pt-2"
 			style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
 		>
-			<View className="min-h-11 flex-row flex-wrap items-center justify-center gap-2 pb-2">
-				{!online ? (
-					<StatusPill
-						label={
-							connectionStatus === "error"
-								? "Connection unavailable · Retry"
-								: connectionStatus === "blockedAuth"
-									? "Sign in required"
-									: connectionStatus === "offline"
-										? "Offline"
-										: connectionStatus === "connecting"
-											? "Connecting"
-											: "Reconnecting"
-						}
-						tone={connectionStatus === "error" ? "danger" : "warning"}
-						onPress={
-							connectionStatus === "error" ? onRetryConnection : undefined
-						}
-					/>
-				) : null}
-				{queuedCount > 0 ? (
-					<StatusPill
-						label={`${queuedCount} queued${queueSending ? " · sending" : queueError ? " · retry" : ""}`}
-						tone={queueError ? "danger" : "neutral"}
-					/>
-				) : null}
-				{(currentActivity?.files.length ?? 0) > 0 ? (
-					<StatusPill
-						label={`${currentActivity?.files.length ?? 0} files  +${currentActivity?.added ?? 0} −${currentActivity?.removed ?? 0}`}
-						tone="files"
-						onPress={
-							currentActivity?.fileItemId === null ||
-							currentActivity?.fileItemId === undefined
-								? undefined
-								: () =>
-										router.push({
-											pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
-											params: {
-												conn: connKey,
-												sessionId,
-												itemId: currentActivity?.fileItemId ?? "",
-											},
-										})
-						}
-					/>
-				) : null}
-				{(currentActivity?.agents ?? 0) > 0 ? (
-					<StatusPill
-						label={`${currentActivity?.agents} ${currentActivity?.agents === 1 ? "agent" : "agents"}`}
-						tone="neutral"
-						onPress={
-							currentActivity?.agentItemId === null ||
-							currentActivity?.agentItemId === undefined
-								? undefined
-								: () =>
-										router.push({
-											pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
-											params: {
-												conn: connKey,
-												sessionId,
-												itemId: currentActivity?.agentItemId ?? "",
-											},
-										})
-						}
-					/>
-				) : null}
-			</View>
+			{hasPills ? (
+				<View className="mb-2 flex-row flex-wrap items-center justify-center gap-2">
+					{!online ? (
+						<StatusPill
+							label={
+								connectionStatus === "error"
+									? "Connection unavailable · Retry"
+									: connectionStatus === "blockedAuth"
+										? "Sign in required"
+										: connectionStatus === "offline"
+											? "Offline"
+											: connectionStatus === "connecting"
+												? "Connecting"
+												: "Reconnecting"
+							}
+							tone={connectionStatus === "error" ? "danger" : "warning"}
+							onPress={
+								connectionStatus === "error" ? onRetryConnection : undefined
+							}
+						/>
+					) : null}
+					{queuedCount > 0 ? (
+						<StatusPill
+							label={`${queuedCount} queued${queueSending ? " · sending" : queueError ? " · retry" : ""}`}
+							tone={queueError ? "danger" : "neutral"}
+						/>
+					) : null}
+					{fileCount > 0 ? (
+						<StatusPill
+							label={`${fileCount} files  +${currentActivity?.added ?? 0} −${currentActivity?.removed ?? 0}`}
+							tone="files"
+							onPress={
+								currentActivity?.fileItemId == null
+									? undefined
+									: () =>
+											router.push({
+												pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
+												params: {
+													conn: connKey,
+													sessionId,
+													itemId: currentActivity?.fileItemId ?? "",
+												},
+											})
+							}
+						/>
+					) : null}
+					{agentCount > 0 ? (
+						<StatusPill
+							label={`${agentCount} ${agentCount === 1 ? "agent" : "agents"}`}
+							tone="neutral"
+							onPress={
+								currentActivity?.agentItemId == null
+									? undefined
+									: () =>
+											router.push({
+												pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
+												params: {
+													conn: connKey,
+													sessionId,
+													itemId: currentActivity?.agentItemId ?? "",
+												},
+											})
+							}
+						/>
+					) : null}
+				</View>
+			) : null}
+
 			<GlassSurface
 				style={{
 					gap: 8,
-					padding: 10,
+					paddingHorizontal: expanded ? 16 : 12,
+					paddingVertical: expanded ? 10 : 6,
+					borderRadius: 26,
+					borderWidth: planMode ? 1.5 : 0,
+					borderColor: planMode ? colors.accent : "transparent",
 				}}
 			>
-				{modelValue?.permissionMode === "plan" ? (
-					<PlanPill
-						editable
-						onClear={() =>
-							void changeModelMode({ ...modelValue, permissionMode: "default" })
-						}
-					/>
+				{expanded && planMode ? (
+					<PlanPill onClear={() => setPermissionMode("default")} />
 				) : null}
-				<TextInput
-					className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
-					multiline
-					placeholder={online ? "Message" : "Offline · message will queue"}
-					placeholderTextColor={colors.tertiaryFg}
-					value={text}
-					onChangeText={setText}
-				/>
-				<View className="flex-row items-end gap-2">
-					{modelValue === null ? null : (
-						<>
-							<ComposerSettingsMenu
-								value={modelValue}
-								editable
-								onChange={(next) => void changeModelMode(next)}
+
+				{expanded ? (
+					<>
+						<TextInput
+							// Focus on mount only when the user opened the bar by tapping the
+							// collapsed pill — avoids popping the keyboard on auto-expand.
+							ref={(node) => {
+								if (node && shouldAutoFocus.current) {
+									shouldAutoFocus.current = false;
+									node.focus();
+								}
+							}}
+							className="max-h-36 min-h-11 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
+							multiline
+							placeholder={online ? "Ask Zuse" : "Offline · message will queue"}
+							placeholderTextColor={colors.tertiaryFg}
+							value={text}
+							onChangeText={setText}
+							onFocus={() => setFocused(true)}
+							onBlur={() => setFocused(false)}
+						/>
+						<View className="flex-row items-center gap-2">
+							{modelValue === null ? null : (
+								<>
+									<ComposerPlusMenu
+										planMode={planMode}
+										onTogglePlan={(next) =>
+											setPermissionMode(next ? "plan" : "default")
+										}
+									/>
+									<ComposerApprovalMenu
+										runtimeMode={modelValue.runtimeMode}
+										onChange={setRuntimeMode}
+									/>
+									<View className="min-w-0 flex-1" />
+									<ModelLabel
+										value={modelValue}
+										onPress={() => setModelSheetOpen(true)}
+									/>
+								</>
+							)}
+							<SendButton
+								showInterrupt={showInterrupt}
+								online={online}
+								busy={busy}
+								disabled={showInterrupt ? busy || !online : !canSend}
+								onPress={showInterrupt ? interrupt : submit}
 							/>
-							<View className="min-w-0 flex-1" />
-							<View className="h-11 justify-end pb-2">
-								<ComposerModelMenu
-									value={modelValue}
-									editable
-									onChange={(next) => void changeModelMode(next)}
-									availableProviders={availableProviders}
-									canChangeProvider={fresh}
-									canChangeReasoning={fresh}
-								/>
-							</View>
-						</>
-					)}
-					<Button
-						size="sm"
-						variant={
-							showInterrupt ? "secondary" : online ? "primary" : "secondary"
-						}
-						className="h-11 w-11 rounded-2xl px-0"
-						disabled={showInterrupt ? busy || !online : !canSend}
-						onPress={showInterrupt ? interrupt : submit}
-						accessibilityLabel={
-							showInterrupt
-								? "Stop response"
-								: online
-									? "Send message"
-									: "Queue message"
-						}
-					>
-						{busy ? (
-							<ActivityIndicator
-								color={showInterrupt ? colors.fg : colors.bg}
-							/>
-						) : showInterrupt ? (
-							<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
-						) : online ? (
-							<HugeIcon
-								icon={ArrowUp02Icon}
-								size={18}
-								color={colors.bg as string}
-							/>
-						) : (
-							<HugeIcon
-								icon={CloudOffIcon}
-								size={15}
-								color={colors.fg as string}
+						</View>
+					</>
+				) : (
+					<View className="flex-row items-center gap-1">
+						{modelValue === null ? null : (
+							<ComposerPlusMenu
+								planMode={planMode}
+								onTogglePlan={(next) =>
+									setPermissionMode(next ? "plan" : "default")
+								}
 							/>
 						)}
-					</Button>
-				</View>
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel="Write a message"
+							className="min-h-11 flex-1 justify-center px-1"
+							onPress={() => {
+								shouldAutoFocus.current = true;
+								setFocused(true);
+							}}
+						>
+							<Text className="font-sans text-[17px] text-muted-foreground">
+								{online ? "Ask Zuse" : "Offline · message will queue"}
+							</Text>
+						</Pressable>
+					</View>
+				)}
 			</GlassSurface>
+
+			{modelValue === null ? null : (
+				<ModelSheet
+					open={modelSheetOpen}
+					onOpenChange={setModelSheetOpen}
+					value={modelValue}
+					availableProviders={availableProviders}
+					canChangeProvider={fresh}
+					canChangeReasoning={fresh}
+					onChange={(next) => void changeModelMode(next)}
+				/>
+			)}
 		</View>
 	);
 };
@@ -445,24 +497,95 @@ export const Composer = ({
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
-const PlanPill = ({
-	editable,
-	onClear,
+const modelLabelFor = (value: ModelModeValue): string =>
+	modelOptionsForProvider(value.providerId).find(
+		(model) => model.value === value.model,
+	)?.label ?? value.model;
+
+/** The right-aligned "5.6 Sol · High" chip that opens the model sheet. */
+const ModelLabel = ({
+	value,
+	onPress,
 }: {
-	editable: boolean;
-	onClear: () => void;
+	value: ModelModeValue;
+	onPress: () => void;
+}) => {
+	const reasoning = reasoningValueForModel(
+		value.providerId,
+		value.model,
+		value.modelOptions,
+	);
+	return (
+		<Pressable
+			accessibilityRole="button"
+			accessibilityLabel="Model settings"
+			onPress={onPress}
+			hitSlop={8}
+			className="h-11 flex-row items-center gap-1.5 px-1 active:opacity-60"
+		>
+			<ProviderLogo providerId={value.providerId} size={15} />
+			<Text
+				className="max-w-[140px] font-sans-medium text-[15px] text-foreground"
+				numberOfLines={1}
+			>
+				{modelLabelFor(value)}
+			</Text>
+			{reasoning ? (
+				<Text className="font-sans text-[15px] text-muted-foreground">
+					{reasoning.label}
+				</Text>
+			) : null}
+		</Pressable>
+	);
+};
+
+const SendButton = ({
+	showInterrupt,
+	online,
+	busy,
+	disabled,
+	onPress,
+}: {
+	showInterrupt: boolean;
+	online: boolean;
+	busy: boolean;
+	disabled: boolean;
+	onPress: () => void;
 }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-2">
-		<Text className="font-sans-medium text-[15px] text-foreground">Plan</Text>
-		{editable ? (
-			<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
-				<HugeIcon
-					icon={CancelCircleIcon}
-					size={15}
-					color={colors.secondaryFg as string}
-				/>
-			</Pressable>
-		) : null}
+	<Button
+		size="sm"
+		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
+		className="h-11 w-11 rounded-full px-0"
+		disabled={disabled}
+		onPress={onPress}
+		accessibilityLabel={
+			showInterrupt
+				? "Stop response"
+				: online
+					? "Send message"
+					: "Queue message"
+		}
+	>
+		{busy ? (
+			<ActivityIndicator color={showInterrupt ? colors.fg : colors.bg} />
+		) : showInterrupt ? (
+			<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
+		) : online ? (
+			<HugeIcon icon={ArrowUp02Icon} size={18} color={colors.bg as string} />
+		) : (
+			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
+		)}
+	</Button>
+);
+
+/** The "Plan" indicator pill docked at the top of the composer in plan mode. */
+const PlanPill = ({ onClear }: { onClear: () => void }) => (
+	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
+		<ListTodo size={15} color={colors.accent} />
+		<Text className="font-sans-medium text-[14px] text-foreground">Plan</Text>
+		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
+			<X size={14} color={colors.secondaryFg} />
+		</Pressable>
 	</View>
 );
 
