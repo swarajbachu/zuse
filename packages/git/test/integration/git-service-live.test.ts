@@ -11,6 +11,7 @@ import {
 	Layer,
 	type Path,
 	PlatformError,
+	Stream,
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -137,6 +138,87 @@ describe("GitServiceLive", () => {
 
 		expect(commit.sha).toBe(git(repositoryRoot, "rev-parse", "HEAD"));
 		expect(git(remote, "rev-parse", "refs/heads/main")).toBe(commit.sha);
+	});
+
+	test("reviews committed, pushed, and uncommitted branch changes from the merge base", async () => {
+		const remote = join(temporaryRoot, "remote.git");
+		git(temporaryRoot, "init", "--bare", remote);
+		git(repositoryRoot, "remote", "add", "origin", remote);
+		git(repositoryRoot, "push", "-u", "origin", "main");
+		git(repositoryRoot, "remote", "set-head", "origin", "main");
+		git(repositoryRoot, "switch", "-c", "feature");
+		writeFileSync(join(repositoryRoot, "README.md"), "first\ncommitted\n");
+		writeFileSync(join(repositoryRoot, "branch.txt"), "branch\n");
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "branch work");
+		git(repositoryRoot, "push", "-u", "origin", "feature");
+		writeFileSync(
+			join(repositoryRoot, "README.md"),
+			"first\ncommitted\nuncommitted\n",
+		);
+		writeFileSync(join(repositoryRoot, "untracked.txt"), "new\n");
+
+		const [summary, readmeDiff, streamed] = await run((service) =>
+			Effect.all([
+				service.reviewSummary(folderId),
+				service.diff(folderId, "README.md"),
+				Stream.runCollect(service.reviewPatches(folderId)),
+			]),
+		);
+
+		expect(summary.baseRef).toBe("origin/main");
+		expect(summary.files.map((file) => file.path)).toEqual([
+			"branch.txt",
+			"README.md",
+			"untracked.txt",
+		]);
+		expect(
+			summary.files.find((file) => file.path === "README.md"),
+		).toMatchObject({ kind: "modified", hasUncommittedChanges: true });
+		expect(readmeDiff.patch).toContain("+committed");
+		expect(readmeDiff.patch).toContain("+uncommitted");
+		expect(Array.from(streamed, (entry) => entry.path)).toEqual(
+			summary.files.map((file) => file.path),
+		);
+	});
+
+	test("restores a reviewed file to the comparison base as a worktree change", async () => {
+		git(repositoryRoot, "switch", "-c", "feature");
+		writeFileSync(join(repositoryRoot, "README.md"), "changed\n");
+		git(repositoryRoot, "add", "README.md");
+		git(repositoryRoot, "commit", "-m", "change readme");
+
+		const result = await run((service) =>
+			service.restoreFileToBase(folderId, "README.md"),
+		);
+
+		expect(result.restored).toBe(true);
+		expect(git(repositoryRoot, "diff", "--", "README.md")).toContain("+first");
+	});
+
+	test("reports renamed, deleted, and binary files with review metadata", async () => {
+		writeFileSync(join(repositoryRoot, "remove-me.txt"), "remove\n");
+		git(repositoryRoot, "add", "remove-me.txt");
+		git(repositoryRoot, "commit", "-m", "add fixture");
+		git(repositoryRoot, "switch", "-c", "feature");
+		git(repositoryRoot, "mv", "README.md", "README-renamed.md");
+		git(repositoryRoot, "rm", "remove-me.txt");
+		writeFileSync(join(repositoryRoot, "image.bin"), Buffer.from([0, 1, 2, 3]));
+		git(repositoryRoot, "add", ".");
+
+		const summary = await run((service) => service.reviewSummary(folderId));
+
+		expect(summary.files).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					path: "README-renamed.md",
+					oldPath: "README.md",
+					kind: "renamed",
+				}),
+				expect.objectContaining({ path: "remove-me.txt", kind: "deleted" }),
+				expect.objectContaining({ path: "image.bin", binary: true }),
+			]),
+		);
 	});
 
 	test("maps push failures to GitCommandError", async () => {

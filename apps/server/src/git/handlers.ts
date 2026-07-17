@@ -97,6 +97,37 @@ const Changes = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const ReviewSummary = MemoizeRpcs.toLayerHandler(
+  "git.reviewSummary",
+  ({ folderId, worktreeId }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewSummary(folderId, worktreeId ?? null),
+    ),
+);
+
+const ReviewPatches = MemoizeRpcs.toLayerHandler(
+  "git.reviewPatches",
+  ({ folderId, worktreeId }) =>
+    Stream.unwrap(
+      Effect.map(GitService, (svc) =>
+        svc.reviewPatches(folderId, worktreeId ?? null),
+      ),
+    ),
+);
+
+const ReviewFileContents = MemoizeRpcs.toLayerHandler(
+  "git.reviewFileContents",
+  ({ folderId, worktreeId, path, oldPath }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewFileContents(
+        folderId,
+        path,
+        oldPath ?? null,
+        worktreeId ?? null,
+      ),
+    ),
+);
+
 const Diff = MemoizeRpcs.toLayerHandler(
   "git.diff",
   ({ folderId, worktreeId, path }) =>
@@ -159,6 +190,19 @@ const RevertAll = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const RestoreFileToBase = MemoizeRpcs.toLayerHandler(
+  "git.restoreFileToBase",
+  ({ folderId, worktreeId, path, oldPath }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.restoreFileToBase(
+        folderId,
+        path,
+        oldPath ?? null,
+        worktreeId ?? null,
+      ),
+    ),
+);
+
 const DiffStat = MemoizeRpcs.toLayerHandler(
   "git.diffStat",
   ({ folderId, worktreeId }) =>
@@ -194,6 +238,9 @@ export const GitHandlersLayer = Layer.mergeAll(
   ListIssues,
   IssueMarkdown,
   Changes,
+  ReviewSummary,
+  ReviewPatches,
+  ReviewFileContents,
   Diff,
   Commit,
   Push,
@@ -202,6 +249,7 @@ export const GitHandlersLayer = Layer.mergeAll(
   MarkReady,
   Init,
   RevertFile,
+  RestoreFileToBase,
   RevertAll,
   DiffStat,
   FixFailingChecks,

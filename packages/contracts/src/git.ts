@@ -447,6 +447,39 @@ export const GitChangesRpc = Rpc.make("git.changes", {
   error: GitErrors,
 });
 
+/** One file in the branch review range (merge-base through the worktree). */
+export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")({
+  path: Schema.String,
+  oldPath: Schema.NullOr(Schema.String),
+  kind: GitChangeKind,
+  additions: Schema.Number,
+  deletions: Schema.Number,
+  binary: Schema.Boolean,
+  conflict: Schema.Boolean,
+  hasUncommittedChanges: Schema.Boolean,
+}) {}
+
+/** Stable comparison metadata used by the dock and the multi-file reviewer. */
+export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
+  "GitReviewSummary",
+)({
+  baseRef: Schema.NullOr(Schema.String),
+  baseSha: Schema.String,
+  headSha: Schema.String,
+  files: Schema.Array(GitReviewFile),
+  additions: Schema.Number,
+  deletions: Schema.Number,
+}) {}
+
+export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: GitReviewSummary,
+  error: GitErrors,
+});
+
 /**
  * Diff modes returned by `git.diff`. `worktree` is the common case
  * (tracked file with edits); `untracked` is a synthetic /dev/null diff
@@ -478,6 +511,44 @@ export const GitDiffRpc = Rpc.make("git.diff", {
     path: Schema.String,
   }),
   success: GitDiffResult,
+  error: GitErrors,
+});
+
+export class GitReviewPatch extends Schema.Class<GitReviewPatch>(
+  "GitReviewPatch",
+)({
+  path: Schema.String,
+  result: GitDiffResult,
+}) {}
+
+/** Streams complete per-file patches in review order for incremental rendering. */
+export const GitReviewPatchesRpc = Rpc.make("git.reviewPatches", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: GitReviewPatch,
+  error: GitErrors,
+  stream: true,
+});
+
+export class GitReviewFileContents extends Schema.Class<GitReviewFileContents>(
+  "GitReviewFileContents",
+)({
+  oldContent: Schema.NullOr(Schema.String),
+  newContent: Schema.NullOr(Schema.String),
+  mtime: Schema.NullOr(Schema.String),
+}) {}
+
+/** Full text is fetched only when hunk expansion or inline editing needs it. */
+export const GitReviewFileContentsRpc = Rpc.make("git.reviewFileContents", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  success: GitReviewFileContents,
   error: GitErrors,
 });
 
@@ -594,6 +665,18 @@ export const GitRevertFileRpc = Rpc.make("git.revertFile", {
     kind: GitChangeKind,
   }),
   success: Schema.Struct({ reverted: Schema.Boolean }),
+  error: GitErrors,
+});
+
+/** Restore one review entry to its merge-base state as a new worktree edit. */
+export const GitRestoreFileToBaseRpc = Rpc.make("git.restoreFileToBase", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  success: Schema.Struct({ restored: Schema.Boolean }),
   error: GitErrors,
 });
 

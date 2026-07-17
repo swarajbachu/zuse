@@ -5,6 +5,7 @@ import type {
   WorktreeId,
 } from "@zuse/contracts";
 import { create } from "zustand";
+import { requestReviewLeave } from "../lib/review-edit-guard.ts";
 
 import {
   defaultFileViewForName,
@@ -45,7 +46,7 @@ export type SettingsSection =
  * the file tab only exists when `openFile !== null`. Opening a different file
  * replaces (never stacks) the file tab — see specs/0.02-MVP/features/file-viewer.md.
  */
-export type MainTab = "chat" | "file" | "archives" | "usage";
+export type MainTab = "chat" | "file" | "changes" | "archives" | "usage";
 
 /**
  * Whether the Usage dashboard shows every project's usage (`global`, opened
@@ -162,6 +163,13 @@ export type RevealedAnnotation = CodeAnnotation & {
   readonly revealToken: number;
 };
 
+export type ReviewNavigation = {
+  readonly path: string | null;
+  readonly line: number | null;
+  readonly side: "additions" | "deletions" | null;
+  readonly token: number;
+};
+
 type UiState = {
   readonly view: View;
   readonly setView: (view: View) => void;
@@ -170,6 +178,8 @@ type UiState = {
   readonly activeMainTab: MainTab;
   readonly usageScope: UsageScope;
   readonly openFile: OpenFile | null;
+  readonly changesTabOpen: boolean;
+  readonly reviewNavigation: ReviewNavigation | null;
   readonly fileDirty: boolean;
   // 0.02 hard-codes false. The future settings-page autosave toggle flips
   // this to true and a debounced save kicks in inside FileEditor.
@@ -208,6 +218,12 @@ type UiState = {
   ) => void;
   readonly setOpenFileView: (view: FileView) => void;
   readonly closeFileTab: () => void;
+  readonly openChanges: (
+    path?: string | null,
+    line?: number | null,
+    side?: "additions" | "deletions" | null,
+  ) => void;
+  readonly closeChangesTab: () => void;
   readonly setFileDirty: (dirty: boolean) => void;
   readonly setLeftSidebarOpen: (open: boolean) => void;
   readonly setLeftSidebarPeek: (peek: boolean) => void;
@@ -312,6 +328,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   activeMainTab: "chat",
   usageScope: "global",
   openFile: null,
+  changesTabOpen: false,
+  reviewNavigation: null,
   fileDirty: false,
   autosave: false,
   leftSidebarOpen: true,
@@ -324,11 +342,17 @@ export const useUiStore = create<UiState>((set, get) => ({
   activeRightPanelByChat: {},
   selectedSubagentByChat: {},
   revealedAnnotation: null,
-  setActiveMainTab: (tab) => set({ activeMainTab: tab }),
+  setActiveMainTab: (tab) => {
+    if (get().activeMainTab === "changes" && tab !== "changes") {
+      requestReviewLeave(() => set({ activeMainTab: tab }));
+      return;
+    }
+    set({ activeMainTab: tab });
+  },
   openUsage: (scope) =>
     set({ view: "chat", activeMainTab: "usage", usageScope: scope }),
-  openFileInTab: (file) =>
-    set({
+  openFileInTab: (file) => {
+    const open = () => set({
       openFile:
         file.kind === "image"
           ? file
@@ -341,7 +365,13 @@ export const useUiStore = create<UiState>((set, get) => ({
             },
       activeMainTab: "file",
       fileDirty: false,
-    }),
+    });
+    if (get().activeMainTab === "changes") {
+      requestReviewLeave(open);
+      return;
+    }
+    open();
+  },
   setOpenFileView: (view) =>
     set((s) => {
       if (
@@ -356,6 +386,26 @@ export const useUiStore = create<UiState>((set, get) => ({
     }),
   closeFileTab: () =>
     set({ openFile: null, activeMainTab: "chat", fileDirty: false }),
+  openChanges: (path = null, line = null, side = null) =>
+    set((state) => ({
+      view: "chat",
+      changesTabOpen: true,
+      activeMainTab: "changes",
+      reviewNavigation: {
+        path,
+        line,
+        side,
+        token: (state.reviewNavigation?.token ?? 0) + 1,
+      },
+    })),
+  closeChangesTab: () =>
+    requestReviewLeave(() =>
+      set({
+        changesTabOpen: false,
+        activeMainTab: "chat",
+        reviewNavigation: null,
+      }),
+    ),
   setFileDirty: (dirty) => set({ fileDirty: dirty }),
   // Opening the docked panel implicitly drops any peek state so the overlay
   // doesn't sit on top of the docked panel. Closing it also clears peek so a
@@ -486,6 +536,14 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   revealAnnotation: (annotation) =>
     set((s) => ({
+      changesTabOpen: true,
+      activeMainTab: "changes",
+      reviewNavigation: {
+        path: annotation.relPath,
+        line: annotation.startLine,
+        side: annotation.diffSide ?? null,
+        token: (s.reviewNavigation?.token ?? 0) + 1,
+      },
       revealedAnnotation: {
         ...annotation,
         revealToken: (s.revealedAnnotation?.revealToken ?? 0) + 1,

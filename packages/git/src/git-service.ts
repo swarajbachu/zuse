@@ -16,6 +16,9 @@ import type {
 	GitPrDetails,
 	GitPrInfo,
 	GitPrSummary,
+	GitReviewFileContents,
+	GitReviewPatch,
+	GitReviewSummary,
 	GitStatusSummary,
 	WorktreeId,
 } from "@zuse/contracts";
@@ -105,6 +108,20 @@ export interface GitServiceShape {
 		path: string,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<GitDiffResult, GitFailure>;
+	readonly reviewSummary: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitReviewSummary, GitFailure>;
+	readonly reviewPatches: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Stream.Stream<GitReviewPatch, GitFailure>;
+	readonly reviewFileContents: (
+		folderId: FolderId,
+		path: string,
+		oldPath?: string | null,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitReviewFileContents, GitFailure>;
 	readonly commit: (
 		folderId: FolderId,
 		message: string,
@@ -146,6 +163,12 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly reverted: boolean }, GitFailure>;
+	readonly restoreFileToBase: (
+		folderId: FolderId,
+		path: string,
+		oldPath?: string | null,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly restored: boolean }, GitFailure>;
 	readonly diffStat: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,

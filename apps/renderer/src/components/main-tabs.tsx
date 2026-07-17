@@ -75,6 +75,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
   const openFile = useUiStore((s) => s.openFile);
   const closeFileTab = useUiStore((s) => s.closeFileTab);
   const fileDirty = useUiStore((s) => s.fileDirty);
+  const changesTabOpen = useUiStore((s) => s.changesTabOpen);
+  const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const projectSessions = useSessionsStore((s) =>
@@ -192,6 +194,16 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
             onClose={closeFileTab}
           />
         )}
+        {changesTabOpen ? (
+          <FileTabButton
+            active={activeMainTab === "changes"}
+            name="All changes"
+            path="Review every change on this branch"
+            dirty={false}
+            onClick={() => setActiveMainTab("changes")}
+            onClose={closeChangesTab}
+          />
+        ) : null}
       </div>
       <div className="flex-1" />
     </header>

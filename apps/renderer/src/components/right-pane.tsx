@@ -196,6 +196,7 @@ export function RightPane() {
   const addPanel = useUiStore((s) => s.addPanel);
   const closePanel = useUiStore((s) => s.closePanel);
   const setActive = useUiStore((s) => s.setActiveRightPanel);
+  const openChanges = useUiStore((s) => s.openChanges);
 
   // Glide dock tabs when panels are opened or closed. Declared with the other
   // hooks (above the `selected === null` early return) to satisfy hook rules.
@@ -284,7 +285,10 @@ export function RightPane() {
               icon={PANEL_META[panel.kind].icon}
               label={tabLabel(panel)}
               badge={tabBadge(panel)}
-              onSelect={() => setActive(panel.id)}
+              onSelect={() => {
+                setActive(panel.id);
+                if (panel.kind === "changes") openChanges();
+              }}
               onClose={() => handleClose(panel)}
             />
           ))}

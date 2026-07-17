@@ -274,6 +274,9 @@ const makeRuntime = (
 		issueMarkdown: () => Effect.die("not used"),
 		changes: () => Effect.die("not used"),
 		diff: () => Effect.die("not used"),
+		reviewSummary: () => Effect.die("not used"),
+		reviewPatches: () => Stream.die("not used"),
+		reviewFileContents: () => Effect.die("not used"),
 		commit: () => Effect.die("not used"),
 		push: () => Effect.die("not used"),
 		resolveConflict: () => Effect.die("not used"),
@@ -282,6 +285,7 @@ const makeRuntime = (
 		init: () => Effect.die("not used"),
 		revertFile: () => Effect.die("not used"),
 		revertAll: () => Effect.die("not used"),
+		restoreFileToBase: () => Effect.die("not used"),
 		diffStat: () => Effect.die("not used"),
 		fixFailingChecks: () => Effect.die("not used"),
 	});
