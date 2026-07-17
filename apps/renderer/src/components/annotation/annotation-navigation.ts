@@ -11,7 +11,6 @@ const basename = (p: string): string => {
   const i = p.lastIndexOf("/");
   return i === -1 ? p : p.slice(i + 1);
 };
-
 export const useRevealAnnotation = (opts?: {
   readonly folderId?: FolderId | null;
   readonly worktreeId?: WorktreeId | null;
@@ -55,7 +54,7 @@ export const useRevealAnnotation = (opts?: {
         if (annotation.diffSide !== undefined) {
           openChanges(
             workspaceRelPath,
-            annotation.startLine,
+            annotation.diffAnchorLine ?? annotation.startLine,
             annotation.diffSide,
           );
           return;

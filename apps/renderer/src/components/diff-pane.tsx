@@ -403,7 +403,7 @@ export function DiffPane({
 														onClick={() =>
 															openChanges(
 																comment.relPath,
-																comment.startLine,
+																comment.diffAnchorLine ?? comment.startLine,
 																comment.diffSide ?? null,
 															)
 														}

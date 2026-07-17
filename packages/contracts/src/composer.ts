@@ -67,6 +67,8 @@ export const CodeAnnotation = Schema.Struct({
   comment: Schema.String,
   /** Diff side for branch-review annotations. Omitted for plain file notes. */
   diffSide: Schema.optional(Schema.Literals(["additions", "deletions"])),
+  /** Exact diff line that owns the annotation slot after range normalization. */
+  diffAnchorLine: Schema.optional(Schema.Number),
   /** Previous path when the selected line belongs to a renamed file. */
   oldPath: Schema.optional(Schema.String),
   /** Comparison ref shown when the annotation was created. */

@@ -2,9 +2,12 @@ import type {
 	CodeViewDiffItem,
 	CodeViewItem,
 	CodeViewLineSelection,
+	CodeViewOptions,
 	DiffLineAnnotation,
 	FileContents,
+	LineAnnotation,
 	MergeConflictResolution,
+	SelectedLineRange,
 } from "@pierre/diffs";
 import { DEFAULT_THEMES, processFile } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
@@ -36,6 +39,7 @@ import {
 	FilePenLine,
 	MoreHorizontal,
 	PanelTop,
+	Pencil,
 	RotateCcw,
 	Rows3,
 	Save,
@@ -43,17 +47,12 @@ import {
 	Settings2,
 	Sparkles,
 	SquarePlus,
+	Trash2,
 	UserRound,
 	X,
 } from "lucide-react";
-import {
-	type FormEvent,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getReviewAnnotationAnchor } from "../lib/review-annotations.ts";
 import {
 	configureReviewEditGuard,
 	requestReviewLeave,
@@ -135,7 +134,7 @@ export const reviewFingerprint = (patch: string): string => {
 
 type AnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }
-	| { readonly kind: "draft" };
+	| { readonly kind: "draft"; readonly selection: CodeViewLineSelection };
 
 type HydratedFile = {
 	readonly oldContent: string | null;
@@ -194,10 +193,10 @@ function ChangesReviewReady({
 	const [preferences, setPreferences] = useState(loadPreferences);
 	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 	const [viewed, setViewed] = useState(loadViewed);
-	const [selection, setSelection] = useState<CodeViewLineSelection | null>(
-		null,
-	);
-	const [annotationText, setAnnotationText] = useState("");
+	const [selectedLines, setSelectedLines] =
+		useState<CodeViewLineSelection | null>(null);
+	const [draftSelection, setDraftSelection] =
+		useState<CodeViewLineSelection | null>(null);
 	const [annotationError, setAnnotationError] = useState<string | null>(null);
 	const [editingPath, setEditingPath] = useState<string | null>(null);
 	const [hydrated, setHydrated] = useState<Record<string, HydratedFile>>({});
@@ -241,22 +240,24 @@ function ChangesReviewReady({
 			const list = map.get(annotation.relPath) ?? [];
 			list.push({
 				side: annotation.diffSide ?? "additions",
-				lineNumber: annotation.startLine,
+				lineNumber: annotation.diffAnchorLine ?? annotation.startLine,
 				metadata: { kind: "saved", annotation },
 			});
 			map.set(annotation.relPath, list);
 		}
-		if (selection !== null) {
-			const list = map.get(selection.id) ?? [];
-			list.push({
-				side: selection.range.side ?? "additions",
-				lineNumber: Math.min(selection.range.start, selection.range.end),
-				metadata: { kind: "draft" },
-			});
-			map.set(selection.id, list);
+		if (draftSelection !== null) {
+			const anchor = getReviewAnnotationAnchor(draftSelection.range);
+			if (anchor !== null) {
+				const list = map.get(draftSelection.id) ?? [];
+				list.push({
+					...anchor,
+					metadata: { kind: "draft", selection: draftSelection },
+				});
+				map.set(draftSelection.id, list);
+			}
 		}
 		return map;
-	}, [annotations, selection]);
+	}, [annotations, draftSelection]);
 
 	const items = useMemo(() => {
 		if (summary === null) return [];
@@ -611,32 +612,125 @@ function ChangesReviewReady({
 		],
 	);
 
-	const saveAnnotation = (event: FormEvent) => {
-		event.preventDefault();
-		if (selection === null || annotationText.trim().length === 0) return;
-		if (selectedSessionId === null) {
-			setAnnotationError("Open a chat session before adding a review comment.");
-			return;
-		}
-		const file = fileByPath.get(selection.id);
-		useAnnotationsStore.getState().add(selectedSessionId, {
-			relPath: selection.id,
-			absPath: `${rootPath}/${selection.id}`,
-			startLine: Math.min(selection.range.start, selection.range.end),
-			endLine: Math.max(selection.range.start, selection.range.end),
-			comment: annotationText.trim(),
-			diffSide: selection.range.side ?? "additions",
-			...(file?.oldPath === null || file?.oldPath === undefined
-				? {}
-				: { oldPath: file.oldPath }),
-			...(summary?.baseRef === null || summary?.baseRef === undefined
-				? {}
-				: { baseRef: summary.baseRef }),
-		});
-		setAnnotationText("");
+	const cancelAnnotation = useCallback(() => {
+		setDraftSelection(null);
+		setSelectedLines(null);
 		setAnnotationError(null);
-		setSelection(null);
-	};
+	}, []);
+
+	const saveAnnotation = useCallback(
+		(selection: CodeViewLineSelection, message: string) => {
+			const trimmedMessage = message.trim();
+			if (trimmedMessage.length === 0) return;
+			if (selectedSessionId === null) {
+				setAnnotationError(
+					"Open a chat session before adding a review comment.",
+				);
+				return;
+			}
+			const anchor = getReviewAnnotationAnchor(selection.range);
+			if (anchor === null) {
+				setAnnotationError("Select an added or removed line to add a comment.");
+				return;
+			}
+			const file = fileByPath.get(selection.id);
+			useAnnotationsStore.getState().add(selectedSessionId, {
+				relPath: selection.id,
+				absPath: `${rootPath}/${selection.id}`,
+				startLine: Math.min(selection.range.start, selection.range.end),
+				endLine: Math.max(selection.range.start, selection.range.end),
+				comment: trimmedMessage,
+				diffSide: anchor.side,
+				diffAnchorLine: anchor.lineNumber,
+				...(file?.oldPath === null || file?.oldPath === undefined
+					? {}
+					: { oldPath: file.oldPath }),
+				...(summary?.baseRef === null || summary?.baseRef === undefined
+					? {}
+					: { baseRef: summary.baseRef }),
+			});
+			setAnnotationError(null);
+			setDraftSelection(null);
+			setSelectedLines(null);
+		},
+		[fileByPath, rootPath, selectedSessionId, summary?.baseRef],
+	);
+
+	const createAnnotationDraft = useCallback(
+		(range: SelectedLineRange, itemId: string) => {
+			if (getReviewAnnotationAnchor(range) === null) {
+				setAnnotationError("Select an added or removed line to add a comment.");
+				return;
+			}
+			const nextSelection = { id: itemId, range };
+			setSelectedLines(nextSelection);
+			setDraftSelection(nextSelection);
+			setAnnotationError(null);
+		},
+		[],
+	);
+	const handleSelectedLinesChange = useCallback(
+		(next: CodeViewLineSelection | null) => {
+			setSelectedLines(next);
+			setAnnotationError(null);
+		},
+		[],
+	);
+
+	const renderAnnotation = useCallback(
+		(
+			annotation:
+				| DiffLineAnnotation<AnnotationMetadata>
+				| LineAnnotation<AnnotationMetadata>,
+		) => {
+			const metadata = annotation.metadata;
+			if (metadata.kind === "draft") {
+				return (
+					<DraftReviewAnnotation
+						key={`${metadata.selection.id}:${metadata.selection.range.side ?? "none"}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? "none"}:${metadata.selection.range.end}`}
+						selection={metadata.selection}
+						disabledReason={
+							selectedSessionId === null
+								? "Open a chat session before adding an annotation."
+								: null
+						}
+						error={annotationError}
+						onCancel={cancelAnnotation}
+						onSave={saveAnnotation}
+					/>
+				);
+			}
+			return (
+				<SavedAnnotationCard
+					annotation={metadata.annotation}
+					sessionId={selectedSessionId}
+				/>
+			);
+		},
+		[annotationError, cancelAnnotation, saveAnnotation, selectedSessionId],
+	);
+
+	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
+		() => ({
+			diffStyle: preferences.diffStyle,
+			overflow: preferences.wrap ? "wrap" : "scroll",
+			disableLineNumbers: !preferences.lineNumbers,
+			disableBackground: !preferences.backgrounds,
+			diffIndicators: preferences.indicators,
+			stickyHeaders: true,
+			enableLineSelection: true,
+			enableGutterUtility: true,
+			controlledSelection: true,
+			lineHoverHighlight: "number",
+			hunkSeparators: "line-info",
+			onGutterUtilityClick(range, context) {
+				if (context.item.type === "diff") {
+					createAnnotationDraft(range, context.item.id);
+				}
+			},
+		}),
+		[createAnnotationDraft, preferences],
+	);
 
 	if (summary === null && loading) {
 		return <ReviewState title="Preparing branch review…" />;
@@ -728,6 +822,11 @@ function ChangesReviewReady({
 					{editError}
 				</div>
 			) : null}
+			{annotationError !== null && draftSelection === null ? (
+				<div className="border-b border-rose-500/20 bg-rose-500/5 px-3 py-1.5 text-xs text-rose-300">
+					{annotationError}
+				</div>
+			) : null}
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				{items.length === 0 && !loading ? (
 					<ReviewState title="No branch changes to review." />
@@ -735,111 +834,14 @@ function ChangesReviewReady({
 					<CodeView<AnnotationMetadata>
 						ref={viewerRef}
 						items={items}
-						selectedLines={selection}
-						onSelectedLinesChange={(next) => {
-							setSelection(next);
-							setAnnotationError(null);
-						}}
+						selectedLines={selectedLines}
+						onSelectedLinesChange={handleSelectedLinesChange}
 						createEditor={(options) => new Editor(options)}
 						onItemEditChange={(_item, file) => setEditDraft(file)}
 						renderHeaderPrefix={renderHeaderPrefix}
 						renderHeaderMetadata={renderHeaderMetadata}
-						renderAnnotation={(annotation) => {
-							const metadata = annotation.metadata;
-							if (metadata.kind === "draft") {
-								return (
-									<form
-										onSubmit={saveAnnotation}
-										className="m-2 flex max-w-[600px] items-start gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.04),0_4px_10px_rgb(0_0_0_/_0.04)]"
-									>
-										<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
-											<UserRound className="size-4" />
-										</div>
-										<div className="min-w-0 flex-1">
-											<textarea
-												value={annotationText}
-												onChange={(event) =>
-													setAnnotationText(event.target.value)
-												}
-												onKeyDown={(event) => {
-													if (event.key === "Escape") {
-														setSelection(null);
-														setAnnotationText("");
-													}
-													if (event.key === "Enter" && !event.shiftKey) {
-														event.preventDefault();
-														event.currentTarget.form?.requestSubmit();
-													}
-												}}
-												placeholder={
-													selectedSessionId === null
-														? "Open a chat session to comment"
-														: "Add a comment…"
-												}
-												disabled={selectedSessionId === null}
-												rows={2}
-												className="field-sizing-content min-h-12 w-full resize-none bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground"
-											/>
-											{annotationError !== null ? (
-												<p className="mt-1 text-xs text-rose-400">
-													{annotationError}
-												</p>
-											) : null}
-										</div>
-										<div className="flex shrink-0 items-center gap-1 self-end">
-											<button
-												type="button"
-												aria-label="Cancel comment"
-												title="Cancel (Esc)"
-												onClick={() => {
-													setSelection(null);
-													setAnnotationText("");
-												}}
-												className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-											>
-												<X className="size-3.5" />
-											</button>
-											<button
-												type="submit"
-												aria-label="Add comment"
-												title="Add comment (Enter)"
-												disabled={
-													selectedSessionId === null ||
-													annotationText.trim().length === 0
-												}
-												className="grid size-8 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
-											>
-												<Send className="size-3.5" />
-											</button>
-										</div>
-									</form>
-								);
-							}
-							const saved = metadata.annotation;
-							return (
-								<SavedAnnotationCard
-									annotation={saved}
-									sessionId={selectedSessionId}
-								/>
-							);
-						}}
-						options={{
-							diffStyle: preferences.diffStyle,
-							overflow: preferences.wrap ? "wrap" : "scroll",
-							disableLineNumbers: !preferences.lineNumbers,
-							disableBackground: !preferences.backgrounds,
-							diffIndicators: preferences.indicators,
-							stickyHeaders: true,
-							enableLineSelection: true,
-							enableGutterUtility: true,
-							controlledSelection: true,
-							lineHoverHighlight: "number",
-							hunkSeparators: "line-info",
-							onGutterUtilityClick(range, context) {
-								setSelection({ id: context.item.id, range });
-								setAnnotationError(null);
-							},
-						}}
+						renderAnnotation={renderAnnotation}
+						options={reviewOptions}
 						className="h-full overflow-auto overscroll-contain"
 					/>
 				)}
@@ -1036,6 +1038,113 @@ function ConflictAction({
 	);
 }
 
+function DraftReviewAnnotation({
+	selection,
+	disabledReason,
+	error,
+	onCancel,
+	onSave,
+}: {
+	readonly selection: CodeViewLineSelection;
+	readonly disabledReason: string | null;
+	readonly error: string | null;
+	readonly onCancel: () => void;
+	readonly onSave: (selection: CodeViewLineSelection, message: string) => void;
+}) {
+	const [message, setMessage] = useState("");
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const trimmedMessage = message.trim();
+	const disabled = disabledReason !== null;
+
+	useEffect(() => {
+		if (disabled || "ontouchstart" in window) return;
+		textareaRef.current?.focus({ preventScroll: true });
+	}, [disabled]);
+
+	const tryCancel = () => {
+		if (
+			trimmedMessage.length > 0 &&
+			!window.confirm("Discard this annotation draft?")
+		)
+			return;
+		onCancel();
+	};
+
+	return (
+		<form
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (!disabled && trimmedMessage.length > 0) {
+					onSave(selection, trimmedMessage);
+				}
+			}}
+			className="m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]"
+		>
+			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
+				<UserRound className="size-4" aria-hidden="true" />
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center gap-1.5 text-xs">
+					<span className="font-medium text-foreground">Add annotation</span>
+					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
+					</span>
+				</div>
+				<textarea
+					ref={textareaRef}
+					value={message}
+					onChange={(event) => setMessage(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape") {
+							event.preventDefault();
+							tryCancel();
+							return;
+						}
+						if (
+							event.key === "Enter" &&
+							!event.shiftKey &&
+							!event.nativeEvent.isComposing
+						) {
+							event.preventDefault();
+							event.currentTarget.form?.requestSubmit();
+						}
+					}}
+					placeholder={disabled ? "Chat session required" : "Add a comment…"}
+					disabled={disabled}
+					rows={2}
+					spellCheck={false}
+					className="field-sizing-content mt-1 min-h-12 w-full resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+				/>
+				{disabledReason !== null || error !== null ? (
+					<p className="mt-1 text-xs text-rose-400" role="alert">
+						{error ?? disabledReason}
+					</p>
+				) : null}
+			</div>
+			<div className="flex shrink-0 items-end gap-1">
+				<button
+					type="button"
+					aria-label="Cancel annotation"
+					title="Cancel annotation (Esc)"
+					onClick={tryCancel}
+					className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+				>
+					<X className="size-3.5" aria-hidden="true" />
+				</button>
+				<button
+					type="submit"
+					aria-label="Save annotation"
+					title="Save annotation (Enter)"
+					disabled={disabled || trimmedMessage.length === 0}
+					className="grid size-8 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
+				>
+					<Send className="size-3.5" aria-hidden="true" />
+				</button>
+			</div>
+		</form>
+	);
+}
+
 function SavedAnnotationCard({
 	annotation,
 	sessionId,
@@ -1047,23 +1156,57 @@ function SavedAnnotationCard({
 }) {
 	const [editing, setEditing] = useState(false);
 	const [comment, setComment] = useState(annotation.comment);
+	useEffect(() => {
+		if (!editing) setComment(annotation.comment);
+	}, [annotation.comment, editing]);
 	return (
-		<div className="m-2 max-w-[680px] rounded-lg border border-border/60 bg-background font-sans text-sm text-foreground shadow-sm">
-			<div className="flex items-center gap-2 px-3 pt-3">
-				<div className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
-					<UserRound className="size-3.5" />
-				</div>
-				<strong className="font-medium">You</strong>
-				<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-					<Sparkles className="size-2.5" /> Annotation for AI
-				</span>
-				<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
-					{annotation.startLine === annotation.endLine
-						? `Line ${annotation.startLine}`
-						: `Lines ${annotation.startLine}–${annotation.endLine}`}
-				</span>
+		<div className="group m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-sm text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]">
+			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
+				<UserRound className="size-4" aria-hidden="true" />
 			</div>
-			<div className="px-3 pb-2 pl-12">
+			<div className="min-w-0 flex-1">
+				<div className="flex min-h-7 items-center gap-2">
+					<strong className="font-medium text-foreground">You</strong>
+					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
+					</span>
+					<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
+						{annotation.startLine === annotation.endLine
+							? `Line ${annotation.startLine}`
+							: `Lines ${annotation.startLine}–${annotation.endLine}`}
+					</span>
+					{!editing ? (
+						<div className="flex items-center gap-0.5">
+							<button
+								type="button"
+								onClick={() => setEditing(true)}
+								aria-label="Edit annotation"
+								title="Edit annotation"
+								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+							>
+								<Pencil className="size-3" aria-hidden="true" />
+							</button>
+							<button
+								type="button"
+								onClick={() => {
+									if (
+										sessionId !== null &&
+										window.confirm("Delete this annotation?")
+									) {
+										useAnnotationsStore
+											.getState()
+											.remove(sessionId, annotation.id);
+									}
+								}}
+								aria-label="Delete annotation"
+								title="Delete annotation"
+								className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+							>
+								<Trash2 className="size-3" aria-hidden="true" />
+							</button>
+						</div>
+					) : null}
+				</div>
 				{editing ? (
 					<form
 						onSubmit={(event) => {
@@ -1074,55 +1217,41 @@ function SavedAnnotationCard({
 								.updateComment(sessionId, annotation.id, comment);
 							setEditing(false);
 						}}
-						className="mt-2 flex gap-1.5"
+						className="mt-1"
 					>
-						<input
+						<textarea
 							value={comment}
 							onChange={(event) => setComment(event.target.value)}
-							className="h-9 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-sm outline-none focus:border-foreground/30"
+							rows={2}
+							className="min-h-16 w-full resize-y rounded-md border border-border bg-transparent px-2.5 py-2 text-sm leading-5 outline-none focus:border-foreground/30"
 						/>
-						<Button type="submit" size="sm">
-							Save
-						</Button>
-						<Button
-							type="button"
-							size="sm"
-							variant="ghost"
-							onClick={() => {
-								setComment(annotation.comment);
-								setEditing(false);
-							}}
-						>
-							Cancel
-						</Button>
+						<div className="mt-2 flex justify-end gap-1.5">
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								onClick={() => {
+									setComment(annotation.comment);
+									setEditing(false);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="submit"
+								size="sm"
+								disabled={comment.trim().length === 0}
+							>
+								Save annotation
+							</Button>
+						</div>
 					</form>
 				) : (
-					<p className="mt-2 whitespace-pre-wrap leading-5">
+					<p className="mt-1 whitespace-pre-wrap leading-5 text-foreground">
 						{annotation.comment}
 					</p>
 				)}
 			</div>
-			{!editing ? (
-				<div className="flex items-center gap-1 border-t border-border/50 px-3 py-1.5 pl-12">
-					<button
-						type="button"
-						onClick={() => setEditing(true)}
-						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-					>
-						Edit
-					</button>
-					<button
-						type="button"
-						onClick={() =>
-							sessionId !== null &&
-							useAnnotationsStore.getState().remove(sessionId, annotation.id)
-						}
-						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
-					>
-						Delete
-					</button>
-				</div>
-			) : null}
 		</div>
 	);
 }
