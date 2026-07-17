@@ -57,6 +57,7 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { RepositoryLocator } from "./repository-locator.ts";
+import { buildCreateReviewCommentArgs } from "./review-comment.ts";
 
 type GitFailure =
 	| GitNotARepoError
@@ -1013,6 +1014,83 @@ export const GitServiceLive = Layer.effect(
 			files: [],
 			checkRuns: [],
 		});
+
+		const createReviewComment: GitService["Service"]["createReviewComment"] = (
+			folderId,
+			filePath,
+			line,
+			side,
+			body,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const prOutput = yield* currentPrView(
+						folderId,
+						cwd,
+						"number,headRefOid",
+					);
+					let pr: { number?: number; headRefOid?: string };
+					try {
+						pr = JSON.parse(prOutput) as typeof pr;
+					} catch {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					}
+					if (
+						typeof pr.number !== "number" ||
+						typeof pr.headRefOid !== "string" ||
+						pr.headRefOid.length === 0
+					) {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					}
+
+					const remoteUrl = yield* run(folderId, cwd, [
+						"remote",
+						"get-url",
+						"origin",
+					]);
+					const originInfo = parseRemoteUrl(remoteUrl.trim());
+					if (originInfo?.host.toLowerCase() !== "github.com") {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "Inline review comments require a GitHub origin.",
+							}),
+						);
+					}
+
+					const output = yield* ghRun(
+						folderId,
+						cwd,
+						buildCreateReviewCommentArgs({
+							owner: originInfo.owner,
+							repo: originInfo.repo,
+							pullNumber: pr.number,
+							headSha: pr.headRefOid,
+							path: filePath,
+							line,
+							side,
+							body,
+						}),
+					);
+					try {
+						const response = JSON.parse(output) as { html_url?: string };
+						return { url: response.html_url ?? null };
+					} catch {
+						return { url: null };
+					}
+				}),
+			);
 
 		const prDetails: GitService["Service"]["prDetails"] = (
 			folderId,
@@ -2254,6 +2332,7 @@ export const GitServiceLive = Layer.effect(
 			origin,
 			prState,
 			prDetails,
+			createReviewComment,
 			listPrs,
 			listIssues,
 			issueMarkdown,

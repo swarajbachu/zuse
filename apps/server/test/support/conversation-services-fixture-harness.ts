@@ -269,6 +269,7 @@ const makeRuntime = (
 		origin: () => Effect.die("not used"),
 		prState: () => Effect.die("not used"),
 		prDetails: () => Effect.die("not used"),
+		createReviewComment: () => Effect.succeed({ url: null }),
 		listPrs: () => Effect.die("not used"),
 		listIssues: () => Effect.die("not used"),
 		issueMarkdown: () => Effect.die("not used"),

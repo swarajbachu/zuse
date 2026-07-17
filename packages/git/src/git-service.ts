@@ -75,6 +75,14 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<GitPrDetails, GitFailure>;
+	readonly createReviewComment: (
+		folderId: FolderId,
+		path: string,
+		line: number,
+		side: "additions" | "deletions",
+		body: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly url: string | null }, GitFailure>;
 	/**
 	 * Open PRs via `gh pr list`, most-recently-updated first. Degrades to `[]`
 	 * when `gh` is missing / unauthenticated / there's no GitHub remote.

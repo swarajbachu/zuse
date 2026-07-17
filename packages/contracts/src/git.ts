@@ -317,6 +317,20 @@ export const GitPrDetailsRpc = Rpc.make("git.prDetails", {
   error: GitErrors,
 });
 
+/** Post one inline review comment to the pull request for the current branch. */
+export const GitCreateReviewCommentRpc = Rpc.make("git.createReviewComment", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    line: Schema.Number,
+    side: Schema.Literals(["additions", "deletions"]),
+    body: Schema.String,
+  }),
+  success: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
+  error: GitErrors,
+});
+
 /**
  * Lightweight PR row for the "Create from…" picker. One entry per open PR from
  * `gh pr list`. `headRefName` is the PR's branch — the picker checks it out

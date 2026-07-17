@@ -29,6 +29,8 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
+	ArrowUp,
+	Bot,
 	ChevronDown,
 	ChevronRight,
 	ChevronsUpDown,
@@ -37,21 +39,23 @@ import {
 	Copy,
 	EyeOff,
 	FilePenLine,
+	GitPullRequest,
+	type LucideIcon,
 	MoreHorizontal,
 	PanelTop,
 	Pencil,
 	RotateCcw,
 	Rows3,
 	Save,
-	Send,
 	Settings2,
 	Sparkles,
 	SquarePlus,
 	Trash2,
-	UserRound,
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuth } from "../hooks/use-auth.ts";
+import { formatError } from "../lib/format-error.ts";
 import {
 	getReviewAnnotationAnchor,
 	getReviewItemVersion,
@@ -66,6 +70,7 @@ import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover.tsx";
 import { Switch } from "./ui/switch.tsx";
@@ -138,6 +143,14 @@ export const reviewFingerprint = (patch: string): string => {
 type AnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }
 	| { readonly kind: "draft"; readonly selection: CodeViewLineSelection };
+
+type AnnotationDestination = "ai" | "github";
+
+type AnnotationAuthor = {
+	readonly name: string;
+	readonly avatarUrl: string | null;
+	readonly initial: string;
+};
 
 const getAnnotationKey = (
 	annotations: readonly DiffLineAnnotation<AnnotationMetadata>[] | undefined,
@@ -220,6 +233,15 @@ function ChangesReviewReady({
 	const [editError, setEditError] = useState<string | null>(null);
 	const selectedSessionId = useSessionsStore(
 		(state) => state.selectedSessionId,
+	);
+	const { user: authUser, name: authName } = useAuth();
+	const annotationAuthor = useMemo<AnnotationAuthor>(
+		() => ({
+			name: authName.trim() || "You",
+			avatarUrl: authUser?.profilePictureUrl ?? null,
+			initial: (authName || authUser?.email || "?").charAt(0).toUpperCase(),
+		}),
+		[authName, authUser?.email, authUser?.profilePictureUrl],
 	);
 	const annotationsBySession = useAnnotationsStore((state) => state.bySession);
 	const annotations = useMemo(
@@ -638,41 +660,74 @@ function ChangesReviewReady({
 	}, []);
 
 	const saveAnnotation = useCallback(
-		(selection: CodeViewLineSelection, message: string) => {
+		async (
+			selection: CodeViewLineSelection,
+			message: string,
+			destination: AnnotationDestination,
+		): Promise<boolean> => {
 			const trimmedMessage = message.trim();
-			if (trimmedMessage.length === 0) return;
-			if (selectedSessionId === null) {
+			if (trimmedMessage.length === 0) return false;
+			if (destination === "ai" && selectedSessionId === null) {
 				setAnnotationError(
 					"Open a chat session before adding a review comment.",
 				);
-				return;
+				return false;
 			}
 			const anchor = getReviewAnnotationAnchor(selection.range);
 			if (anchor === null) {
 				setAnnotationError("Select an added or removed line to add a comment.");
-				return;
+				return false;
 			}
 			const file = fileByPath.get(selection.id);
-			useAnnotationsStore.getState().add(selectedSessionId, {
-				relPath: selection.id,
-				absPath: `${rootPath}/${selection.id}`,
-				startLine: Math.min(selection.range.start, selection.range.end),
-				endLine: Math.max(selection.range.start, selection.range.end),
-				comment: trimmedMessage,
-				diffSide: anchor.side,
-				diffAnchorLine: anchor.lineNumber,
-				...(file?.oldPath === null || file?.oldPath === undefined
-					? {}
-					: { oldPath: file.oldPath }),
-				...(summary?.baseRef === null || summary?.baseRef === undefined
-					? {}
-					: { baseRef: summary.baseRef }),
-			});
+			if (destination === "github") {
+				try {
+					const client = await getRpcClient();
+					await Effect.runPromise(
+						client["git.createReviewComment"]({
+							folderId,
+							worktreeId,
+							path: selection.id,
+							line: anchor.lineNumber,
+							side: anchor.side,
+							body: trimmedMessage,
+						}),
+					);
+				} catch (cause) {
+					setAnnotationError(
+						`Could not post the review comment. ${formatError(cause)}`,
+					);
+					return false;
+				}
+			} else if (selectedSessionId !== null) {
+				useAnnotationsStore.getState().add(selectedSessionId, {
+					relPath: selection.id,
+					absPath: `${rootPath}/${selection.id}`,
+					startLine: Math.min(selection.range.start, selection.range.end),
+					endLine: Math.max(selection.range.start, selection.range.end),
+					comment: trimmedMessage,
+					diffSide: anchor.side,
+					diffAnchorLine: anchor.lineNumber,
+					...(file?.oldPath === null || file?.oldPath === undefined
+						? {}
+						: { oldPath: file.oldPath }),
+					...(summary?.baseRef === null || summary?.baseRef === undefined
+						? {}
+						: { baseRef: summary.baseRef }),
+				});
+			}
 			setAnnotationError(null);
 			setDraftSelection(null);
 			setSelectedLines(null);
+			return true;
 		},
-		[fileByPath, rootPath, selectedSessionId, summary?.baseRef],
+		[
+			fileByPath,
+			folderId,
+			rootPath,
+			selectedSessionId,
+			summary?.baseRef,
+			worktreeId,
+		],
 	);
 
 	const createAnnotationDraft = useCallback(
@@ -708,7 +763,8 @@ function ChangesReviewReady({
 					<DraftReviewAnnotation
 						key={`${metadata.selection.id}:${metadata.selection.range.side ?? "none"}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? "none"}:${metadata.selection.range.end}`}
 						selection={metadata.selection}
-						disabledReason={
+						author={annotationAuthor}
+						aiDisabledReason={
 							selectedSessionId === null
 								? "Open a chat session before adding an annotation."
 								: null
@@ -722,11 +778,18 @@ function ChangesReviewReady({
 			return (
 				<SavedAnnotationCard
 					annotation={metadata.annotation}
+					author={annotationAuthor}
 					sessionId={selectedSessionId}
 				/>
 			);
 		},
-		[annotationError, cancelAnnotation, saveAnnotation, selectedSessionId],
+		[
+			annotationAuthor,
+			annotationError,
+			cancelAnnotation,
+			saveAnnotation,
+			selectedSessionId,
+		],
 	);
 
 	const reviewOptions = useMemo<CodeViewOptions<AnnotationMetadata>>(
@@ -1059,20 +1122,29 @@ function ConflictAction({
 
 function DraftReviewAnnotation({
 	selection,
-	disabledReason,
+	author,
+	aiDisabledReason,
 	error,
 	onCancel,
 	onSave,
 }: {
 	readonly selection: CodeViewLineSelection;
-	readonly disabledReason: string | null;
+	readonly author: AnnotationAuthor;
+	readonly aiDisabledReason: string | null;
 	readonly error: string | null;
 	readonly onCancel: () => void;
-	readonly onSave: (selection: CodeViewLineSelection, message: string) => void;
+	readonly onSave: (
+		selection: CodeViewLineSelection,
+		message: string,
+		destination: AnnotationDestination,
+	) => Promise<boolean>;
 }) {
 	const [message, setMessage] = useState("");
+	const [destination, setDestination] = useState<AnnotationDestination>("ai");
+	const [submitting, setSubmitting] = useState(false);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const trimmedMessage = message.trim();
+	const disabledReason = destination === "ai" ? aiDisabledReason : null;
 	const disabled = disabledReason !== null;
 
 	useEffect(() => {
@@ -1091,23 +1163,38 @@ function DraftReviewAnnotation({
 
 	return (
 		<form
-			onSubmit={(event) => {
+			onSubmit={async (event) => {
 				event.preventDefault();
-				if (!disabled && trimmedMessage.length > 0) {
-					onSave(selection, trimmedMessage);
-				}
+				if (disabled || submitting || trimmedMessage.length === 0) return;
+				setSubmitting(true);
+				const saved = await onSave(selection, trimmedMessage, destination);
+				if (!saved) setSubmitting(false);
 			}}
 			className="m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]"
 		>
-			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
-				<UserRound className="size-4" aria-hidden="true" />
-			</div>
+			<AnnotationAvatar author={author} />
 			<div className="min-w-0 flex-1">
-				<div className="flex items-center gap-1.5 text-xs">
-					<span className="font-medium text-foreground">Add annotation</span>
-					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
+				<div className="flex items-center gap-2 text-xs">
+					<span className="min-w-0 truncate font-medium text-foreground">
+						{author.name}
 					</span>
+					<fieldset
+						aria-label="Annotation destination"
+						className="ml-auto flex shrink-0 items-center rounded-md border-0 bg-foreground/5 p-0.5"
+					>
+						<DestinationOption
+							active={destination === "ai"}
+							label="AI"
+							onClick={() => setDestination("ai")}
+							icon={Bot}
+						/>
+						<DestinationOption
+							active={destination === "github"}
+							label="GitHub"
+							onClick={() => setDestination("github")}
+							icon={GitPullRequest}
+						/>
+					</fieldset>
 				</div>
 				<textarea
 					ref={textareaRef}
@@ -1128,8 +1215,14 @@ function DraftReviewAnnotation({
 							event.currentTarget.form?.requestSubmit();
 						}
 					}}
-					placeholder={disabled ? "Chat session required" : "Add a comment…"}
-					disabled={disabled}
+					placeholder={
+						disabled
+							? "Chat session required"
+							: destination === "github"
+								? "Post a review comment…"
+								: "Add an annotation for AI…"
+					}
+					disabled={disabled || submitting}
 					rows={2}
 					spellCheck={false}
 					className="field-sizing-content mt-1 min-h-12 w-full resize-none bg-transparent py-1 text-sm leading-5 outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
@@ -1146,7 +1239,8 @@ function DraftReviewAnnotation({
 					aria-label="Cancel annotation"
 					title="Cancel annotation (Esc)"
 					onClick={tryCancel}
-					className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+					disabled={submitting}
+					className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
 				>
 					<X className="size-3.5" aria-hidden="true" />
 				</button>
@@ -1154,21 +1248,64 @@ function DraftReviewAnnotation({
 					type="submit"
 					aria-label="Save annotation"
 					title="Save annotation (Enter)"
-					disabled={disabled || trimmedMessage.length === 0}
-					className="grid size-8 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
+					disabled={disabled || submitting || trimmedMessage.length === 0}
+					className="grid size-7 place-items-center rounded-md bg-foreground text-background hover:bg-foreground/90 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
 				>
-					<Send className="size-3.5" aria-hidden="true" />
+					<ArrowUp className="size-4" aria-hidden="true" />
 				</button>
 			</div>
 		</form>
 	);
 }
 
+function DestinationOption({
+	active,
+	label,
+	icon: Icon,
+	onClick,
+}: {
+	readonly active: boolean;
+	readonly label: string;
+	readonly icon: LucideIcon;
+	readonly onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			aria-pressed={active}
+			aria-label={`Send annotation to ${label}`}
+			title={`Send to ${label}`}
+			onClick={onClick}
+			className={`flex h-6 items-center gap-1 rounded px-1.5 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring ${
+				active
+					? "bg-background text-foreground shadow-sm"
+					: "text-muted-foreground hover:text-foreground"
+			}`}
+		>
+			<Icon className="size-3" aria-hidden="true" />
+			{label}
+		</button>
+	);
+}
+
+function AnnotationAvatar({ author }: { readonly author: AnnotationAuthor }) {
+	return (
+		<Avatar className="size-8 bg-foreground/10 text-xs text-muted-foreground">
+			{author.avatarUrl !== null ? (
+				<AvatarImage src={author.avatarUrl} alt={author.name} />
+			) : null}
+			<AvatarFallback>{author.initial}</AvatarFallback>
+		</Avatar>
+	);
+}
+
 function SavedAnnotationCard({
 	annotation,
+	author,
 	sessionId,
 }: {
 	readonly annotation: CodeAnnotation;
+	readonly author: AnnotationAuthor;
 	readonly sessionId: ReturnType<
 		typeof useSessionsStore.getState
 	>["selectedSessionId"];
@@ -1180,12 +1317,12 @@ function SavedAnnotationCard({
 	}, [annotation.comment, editing]);
 	return (
 		<div className="group m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-sm text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.03),0_4px_10px_rgb(0_0_0_/_0.03)]">
-			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
-				<UserRound className="size-4" aria-hidden="true" />
-			</div>
+			<AnnotationAvatar author={author} />
 			<div className="min-w-0 flex-1">
 				<div className="flex min-h-7 items-center gap-2">
-					<strong className="font-medium text-foreground">You</strong>
+					<strong className="min-w-0 truncate font-medium text-foreground">
+						{author.name}
+					</strong>
 					<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
 						<Sparkles className="size-2.5" aria-hidden="true" /> For AI
 					</span>
