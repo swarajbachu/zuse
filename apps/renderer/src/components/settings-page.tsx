@@ -12,6 +12,7 @@ import {
   KeyboardIcon,
   PackageIcon,
   PencilEdit01Icon,
+  PlugSocketIcon,
   Settings01Icon,
   SmartPhone01Icon,
   TaskDone01Icon,
@@ -62,6 +63,7 @@ import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
+import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
@@ -96,6 +98,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     label: "Providers",
     Icon: PackageIcon,
     section: { kind: "providers" },
+  },
+  {
+    id: "mcp",
+    label: "MCP Servers",
+    Icon: PlugSocketIcon,
+    section: { kind: "mcp" },
   },
   {
     id: "workspace",
@@ -329,6 +337,13 @@ function SectionTitle({
           "Connect issue workspaces and bring tickets into new sessions.",
       };
     }
+    if (section.kind === "mcp") {
+      return {
+        title: "MCP Servers",
+        subtitle:
+          "Configured servers and provider-managed connectors, with live availability and authentication.",
+      };
+    }
     if (section.kind === "devices") {
       return {
         title: "Devices",
@@ -408,7 +423,8 @@ function SectionTitle({
 function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "general") return <GeneralPane />;
   if (section.kind === "providers") return <ProvidersPane />;
-  if (section.kind === "integrations") return <LinearIntegrationsPane />;
+	if (section.kind === "integrations") return <LinearIntegrationsPane />;
+	if (section.kind === "mcp") return <McpServersPane />;
   if (section.kind === "workspace") return <WorkspacePane />;
   if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;

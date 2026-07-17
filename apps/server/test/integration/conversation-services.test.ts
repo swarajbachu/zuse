@@ -347,6 +347,7 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoRunAfterSetup: false,
 				environmentVariables: {},
 				fileIncludeGlobs: "",
+				mcpDisabledServers: [],
 			}),
 		),
 	update: (projectId, patch) =>
@@ -364,6 +365,7 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
 				environmentVariables: patch.environmentVariables ?? {},
 				fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
+				mcpDisabledServers: patch.mcpDisabledServers ?? [],
 			}),
 		),
 });

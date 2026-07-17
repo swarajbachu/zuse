@@ -135,6 +135,7 @@ import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import { TrayPill, trayPillActionClass } from "./composer/tray-pill.tsx";
+import { McpPopover } from "./mcp-popover.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { resetLabel, StickMeter } from "./usage/usage-meter.tsx";
 
@@ -1258,6 +1259,10 @@ export function ChatComposer({
                     current={session.permissionMode}
                   />
                 )}
+                <McpPopover
+                  projectId={session.projectId}
+                  providerId={session.providerId}
+                />
               </div>
               <div className="flex items-center gap-2">
                 {!isDraft ? <ContextStatusPopover session={session} /> : null}

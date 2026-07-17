@@ -43,6 +43,12 @@ export class RepositorySettings extends Schema.Class<RepositorySettings>(
    * Zuse's built-in env-file discovery fallback".
    */
   fileIncludeGlobs: Schema.String,
+  /**
+   * User MCP servers switched off for this repository, by descriptor key
+   * (`claude:<name>` / `codex:<name>`). Unioned with the global
+   * `mcpDisabledServers` list at read-time.
+   */
+  mcpDisabledServers: Schema.Array(Schema.String),
 }) {}
 
 /**
@@ -64,6 +70,7 @@ export const RepositorySettingsPatch = Schema.Struct({
     Schema.Record(Schema.String, Schema.String),
   ),
   fileIncludeGlobs: Schema.optional(Schema.String),
+  mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
 });
 export type RepositorySettingsPatch = typeof RepositorySettingsPatch.Type;
 
@@ -84,6 +91,7 @@ export const RepositorySettingsFile = Schema.Struct({
   autoRunAfterSetup: Schema.Boolean,
   environmentVariables: Schema.Record(Schema.String, Schema.String),
   fileIncludeGlobs: Schema.String,
+  mcpDisabledServers: Schema.Array(Schema.String),
 });
 export type RepositorySettingsFile = typeof RepositorySettingsFile.Type;
 

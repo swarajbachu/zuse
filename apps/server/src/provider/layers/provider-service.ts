@@ -27,6 +27,7 @@ import {
 import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -71,6 +72,7 @@ export const ProviderServiceLive = Layer.effect(
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
     const configStore = yield* ConfigStoreService;
+    const mcp = yield* McpService;
     const runtime = yield* Effect.context<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
@@ -394,6 +396,8 @@ export const ProviderServiceLive = Layer.effect(
               ),
             );
 
+            const userMcpServers = yield* mcp.resolveForClaudeSession(cwd);
+
             handle = yield* startClaudeSession(
               driverInput,
               cwd,
@@ -405,9 +409,10 @@ export const ProviderServiceLive = Layer.effect(
               resumeCursor,
               browserTools,
               // Control-plane orchestration tools (when autonomy != off) use
-              // their own provider-neutral `zuse-orchestration` MCP server.
-              orchestrationTools?.claudeTools ?? [],
-              orchestrationTools?.linearTools?.claudeTools ?? [],
+								// their own provider-neutral `zuse-orchestration` MCP server.
+								orchestrationTools?.claudeTools ?? [],
+								orchestrationTools?.linearTools?.claudeTools ?? [],
+								userMcpServers,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native

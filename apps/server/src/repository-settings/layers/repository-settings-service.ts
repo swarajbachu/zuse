@@ -32,6 +32,7 @@ type MutableRepositorySettingsFile = {
   -readonly [K in keyof RepositorySettingsFile]: RepositorySettingsFile[K];
 } & {
   environmentVariables: Record<string, string>;
+  mcpDisabledServers: string[];
 };
 
 const isProviderId = (v: unknown): v is ProviderId =>
@@ -66,6 +67,7 @@ const emptyFileSettings = (): RepositorySettingsFile => ({
   autoRunAfterSetup: false,
   environmentVariables: {},
   fileIncludeGlobs: "",
+  mcpDisabledServers: [],
 });
 
 const parseEnvJson = (value: string | null): Record<string, string> => {
@@ -144,10 +146,12 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
   const settings: MutableRepositorySettingsFile = {
     ...fallback,
     environmentVariables: {},
+    mcpDisabledServers: [...fallback.mcpDisabledServers],
   };
   let section = "";
   const legacyIncludeSectionValues: string[] = [];
-  let pendingArrayKey: "file_include_globs" | null = null;
+  let pendingArrayKey: "file_include_globs" | "mcp_disabled_servers" | null =
+    null;
   let pendingArrayRaw = "";
   const parseTomlStringArray = (raw: string): string[] =>
     [...raw.matchAll(/"(?:\\.|[^"\\])*"|'[^']*'/g)]
@@ -158,6 +162,8 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
     if (pendingArrayKey === "file_include_globs") {
       settings.fileIncludeGlobs =
         parseTomlStringArray(pendingArrayRaw).join("\n");
+    } else if (pendingArrayKey === "mcp_disabled_servers") {
+      settings.mcpDisabledServers = parseTomlStringArray(pendingArrayRaw);
     }
     pendingArrayKey = null;
     pendingArrayRaw = "";
@@ -212,6 +218,13 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
         if (value.includes("]")) finishPendingArray();
       } else if (key === "file_include_globs") {
         settings.fileIncludeGlobs = parseTomlString(value);
+      } else if (
+        key === "mcp_disabled_servers" &&
+        value.trim().startsWith("[")
+      ) {
+        pendingArrayKey = "mcp_disabled_servers";
+        pendingArrayRaw = value;
+        if (value.includes("]")) finishPendingArray();
       }
     } else if (section === "scripts") {
       if (key === "setup")
@@ -307,6 +320,11 @@ const coerceJsonSettings = (
         : typeof obj.file_include_globs === "string"
           ? obj.file_include_globs
           : fallback.fileIncludeGlobs,
+    mcpDisabledServers: Array.isArray(obj.mcpDisabledServers)
+      ? obj.mcpDisabledServers.filter(
+          (v): v is string => typeof v === "string" && v.length > 0,
+        )
+      : fallback.mcpDisabledServers,
   };
 };
 
@@ -368,6 +386,11 @@ const writeTomlSettings = (
       includeGlobValues(settings.fileIncludeGlobs),
     ),
     "",
+    ...tomlStringArray(
+      "mcp_disabled_servers",
+      [...settings.mcpDisabledServers],
+    ),
+    "",
     "[scripts]",
     `setup = ${tomlNullableString(cleanScript(settings.setupScript))}`,
     `run = ${tomlNullableString(cleanScript(settings.runScript))}`,
@@ -409,6 +432,7 @@ const fileToSettings = (
     autoRunAfterSetup: file.autoRunAfterSetup,
     environmentVariables: file.environmentVariables,
     fileIncludeGlobs: file.fileIncludeGlobs,
+    mcpDisabledServers: file.mcpDisabledServers,
   });
 
 const settingsToFile = (
@@ -426,6 +450,7 @@ const settingsToFile = (
   autoRunAfterSetup: settings.autoRunAfterSetup,
   environmentVariables: settings.environmentVariables,
   fileIncludeGlobs: settings.fileIncludeGlobs,
+  mcpDisabledServers: settings.mcpDisabledServers,
 });
 
 const rowToFile = (
@@ -455,6 +480,7 @@ const rowToFile = (
       ...parseEnvJson(row.environment_variables_json),
     },
     fileIncludeGlobs: fallback.fileIncludeGlobs,
+    mcpDisabledServers: fallback.mcpDisabledServers,
   };
 };
 
@@ -496,6 +522,7 @@ const applyPatch = (
     environmentVariables:
       patch.environmentVariables ?? current.environmentVariables,
     fileIncludeGlobs: patch.fileIncludeGlobs ?? current.fileIncludeGlobs,
+    mcpDisabledServers: patch.mcpDisabledServers ?? current.mcpDisabledServers,
   });
 
 export const RepositorySettingsServiceLive = Layer.effect(
