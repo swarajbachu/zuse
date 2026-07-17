@@ -6,8 +6,10 @@ import type {
 	DiffLineAnnotation,
 	FileContents,
 	LineAnnotation,
+	MergeConflictActionPayload,
 	MergeConflictResolution,
 	SelectedLineRange,
+	UnresolvedFile as UnresolvedFileInstance,
 } from "@pierre/diffs";
 import { DEFAULT_THEMES, processFile } from "@pierre/diffs";
 import { Editor } from "@pierre/diffs/editor";
@@ -109,6 +111,22 @@ const REVIEW_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
 };
 
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
+
+type ReviewConflictInstance = UnresolvedFileInstance<undefined>;
+
+export const applyReviewConflictResolution = (
+	instance: ReviewConflictInstance | undefined,
+	conflictIndex: number,
+	conflict: MergeConflictActionPayload["conflict"],
+	resolution: MergeConflictResolution,
+): ReturnType<ReviewConflictInstance["resolveConflict"]> => {
+	const dispatch = instance?.options.onMergeConflictAction;
+	if (instance === undefined || dispatch === undefined) return undefined;
+	const result = instance.resolveConflict(conflictIndex, resolution);
+	if (result === undefined) return undefined;
+	dispatch({ conflict, resolution }, instance);
+	return result;
+};
 
 const loadPreferences = (): ReviewPreferences => {
 	try {
@@ -1099,17 +1117,17 @@ function ConflictReview({
 						options={conflictOptions}
 						renderMergeConflictUtility={(action, getInstance) => {
 							const resolve = (resolution: MergeConflictResolution) => {
-								const instance = getInstance();
-								const result = instance?.resolveConflict(
+								const result = applyReviewConflictResolution(
+									getInstance(),
 									action.conflictIndex,
+									action.conflict,
 									resolution,
 								);
-								if (instance === undefined || result === undefined) return;
-								instance.render({
-									file: result.file,
-									actions: result.actions,
-									markerRows: result.markerRows,
-								});
+								if (result === undefined) {
+									setError("Could not apply this conflict resolution.");
+									return;
+								}
+								setError(null);
 								const nextRemaining = result.actions.filter(Boolean).length;
 								setRemaining(nextRemaining);
 								if (nextRemaining === 0) {
