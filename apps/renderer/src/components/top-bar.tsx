@@ -64,6 +64,7 @@ import {
   type GlassTone,
 } from "./glass-action.tsx";
 import { TooltipShortcut } from "./projects-sidebar.tsx";
+import { OpenTargetIcon } from "./open-target-icon.tsx";
 import { Button } from "./ui/button.tsx";
 import {
   Dialog,
@@ -731,19 +732,6 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
       </MenuPopup>
     </Menu>
   );
-}
-
-function OpenTargetIcon({ target }: { target: OpenTarget }) {
-  if (target.iconDataUrl !== null && target.iconDataUrl !== undefined) {
-    return (
-      <img
-        alt=""
-        src={target.iconDataUrl}
-        className="size-5 shrink-0 rounded-[4px]"
-      />
-    );
-  }
-  return <span className="size-5 shrink-0" />;
 }
 
 type OpenPrWorkflow = {

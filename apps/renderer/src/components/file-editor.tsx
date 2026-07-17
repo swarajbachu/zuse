@@ -1,8 +1,14 @@
 import type { EditorView } from "@codemirror/view";
+import type {
+  AnnotationSide,
+  DiffLineAnnotation,
+  SelectedLineRange,
+} from "@pierre/diffs";
 import { PatchDiff } from "@pierre/diffs/react";
 import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 import { Effect } from "effect";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/utils";
 import {
@@ -668,58 +674,84 @@ type DiffState =
   | { status: "error"; reason: string; noRepo: boolean };
 
 /**
- * Walk up from a DOM node to the nearest `@pierre/diffs` line row, which
- * carries `data-line` (the file line number), `data-alt-line`, and
- * `data-line-type`.
+ * Inline comment editor injected into the diff via Pierre's `renderAnnotation`
+ * slot. Sits directly under the selected line (no floating overlay / pixel
+ * math). Enter (without shift) confirms; Escape cancels. The confirmed comment
+ * lands in the composer annotation tray through the shared annotations store.
  */
-const closestLineRow = (
-  node: Node | null,
-  root: HTMLElement,
-): HTMLElement | null => {
-  let el: Node | null = node;
-  while (el !== null && el !== root) {
-    if (el instanceof HTMLElement && el.hasAttribute("data-line")) return el;
-    el = el.parentNode;
-  }
-  return null;
-};
-
-/**
- * New-file line number for a diff row. For deletion-side rows, `data-line` is
- * the old-file number; use `data-alt-line` when present, otherwise let the
- * caller fall back to a nearby context/addition row.
- */
-const newSideLine = (row: HTMLElement): number | null => {
-  const type = row.getAttribute("data-line-type");
-  const line = Number(row.getAttribute("data-line"));
-  const alt = Number(row.getAttribute("data-alt-line"));
-  if (type?.includes("deletion") === true) {
-    return Number.isFinite(alt) && alt > 0 ? alt : null;
-  }
-  return Number.isFinite(line) && line > 0 ? line : null;
-};
-
-const nearestNewSideLine = (
-  row: HTMLElement | null,
-  root: HTMLElement,
-): number | null => {
-  if (row === null) return null;
-  const direct = newSideLine(row);
-  if (direct !== null) return direct;
-
-  const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-line]"));
-  const index = rows.indexOf(row);
-  if (index === -1) return null;
-  for (let distance = 1; distance < rows.length; distance++) {
-    const next = rows[index + distance];
-    const prev = rows[index - distance];
-    const nextLine = next === undefined ? null : newSideLine(next);
-    if (nextLine !== null) return nextLine;
-    const prevLine = prev === undefined ? null : newSideLine(prev);
-    if (prevLine !== null) return prevLine;
-  }
-  return null;
-};
+function InlineAnnotationEditor({
+  relPath,
+  range,
+  onConfirm,
+  onCancel,
+}: {
+  relPath: string;
+  range: { startLine: number; endLine: number; side: AnnotationSide } | null;
+  onConfirm: (comment: string) => void;
+  onCancel: () => void;
+}) {
+  const [comment, setComment] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+  if (range === null) return null;
+  const name = relPath.slice(relPath.lastIndexOf("/") + 1);
+  const label =
+    range.startLine === range.endLine
+      ? `${range.startLine}`
+      : `${range.startLine}-${range.endLine}`;
+  const submit = () => {
+    const trimmed = comment.trim();
+    if (trimmed.length === 0) {
+      onCancel();
+      return;
+    }
+    onConfirm(trimmed);
+  };
+  return (
+    <div className="m-1 rounded-lg border border-border/70 bg-popover p-2 shadow-lg">
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="truncate font-medium text-foreground">{name}</span>
+        <span className="tabular-nums">:{label}</span>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        rows={2}
+        placeholder="Add a comment…"
+        className="max-h-32 min-h-14 w-full resize-y rounded-md bg-background/80 px-2 py-1.5 text-xs leading-relaxed text-foreground outline-none ring-0 placeholder:text-muted-foreground/70 focus:bg-background"
+      />
+      <div className="mt-1.5 flex items-center justify-end gap-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex h-6 items-center rounded px-2 text-xs text-muted-foreground hover:bg-background hover:text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={comment.trim().length === 0}
+          className="flex h-6 items-center rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function DiffViewBody({
   openFile,
@@ -730,11 +762,6 @@ function DiffViewBody({
   // Bumped after an in-place `git init` from the no-repo CTA so the diff
   // re-fetches without the user toggling Edit/Diff to force a remount.
   const [reload, setReload] = useState(0);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [selection, setSelection] = useState<PendingSelection | null>(null);
-  const [cardOpen, setCardOpen] = useState(false);
-  const cardOpenRef = useRef(false);
-  cardOpenRef.current = cardOpen;
   const addAnnotation = useAddAnnotation();
   const workspaceRoot = useActiveWorkspaceRoot(openFile.folderId);
   const annotationAbsPath =
@@ -742,50 +769,69 @@ function DiffViewBody({
       ? `${workspaceRoot}/${openFile.path}`
       : openFile.path;
 
-  // Map a text selection inside the diff to a new-side line range + anchor.
-  // `selectionchange` covers drag-select; the diff scroller covers tracking.
-  useEffect(() => {
-    const root = containerRef.current;
-    if (root === null) return;
-    const recompute = () => {
-      // Don't disturb the pinned selection while the comment card is open —
-      // typing in the textarea fires its own (collapsed) selectionchange.
-      if (cardOpenRef.current) return;
-      const sel = window.getSelection();
-      if (sel === null || sel.isCollapsed || sel.rangeCount === 0) {
-        setSelection(null);
-        return;
-      }
-      const range = sel.getRangeAt(0);
-      if (!root.contains(range.commonAncestorContainer)) return;
-      const startRow = closestLineRow(range.startContainer, root);
-      const endRow = closestLineRow(range.endContainer, root);
-      const nums = [startRow, endRow]
-        .map((r) => nearestNewSideLine(r, root))
-        .filter((n): n is number => n !== null);
-      if (nums.length === 0) {
-        setSelection(null);
-        return;
-      }
-      const rect = range.getBoundingClientRect();
-      const rootRect = root.getBoundingClientRect();
-      setSelection({
-        startLine: Math.min(...nums),
-        endLine: Math.max(...nums),
-        top: rect.top,
-        left: rect.left,
-        bottom: rect.bottom,
-        boundaryRight: rootRect.right,
-        boundaryBottom: rootRect.bottom,
-      });
-    };
-    document.addEventListener("selectionchange", recompute);
-    root.addEventListener("scroll", recompute, { passive: true });
-    return () => {
-      document.removeEventListener("selectionchange", recompute);
-      root.removeEventListener("scroll", recompute);
-    };
-  }, [state.status]);
+  // Pierre-native line selection replaces the old shadow-DOM scraping: the
+  // built-in gutter "+" reports a `SelectedLineRange`, and the pending comment
+  // editor is injected inline on that line via `lineAnnotations` +
+  // `renderAnnotation` (a clean slot, no floating overlay or pixel math).
+  const [pending, setPending] = useState<{
+    startLine: number;
+    endLine: number;
+    side: AnnotationSide;
+  } | null>(null);
+
+  const onGutterUtilityClick = useCallback((range: SelectedLineRange) => {
+    setPending({
+      startLine: Math.min(range.start, range.end),
+      endLine: Math.max(range.start, range.end),
+      side: range.side === "deletions" ? "deletions" : "additions",
+    });
+  }, []);
+
+  const diffOptions = useMemo(
+    () => ({
+      enableLineSelection: true,
+      enableGutterUtility: true,
+      lineHoverHighlight: "number" as const,
+      onGutterUtilityClick,
+    }),
+    [onGutterUtilityClick],
+  );
+
+  const lineAnnotations = useMemo<DiffLineAnnotation<{ kind: "editor" }>[]>(
+    () =>
+      pending === null
+        ? []
+        : [
+            {
+              side: pending.side,
+              lineNumber: pending.endLine,
+              metadata: { kind: "editor" },
+            },
+          ],
+    [pending],
+  );
+
+  const renderAnnotation = useCallback(
+    () => (
+      <InlineAnnotationEditor
+        relPath={openFile.path}
+        range={pending}
+        onCancel={() => setPending(null)}
+        onConfirm={(comment) => {
+          if (pending === null) return;
+          addAnnotation({
+            relPath: openFile.path,
+            absPath: annotationAbsPath,
+            startLine: pending.startLine,
+            endLine: pending.endLine,
+            comment,
+          });
+          setPending(null);
+        }}
+      />
+    ),
+    [addAnnotation, annotationAbsPath, openFile.path, pending],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -863,22 +909,15 @@ function DiffViewBody({
           onDismiss={() => {}}
         />
       ) : null}
-      <div ref={containerRef} className="fz-diff min-h-0 flex-1 overflow-auto">
-        <PatchDiff patch={patch} disableWorkerPool />
+      <div className="fz-diff min-h-0 flex-1 overflow-auto">
+        <PatchDiff
+          patch={patch}
+          options={diffOptions}
+          lineAnnotations={lineAnnotations}
+          renderAnnotation={renderAnnotation}
+          disableWorkerPool
+        />
       </div>
-      <AnnotateOverlay
-        selection={selection}
-        relPath={openFile.path}
-        absPath={annotationAbsPath}
-        cardOpen={cardOpen}
-        onCardOpenChange={setCardOpen}
-        onConfirm={(draft) => {
-          addAnnotation(draft);
-          window.getSelection()?.removeAllRanges();
-          setSelection(null);
-          setCardOpen(false);
-        }}
-      />
     </div>
   );
 }

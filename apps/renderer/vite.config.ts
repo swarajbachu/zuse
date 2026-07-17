@@ -22,42 +22,42 @@ const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
-  // Relative base so file:// loads work in the packaged Electron build.
-  base: "./",
+	// Relative base so file:// loads work in the packaged Electron build.
+	base: "./",
 	plugins: [
 		react({
 			babel: { plugins: [["babel-plugin-react-compiler", {}]] },
 		}),
 		tailwindcss(),
 	],
-  resolve: {
-    alias: {
-      "~": fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
-  server: {
-    host,
-    port,
-    strictPort: true,
-    fs: {
-      allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
-    },
-  },
+	resolve: {
+		alias: {
+			"~": fileURLToPath(new URL("./src", import.meta.url)),
+		},
+	},
+	server: {
+		host,
+		port,
+		strictPort: true,
+		fs: {
+			allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
+		},
+	},
 	worker: {
 		format: "es",
 	},
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    sourcemap: true,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, "index.html"),
-        notch: resolve(__dirname, "notch.html"),
-      },
-    },
-  },
-  test: {
-    setupFiles: ["./test/setup.ts"],
-  },
+	build: {
+		outDir: "dist",
+		emptyOutDir: true,
+		sourcemap: true,
+		rollupOptions: {
+			input: {
+				main: resolve(__dirname, "index.html"),
+				notch: resolve(__dirname, "notch.html"),
+			},
+		},
+	},
+	test: {
+		setupFiles: ["./test/setup.ts"],
+	},
 });
