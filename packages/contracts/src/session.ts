@@ -5,6 +5,7 @@ import {
   AgentDefinition,
   ContextUsagePrecision,
   PermissionMode,
+	PlanApprovalOutcome,
   ProviderId,
   RuntimeMode,
   UserQuestion,
@@ -101,6 +102,7 @@ export class Session extends Schema.Class<Session>("Session")({
   status: SessionStatus,
   archivedAt: Schema.NullOr(Schema.DateFromString),
   cursor: Schema.NullOr(Schema.String),
+	providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
   resumeStrategy: ResumeStrategy,
   runtimeMode: RuntimeMode,
   /**
@@ -265,6 +267,20 @@ const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
   presentation: Schema.optional(Schema.Literals(["inline", "detached"])),
 });
 
+const SubagentProgressContent = Schema.TaggedStruct("subagent_progress", {
+	childId: Schema.String,
+	parentId: Schema.String,
+	childSessionId: Schema.String,
+	status: Schema.String,
+	durationMs: Schema.Number,
+	turns: Schema.Number,
+	toolCalls: Schema.Number,
+	tokens: Schema.Number,
+	contextPercentage: Schema.Number,
+	toolsUsed: Schema.Array(Schema.String),
+	errorCount: Schema.Number,
+});
+
 /**
  * Per-turn token usage. Persisted (rather than transient) so resume parity
  * gives us the per-agent cost footer for free. `parentItemId` set means
@@ -354,6 +370,7 @@ export const MessageContent = Schema.Union([
   ErrorContent,
   InterruptedContent,
   SubagentSummaryContent,
+	SubagentProgressContent,
   UsageContent,
   ContextUsageContent,
   ContextCompactionContent,
@@ -1089,6 +1106,26 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
   }),
   success: Schema.Void,
   error: SessionNotFoundError,
+});
+
+export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		toolCallId: Schema.String,
+		outcome: PlanApprovalOutcome,
+		feedback: Schema.optional(Schema.String),
+	}),
+	success: Schema.Void,
+	error: SessionNotFoundError,
+});
+
+export const SessionMcpUpdateRpc = Rpc.make("session.mcp.update", {
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		servers: Schema.Array(Schema.Unknown),
+	}),
+	success: Schema.Void,
+	error: SessionNotFoundError,
 });
 
 export class SessionDomainEventEnvelope extends Schema.Class<SessionDomainEventEnvelope>(

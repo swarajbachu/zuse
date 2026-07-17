@@ -20,6 +20,7 @@ import {
 export interface ProviderMcpSessionOptions {
 	readonly providerId: ProviderId;
 	readonly sessionId: AgentSessionId;
+	readonly cwd: string;
 	readonly browserSend: BrowserSend;
 	readonly requestPermission: (
 		kind: PermissionKind,
@@ -42,8 +43,10 @@ export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 						browser: true,
 						orchestration: options.orchestrationTools !== null,
 						linear: options.orchestrationTools?.linearTools !== undefined,
+						images: true,
 					},
 					ctx: {
+						images: { cwd: options.cwd },
 						browser: {
 							send: options.browserSend,
 							requestPermission: options.requestPermission,

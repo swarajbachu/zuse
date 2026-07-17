@@ -74,10 +74,15 @@ export const updateImageChipEffect = StateEffect.define<{
   readonly meta: ChipMeta;
 }>();
 
+export const removeImageChipEffect = StateEffect.define<{
+  readonly id: string;
+}>();
+
 export const isChipEffect = (effect: StateEffect<unknown>): boolean =>
   effect.is(addChipEffect) ||
   effect.is(clearChipsEffect) ||
-  effect.is(updateImageChipEffect);
+  effect.is(updateImageChipEffect) ||
+  effect.is(removeImageChipEffect);
 
 /**
  * Holds the current chip set. Decoration ranges are derived; this field
@@ -104,6 +109,10 @@ export const chipsField = StateField.define<readonly ChipRange[]>({
           c.meta.kind === "image" && c.meta.id === previousId
             ? { ...c, meta }
             : c,
+        );
+      } else if (e.is(removeImageChipEffect)) {
+        next = next.filter(
+          (c) => c.meta.kind !== "image" || c.meta.id !== e.value.id,
         );
       }
     }

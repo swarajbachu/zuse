@@ -210,6 +210,7 @@ function MessageRowImpl({
     case "usage":
     case "context_usage":
     case "usage_limit":
+		case "subagent_progress":
       return null;
     case "error":
       if (readOnly) return <ToolErrorRow output={message.content.message} />;

@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { __testing, issueMcpGatewaySession } from "@zuse/agents/mcp-gateway";
 import { afterAll, describe, expect, test } from "vitest";
 
@@ -89,6 +92,11 @@ const baseDeps = {
 		autonomyLevel: "approval-gated",
 	}),
 };
+
+const ONE_PIXEL_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+	"base64",
+);
 
 afterAll(async () => {
 	await __testing.closeServer();
@@ -185,6 +193,43 @@ describe("MCP gateway", () => {
 		)?.tools;
 		expect(tools?.some((tool) => tool.name === "browser_navigate")).toBe(true);
 		expect(tools?.some((tool) => tool.name === "create_thread")).toBe(false);
+	});
+
+	test("serves the workspace-scoped view_image tool as multimodal content", async () => {
+		const cwd = await mkdtemp(path.join(tmpdir(), "zuse-image-gateway-"));
+		const imagePath = path.join(cwd, "screen.png");
+		await writeFile(imagePath, ONE_PIXEL_PNG);
+		const issued = await issueMcpGatewaySession({
+			sessionId: "image-tool-test",
+			scopes: { browser: false, orchestration: false, images: true },
+			ctx: { images: { cwd } },
+		});
+
+		try {
+			const listed = await listTools(issued.endpoints.images, issued.token);
+			expect(listed.body?.result).toMatchObject({
+				tools: [{ name: "view_image" }],
+			});
+			const viewed = await callTool(
+				issued.endpoints.images,
+				issued.token,
+				"view_image",
+				{ path: imagePath },
+			);
+			expect(viewed.body?.result).toMatchObject({
+				content: [
+					{
+						type: "image",
+						mimeType: "image/png",
+						data: ONE_PIXEL_PNG.toString("base64"),
+					},
+					{ type: "text", text: "Viewed image: screen.png" },
+				],
+			});
+		} finally {
+			await issued.close();
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	test("dispatches tool calls to the issuing session context", async () => {

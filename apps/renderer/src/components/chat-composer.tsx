@@ -58,6 +58,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { Textarea } from "~/components/ui/textarea";
+import { toastManager } from "~/components/ui/toast.tsx";
 import {
   Tooltip,
   TooltipPopup,
@@ -77,10 +78,13 @@ import {
   addChipEffect,
   allChips,
   clearChipsEffect,
+  removeImageChipEffect,
   updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
 import {
   chooseComposerSubmitRoute,
+  deliverNativePlanFeedback,
+  findPendingNativePlanApproval,
   findPendingPlanApprovalRequest,
   hasEmulatedPlanAwaitingAction,
   providerUsesEmulatedPlanMode,
@@ -214,6 +218,7 @@ export function ChatComposer({
   const holdForAgent = hasQueued || session.status === "booting";
   const goal = useMessagesStore((s) => s.goalBySession[sessionId] ?? null);
   const send = useMessagesStore((s) => s.send);
+  const respondToPlan = useSessionsStore((s) => s.respondToPlan);
   const interrupt = useMessagesStore((s) => s.interrupt);
   const queue = useMessagesStore((s) => s.queue);
   const setGoal = useMessagesStore((s) => s.setGoal);
@@ -283,9 +288,17 @@ export function ChatComposer({
       findPendingPlanApprovalRequest(Object.values(requestsById), sessionId),
     [requestsById, sessionId],
   );
+  const pendingNativePlanApproval = useMemo(
+    () =>
+      pendingPlanApprovalRequest === null
+        ? findPendingNativePlanApproval(sessionMessages ?? [])
+        : null,
+    [pendingPlanApprovalRequest, sessionMessages],
+  );
   const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
   const sendPlanFeedbackNow = useMemo(
     () =>
+      pendingNativePlanApproval !== null ||
       shouldSendPlanFeedbackNow({
         permissionMode: session.permissionMode,
         messages: sessionMessages ?? [],
@@ -295,6 +308,7 @@ export function ChatComposer({
       }),
     [
       pendingPlanApprovalRequest,
+      pendingNativePlanApproval,
       session.permissionMode,
       sessionMessages,
       usesEmulatedPlanMode,
@@ -358,6 +372,7 @@ export function ChatComposer({
   }, [isDraft, inFlight, headPermission, sessionId, hydratePermissions]);
 
   const [hasText, setHasText] = useState(false);
+  const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
   const [goalSendMode, setGoalSendMode] = useState(false);
   // Provider features the installed CLI supports (from the availability
   // probe). Drives whether goal/fast controls render at all. Codex resolves
@@ -424,7 +439,8 @@ export function ChatComposer({
 
   // Stacked annotations are a valid message on their own, so they enable Send
   // even with an empty text box.
-  const canSend = hasText || annotationCount > 0;
+  const canSend =
+    uploadingAttachmentCount === 0 && (hasText || annotationCount > 0);
 
   // Mount the CodeMirror view once per ChatComposer instance. The parent keys
   // live chat composers by session id, and the landing keys them by project id,
@@ -676,6 +692,7 @@ export function ChatComposer({
         continue;
       }
 
+      setUploadingAttachmentCount((count) => count + 1);
       void uploadOne(sessionId, file, workspaceRoot ?? undefined)
         .then((ref) => {
           const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
@@ -694,9 +711,29 @@ export function ChatComposer({
         })
         .catch((err) => {
           console.error("[chat-composer] upload failed", err);
+          const activeView = editorViewRef.current;
+          const chip =
+            activeView === null
+              ? undefined
+              : allChips(activeView.state).find(
+                  (item) =>
+                    item.meta.kind === "image" && item.meta.id === tempId,
+                );
+          if (activeView !== null && chip !== undefined) {
+            activeView.dispatch({
+              changes: { from: chip.from, to: chip.to },
+              effects: removeImageChipEffect.of({ id: tempId }),
+            });
+          }
+          toastManager.add({
+            type: "error",
+            title: "Image upload failed",
+            description: "The image was removed. Try attaching it again.",
+          });
         })
         .finally(() => {
           if (blobUrl) URL.revokeObjectURL(blobUrl);
+          setUploadingAttachmentCount((count) => Math.max(0, count - 1));
         });
     }
   };
@@ -823,6 +860,7 @@ export function ChatComposer({
   const submit = (): boolean => {
     // Don't submit while a popover is open — Enter belongs to the popover.
     if (trigger !== null || modelPickerOpen) return false;
+    if (uploadingAttachmentCount > 0) return false;
 
     const view = editorViewRef.current;
     if (view === null) return false;
@@ -887,6 +925,20 @@ export function ChatComposer({
     switch (route) {
       case "planFeedback":
         void (async () => {
+          if (pendingNativePlanApproval !== null) {
+            await deliverNativePlanFeedback({
+              respond: () =>
+                respondToPlan(
+                  sessionId,
+                  pendingNativePlanApproval.toolCallId,
+                  "cancelled",
+                  docText,
+                  { silent: true },
+                ),
+              fallbackSend: () => send(sessionId, input),
+            });
+            return;
+          }
           if (pendingPlanApprovalRequest !== null) {
             await decidePermission(pendingPlanApprovalRequest.id, {
               _tag: "Deny",
@@ -1175,7 +1227,17 @@ export function ChatComposer({
                 {!isDraft ? (
                   <SessionTimer sessionId={sessionId} inFlight={inFlight} />
                 ) : null}
-                {inFlight ? (
+                {sendPlanFeedbackNow && hasText ? (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => void submit()}
+                    disabled={!canSend}
+                    aria-label="Request changes to plan"
+                  >
+                    Request changes
+                  </Button>
+                ) : inFlight ? (
                   <Tooltip>
                     <TooltipTrigger
                       render={
@@ -1203,13 +1265,22 @@ export function ChatComposer({
                           size="icon-sm"
                           onClick={() => void submit()}
                           disabled={!canSend}
-                          aria-label="Send"
+                          loading={uploadingAttachmentCount > 0}
+                          aria-label={
+                            uploadingAttachmentCount > 0
+                              ? "Uploading image"
+                              : "Send"
+                          }
                         >
                           <HugeiconsIcon icon={SentIcon} className="size-3.5" />
                         </Button>
                       }
                     />
-                    <TooltipPopup>Send (Enter)</TooltipPopup>
+                    <TooltipPopup>
+                      {uploadingAttachmentCount > 0
+                        ? "Uploading image…"
+                        : "Send (Enter)"}
+                    </TooltipPopup>
                   </Tooltip>
                 )}
               </div>

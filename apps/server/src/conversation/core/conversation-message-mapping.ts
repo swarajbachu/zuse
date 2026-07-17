@@ -40,6 +40,7 @@ const transcriptSkipKinds: ReadonlySet<string> = new Set([
 	"context_usage",
 	"context_compaction",
 	"usage_limit",
+	"subagent_progress",
 ]);
 
 export const shouldIncludeInTranscript = (content: MessageContent): boolean =>
@@ -209,6 +210,21 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 				isError: event.isError,
 				childSessionId: event.childSessionId,
 				presentation: event.presentation,
+			};
+		case "SubagentProgress":
+			return {
+				_tag: "subagent_progress",
+				childId: event.childId,
+				parentId: event.parentId,
+				childSessionId: event.childSessionId,
+				status: event.status,
+				durationMs: event.durationMs,
+				turns: event.turns,
+				toolCalls: event.toolCalls,
+				tokens: event.tokens,
+				contextPercentage: event.contextPercentage,
+				toolsUsed: event.toolsUsed,
+				errorCount: event.errorCount,
 			};
 		case "UsageDelta":
 			return {

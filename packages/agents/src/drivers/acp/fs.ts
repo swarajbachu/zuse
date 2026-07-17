@@ -16,10 +16,19 @@ import { type FsOp, getFsPolicy } from "../../kernel/policy.ts";
  * that FileWrite requests respect RuntimeMode, sensitive paths, AllowForSession,
  * and plan mode — exactly like Claude/Codex.
  *
- * Security: all paths are forced under the session cwd via ensureUnderCwd.
+ * Security: paths are forced under the session cwd, except for an optional
+ * exact plan-file scope that is active only while the session is in plan mode.
  */
 
 export type FsHandleContext = AcpPermissionContext;
+
+export interface FsRequestScope {
+	/**
+	 * Exact provider-owned plan file that may be read or written while the
+	 * session is in plan mode. No sibling path or directory access is implied.
+	 */
+	readonly planFilePath?: string;
+}
 
 const AcpFsParams = Schema.Record(Schema.String, Schema.Unknown);
 const decodeAcpFsParams = Schema.decodeUnknownSync(AcpFsParams);
@@ -36,6 +45,28 @@ export const ensureUnderCwd = (p: string, cwd: string): string => {
 		throw new Error(`Path escapes workspace: ${p}`);
 	}
 	return abs;
+};
+
+const resolveFilePath = (
+	p: string,
+	ctx: FsHandleContext,
+	scope: FsRequestScope,
+): { readonly path: string; readonly isScopedPlanFile: boolean } => {
+	const abs = path.resolve(p);
+	if (isUnderCwd(abs, ctx.cwd)) {
+		return { path: abs, isScopedPlanFile: false };
+	}
+
+	const planFilePath = scope.planFilePath;
+	if (
+		ctx.getPermissionMode?.() === "plan" &&
+		planFilePath !== undefined &&
+		abs === path.resolve(planFilePath)
+	) {
+		return { path: abs, isScopedPlanFile: true };
+	}
+
+	throw new Error(`Path escapes workspace: ${p}`);
 };
 
 /**
@@ -91,13 +122,17 @@ const toBase64 = (buf: Buffer): string => buf.toString("base64");
 async function handleReadTextFile(
 	params: unknown,
 	ctx: FsHandleContext,
+	scope: FsRequestScope,
 ): Promise<unknown> {
 	const p = decodeAcpFsParams(params).path;
 	if (typeof p !== "string") throw new Error("fs/read_text_file: missing path");
 
-	const abs = ensureUnderCwd(p, ctx.cwd);
+	const resolved = resolveFilePath(p, ctx, scope);
+	const abs = resolved.path;
 	// Sensitive reads still go through the gate (forcePrompt path).
-	await ensureFsPermission(ctx, "read", abs);
+	if (!resolved.isScopedPlanFile) {
+		await ensureFsPermission(ctx, "read", abs);
+	}
 
 	const data = await fs.readFile(abs, "utf8");
 
@@ -142,15 +177,19 @@ async function handleReadDirectory(
 async function handleWriteFile(
 	params: unknown,
 	ctx: FsHandleContext,
+	scope: FsRequestScope,
 ): Promise<unknown> {
 	const decoded = decodeAcpFsParams(params);
 	const p = decoded.path;
 	if (typeof p !== "string") throw new Error("fs/write_file: missing path");
 
-	const abs = ensureUnderCwd(p, ctx.cwd);
+	const resolved = resolveFilePath(p, ctx, scope);
+	const abs = resolved.path;
 
 	// Permission gate — may prompt the user and block until decision.
-	await ensureFsPermission(ctx, "write", abs);
+	if (!resolved.isScopedPlanFile) {
+		await ensureFsPermission(ctx, "write", abs);
+	}
 
 	const dataB64 = decoded.dataBase64;
 	const content = decoded.content;
@@ -226,13 +265,14 @@ export async function handleFsRequest(
 	method: string,
 	params: unknown,
 	ctx: FsHandleContext,
+	scope: FsRequestScope = {},
 ): Promise<unknown> {
 	try {
 		switch (method) {
 			case "fs/read_text_file":
 			case "fs/readFile":
 			case "fs/read_file":
-				return await handleReadTextFile(params, ctx);
+				return await handleReadTextFile(params, ctx, scope);
 
 			case "fs/read_directory":
 			case "fs/readDirectory":
@@ -244,7 +284,7 @@ export async function handleFsRequest(
 			case "fs/writeTextFile":
 			case "fs/write_file":
 			case "fs/writeFile":
-				return await handleWriteFile(params, ctx);
+				return await handleWriteFile(params, ctx, scope);
 
 			case "fs/create_directory":
 			case "fs/createDirectory":

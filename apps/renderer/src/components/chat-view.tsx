@@ -11,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-
+import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
   CHAT_LIST_ANCHOR_OFFSET,
   resolveChatListAnchoredEndSpace,
@@ -93,7 +93,7 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   // While a plan sits awaiting approval the turn is technically still "running",
   // but the agent is blocked on the user — show no spinner, since we're the ones
   // waiting. The Approve/Cancel decision lives in the pinned PlanApprovalTray.
-  const awaitingPlanApproval = usePermissionsStore((s) => {
+	const awaitingPermissionPlanApproval = usePermissionsStore((s) => {
     for (const req of Object.values(s.requestsById)) {
       if (req.sessionId !== sessionId) continue;
       if (req.kind._tag !== "Other") continue;
@@ -102,6 +102,9 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     }
     return false;
   });
+	const awaitingPlanApproval =
+		awaitingPermissionPlanApproval ||
+		deriveChatAttentionState(messages, inFlight) === "planReady";
   const error = useMessagesStore((s) => s.errorBySession[sessionId] ?? null);
   const clearError = useMessagesStore((s) => s.clearError);
   const hydrate = useMessagesStore((s) => s.hydrate);

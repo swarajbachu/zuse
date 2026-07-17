@@ -393,6 +393,7 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
  *   Write         { file_path, content }                  ""
  *   Read          { file_path, offset?, limit? }          file slice (string
  *                                                          or [{type:"text"}])
+ *   ViewImage     { file_path }                           multimodal image block
  *   Bash          { command, description? }               stdout/stderr text
  *                 `description` only when it's a human-written summary
  *                 distinct from the command — drivers must not echo the
@@ -461,6 +462,21 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
   isError: Schema.Boolean,
   childSessionId: Schema.optional(Schema.String),
   presentation: Schema.optional(Schema.Literals(["inline", "detached"])),
+});
+
+/** Native provider progress for a running child agent. */
+const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
+	childId: Schema.String,
+	parentId: Schema.String,
+	childSessionId: Schema.String,
+	status: Schema.String,
+	durationMs: Schema.Number,
+	turns: Schema.Number,
+	toolCalls: Schema.Number,
+	tokens: Schema.Number,
+	contextPercentage: Schema.Number,
+	toolsUsed: Schema.Array(Schema.String),
+	errorCount: Schema.Number,
 });
 
 /**
@@ -550,6 +566,7 @@ const ErrorEvent = Schema.TaggedStruct("Error", {
  */
 const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
   cursor: Schema.String,
+	providerEventCursor: Schema.optional(Schema.String),
   strategy: Schema.Literals([
     "claude-session-id",
     "codex-thread-id",
@@ -559,6 +576,20 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
     "opencode-session-id",
   ]),
 });
+
+const ProviderNotificationMetadataEvent = Schema.TaggedStruct(
+	"ProviderNotificationMetadata",
+	{
+		eventId: Schema.optional(Schema.String),
+		promptId: Schema.optional(Schema.String),
+		isReplay: Schema.Boolean,
+		timestampMs: Schema.optional(Schema.Number),
+		streamStartMs: Schema.optional(Schema.Number),
+		turnStartMs: Schema.optional(Schema.Number),
+		totalTokens: Schema.optional(Schema.Number),
+		stopReason: Schema.optional(Schema.String),
+	},
+);
 
 /**
  * Structured question shape used by both `UserQuestionEvent` and the
@@ -584,6 +615,23 @@ const UserQuestionEvent = Schema.TaggedStruct("UserQuestion", {
   questions: Schema.Array(UserQuestion),
   parentItemId: Schema.optional(AgentItemId),
 });
+
+export const PlanApprovalOutcome = Schema.Literals([
+	"approved",
+	"cancelled",
+	"abandoned",
+]);
+export type PlanApprovalOutcome = typeof PlanApprovalOutcome.Type;
+
+/** Blocking native plan review request. */
+const PlanApprovalRequestedEvent = Schema.TaggedStruct(
+	"PlanApprovalRequested",
+	{
+		sessionId: AgentSessionId,
+		toolCallId: AgentItemId,
+		plan: Schema.String,
+	},
+);
 
 /**
  * Emitted when `Query.setPermissionMode` succeeds. The renderer uses it to
@@ -632,12 +680,15 @@ export const AgentEvent = Schema.Union([
   ToolResultEvent,
   PermissionRequestEvent,
   SubagentSummaryEvent,
+	SubagentProgressEvent,
   UsageDeltaEvent,
   ContextUsageEvent,
   ContextCompactionEvent,
   UsageLimitEvent,
   SessionCursorEvent,
+	ProviderNotificationMetadataEvent,
   UserQuestionEvent,
+	PlanApprovalRequestedEvent,
   PermissionModeChangedEvent,
   GoalUpdatedEvent,
   GoalClearedEvent,

@@ -56,6 +56,14 @@ interface ProviderProbe {
   } | null;
 }
 
+/** Minimum release with the typed native ACP extensions used by our driver. */
+export const MIN_GROK_CLI_VERSION: CliVersion = {
+	major: 0,
+	minor: 2,
+	patch: 101,
+	raw: "0.2.101",
+};
+
 const PROBES: ReadonlyArray<ProviderProbe> = [
   {
     providerId: "claude",
@@ -89,10 +97,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
     providerId: "grok",
     displayName: "Grok",
     cliBinary: "grok",
-    // No floor yet — xAI ships Grok Build CLI as a single official channel
-    // and hasn't published an SDK we'd need to keep in lock-step with.
-    // Revisit if a future release breaks the streaming-json contract.
-    minVersion: null,
+		minVersion: MIN_GROK_CLI_VERSION,
     upgradeCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
     // xAI ships Grok via a curl installer, not npm — no registry to poll.
     // The installer reinstalls the latest build, so it doubles as the updater.
