@@ -100,6 +100,12 @@ import {
 	LinearPrepareContextRpc,
 } from "./linear.ts";
 import {
+	McpAuthenticateRpc,
+	McpListRpc,
+	McpRefreshRpc,
+	McpSetEnabledRpc,
+} from "./mcp.ts";
+import {
 	PairingListTokensRpc,
 	PairingRevokeTokenRpc,
 	PairingStartRpc,
@@ -163,6 +169,8 @@ import {
 	SessionGoalStreamRpc,
 	SessionLatestPlanRpc,
 	SessionListRpc,
+	SessionMcpUpdateRpc,
+	SessionPlanRespondRpc,
 	SessionRenameRpc,
 	SessionResumeRpc,
 	SessionSetModelRpc,
@@ -305,6 +313,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 	ChatArchivePreviewRpc,
+	McpListRpc,
+	McpRefreshRpc,
+	McpSetEnabledRpc,
+	McpAuthenticateRpc,
 	ChatListRpc,
 	ChatGetRpc,
 	ChatCreateRpc,
@@ -317,6 +329,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ChatUnarchiveRpc,
 	ChatDeleteRpc,
 	SessionListRpc,
+	SessionMcpUpdateRpc,
 	SessionGetRpc,
 	SessionCreateRpc,
 	SessionRenameRpc,
@@ -337,6 +350,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionSetRuntimeModeRpc,
 	SessionSetPermissionModeRpc,
 	SessionAnswerQuestionRpc,
+	SessionPlanRespondRpc,
 	SessionSetWorktreeRpc,
 	MessagesListRpc,
 	MessagesSendRpc,

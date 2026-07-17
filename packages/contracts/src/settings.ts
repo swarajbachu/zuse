@@ -120,6 +120,13 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
    * via `OPENCODE_CONFIG_CONTENT` so both inventory and sessions see them.
    */
   opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
+  /**
+   * User MCP servers switched off globally, by descriptor key
+   * (`claude:<name>` / `codex:<name>` — see `McpServerDescriptor.key`).
+   * Server *definitions* never live here; the user's native Claude/Codex
+   * config files are the source of truth and this stores only overrides.
+   */
+  mcpDisabledServers: Schema.Array(Schema.String),
   subagents: Schema.Struct({
     enableForNewSessions: Schema.Boolean,
     presets: Schema.Record(Schema.String, SubagentPresetState),
@@ -182,6 +189,7 @@ export const SettingsPatch = Schema.Struct({
   opencodeCustomProviders: Schema.optional(
     Schema.Array(OpencodeCustomProvider),
   ),
+  mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
   subagents: Schema.optional(
     Schema.Struct({
       enableForNewSessions: Schema.Boolean,

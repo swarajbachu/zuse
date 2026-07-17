@@ -4,6 +4,7 @@ import type {
 	AttachmentRef,
 	FileRef,
 	PermissionMode,
+	PlanApprovalOutcome,
 	SkillRef,
 	ThreadGoal,
 	ThreadGoalSetInput,
@@ -26,6 +27,18 @@ export interface ProviderSessionHandle {
 	readonly answerQuestion: (
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
+	) => Effect.Effect<void>;
+	readonly respondToPlan?: (
+		toolCallId: AgentItemId,
+		outcome: PlanApprovalOutcome,
+		feedback?: string,
+	) => Effect.Effect<void>;
+	readonly acknowledgeProviderEventCursor?: (
+		cursor: string,
+	) => Effect.Effect<void>;
+	readonly releaseProviderEventCursor?: (cursor: string) => Effect.Effect<void>;
+	readonly updateMcpServers?: (
+		servers: ReadonlyArray<unknown>,
 	) => Effect.Effect<void>;
 }
 

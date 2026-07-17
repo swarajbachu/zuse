@@ -7,9 +7,12 @@ import { describe, expect, it } from "vitest";
 
 import {
 	chooseComposerSubmitRoute,
+	deliverNativePlanFeedback,
+	findPendingNativePlanApproval,
 	findPendingPlanApprovalRequest,
 	hasEmulatedPlanAwaitingAction,
 	providerUsesEmulatedPlanMode,
+	selectPlanApprovalMessages,
 	shouldSendPlanFeedbackNow,
 } from "../../src/lib/plan-feedback-routing.ts";
 
@@ -49,10 +52,20 @@ const exitPlanRequest = PermissionRequest.make({
 });
 
 describe("plan feedback routing", () => {
+	it("reuses the empty message snapshot while a session is loading", () => {
+		const messagesBySession = {};
+		const first = selectPlanApprovalMessages(messagesBySession, sessionId);
+
+		expect(selectPlanApprovalMessages(messagesBySession, sessionId)).toBe(
+			first,
+		);
+		expect(first).toEqual([]);
+	});
+
 	it("treats Claude as native and every other provider as emulated", () => {
 		expect(providerUsesEmulatedPlanMode("claude")).toBe(false);
 		expect(providerUsesEmulatedPlanMode("codex")).toBe(true);
-		expect(providerUsesEmulatedPlanMode("grok")).toBe(true);
+		expect(providerUsesEmulatedPlanMode("grok")).toBe(false);
 		expect(providerUsesEmulatedPlanMode("gemini")).toBe(true);
 		expect(providerUsesEmulatedPlanMode("cursor")).toBe(true);
 	});
@@ -61,6 +74,55 @@ describe("plan feedback routing", () => {
 		expect(findPendingPlanApprovalRequest([exitPlanRequest], sessionId)).toBe(
 			exitPlanRequest,
 		);
+	});
+
+	it("detects an unresolved native plan and clears it after its result", () => {
+		const request = toolUse("ExitPlanMode") as Message;
+		expect(findPendingNativePlanApproval([request])).toMatchObject({
+			toolCallId: "tool_1",
+		});
+		expect(
+			findPendingNativePlanApproval([
+				request,
+				{
+					content: {
+						_tag: "tool_result",
+						itemId: "tool_1",
+						output: "cancelled",
+						isError: true,
+					},
+				} as Message,
+			]),
+		).toBeNull();
+	});
+
+	it("sends feedback as a new turn when the blocking provider session is gone", async () => {
+		const calls: string[] = [];
+		const result = await deliverNativePlanFeedback({
+			respond: async () => {
+				calls.push("respond");
+				return "session-not-found";
+			},
+			fallbackSend: async () => {
+				calls.push("send");
+			},
+		});
+
+		expect(result).toBe("sent");
+		expect(calls).toEqual(["respond", "send"]);
+	});
+
+	it("does not resend plan feedback after an ambiguous RPC failure", async () => {
+		let sent = false;
+		const result = await deliverNativePlanFeedback({
+			respond: async () => "failed",
+			fallbackSend: async () => {
+				sent = true;
+			},
+		});
+
+		expect(result).toBe("failed");
+		expect(sent).toBe(false);
 	});
 
 	it("routes Claude-style pending plan approval feedback to send now", () => {

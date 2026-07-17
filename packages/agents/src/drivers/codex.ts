@@ -1308,6 +1308,7 @@ export const startCodexSession = (
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "codex",
 			sessionId,
+			cwd,
 			browserSend,
 			requestPermission: (kind, options) =>
 				requestPermission(sessionId, kind, options),

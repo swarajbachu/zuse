@@ -36,6 +36,7 @@ export interface SessionRow extends ConversationRow {
 	readonly model: string;
 	readonly status: string;
 	readonly cursor: string | null;
+	readonly provider_event_cursor?: string | null;
 	readonly resume_strategy: string;
 	readonly runtime_mode: string;
 	readonly agents_json: string | null;
@@ -141,6 +142,7 @@ export const sessionFromRow = (row: SessionRow): Session =>
 		status: row.status as Session["status"],
 		archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
 		cursor: row.cursor,
+		providerEventCursor: row.provider_event_cursor ?? null,
 		resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
 		runtimeMode: runtimeModeFromRow(row.runtime_mode),
 		worktreeId:
@@ -170,6 +172,7 @@ export const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
 		status: record.status,
 		archivedAt: record.archivedAt === null ? null : new Date(record.archivedAt),
 		cursor: record.cursor,
+		providerEventCursor: record.providerEventCursor,
 		resumeStrategy: resumeStrategyFromRow(record.resumeStrategy),
 		runtimeMode: runtimeModeFromRow(record.runtimeMode),
 		worktreeId:
@@ -213,9 +216,7 @@ export const chatFromRow = (row: ChatRow): Chat =>
 	});
 
 const normalizeMessageContent = (content: MessageContent): MessageContent =>
-	content._tag === "context_compaction" && content.status === undefined
-		? { ...content, status: "completed" }
-		: content;
+	content;
 
 export const messageFromRow = (row: MessageRow): Message =>
 	Message.make({

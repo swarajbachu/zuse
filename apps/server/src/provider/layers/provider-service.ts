@@ -27,6 +27,7 @@ import {
 import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
+import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -71,6 +72,7 @@ export const ProviderServiceLive = Layer.effect(
     const attachmentService = yield* AttachmentService;
     const browserBridge = yield* BrowserBridgeService;
     const configStore = yield* ConfigStoreService;
+    const mcp = yield* McpService;
     const runtime = yield* Effect.context<never>();
     const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
       new Map(),
@@ -167,6 +169,7 @@ export const ProviderServiceLive = Layer.effect(
         resumeCursor = null,
         getRuntimeMode,
         orchestrationTools = null,
+				providerEventCursor = null,
       ) =>
         Effect.gen(function* () {
           if (input.sessionId !== undefined) {
@@ -280,27 +283,11 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            const bunPath = yield* resolveCliPath("bun").pipe(
-              Effect.provideService(
-                CommandExecutor.ChildProcessSpawner,
-                executor,
-              ),
-            );
-            if (bunPath === null) {
-              return yield* Effect.fail(
-                new AgentSessionStartError({
-                  providerId: "grok",
-                  reason:
-                    "Bun was not found on PATH. It is required to expose Zuse browser tools to Grok via ACP MCP.",
-                }),
-              );
-            }
             handle = yield* startGrokSession(
               driverInput,
               cwd,
               apiKey,
               grokPath,
-              bunPath,
               sessionId,
               buildRequestPermission(input.folderId),
               runtimeModeGetter,
@@ -310,6 +297,7 @@ export const ProviderServiceLive = Layer.effect(
                 ),
               orchestrationTools,
               resumeCursor,
+							providerEventCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {
             // OpenCode spawns a local HTTP server (`opencode serve`) and we
@@ -408,6 +396,8 @@ export const ProviderServiceLive = Layer.effect(
               ),
             );
 
+            const userMcpServers = yield* mcp.resolveForClaudeSession(cwd);
+
             handle = yield* startClaudeSession(
               driverInput,
               cwd,
@@ -419,9 +409,10 @@ export const ProviderServiceLive = Layer.effect(
               resumeCursor,
               browserTools,
               // Control-plane orchestration tools (when autonomy != off) use
-              // their own provider-neutral `zuse-orchestration` MCP server.
-              orchestrationTools?.claudeTools ?? [],
-              orchestrationTools?.linearTools?.claudeTools ?? [],
+								// their own provider-neutral `zuse-orchestration` MCP server.
+								orchestrationTools?.claudeTools ?? [],
+								orchestrationTools?.linearTools?.claudeTools ?? [],
+								userMcpServers,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else {
             // Same story as Claude: we don't ship the SDK's bundled native
@@ -516,6 +507,23 @@ export const ProviderServiceLive = Layer.effect(
         Stream.unwrap(
           Effect.map(lookup(sessionId), ({ handle }) => handle.events),
         ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
+			acknowledgeProviderEventCursor: (sessionId, cursor) =>
+				Effect.flatMap(
+					lookup(sessionId),
+					({ handle }) =>
+						handle.acknowledgeProviderEventCursor?.(cursor) ?? Effect.void,
+				),
+			releaseProviderEventCursor: (sessionId, cursor) =>
+				Effect.flatMap(
+					lookup(sessionId),
+					({ handle }) =>
+						handle.releaseProviderEventCursor?.(cursor) ?? Effect.void,
+				),
+			updateMcpServers: (sessionId, servers) =>
+				Effect.flatMap(
+					lookup(sessionId),
+					({ handle }) => handle.updateMcpServers?.(servers) ?? Effect.void,
+				),
       setCredential: (providerId, apiKey) =>
         credentials
           .set(providerId, apiKey)
@@ -528,6 +536,13 @@ export const ProviderServiceLive = Layer.effect(
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.answerQuestion(itemId, answers),
         ),
+			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
+				Effect.flatMap(
+					lookup(sessionId),
+					({ handle }) =>
+						handle.respondToPlan?.(toolCallId, outcome, feedback) ??
+						Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+				),
       getGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"

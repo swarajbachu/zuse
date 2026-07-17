@@ -88,6 +88,7 @@ const freshSettings = (): SettingsFile =>
     opencodeProviderVisible: {},
     opencodeModelVisibleByProvider: {},
     opencodeCustomProviders: [],
+    mcpDisabledServers: [],
     subagents: { enableForNewSessions: true, presets: {} },
     branchNamingStyle: "username-slug",
     branchNamingPrefix: "",
@@ -359,6 +360,15 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     }
   }
 
+  const mcpDisabledServers: string[] = [];
+  if (Array.isArray(obj.mcpDisabledServers)) {
+    for (const item of obj.mcpDisabledServers) {
+      if (typeof item === "string" && item.length > 0) {
+        mcpDisabledServers.push(item);
+      }
+    }
+  }
+
   let subagents = base.subagents;
   if (typeof obj.subagents === "object" && obj.subagents !== null) {
     const sub = obj.subagents as Record<string, unknown>;
@@ -434,6 +444,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
     opencodeProviderVisible,
     opencodeModelVisibleByProvider,
     opencodeCustomProviders,
+    mcpDisabledServers,
     subagents,
     branchNamingStyle,
     branchNamingPrefix,
@@ -713,6 +724,8 @@ export const ConfigStoreServiceLive = Layer.effect(
             cur.opencodeModelVisibleByProvider,
           opencodeCustomProviders:
             patch.opencodeCustomProviders ?? cur.opencodeCustomProviders,
+          mcpDisabledServers:
+            patch.mcpDisabledServers ?? cur.mcpDisabledServers,
           subagents: patch.subagents ?? cur.subagents,
           branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
           branchNamingPrefix:
@@ -844,6 +857,7 @@ export const ConfigStoreServiceLive = Layer.effect(
             opencodeProviderVisible: cur.opencodeProviderVisible,
             opencodeModelVisibleByProvider: cur.opencodeModelVisibleByProvider,
             opencodeCustomProviders: cur.opencodeCustomProviders,
+            mcpDisabledServers: cur.mcpDisabledServers,
             subagents,
             branchNamingStyle: cur.branchNamingStyle,
             branchNamingPrefix: cur.branchNamingPrefix,

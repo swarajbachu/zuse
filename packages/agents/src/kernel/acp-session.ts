@@ -9,8 +9,10 @@ export interface CreateAcpSessionOptions {
 	readonly sessionId: string;
 	readonly providerLabel: string;
 	readonly httpServers: ReadonlyArray<unknown>;
-	readonly fallbackServers: () => Promise<ReadonlyArray<unknown>>;
+	readonly fallbackServers?: () => Promise<ReadonlyArray<unknown>>;
+	readonly providerEventCursor?: string | null;
 	readonly resumeCursor?: string | null;
+	readonly shouldReplaceMissingSession?: (cause: unknown) => boolean;
 }
 
 export interface AcpSessionAcquisition {
@@ -28,6 +30,9 @@ export const createAcpSession = async (
 				sessionId: cursor,
 				cwd: options.cwd,
 				mcpServers,
+				...(options.providerEventCursor == null
+					? {}
+					: { _meta: { cursor: options.providerEventCursor } }),
 			});
 			return {
 				sessionId: Option.match(decodeSessionResult(result), {
@@ -40,13 +45,17 @@ export const createAcpSession = async (
 		try {
 			return await load(options.httpServers);
 		} catch (cause) {
-			if (options.httpServers.length > 0) {
+			if (
+				options.httpServers.length > 0 &&
+				options.fallbackServers !== undefined
+			) {
 				try {
 					return await load(await options.fallbackServers());
 				} catch {
 					// The cursor itself is unavailable; create a replacement below.
 				}
 			}
+			if (options.shouldReplaceMissingSession?.(cause) !== true) throw cause;
 			console.warn(
 				`[mcp-gateway] session ${options.sessionId} could not load cursor; creating a replacement: ${
 					cause instanceof Error ? cause.message : String(cause)
@@ -65,6 +74,7 @@ export const createAcpSession = async (
 			`[mcp-gateway] session ${options.sessionId} connected via http`,
 		);
 	} catch (cause) {
+		if (options.fallbackServers === undefined) throw cause;
 		console.warn(
 			`[mcp-gateway] session ${options.sessionId} http setup failed; using stdio-fallback: ${
 				cause instanceof Error ? cause.message : String(cause)

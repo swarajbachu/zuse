@@ -144,7 +144,6 @@ const startProvider = async (
 				cwd,
 				apiKey,
 				binaryPath,
-				which("bun") ?? "bun",
 				sessionId,
 				requestPermission,
 				() => DEFAULT_RUNTIME_MODE,

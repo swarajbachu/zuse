@@ -11,6 +11,7 @@ import type {
   AttachmentRef,
   FileRef,
   PermissionMode,
+	PlanApprovalOutcome,
   ProviderId,
   ProviderNotAvailableError,
   RuntimeMode,
@@ -51,6 +52,7 @@ export interface ProviderServiceShape {
      * Grok ACP) without duplicating worktree/chat persistence logic.
      */
     orchestrationTools?: OrchestrationSessionTools | null,
+		providerEventCursor?: string | null,
   ) => Effect.Effect<
     { readonly sessionId: AgentSessionId },
     ProviderNotAvailableError | AgentSessionStartError
@@ -77,6 +79,19 @@ export interface ProviderServiceShape {
     sessionId: AgentSessionId,
   ) => Stream.Stream<AgentEvent, AgentSessionNotFoundError>;
 
+	readonly acknowledgeProviderEventCursor?: (
+		sessionId: AgentSessionId,
+		cursor: string,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	readonly releaseProviderEventCursor?: (
+		sessionId: AgentSessionId,
+		cursor: string,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
+	readonly updateMcpServers?: (
+		sessionId: AgentSessionId,
+		servers: ReadonlyArray<unknown>,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
+
   readonly setCredential: (
     providerId: ProviderId,
     apiKey: string,
@@ -100,6 +115,13 @@ export interface ProviderServiceShape {
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
+
+	readonly respondToPlan?: (
+		sessionId: AgentSessionId,
+		toolCallId: AgentItemId,
+		outcome: PlanApprovalOutcome,
+		feedback?: string,
+	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
   readonly getGoal: (
     sessionId: AgentSessionId,

@@ -6,6 +6,7 @@ import type {
   ForkMode,
   MessageId,
   PermissionMode,
+	PlanApprovalOutcome,
   ProviderId,
   RuntimeMode,
   SessionId,
@@ -134,6 +135,13 @@ type SessionsState = {
     itemId: AgentItemId,
     answers: ReadonlyArray<UserQuestionAnswer>,
   ) => Promise<void>;
+	readonly respondToPlan: (
+		sessionId: SessionId,
+		toolCallId: AgentItemId,
+		outcome: PlanApprovalOutcome,
+		feedback?: string,
+		options?: { readonly silent?: boolean },
+	) => Promise<"accepted" | "session-not-found" | "failed">;
   /**
    * Switch the session's provider and model. Allowed only before the first
    * user message — server returns `SessionAlreadyStartedError` otherwise,
@@ -477,6 +485,29 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       set({ error: formatError(err) });
     }
   },
+	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {
+		set({ error: null });
+		try {
+			const client = await getRpcClient();
+			await Effect.runPromise(
+				client["session.plan.respond"]({
+					sessionId,
+					toolCallId,
+					outcome,
+					...(feedback === undefined ? {} : { feedback }),
+				}),
+			);
+			return "accepted";
+		} catch (error) {
+			const message = formatError(error);
+			if (message.includes("SessionNotFoundError")) {
+				if (options?.silent !== true) set({ error: message });
+				return "session-not-found";
+			}
+			set({ error: message });
+			return "failed";
+		}
+	},
   setProvider: async (sessionId, providerId, model) => {
     const draft = get().draftSession;
     if (draft !== null && draft.id === sessionId) {

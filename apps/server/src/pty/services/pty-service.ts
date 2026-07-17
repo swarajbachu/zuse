@@ -1,12 +1,11 @@
-import { Context, type Effect, type Stream } from "effect";
-
-import {
-  type PtyCommand,
-  type PtyEvent,
-  type PtyId,
-  type PtyNotFoundError,
-  type PtySpawnError,
+import type {
+  PtyCommand,
+  PtyEvent,
+  PtyId,
+  PtyNotFoundError,
+  PtySpawnError,
 } from "@zuse/contracts";
+import { Context, type Effect, type Stream } from "effect";
 
 export interface PtyServiceShape {
   readonly open: (
@@ -28,10 +27,10 @@ export interface PtyServiceShape {
   readonly closeByCwdPrefix: (cwdPrefix: string) => Effect.Effect<void>;
   readonly subscribe: (
     ptyId: PtyId,
+    afterSequence?: number,
   ) => Stream.Stream<typeof PtyEvent.Type, PtyNotFoundError>;
 }
 
-export class PtyService extends Context.Service<
-  PtyService,
-  PtyServiceShape
->()("memoize/PtyService") {}
+export class PtyService extends Context.Service<PtyService, PtyServiceShape>()(
+  "memoize/PtyService",
+) {}

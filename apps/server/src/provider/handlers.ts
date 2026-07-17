@@ -418,6 +418,27 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
+	"session.plan.respond",
+	({ sessionId, toolCallId, outcome, feedback }) =>
+		Effect.flatMap(SessionService, (svc) =>
+			svc.respondToPlan(
+				sessionId,
+				toolCallId as import("@zuse/contracts").AgentItemId,
+				outcome,
+				feedback,
+			),
+		),
+);
+
+const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
+	"session.mcp.update",
+	({ sessionId, servers }) =>
+		Effect.flatMap(SessionService, (svc) =>
+			svc.updateMcpServers(sessionId, servers),
+		),
+);
+
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
   "session.setWorktree",
   ({ sessionId, worktreeId }) =>
@@ -714,6 +735,8 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   SessionSetRuntimeMode,
   SessionSetPermissionMode,
   SessionAnswerQuestion,
+	SessionPlanRespond,
+	SessionMcpUpdate,
   SessionSetWorktree,
   SessionEvents,
   SessionGoalGet,

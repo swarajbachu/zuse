@@ -12,6 +12,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import {
+	AgentSessionNotFoundError,
 	AgentSessionStartError,
 	ComposerInput,
 	defaultModelFor,
@@ -82,6 +83,7 @@ import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031
 import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
+import { Migration0037ProviderEventCursor } from "../../src/persistence/migrations/0037_provider_event_cursor.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -158,6 +160,8 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	setCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,
 	answerQuestion: () => Effect.void,
+	respondToPlan: (sessionId) =>
+		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 	getGoal: () => Effect.succeed(null),
 	setGoal: () => Effect.die("not used"),
 	clearGoal: () => Effect.void,
@@ -324,6 +328,7 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoRunAfterSetup: false,
 				environmentVariables: {},
 				fileIncludeGlobs: "",
+				mcpDisabledServers: [],
 			}),
 		),
 	update: (projectId, patch) =>
@@ -341,6 +346,7 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
 				environmentVariables: patch.environmentVariables ?? {},
 				fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
+				mcpDisabledServers: patch.mcpDisabledServers ?? [],
 			}),
 		),
 });
@@ -393,6 +399,7 @@ const runAllMigrations = Effect.all(
 		Migration0032ReactorEffectReceipts,
 		Migration0033ReactorEffectSteps,
 		Migration0034ToolEventLookup,
+		Migration0037ProviderEventCursor,
 	],
 	{ discard: true },
 );
@@ -1509,6 +1516,47 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("settles a stale plan interaction when its provider handle is gone", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "grok",
+						model: "grok-code",
+					}),
+				),
+			);
+			const toolCallId = "plan_stale" as import("@zuse/contracts").AgentItemId;
+			const result = await run(
+				Effect.flatMap(store, (s) =>
+					s
+						.respondToPlan(
+							initialSession.id,
+							toolCallId,
+							"cancelled",
+							"Add error recovery",
+						)
+						.pipe(Effect.result),
+				),
+			);
+
+			expect(result._tag).toBe("Failure");
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(messages.at(-1)?.content).toMatchObject({
+				_tag: "tool_result",
+				itemId: toolCallId,
+				isError: true,
+				output: {
+					outcome: "cancelled",
+					reason: "provider_session_unavailable",
+				},
+			});
+		});
+	});
+
 	it("renameSession, setRuntimeMode and setPermissionMode persist", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -2376,6 +2424,63 @@ describe("ConversationServices — chat & session lifecycle", () => {
 });
 
 describe("ConversationServices — provider event persistence", () => {
+	it("persists the provider event cursor after preceding events", async () => {
+		scriptedEvents = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "i_cursor" as never,
+				text: "persist first",
+			},
+			{
+				_tag: "SessionCursor",
+				cursor: "provider-session",
+				providerEventCursor: "provider-session-7",
+				strategy: "grok-session-id",
+			},
+		];
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (s) =>
+						s.createChat({
+							projectId: PROJECT_ID,
+							providerId: "grok",
+							model: "grok-4.5",
+							initialPrompt: "go",
+						}),
+					),
+				);
+				const row = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						const rows = yield* sql<{
+							readonly provider_event_cursor: string | null;
+							readonly message_count: number;
+						}>`
+							SELECT s.provider_event_cursor,
+								(SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.kind = 'assistant') AS message_count
+							FROM sessions s WHERE s.id = ${initialSession.id}
+						`;
+						const current = rows[0];
+						return current?.provider_event_cursor === "provider-session-7"
+							? current
+							: yield* Effect.fail("not yet" as const);
+					}).pipe(
+						Effect.retry(
+							Schedule.max([
+								Schedule.spaced("10 millis"),
+								Schedule.recurs(100),
+							]),
+						),
+					),
+				);
+				expect(row.message_count).toBeGreaterThan(0);
+			});
+		} finally {
+			scriptedEvents = [];
+		}
+	});
+
 	it("persists a scripted AssistantMessage event as an assistant message", async () => {
 		scriptedEvents = [
 			{ _tag: "AssistantMessage", itemId: "i_a1" as never, text: "all done" },

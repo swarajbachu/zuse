@@ -1,4 +1,3 @@
-import { isIgnorableGrokAuthNoise } from "@zuse/agents/drivers/acp/grok-auth-noise";
 import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
 	type AgentDefinition,
@@ -367,7 +366,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			),
 		setStatus,
 		settleTurn: settleActiveTurn,
-		setResume: (sessionId, cursor, strategy) =>
+		setResume: (sessionId, cursor, strategy, providerEventCursor) =>
 			Effect.gen(function* () {
 				yield* dispatchSessionCommand(sessionId, {
 					_tag: "SetResume",
@@ -375,7 +374,22 @@ export const makeConversationStoreRuntime = Effect.fn(
 					resumeStrategy: strategy,
 					updatedAt: yield* currentTimestamp,
 				});
+				if (providerEventCursor !== undefined) {
+					yield* options.sql`UPDATE sessions
+						SET provider_event_cursor = ${providerEventCursor}
+						WHERE id = ${sessionId}`.pipe(Effect.orDie);
+					yield* (
+						provider.acknowledgeProviderEventCursor?.(
+							sessionId,
+							providerEventCursor,
+						) ?? Effect.void
+					).pipe(Effect.catch(() => Effect.void));
+				}
 			}),
+		releaseProviderEventCursor: (sessionId, cursor) =>
+			(
+				provider.releaseProviderEventCursor?.(sessionId, cursor) ?? Effect.void
+			).pipe(Effect.catch(() => Effect.void)),
 		setPermissionMode: (sessionId, mode) =>
 			Effect.gen(function* () {
 				yield* dispatchSessionCommand(sessionId, {
@@ -390,8 +404,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				goal === null ? null : ThreadGoal.make(goal),
 			),
 		publishRelayActivity,
-		ignoreError: (providerId, message) =>
-			providerId === "grok" && isIgnorableGrokAuthNoise(message),
+		ignoreError: () => false,
 		isDuplicateToolUse,
 		persist: (sessionId, content) =>
 			Effect.gen(function* () {

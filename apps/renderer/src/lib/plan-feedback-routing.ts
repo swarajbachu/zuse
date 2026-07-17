@@ -1,4 +1,5 @@
 import type {
+  AgentItemId,
   Message,
   PermissionMode,
   PermissionRequest,
@@ -6,16 +7,27 @@ import type {
   SessionId,
 } from "@zuse/contracts";
 
+const EMPTY_PLAN_APPROVAL_MESSAGES: ReadonlyArray<Message> = [];
+
 /**
- * Whether a provider drives plan mode through the transcript-shape heuristic
- * rather than a native `ExitPlanMode` permission request. Claude is the only
- * provider whose driver emits a real `ExitPlanMode` permission; every other
- * provider (Codex / Grok / Gemini / Cursor / opencode) emulates plan mode via
- * a developer-instructions prefix, so we infer "plan is ready" from the
- * transcript instead.
+ * Select the transcript used to locate a native plan interaction.
+ *
+ * Zustand selectors consumed through `useSyncExternalStore` must return the
+ * same snapshot while the store is unchanged. In particular, do not allocate
+ * an empty array here while a newly-created session is still loading.
+ */
+export const selectPlanApprovalMessages = (
+  messagesBySession: Readonly<Record<string, ReadonlyArray<Message>>>,
+  sessionId: SessionId,
+): ReadonlyArray<Message> =>
+  messagesBySession[sessionId] ?? EMPTY_PLAN_APPROVAL_MESSAGES;
+
+/**
+ * Whether a provider still drives plan mode through the transcript-shape
+ * heuristic. Native plan interactions are authoritative for Claude and Grok.
  */
 export const providerUsesEmulatedPlanMode = (providerId: ProviderId): boolean =>
-  providerId !== "claude";
+  providerId !== "claude" && providerId !== "grok";
 
 export const isPlanApprovalRequest = (
   req: PermissionRequest,
@@ -33,6 +45,65 @@ export const findPendingPlanApprovalRequest = (
     if (isPlanApprovalRequest(req, sessionId)) return req;
   }
   return null;
+};
+
+export interface PendingNativePlanApproval {
+  readonly toolCallId: AgentItemId;
+  readonly plan: string | null;
+}
+
+/**
+ * Locate the newest unresolved plan interaction in the transcript. Callers
+ * must prefer a matching permission request when one exists; providers that
+ * expose the typed interaction do not create that permission request.
+ */
+export const findPendingNativePlanApproval = (
+  messages: ReadonlyArray<Message>,
+): PendingNativePlanApproval | null => {
+  const settledToolCalls = new Set<string>();
+  for (const message of messages) {
+    if (message.content._tag === "tool_result") {
+      settledToolCalls.add(message.content.itemId);
+    }
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index]?.content;
+    if (
+      content?._tag !== "tool_use" ||
+      content.tool !== "ExitPlanMode" ||
+      settledToolCalls.has(content.itemId)
+    ) {
+      continue;
+    }
+    const input = content.input;
+    const plan =
+      input !== null &&
+      typeof input === "object" &&
+      "plan" in input &&
+      typeof input.plan === "string"
+        ? input.plan
+        : null;
+    return { toolCallId: content.itemId, plan };
+  }
+
+  return null;
+};
+
+export const deliverNativePlanFeedback = async ({
+  respond,
+  fallbackSend,
+}: {
+  readonly respond: () => Promise<
+    "accepted" | "session-not-found" | "failed"
+  >;
+  readonly fallbackSend: () => Promise<unknown>;
+}): Promise<"responded" | "sent" | "failed"> => {
+  const result = await respond();
+  if (result === "accepted") return "responded";
+  if (result === "failed") return "failed";
+  await fallbackSend();
+  return "sent";
 };
 
 /**
@@ -70,7 +141,9 @@ export const shouldSendPlanFeedbackNow = ({
   if (isRunning) return false;
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const content = messages[i]!.content;
+    const message = messages[i];
+    if (message === undefined) continue;
+    const content = message.content;
     switch (content._tag) {
       case "assistant":
         return content.text.trim().length > 0;

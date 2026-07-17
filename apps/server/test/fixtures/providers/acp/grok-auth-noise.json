@@ -2,7 +2,7 @@
   "fixtureVersion": 1,
   "provider": "grok",
   "translator": "acp",
-  "scenario": "ignores transient auth-noise frame",
+  "scenario": "surfaces an authorization failure",
   "source": "sanitized captured ACP session/update frames",
   "frames": [
     {
@@ -17,6 +17,10 @@
     }
   ],
   "expectedEvents": [
+    {
+      "_tag": "Error",
+      "message": "Grok authentication failed (AuthorizationRequired). Run `grok login` again or verify that your account has SuperGrok or X Premium+."
+    },
     {
       "_tag": "AssistantMessage",
       "itemId": "i_acp_fixture_message",

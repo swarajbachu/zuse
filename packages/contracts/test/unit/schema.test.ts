@@ -609,6 +609,7 @@ describe("SettingsFile round-trip", () => {
 					models: [{ id: "my-model", name: "My Model" }],
 				},
 			],
+			mcpDisabledServers: ["claude:posthog"],
 			subagents: { enableForNewSessions: true, presets: {} },
 			branchNamingStyle: "username-slug",
 			branchNamingPrefix: "",
@@ -807,6 +808,7 @@ describe("RepositorySettingsFile round-trip", () => {
 				NODE_ENV: "development",
 			},
 			fileIncludeGlobs: ".env\n.env.local\n",
+			mcpDisabledServers: ["codex:pencil"],
 		});
 	});
 });

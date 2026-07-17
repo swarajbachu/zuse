@@ -211,6 +211,7 @@ export const startGeminiSession = (
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "gemini",
 			sessionId,
+			cwd,
 			browserSend,
 			requestPermission: (kind, options) =>
 				requestPermission(sessionId, kind, options),
