@@ -23,8 +23,12 @@ const Close = MemoizeRpcs.toLayerHandler("pty.close", ({ ptyId }) =>
   Effect.flatMap(PtyService, (svc) => svc.close(ptyId)),
 );
 
-const Output = MemoizeRpcs.toLayerHandler("pty.output", ({ ptyId }) =>
-  Stream.unwrap(Effect.map(PtyService, (svc) => svc.subscribe(ptyId))),
+const Output = MemoizeRpcs.toLayerHandler(
+  "pty.output",
+  ({ ptyId, afterSequence }) =>
+    Stream.unwrap(
+      Effect.map(PtyService, (svc) => svc.subscribe(ptyId, afterSequence)),
+    ),
 );
 
 export const PtyHandlersLayer = Layer.mergeAll(

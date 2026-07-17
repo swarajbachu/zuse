@@ -12,8 +12,9 @@ import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useSyncExternalStore } from "react";
 import { formatShortcut } from "../lib/shortcuts.ts";
+import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
@@ -186,6 +187,11 @@ export function RightPane() {
       ? (s.byKey[terminalsKey(chatId)] ?? EMPTY_TERMINALS)
       : EMPTY_TERMINALS,
   );
+  const terminalStatuses = useSyncExternalStore(
+    terminalRegistry.subscribeStatuses,
+    terminalRegistry.getStatusesSnapshot,
+    terminalRegistry.getStatusesSnapshot,
+  );
 
   const panels = useUiStore((s) =>
     chatId ? (s.rightPanelsByChat[chatId] ?? EMPTY_PANELS) : EMPTY_PANELS,
@@ -242,6 +248,30 @@ export function RightPane() {
       return renderChangesBadge(status?.dirtyFiles ?? 0);
     }
     if (panel.kind === "pr") return renderPrBadge(pr, details);
+    if (panel.kind === "terminal") {
+      const instance = termList[panel.slot];
+      const failed =
+        instance !== undefined && terminalStatuses[instance.id] === "failed";
+      if (failed) {
+        return (
+          <span
+            role="status"
+            title="Terminal disconnected — close it and open a new terminal"
+            className="size-1.5 shrink-0 rounded-full bg-rose-400"
+          >
+            <span className="sr-only">
+              Terminal disconnected — close it and open a new terminal
+            </span>
+          </span>
+        );
+      }
+      return (
+        <span
+          aria-hidden="true"
+          className="size-1.5 shrink-0 rounded-full bg-transparent"
+        />
+      );
+    }
     return null;
   };
 
@@ -259,10 +289,7 @@ export function RightPane() {
     visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
   const browserActive = activePanel?.kind === "browser";
   const addPanelMenu = (
-    <AddPanelMenu
-      addable={addableKinds(panels)}
-      onAdd={addPanel}
-    />
+    <AddPanelMenu addable={addableKinds(panels)} onAdd={addPanel} />
   );
 
   return (
