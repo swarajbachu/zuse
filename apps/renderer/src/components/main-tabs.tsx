@@ -1,11 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  GitCompareIcon,
   SquareLock01Icon,
   TaskDone01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { Plus, X } from "lucide-react";
-import { useMemo } from "react";
-
 import {
   defaultModelFor,
   type FolderId,
@@ -14,7 +12,13 @@ import {
   type Session,
   type SessionId,
 } from "@zuse/contracts";
-
+import { Plus, X } from "lucide-react";
+import { type ReactNode, useMemo } from "react";
+import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
+import {
+  activeChatId as deriveActiveChatId,
+  orderedChatTabs,
+} from "../lib/tab-order.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { useMessagesStore } from "../store/messages.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
@@ -23,11 +27,6 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useSettingsStore } from "../store/settings.ts";
 import { useSidebarMessageStatusStore } from "../store/sidebar-message-status.ts";
 import { useUiStore } from "../store/ui.ts";
-import {
-  activeChatId as deriveActiveChatId,
-  orderedChatTabs,
-} from "../lib/tab-order.ts";
-import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { Spinner } from "./ui/spinner";
@@ -136,6 +135,33 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
   return (
     <header className="flex h-10 shrink-0 items-stretch border-b border-border">
       <div className="flex items-stretch gap-1 px-2">
+        {changesTabOpen ? (
+          <FileTabButton
+            active={activeMainTab === "changes"}
+            name="Review"
+            path="Review every change on this branch"
+            dirty={false}
+            icon={
+              <HugeiconsIcon
+                icon={GitCompareIcon}
+                className="size-4 shrink-0"
+              />
+            }
+            closeLabel="Close review"
+            onClick={() => setActiveMainTab("changes")}
+            onClose={closeChangesTab}
+          />
+        ) : null}
+        {openFile && (
+          <FileTabButton
+            active={activeMainTab === "file"}
+            name={openFile.name}
+            path={openFile.kind === "text" ? openFile.path : openFile.name}
+            dirty={openFile.kind === "text" ? fileDirty : false}
+            onClick={() => setActiveMainTab("file")}
+            onClose={closeFileTab}
+          />
+        )}
         {tabs.length === 0 && (
           <TabButton
             active={activeMainTab === "chat"}
@@ -184,26 +210,6 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
         {projectId !== null && activeChatId !== null && (
           <NewChatTabButton chatId={activeChatId} />
         )}
-        {openFile && (
-          <FileTabButton
-            active={activeMainTab === "file"}
-            name={openFile.name}
-            path={openFile.kind === "text" ? openFile.path : openFile.name}
-            dirty={openFile.kind === "text" ? fileDirty : false}
-            onClick={() => setActiveMainTab("file")}
-            onClose={closeFileTab}
-          />
-        )}
-        {changesTabOpen ? (
-          <FileTabButton
-            active={activeMainTab === "changes"}
-            name="All changes"
-            path="Review every change on this branch"
-            dirty={false}
-            onClick={() => setActiveMainTab("changes")}
-            onClose={closeChangesTab}
-          />
-        ) : null}
       </div>
       <div className="flex-1" />
     </header>
@@ -357,7 +363,7 @@ function ChatTabButton({
         type="button"
         onClick={onClick}
         title={title ?? label}
-        className="flex min-w-0 flex-1 items-center gap-1.5 py-0"
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 py-0 leading-none"
       >
         {awaitingPlanApproval ? (
           <span
@@ -383,7 +389,7 @@ function ChatTabButton({
             className="size-3.5 shrink-0 text-foreground"
           />
         )}
-        <span className="truncate">{label}</span>
+        <span className="truncate leading-none">{label}</span>
       </button>
       <button
         type="button"
@@ -456,6 +462,8 @@ function FileTabButton({
   name,
   path,
   dirty,
+  icon,
+  closeLabel = "Close file",
   onClick,
   onClose,
 }: {
@@ -463,12 +471,14 @@ function FileTabButton({
   name: string;
   path: string;
   dirty: boolean;
+  icon?: ReactNode;
+  closeLabel?: string;
   onClick: () => void;
   onClose: () => void;
 }) {
   return (
     <div
-      className={`group relative flex max-w-[280px] items-center gap-1.5 px-3 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+      className={`group relative flex max-w-[280px] items-center gap-1.5 px-3 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
         active
           ? "text-foreground after:bg-foreground"
           : "text-muted-foreground hover:text-foreground after:bg-transparent"
@@ -478,10 +488,10 @@ function FileTabButton({
         type="button"
         onClick={onClick}
         title={dirty ? `${path} (unsaved)` : path}
-        className="flex min-w-0 flex-1 items-center gap-1.5 py-0"
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 py-0 leading-none"
       >
-        <FileIcon name={name} kind="file" />
-        <span className="truncate">{name}</span>
+        {icon ?? <FileIcon name={name} kind="file" className="size-4 shrink-0" />}
+        <span className="truncate leading-none">{name}</span>
         {dirty ? (
           <span
             aria-hidden="true"
@@ -492,7 +502,7 @@ function FileTabButton({
       <button
         type="button"
         onClick={onClose}
-        aria-label="Close file"
+        aria-label={closeLabel}
         className="relative z-10 rounded p-0.5 opacity-0 transition-opacity hover:bg-foreground/10 group-hover:opacity-100"
       >
         <X className="size-3" strokeWidth={1.8} />
