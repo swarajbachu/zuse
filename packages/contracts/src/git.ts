@@ -509,6 +509,22 @@ export const GitPushRpc = Rpc.make("git.push", {
 });
 
 /**
+ * Persist a resolved merge-conflict file: write the final (marker-free)
+ * contents to disk and `git add` it so the path leaves the unmerged state.
+ * Backs the Changes tab's inline `@pierre/diffs` `UnresolvedFile` resolver.
+ */
+export const GitResolveConflictRpc = Rpc.make("git.resolveConflict", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    contents: Schema.String,
+  }),
+  success: Schema.Struct({}),
+  error: GitErrors,
+});
+
+/**
  * Merge method passed to `gh pr merge`. Mirrors GitHub's three merge buttons;
  * the renderer remembers the last-used value (default `merge`).
  */

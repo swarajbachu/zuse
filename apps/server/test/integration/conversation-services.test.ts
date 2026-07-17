@@ -262,6 +262,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	diff: () => Effect.die("not used"),
 	commit: () => Effect.die("not used"),
 	push: () => Effect.die("not used"),
+	resolveConflict: () => Effect.die("not used"),
 	mergePr: () => Effect.die("not used"),
 	markReady: () => Effect.die("not used"),
 	init: () => Effect.die("not used"),

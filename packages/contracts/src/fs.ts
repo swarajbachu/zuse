@@ -251,6 +251,42 @@ export const FsRemoveRpc = Rpc.make("fs.remove", {
 });
 
 /**
+ * List every file path under the project/worktree root in one shot, for the
+ * path-first `@pierre/trees` file tree (which wants the full path universe up
+ * front and virtualizes the visible window itself). Paths are forward-slash,
+ * project-root-relative, dirs-first-then-name sorted. Skips `.git`,
+ * `node_modules`, and other noise dirs. Capped at `MAX_TREE_PATHS`; once the
+ * cap is hit, `truncated` is `true` and the list stops early.
+ */
+export const FsListPathsRpc = Rpc.make("fs.listPaths", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({
+    paths: Schema.Array(Schema.String),
+    truncated: Schema.Boolean,
+  }),
+  error: FsErrors,
+});
+
+/**
+ * Rename/move a file or directory inside the project/worktree root. Powers the
+ * file tree's inline rename and drag-and-drop. Both paths are project-relative
+ * and validated for containment; fails if the destination already exists.
+ */
+export const FsMoveRpc = Rpc.make("fs.move", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    fromPath: Schema.String,
+    toPath: Schema.String,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.Struct({}),
+  error: FsCreateErrors,
+});
+
+/**
  * Read a file by absolute path, outside any project folder — backs opening
  * agent-written plan/markdown files that live elsewhere on disk. Same UTF-8
  * decode, 5 MB cap, and `mtime` concurrency token as `fs.readFile`.

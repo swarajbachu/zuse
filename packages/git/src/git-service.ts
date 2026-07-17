@@ -115,6 +115,12 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly output: string }, GitFailure>;
+	readonly resolveConflict: (
+		folderId: FolderId,
+		path: string,
+		contents: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<Record<string, never>, GitFailure>;
 	readonly mergePr: (
 		folderId: FolderId,
 		action: "merge" | "enable-auto" | "disable-auto",

@@ -1,6 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert01Icon,
+  ArrowDown01Icon,
   ArrowRight01Icon,
   ArrowTurnDownIcon,
   Loading02Icon,
@@ -12,6 +13,12 @@ import {
 import { Effect } from "effect";
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import { UnresolvedFile } from "@pierre/diffs/react";
+import type { MergeConflictResolution } from "@pierre/diffs";
+
+import { classifyGit } from "../lib/git-rpc.ts";
+import { UnifiedPatchDiff } from "./inline-diff.tsx";
 
 import type {
   FolderId,
@@ -243,13 +250,19 @@ export function DiffPane({
         {conflicts.length > 0 ? (
           <Section title="Conflicts" counter={conflicts.length} tone="warning">
             <p className="text-muted-foreground">
-              Resolve these files, then commit. Click a file to open it.
+              Expand a file to resolve it inline — pick Ours, Theirs, or Both
+              for each conflict — then commit.
             </p>
-            <ChangeList
-              folderId={folderId}
-              worktreeId={worktreeId}
-              entries={conflicts}
-            />
+            <ul className="flex flex-col divide-y divide-border/45">
+              {conflicts.map((c) => (
+                <ConflictRow
+                  key={c.path}
+                  folderId={folderId}
+                  worktreeId={worktreeId}
+                  path={c.path}
+                />
+              ))}
+            </ul>
           </Section>
         ) : null}
 
@@ -316,6 +329,7 @@ export function DiffPane({
               onRevert={requestRevertFile}
               isSelected={(path) => !excluded.has(path)}
               onToggleSelect={togglePath}
+              expandable
             />
           )}
         </Section>
@@ -377,6 +391,7 @@ function ChangeList({
   onRevert,
   isSelected,
   onToggleSelect,
+  expandable = false,
 }: {
   folderId: FolderId;
   worktreeId: WorktreeId | null;
@@ -388,6 +403,9 @@ function ChangeList({
   ) => void;
   isSelected?: (path: string) => boolean;
   onToggleSelect?: (path: string) => void;
+  // When set, each row can expand to show its Pierre diff inline (working-tree
+  // changes only), so the Changes tab is a proper review surface.
+  expandable?: boolean;
 }) {
   return (
     <div className="flex flex-col">
@@ -400,6 +418,7 @@ function ChangeList({
             path={c.path}
             oldPath={c.oldPath}
             kind={c.kind}
+            expandable={expandable}
             onRevert={
               onRevert ? () => onRevert(c.path, c.kind, c.oldPath) : undefined
             }
@@ -488,6 +507,7 @@ function FileRow({
   onRevert,
   selected,
   onToggleSelect,
+  expandable = false,
 }: {
   folderId: FolderId;
   worktreeId: WorktreeId | null;
@@ -499,77 +519,386 @@ function FileRow({
   onRevert?: () => void;
   selected?: boolean;
   onToggleSelect?: () => void;
+  expandable?: boolean;
 }) {
   const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const [expanded, setExpanded] = useState(false);
   const renamed = oldPath !== null && oldPath !== undefined && oldPath !== path;
   const tooltip = renamed ? `${oldPath} → ${path}` : path;
   return (
-    <li className="group -mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
-      {onToggleSelect ? (
-        <CheckBox
-          checked={selected === true}
-          onClick={onToggleSelect}
-          title={selected ? "Exclude from commit" : "Include in commit"}
-        />
-      ) : null}
-      <button
-        type="button"
-        onClick={() =>
-          openFileInTab({
-            kind: "text",
-            folderId,
-            worktreeId,
-            path,
-            name: basename(path),
-            view: "diff",
-          })
-        }
-        className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
-        title={tooltip}
-      >
-        {renamed ? (
-          <RenameLabel oldPath={oldPath!} newPath={path} />
-        ) : (
-          <PathLabel path={path} />
-        )}
-      </button>
-      <span className="flex shrink-0 items-center gap-1.5">
-        {typeof additions === "number" || typeof deletions === "number" ? (
-          <span className="font-mono text-[11px]">
-            {typeof additions === "number" && additions > 0 ? (
-              <span className="text-success">+{additions}</span>
-            ) : null}
-            {typeof additions === "number" &&
-            typeof deletions === "number" &&
-            additions > 0 &&
-            deletions > 0
-              ? " "
-              : null}
-            {typeof deletions === "number" && deletions > 0 ? (
-              <span className="text-destructive">−{deletions}</span>
-            ) : null}
-          </span>
-        ) : null}
-        {onRevert ? (
+    <li className="group flex flex-col">
+      <div className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
+        {expandable ? (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRevert();
-            }}
-            className="flex size-[14px] shrink-0 items-center justify-center rounded-[3px] text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-            title={
-              kind === "untracked"
-                ? "Delete this untracked file"
-                : "Revert changes to this file"
-            }
+            onClick={() => setExpanded((v) => !v)}
+            className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            title={expanded ? "Hide diff" : "Show diff"}
+            aria-expanded={expanded}
           >
-            <HugeiconsIcon icon={UndoIcon} className="size-3" strokeWidth={2} />
+            <HugeiconsIcon
+              icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+              className="size-3.5"
+            />
           </button>
         ) : null}
-        <KindBox kind={kind} />
-      </span>
+        {onToggleSelect ? (
+          <CheckBox
+            checked={selected === true}
+            onClick={onToggleSelect}
+            title={selected ? "Exclude from commit" : "Include in commit"}
+          />
+        ) : null}
+        <button
+          type="button"
+          onClick={() =>
+            openFileInTab({
+              kind: "text",
+              folderId,
+              worktreeId,
+              path,
+              name: basename(path),
+              view: "diff",
+            })
+          }
+          className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
+          title={tooltip}
+        >
+          {renamed ? (
+            <RenameLabel oldPath={oldPath!} newPath={path} />
+          ) : (
+            <PathLabel path={path} />
+          )}
+        </button>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {typeof additions === "number" || typeof deletions === "number" ? (
+            <span className="font-mono text-[11px]">
+              {typeof additions === "number" && additions > 0 ? (
+                <span className="text-success">+{additions}</span>
+              ) : null}
+              {typeof additions === "number" &&
+              typeof deletions === "number" &&
+              additions > 0 &&
+              deletions > 0
+                ? " "
+                : null}
+              {typeof deletions === "number" && deletions > 0 ? (
+                <span className="text-destructive">−{deletions}</span>
+              ) : null}
+            </span>
+          ) : null}
+          {onRevert ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRevert();
+              }}
+              className="flex size-[14px] shrink-0 items-center justify-center rounded-[3px] text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+              title={
+                kind === "untracked"
+                  ? "Delete this untracked file"
+                  : "Revert changes to this file"
+              }
+            >
+              <HugeiconsIcon
+                icon={UndoIcon}
+                className="size-3"
+                strokeWidth={2}
+              />
+            </button>
+          ) : null}
+          <KindBox kind={kind} />
+        </span>
+      </div>
+      {expandable && expanded ? (
+        <div className="mb-2 ml-4 overflow-hidden rounded-md border border-border/50">
+          <InlineFileDiff
+            folderId={folderId}
+            worktreeId={worktreeId}
+            path={path}
+          />
+        </div>
+      ) : null}
     </li>
+  );
+}
+
+type InlineDiffState =
+  | { status: "loading" }
+  | { status: "empty"; note: string }
+  | { status: "ready"; patch: string }
+  | { status: "error"; reason: string };
+
+/**
+ * Lazily fetches a working-tree file's unified diff and renders it inline in
+ * the Changes tab through the shared `@pierre/diffs` viewer (`UnifiedPatchDiff`)
+ * — the same renderer used by the chat timeline and the file-editor Diff tab.
+ */
+function InlineFileDiff({
+  folderId,
+  worktreeId,
+  path,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+  path: string;
+}) {
+  const [state, setState] = useState<InlineDiffState>({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+    void (async () => {
+      const client = await getRpcClient();
+      const result = await classifyGit(
+        client["git.diff"]({ folderId, worktreeId, path }),
+      );
+      if (cancelled) return;
+      if (!result.ok) {
+        setState({ status: "error", reason: result.message });
+        return;
+      }
+      const { mode, patch } = result.value;
+      if (mode === "binary") {
+        setState({ status: "empty", note: "Binary file — no preview." });
+      } else if (mode === "unchanged" || patch.length === 0) {
+        setState({ status: "empty", note: "No textual change." });
+      } else {
+        setState({ status: "ready", patch });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [folderId, worktreeId, path]);
+
+  if (state.status === "loading") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+        Loading diff…
+      </div>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-destructive">
+        {state.reason}
+      </div>
+    );
+  }
+  if (state.status === "empty") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+        {state.note}
+      </div>
+    );
+  }
+  return <UnifiedPatchDiff path={path} patch={state.patch} />;
+}
+
+/**
+ * A single unmerged file in the Conflicts section. Expands to an inline
+ * `@pierre/diffs` `UnresolvedFile` — Pierre's conflict resolver with built-in
+ * Ours / Theirs / Both actions per conflict. Resolving the last conflict writes
+ * the marker-free file and `git add`s it via `git.resolveConflict`, so the row
+ * leaves the unmerged state.
+ */
+function ConflictRow({
+  folderId,
+  worktreeId,
+  path,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+  path: string;
+}) {
+  const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <li className="group flex flex-col">
+      <div className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          title={expanded ? "Hide conflict" : "Resolve conflict"}
+          aria-expanded={expanded}
+        >
+          <HugeiconsIcon
+            icon={expanded ? ArrowDown01Icon : ArrowRight01Icon}
+            className="size-3.5"
+          />
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            openFileInTab({
+              kind: "text",
+              folderId,
+              worktreeId,
+              path,
+              name: basename(path),
+              view: "diff",
+            })
+          }
+          className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
+          title={path}
+        >
+          <PathLabel path={path} />
+        </button>
+        <KindBox kind="unmerged" />
+      </div>
+      {expanded ? (
+        <div className="mb-2 ml-4 overflow-hidden rounded-md border border-border/50">
+          <ConflictBody
+            folderId={folderId}
+            worktreeId={worktreeId}
+            path={path}
+          />
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+type ConflictState =
+  | { status: "loading" }
+  | { status: "unsupported"; note: string }
+  | { status: "error"; reason: string }
+  | { status: "ready"; contents: string };
+
+function ConflictBody({
+  folderId,
+  worktreeId,
+  path,
+}: {
+  folderId: FolderId;
+  worktreeId: WorktreeId | null;
+  path: string;
+}) {
+  const [state, setState] = useState<ConflictState>({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+    void (async () => {
+      try {
+        const client = await getRpcClient();
+        const file = await Effect.runPromise(
+          client["fs.readFile"]({ folderId, path, worktreeId }),
+        );
+        if (cancelled) return;
+        if (file.kind !== "text") {
+          setState({
+            status: "unsupported",
+            note: "Binary file — resolve it manually.",
+          });
+          return;
+        }
+        setState({ status: "ready", contents: file.content });
+      } catch (err) {
+        if (cancelled) return;
+        setState({
+          status: "error",
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [folderId, worktreeId, path]);
+
+  if (state.status === "loading") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+        Loading conflict…
+      </div>
+    );
+  }
+  if (state.status === "error") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-destructive">
+        {state.reason}
+      </div>
+    );
+  }
+  if (state.status === "unsupported") {
+    return (
+      <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+        {state.note}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fz-diff overflow-auto" style={{ maxHeight: 480 }}>
+      <UnresolvedFile
+        file={{ name: basename(path), contents: state.contents }}
+        disableWorkerPool
+        renderMergeConflictUtility={(action, getInstance) => {
+          const apply = (resolution: MergeConflictResolution) => {
+            const inst = getInstance();
+            if (inst === undefined) return;
+            const res = inst.resolveConflict(action.conflictIndex, resolution);
+            if (res === undefined) return;
+            // Re-render the conflict UI with the resolved side applied.
+            inst.render({
+              file: res.file,
+              actions: res.actions,
+              markerRows: res.markerRows,
+            });
+            // When every conflict in the file is resolved, persist + stage.
+            if (res.actions.filter(Boolean).length === 0) {
+              void (async () => {
+                const client = await getRpcClient();
+                await Effect.runPromise(
+                  client["git.resolveConflict"]({
+                    folderId,
+                    worktreeId,
+                    path,
+                    contents: res.file.contents,
+                  }),
+                );
+                void useGitChangesStore
+                  .getState()
+                  .refresh(folderId, worktreeId);
+              })();
+            }
+          };
+          return (
+            <div className="flex items-center gap-1 p-1">
+              <ConflictActionButton onClick={() => apply("current")}>
+                Ours
+              </ConflictActionButton>
+              <ConflictActionButton onClick={() => apply("incoming")}>
+                Theirs
+              </ConflictActionButton>
+              <ConflictActionButton onClick={() => apply("both")}>
+                Both
+              </ConflictActionButton>
+            </div>
+          );
+        }}
+      />
+    </div>
+  );
+}
+
+function ConflictActionButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-sm border border-border/70 bg-background px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+    >
+      {children}
+    </button>
   );
 }
 

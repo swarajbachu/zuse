@@ -119,6 +119,14 @@ const Push = MemoizeRpcs.toLayerHandler(
     Effect.flatMap(GitService, (svc) => svc.push(folderId, worktreeId ?? null)),
 );
 
+const ResolveConflict = MemoizeRpcs.toLayerHandler(
+  "git.resolveConflict",
+  ({ folderId, worktreeId, path, contents }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.resolveConflict(folderId, path, contents, worktreeId ?? null),
+    ),
+);
+
 const MergePr = MemoizeRpcs.toLayerHandler(
   "git.mergePr",
   ({ folderId, worktreeId, action, method, deleteBranch }) =>
@@ -189,6 +197,7 @@ export const GitHandlersLayer = Layer.mergeAll(
   Diff,
   Commit,
   Push,
+  ResolveConflict,
   MergePr,
   MarkReady,
   Init,

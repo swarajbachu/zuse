@@ -1477,6 +1477,34 @@ export const GitServiceLive = Layer.effect(
 			);
 
 		/**
+		 * Persist a resolved merge-conflict file: write the marker-free contents
+		 * the renderer's `UnresolvedFile` produced, then `git add` the path so it
+		 * leaves the unmerged state.
+		 */
+		const resolveConflict: GitService["Service"]["resolveConflict"] = (
+			folderId,
+			relPath,
+			contents,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const abs = path.resolve(cwd, relPath);
+					yield* fs.writeFileString(abs, contents).pipe(
+						Effect.mapError(
+							(cause) =>
+								new GitCommandError({
+									folderId,
+									reason: cause.message ?? String(cause),
+								}),
+						),
+					);
+					yield* run(folderId, cwd, ["add", "--", relPath]);
+					return {};
+				}),
+			);
+
+		/**
 		 * Merge the current branch's PR directly via `gh pr merge` — no agent.
 		 *   merge        → merge now with the chosen method
 		 *   enable-auto  → arm GitHub-native auto-merge (`--auto`); GitHub merges
@@ -1863,6 +1891,7 @@ export const GitServiceLive = Layer.effect(
 			diff,
 			commit,
 			push,
+			resolveConflict,
 			mergePr,
 			markReady,
 			init,

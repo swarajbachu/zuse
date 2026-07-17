@@ -349,12 +349,9 @@ function PanelBody({
   switch (panel.kind) {
     case "files":
       return (
-        <>
-          <ActiveWorkspaceChip />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <FileTree key={folderId} folderId={folderId} />
-          </div>
-        </>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <FileTree key={folderId} folderId={folderId} />
+        </div>
       );
     case "terminal":
       return <TerminalSlotPane slot={panel.slot} />;
