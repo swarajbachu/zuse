@@ -7,6 +7,7 @@ import {
 	decodeAskUserQuestionRequest,
 	decodeGrokInitializeResult,
 	decodeGrokNotification,
+	decodeGrokWireMethod,
 	decodePlanApprovalRequest,
 	isSupportedGrokVersion,
 	mapGrokMode,
@@ -15,6 +16,55 @@ import {
 } from "../../../src/drivers/grok/protocol.ts";
 
 describe("Grok native ACP protocol", () => {
+	it("unwraps blocking extension requests from the ACP ext_method envelope", () => {
+		expect(
+			decodeGrokWireMethod("ext_method", {
+				method: "x.ai/exit_plan_mode",
+				params: {
+					sessionId: "session-1",
+					toolCallId: "tool-1",
+					planContent: "# Plan",
+				},
+			}),
+		).toEqual({
+			method: "x.ai/exit_plan_mode",
+			params: {
+				sessionId: "session-1",
+				toolCallId: "tool-1",
+				planContent: "# Plan",
+			},
+			extension: true,
+		});
+	});
+
+	it("unwraps extension notifications and preserves ordinary ACP methods", () => {
+		expect(
+			decodeGrokWireMethod("_x.ai/exit_plan_mode", {
+				sessionId: "session-1",
+				toolCallId: "tool-1",
+			}),
+		).toEqual({
+			method: "x.ai/exit_plan_mode",
+			params: { sessionId: "session-1", toolCallId: "tool-1" },
+			extension: true,
+		});
+		expect(
+			decodeGrokWireMethod("ext_notification", {
+				method: "x.ai/session_notification",
+				params: { sessionId: "session-1", update: {} },
+			}),
+		).toEqual({
+			method: "x.ai/session_notification",
+			params: { sessionId: "session-1", update: {} },
+			extension: true,
+		});
+		expect(decodeGrokWireMethod("session/update", { update: {} })).toEqual({
+			method: "session/update",
+			params: { update: {} },
+			extension: false,
+		});
+	});
+
 	it("decodes initialization capabilities and the agent version", () => {
 		const result = decodeGrokInitializeResult({
 			meta: { agentVersion: "0.2.101" },

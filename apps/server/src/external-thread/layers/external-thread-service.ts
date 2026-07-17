@@ -510,6 +510,24 @@ const toExternalThread = (thread: DiscoveredThread): ExternalThread =>
     available: thread.projectPath.length > 0 && existsSync(thread.projectPath),
   });
 
+export const dedupeExternalThreads = (
+  threads: ReadonlyArray<ExternalThread>,
+): ReadonlyArray<ExternalThread> => {
+  const newestById = new Map<string, ExternalThread>();
+  for (const thread of threads) {
+    const current = newestById.get(thread.id);
+    if (
+      current === undefined ||
+      thread.updatedAt.getTime() > current.updatedAt.getTime()
+    ) {
+      newestById.set(thread.id, thread);
+    }
+  }
+  return [...newestById.values()].sort(
+    (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+  );
+};
+
 const findOrAddProject = (
   workspace: WorkspaceService["Service"],
   worktrees: WorktreeService["Service"],
@@ -647,9 +665,9 @@ export const ExternalThreadServiceLive = Layer.effect(
           Effect.catch(() => Effect.succeed(discoverCodexFromIndex())),
         );
         const codexRows = codex.length > 0 ? codex : discoverCodexFromIndex();
-        const rows = [...discoverClaudeThreads(), ...codexRows]
-          .map(toExternalThread)
-          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        const rows = dedupeExternalThreads(
+          [...discoverClaudeThreads(), ...codexRows].map(toExternalThread),
+        );
         return rows.slice(0, limit);
       });
 

@@ -502,13 +502,28 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
+			const settleUnavailableInteraction = Effect.gen(function* () {
+				const persisted = yield* persistMessage(sessionId, {
+					_tag: "tool_result",
+					itemId: toolCallId,
+					output: {
+						outcome,
+						reason: "provider_session_unavailable",
+						...(feedback === undefined ? {} : { feedback }),
+					},
+					isError: true,
+				});
+				yield* ndjsonAppend(sessionId, persisted);
+				return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+			});
 			const respond = provider.respondToPlan;
 			if (respond === undefined) {
-				return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+				return yield* settleUnavailableInteraction;
 			}
 			yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
-				Effect.catchTag("AgentSessionNotFoundError", () =>
-					Effect.fail(new SessionNotFoundError({ sessionId })),
+				Effect.catchTag(
+					"AgentSessionNotFoundError",
+					() => settleUnavailableInteraction,
 				),
 			);
 			const persisted = yield* persistMessage(sessionId, {

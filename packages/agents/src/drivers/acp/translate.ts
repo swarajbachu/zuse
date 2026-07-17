@@ -114,6 +114,8 @@ const toNiceToolLabel = (raw: string): string => {
 	return words.join(" ");
 };
 
+const GENERIC_ACP_TOOL_KINDS = new Set(["other", "tool", "mcp"]);
+
 /**
  * Map an ACP `kind` (or tool name) string to the Claude-canonical tool name
  * the renderer's ToolRow switch + iconForTool expect. We now handle the
@@ -133,6 +135,13 @@ const normalizeAcpKind = (rawKind: string): string => {
 	}
 	if (k.startsWith("mcp__zuse-orchestration__")) {
 		return k;
+	}
+	if (
+		k === "view_image" ||
+		k === "zuse-images__view_image" ||
+		k === "mcp__zuse-images__view_image"
+	) {
+		return "ViewImage";
 	}
 	switch (k) {
 		case "browser_navigate":
@@ -470,7 +479,8 @@ const buildCanonicalInput = (
 			if (content !== null) out["content"] = content;
 			return Object.keys(out).length > 0 ? out : null;
 		}
-		case "Read": {
+		case "Read":
+		case "ViewImage": {
 			const file_path =
 				firstLocationPath(u) ?? (rawInput !== null ? pathFrom(rawInput) : null);
 			if (file_path !== null) {
@@ -549,7 +559,13 @@ const buildCanonicalInput = (
 const extractToolName = (u: Record<string, unknown>): string => {
 	// Direct fields first (most ACP implementations put the kind here)
 	const kind = typeof u["kind"] === "string" ? (u["kind"] as string) : null;
-	if (kind !== null && kind.length > 0) return normalizeAcpKind(kind);
+	if (
+		kind !== null &&
+		kind.length > 0 &&
+		!GENERIC_ACP_TOOL_KINDS.has(kind.toLowerCase())
+	) {
+		return normalizeAcpKind(kind);
+	}
 
 	if (typeof u["tool"] === "string" && u["tool"].length > 0)
 		return u["tool"] as string;
@@ -596,7 +612,11 @@ const extractToolName = (u: Record<string, unknown>): string => {
 	const title = typeof u["title"] === "string" ? (u["title"] as string) : null;
 	if (title && title.length > 0 && title.length < 40) {
 		// Heuristic: if it looks like a tool identifier, normalize it.
-		if (/^(?:mcp__)?zuse-orchestration__[a-z0-9_]+$/i.test(title)) {
+		if (
+			/^(?:mcp__)?zuse-(?:browser|images|orchestration)__[a-z0-9_]+$/i.test(
+				title,
+			)
+		) {
 			return normalizeAcpKind(title);
 		}
 		if (/^[a-z0-9_]+$/i.test(title)) return normalizeAcpKind(title);

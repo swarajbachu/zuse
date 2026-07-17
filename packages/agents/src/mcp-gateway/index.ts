@@ -20,6 +20,12 @@ import {
 	handleBrowserTool,
 } from "../drivers/browser-mcp-tools.ts";
 import {
+	handleImageTool,
+	IMAGE_MCP_SERVER_NAME,
+	IMAGE_MCP_TOOLS,
+	type ImageMcpToolOptions,
+} from "../drivers/image-mcp-tools.ts";
+import {
 	callLinearTool,
 	ensureLinearToolPermission,
 	isLinearToolName,
@@ -46,6 +52,7 @@ const MAX_LIFETIME_MS = 8 * 60 * 60 * 1_000;
 const BROWSER_PATH = `/mcp/${BROWSER_MCP_SERVER_NAME}`;
 const ORCHESTRATION_PATH = `/mcp/${ORCHESTRATION_MCP_SERVER_NAME}`;
 const LINEAR_PATH = `/mcp/${LINEAR_MCP_SERVER_NAME}`;
+const IMAGES_PATH = `/mcp/${IMAGE_MCP_SERVER_NAME}`;
 
 export interface McpGatewaySessionContext {
 	readonly browser?: BrowserMcpToolOptions;
@@ -53,6 +60,7 @@ export interface McpGatewaySessionContext {
 		readonly deps: OrchestrationToolDeps;
 	};
 	readonly linear?: LinearPermissionOptions & { readonly deps: LinearToolDeps };
+	readonly images?: ImageMcpToolOptions;
 }
 
 export interface McpGatewayIssueInput {
@@ -61,6 +69,7 @@ export interface McpGatewayIssueInput {
 		readonly browser: boolean;
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
+		readonly images?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 }
@@ -71,16 +80,19 @@ export interface McpGatewaySession {
 		readonly browser: string;
 		readonly orchestration: string;
 		readonly linear: string;
+		readonly images: string;
 	};
 	readonly httpServerConfigs: {
 		readonly browser: AcpHttpMcpServerConfig;
 		readonly orchestration: AcpHttpMcpServerConfig;
 		readonly linear: AcpHttpMcpServerConfig;
+		readonly images: AcpHttpMcpServerConfig;
 	};
 	readonly codexServerConfigs: {
 		readonly browser: CodexHttpMcpServerConfig;
 		readonly orchestration: CodexHttpMcpServerConfig;
 		readonly linear: CodexHttpMcpServerConfig;
+		readonly images: CodexHttpMcpServerConfig;
 	};
 	readonly close: () => Promise<void>;
 }
@@ -110,6 +122,7 @@ interface RegistryRecord {
 		readonly browser: boolean;
 		readonly orchestration: boolean;
 		readonly linear?: boolean;
+		readonly images?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
 	readonly lastUsedAt: number;
@@ -150,7 +163,7 @@ const pruneExpired = (now = Date.now()): void => {
 
 const resolveRecord = (
 	rawToken: string,
-	scope: "browser" | "orchestration" | "linear",
+	scope: "browser" | "orchestration" | "linear" | "images",
 ): RegistryRecord | null => {
 	pruneExpired();
 	const hash = tokenHash(rawToken);
@@ -300,10 +313,43 @@ const buildLinearServer = (
 	return server;
 };
 
+const buildImageServer = (ctx: ImageMcpToolOptions): Server => {
+	const server = new Server(
+		{ name: IMAGE_MCP_SERVER_NAME, version: "0.0.1" },
+		{ capabilities: { tools: {} } },
+	);
+	server.setRequestHandler(ListToolsRequestSchema, async () => ({
+		tools: IMAGE_MCP_TOOLS.map((tool) => ({
+			name: tool.name,
+			description: tool.description,
+			inputSchema: tool.inputSchema,
+		})),
+	}));
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		const name = request.params.name;
+		if (!IMAGE_MCP_TOOLS.some((tool) => tool.name === name)) {
+			return {
+				content: [{ type: "text" as const, text: `Unknown tool: ${name}` }],
+				isError: true,
+			};
+		}
+		try {
+			return await handleImageTool(
+				name,
+				asJsonObject(request.params.arguments ?? {}),
+				ctx,
+			);
+		} catch (cause) {
+			return toolResultFromError(name, cause);
+		}
+	});
+	return server;
+};
+
 const handleMcpRequest = async (
 	req: IncomingMessage,
 	res: ServerResponse,
-	scope: "browser" | "orchestration" | "linear",
+	scope: "browser" | "orchestration" | "linear" | "images",
 	record: RegistryRecord,
 ): Promise<void> => {
 	const mcpServer =
@@ -315,9 +361,13 @@ const handleMcpRequest = async (
 				? record.ctx.orchestration === undefined
 					? null
 					: buildOrchestrationServer(record.ctx.orchestration)
-				: record.ctx.linear === undefined
-					? null
-					: buildLinearServer(record.ctx.linear);
+				: scope === "linear"
+					? record.ctx.linear === undefined
+						? null
+						: buildLinearServer(record.ctx.linear)
+					: record.ctx.images === undefined
+						? null
+						: buildImageServer(record.ctx.images);
 	if (mcpServer === null) {
 		writeText(res, 404, "not found");
 		return;
@@ -343,7 +393,9 @@ const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 					? "orchestration"
 					: path === LINEAR_PATH
 						? "linear"
-						: null;
+						: path === IMAGES_PATH
+							? "images"
+							: null;
 		if (scope === null) {
 			writeText(res, 404, "not found");
 			return;
@@ -422,10 +474,11 @@ export const issueMcpGatewaySession = async (
 	const browser = `http://127.0.0.1:${port}${BROWSER_PATH}`;
 	const orchestration = `http://127.0.0.1:${port}${ORCHESTRATION_PATH}`;
 	const linear = `http://127.0.0.1:${port}${LINEAR_PATH}`;
+	const images = `http://127.0.0.1:${port}${IMAGES_PATH}`;
 	const authorizationHeader = `Bearer ${token}`;
 	return {
 		token,
-		endpoints: { browser, orchestration, linear },
+		endpoints: { browser, orchestration, linear, images },
 		httpServerConfigs: {
 			browser: {
 				type: "http",
@@ -445,6 +498,12 @@ export const issueMcpGatewaySession = async (
 				url: linear,
 				headers: [{ name: "Authorization", value: authorizationHeader }],
 			},
+			images: {
+				type: "http",
+				name: IMAGE_MCP_SERVER_NAME,
+				url: images,
+				headers: [{ name: "Authorization", value: authorizationHeader }],
+			},
 		},
 		codexServerConfigs: {
 			browser: {
@@ -459,6 +518,11 @@ export const issueMcpGatewaySession = async (
 			},
 			linear: {
 				url: linear,
+				bearer_token_env_var: "ZUSE_MCP_TOKEN",
+				enabled: true,
+			},
+			images: {
+				url: images,
 				bearer_token_env_var: "ZUSE_MCP_TOKEN",
 				enabled: true,
 			},

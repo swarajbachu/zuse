@@ -140,7 +140,8 @@ type SessionsState = {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Promise<boolean>;
+		options?: { readonly silent?: boolean },
+	) => Promise<"accepted" | "session-not-found" | "failed">;
   /**
    * Switch the session's provider and model. Allowed only before the first
    * user message — server returns `SessionAlreadyStartedError` otherwise,
@@ -484,7 +485,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       set({ error: formatError(err) });
     }
   },
-	respondToPlan: async (sessionId, toolCallId, outcome, feedback) => {
+	respondToPlan: async (sessionId, toolCallId, outcome, feedback, options) => {
+		set({ error: null });
 		try {
 			const client = await getRpcClient();
 			await Effect.runPromise(
@@ -495,10 +497,15 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					...(feedback === undefined ? {} : { feedback }),
 				}),
 			);
-			return true;
+			return "accepted";
 		} catch (error) {
-			set({ error: formatError(error) });
-			return false;
+			const message = formatError(error);
+			if (message.includes("SessionNotFoundError")) {
+				if (options?.silent !== true) set({ error: message });
+				return "session-not-found";
+			}
+			set({ error: message });
+			return "failed";
 		}
 	},
   setProvider: async (sessionId, providerId, model) => {

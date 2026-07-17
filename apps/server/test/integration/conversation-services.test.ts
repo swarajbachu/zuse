@@ -12,6 +12,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import {
+	AgentSessionNotFoundError,
 	AgentSessionStartError,
 	ComposerInput,
 	defaultModelFor,
@@ -159,6 +160,8 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	setCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,
 	answerQuestion: () => Effect.void,
+	respondToPlan: (sessionId) =>
+		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 	getGoal: () => Effect.succeed(null),
 	setGoal: () => Effect.die("not used"),
 	clearGoal: () => Effect.void,
@@ -1501,6 +1504,47 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					"SessionNotFoundError",
 				);
 			}
+		});
+	});
+
+	it("settles a stale plan interaction when its provider handle is gone", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "grok",
+						model: "grok-code",
+					}),
+				),
+			);
+			const toolCallId = "plan_stale" as import("@zuse/contracts").AgentItemId;
+			const result = await run(
+				Effect.flatMap(store, (s) =>
+					s
+						.respondToPlan(
+							initialSession.id,
+							toolCallId,
+							"cancelled",
+							"Add error recovery",
+						)
+						.pipe(Effect.result),
+				),
+			);
+
+			expect(result._tag).toBe("Failure");
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(messages.at(-1)?.content).toMatchObject({
+				_tag: "tool_result",
+				itemId: toolCallId,
+				isError: true,
+				output: {
+					outcome: "cancelled",
+					reason: "provider_session_unavailable",
+				},
+			});
 		});
 	});
 

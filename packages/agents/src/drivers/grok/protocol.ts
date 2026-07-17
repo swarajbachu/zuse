@@ -159,6 +159,46 @@ export const decodeAskUserQuestionRequest = Schema.decodeUnknownSync(
 export const normalizeGrokMethod = (method: string): string =>
 	method.startsWith("_x.ai/") ? method.slice(1) : method;
 
+const ExtensionEnvelope = Schema.Struct({
+	method: Schema.String,
+	params: Schema.optional(Schema.Unknown),
+});
+
+export interface GrokWireMethod {
+	readonly method: string;
+	readonly params: unknown;
+	readonly extension: boolean;
+}
+
+/**
+ * Provider extensions normally arrive as top-level `_x.ai/*` methods. Some
+ * ACP adapters expose the same request through an `ext_method` or
+ * `ext_notification` envelope, so normalize both forms at this boundary.
+ */
+export const decodeGrokWireMethod = (
+	method: string,
+	params: unknown,
+): GrokWireMethod => {
+	const normalized = normalizeGrokMethod(method);
+	if (normalized !== "ext_method" && normalized !== "ext_notification") {
+		return {
+			method: normalized,
+			params,
+			extension: normalized.startsWith("x.ai/"),
+		};
+	}
+	try {
+		const extension = Schema.decodeUnknownSync(ExtensionEnvelope)(params);
+		return {
+			method: normalizeGrokMethod(extension.method),
+			params: extension.params,
+			extension: true,
+		};
+	} catch {
+		return { method: normalized, params, extension: true };
+	}
+};
+
 export const mapGrokMode = (
 	mode: "plan" | "default" | "acceptEdits",
 ): "plan" | "default" => (mode === "plan" ? "plan" : "default");

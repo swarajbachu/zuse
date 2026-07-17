@@ -393,6 +393,7 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
  *   Write         { file_path, content }                  ""
  *   Read          { file_path, offset?, limit? }          file slice (string
  *                                                          or [{type:"text"}])
+ *   ViewImage     { file_path }                           multimodal image block
  *   Bash          { command, description? }               stdout/stderr text
  *                 `description` only when it's a human-written summary
  *                 distinct from the command — drivers must not echo the

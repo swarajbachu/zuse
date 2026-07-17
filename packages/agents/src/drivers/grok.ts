@@ -1,4 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { homedir } from "node:os";
+import * as path from "node:path";
 import * as readline from "node:readline";
 import { decodeJsonRpcLine } from "@zuse/acp/protocol";
 import { AcpRpcClient } from "@zuse/acp/rpc-client";
@@ -28,6 +30,7 @@ import type { ToolCategory } from "../kernel/permission-policy.ts";
 import { getBashPolicy, getFsPolicy, getToolPolicy } from "../kernel/policy.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
+import { buildAcpPromptContent } from "./acp-image-content.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { replyToAcpRequest } from "./acp/request-reply.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
@@ -47,13 +50,13 @@ import {
 	decodeAskUserQuestionRequest,
 	decodeGrokInitializeResult,
 	decodeGrokNotification,
+	decodeGrokWireMethod,
 	decodePlanApprovalRequest,
 	GROK_MINIMUM_VERSION,
 	GROK_UPDATE_COMMAND,
 	type GrokAskUserQuestionRequest,
 	isSupportedGrokVersion,
 	mapGrokMode,
-	normalizeGrokMethod,
 	translateGrokExtensionMethod,
 	translateGrokExtensionUpdate,
 } from "./grok/protocol.ts";
@@ -494,10 +497,7 @@ export const startGrokSession = (
 	AttachmentService
 > =>
 	Effect.gen(function* () {
-		// Keep AttachmentService in the requirement set so layer wiring stays
-		// uniform with the other drivers; attachments themselves are not yet
-		// wired through ACP's `prompt: [{ type: "image", ... }]` shape.
-		yield* AttachmentService;
+		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
@@ -519,6 +519,7 @@ export const startGrokSession = (
 		const mcpGatewaySession = yield* issueProviderMcpSession({
 			providerId: "grok",
 			sessionId,
+			cwd,
 			browserSend,
 			requestPermission: (kind, options) =>
 				requestPermission(sessionId, kind, options),
@@ -527,6 +528,7 @@ export const startGrokSession = (
 			orchestrationTools,
 		});
 		const grokMcpServers = [
+			mcpGatewaySession.httpServerConfigs.images,
 			mcpGatewaySession.httpServerConfigs.browser,
 			...(orchestrationTools === null
 				? []
@@ -536,6 +538,25 @@ export const startGrokSession = (
 				: [mcpGatewaySession.httpServerConfigs.linear]),
 		];
 		let acpSessionId: string | null = null;
+		const configuredHome = process.env.GROK_HOME?.trim();
+		const providerHome =
+			configuredHome === undefined || configuredHome.length === 0
+				? path.join(homedir(), ".grok")
+				: path.resolve(cwd, configuredHome);
+		const currentPlanFilePath = (): string | undefined => {
+			if (acpSessionId === null) return undefined;
+			const encodedCwd = encodeURIComponent(cwd).replace(
+				/[!'()*]/g,
+				(character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+			);
+			return path.join(
+				providerHome,
+				"sessions",
+				encodedCwd,
+				acpSessionId,
+				"plan.md",
+			);
+		};
 		let closed = false;
 		/** Driver-local goal state. Grok has no `thread/goal/*` ACP surface, so we
 		 *  track the goal here and forward the objective via the native `/goal`
@@ -726,20 +747,16 @@ export const startGrokSession = (
 
 				// Notifications and server→client requests both carry `method`.
 				if (typeof msg.method === "string") {
-					const normalizedMethod = normalizeGrokMethod(msg.method);
+					const wireMethod = decodeGrokWireMethod(msg.method, msg.params);
+					const normalizedMethod = wireMethod.method;
+					const methodParams = wireMethod.params;
 					if (
 						normalizedMethod === "session/update" ||
 						normalizedMethod === "x.ai/session_notification" ||
 						normalizedMethod === "x.ai/session/update"
 					) {
 						try {
-							const outerParams = asRecord(msg.params);
-							const notificationParams =
-								outerParams?.method === "x.ai/session_notification" &&
-								outerParams.params !== undefined
-									? outerParams.params
-									: msg.params;
-							const notification = decodeGrokNotification(notificationParams);
+							const notification = decodeGrokNotification(methodParams);
 							const { update, meta } = notification;
 							if (!eventCursor.shouldProcess(meta.eventId)) return;
 							Queue.offerUnsafe(events, {
@@ -828,7 +845,7 @@ export const startGrokSession = (
 					}
 					const dedicatedEvents = translateGrokExtensionMethod(
 						normalizedMethod,
-						msg.params,
+						methodParams,
 					);
 					if (dedicatedEvents.length > 0) {
 						for (const event of dedicatedEvents)
@@ -843,18 +860,18 @@ export const startGrokSession = (
 					// params object to the translator so the new collab handling can
 					// extract them. Only log at trace level to avoid noise in normal use.
 					if (
-						msg.method.startsWith("item/") ||
-						msg.method.startsWith("thread/")
+						normalizedMethod.startsWith("item/") ||
+						normalizedMethod.startsWith("thread/")
 					) {
 						if (GROK_RPC_TRACE) {
-							process.stderr.write(`[grok.rpc] ${msg.method}\n`);
+							process.stderr.write(`[grok.rpc] ${normalizedMethod}\n`);
 						}
-						if (msg.params !== undefined) {
+						if (methodParams !== undefined) {
 							const update = {
-								...(msg.params !== null && typeof msg.params === "object"
-									? (msg.params as Record<string, unknown>)
-									: { params: msg.params }),
-								method: msg.method,
+								...(methodParams !== null && typeof methodParams === "object"
+									? (methodParams as Record<string, unknown>)
+									: { params: methodParams }),
+								method: normalizedMethod,
 							};
 							const translated = translator.translate(update);
 							for (const ev of translated) {
@@ -865,10 +882,10 @@ export const startGrokSession = (
 					}
 
 					if (msg.id !== undefined && msg.id !== null) {
-						const extensionMethod = normalizeGrokMethod(msg.method);
+						const extensionMethod = normalizedMethod;
 						if (extensionMethod === "x.ai/exit_plan_mode") {
 							try {
-								const plan = decodePlanApprovalRequest(msg.params);
+								const plan = decodePlanApprovalRequest(methodParams);
 								pendingPlanResponses.set(plan.toolCallId, { rpcId: msg.id });
 								lifecycle.transition("waiting-for-input");
 								Queue.offerUnsafe(events, {
@@ -904,10 +921,10 @@ export const startGrokSession = (
 						//    error so the agent does not hang waiting for a response.
 						//    This often makes Grok fall back to its own well-named internal
 						//    tools (list_dir etc.) which our translator now renders nicely.
-						const isFs = msg.method.startsWith("fs/");
+						const isFs = normalizedMethod.startsWith("fs/");
 						if (GROK_RPC_TRACE || isFs) {
 							process.stderr.write(
-								`[grok.rpc] server→client request method=${msg.method} id=${msg.id}\n`,
+								`[grok.rpc] server→client request method=${normalizedMethod} id=${msg.id}\n`,
 							);
 						}
 						if (isFs) {
@@ -916,31 +933,36 @@ export const startGrokSession = (
 							replyToAcpRequest(
 								(message) => rpc.send(message),
 								msg.id,
-								handleFsRequest(msg.method, msg.params, acpHandlerContext()),
+								handleFsRequest(
+									normalizedMethod,
+									methodParams,
+									acpHandlerContext(),
+									{ planFilePath: currentPlanFilePath() },
+								),
 							);
 							return;
 						}
 
-						if (msg.method.startsWith("terminal/")) {
+						if (normalizedMethod.startsWith("terminal/")) {
 							replyToAcpRequest(
 								(message) => rpc.send(message),
 								msg.id,
 								handleTerminalRequest(
-									msg.method,
-									msg.params,
+									normalizedMethod,
+									methodParams,
 									acpHandlerContext(),
 								),
 							);
 							return;
 						}
 
-						if (isGrokNativePermissionMethod(msg.method)) {
+						if (isGrokNativePermissionMethod(normalizedMethod)) {
 							process.stderr.write(
-								`[grok.rpc] native permission request method=${msg.method} id=${msg.id}\n`,
+								`[grok.rpc] native permission request method=${normalizedMethod} id=${msg.id}\n`,
 							);
 							handleGrokNativePermissionRequest(
-								msg.method,
-								msg.params,
+								normalizedMethod,
+								methodParams,
 								acpHandlerContext(),
 							)
 								.then((result) => {
@@ -950,7 +972,7 @@ export const startGrokSession = (
 											id: msg.id,
 											error: {
 												code: -32601,
-												message: `Method not supported by Zuse ACP client: ${msg.method}`,
+												message: `Method not supported by Zuse ACP client: ${normalizedMethod}`,
 											},
 										});
 										return;
@@ -981,9 +1003,8 @@ export const startGrokSession = (
 
 						if (isQuestionMethod) {
 							try {
-								const questionRequest = decodeAskUserQuestionRequest(
-									msg.params,
-								);
+								const questionRequest =
+									decodeAskUserQuestionRequest(methodParams);
 								pendingQuestionResponses.set(questionRequest.toolCallId, {
 									rpcId: msg.id,
 									request: questionRequest,
@@ -1021,11 +1042,11 @@ export const startGrokSession = (
 							id: msg.id,
 							error: {
 								code: -32601,
-								message: `Method not supported by Zuse ACP client: ${msg.method}`,
+								message: `Method not supported by Zuse ACP client: ${normalizedMethod}`,
 							},
 						});
 						grokDiag("replied to unhandled server→client request", {
-							method: msg.method,
+							method: normalizedMethod,
 							id: msg.id,
 						});
 						return;
@@ -1238,7 +1259,11 @@ export const startGrokSession = (
 			);
 		}
 
-		const enqueuePrompt = (text: string, reconnectAttempt = 0): void => {
+		const enqueuePrompt = (
+			text: string,
+			attachmentRefs: ReadonlyArray<AttachmentRef> = [],
+			reconnectAttempt = 0,
+		): void => {
 			const compactSnapshot = isCompactCommand(text)
 				? startCompactSnapshot(null)
 				: null;
@@ -1299,7 +1324,7 @@ export const startGrokSession = (
 								return;
 							}
 							if (reconnectAttempt < 2) {
-								enqueuePrompt(text, reconnectAttempt + 1);
+								enqueuePrompt(text, attachmentRefs, reconnectAttempt + 1);
 								return;
 							}
 							terminalFailure = true;
@@ -1322,6 +1347,22 @@ export const startGrokSession = (
 					// so a respawned context gets it too). Compact turns skip it —
 					// they replay a synthetic summary, not a user ask.
 					const finalPromptText = promptText;
+					const prompt = await buildAcpPromptContent(
+						finalPromptText,
+						attachmentRefs,
+						async (attachment) => {
+							const [blob, file] = await Promise.all([
+								Effect.runPromise(attachments.read(attachment.id)),
+								Effect.runPromise(attachments.readPath(attachment.id)),
+							]);
+							if (blob === null) return null;
+							return {
+								bytes: blob.bytes,
+								mimeType: blob.mimeType,
+								...(file === null ? {} : { path: file.path }),
+							};
+						},
+					);
 					grokDiag("session/prompt starting", {
 						permissionMode: currentMode,
 						model: input.model,
@@ -1331,7 +1372,7 @@ export const startGrokSession = (
 							"session/prompt",
 							{
 								sessionId: sid,
-								prompt: [{ type: "text", text: finalPromptText }],
+								prompt,
 							},
 							5 * 60_000,
 							(id) => {
@@ -1371,7 +1412,7 @@ export const startGrokSession = (
 							dead &&
 							reconnectAttempt < 2
 						) {
-							enqueuePrompt(text, reconnectAttempt + 1);
+							enqueuePrompt(text, attachmentRefs, reconnectAttempt + 1);
 							return;
 						}
 						if (dead && reconnectAttempt >= 2) terminalFailure = true;
@@ -1426,14 +1467,7 @@ export const startGrokSession = (
 			events: Stream.fromQueue(events),
 			send: (text, attachmentRefs) =>
 				Effect.sync(() => {
-					if (attachmentRefs !== undefined && attachmentRefs.length > 0) {
-						// ACP `prompt: [{ type: "image", ... }]` shape isn't wired yet;
-						// drop with a warn so the text turn still goes through.
-						console.warn(
-							`[grok.attach] dropping ${attachmentRefs.length} attachment(s) — ACP image content shape not wired`,
-						);
-					}
-					enqueuePrompt(text);
+					enqueuePrompt(text, attachmentRefs ?? []);
 				}),
 			interrupt: () =>
 				Effect.sync(() => {

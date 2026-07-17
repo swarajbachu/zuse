@@ -41,6 +41,28 @@ describe("translateAcpSessionUpdate — tool-call normalization", () => {
 		});
 	});
 
+	it("maps the workspace image MCP tool to canonical ViewImage", () => {
+		const ev = only(
+			translateAcpSessionUpdate(
+				{
+					sessionUpdate: "tool_call",
+					kind: "other",
+					title: "zuse-images__view_image",
+					toolCallId: "image-1",
+					rawInput: { path: "/repo/screenshot.png" },
+				},
+				"grok",
+			),
+			"ToolUse",
+		);
+		expect(ev).toEqual({
+			_tag: "ToolUse",
+			itemId: "image-1",
+			tool: "ViewImage",
+			input: { file_path: "/repo/screenshot.png" },
+		});
+	});
+
 	it("recovers a Grok SearchReplace envelope into a canonical Edit", () => {
 		const ev = only(
 			translateAcpSessionUpdate(

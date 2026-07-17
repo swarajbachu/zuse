@@ -10,6 +10,10 @@ import {
   latestPlanText,
   saveContextFile,
 } from "../../lib/context-handoff.ts";
+import {
+  findPendingNativePlanApproval,
+  selectPlanApprovalMessages,
+} from "../../lib/plan-feedback-routing.ts";
 import { useComposerBridge } from "../../store/composer-bridge.ts";
 import { useMessagesStore } from "../../store/messages.ts";
 import { usePermissionsStore } from "../../store/permissions.ts";
@@ -49,74 +53,47 @@ export function PlanApprovalTray({
     return null;
   });
   const decide = usePermissionsStore((s) => s.decide);
-	const messages = useMessagesStore(
-		(s) => s.messagesBySession[sessionId] ?? [],
-	);
-	const nativeRequest = useMemo(() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const message = messages[index];
-			if (
-				message?.content._tag !== "tool_use" ||
-				message.content.tool !== "ExitPlanMode"
-			)
-				continue;
-			const toolCallId = message.content.itemId;
-			const settled = messages.some(
-				(candidate) =>
-					candidate.content._tag === "tool_result" &&
-					candidate.content.itemId === toolCallId,
-			);
-			if (settled) return null;
-			const input = message.content.input;
-			const plan =
-				input !== null &&
-				typeof input === "object" &&
-				"plan" in input &&
-				typeof input.plan === "string"
-					? input.plan
-					: (latestPlanText(sessionId) ?? "");
-			return { toolCallId, plan };
-		}
-		return null;
-	}, [messages, sessionId]);
-	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
-	const [feedback, setFeedback] = useState("");
-	const [submitting, setSubmitting] = useState(false);
+  const messages = useMessagesStore((s) =>
+    selectPlanApprovalMessages(s.messagesBySession, sessionId),
+  );
+  const nativeRequest = useMemo(
+    () =>
+      pendingRequest === null ? findPendingNativePlanApproval(messages) : null,
+    [messages, pendingRequest],
+  );
+  const respondToPlan = useSessionsStore((s) => s.respondToPlan);
+  const [submitting, setSubmitting] = useState(false);
 
-	useEffect(() => {
-		setFeedback("");
-		setSubmitting(false);
-	}, [nativeRequest?.toolCallId]);
+  useEffect(() => {
+    setSubmitting(false);
+  }, [nativeRequest?.toolCallId, pendingRequest?.id, emulatedPlanReady]);
 
-	const respondNative = async (
-		outcome: "approved" | "cancelled" | "abandoned",
-	) => {
-		if (nativeRequest === null || submitting) return;
-		setSubmitting(true);
-		const accepted = await respondToPlan(
-			sessionId,
-			nativeRequest.toolCallId,
-			outcome,
-			outcome === "cancelled" && feedback.trim().length > 0
-				? feedback.trim()
-				: undefined,
-		);
-		if (!accepted) setSubmitting(false);
-		queueMicrotask(() => useComposerBridge.getState().focus?.());
-	};
+  const respondNative = async (
+    outcome: "approved" | "cancelled" | "abandoned",
+  ) => {
+    if (nativeRequest === null || submitting) return;
+    setSubmitting(true);
+    const accepted = await respondToPlan(
+      sessionId,
+      nativeRequest.toolCallId,
+      outcome,
+    );
+    if (accepted !== "accepted") setSubmitting(false);
+    queueMicrotask(() => useComposerBridge.getState().focus?.());
+  };
 
   // Hand the proposed plan off to a fresh build-mode session in the same chat.
   // The current plan-mode session is left untouched (its ExitPlanMode prompt
   // stays open), so the user can keep iterating on the plan or discard it.
   const handoff = async () => {
-		if (submitting) return;
-		setSubmitting(true);
-		const source = Object.values(useSessionsStore.getState().sessionsByProject)
+    if (submitting) return;
+    setSubmitting(true);
+    const source = Object.values(useSessionsStore.getState().sessionsByProject)
       .flat()
       .find((row) => row.id === sessionId);
     const planText = latestPlanText(sessionId);
     if (source === undefined || planText === null) {
-			setSubmitting(false);
+      setSubmitting(false);
       toastManager.add({
         title: "Nothing to hand off",
         description: "Could not find the proposed plan for this session.",
@@ -131,7 +108,7 @@ export function PlanApprovalTray({
         runtimeMode: source.runtimeMode,
       });
     if (created === null) {
-			setSubmitting(false);
+      setSubmitting(false);
       toastManager.add({
         title: "Handoff failed",
         description: "Could not create the build session.",
@@ -143,9 +120,9 @@ export function PlanApprovalTray({
     if (ref !== null) attachFileWhenReady(ref);
     if (pendingRequest !== null) {
       await decide(pendingRequest.id, { _tag: "Deny" });
-			await useSessionsStore.getState().setPermissionMode(sessionId, "default");
-		} else if (nativeRequest !== null) {
-			await respondNative("abandoned");
+      await useSessionsStore.getState().setPermissionMode(sessionId, "default");
+    } else if (nativeRequest !== null) {
+      await respondToPlan(sessionId, nativeRequest.toolCallId, "abandoned");
     } else {
       onCancelEmulatedPlan?.();
     }
@@ -159,8 +136,8 @@ export function PlanApprovalTray({
     });
   };
 
-	if (pendingRequest === null && nativeRequest === null && !emulatedPlanReady)
-		return null;
+  if (pendingRequest === null && nativeRequest === null && !emulatedPlanReady)
+    return null;
   const isPermissionBacked = pendingRequest !== null;
 
   return (
@@ -175,41 +152,13 @@ export function PlanApprovalTray({
         />
       }
       title="Review plan"
-			subtitle="Approve, request changes, or abandon"
+      subtitle="Type feedback below, or approve the plan"
       actions={
-				<div className="flex min-w-0 flex-col gap-2">
-					{nativeRequest !== null && (
-						<div className="grid gap-2">
-							<section
-								className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border/70 bg-background/70 p-2 text-left text-xs leading-5"
-								aria-label="Proposed plan preview"
-							>
-								{nativeRequest.plan}
-							</section>
-							<textarea
-								value={feedback}
-								onChange={(event) => setFeedback(event.target.value)}
-								onKeyDown={(event) => {
-									if (
-										(event.metaKey || event.ctrlKey) &&
-										event.key === "Enter"
-									) {
-										event.preventDefault();
-										void respondNative("cancelled");
-									}
-								}}
-								rows={2}
-								placeholder="What should change?"
-								aria-label="Plan feedback"
-								className="w-full resize-none rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							/>
-						</div>
-					)}
-					<div className="flex items-center justify-end gap-1">
+        <div className="flex items-center justify-end gap-1">
           <button
             type="button"
             onClick={() => void handoff()}
-							disabled={submitting}
+            disabled={submitting}
             title="Open a new session in build mode with this plan attached"
             className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
@@ -218,39 +167,29 @@ export function PlanApprovalTray({
           <button
             type="button"
             onClick={() => {
-								if (submitting) return;
-								if (nativeRequest !== null) {
-									void respondNative("abandoned");
-									return;
-								}
+              if (submitting) return;
+              if (nativeRequest !== null) {
+                void respondNative("abandoned");
+                return;
+              }
               if (pendingRequest !== null) {
                 void decide(pendingRequest.id, { _tag: "Deny" });
                 return;
               }
               onCancelEmulatedPlan?.();
             }}
-							disabled={submitting}
+            disabled={submitting}
             className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
-							Abandon
+            Abandon
           </button>
-						{nativeRequest !== null && (
-							<button
-								type="button"
-								onClick={() => void respondNative("cancelled")}
-								disabled={submitting}
-								className="rounded-md px-2.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-							>
-								Request changes
-							</button>
-						)}
           <button
             type="button"
             onClick={() => {
-								if (nativeRequest !== null) {
-									void respondNative("approved");
-									return;
-								}
+              if (nativeRequest !== null) {
+                void respondNative("approved");
+                return;
+              }
               if (pendingRequest !== null) {
                 void decide(pendingRequest.id, { _tag: "AllowOnce" });
                 return;
@@ -258,17 +197,16 @@ export function PlanApprovalTray({
               onApproveEmulatedPlan?.();
             }}
             disabled={
-								submitting ||
-								(nativeRequest === null &&
-									!isPermissionBacked &&
-									onApproveEmulatedPlan === undefined)
+              submitting ||
+              (nativeRequest === null &&
+                !isPermissionBacked &&
+                onApproveEmulatedPlan === undefined)
             }
-							className="rounded-md bg-foreground px-2.5 py-0.5 text-[12px] font-medium text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            className="rounded-md bg-foreground px-2.5 py-0.5 text-[12px] font-medium text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             Approve
           </button>
-					</div>
-				</div>
+        </div>
       }
     />
   );

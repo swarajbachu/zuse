@@ -1,14 +1,46 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { ExternalThread } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
 	claudeTranscriptMessages,
+	dedupeExternalThreads,
 	discoverClaudeThreads,
 } from "../../src/external-thread/layers/external-thread-service.ts";
 
 describe("external thread discovery", () => {
+	it("keeps only the newest row for each external thread id", () => {
+		const makeThread = (id: string, updatedAt: string) =>
+			ExternalThread.make({
+				id,
+				providerId: "codex",
+				title: id,
+				preview: id,
+				projectPath: "/tmp/project",
+				projectName: "project",
+				updatedAt: new Date(updatedAt),
+				sourcePath: null,
+				cursor: id,
+				resumeStrategy: "codex-thread-id",
+				available: true,
+			});
+		const duplicateId = "codex:thread-1";
+
+		const threads = dedupeExternalThreads([
+			makeThread(duplicateId, "2026-07-02T00:00:00.000Z"),
+			makeThread(duplicateId, "2026-07-01T00:00:00.000Z"),
+			makeThread("codex:thread-2", "2026-06-30T00:00:00.000Z"),
+		]);
+
+		expect(threads.map((thread) => thread.id)).toEqual([
+			duplicateId,
+			"codex:thread-2",
+		]);
+		expect(threads[0]?.updatedAt).toEqual(new Date("2026-07-02T00:00:00.000Z"));
+	});
+
 	it("discovers Claude JSONL threads with title, project path, cursor, and recency", () => {
 		const root = mkdtempSync(path.join(tmpdir(), "zuse-claude-threads-"));
 		try {

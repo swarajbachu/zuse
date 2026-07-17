@@ -29,6 +29,7 @@ import {
 } from "@zuse/contracts";
 
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
+import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { useSessionsStore } from "~/store/sessions";
@@ -71,6 +72,8 @@ export const iconForTool = (tool: string): IconHandle => {
     case "Read":
     case "ReadFile":
       return File01Icon;
+    case "ViewImage":
+      return Camera01Icon;
     case "Edit":
     case "Write":
     case "WriteFile":
@@ -731,6 +734,38 @@ const buildToolView = (
               isError={result?.isError}
             />
           ),
+      };
+    }
+
+    case "ViewImage": {
+      const path = asString(obj.file_path) ?? asString(obj.path);
+      const pending = result === undefined;
+      return {
+        icon: Camera01Icon,
+        label: pending ? "Viewing image" : "Viewed image",
+        detail:
+          path !== null ? <MutedFilePath path={path} /> : undefined,
+        resultPanel: (result) => {
+          const image = toolImageResult(result.output);
+          if (image === null) {
+            return (
+              <PreBlock
+                text={toResultText(result.output)}
+                isError={result.isError}
+              />
+            );
+          }
+          return (
+            <figure className="h-64 w-full overflow-hidden rounded-md bg-muted/40 shadow-[inset_0_0_0_1px_var(--border)]">
+              <img
+                src={toolImageDataUrl(image)}
+                alt={path === null ? "Viewed image" : `Preview of ${basename(path)}`}
+                className="h-full w-full object-contain"
+                draggable={false}
+              />
+            </figure>
+          );
+        },
       };
     }
 
