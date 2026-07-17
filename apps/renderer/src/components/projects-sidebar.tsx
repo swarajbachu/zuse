@@ -19,7 +19,6 @@ import {
   ArchiveArrowUpIcon,
   ArchiveIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { LegendList } from "@legendapp/list/react";
 import type {
   Chat,
   ChatId,
@@ -753,20 +752,13 @@ function ProjectGroup({
       <li className="list-none" hidden={!isExpanded}>
 				<ul aria-label={`${displayName} chats`}>
           {visibleChats.length === 0 && (
-						<div className="px-12 py-1 text-[11px] text-muted-foreground">
+						<li className="px-12 py-1 text-[11px] text-muted-foreground">
               No chats yet.
-						</div>
+						</li>
           )}
-					{visibleChats.length > 0 ? (
-						<LegendList<Chat>
-							data={visibleChats}
-							keyExtractor={(chat) => chat.id}
-							renderItem={({ item }) => <ChatRow chat={item} />}
-							estimatedItemSize={28}
-							style={{ height: Math.min(420, visibleChats.length * 28) }}
-							className="overflow-x-hidden"
-						/>
-					) : null}
+					{visibleChats.map((chat) => (
+						<ChatRow key={chat.id} chat={chat} />
+					))}
         </ul>
       </li>
     </Fragment>
