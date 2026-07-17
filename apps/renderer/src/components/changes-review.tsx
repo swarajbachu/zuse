@@ -52,7 +52,10 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getReviewAnnotationAnchor } from "../lib/review-annotations.ts";
+import {
+	getReviewAnnotationAnchor,
+	getReviewItemVersion,
+} from "../lib/review-annotations.ts";
 import {
 	configureReviewEditGuard,
 	requestReviewLeave,
@@ -135,6 +138,19 @@ export const reviewFingerprint = (patch: string): string => {
 type AnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }
 	| { readonly kind: "draft"; readonly selection: CodeViewLineSelection };
+
+const getAnnotationKey = (
+	annotations: readonly DiffLineAnnotation<AnnotationMetadata>[] | undefined,
+): string => {
+	if (annotations === undefined) return "";
+	return annotations
+		.map(({ side, lineNumber, metadata }) =>
+			metadata.kind === "draft"
+				? `draft:${side}:${lineNumber}:${metadata.selection.range.side ?? ""}:${metadata.selection.range.start}:${metadata.selection.range.endSide ?? ""}:${metadata.selection.range.end}`
+				: `saved:${side}:${lineNumber}:${metadata.annotation.id}:${metadata.annotation.comment}`,
+		)
+		.join("\0");
+};
 
 type HydratedFile = {
 	readonly oldContent: string | null;
@@ -317,14 +333,17 @@ function ChangesReviewReady({
 				parsed = { id: file.path, type: "diff", fileDiff };
 				parsedRef.current.set(cacheKey, parsed);
 			}
+			const itemAnnotations = annotationMap.get(file.path);
 			next.push({
 				...parsed,
-				annotations: annotationMap.get(file.path),
+				annotations: itemAnnotations,
 				collapsed: collapsed.has(file.path),
 				edit: editingPath === file.path,
-				version:
-					Number(collapsed.has(file.path)) +
-					Number(editingPath === file.path) * 2,
+				version: getReviewItemVersion({
+					collapsed: collapsed.has(file.path),
+					editing: editingPath === file.path,
+					annotationKey: getAnnotationKey(itemAnnotations),
+				}),
 			});
 		}
 		return next;

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { getReviewAnnotationAnchor } from "../../src/lib/review-annotations.ts";
+import {
+	getReviewAnnotationAnchor,
+	getReviewItemVersion,
+} from "../../src/lib/review-annotations.ts";
 
 describe("getReviewAnnotationAnchor", () => {
 	test("anchors to the endpoint for a forward selection", () => {
@@ -27,5 +30,22 @@ describe("getReviewAnnotationAnchor", () => {
 
 	test("rejects ranges without a diff side", () => {
 		expect(getReviewAnnotationAnchor({ start: 2, end: 2 })).toBeNull();
+	});
+});
+
+describe("getReviewItemVersion", () => {
+	test("publishes a new controlled-item version when annotations change", () => {
+		const withoutAnnotation = getReviewItemVersion({
+			collapsed: false,
+			editing: false,
+			annotationKey: "",
+		});
+		const withDraft = getReviewItemVersion({
+			collapsed: false,
+			editing: false,
+			annotationKey: "draft:additions:16",
+		});
+
+		expect(withDraft).not.toBe(withoutAnnotation);
 	});
 });
