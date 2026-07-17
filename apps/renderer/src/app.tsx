@@ -32,7 +32,6 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useAuthStore } from "./store/auth.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
-import { useProvidersStore } from "./store/providers.ts";
 import { useQueueHydrationStore } from "./store/queue-hydration.ts";
 import { getSessionById, useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
@@ -154,16 +153,6 @@ export function App() {
     void hydrateSettings();
     void hydrateKeybindings();
   }, [hydrateSettings, hydrateKeybindings]);
-
-  // Probe provider availability once on boot so the "update available" launch
-  // toast can fire without the user first opening settings. ProvidersPane
-  // re-probes on mount while settings is open (it no longer re-polls on window
-  // focus — that read the keychain and made macOS re-prompt on every refocus
-  // for unsigned/dev builds).
-  const loadProviders = useProvidersStore((s) => s.load);
-  useEffect(() => {
-    void loadProviders();
-  }, [loadProviders]);
 
   // Mirror Electron's fullscreen state into the ui store so the top bars
   // can drop the macOS traffic-light gutter.

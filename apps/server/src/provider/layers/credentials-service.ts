@@ -201,15 +201,9 @@ export const CredentialsServiceLive = Layer.succeed(
 		listConfigured: () =>
 			configuredCache !== null
 				? Effect.succeed(configuredCache)
-				: tryKeychain("*", async () => {
-						const current = collectConfigured(
-							await keytar.findCredentials(SERVICE_NAME),
-						);
-						if (current.length > 0) return current;
-						return collectConfigured(
-							await keytar.findCredentials(LEGACY_SERVICE_NAME),
-						);
-					}).pipe(
+				: tryKeychain("*", () =>
+						keytar.findCredentials(SERVICE_NAME).then(collectConfigured),
+					).pipe(
 						Effect.tap((value) =>
 							Effect.sync(() => {
 								configuredCache = value;
