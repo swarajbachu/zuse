@@ -65,6 +65,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "~/components/ui/tooltip";
+import { makeCoalescedWriter } from "~/lib/coalesced-writer";
 import {
   type ActiveTrigger,
   composerDoc,
@@ -81,6 +82,7 @@ import {
   removeImageChipEffect,
   updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
+import { makeComposerMessageSignalSelector } from "~/lib/composer-message-signal";
 import {
   chooseComposerSubmitRoute,
   deliverNativePlanFeedback,
@@ -237,8 +239,20 @@ export function ChatComposer({
   // object directly from an external-store selector breaks
   // `useSyncExternalStore`'s snapshot-equality check and infinite-loops
   // the renderer.
-  const sessionMessages = useMessagesStore(
-    (s) => s.messagesBySession[sessionId],
+  const selectComposerMessageSignal = useMemo(
+    () => makeComposerMessageSignalSelector(sessionId),
+    [sessionId],
+  );
+  const composerMessageSignal = useMessagesStore((s) =>
+    selectComposerMessageSignal(s.messagesBySession),
+  );
+  // Read the full transcript only when a composer-relevant interaction lands
+  // or the running edge changes. Regular stream rows still render in the
+  // timeline, but they no longer re-run this large controller while the user
+  // is typing.
+  const sessionMessages = useMemo(
+    () => useMessagesStore.getState().messagesBySession[sessionId],
+    [composerMessageSignal, inFlight, sessionId],
   );
   const pendingQuestion = useMemo(() => {
     const list = sessionMessages ?? [];
@@ -372,6 +386,7 @@ export function ChatComposer({
   }, [isDraft, inFlight, headPermission, sessionId, hydratePermissions]);
 
   const [hasText, setHasText] = useState(false);
+  const hasTextRef = useRef(false);
   const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
   const [goalSendMode, setGoalSendMode] = useState(false);
   // Provider features the installed CLI supports (from the availability
@@ -451,17 +466,28 @@ export function ChatComposer({
     if (host === null) return;
     const initialSnapshot =
       useComposerDraftsStore.getState().draftsByKey[draftKey] ?? null;
-    const persistSnapshot = (state: EditorView["state"]) => {
-      saveComposerDraft(draftKey, {
-        doc: state.doc.toString(),
-        chips: allChips(state),
-      });
-    };
+    const draftWriter = makeCoalescedWriter<EditorView["state"]>(
+      (state) => {
+        saveComposerDraft(draftKey, {
+          doc: state.doc.toString(),
+          chips: allChips(state),
+        });
+      },
+      {
+        schedule: (run) => window.setTimeout(run, 120),
+        cancel: (handle) => window.clearTimeout(handle as number),
+      },
+    );
 
     const callbacks = {
       onSubmit: () => submitRef.current(),
-      onChange: (doc: string) => setHasText(doc.trim().length > 0),
-      onSnapshotChange: persistSnapshot,
+      onChange: (doc: string) => {
+        const next = doc.trim().length > 0;
+        if (hasTextRef.current === next) return;
+        hasTextRef.current = next;
+        setHasText(next);
+      },
+      onSnapshotChange: draftWriter.schedule,
       onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
       onFilesDropped: (files: ReadonlyArray<File>) =>
         filesDroppedRef.current(files),
@@ -477,7 +503,9 @@ export function ChatComposer({
     });
     if (initialSnapshot !== null) {
       restoreComposerChips(view, initialSnapshot.chips);
-      setHasText(view.state.doc.toString().trim().length > 0);
+      const restoredHasText = view.state.doc.toString().trim().length > 0;
+      hasTextRef.current = restoredHasText;
+      setHasText(restoredHasText);
     }
     editorViewRef.current = view;
     view.focus();
@@ -525,6 +553,7 @@ export function ChatComposer({
     });
 
     return () => {
+      draftWriter.flush();
       unsubKeybindings();
       const b = useComposerBridge.getState();
       b.setAttachFile(null);
@@ -563,6 +592,7 @@ export function ChatComposer({
     setComposerDoc(view, "");
     view.dispatch({ effects: clearChipsEffect.of() });
     setHasText(false);
+    hasTextRef.current = false;
     setTrigger(null);
     if (opts?.clearPendingAttachments !== false) {
       for (const pending of pendingDraftAttachmentsRef.current) {
@@ -610,7 +640,9 @@ export function ChatComposer({
         revealPanel("changes");
         break;
       case "copy": {
-        const latest = [...(sessionMessages ?? [])]
+        const latest = [
+          ...(useMessagesStore.getState().messagesBySession[sessionId] ?? []),
+        ]
           .reverse()
           .find(
             (m) =>

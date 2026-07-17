@@ -143,6 +143,12 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			input: DispatchInput,
 		) {
 			const receipt = yield* dispatch.dispatch(input);
+			// Live consumers frequently resolve the full session read model after
+			// receiving an event (for example, the project session-summary stream).
+			// Make that read causally consistent: publishing before catch-up allowed
+			// the consumer fiber to observe the new event while SQL still contained
+			// the previous status, permanently emitting `idle` for a running turn.
+			yield* catchUp;
 			if (receipt.eventIds.length > 0) {
 				const appended = yield* dispatchStorage.eventsInVersionRange(
 					input.streamId,
@@ -155,7 +161,6 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 					{ discard: true },
 				);
 			}
-			yield* catchUp;
 			return receipt;
 		}),
 	});
