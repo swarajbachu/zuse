@@ -9,6 +9,7 @@
 		"./drivers/*": "./src/drivers/*.ts",
 		"./drivers/acp/*": "./src/drivers/acp/*.ts",
 		"./mcp-gateway": "./src/mcp-gateway/index.ts",
+		"./user-mcp/*": "./src/user-mcp/*.ts",
 		"./kernel/attachment-service": "./src/kernel/attachment-service.ts",
 		"./kernel/driver": "./src/kernel/driver.ts",
 		"./kernel/permission-policy": "./src/kernel/permission-policy.ts",
@@ -26,7 +27,6 @@
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
 		"@modelcontextprotocol/sdk": "^1.0.0",
-		"@openai/codex-sdk": "^0.128.0",
 		"@opencode-ai/sdk": "^1.3.15",
 		"@zuse/acp": "*",
 		"@zuse/contracts": "*",

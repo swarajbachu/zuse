@@ -223,6 +223,7 @@ const makeRuntime = (
 					autoRunAfterSetup: false,
 					environmentVariables: {},
 					fileIncludeGlobs: "",
+					mcpDisabledServers: [],
 				}),
 			),
 		update: (projectId, patch) =>
@@ -240,6 +241,7 @@ const makeRuntime = (
 					autoRunAfterSetup: patch.autoRunAfterSetup ?? false,
 					environmentVariables: patch.environmentVariables ?? {},
 					fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
+					mcpDisabledServers: patch.mcpDisabledServers ?? [],
 				}),
 			),
 	});

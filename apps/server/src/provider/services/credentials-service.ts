@@ -68,7 +68,7 @@ export interface CredentialsServiceShape {
   ) => Effect.Effect<void, CredentialsError>;
   readonly removeWorkosSession: () => Effect.Effect<void, CredentialsError>;
 
-  /** Secret JSON bundles for native third-party integrations. */
+	/** Secret JSON bundles for native third-party integrations. */
   readonly getIntegration: (
     integration: string,
     accountId: string,
@@ -82,9 +82,27 @@ export interface CredentialsServiceShape {
     integration: string,
     accountId: string,
   ) => Effect.Effect<void, CredentialsError>;
-  readonly listIntegrationAccounts: (
-    integration: string,
-  ) => Effect.Effect<ReadonlyArray<string>, CredentialsError>;
+	readonly listIntegrationAccounts: (
+		integration: string,
+	) => Effect.Effect<ReadonlyArray<string>, CredentialsError>;
+
+	/**
+   * OAuth token bundle for a user MCP server (claude-source servers Zuse
+   * authenticates itself — codex-source tokens live in Codex's own store).
+   * Keyed by the server's descriptor key (`claude:<name>`), namespaced
+   * `mcpOAuth:<key>`, stored as the JSON the MCP SDK's OAuthClientProvider
+   * round-trips (tokens + client registration). Never crosses the wire.
+   */
+  readonly getMcpOauth: (
+    serverKey: string,
+  ) => Effect.Effect<string | null, CredentialsError>;
+  readonly setMcpOauth: (
+    serverKey: string,
+    bundleJson: string,
+  ) => Effect.Effect<void, CredentialsError>;
+	readonly removeMcpOauth: (
+		serverKey: string,
+	) => Effect.Effect<void, CredentialsError>;
 }
 
 export class CredentialsService extends Context.Service<

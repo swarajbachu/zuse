@@ -28,6 +28,7 @@ import {
 	type LanAuthService,
 } from "./lan-auth/services/lan-auth-service.ts";
 import { LinearServiceLive } from "./linear/layers/linear-service.ts";
+import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { runLifecycleBackfill } from "./persistence/backfill.ts";
 import { importWorkspacesJson } from "./persistence/import-workspaces.ts";
 import { MigrationsLive } from "./persistence/migrations.ts";
@@ -272,6 +273,18 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
+	// McpService reads the user's native Claude/Codex MCP configs, tracks
+	// per-server connection status (SDK probe for claude-source, ephemeral
+	// codex app-server for codex-source), stores enable/disable overrides in
+	// settings, and runs OAuth flows (tokens in the keychain).
+	const McpLayer = McpServiceLive.pipe(
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(RepositorySettingsLayer),
+		Layer.provide(CredentialsServiceLive),
+		Layer.provide(MigratedSqlite),
+		Layer.provide(NodeServices.layer),
+	);
+
 	// ProviderService probes installed CLIs via CommandExecutor, consults
 	// CredentialsService for SDK keys, resolves folderId → cwd via
 	// WorkspaceService, and forwards the SDK's tool-permission callback to
@@ -283,8 +296,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AttachmentLayer),
 		Layer.provide(BrowserBridgeLayer),
 		// OpenCode session-start reads `opencodeCustomProviders` from settings to
-		// inject user-defined providers into `opencode serve`.
+		// inject user-defined providers into `opencode serve`; Claude session
+		// start resolves the user's native MCP servers through McpService.
 		Layer.provide(ConfigStoreLayer),
+		Layer.provide(McpLayer),
 		Layer.provide(NodeServices.layer),
 	);
 
@@ -427,6 +442,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		FileSearchLayer,
 		ProjectScaffoldLayer,
 		ProviderLayer,
+		McpLayer,
 		SessionDomainLayer,
 		ConversationServicesLayer,
 		PermissionLayer,

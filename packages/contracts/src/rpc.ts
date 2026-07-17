@@ -91,6 +91,12 @@ import {
 	LinearPrepareContextRpc,
 } from "./linear.ts";
 import {
+	McpAuthenticateRpc,
+	McpListRpc,
+	McpRefreshRpc,
+	McpSetEnabledRpc,
+} from "./mcp.ts";
+import {
 	PairingListTokensRpc,
 	PairingRevokeTokenRpc,
 	PairingStartRpc,
@@ -289,6 +295,10 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 	ChatArchivePreviewRpc,
+	McpListRpc,
+	McpRefreshRpc,
+	McpSetEnabledRpc,
+	McpAuthenticateRpc,
 	ChatListRpc,
 	ChatGetRpc,
 	ChatCreateRpc,
