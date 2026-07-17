@@ -7,8 +7,8 @@ import {
 
 /**
  * Shared translator for Agent Client Protocol (ACP) `session/update` frames.
- * Lifted out of grok.ts / gemini.ts / cursor.ts which each carried a near-
- * identical copy. The renderer expects every provider's tool calls to look
+ * Shared by the remaining ACP-backed drivers. The renderer expects every
+ * provider's tool calls to look
  * like Claude's (see the "Normalized Tool-Call Contract" doc-block above
  * `ToolUseEvent` in `packages/contracts/src/agent.ts`), so this translator
  * coerces ACP frames into that shape.
@@ -18,10 +18,10 @@ import {
  *
  * Set `MEMOIZE_DEBUG_ACP=1` to trace every translator decision to stderr
  * (kind, status, what events were emitted). Pair with `MEMOIZE_DEBUG_<P>`
- * (GEMINI/GROK/CURSOR) for raw JSON-RPC frame logs in the drivers.
+ * (GEMINI/GROK) for raw JSON-RPC frame logs in the drivers.
  */
 
-export type AcpProviderTag = "grok" | "gemini" | "cursor";
+export type AcpProviderTag = "grok" | "gemini";
 
 const ACP_TRACE = process.env.MEMOIZE_DEBUG_ACP === "1";
 
@@ -1593,8 +1593,8 @@ export const createAcpTranslator = (
 					if (provider === "gemini" && rawKind === "think") return [];
 					const callId = extractCallId(u);
 					const state = getOrInitToolState(callId);
-					// Prefer the tool name we captured from the original tool_call —
-					// cursor's update frames carry no `kind`, so re-extracting would
+					// Prefer the tool name captured from the original tool_call. Some
+					// update frames carry no `kind`, so re-extracting would
 					// collapse to the generic "tool" label and break the Edit/Read/…
 					// input mapping in buildCanonicalInput.
 					const updateToolName = extractToolName(u);
@@ -1747,12 +1747,7 @@ export const createAcpTranslator = (
 				case "error":
 				case "agent_error": {
 					const detail = extractErrorDetail(u);
-					const providerLabel =
-						provider === "grok"
-							? "Grok"
-							: provider === "cursor"
-								? "Cursor"
-								: "Gemini";
+					const providerLabel = provider === "grok" ? "Grok" : "Gemini";
 					const message =
 						detail !== null
 							? detail

@@ -178,13 +178,11 @@ function ProviderOverrideSection({
 	const isOverridden = defaultProviderId !== null || defaultModel !== null;
 
 	// Mirror the global "Default agent" filter: skip providers the user
-	// toggled off. Cursor is still excluded because its CLI does not expose
-	// enough plan information for us to distinguish signed-in from usable.
+	// toggled off.
 	const availableProviders = (
 		["claude", "codex", "grok", "gemini", "cursor", "opencode"] as const
 	).filter((pid) => {
 		if (providerEnabled[pid] === false) return false;
-		if (pid === "cursor") return false;
 		return true;
 	});
 

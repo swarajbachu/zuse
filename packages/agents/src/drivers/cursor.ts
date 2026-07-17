@@ -34,12 +34,16 @@ import {
 } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
+import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 
 const SDK_START_TIMEOUT_MS = 30_000;
 const STORE_DIRECTORY = "zuse-jsonl";
 
 export interface CursorSessionHandle extends ProviderSessionHandle {
 	readonly events: Stream.Stream<AgentEvent>;
+	readonly updateMcpServers: NonNullable<
+		ProviderSessionHandle["updateMcpServers"]
+	>;
 }
 
 export interface CursorSdkTranslationState {
@@ -329,6 +333,7 @@ export const startCursorSession = (
 	apiKey: string,
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
+	initialMcpServers: ReadonlyArray<ResolvedMcpServer> = [],
 ): Effect.Effect<
 	CursorSessionHandle,
 	AgentSessionStartError,
@@ -437,7 +442,7 @@ export const startCursorSession = (
 		let activeRun: Run | null = null;
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let workspaceInstructions = input.workspaceInstructions;
-		let mcpServers: Record<string, McpServerConfig> = {};
+		let mcpServers = normalizeCursorMcpServers(initialMcpServers);
 		let inflight = Promise.resolve();
 		const translationState: CursorSdkTranslationState = {
 			seenToolCalls: new Set(),

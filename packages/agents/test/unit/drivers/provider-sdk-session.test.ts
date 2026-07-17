@@ -8,6 +8,7 @@ import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
 	AgentEvent,
 	AgentSessionId,
+	AttachmentRef,
 	FolderId,
 	StartSessionInput,
 } from "@zuse/contracts";
@@ -36,6 +37,18 @@ const AttachmentsTest = Layer.succeed(AttachmentService, {
 	readPath: () => Effect.succeed(null),
 });
 
+const ImageAttachmentsTest = Layer.succeed(AttachmentService, {
+	upload: () => Effect.die("not used"),
+	saveText: () => Effect.die("not used"),
+	read: (id) =>
+		Effect.succeed(
+			id === "image-1"
+				? { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/png" }
+				: null,
+		),
+	readPath: () => Effect.succeed(null),
+});
+
 const input: StartSessionInput = {
 	folderId: "folder-1" as FolderId,
 	providerId: "cursor",
@@ -60,7 +73,7 @@ const makeRun = (messages: SDKMessage[]): Run =>
 		wait: async () => ({ id: "run-1", status: "finished" }),
 		cancel: vi.fn().mockResolvedValue(undefined),
 		onDidChangeStatus: () => () => undefined,
-	} satisfies Run);
+	}) satisfies Run;
 
 const makeAgent = () => {
 	const send = vi.fn(async () =>
@@ -109,6 +122,15 @@ describe("bundled provider SDK sessions", () => {
 					"/tmp/workspace",
 					"managed-key",
 					sessionId,
+					null,
+					[
+						{
+							name: "workspace-tools",
+							transport: "stdio",
+							command: "node",
+							args: ["server.mjs"],
+						},
+					],
 				);
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
 					Effect.sync(() => events.push(event)),
@@ -133,6 +155,20 @@ describe("bundled provider SDK sessions", () => {
 			}),
 		);
 		expect(fake.send).toHaveBeenCalledTimes(2);
+		expect(fake.send).toHaveBeenNthCalledWith(
+			1,
+			"first",
+			expect.objectContaining({
+				mode: "agent",
+				mcpServers: {
+					"workspace-tools": {
+						type: "stdio",
+						command: "node",
+						args: ["server.mjs"],
+					},
+				},
+			}),
+		);
 		expect(events.some((event) => event._tag === "SessionCursor")).toBe(true);
 		expect(
 			events.filter((event) => event._tag === "AssistantMessage"),
@@ -163,10 +199,7 @@ describe("bundled provider SDK sessions", () => {
 			}).pipe(Effect.provide(AttachmentsTest)),
 		);
 
-		expect(sdk.resume).toHaveBeenCalledWith(
-			"stale-agent",
-			expect.any(Object),
-		);
+		expect(sdk.resume).toHaveBeenCalledWith("stale-agent", expect.any(Object));
 		expect(sdk.create).toHaveBeenCalledOnce();
 		expect(
 			events.find((event) => event._tag === "SessionCursor"),
@@ -201,5 +234,55 @@ describe("bundled provider SDK sessions", () => {
 		);
 
 		expect(cancel).toHaveBeenCalledOnce();
+	});
+
+	it("passes image inputs, plan mode, and live MCP updates to new runs", async () => {
+		const fake = makeAgent();
+		sdk.create.mockResolvedValue(fake.agent);
+		const image: AttachmentRef = {
+			id: "image-1",
+			mimeType: "image/png",
+			originalName: "screen.png",
+		};
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const handle = yield* startCursorSession(
+					input,
+					"/tmp/workspace",
+					"managed-key",
+					sessionId,
+				);
+				yield* handle.setPermissionMode("plan");
+				yield* handle.updateMcpServers([
+					{
+						name: "remote-tools",
+						transport: "http",
+						url: "https://mcp.example.test",
+						headers: { Authorization: "Bearer stored-token" },
+					},
+				]);
+				yield* handle.send("inspect this", [image]);
+				yield* Effect.sleep("20 millis");
+				yield* handle.close();
+			}).pipe(Effect.provide(ImageAttachmentsTest)),
+		);
+
+		expect(fake.send).toHaveBeenCalledWith(
+			{
+				text: "inspect this",
+				images: [{ data: "AQID", mimeType: "image/png" }],
+			},
+			expect.objectContaining({
+				mode: "plan",
+				mcpServers: {
+					"remote-tools": {
+						type: "http",
+						url: "https://mcp.example.test",
+						headers: { Authorization: "Bearer stored-token" },
+					},
+				},
+			}),
+		);
 	});
 });

@@ -14,11 +14,10 @@ import { useProvidersStore } from "../store/providers.ts";
 
 // Per-provider docs URL surfaced as "Upgrade guide" — opens in the user's
 // system browser via the Electron bridge.
-const UPGRADE_DOCS_URL: Record<ProviderId, string> = {
+const UPGRADE_DOCS_URL: Partial<Record<ProviderId, string>> = {
 	claude: "https://docs.claude.com/en/docs/claude-code/setup",
 	codex: "https://github.com/openai/codex#installation",
 	grok: "https://docs.x.ai/build/overview",
-	cursor: "https://cursor.com/cli",
 	gemini: "https://github.com/google-gemini/gemini-cli#installation",
 	opencode: "https://opencode.ai/docs/install/",
 };
@@ -47,7 +46,12 @@ export function CliUpgradeBanner({
 	const [dismissed, setDismissed] = useState(false);
 
 	const row = availability.find((a) => a.providerId === providerId);
-	if (row === undefined || row.cliVersionStatus !== "outdated" || dismissed) {
+	if (
+		row === undefined ||
+		row.runtimeKind === "bundledSdk" ||
+		row.cliVersionStatus !== "outdated" ||
+		dismissed
+	) {
 		return null;
 	}
 
@@ -68,7 +72,7 @@ export function CliUpgradeBanner({
 	};
 
 	const onOpenDocs = () => {
-		window.zuse?.app?.openExternal(docsUrl);
+		if (docsUrl !== undefined) window.zuse?.app?.openExternal(docsUrl);
 	};
 
 	return (
@@ -132,15 +136,17 @@ export function CliUpgradeBanner({
 			)}
 
 			<div className="flex items-center justify-end gap-1.5">
-				<Button
-					size="xs"
-					variant="ghost"
-					onClick={onOpenDocs}
-					className="gap-1.5 rounded-full text-[11px] text-muted-foreground"
-				>
-					<HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
-					Upgrade guide
-				</Button>
+				{docsUrl !== undefined && (
+					<Button
+						size="xs"
+						variant="ghost"
+						onClick={onOpenDocs}
+						className="gap-1.5 rounded-full text-[11px] text-muted-foreground"
+					>
+						<HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
+						Upgrade guide
+					</Button>
+				)}
 				<Button
 					size="xs"
 					variant="ghost"
