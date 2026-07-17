@@ -1,23 +1,26 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	Alert01Icon,
-	ArrowRight01Icon,
 	ArrowTurnDownIcon,
 	Loading02Icon,
 	MinusSignIcon,
 	Tick02Icon,
-	UndoIcon,
 	Upload01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
+import type { GitStatus, GitStatusEntry } from "@pierre/trees";
+import {
+	FileTree as StructuredFileTree,
+	useFileTree,
+} from "@pierre/trees/react";
 import type {
 	CodeAnnotation,
 	FolderId,
 	GitChangeKind,
+	GitReviewFile,
 	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
@@ -32,7 +35,6 @@ import {
 	REVIEW_VIEWED_STORAGE_KEY,
 	reviewFingerprint,
 } from "./changes-review.tsx";
-import { FileIcon } from "./file-icon.tsx";
 import { GitInitCta } from "./git-init-cta.tsx";
 import {
 	AlertDialog,
@@ -49,11 +51,6 @@ import { Frame, FrameFooter, FrameHeader, FramePanel } from "./ui/frame.tsx";
 const basename = (path: string): string => {
 	const i = path.lastIndexOf("/");
 	return i === -1 ? path : path.slice(i + 1);
-};
-
-const dirname = (path: string): string => {
-	const i = path.lastIndexOf("/");
-	return i === -1 ? "" : path.slice(0, i);
 };
 
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
@@ -175,19 +172,6 @@ export function DiffPane({
 	);
 	const untracked = (changes ?? []).filter((c) => c.kind === "untracked");
 
-	const requestRevertFile = (
-		path: string,
-		kind: GitChangeKind,
-		oldPath?: string | null,
-	) => {
-		setRevertRequest({
-			type: "file",
-			path,
-			kind,
-			oldPath: oldPath ?? null,
-		});
-	};
-
 	const requestRevertAll = () => setRevertRequest({ type: "all" });
 
 	const confirmRevert = async () => {
@@ -242,20 +226,6 @@ export function DiffPane({
 			file.path.toLowerCase().includes(normalizedSearch) ||
 			file.oldPath?.toLowerCase().includes(normalizedSearch),
 	);
-	const filesByDirectory = new Map<string, typeof reviewFiles>();
-	for (const file of reviewFiles) {
-		const directory = dirname(file.path) || "Repository root";
-		filesByDirectory.set(directory, [
-			...(filesByDirectory.get(directory) ?? []),
-			file,
-		]);
-	}
-	const changeByPath = new Map(
-		(changes ?? []).flatMap((change) => [
-			[change.path, change] as const,
-			...(change.oldPath === null ? [] : ([[change.oldPath, change]] as const)),
-		]),
-	);
 	const viewedEntries = (() => {
 		void viewedRevision;
 		try {
@@ -282,13 +252,6 @@ export function DiffPane({
 		(file) => !viewedPaths.has(file.path),
 	);
 
-	const togglePath = (path: string) =>
-		setExcluded((prev) => {
-			const next = new Set(prev);
-			if (next.has(path)) next.delete(path);
-			else next.add(path);
-			return next;
-		});
 	const toggleAll = () =>
 		setExcluded(allSelected ? new Set(committablePaths) : new Set());
 
@@ -353,7 +316,7 @@ export function DiffPane({
 								</div>
 							) : null}
 						</div>
-						<div className="min-h-0 flex-1 overflow-y-auto px-3">
+						<div className="min-h-0 flex-1 overflow-hidden">
 							{changesErrorTag === "GitNotARepoError" ? (
 								<div className="py-3">
 									<GitInitCta folderId={folderId} worktreeId={worktreeId} />
@@ -363,51 +326,11 @@ export function DiffPane({
 							) : reviewFiles.length === 0 ? (
 								<Indicator title="No matching branch changes" />
 							) : (
-								<div className="flex flex-col">
-									{Array.from(filesByDirectory, ([directory, files]) => (
-										<section key={directory}>
-											<div className="-mx-3 flex items-center gap-1.5 border-y border-border/35 bg-muted/20 px-3 py-1.5 font-mono text-[10px] text-muted-foreground">
-												<FileIcon name={directory} kind="directory" />
-												<span className="truncate">{directory}</span>
-											</div>
-											<ul className="flex flex-col divide-y divide-border/45">
-												{files.map((file) => {
-													const pending = changeByPath.get(file.path);
-													return (
-														<FileRow
-															key={file.path}
-															path={file.path}
-															oldPath={file.oldPath}
-															kind={file.kind}
-															additions={file.additions}
-															deletions={file.deletions}
-															selected={
-																pending === undefined
-																	? undefined
-																	: !excluded.has(file.path)
-															}
-															onToggleSelect={
-																pending === undefined
-																	? undefined
-																	: () => togglePath(file.path)
-															}
-															onRevert={
-																pending === undefined
-																	? undefined
-																	: () =>
-																			requestRevertFile(
-																				pending.path,
-																				pending.kind,
-																				pending.oldPath,
-																			)
-															}
-														/>
-													);
-												})}
-											</ul>
-										</section>
-									))}
-								</div>
+								<ChangesNavigatorTree
+									key={reviewFiles.map((file) => file.path).join("\0")}
+									files={reviewFiles}
+									onSelect={openChanges}
+								/>
 							)}
 						</div>
 						{committable.length > 0 ? (
@@ -590,218 +513,58 @@ function RevertChangesDialog({
 	);
 }
 
-function FileRow({
-	path,
-	oldPath,
-	kind,
-	additions,
-	deletions,
-	onRevert,
-	selected,
-	onToggleSelect,
-}: {
-	path: string;
-	oldPath?: string | null;
-	kind: GitChangeKind;
-	additions?: number;
-	deletions?: number;
-	onRevert?: () => void;
-	selected?: boolean;
-	onToggleSelect?: () => void;
-}) {
-	const openChanges = useUiStore((s) => s.openChanges);
-	const renamed = oldPath !== null && oldPath !== undefined && oldPath !== path;
-	const tooltip = renamed ? `${oldPath} → ${path}` : path;
-	return (
-		<li className="group flex flex-col">
-			<div className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2 px-3 py-2 transition-colors hover:bg-muted/35">
-				{onToggleSelect ? (
-					<CheckBox
-						checked={selected === true}
-						onClick={onToggleSelect}
-						title={selected ? "Exclude from commit" : "Include in commit"}
-					/>
-				) : null}
-				<button
-					type="button"
-					onClick={() => openChanges(path)}
-					className="flex min-w-0 flex-1 items-baseline gap-1.5 text-left"
-					title={tooltip}
-				>
-					<FileIcon name={basename(path)} kind="file" />
-					{renamed ? (
-						<RenameLabel oldPath={oldPath ?? path} newPath={path} />
-					) : (
-						<PathLabel path={path} />
-					)}
-				</button>
-				<span className="flex shrink-0 items-center gap-1.5">
-					{typeof additions === "number" || typeof deletions === "number" ? (
-						<span className="font-mono text-[11px]">
-							{typeof additions === "number" && additions > 0 ? (
-								<span className="text-success">+{additions}</span>
-							) : null}
-							{typeof additions === "number" &&
-							typeof deletions === "number" &&
-							additions > 0 &&
-							deletions > 0
-								? " "
-								: null}
-							{typeof deletions === "number" && deletions > 0 ? (
-								<span className="text-destructive">−{deletions}</span>
-							) : null}
-						</span>
-					) : null}
-					{onRevert ? (
-						<button
-							type="button"
-							onClick={(e) => {
-								e.stopPropagation();
-								onRevert();
-							}}
-							className="flex size-[14px] shrink-0 items-center justify-center rounded-[3px] text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
-							title={
-								kind === "untracked"
-									? "Delete this untracked file"
-									: "Revert changes to this file"
-							}
-						>
-							<HugeiconsIcon
-								icon={UndoIcon}
-								className="size-3"
-								strokeWidth={2}
-							/>
-						</button>
-					) : null}
-					<KindBox kind={kind} />
-				</span>
-			</div>
-		</li>
-	);
-}
-
-function PathLabel({ path }: { path: string }) {
-	const dir = dirname(path);
-	return (
-		<span className="flex min-w-0 items-baseline font-mono text-xs">
-			{dir.length > 0 ? (
-				<span className="truncate text-muted-foreground">{dir}/</span>
-			) : null}
-			<span className="shrink-0 text-foreground">{basename(path)}</span>
-		</span>
-	);
-}
-
-/**
- * Renders an "old → new" label for a renamed file. Collapses the unchanged
- * path prefix where possible so a `src/foo/bar.ts → src/foo/baz.ts` rename
- * only shows the part that actually moved (`bar.ts → baz.ts`), with the
- * shared parent directory faded after.
- */
-function RenameLabel({
-	oldPath,
-	newPath,
-}: {
-	oldPath: string;
-	newPath: string;
-}) {
-	const oldDir = dirname(oldPath);
-	const newDir = dirname(newPath);
-	const oldName = basename(oldPath);
-	const newName = basename(newPath);
-	const sameDir = oldDir === newDir;
-	return (
-		<>
-			<span className="flex min-w-0 items-baseline gap-1 truncate font-mono text-xs text-foreground">
-				<span className="truncate">{oldName}</span>
-				<HugeiconsIcon
-					icon={ArrowRight01Icon}
-					className="size-3 shrink-0 text-muted-foreground"
-				/>
-				<span className="truncate">{newName}</span>
-			</span>
-			<span className="truncate font-mono text-[11px] text-muted-foreground">
-				{sameDir
-					? newDir
-					: `${oldDir.length > 0 ? oldDir : "."} → ${newDir.length > 0 ? newDir : "."}`}
-			</span>
-		</>
-	);
-}
-
-/**
- * Square 14×14 status box: green `+` for additions, warm red `−` for
- * deletions, amber dot for "both" (modified / renamed / copied / type
- * changed), warm red `!` for unmerged. Mirrors the look of GitHub's diff
- * gutter so the file kind reads at a glance without a letter to decode.
- */
-function KindBox({ kind }: { kind: GitChangeKind }) {
+const treeStatusFor = (kind: GitChangeKind): GitStatus => {
 	switch (kind) {
 		case "added":
-		case "untracked":
-			return (
-				<Box tone="emerald">
-					<Plus className="size-2.5" strokeWidth={2} />
-				</Box>
-			);
-		case "deleted":
-			return (
-				<Box tone="rose">
-					<HugeiconsIcon
-						icon={MinusSignIcon}
-						className="size-2.5"
-						strokeWidth={3}
-					/>
-				</Box>
-			);
-		case "modified":
-		case "type_changed":
-		case "renamed":
 		case "copied":
-			return (
-				<Box tone="amber">
-					<span className="size-1 rounded-full bg-current" />
-				</Box>
-			);
-		case "unmerged":
-			return (
-				<Box tone="rose">
-					<HugeiconsIcon
-						icon={Alert01Icon}
-						className="size-2.5"
-						strokeWidth={2.5}
-					/>
-				</Box>
-			);
+			return "added";
+		case "deleted":
+			return "deleted";
+		case "renamed":
+			return "renamed";
+		case "untracked":
+			return "untracked";
 		case "ignored":
-			return (
-				<Box tone="zinc">
-					<span className="size-1 rounded-full bg-current" />
-				</Box>
-			);
+			return "ignored";
+		default:
+			return "modified";
 	}
-}
-
-const BOX_TONE: Record<"emerald" | "rose" | "amber" | "zinc", string> = {
-	emerald: "border-success text-success",
-	rose: "border-destructive text-destructive",
-	amber: "border-warning text-warning",
-	zinc: "border-muted-foreground text-muted-foreground",
 };
 
-function Box({
-	tone,
-	children,
+function ChangesNavigatorTree({
+	files,
+	onSelect,
 }: {
-	tone: keyof typeof BOX_TONE;
-	children: React.ReactNode;
+	readonly files: readonly GitReviewFile[];
+	readonly onSelect: (path: string) => void;
 }) {
+	const paths = useMemo(() => files.map((file) => file.path), [files]);
+	const gitStatus = useMemo<GitStatusEntry[]>(
+		() =>
+			files.map((file) => ({
+				path: file.path,
+				status: treeStatusFor(file.kind),
+			})),
+		[files],
+	);
+	const { model } = useFileTree({
+		paths,
+		gitStatus,
+		density: "compact",
+		icons: "complete",
+		initialExpansion: 3,
+		initialVisibleRowCount: 50,
+		onSelectionChange: (selectedPaths) => {
+			const path = selectedPaths[0];
+			if (selectedPaths.length === 1 && path !== undefined) onSelect(path);
+		},
+	});
 	return (
-		<span
-			className={`flex size-[14px] shrink-0 items-center justify-center rounded-[3px] border ${BOX_TONE[tone]}`}
-		>
-			{children}
-		</span>
+		<StructuredFileTree
+			model={model}
+			aria-label="Changed files"
+			className="h-full min-h-0"
+		/>
 	);
 }
 

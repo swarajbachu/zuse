@@ -19,9 +19,15 @@ type ReviewState = {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Promise<void>;
+	readonly ensurePatch: (
+		folderId: FolderId,
+		worktreeId: WorktreeId | null | undefined,
+		path: string,
+	) => Promise<void>;
 };
 
 const streamFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const patchRequests = new Map<string, Promise<void>>();
 
 export const gitReviewKey = (
 	folderId: FolderId,
@@ -33,6 +39,39 @@ export const useGitReviewStore = create<ReviewState>((set) => ({
 	patches: {},
 	loading: {},
 	errors: {},
+	ensurePatch: async (folderId, worktreeId, path) => {
+		const key = gitReviewKey(folderId, worktreeId);
+		const requestKey = `${key}:${path}`;
+		const pending = patchRequests.get(requestKey);
+		if (pending !== undefined) return pending;
+		const request = (async () => {
+			const client = await getRpcClient();
+			const result = await classifyGit(
+				client["git.diff"]({
+					folderId,
+					worktreeId: worktreeId ?? null,
+					path,
+				}),
+			);
+			if (!result.ok) {
+				set((state) => ({
+					errors: { ...state.errors, [key]: result.message },
+				}));
+				return;
+			}
+			set((state) => ({
+				patches: {
+					...state.patches,
+					[key]: {
+						...(state.patches[key] ?? {}),
+						[path]: { path, result: result.value, error: null },
+					},
+				},
+			}));
+		})().finally(() => patchRequests.delete(requestKey));
+		patchRequests.set(requestKey, request);
+		return request;
+	},
 	refresh: async (folderId, worktreeId) => {
 		const key = gitReviewKey(folderId, worktreeId);
 		for (const [activeKey, fiber] of streamFibers) {

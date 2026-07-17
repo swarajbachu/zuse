@@ -25,7 +25,6 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import {
-	Check,
 	ChevronDown,
 	ChevronRight,
 	ChevronsUpDown,
@@ -33,13 +32,16 @@ import {
 	Copy,
 	EyeOff,
 	FilePenLine,
-	MessageSquarePlus,
+	MoreHorizontal,
 	PanelTop,
 	RotateCcw,
 	Rows3,
 	Save,
+	Send,
 	Settings2,
 	SquarePlus,
+	UserRound,
+	X,
 } from "lucide-react";
 import {
 	type FormEvent,
@@ -179,6 +181,7 @@ function ChangesReviewReady({
 	const loading = useGitReviewStore((state) => state.loading[key] === true);
 	const error = useGitReviewStore((state) => state.errors[key] ?? null);
 	const refresh = useGitReviewStore((state) => state.refresh);
+	const ensurePatch = useGitReviewStore((state) => state.ensurePatch);
 	const navigation = useUiStore((state) => state.reviewNavigation);
 	const viewerRef = useRef<CodeViewHandle<AnnotationMetadata>>(null);
 	const lastNavigationTokenRef = useRef<number | null>(null);
@@ -214,6 +217,13 @@ function ChangesReviewReady({
 	useEffect(() => {
 		void refresh(folderId, worktreeId);
 	}, [folderId, worktreeId, refresh]);
+
+	useEffect(() => {
+		const path = navigation?.path;
+		if (path === null || path === undefined || patches[path] !== undefined)
+			return;
+		void ensurePatch(folderId, worktreeId, path);
+	}, [ensurePatch, folderId, navigation?.path, patches, worktreeId]);
 
 	useEffect(() => {
 		localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
@@ -367,6 +377,14 @@ function ChangesReviewReady({
 		},
 		[patches, viewedKey],
 	);
+	const toggleCollapsed = useCallback((path: string) => {
+		setCollapsed((current) => {
+			const next = new Set(current);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+	}, []);
 
 	const enterEdit = useCallback(
 		(file: GitReviewFile) => {
@@ -503,91 +521,80 @@ function ChangesReviewReady({
 		[folderId, refresh, worktreeId],
 	);
 
+	const renderHeaderPrefix = useCallback(
+		(item: CodeViewItem<AnnotationMetadata>) => {
+			const file = fileByPath.get(item.id);
+			if (file === undefined) return null;
+			return (
+				<div className="ml-[-6px] flex items-center gap-0.5">
+					<button
+						type="button"
+						aria-label={
+							collapsed.has(file.path) ? "Expand diff" : "Collapse diff"
+						}
+						title={collapsed.has(file.path) ? "Expand diff" : "Collapse diff"}
+						onClick={(event) => {
+							event.stopPropagation();
+							toggleCollapsed(file.path);
+						}}
+						className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+					>
+						{collapsed.has(file.path) ? (
+							<ChevronRight className="size-3.5" />
+						) : (
+							<ChevronDown className="size-3.5" />
+						)}
+					</button>
+					<input
+						type="checkbox"
+						checked={isViewed(file.path)}
+						onChange={() => toggleViewed(file.path)}
+						onClick={(event) => event.stopPropagation()}
+						aria-label={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
+						title={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
+						className="size-3.5 cursor-pointer accent-foreground"
+					/>
+				</div>
+			);
+		},
+		[collapsed, fileByPath, isViewed, toggleCollapsed, toggleViewed],
+	);
+
 	const renderHeaderMetadata = useCallback(
 		(item: CodeViewItem<AnnotationMetadata>) => {
 			const file = fileByPath.get(item.id);
 			if (file === undefined) return null;
 			const editing = editingPath === item.id;
 			return (
-				<div className="flex items-center gap-1 pr-2 text-[11px]">
-					<span className="tabular-nums text-emerald-400">
-						+{file.additions}
-					</span>
-					<span className="tabular-nums text-rose-400">−{file.deletions}</span>
-					{!file.binary && file.kind !== "deleted" && !file.conflict ? (
-						<HeaderButton
-							label={editing ? "Return to diff" : "Edit file"}
-							onClick={() => (editing ? leaveEdit() : void enterEdit(file))}
-						>
-							<FilePenLine />
-						</HeaderButton>
-					) : null}
+				<div className="flex items-center gap-1 pr-2">
 					{editing ? (
-						<HeaderButton label="Save edit" onClick={() => void saveEdit()}>
-							<Save />
-						</HeaderButton>
-					) : null}
-					<HeaderButton
-						label={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
-						active={isViewed(file.path)}
-						onClick={() => toggleViewed(file.path)}
-					>
-						<Check />
-					</HeaderButton>
-					<HeaderButton
-						label="Copy patch"
-						onClick={() =>
-							void navigator.clipboard.writeText(
-								patches[file.path]?.result.patch ?? "",
-							)
-						}
-					>
-						<Copy />
-					</HeaderButton>
-					<HeaderButton
-						label={collapsed.has(file.path) ? "Expand file" : "Collapse file"}
-						onClick={() =>
-							setCollapsed((current) => {
-								const next = new Set(current);
-								if (next.has(file.path)) next.delete(file.path);
-								else next.add(file.path);
-								return next;
-							})
-						}
-					>
-						{collapsed.has(file.path) ? <ChevronRight /> : <ChevronDown />}
-					</HeaderButton>
-					{file.hasUncommittedChanges ? (
-						<HeaderButton
-							label="Discard uncommitted edits"
-							destructive
-							onClick={() => void discardUncommitted(file)}
+						<button
+							type="button"
+							title="Save edit (⌘S)"
+							onClick={() => void saveEdit()}
+							className="flex h-6 items-center gap-1 rounded px-2 text-[11px] text-foreground hover:bg-foreground/10"
 						>
-							<RotateCcw />
-						</HeaderButton>
+							<Save className="size-3" /> Save
+						</button>
 					) : null}
-					<HeaderButton
-						label="Restore file to comparison base"
-						destructive
-						onClick={() => void restoreToBase(file)}
-					>
-						<RotateCcw />
-					</HeaderButton>
+					<FileActionsMenu
+						file={file}
+						editing={editing}
+						onEdit={() => (editing ? leaveEdit() : void enterEdit(file))}
+						onDiscard={() => void discardUncommitted(file)}
+						onRestore={() => void restoreToBase(file)}
+					/>
 				</div>
 			);
 		},
 		[
-			collapsed,
 			discardUncommitted,
 			editingPath,
 			enterEdit,
 			fileByPath,
-			isViewed,
 			leaveEdit,
-			patches,
 			restoreToBase,
 			saveEdit,
-			toggleViewed,
 		],
 	);
 
@@ -722,6 +729,7 @@ function ChangesReviewReady({
 						}}
 						createEditor={(options) => new Editor(options)}
 						onItemEditChange={(_item, file) => setEditDraft(file)}
+						renderHeaderPrefix={renderHeaderPrefix}
 						renderHeaderMetadata={renderHeaderMetadata}
 						renderAnnotation={(annotation) => {
 							const metadata = annotation.metadata;
@@ -729,50 +737,67 @@ function ChangesReviewReady({
 								return (
 									<form
 										onSubmit={saveAnnotation}
-										className="m-2 flex max-w-xl flex-col gap-2 rounded-md border border-border bg-background p-2 shadow-lg"
+										className="m-2 flex max-w-[600px] items-start gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.04),0_4px_10px_rgb(0_0_0_/_0.04)]"
 									>
-										<textarea
-											value={annotationText}
-											onChange={(event) =>
-												setAnnotationText(event.target.value)
-											}
-											onKeyDown={(event) => {
-												if (event.key === "Escape") {
+										<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
+											<UserRound className="size-4" />
+										</div>
+										<div className="min-w-0 flex-1">
+											<textarea
+												value={annotationText}
+												onChange={(event) =>
+													setAnnotationText(event.target.value)
+												}
+												onKeyDown={(event) => {
+													if (event.key === "Escape") {
+														setSelection(null);
+														setAnnotationText("");
+													}
+													if (event.key === "Enter" && !event.shiftKey) {
+														event.preventDefault();
+														event.currentTarget.form?.requestSubmit();
+													}
+												}}
+												placeholder={
+													selectedSessionId === null
+														? "Open a chat session to comment"
+														: "Add a comment…"
+												}
+												disabled={selectedSessionId === null}
+												rows={2}
+												className="field-sizing-content min-h-12 w-full resize-none bg-transparent py-1 text-sm outline-none placeholder:text-muted-foreground"
+											/>
+											{annotationError !== null ? (
+												<p className="mt-1 text-xs text-rose-400">
+													{annotationError}
+												</p>
+											) : null}
+										</div>
+										<div className="flex shrink-0 items-center gap-1 self-end">
+											<button
+												type="button"
+												aria-label="Cancel comment"
+												title="Cancel (Esc)"
+												onClick={() => {
 													setSelection(null);
 													setAnnotationText("");
-												}
-												if (event.key === "Enter" && !event.shiftKey) {
-													event.preventDefault();
-													event.currentTarget.form?.requestSubmit();
-												}
-											}}
-											placeholder={
-												selectedSessionId === null
-													? "Open a chat session to annotate"
-													: "Leave a comment…"
-											}
-											disabled={selectedSessionId === null}
-											className="min-h-16 resize-y bg-transparent text-xs outline-none"
-										/>
-										{annotationError !== null ? (
-											<p className="text-xs text-rose-400">{annotationError}</p>
-										) : null}
-										<div className="flex justify-end gap-1">
-											<Button
-												type="button"
-												size="sm"
-												variant="ghost"
-												onClick={() => setSelection(null)}
+												}}
+												className="grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
 											>
-												Cancel
-											</Button>
-											<Button
+												<X className="size-3.5" />
+											</button>
+											<button
 												type="submit"
-												size="sm"
-												disabled={selectedSessionId === null}
+												aria-label="Add comment"
+												title="Add comment (Enter)"
+												disabled={
+													selectedSessionId === null ||
+													annotationText.trim().length === 0
+												}
+												className="grid size-8 place-items-center rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
 											>
-												<MessageSquarePlus className="size-3.5" /> Add
-											</Button>
+												<Send className="size-3.5" />
+											</button>
 										</div>
 									</form>
 								);
@@ -793,9 +818,14 @@ function ChangesReviewReady({
 							diffIndicators: preferences.indicators,
 							stickyHeaders: true,
 							enableLineSelection: true,
+							enableGutterUtility: true,
 							controlledSelection: true,
-							lineHoverHighlight: "both",
+							lineHoverHighlight: "number",
 							hunkSeparators: "line-info",
+							onGutterUtilityClick(range, context) {
+								setSelection({ id: context.item.id, range });
+								setAnnotationError(null);
+							},
 						}}
 						className="h-full overflow-auto overscroll-contain"
 					/>
@@ -942,55 +972,65 @@ function SavedAnnotationCard({
 	const [editing, setEditing] = useState(false);
 	const [comment, setComment] = useState(annotation.comment);
 	return (
-		<div className="m-2 max-w-xl rounded-md border border-border bg-background p-2 text-xs shadow-sm">
-			<div className="mb-1 flex items-center justify-between text-muted-foreground">
-				<span>
-					{annotation.relPath}:{annotation.startLine}
-				</span>
-				<span className="flex gap-1">
+		<div className="group relative m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-sm text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.04),0_4px_10px_rgb(0_0_0_/_0.04)]">
+			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
+				<UserRound className="size-4" />
+			</div>
+			<div className="min-w-0 flex-1">
+				<div className="flex items-center gap-2">
+					<strong className="font-medium">You</strong>
+					<span className="truncate font-mono text-[10px] text-muted-foreground">
+						{annotation.relPath}:{annotation.startLine}
+					</span>
+				</div>
+				<div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 					<button
 						type="button"
+						aria-label={editing ? "Cancel editing" : "Edit comment"}
+						title={editing ? "Cancel editing" : "Edit comment"}
 						onClick={() => setEditing((value) => !value)}
-						className="rounded px-1 hover:bg-foreground/10 hover:text-foreground"
+						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
 					>
 						{editing ? "Cancel" : "Edit"}
 					</button>
 					<button
 						type="button"
+						aria-label="Delete comment"
+						title="Delete comment"
 						onClick={() =>
 							sessionId !== null &&
 							useAnnotationsStore.getState().remove(sessionId, annotation.id)
 						}
-						className="rounded px-1 hover:bg-foreground/10 hover:text-rose-400"
+						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
 					>
 						Delete
 					</button>
-				</span>
+				</div>
+				{editing ? (
+					<form
+						onSubmit={(event) => {
+							event.preventDefault();
+							if (sessionId === null) return;
+							useAnnotationsStore
+								.getState()
+								.updateComment(sessionId, annotation.id, comment);
+							setEditing(false);
+						}}
+						className="mt-1 flex gap-1"
+					>
+						<input
+							value={comment}
+							onChange={(event) => setComment(event.target.value)}
+							className="h-8 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-sm outline-none focus:border-foreground/30"
+						/>
+						<Button type="submit" size="sm">
+							Save
+						</Button>
+					</form>
+				) : (
+					<p className="mt-1 whitespace-pre-wrap">{annotation.comment}</p>
+				)}
 			</div>
-			{editing ? (
-				<form
-					onSubmit={(event) => {
-						event.preventDefault();
-						if (sessionId === null) return;
-						useAnnotationsStore
-							.getState()
-							.updateComment(sessionId, annotation.id, comment);
-						setEditing(false);
-					}}
-					className="flex gap-1"
-				>
-					<input
-						value={comment}
-						onChange={(event) => setComment(event.target.value)}
-						className="h-7 min-w-0 flex-1 rounded border border-border bg-transparent px-2 outline-none"
-					/>
-					<Button type="submit" size="sm">
-						Save
-					</Button>
-				</form>
-			) : (
-				annotation.comment
-			)}
 		</div>
 	);
 }
@@ -1000,6 +1040,82 @@ function ReviewState({ title }: { readonly title: string }) {
 		<div className="grid h-full place-items-center px-8 text-center text-sm text-muted-foreground">
 			{title}
 		</div>
+	);
+}
+
+function FileActionsMenu({
+	file,
+	editing,
+	onEdit,
+	onDiscard,
+	onRestore,
+}: {
+	readonly file: GitReviewFile;
+	readonly editing: boolean;
+	readonly onEdit: () => void;
+	readonly onDiscard: () => void;
+	readonly onRestore: () => void;
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger
+				aria-label={`Actions for ${file.path}`}
+				title="File actions"
+				className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[popup-open]:bg-foreground/10"
+			>
+				<MoreHorizontal className="size-3.5" />
+			</PopoverTrigger>
+			<PopoverPrimitive.Portal>
+				<PopoverPrimitive.Positioner
+					side="bottom"
+					align="end"
+					sideOffset={4}
+					className="z-50"
+				>
+					<PopoverPrimitive.Popup className="w-52 rounded-md border border-border/70 bg-popover p-1 text-xs text-popover-foreground shadow-lg outline-none">
+						{!file.binary && file.kind !== "deleted" && !file.conflict ? (
+							<FileMenuAction icon={FilePenLine} onClick={onEdit}>
+								{editing ? "Return to diff" : "Edit file"}
+							</FileMenuAction>
+						) : null}
+						{file.hasUncommittedChanges ? (
+							<FileMenuAction destructive icon={RotateCcw} onClick={onDiscard}>
+								Discard uncommitted changes
+							</FileMenuAction>
+						) : null}
+						<FileMenuAction destructive icon={RotateCcw} onClick={onRestore}>
+							Restore to comparison base
+						</FileMenuAction>
+					</PopoverPrimitive.Popup>
+				</PopoverPrimitive.Positioner>
+			</PopoverPrimitive.Portal>
+		</Popover>
+	);
+}
+
+function FileMenuAction({
+	icon: Icon,
+	destructive = false,
+	onClick,
+	children,
+}: {
+	readonly icon: React.ComponentType<{ className?: string }>;
+	readonly destructive?: boolean;
+	readonly onClick: () => void;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<PopoverPrimitive.Close
+			onClick={onClick}
+			className={`flex h-8 w-full items-center gap-2 rounded px-2 text-left ${
+				destructive
+					? "text-rose-400 hover:bg-rose-500/10"
+					: "text-foreground hover:bg-foreground/5"
+			}`}
+		>
+			<Icon className="size-3.5 shrink-0" />
+			<span>{children}</span>
+		</PopoverPrimitive.Close>
 	);
 }
 
@@ -1125,39 +1241,6 @@ function ToolbarButton({
 			}`}
 		>
 			<span className="block size-3.5 [&>svg]:size-3.5">{children}</span>
-		</button>
-	);
-}
-
-function HeaderButton({
-	label,
-	active = false,
-	destructive = false,
-	onClick,
-	children,
-}: {
-	readonly label: string;
-	readonly active?: boolean;
-	readonly destructive?: boolean;
-	readonly onClick: () => void;
-	readonly children: React.ReactNode;
-}) {
-	return (
-		<button
-			type="button"
-			aria-label={label}
-			title={label}
-			aria-pressed={active}
-			onClick={onClick}
-			className={`rounded p-1 transition-colors [&>svg]:size-3 ${
-				destructive
-					? "text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
-					: active
-						? "bg-foreground/10 text-foreground"
-						: "text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-			}`}
-		>
-			{children}
 		</button>
 	);
 }

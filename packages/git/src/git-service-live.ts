@@ -1671,59 +1671,61 @@ export const GitServiceLive = Layer.effect(
 				reviewSummary(folderId, worktreeId).pipe(
 					Effect.map((summary) =>
 						Stream.fromIterable(summary.files).pipe(
-							Stream.mapEffect((file) =>
-								(file.oldPath === null
-									? diff(folderId, file.path, worktreeId)
-									: Effect.flatMap(
-											resolvePathForWorktree(folderId, worktreeId),
-											(cwd) =>
-												Effect.gen(function* () {
-													const { baseSha } = yield* resolveReviewRange(
-														folderId,
-														cwd,
-													);
-													const patch = yield* run(folderId, cwd, [
-														"diff",
-														"--no-color",
-														"--no-ext-diff",
-														"--find-renames",
-														baseSha,
-														"--",
-														file.oldPath ?? file.path,
-														file.path,
-													]);
-													const maxBytes = 2_000_000;
-													return GitDiffResult.make({
-														mode: file.binary ? "binary" : "worktree",
-														patch: patch.slice(0, maxBytes),
-														truncated: patch.length > maxBytes,
-														bytes: patch.length,
-													});
-												}),
-										)
-								).pipe(
-									Effect.map((result) =>
-										GitReviewPatch.make({
-											path: file.path,
-											result,
-											error: null,
-										}),
-									),
-									Effect.catch((cause) =>
-										Effect.succeed(
+							Stream.mapEffect(
+								(file) =>
+									(file.oldPath === null
+										? diff(folderId, file.path, worktreeId)
+										: Effect.flatMap(
+												resolvePathForWorktree(folderId, worktreeId),
+												(cwd) =>
+													Effect.gen(function* () {
+														const { baseSha } = yield* resolveReviewRange(
+															folderId,
+															cwd,
+														);
+														const patch = yield* run(folderId, cwd, [
+															"diff",
+															"--no-color",
+															"--no-ext-diff",
+															"--find-renames",
+															baseSha,
+															"--",
+															file.oldPath ?? file.path,
+															file.path,
+														]);
+														const maxBytes = 2_000_000;
+														return GitDiffResult.make({
+															mode: file.binary ? "binary" : "worktree",
+															patch: patch.slice(0, maxBytes),
+															truncated: patch.length > maxBytes,
+															bytes: patch.length,
+														});
+													}),
+											)
+									).pipe(
+										Effect.map((result) =>
 											GitReviewPatch.make({
 												path: file.path,
-												result: GitDiffResult.make({
-													mode: "unchanged",
-													patch: "",
-													truncated: false,
-													bytes: 0,
-												}),
-												error: String(cause),
+												result,
+												error: null,
 											}),
 										),
+										Effect.catch((cause) =>
+											Effect.succeed(
+												GitReviewPatch.make({
+													path: file.path,
+													result: GitDiffResult.make({
+														mode: "unchanged",
+														patch: "",
+														truncated: false,
+														bytes: 0,
+													}),
+													error: String(cause),
+												}),
+											),
+										),
 									),
-								),
+								{ concurrency: 4 },
 							),
 						),
 					),
