@@ -309,7 +309,7 @@ export function McpPopover({
 			<PopoverPopup
 				side="top"
 				align="start"
-				className="w-80 [&_[data-slot=popover-viewport]]:!h-auto [&_[data-slot=popover-viewport]]:!overflow-hidden [&_[data-slot=popover-viewport]]:flex [&_[data-slot=popover-viewport]]:max-h-[min(var(--available-height),28rem)] [&_[data-slot=popover-viewport]]:flex-col [&_[data-slot=popover-viewport]]:p-px [&_[data-slot=popover-viewport]]:[--viewport-inline-padding:1px]"
+				className="w-80 [&_[data-slot=popover-viewport]]:!overflow-hidden [&_[data-slot=popover-viewport]]:p-px [&_[data-slot=popover-viewport]]:[--viewport-inline-padding:1px]"
 			>
 				<div className="flex h-8 shrink-0 items-center justify-between border-border/40 border-b px-2">
 					<span className="text-[13px] font-medium text-foreground">MCPs</span>
@@ -329,7 +329,7 @@ export function McpPopover({
 						/>
 					</button>
 				</div>
-				<div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+				<div className="max-h-[min(24rem,calc(var(--available-height)-4rem))] overflow-y-auto overscroll-y-contain">
 					{topLevel.length === 0 ? (
 						<p className="px-2 py-2.5 text-[12px] leading-relaxed text-muted-foreground">
 							No MCP servers discovered.
