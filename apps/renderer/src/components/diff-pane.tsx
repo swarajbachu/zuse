@@ -30,6 +30,12 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import {
+	Group,
+	Panel,
+	Separator,
+	useDefaultLayout,
+} from "react-resizable-panels";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
@@ -62,6 +68,8 @@ const basename = (path: string): string => {
 };
 
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
+const NAVIGATOR_PANEL_IDS = ["conflicts", "changes"];
+const NAVIGATOR_PANEL_GROUP_ID = "zuse.review.navigator.v1";
 
 type RevertRequest =
 	| { readonly type: "all" }
@@ -143,6 +151,14 @@ export function DiffPane({
 		"files",
 	);
 	const [viewedRevision, setViewedRevision] = useState(0);
+	const {
+		defaultLayout: navigatorDefaultLayout,
+		onLayoutChanged: onNavigatorLayoutChanged,
+	} = useDefaultLayout({
+		id: NAVIGATOR_PANEL_GROUP_ID,
+		panelIds: NAVIGATOR_PANEL_IDS,
+		storage: typeof window === "undefined" ? undefined : window.localStorage,
+	});
 
 	useEffect(() => {
 		const refreshViewed = () => setViewedRevision((value) => value + 1);
@@ -334,25 +350,48 @@ export function DiffPane({
 								<Indicator title="Loading branch changes…" />
 							) : reviewFiles.length === 0 ? (
 								<Indicator title="No branch changes" />
-							) : (
-								<>
-									{conflictFiles.length > 0 ? (
+							) : conflictFiles.length > 0 ? (
+								<Group
+									id={NAVIGATOR_PANEL_GROUP_ID}
+									orientation="vertical"
+									defaultLayout={navigatorDefaultLayout}
+									onLayoutChanged={onNavigatorLayoutChanged}
+									resizeTargetMinimumSize={{ fine: 12, coarse: 28 }}
+									className="min-h-0 flex-1"
+								>
+									<Panel id="conflicts" defaultSize="35%" minSize="88px">
 										<NavigatorSection
 											title="Conflicts"
 											count={conflictFiles.length}
 											files={conflictFiles}
 											onSelect={openChanges}
 											conflict
+											className="h-full"
 										/>
-									) : null}
-									<NavigatorSection
-										title="Changes"
-										count={changedFiles.length}
-										files={changedFiles}
-										onSelect={openChanges}
-										className="min-h-0 flex-1"
+									</Panel>
+									<Separator
+										aria-label="Resize Conflicts and Changes"
+										title="Drag to resize Conflicts and Changes"
+										className="group relative h-1 cursor-row-resize bg-transparent outline-none after:absolute after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2 after:bg-border/60 after:transition-colors hover:after:bg-foreground/25 active:after:bg-foreground/40 focus-visible:after:bg-foreground/40"
 									/>
-								</>
+									<Panel id="changes" defaultSize="65%" minSize="88px">
+										<NavigatorSection
+											title="Changes"
+											count={changedFiles.length}
+											files={changedFiles}
+											onSelect={openChanges}
+											className="h-full"
+										/>
+									</Panel>
+								</Group>
+							) : (
+								<NavigatorSection
+									title="Changes"
+									count={changedFiles.length}
+									files={changedFiles}
+									onSelect={openChanges}
+									className="min-h-0 flex-1"
+								/>
 							)}
 						</div>
 						{committable.length > 0 ? (
@@ -635,16 +674,7 @@ function NavigatorSection({
 		);
 	}
 	return (
-		<section
-			className={`flex min-h-0 flex-col ${
-				conflict ? "max-h-[42%] shrink-0 border-b border-border/60" : ""
-			} ${className}`}
-			style={
-				conflict
-					? { height: Math.min(220, Math.max(72, files.length * 24 + 36)) }
-					: undefined
-			}
-		>
+		<section className={`flex min-h-0 flex-col ${className}`}>
 			<div className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
 				{conflict ? <CircleAlert className="size-3 text-amber-400" /> : null}
 				<span className={conflict ? "text-amber-300" : ""}>{title}</span>
