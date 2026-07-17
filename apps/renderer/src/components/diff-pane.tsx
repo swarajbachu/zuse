@@ -13,11 +13,12 @@ import type {
 	CodeAnnotation,
 	FolderId,
 	GitChangeKind,
+	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
@@ -54,6 +55,8 @@ const dirname = (path: string): string => {
 	const i = path.lastIndexOf("/");
 	return i === -1 ? "" : path.slice(0, i);
 };
+
+const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
 
 type RevertRequest =
 	| { readonly type: "all" }
@@ -96,9 +99,11 @@ export function DiffPane({
 	const reviewLoading = useGitReviewStore((s) =>
 		folderId ? s.loading[gitReviewKey(folderId, worktreeId)] === true : false,
 	);
-	const reviewPatches = useGitReviewStore((s) =>
-		folderId ? (s.patches[gitReviewKey(folderId, worktreeId)] ?? {}) : {},
-	);
+	const reviewPatchesByKey = useGitReviewStore((s) => s.patches);
+	const reviewPatches = folderId
+		? (reviewPatchesByKey[gitReviewKey(folderId, worktreeId)] ??
+			EMPTY_REVIEW_PATCHES)
+		: EMPTY_REVIEW_PATCHES;
 	const refreshReview = useGitReviewStore((s) => s.refresh);
 	const refreshChanges = useGitChangesStore((s) => s.refresh);
 	const refreshStatus = useGitStatusStore((s) => s.refresh);
@@ -106,12 +111,15 @@ export function DiffPane({
 	const refreshPrDetails = usePrDetailsStore((s) => s.refresh);
 	const openChanges = useUiStore((s) => s.openChanges);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
-	const comments = useAnnotationsStore((s) =>
-		selectedSessionId === null
-			? []
-			: (s.bySession[selectedSessionId] ?? []).filter(
-					(entry): entry is CodeAnnotation => !("_tag" in entry),
-				),
+	const annotationsBySession = useAnnotationsStore((s) => s.bySession);
+	const comments = useMemo(
+		() =>
+			selectedSessionId === null
+				? []
+				: (annotationsBySession[selectedSessionId] ?? []).filter(
+						(entry): entry is CodeAnnotation => !("_tag" in entry),
+					),
+		[annotationsBySession, selectedSessionId],
 	);
 	const updateComment = useAnnotationsStore((s) => s.updateComment);
 	const removeComment = useAnnotationsStore((s) => s.remove);

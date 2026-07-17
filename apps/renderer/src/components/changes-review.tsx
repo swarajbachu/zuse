@@ -20,6 +20,7 @@ import type {
 	CodeAnnotation,
 	FolderId,
 	GitReviewFile,
+	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -88,6 +89,8 @@ const REVIEW_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
 	langs: ["css", "go", "python", "rust", "sh", "swift", "tsx", "typescript"],
 	preferredHighlighter: "shiki-wasm",
 };
+
+const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
 
 const loadPreferences = (): ReviewPreferences => {
 	try {
@@ -164,7 +167,9 @@ function ChangesReviewReady({
 }) {
 	const key = gitReviewKey(folderId, worktreeId);
 	const summary = useGitReviewStore((state) => state.summaries[key] ?? null);
-	const patches = useGitReviewStore((state) => state.patches[key] ?? {});
+	const patches = useGitReviewStore(
+		(state) => state.patches[key] ?? EMPTY_REVIEW_PATCHES,
+	);
 	const loading = useGitReviewStore((state) => state.loading[key] === true);
 	const error = useGitReviewStore((state) => state.errors[key] ?? null);
 	const refresh = useGitReviewStore((state) => state.refresh);
@@ -188,12 +193,15 @@ function ChangesReviewReady({
 	const selectedSessionId = useSessionsStore(
 		(state) => state.selectedSessionId,
 	);
-	const annotations = useAnnotationsStore((state) =>
-		selectedSessionId === null
-			? []
-			: (state.bySession[selectedSessionId] ?? []).filter(
-					(entry): entry is CodeAnnotation => !("_tag" in entry),
-				),
+	const annotationsBySession = useAnnotationsStore((state) => state.bySession);
+	const annotations = useMemo(
+		() =>
+			selectedSessionId === null
+				? []
+				: (annotationsBySession[selectedSessionId] ?? []).filter(
+						(entry): entry is CodeAnnotation => !("_tag" in entry),
+					),
+		[annotationsBySession, selectedSessionId],
 	);
 
 	useEffect(() => {
