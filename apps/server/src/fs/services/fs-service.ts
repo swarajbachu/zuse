@@ -33,6 +33,19 @@ export interface FsServiceShape {
     folderId: FolderId,
     worktreeId?: WorktreeId | null,
   ) => Stream.Stream<{ readonly paths: ReadonlyArray<string> }, TreeFailure>;
+  readonly listPaths: (
+    folderId: FolderId,
+    worktreeId?: WorktreeId | null,
+  ) => Effect.Effect<
+    { readonly paths: ReadonlyArray<string>; readonly truncated: boolean },
+    TreeFailure
+  >;
+  readonly move: (
+    folderId: FolderId,
+    fromPath: string,
+    toPath: string,
+    worktreeId?: WorktreeId | null,
+  ) => Effect.Effect<Record<string, never>, CreateFailure>;
   readonly readFile: (
     folderId: FolderId,
     relPath: string,

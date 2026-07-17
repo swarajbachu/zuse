@@ -38,6 +38,9 @@ export default defineConfig({
       allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
     },
   },
+  worker: {
+    format: "es",
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

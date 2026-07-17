@@ -15,6 +15,9 @@ export interface AnnotationDraft {
   readonly startLine: number;
   readonly endLine: number;
   readonly comment: string;
+  readonly diffSide?: "additions" | "deletions";
+  readonly oldPath?: string;
+  readonly baseRef?: string;
 }
 
 interface AnnotateOverlayProps {

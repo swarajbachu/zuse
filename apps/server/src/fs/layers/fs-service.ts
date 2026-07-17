@@ -47,6 +47,11 @@ const WATCH_DEBOUNCE_MS = 120;
 // instead of trying to load gigabytes into a CodeMirror buffer.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
+// Hard cap on how many paths `fs.listPaths` returns for the file tree. The
+// path-first tree wants the whole universe up front; this keeps a pathological
+// monorepo from streaming hundreds of thousands of entries across the RPC.
+const MAX_TREE_PATHS = 50_000;
+
 const toForwardSlash = (p: string): string =>
   path.sep === "/" ? p : p.split(path.sep).join("/");
 
@@ -225,6 +230,109 @@ export const FsServiceLive = Layer.effect(
           return Stream.fromQueue(queue);
         }),
       );
+
+    // Full recursive path listing for the `@pierre/trees` file tree. DFS with
+    // dirs-first-then-name ordering so the result is already presorted
+    // (parent before children) for `preparePresortedFileTreeInput`.
+    // Directories carry a trailing "/" so empty ones still render. Bounded by
+    // MAX_TREE_PATHS; a failed stat drops that entry rather than the branch.
+    const listPaths: FsService["Service"]["listPaths"] = (
+      folderId,
+      worktreeId,
+    ) =>
+      Effect.gen(function* () {
+        const { rootAbs } = yield* resolveInsideFolder(folderId, "", worktreeId);
+        const out: string[] = [];
+        let truncated = false;
+
+        const walk = (
+          absDir: string,
+          relDir: string,
+        ): Effect.Effect<void, FsReadError> =>
+          Effect.gen(function* () {
+            if (truncated) return;
+            const names = yield* fs.readDirectory(absDir).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new FsReadError({
+                    folderId,
+                    path: relDir,
+                    reason: cause.message ?? String(cause),
+                  }),
+              ),
+            );
+            const rows = yield* Effect.forEach(
+              names,
+              (name) =>
+                Effect.gen(function* () {
+                  const entryAbs = pathSvc.join(absDir, name);
+                  const stat = yield* fs.stat(entryAbs).pipe(Effect.option);
+                  if (stat._tag === "None") return null;
+                  const kind =
+                    stat.value.type === "Directory" ? "directory" : "file";
+                  if (kind === "directory" && SKIP_DIRS.has(name)) return null;
+                  const rel = relDir === "" ? name : `${relDir}/${name}`;
+                  return { name, kind, abs: entryAbs, rel } as const;
+                }),
+              { concurrency: "unbounded" },
+            );
+            const valid = rows.filter(
+              (r): r is NonNullable<typeof r> => r !== null,
+            );
+            valid.sort((a, b) => {
+              if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
+              return a.name.localeCompare(b.name, undefined, {
+                sensitivity: "base",
+              });
+            });
+            for (const row of valid) {
+              if (out.length >= MAX_TREE_PATHS) {
+                truncated = true;
+                return;
+              }
+              if (row.kind === "directory") {
+                out.push(`${toForwardSlash(row.rel)}/`);
+                yield* walk(row.abs, row.rel);
+                if (truncated) return;
+              } else {
+                out.push(toForwardSlash(row.rel));
+              }
+            }
+          });
+
+        yield* walk(rootAbs, "");
+        return { paths: out, truncated };
+      });
+
+    // Rename/move for the file tree's inline rename + drag-and-drop. Both
+    // endpoints are containment-validated; refuses to clobber an existing dest.
+    const move: FsService["Service"]["move"] = (
+      folderId,
+      fromPath,
+      toPath,
+      worktreeId,
+    ) =>
+      Effect.gen(function* () {
+        const from = yield* resolveInsideFolder(folderId, fromPath, worktreeId);
+        const to = yield* resolveInsideFolder(folderId, toPath, worktreeId);
+        const destExists = yield* fs.stat(to.requestedAbs).pipe(Effect.option);
+        if (destExists._tag === "Some") {
+          return yield* Effect.fail(
+            new FsAlreadyExistsError({ folderId, path: toPath }),
+          );
+        }
+        yield* fs.rename(from.requestedAbs, to.requestedAbs).pipe(
+          Effect.mapError(
+            (cause) =>
+              new FsReadError({
+                folderId,
+                path: fromPath,
+                reason: cause.message ?? String(cause),
+              }),
+          ),
+        );
+        return {};
+      });
 
     const readFile: FsService["Service"]["readFile"] = (
       folderId,
@@ -556,6 +664,8 @@ export const FsServiceLive = Layer.effect(
     return {
       tree,
       watchTree,
+      listPaths,
+      move,
       readFile,
       writeFile,
       createFile,

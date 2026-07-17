@@ -21,6 +21,22 @@ const WatchTree = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const ListPaths = MemoizeRpcs.toLayerHandler(
+  "fs.listPaths",
+  ({ folderId, worktreeId }) =>
+    Effect.flatMap(FsService, (svc) =>
+      svc.listPaths(folderId, worktreeId ?? null),
+    ),
+);
+
+const Move = MemoizeRpcs.toLayerHandler(
+  "fs.move",
+  ({ folderId, fromPath, toPath, worktreeId }) =>
+    Effect.flatMap(FsService, (svc) =>
+      svc.move(folderId, fromPath, toPath, worktreeId ?? null),
+    ),
+);
+
 const ReadFile = MemoizeRpcs.toLayerHandler(
   "fs.readFile",
   ({ folderId, path, worktreeId }) =>
@@ -77,6 +93,8 @@ const WriteExternalFile = MemoizeRpcs.toLayerHandler(
 export const FsHandlersLayer = Layer.mergeAll(
   Tree,
   WatchTree,
+  ListPaths,
+  Move,
   ReadFile,
   WriteFile,
   CreateFile,

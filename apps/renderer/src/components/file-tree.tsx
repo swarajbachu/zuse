@@ -1,27 +1,50 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowDown01Icon,
   ArrowRight01Icon,
   BubbleChatIcon,
   Copy01Icon,
   Delete02Icon,
   FileAddIcon,
   FolderAddIcon,
+  FolderOpenIcon,
   PencilEdit01Icon,
+  Search01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Effect, Fiber, Stream } from "effect";
+import fuzzysort from "fuzzysort";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { FolderId, FsEntry } from "@zuse/contracts";
+import {
+  FileTree as PierreTree,
+  useFileTree,
+} from "@pierre/trees/react";
+import type {
+  ContextMenuItem as FileTreeContextMenuItem,
+  ContextMenuOpenContext as FileTreeContextMenuOpenContext,
+  FileTree as FileTreeModel,
+  FileTreeDropResult,
+  FileTreeRenameEvent,
+  GitStatus,
+  GitStatusEntry,
+} from "@pierre/trees";
 
+import type { FolderId, GitChange, GitChangeKind } from "@zuse/contracts";
+
+import type { OpenTarget } from "../lib/bridge.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import {
   useActiveWorkspaceRoot,
   useActiveWorktreeId,
 } from "../store/active-workspace.ts";
 import { useComposerBridge } from "../store/composer-bridge.ts";
+import {
+  gitChangesKey,
+  useGitChangesStore,
+} from "../store/git-changes.ts";
+import { useSettingsStore } from "../store/settings.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
+import { OpenTargetIcon } from "./open-target-icon.tsx";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -32,24 +55,13 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog.tsx";
 import { Button } from "./ui/button.tsx";
-import { Menu, MenuItem, MenuPopup, MenuSeparator } from "./ui/menu.tsx";
 import { Skeleton } from "./ui/skeleton.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-type DirState =
+type PathsState =
   | { status: "loading" }
-  | { status: "ready"; entries: ReadonlyArray<FsEntry> }
+  | { status: "ready"; paths: ReadonlyArray<string>; truncated: boolean }
   | { status: "error"; reason: string };
-
-type ContextTarget =
-  | { kind: "empty"; path: "" }
-  | { kind: "entry"; entry: FsEntry };
-
-type ContextMenuState = {
-  readonly open: boolean;
-  readonly target: ContextTarget;
-  readonly anchor: { getBoundingClientRect: () => DOMRect };
-};
 
 const formatError = (err: unknown): string => {
   if (err instanceof Error) return err.message;
@@ -60,17 +72,54 @@ const formatError = (err: unknown): string => {
 };
 
 const basename = (p: string): string => {
-  const idx = p.lastIndexOf("/");
-  return idx === -1 ? p : p.slice(idx + 1);
+  const trimmed = p.replace(/\/+$/g, "");
+  const idx = trimmed.lastIndexOf("/");
+  return idx === -1 ? trimmed : trimmed.slice(idx + 1);
 };
 
 const parentPathOf = (p: string): string => {
-  const idx = p.lastIndexOf("/");
-  return idx === -1 ? "" : p.slice(0, idx);
+  const trimmed = p.replace(/\/+$/g, "");
+  const idx = trimmed.lastIndexOf("/");
+  return idx === -1 ? "" : trimmed.slice(0, idx);
 };
 
 const joinRelPath = (base: string, name: string): string =>
   base === "" ? name : `${base}/${name}`;
+
+const stripSlash = (p: string): string => p.replace(/\/+$/g, "");
+
+// Injected into the tree's shadow root: hide the default chevron and use the
+// Hugeicons Folder01 (closed) / Folder02 (open) glyphs instead. The mask paths
+// live on the `.fz-tree` host in styles.css and pierce the shadow boundary.
+const FOLDER_ICON_CSS = `
+button[data-item-type='folder'] [data-item-section='icon'] svg { display: none; }
+button[data-item-type='folder'] [data-item-section='icon'] {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+button[data-item-type='folder'] [data-item-section='icon']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: currentColor;
+  opacity: 0.4;
+  -webkit-mask: var(--fz-folder-01) center / 15px 15px no-repeat;
+  mask: var(--fz-folder-01) center / 15px 15px no-repeat;
+}
+button[data-item-type='folder'][aria-expanded='true'] [data-item-section='icon']::before {
+  -webkit-mask-image: var(--fz-folder-02-background);
+  mask-image: var(--fz-folder-02-background);
+}
+button[data-item-type='folder'][aria-expanded='true'] [data-item-section='icon']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: currentColor;
+  -webkit-mask: var(--fz-folder-02-foreground) center / 15px 15px no-repeat;
+  mask: var(--fz-folder-02-foreground) center / 15px 15px no-repeat;
+}
+`;
 
 const validateNewName = (raw: string | null): string | null => {
   const name = raw?.trim() ?? "";
@@ -87,93 +136,72 @@ const validateNewName = (raw: string | null): string | null => {
   return name;
 };
 
-const pointAnchor = (clientX: number, clientY: number) => ({
-  getBoundingClientRect: () => new DOMRect(clientX, clientY, 0, 0),
-});
+// Map git's richer working-tree states onto the six statuses `@pierre/trees`
+// renders as its built-in row badges (M / A / dot). Folders roll up
+// automatically inside the tree.
+const gitStatusFor = (kind: GitChangeKind): GitStatus | null => {
+  switch (kind) {
+    case "modified":
+    case "type_changed":
+    case "unmerged":
+      return "modified";
+    case "added":
+    case "copied":
+      return "added";
+    case "deleted":
+      return "deleted";
+    case "renamed":
+      return "renamed";
+    case "untracked":
+      return "untracked";
+    case "ignored":
+      return "ignored";
+    default:
+      return null;
+  }
+};
+
+const toGitStatusEntries = (
+  changes: ReadonlyArray<GitChange>,
+): GitStatusEntry[] => {
+  const out: GitStatusEntry[] = [];
+  for (const change of changes) {
+    const status = gitStatusFor(change.kind);
+    if (status !== null) out.push({ path: change.path, status });
+  }
+  return out;
+};
 
 /**
- * Lazy-loading directory tree. Each expanded directory fetches its own
- * one-level listing via `fs.tree`; collapsing forgets the children so the
- * server stays in charge of any new files. Hidden directories like `.git`
- * and `node_modules` are filtered server-side.
- *
- * Performance:
- * - Hover-prefetch: pointing at an unloaded directory kicks off `fs.tree` so
- *   by the time the user clicks, the children are usually already in state
- *   and the expand renders synchronously.
- * - `TreeNode` is memoized with a path-aware comparator so toggling one
- *   directory only re-renders the path from root to that directory; closed
- *   siblings (which can dominate large projects) bail out.
+ * Right-pane file tree, built on `@pierre/trees`. The tree is path-first — it
+ * wants the whole path universe up front and virtualizes the visible window
+ * itself — so we fetch the full list via `fs.listPaths`, then drive live disk
+ * changes, git status, rename, drag-and-drop, and context-menu commands
+ * through the model. Re-roots by remounting (`key`) when the folder/worktree
+ * changes; incremental disk changes flow through `model.batch`.
  */
 export function FileTree({ folderId }: { folderId: FolderId }) {
-  // Follow the selected session's worktree when it has one. The reset effect
-  // depends on `worktreeId` so toggling worktrees re-roots the tree without
-  // unmounting; passing it through `fs.tree` swaps the server-side root.
   const worktreeId = useActiveWorktreeId(folderId);
-  const [rootState, setRootState] = useState<DirState>({ status: "loading" });
-  const [childStates, setChildStates] = useState<Record<string, DirState>>({});
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  // Entry queued for the delete confirmation dialog. The dialog renders the
-  // last queued entry through its close animation, so a ref retains it after
-  // `deleteTarget` clears on close.
-  const [deleteTarget, setDeleteTarget] = useState<FsEntry | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const lastDeleteEntryRef = useRef<FsEntry | null>(null);
-  if (deleteTarget !== null) lastDeleteEntryRef.current = deleteTarget;
+  const [state, setState] = useState<PathsState>({ status: "loading" });
 
-  // Mirror state into refs so callbacks can stay stable (and let memoized
-  // children skip re-renders driven only by callback identity).
-  const childStatesRef = useRef(childStates);
-  childStatesRef.current = childStates;
-  const expandedRef = useRef(expanded);
-  expandedRef.current = expanded;
-
-  const refreshDirectory = useCallback(
-    async (path: string) => {
-      try {
-        const client = await getRpcClient();
-        const entries = await Effect.runPromise(
-          client["fs.tree"]({ folderId, path, worktreeId }),
-        );
-        if (path === "") {
-          setRootState({ status: "ready", entries });
-          return;
-        }
-        setChildStates((prev) => ({
-          ...prev,
-          [path]: { status: "ready", entries },
-        }));
-      } catch (err) {
-        const next: DirState = { status: "error", reason: formatError(err) };
-        if (path === "") {
-          setRootState(next);
-          return;
-        }
-        setChildStates((prev) => ({ ...prev, [path]: next }));
-      }
-    },
-    [folderId, worktreeId],
-  );
-
-  // Reset everything when the project or active worktree changes — the
-  // previous tree's paths wouldn't resolve under the new root.
   useEffect(() => {
     let cancelled = false;
-    setRootState({ status: "loading" });
-    setChildStates({});
-    setExpanded({});
+    setState({ status: "loading" });
     void (async () => {
       try {
         const client = await getRpcClient();
-        const entries = await Effect.runPromise(
-          client["fs.tree"]({ folderId, path: "", worktreeId }),
+        const result = await Effect.runPromise(
+          client["fs.listPaths"]({ folderId, worktreeId }),
         );
         if (cancelled) return;
-        setRootState({ status: "ready", entries });
+        setState({
+          status: "ready",
+          paths: result.paths,
+          truncated: result.truncated,
+        });
       } catch (err) {
         if (cancelled) return;
-        setRootState({ status: "error", reason: formatError(err) });
+        setState({ status: "error", reason: formatError(err) });
       }
     })();
     return () => {
@@ -181,272 +209,7 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
     };
   }, [folderId, worktreeId]);
 
-  useEffect(() => {
-    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
-    let cancelled = false;
-    void (async () => {
-      const client = await getRpcClient();
-      if (cancelled) return;
-      fiber = Effect.runFork(
-        Stream.runForEach(
-          client["fs.watchTree"]({ folderId, worktreeId })
-            .pipe(Stream.catch(() => Stream.empty)),
-          ({ paths }) =>
-            Effect.sync(() => {
-              const toRefresh = new Set<string>([""]);
-              for (const path of paths) {
-                if (expandedRef.current[path] === true) toRefresh.add(path);
-                const parent = parentPathOf(path);
-                if (parent === "" || expandedRef.current[parent] === true) {
-                  toRefresh.add(parent);
-                }
-              }
-              for (const path of toRefresh) void refreshDirectory(path);
-            }),
-        ),
-      );
-    })();
-    return () => {
-      cancelled = true;
-      if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
-    };
-  }, [folderId, refreshDirectory, worktreeId]);
-
-  const loadChild = useCallback(
-    async (path: string) => {
-      // Idempotent — bail if a fetch is in flight or done. Hover + click can
-      // both call this; we only want one round-trip per directory.
-      if (childStatesRef.current[path] !== undefined) return;
-      setChildStates((prev) =>
-        prev[path] !== undefined
-          ? prev
-          : { ...prev, [path]: { status: "loading" } },
-      );
-      try {
-        const client = await getRpcClient();
-        const entries = await Effect.runPromise(
-          client["fs.tree"]({ folderId, path, worktreeId }),
-        );
-        setChildStates((prev) => ({
-          ...prev,
-          [path]: { status: "ready", entries },
-        }));
-      } catch (err) {
-        setChildStates((prev) => ({
-          ...prev,
-          [path]: { status: "error", reason: formatError(err) },
-        }));
-      }
-    },
-    [folderId, worktreeId],
-  );
-
-  const openFileInTab = useUiStore((s) => s.openFileInTab);
-  const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
-  const activePath = useUiStore((s) =>
-    s.openFile?.kind === "text" ? s.openFile.path : null,
-  );
-
-  const onActivate = useCallback(
-    (entry: FsEntry) => {
-      if (entry.kind === "directory") {
-        const isOpen = expandedRef.current[entry.path] === true;
-        setExpanded((prev) => ({ ...prev, [entry.path]: !isOpen }));
-        if (!isOpen) void loadChild(entry.path);
-        return;
-      }
-      openFileInTab({
-        kind: "text",
-        folderId,
-        path: entry.path,
-        name: entry.name,
-        worktreeId,
-      });
-    },
-    [folderId, loadChild, openFileInTab, worktreeId],
-  );
-
-  // Root path used to build absolute paths for file chips attached to the
-  // composer. Follows the active worktree so chip-attached file paths point
-  // at the worktree, not the main checkout.
-  const folderRoot = useActiveWorkspaceRoot(folderId);
-
-  // Translates a tree row's "+" click into a composer chip insertion. The
-  // composer registers `attachFile` on mount via `composer-bridge`; if no
-  // session is active the bridge stays null and the button renders disabled.
-  const onAttach = useCallback(
-    (entry: FsEntry) => {
-      const attach = useComposerBridge.getState().attachFile;
-      if (attach === null) return;
-      setActiveMainTab("chat");
-      const absPath =
-        folderRoot !== null ? `${folderRoot}/${entry.path}` : entry.path;
-      attach({ relPath: entry.path, absPath, kind: entry.kind });
-    },
-    [folderRoot, setActiveMainTab],
-  );
-
-  const openInEditor = useCallback(
-    (entry: FsEntry) => {
-      if (entry.kind !== "file") return;
-      openFileInTab({
-        kind: "text",
-        folderId,
-        path: entry.path,
-        name: entry.name,
-        worktreeId,
-      });
-    },
-    [folderId, openFileInTab, worktreeId],
-  );
-
-  const createInDirectory = useCallback(
-    async (dirPath: string, kind: "file" | "directory") => {
-      const label = kind === "file" ? "file" : "folder";
-      const name = validateNewName(window.prompt(`New ${label} name`));
-      if (name === null) return;
-      const path = joinRelPath(dirPath, name);
-      try {
-        const client = await getRpcClient();
-        if (kind === "file") {
-          await Effect.runPromise(
-            client["fs.createFile"]({ folderId, path, worktreeId }),
-          );
-          await refreshDirectory(dirPath);
-          openFileInTab({
-            kind: "text",
-            folderId,
-            path,
-            name: basename(path),
-            worktreeId,
-          });
-        } else {
-          await Effect.runPromise(
-            client["fs.createDirectory"]({ folderId, path, worktreeId }),
-          );
-          setExpanded((prev) =>
-            dirPath === "" ? prev : { ...prev, [dirPath]: true },
-          );
-          await refreshDirectory(dirPath);
-        }
-      } catch (err) {
-        window.alert(formatError(err));
-      }
-    },
-    [folderId, openFileInTab, refreshDirectory, worktreeId],
-  );
-
-  const contextDirectoryPath = contextMenu
-    ? contextMenu.target.kind === "empty"
-      ? ""
-      : contextMenu.target.entry.kind === "directory"
-        ? contextMenu.target.entry.path
-        : parentPathOf(contextMenu.target.entry.path)
-    : "";
-
-  const contextEntry =
-    contextMenu?.target.kind === "entry" ? contextMenu.target.entry : null;
-  const contextPath = contextMenu?.open === true ? contextEntry?.path ?? null : null;
-
-  const onRootContextMenu = useCallback((event: React.MouseEvent) => {
-    event.preventDefault();
-    setContextMenu({
-      open: true,
-      target: { kind: "empty", path: "" },
-      anchor: pointAnchor(event.clientX, event.clientY),
-    });
-  }, []);
-
-  const onEntryContextMenu = useCallback(
-    (event: React.MouseEvent, entry: FsEntry) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setContextMenu({
-        open: true,
-        target: { kind: "entry", entry },
-        anchor: pointAnchor(event.clientX, event.clientY),
-      });
-    },
-    [],
-  );
-
-  const onPrefetch = useCallback(
-    (entry: FsEntry) => {
-      if (entry.kind !== "directory") return;
-      void loadChild(entry.path);
-    },
-    [loadChild],
-  );
-
-  const requestDelete = useCallback((entry: FsEntry) => {
-    setDeleteTarget(entry);
-  }, []);
-
-  const confirmDelete = useCallback(async () => {
-    const entry = deleteTarget;
-    if (entry === null) return;
-    setDeleting(true);
-    try {
-      const client = await getRpcClient();
-      await Effect.runPromise(
-        client["fs.remove"]({ folderId, path: entry.path, worktreeId }),
-      );
-      const parent = parentPathOf(entry.path);
-      setExpanded((prev) => {
-        const next = { ...prev };
-        delete next[entry.path];
-        for (const key of Object.keys(next)) {
-          if (key.startsWith(`${entry.path}/`)) delete next[key];
-        }
-        return next;
-      });
-      setChildStates((prev) => {
-        const next = { ...prev };
-        delete next[entry.path];
-        for (const key of Object.keys(next)) {
-          if (key.startsWith(`${entry.path}/`)) delete next[key];
-        }
-        return next;
-      });
-      await refreshDirectory(parent);
-      setDeleteTarget(null);
-    } catch (err) {
-      window.alert(`Couldn't delete: ${formatError(err)}`);
-    } finally {
-      setDeleting(false);
-    }
-  }, [deleteTarget, folderId, refreshDirectory, worktreeId]);
-
-  // Context menu + delete confirmation render in every branch below; build
-  // them once so the three return paths stay in sync.
-  const overlays = (
-    <>
-      <FileTreeContextMenu
-        state={contextMenu}
-        entry={contextEntry}
-        directoryPath={contextDirectoryPath}
-        rootPath={folderRoot}
-        onOpenChange={(open) =>
-          setContextMenu((prev) => (prev === null ? null : { ...prev, open }))
-        }
-        onOpenInEditor={openInEditor}
-        onAttach={onAttach}
-        onCreate={createInDirectory}
-        onDelete={requestDelete}
-      />
-      <DeleteConfirmDialog
-        entry={deleteTarget ?? lastDeleteEntryRef.current}
-        open={deleteTarget !== null}
-        deleting={deleting}
-        onOpenChange={(open) => {
-          if (!open && !deleting) setDeleteTarget(null);
-        }}
-        onConfirm={confirmDelete}
-      />
-    </>
-  );
-
-  if (rootState.status === "loading") {
+  if (state.status === "loading") {
     return (
       <ul
         className="flex flex-col gap-1 px-2 py-1"
@@ -461,361 +224,738 @@ export function FileTree({ folderId }: { folderId: FolderId }) {
       </ul>
     );
   }
-  if (rootState.status === "error") {
-    return (
-      <>
-        <Empty onContextMenu={onRootContextMenu}>{rootState.reason}</Empty>
-        {overlays}
-      </>
-    );
-  }
-  if (rootState.entries.length === 0) {
-    return (
-      <>
-        <Empty onContextMenu={onRootContextMenu}>Empty directory.</Empty>
-        {overlays}
-      </>
-    );
-  }
-
-  return (
-    <div className="min-h-full" onContextMenu={onRootContextMenu}>
-      <ul className="flex flex-col py-1 text-sm">
-        {rootState.entries.map((entry) => (
-          <TreeNode
-            key={entry.path}
-            entry={entry}
-            depth={0}
-            expanded={expanded}
-            childStates={childStates}
-            onActivate={onActivate}
-            onPrefetch={onPrefetch}
-            onAttach={onAttach}
-            onContextMenu={onEntryContextMenu}
-            activePath={activePath}
-            contextPath={contextPath}
-          />
-        ))}
-      </ul>
-      {overlays}
-    </div>
-  );
-}
-
-type TreeNodeProps = {
-  entry: FsEntry;
-  depth: number;
-  expanded: Record<string, boolean>;
-  childStates: Record<string, DirState>;
-  onActivate: (entry: FsEntry) => void;
-  onPrefetch: (entry: FsEntry) => void;
-  onAttach: (entry: FsEntry) => void;
-  onContextMenu: (event: React.MouseEvent, entry: FsEntry) => void;
-  activePath: string | null;
-  contextPath: string | null;
-};
-
-const TreeNode = memo(
-  function TreeNodeImpl({
-    entry,
-    depth,
-    expanded,
-    childStates,
-    onActivate,
-    onPrefetch,
-    onAttach,
-    onContextMenu,
-    activePath,
-    contextPath,
-  }: TreeNodeProps) {
-    const isDir = entry.kind === "directory";
-    const isOpen = isDir && expanded[entry.path] === true;
-    const child = isOpen ? childStates[entry.path] : undefined;
-    const chevron = isOpen ? ArrowDown01Icon : ArrowRight01Icon;
-    const isActive =
-      (!isDir && activePath === entry.path) || contextPath === entry.path;
-
-    return (
-      <li>
-        <div
-          className="group/row relative px-1.5"
-          onMouseEnter={isDir ? () => onPrefetch(entry) : undefined}
-          onContextMenu={(event) => onContextMenu(event, entry)}
-        >
-          <button
-            type="button"
-            onClick={() => onActivate(entry)}
-            title={entry.path}
-            style={{ paddingLeft: 8 + depth * 12 }}
-            className={`flex w-full items-center gap-1.5 rounded-sm py-1 pr-14 text-left transition-colors group-hover/row:bg-sidebar-accent/60 ${
-              isActive ? "bg-sidebar-accent text-foreground" : ""
-            }`}
-          >
-            <FileIcon name={entry.name} kind={entry.kind} expanded={isOpen} />
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
-              {entry.name}
-            </span>
-          </button>
-          <div className="pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label="Attach to chat"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAttach(entry);
-                    }}
-                    className="pointer-events-auto flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/10 hover:text-foreground group-hover/row:opacity-100"
-                  >
-                    <HugeiconsIcon icon={BubbleChatIcon} className="size-3.5" />
-                  </button>
-                }
-              />
-              <TooltipPopup>Attach to chat</TooltipPopup>
-            </Tooltip>
-            {isDir ? (
-              <HugeiconsIcon
-                icon={chevron}
-                className={`size-3.5 text-muted-foreground transition-opacity ${
-                  isOpen
-                    ? "opacity-100"
-                    : "opacity-0 group-hover/row:opacity-100"
-                }`}
-              />
-            ) : (
-              <span className="inline-block size-3.5" />
-            )}
-          </div>
-        </div>
-        {isOpen && child !== undefined && (
-          <ChildList
-            state={child}
-            depth={depth + 1}
-            expanded={expanded}
-            childStates={childStates}
-            onActivate={onActivate}
-            onPrefetch={onPrefetch}
-            onAttach={onAttach}
-            onContextMenu={onContextMenu}
-            activePath={activePath}
-            contextPath={contextPath}
-          />
-        )}
-      </li>
-    );
-  },
-  // Bail when this node's render output can't have changed. Closed siblings
-  // dominate every interaction in real projects — letting them skip is the
-  // single biggest win.
-  (prev, next) => {
-    if (
-      prev.entry !== next.entry ||
-      prev.depth !== next.depth ||
-      prev.activePath !== next.activePath ||
-      prev.onActivate !== next.onActivate ||
-      prev.onPrefetch !== next.onPrefetch ||
-      prev.onAttach !== next.onAttach ||
-      prev.onContextMenu !== next.onContextMenu ||
-      prev.contextPath !== next.contextPath
-    ) {
-      return false;
-    }
-    const prevOpen = prev.expanded[prev.entry.path] === true;
-    const nextOpen = next.expanded[next.entry.path] === true;
-    if (prevOpen !== nextOpen) return false;
-    if (!nextOpen) {
-      // Closed: render doesn't depend on the maps at all.
-      return true;
-    }
-    // Open: subtree may have changed. Map identity is the conservative check
-    // — we only get a new ref when something actually mutated.
-    return (
-      prev.expanded === next.expanded && prev.childStates === next.childStates
-    );
-  },
-);
-
-function ChildList({
-  state,
-  depth,
-  expanded,
-  childStates,
-  onActivate,
-  onPrefetch,
-  onAttach,
-  onContextMenu,
-  activePath,
-  contextPath,
-}: {
-  state: DirState;
-  depth: number;
-  expanded: Record<string, boolean>;
-  childStates: Record<string, DirState>;
-  onActivate: (entry: FsEntry) => void;
-  onPrefetch: (entry: FsEntry) => void;
-  onAttach: (entry: FsEntry) => void;
-  onContextMenu: (event: React.MouseEvent, entry: FsEntry) => void;
-  activePath: string | null;
-  contextPath: string | null;
-}) {
-  if (state.status === "loading") {
-    // Render nothing during the prefetch window — a brief gap reads as
-    // instant; a "Loading…" pill flashes on every expand and feels laggy.
-    return null;
-  }
   if (state.status === "error") {
     return (
-      <p
-        className="px-2 py-0.5 text-[10px] text-red-300"
-        style={{ paddingLeft: 8 + depth * 12 + 18 }}
-      >
+      <p className="px-3 py-6 text-center text-xs text-muted-foreground">
         {state.reason}
       </p>
     );
   }
-  if (state.entries.length === 0) {
-    return (
-      <p
-        className="px-2 py-0.5 text-[10px] text-muted-foreground"
-        style={{ paddingLeft: 8 + depth * 12 + 18 }}
-      >
-        Empty
-      </p>
-    );
-  }
+
   return (
-    <ul>
-      {state.entries.map((entry) => (
-        <TreeNode
-          key={entry.path}
-          entry={entry}
-          depth={depth}
-          expanded={expanded}
-          childStates={childStates}
-          onActivate={onActivate}
-          onPrefetch={onPrefetch}
-          onAttach={onAttach}
-          onContextMenu={onContextMenu}
-          activePath={activePath}
-          contextPath={contextPath}
-        />
-      ))}
-    </ul>
+    <TreeView
+      // Remount when the path universe is first known / re-rooted so the model
+      // is rebuilt from a clean presorted list.
+      key={`${folderId}:${worktreeId ?? "main"}`}
+      folderId={folderId}
+      worktreeId={worktreeId}
+      initialPaths={state.paths}
+      truncated={state.truncated}
+    />
   );
 }
 
-function Empty({
-  children,
-  onContextMenu,
-}: {
-  children: React.ReactNode;
-  onContextMenu?: React.MouseEventHandler;
-}) {
-  return (
-    <p
-      className="px-3 py-6 text-center text-xs text-muted-foreground"
-      onContextMenu={onContextMenu}
-    >
-      {children}
-    </p>
-  );
-}
+type DeleteState = { path: string; kind: "file" | "directory" } | null;
 
-function FileTreeContextMenu({
-  state,
-  entry,
-  directoryPath,
-  rootPath,
-  onOpenChange,
-  onOpenInEditor,
-  onAttach,
-  onCreate,
-  onDelete,
+function TreeView({
+  folderId,
+  worktreeId,
+  initialPaths,
+  truncated,
 }: {
-  state: ContextMenuState | null;
-  entry: FsEntry | null;
-  directoryPath: string;
-  rootPath: string | null;
-  onOpenChange: (open: boolean) => void;
-  onOpenInEditor: (entry: FsEntry) => void;
-  onAttach: (entry: FsEntry) => void;
-  onCreate: (dirPath: string, kind: "file" | "directory") => void;
-  onDelete: (entry: FsEntry) => void;
+  folderId: FolderId;
+  worktreeId: ReturnType<typeof useActiveWorktreeId>;
+  initialPaths: ReadonlyArray<string>;
+  truncated: boolean;
 }) {
-  return (
-    <Menu open={state?.open ?? false} onOpenChange={onOpenChange}>
-      <MenuPopup
-        anchor={state?.anchor}
-        align="start"
-        side="bottom"
-        className="min-w-[190px]"
-      >
-        {entry?.kind === "file" && (
-          <MenuItem onClick={() => onOpenInEditor(entry)}>
-            <HugeiconsIcon icon={PencilEdit01Icon} className="size-4" />
-            Open in editor
-          </MenuItem>
-        )}
-        {entry !== null && (
-          <MenuItem onClick={() => onAttach(entry)}>
-            <HugeiconsIcon icon={BubbleChatIcon} className="size-4" />
-            Attach to chat
-          </MenuItem>
-        )}
-        {entry !== null && (
-          <MenuItem
-            onClick={() => {
-              const path =
-                rootPath === null ? entry.path : `${rootPath}/${entry.path}`;
-              void navigator.clipboard?.writeText(path);
-            }}
-          >
-            <HugeiconsIcon icon={Copy01Icon} className="size-4" />
-            Copy path
-          </MenuItem>
-        )}
-        {entry !== null && <MenuSeparator />}
-        <MenuItem onClick={() => onCreate(directoryPath, "file")}>
-          <HugeiconsIcon icon={FileAddIcon} className="size-4" />
-          New File
-        </MenuItem>
-        <MenuItem onClick={() => onCreate(directoryPath, "directory")}>
-          <HugeiconsIcon icon={FolderAddIcon} className="size-4" />
-          New Folder
-        </MenuItem>
-        {entry !== null && (
-          <>
-            <MenuSeparator />
-            <MenuItem
-              onClick={() => onDelete(entry)}
-              className="text-red-300 data-highlighted:bg-red-500/20 data-highlighted:text-red-200"
+  const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const setActiveMainTab = useUiStore((s) => s.setActiveMainTab);
+  const folderRoot = useActiveWorkspaceRoot(folderId);
+  const appearanceMode = useSettingsStore((s) => s.appearanceMode);
+
+  const modelRef = useRef<FileTreeModel | null>(null);
+  const knownPathsRef = useRef<Set<string>>(new Set(initialPaths));
+  const [deleteTarget, setDeleteTarget] = useState<DeleteState>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [openTargets, setOpenTargets] = useState<ReadonlyArray<OpenTarget>>(
+    [],
+  );
+  const lastDeleteRef = useRef<DeleteState>(null);
+  if (deleteTarget !== null) lastDeleteRef.current = deleteTarget;
+
+  useEffect(() => {
+    if (folderRoot === null) return;
+    const bridge = window.zuse?.app;
+    if (bridge?.listOpenTargets === undefined) return;
+    void bridge.listOpenTargets(folderRoot).then((targets) => {
+      setOpenTargets(targets.filter((target) => target.available));
+    });
+  }, [folderRoot]);
+
+  // Non-null while the file-search command palette is open; holds the current
+  // file list (dirs excluded) captured from the live known-paths set.
+  const [searchFiles, setSearchFiles] = useState<ReadonlyArray<string> | null>(
+    null,
+  );
+
+  // Directory paths carry a trailing "/" in the server listing. Keep a set of
+  // their canonical (slash-stripped) form so selection can tell files from
+  // folders without a model round-trip.
+  const dirPathsRef = useRef<Set<string>>(
+    new Set(
+      initialPaths
+        .filter((p) => p.endsWith("/"))
+        .map((p) => stripSlash(p)),
+    ),
+  );
+
+  const openFile = useCallback(
+    (path: string, name: string) => {
+      openFileInTab({ kind: "text", folderId, path, name, worktreeId });
+    },
+    [folderId, openFileInTab, worktreeId],
+  );
+
+  // Single selection of a file row opens it — matches the old click-to-open.
+  // Directory selection is a no-op; the tree toggles expansion itself.
+  const onSelectionChange = useCallback(
+    (paths: readonly string[]) => {
+      if (paths.length !== 1) return;
+      const raw = paths[0];
+      if (raw === undefined) return;
+      const canonical = stripSlash(raw);
+      const model = modelRef.current;
+      const isDir =
+        model?.getItem(raw)?.isDirectory() ??
+        model?.getItem(canonical)?.isDirectory() ??
+        dirPathsRef.current.has(canonical);
+      if (isDir) return;
+      openFile(canonical, basename(canonical));
+    },
+    [openFile],
+  );
+
+  const persistRename = useCallback(
+    ({ sourcePath, destinationPath }: FileTreeRenameEvent) => {
+      void (async () => {
+        try {
+          const client = await getRpcClient();
+          await Effect.runPromise(
+            client["fs.move"]({
+              folderId,
+              fromPath: stripSlash(sourcePath),
+              toPath: stripSlash(destinationPath),
+              worktreeId,
+            }),
+          );
+        } catch (err) {
+          // Revert the optimistic model change on disk failure.
+          modelRef.current?.move(destinationPath, sourcePath);
+          window.alert(`Couldn't rename: ${formatError(err)}`);
+        }
+      })();
+    },
+    [folderId, worktreeId],
+  );
+
+  const persistDrop = useCallback(
+    ({ draggedPaths, target }: FileTreeDropResult) => {
+      const dir = target.directoryPath === null ? "" : stripSlash(target.directoryPath);
+      void (async () => {
+        const client = await getRpcClient();
+        for (const dragged of draggedPaths) {
+          const from = stripSlash(dragged);
+          const to = joinRelPath(dir, basename(from));
+          if (from === to) continue;
+          try {
+            await Effect.runPromise(
+              client["fs.move"]({ folderId, fromPath: from, toPath: to, worktreeId }),
+            );
+          } catch (err) {
+            modelRef.current?.move(to, from);
+            window.alert(`Couldn't move ${basename(from)}: ${formatError(err)}`);
+          }
+        }
+      })();
+    },
+    [folderId, worktreeId],
+  );
+
+  const { model } = useFileTree({
+    paths: initialPaths,
+    // Server already emits paths in dirs-first-then-name order; preserve it so
+    // the tree doesn't re-sort (and, unlike `presorted`, this never drops rows
+    // if the order isn't Pierre's exact canonical form).
+    sort: () => 0,
+    // Seed a first batch of rows so the tree renders before the virtualizer has
+    // measured the host viewport (otherwise it can paint empty).
+    initialVisibleRowCount: 40,
+    initialExpansion: 1,
+    density: "compact",
+    icons: "complete",
+    // Swap the bare folder chevron for a real folder glyph (open/closed) and
+    // drop the indent guides — see the `--fz-folder*` vars in styles.css.
+    unsafeCSS: FOLDER_ICON_CSS,
+    gitStatus: toGitStatusEntries(
+      useGitChangesStore.getState().byKey[gitChangesKey(folderId, worktreeId)] ??
+        [],
+    ),
+    onSelectionChange,
+    renaming: {
+      canRename: (item) => stripSlash(item.path) !== "",
+      onRename: persistRename,
+    },
+    dragAndDrop: {
+      canDrag: (paths) => paths.length > 0,
+      canDrop: ({ target }) =>
+        target.directoryPath === null ||
+        !stripSlash(target.directoryPath).startsWith(".git"),
+      onDropComplete: persistDrop,
+    },
+    composition: {
+      contextMenu: {
+        enabled: true,
+        triggerMode: "both",
+        buttonVisibility: "when-needed",
+      },
+    },
+  });
+  modelRef.current = model;
+
+  // Live git-status lane: push the current changes into the tree and keep it in
+  // sync as the working tree changes.
+  const changes = useGitChangesStore(
+    (s) => s.byKey[gitChangesKey(folderId, worktreeId)],
+  );
+  useEffect(() => {
+    model.setGitStatus(toGitStatusEntries(changes ?? []));
+  }, [model, changes]);
+
+  // Live disk changes: on each debounced `fs.watchTree` batch, refetch the full
+  // path list and apply the delta through `model.batch` so expansion and
+  // selection are preserved (vs a full resetPaths).
+  useEffect(() => {
+    let fiber: Fiber.Fiber<unknown, unknown> | null = null;
+    let cancelled = false;
+    let scheduled = false;
+
+    const reconcile = async () => {
+      scheduled = false;
+      try {
+        const client = await getRpcClient();
+        const result = await Effect.runPromise(
+          client["fs.listPaths"]({ folderId, worktreeId }),
+        );
+        if (cancelled) return;
+        const next = result.paths;
+        const nextSet = new Set(next);
+        const known = knownPathsRef.current;
+        const ops: Array<
+          { type: "add"; path: string } | { type: "remove"; path: string }
+        > = [];
+        // Adds in presorted order so parents land before children.
+        for (const path of next) {
+          if (!known.has(path)) ops.push({ type: "add", path });
+        }
+        for (const path of known) {
+          if (!nextSet.has(path)) ops.push({ type: "remove", path });
+        }
+        if (ops.length > 0) model.batch(ops);
+        knownPathsRef.current = nextSet;
+        dirPathsRef.current = new Set(
+          next.filter((p) => p.endsWith("/")).map((p) => stripSlash(p)),
+        );
+      } catch {
+        // Ignore transient listing failures; the next batch retries.
+      }
+    };
+
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(() => void reconcile(), 150);
+    };
+
+    void (async () => {
+      const client = await getRpcClient();
+      if (cancelled) return;
+      fiber = Effect.runFork(
+        Stream.runForEach(
+          client["fs.watchTree"]({ folderId, worktreeId }).pipe(
+            Stream.catch(() => Stream.empty),
+          ),
+          () => Effect.sync(schedule),
+        ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+      if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+    };
+  }, [folderId, worktreeId, model]);
+
+  const attach = useCallback(
+    (path: string, kind: "file" | "directory") => {
+      const attachFile = useComposerBridge.getState().attachFile;
+      if (attachFile === null) return;
+      setActiveMainTab("chat");
+      const rel = stripSlash(path);
+      const absPath = folderRoot !== null ? `${folderRoot}/${rel}` : rel;
+      attachFile({ relPath: rel, absPath, kind });
+    },
+    [folderRoot, setActiveMainTab],
+  );
+
+  const copyPath = useCallback(
+    (path: string) => {
+      const rel = stripSlash(path);
+      const abs = folderRoot !== null ? `${folderRoot}/${rel}` : rel;
+      void navigator.clipboard?.writeText(abs);
+    },
+    [folderRoot],
+  );
+
+  const openInTarget = useCallback(
+    (path: string, target: OpenTarget) => {
+      const rel = stripSlash(path);
+      const abs = folderRoot !== null ? `${folderRoot}/${rel}` : rel;
+      if (target.id === "finder") {
+        void window.zuse?.app?.revealPath?.(abs);
+        return;
+      }
+      void window.zuse?.app?.openPathInApp?.(abs, target.id);
+    },
+    [folderRoot],
+  );
+
+  const createInDirectory = useCallback(
+    async (dirPath: string, kind: "file" | "directory") => {
+      const label = kind === "file" ? "file" : "folder";
+      const name = validateNewName(window.prompt(`New ${label} name`));
+      if (name === null) return;
+      const path = joinRelPath(stripSlash(dirPath), name);
+      try {
+        const client = await getRpcClient();
+        if (kind === "file") {
+          await Effect.runPromise(
+            client["fs.createFile"]({ folderId, path, worktreeId }),
+          );
+          model.add(path);
+          openFile(path, name);
+        } else {
+          await Effect.runPromise(
+            client["fs.createDirectory"]({ folderId, path, worktreeId }),
+          );
+          model.add(`${path}/`);
+        }
+      } catch (err) {
+        window.alert(formatError(err));
+      }
+    },
+    [folderId, model, openFile, worktreeId],
+  );
+
+  const confirmDelete = useCallback(async () => {
+    const target = deleteTarget;
+    if (target === null) return;
+    setDeleting(true);
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["fs.remove"]({
+          folderId,
+          path: stripSlash(target.path),
+          worktreeId,
+        }),
+      );
+      model.remove(target.path, { recursive: true });
+      setDeleteTarget(null);
+    } catch (err) {
+      window.alert(`Couldn't delete: ${formatError(err)}`);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, folderId, model, worktreeId]);
+
+  const renderContextMenu = useCallback(
+    (item: FileTreeContextMenuItem, context: FileTreeContextMenuOpenContext) => {
+      const isFile = item.kind === "file";
+      const dirForCreate =
+        item.kind === "directory"
+          ? stripSlash(item.path)
+          : parentPathOf(item.path);
+      const act = (fn: () => void, keepFocus = true) => () => {
+        context.close({ restoreFocus: keepFocus });
+        fn();
+      };
+      return (
+        <div className="min-w-[190px] rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md">
+          {isFile && (
+            <MenuButton
+              icon={PencilEdit01Icon}
+              onClick={act(() => openFile(stripSlash(item.path), item.name))}
             >
-              <HugeiconsIcon icon={Delete02Icon} className="size-4" />
-              Delete
-            </MenuItem>
-          </>
-        )}
-      </MenuPopup>
-    </Menu>
+              Open in editor
+            </MenuButton>
+          )}
+          <MenuButton
+            icon={PencilEdit01Icon}
+            onClick={act(() => model.startRenaming(item.path), false)}
+          >
+            Rename
+          </MenuButton>
+          <MenuButton
+            icon={BubbleChatIcon}
+            onClick={act(() => attach(item.path, item.kind))}
+          >
+            Attach to chat
+          </MenuButton>
+          <MenuButton
+            icon={Copy01Icon}
+            onClick={act(() => copyPath(item.path))}
+          >
+            Copy path
+          </MenuButton>
+          <OpenInSubmenu
+            path={item.path}
+            targets={openTargets}
+            onOpen={(target) => act(() => openInTarget(item.path, target))()}
+          />
+          <div className="my-1 h-px bg-border" />
+          <MenuButton
+            icon={FileAddIcon}
+            onClick={act(() => void createInDirectory(dirForCreate, "file"))}
+          >
+            New File
+          </MenuButton>
+          <MenuButton
+            icon={FolderAddIcon}
+            onClick={act(() =>
+              void createInDirectory(dirForCreate, "directory"),
+            )}
+          >
+            New Folder
+          </MenuButton>
+          <div className="my-1 h-px bg-border" />
+          <MenuButton
+            icon={Delete02Icon}
+            destructive
+            onClick={act(() =>
+              setDeleteTarget({
+                path: item.path,
+                kind: item.kind,
+              }),
+            )}
+          >
+            Delete
+          </MenuButton>
+        </div>
+      );
+    },
+    [
+      attach,
+      copyPath,
+      createInDirectory,
+      model,
+      openFile,
+      openInTarget,
+      openTargets,
+    ],
+  );
+
+  const openSearch = useCallback(() => {
+    const files = Array.from(knownPathsRef.current)
+      .filter((p) => !p.endsWith("/"))
+      .sort((a, b) => a.localeCompare(b));
+    setSearchFiles(files);
+  }, []);
+
+  const header = (
+    <div className="flex items-center gap-1 px-2 py-1.5">
+      <span className="flex-1 truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Files{truncated ? " (partial)" : ""}
+      </span>
+      <HeaderButton
+        label="New File"
+        icon={FileAddIcon}
+        onClick={() => void createInDirectory("", "file")}
+      />
+      <HeaderButton
+        label="New Folder"
+        icon={FolderAddIcon}
+        onClick={() => void createInDirectory("", "directory")}
+      />
+      <HeaderButton label="Search files" icon={Search01Icon} onClick={openSearch} />
+    </div>
+  );
+
+  return (
+    <div className="fz-tree h-full min-h-0">
+      <PierreTree
+        model={model}
+        header={header}
+        renderContextMenu={renderContextMenu}
+        // Pierre's host manages its own `height:100%` + internal `overflow`
+        // scroller when virtualized, so only give it a bounded height — do NOT
+        // set `overflow` here, or it overrides Pierre's `overflow:hidden`,
+        // breaks the internal scroller, and clips the context-menu popup.
+        className="h-full min-h-0"
+        // Follow the app appearance so the shadow-DOM tree matches light/dark.
+        data-theme-type={appearanceMode}
+      />
+      <DeleteConfirmDialog
+        target={deleteTarget ?? lastDeleteRef.current}
+        open={deleteTarget !== null}
+        deleting={deleting}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        onConfirm={confirmDelete}
+      />
+      {searchFiles !== null ? (
+        <FileSearchPalette
+          files={searchFiles}
+          onClose={() => setSearchFiles(null)}
+          onSelect={(path) => {
+            setSearchFiles(null);
+            openFile(path, basename(path));
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Command-palette file finder opened from the tree header's search button.
+ * Fuzzy-matches the workspace's file list and opens the picked file. Separate
+ * from the tree's own row filter so search is a fast global jump, not an
+ * in-place filter.
+ */
+function FileSearchPalette({
+  files,
+  onSelect,
+  onClose,
+}: {
+  files: ReadonlyArray<string>;
+  onSelect: (path: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const results = useMemo<ReadonlyArray<string>>(() => {
+    const q = query.trim();
+    if (q === "") return files.slice(0, 100);
+    return fuzzysort
+      .go(q, files as string[], { limit: 100, threshold: 0.4 })
+      .map((r) => r.target);
+  }, [files, query]);
+
+  useEffect(() => {
+    setHighlight(0);
+  }, [results]);
+
+  useEffect(() => {
+    const el = listRef.current?.querySelector(`[data-idx="${highlight}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [highlight]);
+
+  const commit = (idx: number) => {
+    const path = results[idx];
+    if (path !== undefined) onSelect(path);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh]"
+      onMouseDown={onClose}
+    >
+      <div
+        className="flex max-h-[62vh] w-[min(680px,92vw)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 border-b border-border/60 px-3">
+          <HugeiconsIcon
+            icon={Search01Icon}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              } else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlight((h) => Math.min(h + 1, results.length - 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlight((h) => Math.max(h - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                commit(highlight);
+              }
+            }}
+            placeholder="Search files…"
+            className="flex-1 bg-transparent py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1">
+          {results.length === 0 ? (
+            <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+              No files match “{query}”.
+            </p>
+          ) : (
+            results.map((path, idx) => {
+              const name = basename(path);
+              const dir = parentPathOf(path);
+              return (
+                <button
+                  key={path}
+                  data-idx={idx}
+                  type="button"
+                  onMouseEnter={() => setHighlight(idx)}
+                  onClick={() => commit(idx)}
+                  className={`flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left ${
+                    idx === highlight ? "bg-accent text-accent-foreground" : ""
+                  }`}
+                >
+                  <FileIcon name={name} kind="file" />
+                  <span className="truncate font-mono text-[13px] text-foreground">
+                    {name}
+                  </span>
+                  {dir !== "" ? (
+                    <span className="truncate font-mono text-[11px] text-muted-foreground">
+                      {dir}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MenuButton({
+  icon,
+  children,
+  onClick,
+  destructive = false,
+}: {
+  icon: typeof FileAddIcon;
+  children: React.ReactNode;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent ${
+        destructive
+          ? "text-red-300 hover:bg-red-500/20 hover:text-red-200"
+          : ""
+      }`}
+    >
+      <HugeiconsIcon icon={icon} className="size-4" />
+      {children}
+    </button>
+  );
+}
+
+function OpenInSubmenu({
+  path,
+  targets,
+  onOpen,
+}: {
+  path: string;
+  targets: ReadonlyArray<OpenTarget>;
+  onOpen: (target: OpenTarget) => void;
+}) {
+  const finder: OpenTarget = { id: "finder", label: "Finder", available: true };
+  const availableTargets = targets.length > 0 ? targets : [finder];
+
+  return (
+    <div className="group/open-in relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent"
+      >
+        <HugeiconsIcon icon={FolderOpenIcon} className="size-4" />
+        <span>Open in</span>
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
+          className="ml-auto size-3.5 text-muted-foreground"
+        />
+      </button>
+      <div
+        role="menu"
+        aria-label={`Open ${basename(path)} in`}
+        className="invisible pointer-events-none absolute left-[calc(100%+4px)] top-0 z-10 min-w-[180px] rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground opacity-0 shadow-md transition-[opacity,visibility] group-hover/open-in:pointer-events-auto group-hover/open-in:visible group-hover/open-in:opacity-100 group-focus-within/open-in:pointer-events-auto group-focus-within/open-in:visible group-focus-within/open-in:opacity-100"
+      >
+        {availableTargets.map((target) => (
+          <button
+            key={target.id}
+            type="button"
+            role="menuitem"
+            onClick={() => onOpen(target)}
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          >
+            <OpenTargetIcon target={target} />
+            <span className="flex-1 truncate">{target.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HeaderButton({
+  label,
+  icon,
+  onClick,
+}: {
+  label: string;
+  icon: typeof FileAddIcon;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            onClick={onClick}
+            className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          >
+            <HugeiconsIcon icon={icon} className="size-4" />
+          </button>
+        }
+      />
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
 function DeleteConfirmDialog({
-  entry,
+  target,
   open,
   deleting,
   onOpenChange,
   onConfirm,
 }: {
-  entry: FsEntry | null;
+  target: DeleteState;
   open: boolean;
   deleting: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
-  const isDir = entry?.kind === "directory";
+  const isDir = target?.kind === "directory";
+  const name = target ? basename(target.path) : "";
   const detail = isDir
     ? "This deletes the folder and everything inside it."
     : "This deletes the file from disk.";
@@ -827,8 +967,8 @@ function DeleteConfirmDialog({
             Delete {isDir ? "folder" : "file"}?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            <span className="font-mono text-foreground">{entry?.name}</span>{" "}
-            will be permanently deleted. {detail} This cannot be undone.
+            <span className="font-mono text-foreground">{name}</span> will be
+            permanently deleted. {detail} This cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

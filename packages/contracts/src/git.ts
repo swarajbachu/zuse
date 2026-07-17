@@ -317,6 +317,35 @@ export const GitPrDetailsRpc = Rpc.make("git.prDetails", {
   error: GitErrors,
 });
 
+/** Post one inline review comment to the pull request for the current branch. */
+export const GitCreateReviewCommentRpc = Rpc.make("git.createReviewComment", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    line: Schema.Number,
+    side: Schema.Literals(["additions", "deletions"]),
+    body: Schema.String,
+  }),
+  success: Schema.Struct({ url: Schema.NullOr(Schema.String) }),
+  error: GitErrors,
+});
+
+/** Identity used to author review comments from the current GitHub account. */
+export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.NullOr(
+    Schema.Struct({
+      name: Schema.String,
+      avatarUrl: Schema.NullOr(Schema.String),
+    }),
+  ),
+  error: GitErrors,
+});
+
 /**
  * Lightweight PR row for the "Create from…" picker. One entry per open PR from
  * `gh pr list`. `headRefName` is the PR's branch — the picker checks it out
@@ -447,6 +476,39 @@ export const GitChangesRpc = Rpc.make("git.changes", {
   error: GitErrors,
 });
 
+/** One file in the branch review range (merge-base through the worktree). */
+export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")({
+  path: Schema.String,
+  oldPath: Schema.NullOr(Schema.String),
+  kind: GitChangeKind,
+  additions: Schema.Number,
+  deletions: Schema.Number,
+  binary: Schema.Boolean,
+  conflict: Schema.Boolean,
+  hasUncommittedChanges: Schema.Boolean,
+}) {}
+
+/** Stable comparison metadata used by the dock and the multi-file reviewer. */
+export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
+  "GitReviewSummary",
+)({
+  baseRef: Schema.NullOr(Schema.String),
+  baseSha: Schema.String,
+  headSha: Schema.String,
+  files: Schema.Array(GitReviewFile),
+  additions: Schema.Number,
+  deletions: Schema.Number,
+}) {}
+
+export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: GitReviewSummary,
+  error: GitErrors,
+});
+
 /**
  * Diff modes returned by `git.diff`. `worktree` is the common case
  * (tracked file with edits); `untracked` is a synthetic /dev/null diff
@@ -481,6 +543,45 @@ export const GitDiffRpc = Rpc.make("git.diff", {
   error: GitErrors,
 });
 
+export class GitReviewPatch extends Schema.Class<GitReviewPatch>(
+  "GitReviewPatch",
+)({
+  path: Schema.String,
+  result: GitDiffResult,
+  error: Schema.NullOr(Schema.String),
+}) {}
+
+/** Streams complete per-file patches in review order for incremental rendering. */
+export const GitReviewPatchesRpc = Rpc.make("git.reviewPatches", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: GitReviewPatch,
+  error: GitErrors,
+  stream: true,
+});
+
+export class GitReviewFileContents extends Schema.Class<GitReviewFileContents>(
+  "GitReviewFileContents",
+)({
+  oldContent: Schema.NullOr(Schema.String),
+  newContent: Schema.NullOr(Schema.String),
+  mtime: Schema.NullOr(Schema.String),
+}) {}
+
+/** Full text is fetched only when hunk expansion or inline editing needs it. */
+export const GitReviewFileContentsRpc = Rpc.make("git.reviewFileContents", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  success: GitReviewFileContents,
+  error: GitErrors,
+});
+
 export const GitCommitRpc = Rpc.make("git.commit", {
   payload: Schema.Struct({
     folderId: FolderId,
@@ -505,6 +606,22 @@ export const GitPushRpc = Rpc.make("git.push", {
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
   }),
   success: Schema.Struct({ output: Schema.String }),
+  error: GitErrors,
+});
+
+/**
+ * Persist a resolved merge-conflict file: write the final (marker-free)
+ * contents to disk and `git add` it so the path leaves the unmerged state.
+ * Backs the Changes tab's inline `@pierre/diffs` `UnresolvedFile` resolver.
+ */
+export const GitResolveConflictRpc = Rpc.make("git.resolveConflict", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    contents: Schema.String,
+  }),
+  success: Schema.Struct({}),
   error: GitErrors,
 });
 
@@ -578,6 +695,18 @@ export const GitRevertFileRpc = Rpc.make("git.revertFile", {
     kind: GitChangeKind,
   }),
   success: Schema.Struct({ reverted: Schema.Boolean }),
+  error: GitErrors,
+});
+
+/** Restore one review entry to its merge-base state as a new worktree edit. */
+export const GitRestoreFileToBaseRpc = Rpc.make("git.restoreFileToBase", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    path: Schema.String,
+    oldPath: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  success: Schema.Struct({ restored: Schema.Boolean }),
   error: GitErrors,
 });
 

@@ -8,6 +8,7 @@ import {
   usePanelRef,
 } from "react-resizable-panels";
 import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
+import { ChangesReview } from "./components/changes-review.tsx";
 import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ChatSwitcher } from "./components/chat-switcher.tsx";
@@ -296,6 +297,8 @@ function MainShell() {
   const usageScope = useUiStore((s) => s.usageScope);
   const openFile = useUiStore((s) => s.openFile);
   const closeFileTab = useUiStore((s) => s.closeFileTab);
+  const changesTabOpen = useUiStore((s) => s.changesTabOpen);
+  const closeChangesTab = useUiStore((s) => s.closeChangesTab);
   const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
   const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
   const rightSidebarOpen = useUiStore((s) => s.rightSidebarOpen);
@@ -322,6 +325,11 @@ function MainShell() {
     closeFileTab();
   }, [selectedFolderId, openFile, closeFileTab]);
 
+  useEffect(() => {
+    if (selectedFolderId !== null) return;
+    closeChangesTab();
+  }, [selectedFolderId, closeChangesTab]);
+
   // Eagerly hydrate worktrees on project select so the active context can
   // resolve worktree paths without waiting for the chat composer to mount.
   // Without this, terminal/file-tree/branch label stay in "preparing
@@ -340,9 +348,14 @@ function MainShell() {
     const menu = window.zuse?.menu;
     if (menu === undefined) return;
     return menu.onCloseTab(() => {
-      const { activeMainTab, closeFileTab, openFile } = useUiStore.getState();
+      const { activeMainTab, closeFileTab, closeChangesTab, openFile } =
+        useUiStore.getState();
       if (activeMainTab === "file" && openFile !== null) {
         closeFileTab();
+        return;
+      }
+      if (activeMainTab === "changes") {
+        closeChangesTab();
         return;
       }
       void closeActiveChatTab();
@@ -358,7 +371,10 @@ function MainShell() {
   // session/file is open, or when the left panel is collapsed (so the user
   // always has a way back to the projects panel + the window drag region).
   const showMainChrome =
-    selectedSessionId !== null || openFile !== null || !leftSidebarOpen;
+    selectedSessionId !== null ||
+    openFile !== null ||
+    changesTabOpen ||
+    !leftSidebarOpen;
   const showMainTabs = showMainChrome && activeMainTab !== "archives";
 
   // Persist the three-pane layout in localStorage so widths survive reloads.
@@ -511,6 +527,14 @@ function MainShell() {
                 <FileEditor />
               </div>
             )}
+            {changesTabOpen ? (
+              <div
+                hidden={activeMainTab !== "changes"}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <ChangesReview />
+              </div>
+            ) : null}
           </main>
         </Panel>
         <Separator className="w-px bg-border transition-colors hover:bg-foreground/20 active:bg-foreground/30" />

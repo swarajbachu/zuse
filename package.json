@@ -74,6 +74,7 @@
 	},
 	"dependencies": {
 		"@hugeicons-pro/core-bulk-rounded": "^4.2.1",
-		"@hugeicons-pro/core-solid-rounded": "^4.2.1"
+		"@hugeicons-pro/core-solid-rounded": "^4.2.1",
+		"@openai/codex": "^0.144.5"
 	}
 }

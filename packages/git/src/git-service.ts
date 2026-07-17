@@ -16,6 +16,9 @@ import type {
 	GitPrDetails,
 	GitPrInfo,
 	GitPrSummary,
+	GitReviewFileContents,
+	GitReviewPatch,
+	GitReviewSummary,
 	GitStatusSummary,
 	WorktreeId,
 } from "@zuse/contracts";
@@ -72,6 +75,21 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<GitPrDetails, GitFailure>;
+	readonly createReviewComment: (
+		folderId: FolderId,
+		path: string,
+		line: number,
+		side: "additions" | "deletions",
+		body: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly url: string | null }, GitFailure>;
+	readonly reviewIdentity: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<
+		{ readonly name: string; readonly avatarUrl: string | null } | null,
+		GitFailure
+	>;
 	/**
 	 * Open PRs via `gh pr list`, most-recently-updated first. Degrades to `[]`
 	 * when `gh` is missing / unauthenticated / there's no GitHub remote.
@@ -105,6 +123,20 @@ export interface GitServiceShape {
 		path: string,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<GitDiffResult, GitFailure>;
+	readonly reviewSummary: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitReviewSummary, GitFailure>;
+	readonly reviewPatches: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Stream.Stream<GitReviewPatch, GitFailure>;
+	readonly reviewFileContents: (
+		folderId: FolderId,
+		path: string,
+		oldPath?: string | null,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitReviewFileContents, GitFailure>;
 	readonly commit: (
 		folderId: FolderId,
 		message: string,
@@ -115,6 +147,12 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly output: string }, GitFailure>;
+	readonly resolveConflict: (
+		folderId: FolderId,
+		path: string,
+		contents: string,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<Record<string, never>, GitFailure>;
 	readonly mergePr: (
 		folderId: FolderId,
 		action: "merge" | "enable-auto" | "disable-auto",
@@ -140,6 +178,12 @@ export interface GitServiceShape {
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly reverted: boolean }, GitFailure>;
+	readonly restoreFileToBase: (
+		folderId: FolderId,
+		path: string,
+		oldPath?: string | null,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<{ readonly restored: boolean }, GitFailure>;
 	readonly diffStat: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,

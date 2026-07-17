@@ -73,6 +73,29 @@ const PrDetails = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const CreateReviewComment = MemoizeRpcs.toLayerHandler(
+  "git.createReviewComment",
+  ({ folderId, worktreeId, path, line, side, body }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.createReviewComment(
+        folderId,
+        path,
+        line,
+        side,
+        body,
+        worktreeId ?? null,
+      ),
+    ),
+);
+
+const ReviewIdentity = MemoizeRpcs.toLayerHandler(
+  "git.reviewIdentity",
+  ({ folderId, worktreeId }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewIdentity(folderId, worktreeId ?? null),
+    ),
+);
+
 const ListPrs = MemoizeRpcs.toLayerHandler("git.listPrs", ({ folderId }) =>
   Effect.flatMap(GitService, (svc) => svc.listPrs(folderId)),
 );
@@ -97,6 +120,37 @@ const Changes = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const ReviewSummary = MemoizeRpcs.toLayerHandler(
+  "git.reviewSummary",
+  ({ folderId, worktreeId }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewSummary(folderId, worktreeId ?? null),
+    ),
+);
+
+const ReviewPatches = MemoizeRpcs.toLayerHandler(
+  "git.reviewPatches",
+  ({ folderId, worktreeId }) =>
+    Stream.unwrap(
+      Effect.map(GitService, (svc) =>
+        svc.reviewPatches(folderId, worktreeId ?? null),
+      ),
+    ),
+);
+
+const ReviewFileContents = MemoizeRpcs.toLayerHandler(
+  "git.reviewFileContents",
+  ({ folderId, worktreeId, path, oldPath }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewFileContents(
+        folderId,
+        path,
+        oldPath ?? null,
+        worktreeId ?? null,
+      ),
+    ),
+);
+
 const Diff = MemoizeRpcs.toLayerHandler(
   "git.diff",
   ({ folderId, worktreeId, path }) =>
@@ -117,6 +171,14 @@ const Push = MemoizeRpcs.toLayerHandler(
   "git.push",
   ({ folderId, worktreeId }) =>
     Effect.flatMap(GitService, (svc) => svc.push(folderId, worktreeId ?? null)),
+);
+
+const ResolveConflict = MemoizeRpcs.toLayerHandler(
+  "git.resolveConflict",
+  ({ folderId, worktreeId, path, contents }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.resolveConflict(folderId, path, contents, worktreeId ?? null),
+    ),
 );
 
 const MergePr = MemoizeRpcs.toLayerHandler(
@@ -151,6 +213,19 @@ const RevertAll = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const RestoreFileToBase = MemoizeRpcs.toLayerHandler(
+  "git.restoreFileToBase",
+  ({ folderId, worktreeId, path, oldPath }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.restoreFileToBase(
+        folderId,
+        path,
+        oldPath ?? null,
+        worktreeId ?? null,
+      ),
+    ),
+);
+
 const DiffStat = MemoizeRpcs.toLayerHandler(
   "git.diffStat",
   ({ folderId, worktreeId }) =>
@@ -182,17 +257,24 @@ export const GitHandlersLayer = Layer.mergeAll(
   Origin,
   PrState,
   PrDetails,
+  CreateReviewComment,
+  ReviewIdentity,
   ListPrs,
   ListIssues,
   IssueMarkdown,
   Changes,
+  ReviewSummary,
+  ReviewPatches,
+  ReviewFileContents,
   Diff,
   Commit,
   Push,
+  ResolveConflict,
   MergePr,
   MarkReady,
   Init,
   RevertFile,
+  RestoreFileToBase,
   RevertAll,
   DiffStat,
   FixFailingChecks,

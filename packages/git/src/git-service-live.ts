@@ -23,6 +23,10 @@ import {
 	GitPrReview,
 	type GitPrReviewState,
 	GitPrSummary,
+	GitReviewFile,
+	GitReviewFileContents,
+	GitReviewPatch,
+	GitReviewSummary,
 	GitStatusSummary,
 } from "@zuse/contracts";
 import {
@@ -41,6 +45,7 @@ import {
 	Effect,
 	FileSystem,
 	Layer,
+	Option,
 	Path,
 	Queue,
 	Ref,
@@ -52,6 +57,10 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { RepositoryLocator } from "./repository-locator.ts";
+import {
+	buildCreateReviewCommentArgs,
+	parseReviewIdentity,
+} from "./review-comment.ts";
 
 type GitFailure =
 	| GitNotARepoError
@@ -286,6 +295,90 @@ const parseChangesOutput = (out: string): ReadonlyArray<GitChange> => {
 		}
 	}
 	return changes;
+};
+
+type ReviewNameEntry = {
+	readonly path: string;
+	readonly oldPath: string | null;
+	readonly kind: GitChangeKind;
+};
+
+const reviewStatusKind = (status: string): GitChangeKind => {
+	switch (status[0]) {
+		case "A":
+			return "added";
+		case "D":
+			return "deleted";
+		case "R":
+			return "renamed";
+		case "C":
+			return "copied";
+		case "T":
+			return "type_changed";
+		case "U":
+			return "unmerged";
+		default:
+			return "modified";
+	}
+};
+
+const parseReviewNames = (out: string): ReadonlyArray<ReviewNameEntry> => {
+	const fields = out.split(NUL);
+	const entries: ReviewNameEntry[] = [];
+	for (let index = 0; index < fields.length; ) {
+		const status = fields[index++] ?? "";
+		if (status.length === 0) continue;
+		if (status.startsWith("R") || status.startsWith("C")) {
+			const oldPath = fields[index++] ?? "";
+			const currentPath = fields[index++] ?? "";
+			if (currentPath.length > 0) {
+				entries.push({
+					path: currentPath,
+					oldPath: oldPath.length > 0 ? oldPath : null,
+					kind: reviewStatusKind(status),
+				});
+			}
+			continue;
+		}
+		const currentPath = fields[index++] ?? "";
+		if (currentPath.length > 0) {
+			entries.push({
+				path: currentPath,
+				oldPath: null,
+				kind: reviewStatusKind(status),
+			});
+		}
+	}
+	return entries;
+};
+
+type ReviewStat = {
+	readonly additions: number;
+	readonly deletions: number;
+	readonly binary: boolean;
+};
+
+const parseReviewStats = (out: string): ReadonlyMap<string, ReviewStat> => {
+	const fields = out.split(NUL);
+	const stats = new Map<string, ReviewStat>();
+	for (let index = 0; index < fields.length; ) {
+		const header = fields[index++] ?? "";
+		if (header.length === 0) continue;
+		const [added = "0", deleted = "0", inlinePath = ""] = header.split("\t");
+		let currentPath = inlinePath;
+		if (currentPath.length === 0) {
+			index += 1;
+			currentPath = fields[index++] ?? "";
+		}
+		if (currentPath.length === 0) continue;
+		const binary = added === "-" || deleted === "-";
+		stats.set(currentPath, {
+			additions: binary ? 0 : Number.parseInt(added, 10) || 0,
+			deletions: binary ? 0 : Number.parseInt(deleted, 10) || 0,
+			binary,
+		});
+	}
+	return stats;
 };
 
 // Accepts the common shapes that `git remote get-url` emits:
@@ -925,6 +1018,97 @@ export const GitServiceLive = Layer.effect(
 			checkRuns: [],
 		});
 
+		const createReviewComment: GitService["Service"]["createReviewComment"] = (
+			folderId,
+			filePath,
+			line,
+			side,
+			body,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const prOutput = yield* currentPrView(
+						folderId,
+						cwd,
+						"number,headRefOid",
+					);
+					let pr: { number?: number; headRefOid?: string };
+					try {
+						pr = JSON.parse(prOutput) as typeof pr;
+					} catch {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					}
+					if (
+						typeof pr.number !== "number" ||
+						typeof pr.headRefOid !== "string" ||
+						pr.headRefOid.length === 0
+					) {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "No pull request is available for this branch.",
+							}),
+						);
+					}
+
+					const remoteUrl = yield* run(folderId, cwd, [
+						"remote",
+						"get-url",
+						"origin",
+					]);
+					const originInfo = parseRemoteUrl(remoteUrl.trim());
+					if (originInfo?.host.toLowerCase() !== "github.com") {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason: "Inline review comments require a GitHub origin.",
+							}),
+						);
+					}
+
+					const output = yield* ghRun(
+						folderId,
+						cwd,
+						buildCreateReviewCommentArgs({
+							owner: originInfo.owner,
+							repo: originInfo.repo,
+							pullNumber: pr.number,
+							headSha: pr.headRefOid,
+							path: filePath,
+							line,
+							side,
+							body,
+						}),
+					);
+					try {
+						const response = JSON.parse(output) as { html_url?: string };
+						return { url: response.html_url ?? null };
+					} catch {
+						return { url: null };
+					}
+				}),
+			);
+
+		const reviewIdentity: GitService["Service"]["reviewIdentity"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				ghRun(folderId, cwd, ["api", "user"]).pipe(
+					Effect.map(parseReviewIdentity),
+					Effect.catchTags({
+						GitCommandError: () => Effect.succeed(null),
+						GitNotInstalledError: () => Effect.succeed(null),
+					}),
+				),
+			);
+
 		const prDetails: GitService["Service"]["prDetails"] = (
 			folderId,
 			worktreeId,
@@ -1270,6 +1454,54 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
+		const detectBaseRef = (folderId: FolderId, cwd: string) =>
+			run(folderId, cwd, [
+				"symbolic-ref",
+				"--quiet",
+				"refs/remotes/origin/HEAD",
+			]).pipe(
+				Effect.map((s) => s.trim().replace(/^refs\/remotes\//, "")),
+				Effect.catch(() =>
+					Effect.gen(function* () {
+						for (const ref of [
+							"origin/main",
+							"origin/master",
+							"main",
+							"master",
+						]) {
+							const found = yield* run(folderId, cwd, [
+								"rev-parse",
+								"--verify",
+								"--quiet",
+								ref,
+							]).pipe(
+								Effect.as(ref as string | null),
+								Effect.catch(() => Effect.succeed(null)),
+							);
+							if (found !== null) return found;
+						}
+						return null;
+					}),
+				),
+			);
+
+		const resolveReviewRange = (folderId: FolderId, cwd: string) =>
+			Effect.gen(function* () {
+				const headSha = yield* run(folderId, cwd, ["rev-parse", "HEAD"]).pipe(
+					Effect.map((value) => value.trim()),
+					Effect.catch(() => Effect.succeed("")),
+				);
+				const baseRef = yield* detectBaseRef(folderId, cwd);
+				const baseSha =
+					baseRef === null || headSha.length === 0
+						? headSha
+						: yield* run(folderId, cwd, ["merge-base", baseRef, "HEAD"]).pipe(
+								Effect.map((value) => value.trim()),
+								Effect.catch(() => Effect.succeed(headSha)),
+							);
+				return { baseRef, baseSha, headSha } as const;
+			});
+
 		const changes: GitService["Service"]["changes"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				run(folderId, cwd, [
@@ -1280,14 +1512,14 @@ export const GitServiceLive = Layer.effect(
 			);
 
 		/**
-		 * Working-tree-vs-HEAD diff for a single path. The renderer feeds the
+		 * Branch-review diff for a single path. The renderer feeds the
 		 * returned `patch` directly into `@pierre/diffs` `PatchDiff`. Modes:
 		 *   - worktree : tracked + modified (or modified + deleted)
 		 *   - deleted  : tracked but missing on disk
 		 *   - untracked: not in HEAD — synthesize a /dev/null→file diff so new
 		 *                files render the same as edits
 		 *   - binary   : git classifies the file as binary (no patch returned)
-		 *   - unchanged: clean vs HEAD (empty patch)
+		 *   - unchanged: clean vs the resolved review base (empty patch)
 		 * Patches over 2 MiB are sliced so the renderer never has to handle a
 		 * tens-of-megabytes diff string.
 		 */
@@ -1295,6 +1527,7 @@ export const GitServiceLive = Layer.effect(
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
 					const rel = path.isAbsolute(p) ? path.relative(cwd, p) : p;
+					const { baseSha } = yield* resolveReviewRange(folderId, cwd);
 					const MAX_BYTES = 2_000_000;
 
 					const finish = (mode: GitDiffMode, patch: string): GitDiffResult => {
@@ -1310,7 +1543,7 @@ export const GitServiceLive = Layer.effect(
 
 					// Tracked vs untracked. `ls-files --error-unmatch` exits 1 when the
 					// path isn't in the index — we catch that as "untracked".
-					const tracked = yield* run(folderId, cwd, [
+					const trackedInIndex = yield* run(folderId, cwd, [
 						"ls-files",
 						"--error-unmatch",
 						"--",
@@ -1319,6 +1552,18 @@ export const GitServiceLive = Layer.effect(
 						Effect.map(() => true),
 						Effect.catchTag("GitCommandError", () => Effect.succeed(false)),
 					);
+					const trackedAtBase =
+						baseSha.length === 0
+							? false
+							: yield* run(folderId, cwd, [
+									"cat-file",
+									"-e",
+									`${baseSha}:${rel}`,
+								]).pipe(
+									Effect.as(true),
+									Effect.catch(() => Effect.succeed(false)),
+								);
+					const tracked = trackedInIndex || trackedAtBase;
 
 					if (!tracked) {
 						// Untracked: build a synthetic /dev/null → file diff so the
@@ -1373,10 +1618,11 @@ export const GitServiceLive = Layer.effect(
 					}
 
 					// Tracked. Use numstat to detect binary + unchanged cheaply.
+					if (baseSha.length === 0) return finish("unchanged", "");
 					const numstat = (yield* run(folderId, cwd, [
 						"diff",
 						"--numstat",
-						"HEAD",
+						baseSha,
 						"--",
 						rel,
 					])).trim();
@@ -1394,7 +1640,7 @@ export const GitServiceLive = Layer.effect(
 						"diff",
 						"--no-color",
 						"--no-ext-diff",
-						"HEAD",
+						baseSha,
 						"--",
 						rel,
 					]);
@@ -1407,6 +1653,210 @@ export const GitServiceLive = Layer.effect(
 						.pipe(Effect.catch(() => Effect.succeed(false)));
 					const mode: GitDiffMode = stillExists ? "worktree" : "deleted";
 					return finish(mode, patch);
+				}),
+			);
+
+		const reviewSummary: GitService["Service"]["reviewSummary"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const range = yield* resolveReviewRange(folderId, cwd);
+					const uncommitted = yield* changes(folderId, worktreeId);
+					const names =
+						range.baseSha.length === 0
+							? []
+							: parseReviewNames(
+									yield* run(folderId, cwd, [
+										"diff",
+										"--name-status",
+										"-z",
+										"--find-renames",
+										range.baseSha,
+										"--",
+									]),
+								);
+					const stats =
+						range.baseSha.length === 0
+							? new Map<string, ReviewStat>()
+							: parseReviewStats(
+									yield* run(folderId, cwd, [
+										"diff",
+										"--numstat",
+										"-z",
+										"--find-renames",
+										range.baseSha,
+										"--",
+									]),
+								);
+					const pendingByPath = new Map<string, GitChange>();
+					for (const change of uncommitted) {
+						pendingByPath.set(change.path, change);
+						if (change.oldPath !== null)
+							pendingByPath.set(change.oldPath, change);
+					}
+
+					const files: GitReviewFile[] = names.map((entry) => {
+						const stat = stats.get(entry.path) ?? {
+							additions: 0,
+							deletions: 0,
+							binary: false,
+						};
+						const pending =
+							pendingByPath.get(entry.path) ??
+							(entry.oldPath === null
+								? undefined
+								: pendingByPath.get(entry.oldPath));
+						return GitReviewFile.make({
+							...entry,
+							...stat,
+							conflict:
+								entry.kind === "unmerged" || pending?.kind === "unmerged",
+							hasUncommittedChanges: pending !== undefined,
+						});
+					});
+					const seen = new Set(
+						files.flatMap((file) => [file.path, file.oldPath ?? ""]),
+					);
+					for (const pending of uncommitted) {
+						if (pending.kind === "ignored" || seen.has(pending.path)) continue;
+						let stat: ReviewStat = {
+							additions: 0,
+							deletions: 0,
+							binary: false,
+						};
+						if (pending.kind === "untracked") {
+							const contents = yield* fs
+								.readFileString(path.resolve(cwd, pending.path))
+								.pipe(Effect.catch(() => Effect.succeed("")));
+							stat = {
+								additions:
+									contents.length === 0 ? 0 : contents.split("\n").length,
+								deletions: 0,
+								binary: contents.includes(NUL),
+							};
+						}
+						files.push(
+							GitReviewFile.make({
+								path: pending.path,
+								oldPath: pending.oldPath,
+								kind: pending.kind,
+								...stat,
+								conflict: pending.kind === "unmerged",
+								hasUncommittedChanges: true,
+							}),
+						);
+					}
+					files.sort((left, right) => left.path.localeCompare(right.path));
+					return GitReviewSummary.make({
+						...range,
+						files,
+						additions: files.reduce((total, file) => total + file.additions, 0),
+						deletions: files.reduce((total, file) => total + file.deletions, 0),
+					});
+				}),
+			);
+
+		const reviewPatches: GitService["Service"]["reviewPatches"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Stream.unwrap(
+				reviewSummary(folderId, worktreeId).pipe(
+					Effect.map((summary) =>
+						Stream.fromIterable(summary.files).pipe(
+							Stream.mapEffect(
+								(file) =>
+									(file.oldPath === null
+										? diff(folderId, file.path, worktreeId)
+										: Effect.flatMap(
+												resolvePathForWorktree(folderId, worktreeId),
+												(cwd) =>
+													Effect.gen(function* () {
+														const { baseSha } = yield* resolveReviewRange(
+															folderId,
+															cwd,
+														);
+														const patch = yield* run(folderId, cwd, [
+															"diff",
+															"--no-color",
+															"--no-ext-diff",
+															"--find-renames",
+															baseSha,
+															"--",
+															file.oldPath ?? file.path,
+															file.path,
+														]);
+														const maxBytes = 2_000_000;
+														return GitDiffResult.make({
+															mode: file.binary ? "binary" : "worktree",
+															patch: patch.slice(0, maxBytes),
+															truncated: patch.length > maxBytes,
+															bytes: patch.length,
+														});
+													}),
+											)
+									).pipe(
+										Effect.map((result) =>
+											GitReviewPatch.make({
+												path: file.path,
+												result,
+												error: null,
+											}),
+										),
+										Effect.catch((cause) =>
+											Effect.succeed(
+												GitReviewPatch.make({
+													path: file.path,
+													result: GitDiffResult.make({
+														mode: "unchanged",
+														patch: "",
+														truncated: false,
+														bytes: 0,
+													}),
+													error: String(cause),
+												}),
+											),
+										),
+									),
+								{ concurrency: 4 },
+							),
+						),
+					),
+				),
+			);
+
+		const reviewFileContents: GitService["Service"]["reviewFileContents"] = (
+			folderId,
+			filePath,
+			oldPath,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const range = yield* resolveReviewRange(folderId, cwd);
+					const oldContent =
+						range.baseSha.length === 0
+							? null
+							: yield* run(folderId, cwd, [
+									"show",
+									`${range.baseSha}:${oldPath ?? filePath}`,
+								]).pipe(Effect.catch(() => Effect.succeed(null)));
+					const absolutePath = path.resolve(cwd, filePath);
+					const newContent = yield* fs
+						.readFileString(absolutePath)
+						.pipe(Effect.catch(() => Effect.succeed(null)));
+					const mtime = yield* fs.stat(absolutePath).pipe(
+						Effect.map((info) =>
+							Option.match(info.mtime, {
+								onNone: () => null,
+								onSome: (value) => value.toISOString(),
+							}),
+						),
+						Effect.catch(() => Effect.succeed(null)),
+					);
+					return GitReviewFileContents.make({ oldContent, newContent, mtime });
 				}),
 			);
 
@@ -1473,6 +1923,43 @@ export const GitServiceLive = Layer.effect(
 						branch,
 					]);
 					return { output: out };
+				}),
+			);
+
+		/**
+		 * Persist a resolved merge-conflict file: write the marker-free contents
+		 * the renderer's `UnresolvedFile` produced, then `git add` the path so it
+		 * leaves the unmerged state.
+		 */
+		const resolveConflict: GitService["Service"]["resolveConflict"] = (
+			folderId,
+			relPath,
+			contents,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					if (/^(?:<<<<<<<|>>>>>>>)(?: .*)?\r?$/m.test(contents)) {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason:
+									"Cannot mark the file resolved while merge-conflict markers remain.",
+							}),
+						);
+					}
+					const abs = path.resolve(cwd, relPath);
+					yield* fs.writeFileString(abs, contents).pipe(
+						Effect.mapError(
+							(cause) =>
+								new GitCommandError({
+									folderId,
+									reason: cause.message ?? String(cause),
+								}),
+						),
+					);
+					yield* run(folderId, cwd, ["add", "--", relPath]);
+					return {};
 				}),
 			);
 
@@ -1594,41 +2081,67 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Resolve the repo's default base branch for a worktree: prefer
-		 * `origin/HEAD` (e.g. `origin/main`), then probe common defaults. Returns
-		 * `null` when none resolve (no remote, fresh repo) so the caller can fall
-		 * back to diffing against HEAD.
-		 */
-		const detectBaseRef = (folderId: FolderId, cwd: string) =>
-			run(folderId, cwd, [
-				"symbolic-ref",
-				"--quiet",
-				"refs/remotes/origin/HEAD",
-			]).pipe(
-				Effect.map((s) => s.trim().replace(/^refs\/remotes\//, "")),
-				Effect.catch(() =>
-					Effect.gen(function* () {
-						for (const ref of [
-							"origin/main",
-							"origin/master",
-							"main",
-							"master",
-						]) {
-							const found = yield* run(folderId, cwd, [
-								"rev-parse",
-								"--verify",
-								"--quiet",
-								ref,
-							]).pipe(
-								Effect.as(ref as string | null),
-								Effect.catch(() => Effect.succeed(null)),
-							);
-							if (found !== null) return found;
+		const restoreFileToBase: GitService["Service"]["restoreFileToBase"] = (
+			folderId,
+			filePath,
+			oldPath,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const range = yield* resolveReviewRange(folderId, cwd);
+					if (range.baseSha.length === 0) return { restored: false };
+					const targets = [filePath, oldPath].filter(
+						(value, index, all): value is string =>
+							typeof value === "string" &&
+							value.length > 0 &&
+							all.indexOf(value) === index,
+					);
+					for (const target of targets) {
+						const absoluteTarget = path.resolve(cwd, target);
+						const relativeTarget = path.relative(cwd, absoluteTarget);
+						if (
+							relativeTarget.startsWith("..") ||
+							path.isAbsolute(relativeTarget)
+						) {
+							return yield* new GitCommandError({
+								folderId,
+								reason: `Path is outside the worktree: ${target}`,
+							});
 						}
-						return null;
-					}),
-				),
+						const existsAtBase = yield* run(folderId, cwd, [
+							"cat-file",
+							"-e",
+							`${range.baseSha}:${relativeTarget}`,
+						]).pipe(
+							Effect.as(true),
+							Effect.catch(() => Effect.succeed(false)),
+						);
+						if (existsAtBase) {
+							yield* run(folderId, cwd, [
+								"restore",
+								"--source",
+								range.baseSha,
+								"--worktree",
+								"--",
+								relativeTarget,
+							]);
+						} else {
+							yield* fs
+								.remove(absoluteTarget, { recursive: true, force: true })
+								.pipe(
+									Effect.mapError(
+										(error) =>
+											new GitCommandError({
+												folderId,
+												reason: `remove ${relativeTarget}: ${String(error)}`,
+											}),
+									),
+								);
+						}
+					}
+					return { restored: true };
+				}),
 			);
 
 		/**
@@ -1643,20 +2156,9 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const base = yield* detectBaseRef(folderId, cwd);
-					let from = "HEAD";
-					if (base !== null) {
-						const mergeBase = yield* run(folderId, cwd, [
-							"merge-base",
-							base,
-							"HEAD",
-						]).pipe(
-							Effect.map((s) => s.trim()),
-							Effect.catch(() => Effect.succeed("")),
-						);
-						if (mergeBase.length > 0) from = mergeBase;
-					}
-					const out = yield* run(folderId, cwd, ["diff", "--numstat", from]);
+					const { baseSha } = yield* resolveReviewRange(folderId, cwd);
+					if (baseSha.length === 0) return { additions: 0, deletions: 0 };
+					const out = yield* run(folderId, cwd, ["diff", "--numstat", baseSha]);
 					let additions = 0;
 					let deletions = 0;
 					for (const line of out.split("\n")) {
@@ -1856,18 +2358,25 @@ export const GitServiceLive = Layer.effect(
 			origin,
 			prState,
 			prDetails,
+			createReviewComment,
+			reviewIdentity,
 			listPrs,
 			listIssues,
 			issueMarkdown,
 			changes,
 			diff,
+			reviewSummary,
+			reviewPatches,
+			reviewFileContents,
 			commit,
 			push,
+			resolveConflict,
 			mergePr,
 			markReady,
 			init,
 			revertFile,
 			revertAll,
+			restoreFileToBase,
 			diffStat,
 			fixFailingChecks,
 		} as const;

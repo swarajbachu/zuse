@@ -46,7 +46,12 @@ const serializeCodeAnnotations = (
 			annotation.startLine === annotation.endLine
 				? `${annotation.startLine}`
 				: `${annotation.startLine}-${annotation.endLine}`;
-		return `${index + 1}. ${annotation.relPath}:${range} — ${annotation.comment}`;
+		const side =
+			annotation.diffSide === undefined ? "" : ` (${annotation.diffSide} side)`;
+		const previous =
+			annotation.oldPath === undefined ? "" : `, previously ${annotation.oldPath}`;
+		const base = annotation.baseRef === undefined ? "" : `, base ${annotation.baseRef}`;
+		return `${index + 1}. ${annotation.relPath}:${range}${side}${previous}${base} — ${annotation.comment}`;
 	});
 	return ["Code annotations:", ...lines].join("\n");
 };

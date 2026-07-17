@@ -477,6 +477,10 @@ describe("ComposerInput round-trip", () => {
 					startLine: 4,
 					endLine: 8,
 					comment: "extract this branch",
+					diffSide: "deletions" as const,
+					diffAnchorLine: 8,
+					oldPath: "src/old-app.ts",
+					baseRef: "main",
 				},
 			],
 		});
