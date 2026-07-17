@@ -15,19 +15,27 @@ import type {
 	CodeAnnotation,
 	FolderId,
 	GitChangeKind,
+	GitPrComment,
+	GitPrReview,
 	GitReviewFile,
 	GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Pencil, Trash2 } from "lucide-react";
+import {
+	CircleAlert,
+	MessageSquareText,
+	Pencil,
+	Sparkles,
+	Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitChangesKey, useGitChangesStore } from "../store/git-changes.ts";
 import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { usePrDetailsStore } from "../store/pr-details.ts";
+import { prDetailsKey, usePrDetailsStore } from "../store/pr-details.ts";
 import { usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
@@ -105,6 +113,10 @@ export function DiffPane({
 	const refreshChanges = useGitChangesStore((s) => s.refresh);
 	const refreshStatus = useGitStatusStore((s) => s.refresh);
 	const refreshPrState = usePrStateStore((s) => s.refresh);
+	const prDetails = usePrDetailsStore((s) =>
+		folderId ? (s.byKey[prDetailsKey(folderId, worktreeId)] ?? null) : null,
+	);
+	const hydratePrDetails = usePrDetailsStore((s) => s.hydrate);
 	const refreshPrDetails = usePrDetailsStore((s) => s.refresh);
 	const openChanges = useUiStore((s) => s.openChanges);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
@@ -130,7 +142,6 @@ export function DiffPane({
 	const [navigatorTab, setNavigatorTab] = useState<"files" | "comments">(
 		"files",
 	);
-	const [search, setSearch] = useState("");
 	const [viewedRevision, setViewedRevision] = useState(0);
 
 	useEffect(() => {
@@ -146,11 +157,12 @@ export function DiffPane({
 		if (folderId === null) return;
 		void refreshChanges(folderId, worktreeId);
 		void refreshReview(folderId, worktreeId);
+		void hydratePrDetails(folderId, worktreeId);
 		const id = window.setInterval(() => {
 			void refreshChanges(folderId, worktreeId);
 		}, 5000);
 		return () => window.clearInterval(id);
-	}, [folderId, worktreeId, refreshChanges, refreshReview]);
+	}, [folderId, worktreeId, hydratePrDetails, refreshChanges, refreshReview]);
 
 	if (folderId === null) {
 		return <Empty>Select a project to see its changes.</Empty>;
@@ -219,13 +231,15 @@ export function DiffPane({
 	const allSelected =
 		committablePaths.length > 0 && selectedCount === committablePaths.length;
 	const someSelected = selectedCount > 0 && !allSelected;
-	const normalizedSearch = search.trim().toLowerCase();
-	const reviewFiles = (review?.files ?? []).filter(
-		(file) =>
-			normalizedSearch.length === 0 ||
-			file.path.toLowerCase().includes(normalizedSearch) ||
-			file.oldPath?.toLowerCase().includes(normalizedSearch),
-	);
+	const reviewFiles = review?.files ?? [];
+	const conflictFiles = reviewFiles.filter((file) => file.conflict);
+	const changedFiles = reviewFiles.filter((file) => !file.conflict);
+	const pullRequestFeedback = [
+		...(prDetails?.reviews ?? []).filter(
+			(review) => review.body.trim().length > 0,
+		),
+		...(prDetails?.comments ?? []),
+	];
 	const viewedEntries = (() => {
 		void viewedRevision;
 		try {
@@ -275,7 +289,9 @@ export function DiffPane({
 						}`}
 					>
 						{tab}{" "}
-						{tab === "comments" ? comments.length : (review?.files.length ?? 0)}
+						{tab === "comments"
+							? comments.length + pullRequestFeedback.length
+							: (review?.files.length ?? 0)}
 					</button>
 				))}
 				<button
@@ -291,16 +307,9 @@ export function DiffPane({
 			<div className="flex min-h-0 flex-1 flex-col overflow-hidden text-xs">
 				{navigatorTab === "files" ? (
 					<>
-						<div className="border-b border-border/60 p-2">
-							<input
-								value={search}
-								onChange={(event) => setSearch(event.target.value)}
-								placeholder="Filter changed files"
-								aria-label="Filter changed files"
-								className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-foreground/30"
-							/>
+						<div className="border-b border-border/60 px-3 py-2">
 							{review !== null ? (
-								<div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+								<div className="flex items-center justify-between text-[11px] text-muted-foreground">
 									<span>
 										{review.baseRef === null
 											? "Compared with HEAD"
@@ -316,7 +325,7 @@ export function DiffPane({
 								</div>
 							) : null}
 						</div>
-						<div className="min-h-0 flex-1 overflow-hidden">
+						<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
 							{changesErrorTag === "GitNotARepoError" ? (
 								<div className="py-3">
 									<GitInitCta folderId={folderId} worktreeId={worktreeId} />
@@ -324,13 +333,26 @@ export function DiffPane({
 							) : reviewLoading && review === null ? (
 								<Indicator title="Loading branch changes…" />
 							) : reviewFiles.length === 0 ? (
-								<Indicator title="No matching branch changes" />
+								<Indicator title="No branch changes" />
 							) : (
-								<ChangesNavigatorTree
-									key={reviewFiles.map((file) => file.path).join("\0")}
-									files={reviewFiles}
-									onSelect={openChanges}
-								/>
+								<>
+									{conflictFiles.length > 0 ? (
+										<NavigatorSection
+											title="Conflicts"
+											count={conflictFiles.length}
+											files={conflictFiles}
+											onSelect={openChanges}
+											conflict
+										/>
+									) : null}
+									<NavigatorSection
+										title="Changes"
+										count={changedFiles.length}
+										files={changedFiles}
+										onSelect={openChanges}
+										className="min-h-0 flex-1"
+									/>
+								</>
 							)}
 						</div>
 						{committable.length > 0 ? (
@@ -356,71 +378,106 @@ export function DiffPane({
 					</>
 				) : (
 					<div className="min-h-0 flex-1 overflow-y-auto p-2">
-						{selectedSessionId === null ? (
+						{selectedSessionId === null && pullRequestFeedback.length === 0 ? (
 							<Indicator
 								title="No active chat"
 								body="Open a chat session to create and manage review comments."
 							/>
-						) : comments.length === 0 ? (
+						) : comments.length === 0 && pullRequestFeedback.length === 0 ? (
 							<Indicator
 								title="No comments yet"
 								body="Select lines in All changes to add one."
 							/>
 						) : (
-							<ul className="space-y-1">
-								{comments.map((comment) => (
-									<li key={comment.id} className="group relative">
-										<button
-											type="button"
-											onClick={() =>
-												openChanges(
-													comment.relPath,
-													comment.startLine,
-													comment.diffSide ?? null,
-												)
-											}
-											className="w-full rounded-md border border-border/60 p-2 text-left hover:bg-foreground/5"
+							<div className="space-y-4">
+								{comments.length > 0 ? (
+									<section>
+										<NavigatorLabel icon={Sparkles} count={comments.length}>
+											Annotations for AI
+										</NavigatorLabel>
+										<ul className="mt-1.5 space-y-1">
+											{comments.map((comment) => (
+												<li key={comment.id} className="group relative">
+													<button
+														type="button"
+														onClick={() =>
+															openChanges(
+																comment.relPath,
+																comment.startLine,
+																comment.diffSide ?? null,
+															)
+														}
+														className="w-full rounded-md border border-border/60 p-2 text-left hover:bg-foreground/5"
+													>
+														<span className="block truncate font-mono text-[11px] text-muted-foreground">
+															{comment.relPath}:{comment.startLine}
+														</span>
+														<span className="mt-1 line-clamp-2 block">
+															{comment.comment}
+														</span>
+													</button>
+													<div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+														<button
+															type="button"
+															aria-label="Edit comment"
+															title="Edit comment"
+															className="rounded bg-background/90 p-1 text-muted-foreground hover:text-foreground"
+															onClick={() => {
+																if (selectedSessionId === null) return;
+																const next = window.prompt(
+																	"Edit review comment",
+																	comment.comment,
+																);
+																if (next !== null)
+																	updateComment(
+																		selectedSessionId,
+																		comment.id,
+																		next,
+																	);
+															}}
+														>
+															<Pencil className="size-3" />
+														</button>
+														<button
+															type="button"
+															aria-label="Delete comment"
+															title="Delete comment"
+															className="rounded bg-background/90 p-1 text-muted-foreground hover:text-destructive"
+															onClick={() => {
+																if (selectedSessionId === null) return;
+																if (
+																	window.confirm("Delete this review comment?")
+																)
+																	removeComment(selectedSessionId, comment.id);
+															}}
+														>
+															<Trash2 className="size-3" />
+														</button>
+													</div>
+												</li>
+											))}
+										</ul>
+									</section>
+								) : null}
+								{pullRequestFeedback.length > 0 ? (
+									<section>
+										<NavigatorLabel
+											icon={MessageSquareText}
+											count={pullRequestFeedback.length}
 										>
-											<span className="block truncate font-mono text-[11px] text-muted-foreground">
-												{comment.relPath}:{comment.startLine}
-											</span>
-											<span className="mt-1 line-clamp-2 block">
-												{comment.comment}
-											</span>
-										</button>
-										<div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-											<button
-												type="button"
-												aria-label="Edit comment"
-												className="rounded bg-background/90 p-1 text-muted-foreground hover:text-foreground"
-												onClick={() => {
-													if (selectedSessionId === null) return;
-													const next = window.prompt(
-														"Edit review comment",
-														comment.comment,
-													);
-													if (next !== null)
-														updateComment(selectedSessionId, comment.id, next);
-												}}
-											>
-												<Pencil className="size-3" />
-											</button>
-											<button
-												type="button"
-												aria-label="Delete comment"
-												className="rounded bg-background/90 p-1 text-muted-foreground hover:text-destructive"
-												onClick={() => {
-													if (selectedSessionId === null) return;
-													if (window.confirm("Delete this review comment?"))
-														removeComment(selectedSessionId, comment.id);
-												}}
-											>
-												<Trash2 className="size-3" />
-											</button>
-										</div>
-									</li>
-								))}
-							</ul>
+											Pull request feedback
+										</NavigatorLabel>
+										<ul className="mt-1.5 space-y-1.5">
+											{pullRequestFeedback.map((feedback, index) => (
+												<ExternalFeedbackCard
+													key={`${feedback.author}:${index}`}
+													feedback={feedback}
+												/>
+											))}
+										</ul>
+									</section>
+								) : null}
+							</div>
 						)}
 					</div>
 				)}
@@ -530,6 +587,119 @@ const treeStatusFor = (kind: GitChangeKind): GitStatus => {
 			return "modified";
 	}
 };
+
+function NavigatorLabel({
+	icon: Icon,
+	count,
+	children,
+}: {
+	readonly icon: React.ComponentType<{ className?: string }>;
+	readonly count: number;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<div className="flex h-6 items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+			<Icon className="size-3" />
+			<span>{children}</span>
+			<span className="ml-auto tabular-nums">{count}</span>
+		</div>
+	);
+}
+
+function NavigatorSection({
+	title,
+	count,
+	files,
+	onSelect,
+	conflict = false,
+	className = "",
+}: {
+	readonly title: string;
+	readonly count: number;
+	readonly files: readonly GitReviewFile[];
+	readonly onSelect: (path: string) => void;
+	readonly conflict?: boolean;
+	readonly className?: string;
+}) {
+	if (files.length === 0) {
+		return (
+			<section className={`flex min-h-0 flex-col ${className}`}>
+				<div className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+					<span>{title}</span>
+					<span className="tabular-nums">{count}</span>
+				</div>
+				<div className="px-3 py-2 text-[11px] text-muted-foreground">
+					No other changed files
+				</div>
+			</section>
+		);
+	}
+	return (
+		<section
+			className={`flex min-h-0 flex-col ${
+				conflict ? "max-h-[42%] shrink-0 border-b border-border/60" : ""
+			} ${className}`}
+			style={
+				conflict
+					? { height: Math.min(220, Math.max(72, files.length * 24 + 36)) }
+					: undefined
+			}
+		>
+			<div className="flex h-7 shrink-0 items-center gap-1.5 px-3 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+				{conflict ? <CircleAlert className="size-3 text-amber-400" /> : null}
+				<span className={conflict ? "text-amber-300" : ""}>{title}</span>
+				<span className="ml-auto tabular-nums">{count}</span>
+			</div>
+			<div className="min-h-0 flex-1 overflow-hidden">
+				<ChangesNavigatorTree
+					key={files.map((file) => `${file.path}:${file.kind}`).join("\0")}
+					files={files}
+					onSelect={onSelect}
+				/>
+			</div>
+		</section>
+	);
+}
+
+function ExternalFeedbackCard({
+	feedback,
+}: {
+	readonly feedback: GitPrComment | GitPrReview;
+}) {
+	const timestamp =
+		"createdAt" in feedback ? feedback.createdAt : feedback.submittedAt;
+	return (
+		<li className="rounded-lg border border-border/60 bg-foreground/[0.02] p-2.5">
+			<div className="flex items-center gap-2">
+				{feedback.authorAvatarUrl !== null ? (
+					<img
+						src={feedback.authorAvatarUrl}
+						alt=""
+						className="size-5 rounded-full bg-foreground/5"
+					/>
+				) : (
+					<div className="grid size-5 place-items-center rounded-full bg-foreground/10 text-[9px] text-muted-foreground">
+						{feedback.author.slice(0, 1).toUpperCase()}
+					</div>
+				)}
+				<span className="min-w-0 truncate text-[11px] font-medium text-foreground">
+					{feedback.author || "Unknown author"}
+				</span>
+				{timestamp !== null ? (
+					<time className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+						{timestamp.toLocaleDateString(undefined, {
+							month: "short",
+							day: "numeric",
+						})}
+					</time>
+				) : null}
+			</div>
+			<p className="mt-2 line-clamp-4 whitespace-pre-wrap text-[11px] leading-4 text-foreground/90">
+				{feedback.body}
+			</p>
+		</li>
+	);
+}
 
 function ChangesNavigatorTree({
 	files,

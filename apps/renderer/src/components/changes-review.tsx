@@ -12,6 +12,7 @@ import {
 	CodeView,
 	type CodeViewHandle,
 	UnresolvedFile,
+	type UnresolvedFileReactOptions,
 	type WorkerInitializationRenderOptions,
 	WorkerPoolContextProvider,
 	type WorkerPoolOptions,
@@ -28,6 +29,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	ChevronsUpDown,
+	CircleAlert,
 	Columns2,
 	Copy,
 	EyeOff,
@@ -39,6 +41,7 @@ import {
 	Save,
 	Send,
 	Settings2,
+	Sparkles,
 	SquarePlus,
 	UserRound,
 	X,
@@ -548,10 +551,20 @@ function ChangesReviewReady({
 					<input
 						type="checkbox"
 						checked={isViewed(file.path)}
-						onChange={() => toggleViewed(file.path)}
+						onChange={() => {
+							const wasViewed = isViewed(file.path);
+							toggleViewed(file.path);
+							if (!wasViewed) {
+								setCollapsed((current) => new Set(current).add(file.path));
+							}
+						}}
 						onClick={(event) => event.stopPropagation()}
-						aria-label={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
-						title={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
+						aria-label={
+							isViewed(file.path) ? "Mark unviewed" : "Mark viewed and collapse"
+						}
+						title={
+							isViewed(file.path) ? "Mark unviewed" : "Mark viewed and collapse"
+						}
 						className="size-3.5 cursor-pointer accent-foreground"
 					/>
 				</div>
@@ -859,6 +872,12 @@ function ConflictReview({
 }) {
 	const [contents, setContents] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [remaining, setRemaining] = useState(0);
+	const [saving, setSaving] = useState(false);
+	const countConflicts = useCallback(
+		(value: string) => value.match(/^<<<<<<<(?: .*)?$/gm)?.length ?? 0,
+		[],
+	);
 	useEffect(() => {
 		let cancelled = false;
 		void (async () => {
@@ -879,6 +898,7 @@ function ConflictReview({
 					return;
 				}
 				setContents(result.content);
+				setRemaining(countConflicts(result.content));
 			} catch (cause) {
 				if (!cancelled) setError(String(cause));
 			}
@@ -886,24 +906,74 @@ function ConflictReview({
 		return () => {
 			cancelled = true;
 		};
-	}, [file.path, folderId, worktreeId]);
+	}, [countConflicts, file.path, folderId, worktreeId]);
+
+	const persistResolution = useCallback(
+		async (resolvedContents: string) => {
+			setSaving(true);
+			setError(null);
+			try {
+				const client = await getRpcClient();
+				await Effect.runPromise(
+					client["git.resolveConflict"]({
+						folderId,
+						worktreeId,
+						path: file.path,
+						contents: resolvedContents,
+					}),
+				);
+				await onResolved();
+				onClose();
+			} catch (cause) {
+				setError(`Could not save the resolved file: ${String(cause)}`);
+				setSaving(false);
+			}
+		},
+		[file.path, folderId, onClose, onResolved, worktreeId],
+	);
+	const conflictOptions = useMemo<UnresolvedFileReactOptions<undefined>>(
+		() => ({
+			diffIndicators: "bars",
+			overflow: "wrap",
+			hunkSeparators: "line-info",
+		}),
+		[],
+	);
 
 	return (
 		<div className="absolute inset-0 z-20 flex min-h-0 flex-col bg-background">
-			<div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
-				<Button size="sm" variant="ghost" onClick={onClose}>
-					Back to review
-				</Button>
-				<span className="truncate font-mono text-xs">Resolve {file.path}</span>
+			<div className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+				<button
+					type="button"
+					onClick={onClose}
+					className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+					aria-label="Back to review"
+					title="Back to review"
+				>
+					<ChevronRight className="size-4 rotate-180" />
+				</button>
+				<CircleAlert className="size-3.5 shrink-0 text-amber-400" />
+				<span className="min-w-0 truncate font-mono text-xs">{file.path}</span>
+				<span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
+					{saving
+						? "Saving resolution…"
+						: `${remaining} conflict${remaining === 1 ? "" : "s"} remaining`}
+				</span>
 			</div>
-			<div className="min-h-0 flex-1 overflow-auto">
-				{error !== null ? (
+			{error !== null ? (
+				<div className="border-b border-rose-500/20 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
+					{error}
+				</div>
+			) : null}
+			<div className="min-h-0 flex-1 overflow-auto p-3">
+				{error !== null && contents === null ? (
 					<ReviewState title={error} />
 				) : contents === null ? (
 					<ReviewState title="Loading conflict…" />
 				) : (
 					<UnresolvedFile
 						file={{ name: file.path, contents }}
+						options={conflictOptions}
 						renderMergeConflictUtility={(action, getInstance) => {
 							const resolve = (resolution: MergeConflictResolution) => {
 								const instance = getInstance();
@@ -917,46 +987,51 @@ function ConflictReview({
 									actions: result.actions,
 									markerRows: result.markerRows,
 								});
-								if (result.actions.filter(Boolean).length > 0) return;
-								void (async () => {
-									const client = await getRpcClient();
-									await Effect.runPromise(
-										client["git.resolveConflict"]({
-											folderId,
-											worktreeId,
-											path: file.path,
-											contents: result.file.contents,
-										}),
-									);
-									await onResolved();
-									onClose();
-								})();
+								const nextRemaining = result.actions.filter(Boolean).length;
+								setRemaining(nextRemaining);
+								if (nextRemaining === 0) {
+									void persistResolution(result.file.contents);
+								}
 							};
 							return (
-								<div className="flex gap-1 p-1">
-									{(["current", "incoming", "both"] as const).map(
-										(resolution) => (
-											<Button
-												key={resolution}
-												size="sm"
-												variant="outline"
-												onClick={() => resolve(resolution)}
-											>
-												{resolution === "current"
-													? "Ours"
-													: resolution === "incoming"
-														? "Theirs"
-														: "Both"}
-											</Button>
-										),
-									)}
+								<div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
+									<ConflictAction onClick={() => resolve("current")}>
+										Accept current
+									</ConflictAction>
+									<span className="text-border">|</span>
+									<ConflictAction onClick={() => resolve("incoming")}>
+										Accept incoming
+									</ConflictAction>
+									<span className="text-border">|</span>
+									<ConflictAction onClick={() => resolve("both")}>
+										Accept both
+									</ConflictAction>
 								</div>
 							);
 						}}
+						className="mx-auto block w-full max-w-[1400px] overflow-hidden rounded-lg border border-border/60"
 					/>
 				)}
 			</div>
 		</div>
+	);
+}
+
+function ConflictAction({
+	onClick,
+	children,
+}: {
+	readonly onClick: () => void;
+	readonly children: React.ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="rounded px-1 py-0.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+		>
+			{children}
+		</button>
 	);
 }
 
@@ -972,40 +1047,22 @@ function SavedAnnotationCard({
 	const [editing, setEditing] = useState(false);
 	const [comment, setComment] = useState(annotation.comment);
 	return (
-		<div className="group relative m-2 flex max-w-[600px] gap-2.5 rounded-xl border border-border/70 bg-card p-3 font-sans text-sm text-card-foreground shadow-[0_2px_4px_rgb(0_0_0_/_0.04),0_4px_10px_rgb(0_0_0_/_0.04)]">
-			<div className="grid size-8 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
-				<UserRound className="size-4" />
+		<div className="m-2 max-w-[680px] rounded-lg border border-border/60 bg-background font-sans text-sm text-foreground shadow-sm">
+			<div className="flex items-center gap-2 px-3 pt-3">
+				<div className="grid size-7 shrink-0 place-items-center rounded-full bg-foreground/10 text-muted-foreground">
+					<UserRound className="size-3.5" />
+				</div>
+				<strong className="font-medium">You</strong>
+				<span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+					<Sparkles className="size-2.5" /> Annotation for AI
+				</span>
+				<span className="ml-auto truncate font-mono text-[10px] text-muted-foreground">
+					{annotation.startLine === annotation.endLine
+						? `Line ${annotation.startLine}`
+						: `Lines ${annotation.startLine}–${annotation.endLine}`}
+				</span>
 			</div>
-			<div className="min-w-0 flex-1">
-				<div className="flex items-center gap-2">
-					<strong className="font-medium">You</strong>
-					<span className="truncate font-mono text-[10px] text-muted-foreground">
-						{annotation.relPath}:{annotation.startLine}
-					</span>
-				</div>
-				<div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-					<button
-						type="button"
-						aria-label={editing ? "Cancel editing" : "Edit comment"}
-						title={editing ? "Cancel editing" : "Edit comment"}
-						onClick={() => setEditing((value) => !value)}
-						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-					>
-						{editing ? "Cancel" : "Edit"}
-					</button>
-					<button
-						type="button"
-						aria-label="Delete comment"
-						title="Delete comment"
-						onClick={() =>
-							sessionId !== null &&
-							useAnnotationsStore.getState().remove(sessionId, annotation.id)
-						}
-						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
-					>
-						Delete
-					</button>
-				</div>
+			<div className="px-3 pb-2 pl-12">
 				{editing ? (
 					<form
 						onSubmit={(event) => {
@@ -1016,21 +1073,55 @@ function SavedAnnotationCard({
 								.updateComment(sessionId, annotation.id, comment);
 							setEditing(false);
 						}}
-						className="mt-1 flex gap-1"
+						className="mt-2 flex gap-1.5"
 					>
 						<input
 							value={comment}
 							onChange={(event) => setComment(event.target.value)}
-							className="h-8 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-sm outline-none focus:border-foreground/30"
+							className="h-9 min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 text-sm outline-none focus:border-foreground/30"
 						/>
 						<Button type="submit" size="sm">
 							Save
 						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant="ghost"
+							onClick={() => {
+								setComment(annotation.comment);
+								setEditing(false);
+							}}
+						>
+							Cancel
+						</Button>
 					</form>
 				) : (
-					<p className="mt-1 whitespace-pre-wrap">{annotation.comment}</p>
+					<p className="mt-2 whitespace-pre-wrap leading-5">
+						{annotation.comment}
+					</p>
 				)}
 			</div>
+			{!editing ? (
+				<div className="flex items-center gap-1 border-t border-border/50 px-3 py-1.5 pl-12">
+					<button
+						type="button"
+						onClick={() => setEditing(true)}
+						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+					>
+						Edit
+					</button>
+					<button
+						type="button"
+						onClick={() =>
+							sessionId !== null &&
+							useAnnotationsStore.getState().remove(sessionId, annotation.id)
+						}
+						className="rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-rose-500/10 hover:text-rose-400"
+					>
+						Delete
+					</button>
+				</div>
+			) : null}
 		</div>
 	);
 }
