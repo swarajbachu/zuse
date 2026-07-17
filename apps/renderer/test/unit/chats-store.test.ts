@@ -8,7 +8,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { ComposerInput } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -345,6 +345,50 @@ describe("chats store live changes", () => {
 		await stopChatChangeStream(reconnectProjectId);
 		expect(unsubscribeConnection).toHaveBeenCalledTimes(1);
 		expect(observeConnection).toBeUndefined();
+	});
+
+	it("applies a chat created externally after the initial sidebar hydration", async () => {
+		let publishChat: ((chat: Chat) => void) | undefined;
+		const listChats = vi.fn(() => Effect.succeed([] as ReadonlyArray<Chat>));
+		const listSessions = vi.fn(() => Effect.succeed([reconnectSession]));
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": listChats,
+			"chat.streamChanges": () =>
+				Stream.callback<Chat>((queue) =>
+					Effect.sync(() => {
+						publishChat = (chat) => Queue.offerUnsafe(queue, chat);
+					}),
+				),
+			"session.list": listSessions,
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useSessionsStore.setState({ sessionsByProject: {} });
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(publishChat).toBeDefined());
+		publishChat?.(reconnectChat);
+
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId],
+			).toEqual([reconnectChat]),
+		);
+		expect(listChats).toHaveBeenCalledTimes(1);
+		expect(listSessions).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not restore chat state or its stream when hydration settles after workspace removal", async () => {

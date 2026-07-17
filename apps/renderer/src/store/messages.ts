@@ -24,6 +24,8 @@ import {
 import {
   dispatchRetryableRpcCommand,
   getRpcClient,
+	reportRendererRpcStreamFailure,
+	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
@@ -249,6 +251,9 @@ let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let queueFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let goalFiber: Fiber.Fiber<unknown, unknown> | null = null;
 let liveSessionId: SessionId | null = null;
+let liveConnectionSessionId: SessionId | null = null;
+let liveConnectionGeneration: number | null = null;
+let unsubscribeLiveConnection: (() => void) | null = null;
 // Monotonic token guarding `hydrate` against re-entrancy. `hydrate` mutates the
 // module-global fibers + `liveSessionId` across two `await` points, so two
 // overlapping calls (rapid tab switches, or React's mount→cleanup→mount) used
@@ -281,6 +286,49 @@ const handoffReleaseTimers = new Map<
   SessionId,
   ReturnType<typeof globalThis.setTimeout>
 >();
+
+const stopLiveConnectionSubscription = (): void => {
+	unsubscribeLiveConnection?.();
+	unsubscribeLiveConnection = null;
+	liveConnectionSessionId = null;
+	liveConnectionGeneration = null;
+};
+
+const ensureLiveConnectionSubscription = (sessionId: SessionId): void => {
+	if (
+		liveConnectionSessionId === sessionId &&
+		unsubscribeLiveConnection !== null
+	) {
+		return;
+	}
+	stopLiveConnectionSubscription();
+	liveConnectionSessionId = sessionId;
+	unsubscribeLiveConnection = subscribeRendererRpcConnection((snapshot) => {
+		if (
+			liveConnectionSessionId !== sessionId ||
+			snapshot.status !== "connected"
+		) {
+			return;
+		}
+		if (liveConnectionGeneration === null) {
+			liveConnectionGeneration = snapshot.generation;
+			return;
+		}
+		if (liveConnectionGeneration === snapshot.generation) return;
+		liveConnectionGeneration = snapshot.generation;
+		void useMessagesStore.getState().hydrate(sessionId);
+	});
+};
+
+const reportActiveStreamFailure = (
+	sessionId: SessionId,
+	cause: unknown,
+): void => {
+	if (liveConnectionSessionId !== sessionId) return;
+	const generation = liveConnectionGeneration;
+	if (generation === null) return;
+	reportRendererRpcStreamFailure(generation, cause);
+};
 
 const stopLiveFiber = async () => {
   // Clear the live marker FIRST, before any interrupt yields the event loop.
@@ -323,6 +371,7 @@ const stopLiveFiber = async () => {
  */
 export const teardownLiveStreams = async (): Promise<void> => {
   hydrateEpoch++;
+	stopLiveConnectionSubscription();
   await stopLiveFiber();
 };
 
@@ -395,6 +444,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   queuePausedBySession: {},
   goalBySession: {},
   hydrate: async (sessionId) => {
+		ensureLiveConnectionSubscription(sessionId);
     if (
       liveSessionId === sessionId &&
       liveFiber !== null &&
@@ -590,8 +640,17 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 				enqueueStreamMessage(projected.message);
           }),
       ).pipe(
+				Effect.andThen(
+					Effect.sync(() => {
+						reportActiveStreamFailure(
+							sessionId,
+							new Error("active transcript stream completed unexpectedly"),
+						);
+					}),
+				),
         Effect.catch((err) =>
           Effect.sync(() => {
+							reportActiveStreamFailure(sessionId, err);
             console.error("[messages] message stream errored", err);
             set((s) => ({
               errorBySession: {
