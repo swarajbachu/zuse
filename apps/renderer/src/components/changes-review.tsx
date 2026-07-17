@@ -56,7 +56,6 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { useAuth } from "../hooks/use-auth.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
@@ -114,34 +113,42 @@ const REVIEW_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
 
 type ReviewConflictInstance = UnresolvedFileInstance<undefined>;
-const initializedConflictInstances = new WeakSet<ReviewConflictInstance>();
 
 export const applyReviewConflictResolution = (
 	instance: ReviewConflictInstance | undefined,
-	sourceFile: FileContents,
-	conflictIndex: number,
 	conflict: MergeConflictActionPayload["conflict"],
 	resolution: MergeConflictResolution,
-): ReturnType<ReviewConflictInstance["resolveConflict"]> => {
+): boolean => {
 	const dispatch = instance?.options.onMergeConflictAction;
-	if (instance === undefined || dispatch === undefined) return undefined;
-	// The React adapter initializes its controlled diff state without placing the
-	// original file in the imperative instance cache. Seed it before resolving so
-	// unchanged lines survive reconstruction instead of resolving against `""`.
-	if (!initializedConflictInstances.has(instance)) {
-		instance.render({ file: sourceFile });
-		initializedConflictInstances.add(instance);
-	}
-	const result = instance.resolveConflict(conflictIndex, resolution);
-	if (result === undefined) return undefined;
-	flushSync(() => dispatch({ conflict, resolution }, instance));
-	instance.render({
-		file: result.file,
-		fileDiff: result.fileDiff,
-		actions: result.actions,
-		markerRows: result.markerRows,
-	});
-	return result;
+	if (instance === undefined || dispatch === undefined) return false;
+	dispatch({ conflict, resolution }, instance);
+	return true;
+};
+
+export const resolveReviewConflictContents = (
+	contents: string,
+	conflict: MergeConflictActionPayload["conflict"],
+	resolution: MergeConflictResolution,
+): string => {
+	const lines = contents === "" ? [] : contents.split(/(?<=\n)/);
+	const currentEnd =
+		conflict.baseMarkerLineIndex ?? conflict.separatorLineIndex;
+	const currentLines = lines.slice(conflict.startLineIndex + 1, currentEnd);
+	const incomingLines = lines.slice(
+		conflict.separatorLineIndex + 1,
+		conflict.endLineIndex,
+	);
+	const replacement =
+		resolution === "current"
+			? currentLines
+			: resolution === "incoming"
+				? incomingLines
+				: [...currentLines, ...incomingLines];
+	return [
+		...lines.slice(0, conflict.startLineIndex),
+		...replacement,
+		...lines.slice(conflict.endLineIndex + 1),
+	].join("");
 };
 
 const loadPreferences = (): ReviewPreferences => {
@@ -1031,6 +1038,8 @@ function ConflictReview({
 	const [error, setError] = useState<string | null>(null);
 	const [remaining, setRemaining] = useState(0);
 	const [saving, setSaving] = useState(false);
+	const contentsRef = useRef<string | null>(null);
+	const resolvingConflictIndexesRef = useRef(new Set<number>());
 	const countConflicts = useCallback(
 		(value: string) => value.match(/^<<<<<<<(?: .*)?$/gm)?.length ?? 0,
 		[],
@@ -1054,6 +1063,8 @@ function ConflictReview({
 					);
 					return;
 				}
+				contentsRef.current = result.content;
+				resolvingConflictIndexesRef.current.clear();
 				setContents(result.content);
 				setRemaining(countConflicts(result.content));
 			} catch (cause) {
@@ -1062,6 +1073,7 @@ function ConflictReview({
 		})();
 		return () => {
 			cancelled = true;
+			contentsRef.current = null;
 		};
 	}, [countConflicts, file.path, folderId, worktreeId]);
 
@@ -1133,22 +1145,37 @@ function ConflictReview({
 						options={conflictOptions}
 						renderMergeConflictUtility={(action, getInstance) => {
 							const resolve = (resolution: MergeConflictResolution) => {
-								const result = applyReviewConflictResolution(
-									getInstance(),
-									{ name: file.path, contents },
-									action.conflictIndex,
+								if (
+									resolvingConflictIndexesRef.current.has(action.conflictIndex)
+								) {
+									return;
+								}
+								const currentContents = contentsRef.current;
+								if (currentContents === null) return;
+								resolvingConflictIndexesRef.current.add(action.conflictIndex);
+								const nextContents = resolveReviewConflictContents(
+									currentContents,
 									action.conflict,
 									resolution,
 								);
-								if (result === undefined) {
+								const applied = applyReviewConflictResolution(
+									getInstance(),
+									action.conflict,
+									resolution,
+								);
+								if (!applied) {
+									resolvingConflictIndexesRef.current.delete(
+										action.conflictIndex,
+									);
 									setError("Could not apply this conflict resolution.");
 									return;
 								}
+								contentsRef.current = nextContents;
 								setError(null);
-								const nextRemaining = result.actions.filter(Boolean).length;
+								const nextRemaining = countConflicts(nextContents);
 								setRemaining(nextRemaining);
 								if (nextRemaining === 0) {
-									void persistResolution(result.file.contents);
+									void persistResolution(nextContents);
 								}
 							};
 							return (

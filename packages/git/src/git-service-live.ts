@@ -1939,6 +1939,15 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
+					if (/^(?:<<<<<<<|>>>>>>>)(?: .*)?\r?$/m.test(contents)) {
+						return yield* Effect.fail(
+							new GitCommandError({
+								folderId,
+								reason:
+									"Cannot mark the file resolved while merge-conflict markers remain.",
+							}),
+						);
+					}
 					const abs = path.resolve(cwd, relPath);
 					yield* fs.writeFileString(abs, contents).pipe(
 						Effect.mapError(

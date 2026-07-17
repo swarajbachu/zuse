@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -194,6 +200,31 @@ describe("GitServiceLive", () => {
 
 		expect(result.restored).toBe(true);
 		expect(git(repositoryRoot, "diff", "--", "README.md")).toContain("+first");
+	});
+
+	test("does not stage a conflict resolution while markers remain", async () => {
+		const unresolved = [
+			"<<<<<<< HEAD\n",
+			"current\n",
+			"=======\n",
+			"incoming\n",
+			">>>>>>> branch\n",
+		].join("");
+		writeFileSync(join(repositoryRoot, "README.md"), unresolved);
+
+		await expect(
+			run((service) =>
+				service.resolveConflict(folderId, "README.md", unresolved),
+			),
+		).rejects.toMatchObject({
+			_tag: "GitCommandError",
+			folderId,
+			reason: expect.stringContaining("markers remain"),
+		});
+		expect(readFileSync(join(repositoryRoot, "README.md"), "utf8")).toBe(
+			unresolved,
+		);
+		expect(git(repositoryRoot, "diff", "--cached", "--name-only")).toBe("");
 	});
 
 	test("reports renamed, deleted, and binary files with review metadata", async () => {
