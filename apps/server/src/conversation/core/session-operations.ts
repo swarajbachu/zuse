@@ -190,7 +190,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const createSession: ConversationOperations["createSession"] = (
 		input: CreateSessionInput,
 	) => {
-		const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
+		const sessionId =
+			input.sessionId ?? SessionId.make(`s_${crypto.randomUUID()}`);
 		return Effect.gen(function* () {
 			// Project + worktree are inherited from the chat row — clients no
 			// longer pass them at session-create time. Fail-fast on missing /

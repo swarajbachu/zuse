@@ -1,7 +1,23 @@
-import {
-  getFileIconUrl,
-  getFolderIconUrl,
-} from "../lib/icons/material-icons.ts";
+import { useEffect, useState } from "react";
+
+type IconResolvers = typeof import("../lib/icons/material-icons.ts");
+let resolvers: IconResolvers | null = null;
+let resolverPromise: Promise<IconResolvers> | null = null;
+const resolverListeners = new Set<() => void>();
+
+const loadResolversAfterPaint = (): void => {
+	if (resolverPromise !== null) return;
+	requestAnimationFrame(() => {
+		resolverPromise ??= import("../lib/icons/material-icons.ts").then(
+			(loaded) => {
+				resolvers = loaded;
+				for (const listener of resolverListeners) listener();
+				resolverListeners.clear();
+				return loaded;
+			},
+		);
+	});
+};
 
 type Props = {
   readonly name: string;
@@ -10,12 +26,23 @@ type Props = {
   readonly className?: string;
 };
 
-// Synchronous render: icon URLs are eager-resolved at module load (see
-// lib/icons/material-icons.ts), so the file tree paints icons on first
-// render — no useEffect, no dynamic import, no flicker.
 export function FileIcon({ name, kind, expanded = false, className }: Props) {
+	const [, refresh] = useState(0);
+	useEffect(() => {
+		if (resolvers !== null) return;
+		const listener = () => refresh((value) => value + 1);
+		resolverListeners.add(listener);
+		loadResolversAfterPaint();
+		return () => {
+			resolverListeners.delete(listener);
+		};
+	}, []);
   const url =
-    kind === "directory" ? getFolderIconUrl(name, expanded) : getFileIconUrl(name);
+		resolvers === null
+			? null
+			: kind === "directory"
+				? resolvers.getFolderIconUrl(name, expanded)
+				: resolvers.getFileIconUrl(name);
   return (
     <span
       className={

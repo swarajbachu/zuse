@@ -24,7 +24,12 @@ const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 export default defineConfig({
   // Relative base so file:// loads work in the packaged Electron build.
   base: "./",
-  plugins: [react(), tailwindcss()],
+	plugins: [
+		react({
+			babel: { plugins: [["babel-plugin-react-compiler", {}]] },
+		}),
+		tailwindcss(),
+	],
   resolve: {
     alias: {
       "~": fileURLToPath(new URL("./src", import.meta.url)),
@@ -38,6 +43,9 @@ export default defineConfig({
       allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
     },
   },
+	worker: {
+		format: "es",
+	},
   build: {
     outDir: "dist",
     emptyOutDir: true,

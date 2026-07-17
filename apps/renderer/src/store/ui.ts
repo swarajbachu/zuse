@@ -4,7 +4,7 @@ import type {
   FolderId,
   WorktreeId,
 } from "@zuse/contracts";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import {
   defaultFileViewForName,

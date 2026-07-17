@@ -231,10 +231,10 @@ export function ChatComposer({
   // crowded the timeline. Swap to QuestionCard while one is unanswered;
   // otherwise render the normal editor.
   //
-  // Select the stable message-list reference (Zustand interns the array
+  // Select the stable message-list reference (the atom store interns the array
   // — same identity until a new message arrives) and derive the
   // pending-question shape with `useMemo`. Returning a freshly-built
-  // object directly from a Zustand selector breaks
+  // object directly from an external-store selector breaks
   // `useSyncExternalStore`'s snapshot-equality check and infinite-loops
   // the renderer.
   const sessionMessages = useMessagesStore(
@@ -954,7 +954,12 @@ export function ChatComposer({
         // Mid-turn submit — or a submit while the provider is still coming up
         // — becomes a queue chip; auto-flushed when the turn ends or steered
         // manually.
-        queue(sessionId, input);
+				queue(
+					sessionId,
+					goalSendMode
+						? ComposerInput.make({ ...input, asGoal: true })
+						: input,
+				);
         break;
       case "send":
         void send(sessionId, input);

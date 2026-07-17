@@ -1,31 +1,38 @@
-import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
-
+import {
+	projectSessionEvent,
+	sessionEventCursors,
+} from "@zuse/client-runtime/session-events";
 import {
   ComposerInput,
   Message,
-  MessageId,
   type MessageContent,
+	MessageId,
   type ProviderId,
-  type QueuedMessage,
-  type SessionStatus,
+	QueuedMessage,
+	Session,
   type SessionId,
+	type SessionStatus,
   type ThreadGoal,
   type ThreadGoalSetInput,
 } from "@zuse/contracts";
-import {
-  projectSessionEvent,
-  sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
-
+import { Effect, Fiber, Stream } from "effect";
 import { formatError } from "../lib/format-error.ts";
+import {
+	markRendererInteraction,
+	trackRendererRpc,
+} from "../lib/performance-marks.ts";
 import {
   dispatchRetryableRpcCommand,
   getRpcClient,
 } from "../lib/rpc-client.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 import { usePrDetailsStore } from "./pr-details.ts";
 import { usePrStateStore } from "./pr-state.ts";
+import {
+	markQueueHydrated,
+	subscribeSessionAcknowledged,
+} from "./queue-hydration.ts";
 import { useSessionsStore } from "./sessions.ts";
 
 let getMessagesRpcClient: typeof getRpcClient = getRpcClient;
@@ -186,12 +193,26 @@ type MessagesState = {
   readonly clearGoal: (sessionId: SessionId) => Promise<void>;
   readonly interrupt: (sessionId: SessionId) => Promise<void>;
   /** Append `input` to this session's queue. */
-  readonly queue: (sessionId: SessionId, input: ComposerInput) => void;
+	readonly queue: (
+		sessionId: SessionId,
+		input: ComposerInput,
+		options?: {
+			readonly queueId?: string;
+			readonly persist?: boolean;
+			readonly ready?: boolean;
+		},
+	) => string;
+	readonly persistQueued: (
+		sessionId: SessionId,
+		queueId: string,
+		input: ComposerInput,
+		options?: { readonly ready?: boolean },
+	) => Promise<void>;
   readonly updateQueued: (
     sessionId: SessionId,
     queueId: string,
     input: ComposerInput,
-  ) => void;
+  ) => Promise<void>;
   readonly reorderQueue: (
     sessionId: SessionId,
     queueIds: ReadonlyArray<string>,
@@ -210,6 +231,12 @@ type MessagesState = {
     sessionId: SessionId,
     status: SessionStatus,
   ) => void;
+	readonly observeSessionStatuses: (
+		statuses: ReadonlyArray<{
+			readonly sessionId: SessionId;
+			readonly status: SessionStatus;
+		}>,
+	) => void;
   /**
    * Re-send the most recent user turn. Used by the error-bubble Retry button
    * after the user fixed the underlying issue (re-auth, network back up).
@@ -409,7 +436,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         (get().messagesBySession[sessionId]?.length ?? 0) > 0
           ? sessionEventCursors.get(eventCursorKey(sessionId))
           : undefined;
-      const observeStatusEvent = (status: SessionStatus): void => {
+			const observeStatusEvent = (status: SessionStatus): void => {
         if (liveSessionId !== sessionId) return;
         const wasRunning = get().runningBySession[sessionId] === true;
         get().observeSessionStatus(sessionId, status);
@@ -430,8 +457,102 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         if (status === "idle" || status === "closed") {
           get().flushQueue(sessionId);
         }
-      };
-      const resetOnStreamEnd = Effect.sync(() => {
+			};
+			let pendingStreamMessages: Message[] = [];
+			let streamCommitScheduled = false;
+			let streamCommitFrame: number | null = null;
+			const flushPendingMessages = (): void => {
+				streamCommitScheduled = false;
+				streamCommitFrame = null;
+				const pending = pendingStreamMessages;
+				pendingStreamMessages = [];
+				if (pending.length === 0 || liveSessionId !== sessionId) return;
+				if ((get().messagesBySession[sessionId]?.length ?? 0) === 0) {
+					markRendererInteraction(sessionId, "first-transcript-message");
+				}
+				let exitedPlanMode = false;
+				set((state) => {
+					const current = state.messagesBySession[sessionId] ?? [];
+					let next = current;
+					let ids: Set<string> | null = null;
+					for (const message of pending) {
+						if (optimisticIds.has(message.id)) {
+							optimisticIds.delete(message.id);
+							next = next.map((row) =>
+								row.id === message.id ? message : row,
+							);
+							continue;
+						}
+						ids ??= new Set(next.map((row) => row.id));
+						if (ids.has(message.id)) continue;
+						const content = message.content;
+						if (
+							content._tag === "tool_result" &&
+							content.isError === false &&
+							next.some(
+								(row) =>
+									row.content._tag === "tool_use" &&
+									row.content.itemId === content.itemId &&
+									row.content.tool === "ExitPlanMode",
+							)
+						) {
+							exitedPlanMode = true;
+						}
+						ids.add(message.id);
+						next = [...next, message];
+					}
+					if (next === current) return state;
+					return {
+						messagesBySession: {
+							...state.messagesBySession,
+							[sessionId]: next,
+						},
+					};
+				});
+				if (exitedPlanMode) {
+					useSessionsStore.setState((sessionsState) => {
+						let changed = false;
+						const updated = Object.fromEntries(
+							Object.entries(sessionsState.sessionsByProject).map(
+								([projectId, sessions]) => [
+									projectId,
+									sessions.map((session) => {
+										if (
+											session.id !== sessionId ||
+											session.permissionMode !== "plan"
+										) {
+											return session;
+										}
+										changed = true;
+										return Session.make({
+											...session,
+											permissionMode: "default",
+										});
+									}),
+								],
+							),
+						);
+						return changed ? { sessionsByProject: updated } : sessionsState;
+					});
+				}
+			};
+			const enqueueStreamMessage = (message: Message): void => {
+				pendingStreamMessages.push(message);
+				if (streamCommitScheduled) return;
+				streamCommitScheduled = true;
+				if (typeof globalThis.requestAnimationFrame === "function") {
+					streamCommitFrame = globalThis.requestAnimationFrame(
+						flushPendingMessages,
+					);
+				} else {
+					queueMicrotask(flushPendingMessages);
+				}
+			};
+			const resetOnStreamEnd = Effect.sync(() => {
+				if (streamCommitFrame !== null) {
+					globalThis.cancelAnimationFrame(streamCommitFrame);
+				}
+				flushPendingMessages();
         if (liveSessionId !== sessionId) return;
         useMessagesStore.setState((state) => {
           if (
@@ -465,73 +586,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
               observeStatusEvent(projected.status);
               return;
             }
-            if (projected._tag !== "message") return;
-            const { message } = projected;
-            set((s) => {
-              const current = s.messagesBySession[sessionId] ?? [];
-              // The server echo of a message we inserted optimistically (same
-              // id, passed as `clientMessageId` on send) — swap our placeholder
-              // row for the canonical server row in place rather than skipping,
-              // so server fixups (stripped `pending-` attachments, server
-              // `createdAt`) take effect without a duplicate.
-              if (optimisticIds.has(message.id)) {
-                optimisticIds.delete(message.id);
-                return {
-                  messagesBySession: {
-                    ...s.messagesBySession,
-                    [sessionId]: current.map((m) =>
-                      m.id === message.id ? message : m,
-                    ),
-                  },
-                };
-              }
-              if (current.some((m) => m.id === message.id)) return s;
-              const next = [...current, message];
-              // Auto-untoggle plan mode when the SDK runs ExitPlanMode
-              // successfully. The server already persists the flip via
-              // a `PermissionModeChanged` agent-event side-effect; this
-              // patches the renderer's session-store optimistically so
-              // the chip flips without waiting for the next refresh.
-              if (
-                message.content._tag === "tool_result" &&
-                message.content.isError === false
-              ) {
-                const useId = message.content.itemId;
-                const paired = current.find(
-                  (m) =>
-                    m.content._tag === "tool_use" &&
-                    m.content.itemId === useId &&
-                    m.content.tool === "ExitPlanMode",
-                );
-                if (paired !== undefined) {
-                  useSessionsStore.setState((sess) => {
-                    let dirty = false;
-                    const updated: typeof sess.sessionsByProject = {};
-                    for (const [pid, list] of Object.entries(
-                      sess.sessionsByProject,
-                    )) {
-                      updated[pid] = list.map((row) => {
-                        if (
-                          row.id === sessionId &&
-                          row.permissionMode === "plan"
-                        ) {
-                          dirty = true;
-                          return { ...row, permissionMode: "default" };
-                        }
-                        return row;
-                      });
-                    }
-                    return dirty ? { sessionsByProject: updated } : sess;
-                  });
-                }
-              }
-              return {
-                messagesBySession: {
-                  ...s.messagesBySession,
-                  [sessionId]: next,
-                },
-              };
-            });
+				if (projected._tag !== "message") return;
+				enqueueStreamMessage(projected.message);
           }),
       ).pipe(
         Effect.catch((err) =>
@@ -563,6 +619,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           client["messages.queue.stream"]({ sessionId }),
           (state) =>
             Effect.sync(() => {
+							const previous = get().queueBySession[sessionId] ?? [];
+							if (previous.length > state.items.length) {
+								markRendererInteraction(sessionId, "queue-claimed");
+							}
               set((s) => ({
                 queueBySession: {
                   ...s.queueBySession,
@@ -573,6 +633,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
                   [sessionId]: state.paused,
                 },
               }));
+							markQueueHydrated(sessionId);
             }),
         ),
       );
@@ -771,29 +832,73 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }));
     }
   },
-  queue: (sessionId, input) => {
-    void (async () => {
-      try {
-        const client = await getMessagesRpcClient();
-        const item = await Effect.runPromise(
-          client["messages.queue.add"]({ sessionId, input }),
-        );
+	queue: (sessionId, input, options) => {
+		const queueId = options?.queueId ?? `q_${crypto.randomUUID()}`;
+		const now = new Date();
         set((s) => {
           const existing = s.queueBySession[sessionId] ?? [];
-          if (existing.some((q) => q.id === item.id)) return s;
+			if (existing.some((item) => item.id === queueId)) return s;
           return {
             queueBySession: {
               ...s.queueBySession,
-              [sessionId]: [...existing, item],
+					[sessionId]: [
+						...existing,
+						QueuedMessage.make({
+							id: queueId,
+							sessionId,
+							input,
+							position: existing.length,
+							createdAt: now,
+							updatedAt: now,
+							ready: options?.ready ?? true,
+						}),
+					],
             },
           };
         });
-        // Probe the durable queue after the add completes. The server ignores
-        // flushes while the provider is booting or a turn is running, but this
-        // closes the opposite race: provider-ready can arrive just before the
-        // queued row is persisted, leaving no later status edge to drain it.
+		markQueueHydrated(sessionId);
+		if (options?.persist !== false) {
+			void get().persistQueued(sessionId, queueId, input, {
+				ready: options?.ready,
+			});
+		}
+		return queueId;
+	},
+	persistQueued: async (sessionId, queueId, input, options) => {
+		try {
+			const item = await trackRendererRpc("messages.queue.add", () =>
+				dispatchMessagesRpcCommand(
+					`queue-add:${sessionId}:${queueId}`,
+					async () => {
+						const client = await getMessagesRpcClient();
+						return Effect.runPromise(
+							client["messages.queue.add"]({
+								sessionId,
+								queueId,
+								input,
+								...(options?.ready !== undefined
+									? { ready: options.ready }
+									: {}),
+							}),
+						);
+					},
+				),
+			);
+			markRendererInteraction(sessionId, "queue-persisted");
+			set((s) => ({
+				queueBySession: {
+					...s.queueBySession,
+					[sessionId]: (s.queueBySession[sessionId] ?? []).map((queued) =>
+						queued.id === queueId ? item : queued,
+					),
+				},
+				errorBySession: { ...s.errorBySession, [sessionId]: null },
+			}));
+			// The idle transition may have won the race with insertion. The server
+			// also probes on add; this reconnect-safe command is a harmless fallback.
         get().flushQueue(sessionId);
       } catch (err) {
+			// Keep the optimistic row visible: the stable queue id makes a retry safe.
         set((s) => ({
           errorBySession: {
             ...s.errorBySession,
@@ -801,26 +906,49 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           },
         }));
       }
-    })();
   },
-  updateQueued: (sessionId, queueId, input) => {
+  updateQueued: async (sessionId, queueId, input) => {
     set((s) => ({
       queueBySession: {
         ...s.queueBySession,
         [sessionId]: (s.queueBySession[sessionId] ?? []).map((item) =>
           item.id === queueId
-            ? { ...item, input, updatedAt: new Date() }
+            ? { ...item, input, ready: true, updatedAt: new Date() }
             : item,
         ),
       },
     }));
-    void (async () => {
-      try {
-        const client = await getMessagesRpcClient();
-        await Effect.runPromise(
-          client["messages.queue.update"]({ sessionId, queueId, input }),
-        );
+    try {
+      const client = await getMessagesRpcClient();
+      const item = await Effect.runPromise(
+        client["messages.queue.update"]({ sessionId, queueId, input }),
+      );
+		set((s) => ({
+			queueBySession: {
+				...s.queueBySession,
+				[sessionId]: (s.queueBySession[sessionId] ?? []).map((queued) =>
+					queued.id === queueId ? item : queued,
+				),
+			},
+		}));
       } catch (err) {
+			if (
+				typeof err === "object" &&
+				err !== null &&
+				"_tag" in err &&
+				err._tag === "QueuedMessageNotFoundError"
+			) {
+				const queued = (get().queueBySession[sessionId] ?? []).find(
+					(item) => item.id === queueId,
+				);
+				if (queued !== undefined) {
+					// The initial durable add may have failed while the optimistic row
+					// stayed visible. Re-add only while that row still exists locally;
+					// a user deletion therefore remains a tombstone for this finalizer.
+					await get().persistQueued(sessionId, queueId, input, { ready: true });
+				}
+				return;
+			}
         set((s) => ({
           errorBySession: {
             ...s.errorBySession,
@@ -828,7 +956,6 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           },
         }));
       }
-    })();
   },
   reorderQueue: (sessionId, queueIds) => {
     set((s) => {
@@ -985,23 +1112,30 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }
   },
   observeSessionStatus: (sessionId, status) => {
-    publishObservedStatus(sessionId, status);
-    const isRunning = status === "running";
-    if (isRunning) {
-      handoffRunningSessions.delete(sessionId);
-      const timer = handoffReleaseTimers.get(sessionId);
-      if (timer !== undefined) {
-        globalThis.clearTimeout(timer);
-        handoffReleaseTimers.delete(sessionId);
-      }
-    }
-    set((s) => ({
-      runningBySession: {
-        ...s.runningBySession,
-        [sessionId]: isRunning || handoffRunningSessions.has(sessionId),
-      },
-    }));
-  },
+		get().observeSessionStatuses([{ sessionId, status }]);
+	},
+	observeSessionStatuses: (statuses) => {
+		if (statuses.length === 0) return;
+		const running = { ...get().runningBySession };
+		for (const { sessionId, status } of statuses) {
+			if (status === "idle" || status === "running") {
+				markRendererInteraction(sessionId, "provider-ready");
+			}
+			publishObservedStatus(sessionId, status);
+			const isRunning = status === "running";
+			if (isRunning) {
+				handoffRunningSessions.delete(sessionId);
+				const timer = handoffReleaseTimers.get(sessionId);
+				if (timer !== undefined) {
+					globalThis.clearTimeout(timer);
+					handoffReleaseTimers.delete(sessionId);
+				}
+			}
+			running[sessionId] =
+				isRunning || handoffRunningSessions.has(sessionId);
+		}
+		set({ runningBySession: running });
+	},
   clearError: (sessionId) =>
     set((s) => ({
       errorBySession: { ...s.errorBySession, [sessionId]: null },
@@ -1031,3 +1165,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }
   },
 }));
+
+subscribeSessionAcknowledged((sessionId) => {
+	const state = useMessagesStore.getState();
+	for (const item of state.queueBySession[sessionId] ?? []) {
+		void state.persistQueued(sessionId, item.id, item.input, {
+			ready: item.ready,
+		});
+	}
+});

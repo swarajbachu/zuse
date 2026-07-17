@@ -14,6 +14,7 @@ import type {
 import {
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
+	ChatId,
 	ComposerInput,
 	defaultModelFor,
 	MessageId,
@@ -84,6 +85,7 @@ import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrat
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { Migration0037ProviderEventCursor } from "../../src/persistence/migrations/0037_provider_event_cursor.ts";
+import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -122,15 +124,28 @@ let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 let providerSentTexts: string[] = [];
+let providerSendAttempts = 0;
 let providerStartOrchestrationTools: Array<
 	OrchestrationSessionTools | null | undefined
 > = [];
 let failProviderStart = false;
+let failProviderSend = false;
+let providerStartBarrier: Promise<void> | null = null;
 let testAutonomyLevel: AutonomyLevel = "approval-gated";
 let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
 let archivedWorktreeIds = new Set<string>();
 let restoredWorktreeCount = 0;
+
+const deferred = <A>() => {
+	let resolve!: (value: A) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<A>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+};
 
 /** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
@@ -140,6 +155,9 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			providerStartInputs.push(input);
 			providerStartCursors.push(resumeCursor ?? null);
 			providerStartOrchestrationTools.push(orchestrationTools);
+			if (providerStartBarrier !== null) {
+				yield* Effect.promise(() => providerStartBarrier as Promise<void>);
+			}
 			if (failProviderStart) {
 				return yield* new AgentSessionStartError({
 					providerId: input.providerId,
@@ -150,10 +168,18 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
 		}),
-	send: (_sessionId, text) =>
+	send: (sessionId, text) =>
 		Effect.sync(() => {
+			providerSendAttempts += 1;
+		}).pipe(
+			Effect.andThen(
+				failProviderSend
+					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+					: Effect.sync(() => {
 			providerSentTexts.push(text);
 		}),
+			),
+		),
 	interrupt: () => Effect.void,
 	close: () => Effect.void,
 	events: () => Stream.fromIterable(scriptedEvents),
@@ -391,6 +417,7 @@ const runAllMigrations = Effect.all(
 		Migration0033ReactorEffectSteps,
 		Migration0034ToolEventLookup,
 		Migration0037ProviderEventCursor,
+		Migration0038QueuedMessageReady,
 	],
 	{ discard: true },
 );
@@ -496,8 +523,11 @@ beforeEach(() => {
 	providerStartInputs = [];
 	providerStartCursors = [];
 	providerSentTexts = [];
+	providerSendAttempts = 0;
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
+	failProviderSend = false;
+	providerStartBarrier = null;
 	testAutonomyLevel = "approval-gated";
 	createdWorktreeCount = 0;
 	createdWorktrees = new Map();
@@ -1094,6 +1124,34 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				text: "fix the bug",
 			});
 			expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+		});
+	});
+
+	it("createChat accepts client ids and returns before background provider startup", async () => {
+		await withRuntime(async (run) => {
+			const chatId = ChatId.make("chat_client_optimistic");
+			const sessionId = SessionId.make("s_client_optimistic");
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						chatId,
+						initialSessionId: sessionId,
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						background: true,
+					}),
+				),
+			);
+
+			expect(result.chat.id).toBe(chatId);
+			expect(result.initialSession.id).toBe(sessionId);
+			expect(result.initialSession.status).toBe("booting");
+			expect(result.initialMessage).toBeNull();
+			const messages = await run(
+				Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+			);
+			expect(messages).toEqual([]);
 		});
 	});
 
@@ -1931,6 +1989,429 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				"first edited",
 			]);
 			expect(remaining.items[0]?.position).toBe(0);
+		});
+	});
+
+	it("queue insertion is idempotent for a renderer-minted queue id", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "keep the session running",
+					}),
+				),
+			);
+			const input = new ComposerInput({
+				text: "persist me once",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+			});
+
+			const [first, replay] = await run(
+				Effect.flatMap(store, (service) =>
+					Effect.all([
+						service.addQueuedMessage(
+							initialSession.id,
+							input,
+							"q_client_optimistic",
+						),
+						service.addQueuedMessage(
+							initialSession.id,
+							input,
+							"q_client_optimistic",
+						),
+					]),
+				),
+			);
+			const queue = await run(
+				Effect.flatMap(store, (service) =>
+					service.listQueuedMessages(initialSession.id),
+				),
+			);
+
+			expect(replay.id).toBe(first.id);
+			expect(queue.items).toHaveLength(1);
+			expect(queue.items[0]?.id).toBe("q_client_optimistic");
+		});
+	});
+
+	it("holds a durable startup item until finalization releases it", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const held = await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						ComposerInput.make({
+							text: "finalize me",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_held_startup",
+						false,
+					),
+				),
+			);
+
+			expect(held.ready).toBe(false);
+			expect(providerSentTexts).toEqual([]);
+			expect(
+				(
+					await run(
+						Effect.flatMap(store, (service) =>
+							service.listQueuedMessages(initialSession.id),
+						),
+					)
+				).items.map((item) => item.id),
+			).toEqual(["q_held_startup"]);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.updateQueuedMessage(
+						initialSession.id,
+						held.id,
+						held.input,
+					),
+				),
+			);
+			await expect.poll(() => providerSentTexts).toEqual(["finalize me"]);
+		});
+	});
+
+	it("does not resurrect a held startup item deleted during finalization", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const held = await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						ComposerInput.make({
+							text: "delete me",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_deleted_while_held",
+						false,
+					),
+				),
+			);
+			const result = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					yield* service.deleteQueuedMessage(initialSession.id, held.id);
+					return yield* Effect.result(
+						service.updateQueuedMessage(initialSession.id, held.id, held.input),
+					);
+				}),
+			);
+
+			expect(result._tag).toBe("Failure");
+			if (result._tag === "Failure") {
+				expect(result.failure._tag).toBe("QueuedMessageNotFoundError");
+			}
+			expect(providerSentTexts).toEqual([]);
+			expect(
+				(
+					await run(
+						Effect.flatMap(store, (service) =>
+							service.listQueuedMessages(initialSession.id),
+						),
+					)
+				).items,
+			).toEqual([]);
+		});
+	});
+
+	it("preserves goal submission metadata while a startup prompt is queued", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						ComposerInput.make({
+							text: "goal from startup",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+							asGoal: true,
+						}),
+						"q_goal_startup",
+					),
+				),
+			);
+			await expect
+				.poll(async () =>
+					(
+						await run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(initialSession.id),
+							),
+						)
+					).find((message) => message.role === "user"),
+				)
+				.toMatchObject({
+					content: { _tag: "user", text: "goal from startup", goal: true },
+				});
+			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
+	it("drains a startup queue when the queue row wins the provider-ready race", async () => {
+		await withRuntime(async (run) => {
+			const barrier = deferred<void>();
+			providerStartBarrier = barrier.promise;
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						background: true,
+					}),
+				),
+			);
+			const input = new ComposerInput({
+				text: "send after startup",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+			});
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						input,
+						"q_queue_first",
+					),
+				),
+			);
+			expect(
+				(
+					await run(
+						Effect.flatMap(store, (service) =>
+							service.listMessages(created.initialSession.id),
+						),
+					)
+				).filter((message) => message.role === "user"),
+			).toEqual([]);
+
+			barrier.resolve();
+			providerStartBarrier = null;
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.listQueuedMessages(created.initialSession.id),
+								),
+							)
+						).items.length,
+				)
+				.toBe(0);
+			expect(
+				providerSentTexts.filter((text) => text === input.text),
+			).toHaveLength(1);
+		});
+	});
+
+	it("drains a startup queue when provider readiness wins the insertion race", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						background: true,
+					}),
+				),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.getSession(created.initialSession.id),
+								),
+							)
+						).status,
+				)
+				.toBe("idle");
+			const input = new ComposerInput({
+				text: "ready before insert",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+			});
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						input,
+						"q_provider_first",
+					),
+				),
+			);
+			await expect
+				.poll(
+					() => providerSentTexts.filter((text) => text === input.text).length,
+				)
+				.toBe(1);
+		});
+	});
+
+	it("keeps queued startup work when provider boot fails", async () => {
+		await withRuntime(async (run) => {
+			failProviderStart = true;
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						background: true,
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						new ComposerInput({
+							text: "keep me",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_boot_failure",
+					),
+				),
+			);
+			await expect
+				.poll(
+					async () =>
+						(
+							await run(
+								Effect.flatMap(store, (service) =>
+									service.getSession(created.initialSession.id),
+								),
+							)
+						).status,
+				)
+				.toBe("error");
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						new ComposerInput({
+							text: "keep me after failure",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_after_boot_failure",
+					),
+				),
+			);
+			const queue = await run(
+				Effect.flatMap(store, (service) =>
+					service.listQueuedMessages(created.initialSession.id),
+				),
+			);
+			expect(queue.items.map((item) => item.id)).toEqual([
+				"q_boot_failure",
+				"q_after_boot_failure",
+			]);
+			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
+	it("restores an atomically claimed queue item when submission fails", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			failProviderSend = true;
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						created.initialSession.id,
+						new ComposerInput({
+							text: "restore after failure",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+						"q_restore_failure",
+					),
+				),
+			);
+			await expect.poll(() => providerSendAttempts).toBeGreaterThanOrEqual(1);
+			await expect
+				.poll(async () =>
+					(
+						await run(
+							Effect.flatMap(store, (service) =>
+								service.listQueuedMessages(created.initialSession.id),
+							),
+						)
+					).items.map((item) => item.id),
+				)
+				.toEqual(["q_restore_failure"]);
+			failProviderSend = false;
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.flushQueuedMessages(created.initialSession.id),
+				),
+			);
+			const messages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(created.initialSession.id),
+				),
+			);
+			expect(
+				messages.filter((message) => message.content._tag === "user"),
+			).toHaveLength(1);
+			expect(providerSentTexts).toEqual(["restore after failure"]);
 		});
 	});
 

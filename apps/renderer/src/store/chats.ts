@@ -1,27 +1,33 @@
-import type {
+import {
 	Chat,
-	ChatArchiveResult,
+	type ChatArchiveResult,
 	ChatId,
-	ChatUnarchiveResult,
-	FolderId,
-	PermissionMode,
-	ProviderId,
-	RuntimeMode,
+	type ChatUnarchiveResult,
+	type ComposerInput,
+	type FolderId,
+	type PermissionMode,
+	type ProviderId,
+	type RuntimeMode,
 	Session,
 	SessionId,
-	WorktreeId,
+	type WorktreeId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
-
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
+import {
+	markRendererInteraction,
+	trackRendererRpc,
+} from "../lib/performance-marks.ts";
 import {
 	getRpcClient,
 	reportRendererRpcStreamFailure,
 	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
+import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
+import { registerChatCommands } from "./chat-commands.ts";
 import { useMessagesStore } from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useTerminalsStore } from "./terminals.ts";
@@ -69,15 +75,16 @@ type ChatsState = {
 		model: string,
 		opts?: {
 			readonly title?: string;
-			readonly initialPrompt?: string;
 			readonly runtimeMode?: RuntimeMode;
-			readonly worktreeId?: WorktreeId | null;
+			readonly worktreeId?: WorktreeId | null | Promise<WorktreeId | null>;
 			readonly permissionMode?: PermissionMode;
 			readonly toolSearch?: boolean;
+			readonly startupInput?: ComposerInput;
 		},
 	) => Promise<{
 		readonly chatId: ChatId;
 		readonly initialSessionId: SessionId;
+		readonly startupQueueId: string | null;
 	} | null>;
 	readonly rename: (chatId: ChatId, title: string) => Promise<void>;
 	readonly setWorktree: (
@@ -129,10 +136,14 @@ export const isChatUnread = (
 	return chat.lastMessageAt.getTime() > chat.lastReadAt.getTime();
 };
 
+const chatProjectIndex = new Map<ChatId, FolderId>();
+
 const findChatProject = (
 	chatsByProject: ChatsState["chatsByProject"],
 	chatId: ChatId,
 ): FolderId | null => {
+	const indexed = chatProjectIndex.get(chatId);
+	if (indexed !== undefined) return indexed;
 	for (const [pid, chats] of Object.entries(chatsByProject)) {
 		if (chats.some((c) => c.id === chatId)) return pid as FolderId;
 	}
@@ -321,25 +332,109 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}
 	},
 	create: async (projectId, providerId, model, opts) => {
+		const chatId = ChatId.make(`chat_${crypto.randomUUID()}`);
+		const initialSessionId = SessionId.make(`s_${crypto.randomUUID()}`);
+		const previousChatId = get().selectedChatByProject[projectId] ?? null;
+		const previousSessionId =
+			useSessionsStore.getState().selectedSessionByProject[projectId] ?? null;
+		markRendererInteraction(initialSessionId, "click");
+		const now = new Date();
+		const title = opts?.title?.trim() || "New chat";
+		const optimisticWorktreeId =
+			opts?.worktreeId instanceof Promise ? null : (opts?.worktreeId ?? null);
+		const optimisticChat = Chat.make({
+			id: chatId,
+			projectId,
+			worktreeId: optimisticWorktreeId,
+			title,
+			activeSessionId: initialSessionId,
+			originSessionId: null,
+			archivedAt: null,
+			lastMessageAt: null,
+			lastReadAt: now,
+			createdAt: now,
+			updatedAt: now,
+		});
+		const optimisticSession = Session.make({
+			id: initialSessionId,
+			projectId,
+			title,
+			providerId,
+			model,
+			status: "booting",
+			archivedAt: null,
+			cursor: null,
+			resumeStrategy: "none",
+			runtimeMode: opts?.runtimeMode ?? "approval-required",
+			worktreeId: optimisticWorktreeId,
+			chatId,
+			forkedFromSessionId: null,
+			forkedFromMessageId: null,
+			permissionMode: opts?.permissionMode ?? "default",
+			toolSearch: opts?.toolSearch ?? false,
+			createdAt: now,
+			updatedAt: now,
+		});
+		let startupQueueId: string | null = null;
+		batchAtomUpdates(() => {
 		set((s) => ({
 			error: null,
 			creatingByProject: { ...s.creatingByProject, [projectId]: true },
+				chatsByProject: {
+					...s.chatsByProject,
+					[projectId]: upsertChat(
+						s.chatsByProject[projectId] ?? [],
+						optimisticChat,
+					),
+				},
+				selectedChatId: chatId,
+				selectedChatByProject: {
+					...s.selectedChatByProject,
+					[projectId]: chatId,
+				},
+			}));
+			useSessionsStore.setState((s) => ({
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectId]: [
+						optimisticSession,
+						...(s.sessionsByProject[projectId] ?? []),
+					],
+				},
+				selectedSessionId: initialSessionId,
+				selectedSessionByProject: {
+					...s.selectedSessionByProject,
+					[projectId]: initialSessionId,
+				},
 		}));
+			if (opts?.startupInput !== undefined) {
+				startupQueueId = useMessagesStore
+					.getState()
+					.queue(initialSessionId, opts.startupInput, { persist: false });
+			}
+		});
+		markRendererInteraction(initialSessionId, "first-atom-commit");
 		try {
+			const worktreeId = await (opts?.worktreeId ?? null);
 			const client = await getRpcClient();
-			const result = await Effect.runPromise(
+			const result = await trackRendererRpc("chat.create", () =>
+				Effect.runPromise(
 				client["chat.create"]({
+						chatId,
+						initialSessionId,
 					projectId,
 					providerId,
 					model,
 					title: opts?.title,
-					initialPrompt: opts?.initialPrompt,
 					runtimeMode: opts?.runtimeMode,
-					worktreeId: opts?.worktreeId ?? null,
+						worktreeId,
 					permissionMode: opts?.permissionMode,
 					toolSearch: opts?.toolSearch,
+						background: true,
 				}),
+				),
 			);
+			markRendererInteraction(initialSessionId, "entity-acknowledged");
 			const { chat, initialSession, initialMessage } = result;
 			// Seed the messages store FIRST so the chat view, when it mounts on
 			// the next render, finds the initial user message already in place —
@@ -381,16 +476,14 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				const list = s.sessionsByProject[projectId] ?? [];
 				// The live chat stream can hydrate this row before create() resolves.
 				// Deduplicate the row without dropping the selection transition.
-				const sessionAlreadyHydrated = list.some(
-					(row) => row.id === initialSession.id,
-				);
 				return {
-					sessionsByProject: sessionAlreadyHydrated
-						? s.sessionsByProject
-						: {
-								...s.sessionsByProject,
-								[projectId]: [initialSession, ...list],
-							},
+					sessionsByProject: {
+						...s.sessionsByProject,
+						[projectId]: [
+							initialSession,
+							...list.filter((row) => row.id !== initialSession.id),
+						],
+					},
 					selectedSessionId: initialSession.id,
 					selectedSessionByProject: {
 						...s.selectedSessionByProject,
@@ -398,12 +491,51 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					},
 				};
 			});
-			return { chatId: chat.id, initialSessionId: initialSession.id };
+			return {
+				chatId: chat.id,
+				initialSessionId: initialSession.id,
+				startupQueueId,
+			};
 		} catch (err) {
-			set((s) => ({
-				error: formatError(err),
-				creatingByProject: { ...s.creatingByProject, [projectId]: false },
-			}));
+			batchAtomUpdates(() => {
+				if (startupQueueId !== null) {
+					useMessagesStore
+						.getState()
+						.dropFromQueue(initialSessionId, startupQueueId);
+				}
+				useSessionsStore.setState((s) => ({
+					sessionsByProject: {
+						...s.sessionsByProject,
+						[projectId]: (s.sessionsByProject[projectId] ?? []).filter(
+							(row) => row.id !== initialSessionId,
+						),
+					},
+					selectedSessionId:
+						s.selectedSessionId === initialSessionId
+							? previousSessionId
+							: s.selectedSessionId,
+					selectedSessionByProject: {
+						...s.selectedSessionByProject,
+						[projectId]: previousSessionId,
+					},
+				}));
+				set((s) => ({
+					error: formatError(err),
+					chatsByProject: {
+						...s.chatsByProject,
+						[projectId]: (s.chatsByProject[projectId] ?? []).filter(
+							(row) => row.id !== chatId,
+						),
+					},
+					selectedChatId:
+						s.selectedChatId === chatId ? previousChatId : s.selectedChatId,
+					selectedChatByProject: {
+						...s.selectedChatByProject,
+						[projectId]: previousChatId,
+					},
+					creatingByProject: { ...s.creatingByProject, [projectId]: false },
+				}));
+			});
 			return null;
 		}
 	},
@@ -829,6 +961,54 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			};
 		}),
 }));
+
+useChatsStore.subscribe((state, previous) => {
+	if (state.chatsByProject === previous.chatsByProject) return;
+	const projectIds = new Set([
+		...Object.keys(previous.chatsByProject),
+		...Object.keys(state.chatsByProject),
+	]);
+	for (const projectId of projectIds) {
+		const before = previous.chatsByProject[projectId];
+		const after = state.chatsByProject[projectId];
+		if (before === after) continue;
+		for (const chat of before ?? []) {
+			if (chatProjectIndex.get(chat.id) === projectId) {
+				chatProjectIndex.delete(chat.id);
+			}
+		}
+		for (const chat of after ?? []) {
+			chatProjectIndex.set(chat.id, projectId as FolderId);
+		}
+	}
+});
+
+registerChatCommands({
+	upsertFork: (chat, session) => {
+		useChatsStore.setState((state) => {
+			const list = state.chatsByProject[session.projectId] ?? [];
+			const next = list.some((row) => row.id === chat.id)
+				? list.map((row) => (row.id === chat.id ? chat : row))
+				: [chat, ...list];
+			return {
+				chatsByProject: {
+					...state.chatsByProject,
+					[session.projectId]: next,
+				},
+				selectedChatId: chat.id,
+				selectedChatByProject: {
+					...state.selectedChatByProject,
+					[session.projectId]: chat.id,
+				},
+			};
+		});
+		void useChatsStore.getState().setActiveSession(chat.id, session.id);
+	},
+	setActiveSession: (chatId, sessionId) => {
+		void useChatsStore.getState().setActiveSession(chatId, sessionId);
+	},
+	stopProjectStream: stopChatChangeStream,
+});
 
 /** Archive a chat while exposing progress to every archive entry point. */
 export async function archiveChatWithConfirm(chatId: ChatId): Promise<void> {

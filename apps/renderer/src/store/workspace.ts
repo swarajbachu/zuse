@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
+import { stopProjectChatStream } from "./chat-commands.ts";
 
 import type {
   Folder,
@@ -141,8 +142,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const client = await getRpcClient();
       await Effect.runPromise(client["workspace.remove"]({ folderId }));
-      const { stopChatChangeStream } = await import("./chats.ts");
-      await stopChatChangeStream(folderId);
+			await stopProjectChatStream(folderId);
       const nextSelected = (() => {
         const s = get();
         const folders = s.folders.filter((f) => f.id !== folderId);

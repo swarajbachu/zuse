@@ -5,14 +5,13 @@ import {
   ViewIcon,
   ViewOffIcon,
 } from "@hugeicons-pro/core-bulk-rounded";
+import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { useState } from "react";
 
-import type { AgentAvailability, ProviderId } from "@zuse/contracts";
-
 import { ProviderIcon } from "~/components/provider-icons";
-import { PROVIDER_LABEL } from "~/components/settings-page";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { PROVIDER_LABEL } from "~/lib/provider-labels";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 import { cn } from "~/lib/utils";
 import { useProvidersStore } from "../../../store/providers.ts";

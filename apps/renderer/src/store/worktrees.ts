@@ -6,7 +6,7 @@ import {
   type WorktreeSetupEvent,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import { toastManager } from "../components/ui/toast.tsx";
 import { formatError } from "../lib/format-error.ts";
@@ -27,7 +27,7 @@ type WorktreesByProject = Readonly<Record<string, ReadonlyArray<Worktree>>>;
 /**
  * Stable reference for "no worktrees yet" so selectors written as
  * `s.byProject[projectId] ?? EMPTY` don't return a new array each render
- * — that would invalidate zustand's `Object.is` snapshot and trigger a
+ * — that would invalidate the external-store `Object.is` snapshot and trigger a
  * `getSnapshot` infinite loop in React 19.
  */
 export const EMPTY_WORKTREES: ReadonlyArray<Worktree> = Object.freeze([]);

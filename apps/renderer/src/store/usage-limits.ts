@@ -3,7 +3,7 @@ import type {
 	UsageLimitHistoryPoint,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 
 let rpcClient = getRpcClient;

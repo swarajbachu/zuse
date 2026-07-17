@@ -1,5 +1,5 @@
 import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import {
   type AppearanceMode,

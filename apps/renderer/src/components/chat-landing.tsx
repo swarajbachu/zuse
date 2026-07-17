@@ -7,7 +7,7 @@ import {
 } from "@hugeicons-pro/core-bulk-rounded";
 import {
   type ChatId,
-  type ComposerInput,
+	ComposerInput,
   defaultModelFor,
   type FolderId,
   type LinearIssueSummary,
@@ -18,7 +18,14 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useState,
+} from "react";
 import {
   Frame,
   FrameFooter,
@@ -54,19 +61,23 @@ import { useComposerBridge } from "~/store/composer-bridge";
 import { composerDraftKeyForLanding } from "~/store/composer-drafts";
 import { useExternalThreadsStore } from "~/store/external-threads";
 import { useMessagesStore } from "~/store/messages";
-import { useProvidersStore } from "~/store/providers";
 import { DRAFT_SESSION_ID, useSessionsStore } from "~/store/sessions";
 import { useSettingsStore } from "~/store/settings";
 import { useWorkspaceStore } from "~/store/workspace";
 import { EMPTY_WORKTREES, useWorktreesStore } from "~/store/worktrees";
-import { ChatComposer } from "./chat-composer.tsx";
+import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import {
   CreateFromMenu,
   type CreateFromSelection,
 } from "./composer/create-from-menu.tsx";
 import { ProviderIcon } from "./provider-icons";
-import { PROVIDER_LABEL } from "./settings-page";
 import { SetupCardView } from "./worktree-setup-card.tsx";
+
+const ChatComposer = lazy(() =>
+	import("./chat-composer.tsx").then((module) => ({
+		default: module.ChatComposer,
+	})),
+);
 
 /**
  * Copy the per-session model options (reasoning/effort level + Claude fast
@@ -118,7 +129,7 @@ const formatThreadRelative = (date: Date): string => {
  *
  * Renders a centered "What should we build in <project>?" headline above a
  * mini composer + project picker + starter-prompt list. On submit we call
- * `useChatsStore.create()` with the typed text as `initialPrompt`; the
+ * `useChatsStore.create()` with the typed input held in the startup queue; the
  * chat store auto-selects the new session, which causes `MainShell` to
  * swap this surface for `<ChatView />` + `<ChatComposer />` on the next
  * render.
@@ -139,16 +150,6 @@ export function ChatLanding() {
   );
 
   const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
-  // Goal mode is offered for Codex (version-gated `goalMode` capability) and
-  // Grok (native `/goal`, advertised unconditionally) — both surface the
-  // capability via the availability probe.
-  const defaultProviderCapabilities = useProvidersStore((s) =>
-    s.capabilitiesFor(defaultProviderId),
-  );
-  const goalSupported =
-    defaultProviderId === "grok" ||
-    (defaultProviderId === "codex" &&
-      defaultProviderCapabilities.includes("goalMode"));
   const defaultModelByProvider = useSettingsStore(
     (s) => s.defaultModelByProvider,
   );
@@ -157,8 +158,9 @@ export function ChatLanding() {
     (s) => s.defaultAutoCreateWorktree,
   );
 
-  const create = useChatsStore((s) => s.create);
-  const send = useMessagesStore((s) => s.send);
+	const create = useChatsStore((s) => s.create);
+	const persistQueued = useMessagesStore((s) => s.persistQueued);
+	const updateQueued = useMessagesStore((s) => s.updateQueued);
   const uploadOne = useAttachmentsStore((s) => s.uploadOne);
   const beginDraft = useSessionsStore((s) => s.beginDraft);
   const clearDraft = useSessionsStore((s) => s.clearDraft);
@@ -394,6 +396,7 @@ export function ChatLanding() {
     if (selectedFolderId === null || submitting) return;
     const draft = useSessionsStore.getState().draftSession;
     if (draft === null) return;
+		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
     setSubmitError(null);
     setSubmitting(true);
     setPendingProviderId(draft.providerId);
@@ -420,20 +423,34 @@ export function ChatLanding() {
           {
             title: `${issue.identifier} ${issue.title}`,
             runtimeMode: draft.runtimeMode,
-            permissionMode: draft.permissionMode,
-            worktreeId,
-          },
+							permissionMode: draft.permissionMode,
+							worktreeId,
+							startupInput,
+						},
         );
         if (result === null) {
           failures.push(`${issue.identifier}: couldn't create session`);
           return;
         }
-        migrateModelOptions(DRAFT_SESSION_ID, result.initialSessionId);
+				migrateModelOptions(DRAFT_SESSION_ID, result.initialSessionId);
+				const startupQueueId = result.startupQueueId;
+				if (startupQueueId !== null) {
+					await persistQueued(
+						result.initialSessionId,
+						startupQueueId,
+						startupInput,
+						{ ready: false },
+					);
+				}
+				successes.push({
+					chatId: result.chatId,
+					sessionId: result.initialSessionId,
+				});
         try {
           let ticketInput = await prepareLinearInput(
             result.initialSessionId,
             [issue],
-            input,
+							startupInput,
           );
           const uploadRoot =
             worktreeId === null
@@ -469,13 +486,13 @@ export function ChatLanding() {
                 uploadRoot ?? undefined,
               ),
           );
-          void send(result.initialSessionId, ticketInput, {
-            asGoal: opts.asGoal && goalSupported,
-          });
-          successes.push({
-            chatId: result.chatId,
-            sessionId: result.initialSessionId,
-          });
+						if (startupQueueId !== null) {
+							await updateQueued(
+								result.initialSessionId,
+								startupQueueId,
+								ticketInput,
+							);
+						}
         } catch (error) {
           failures.push(
             `${issue.identifier}: ${error instanceof Error ? error.message : String(error)}`,
@@ -516,21 +533,24 @@ export function ChatLanding() {
     }
     // A "Create from…" PR/branch already checked out (or reused) a worktree —
     // pin the chat to it. Otherwise fall back to the normal auto-worktree.
-    const worktreeId =
+		const worktreePromise =
       createSource !== null && createSource.worktreeId !== null
-        ? createSource.worktreeId
-        : await resolveAutoWorktreeId(selectedFolderId);
-    setPendingWorktreeId(worktreeId);
-    const result = await create(
+				? Promise.resolve(createSource.worktreeId)
+				: resolveAutoWorktreeId(selectedFolderId);
+		const createPromise = create(
       selectedFolderId,
       draft.providerId,
       draft.model,
       {
         runtimeMode: draft.runtimeMode,
         permissionMode: draft.permissionMode,
-        worktreeId,
+				worktreeId: worktreePromise,
+				startupInput,
       },
     );
+		const worktreeId = await worktreePromise;
+		setPendingWorktreeId(worktreeId);
+		const result = await createPromise;
     if (result === null) {
       const reason =
         useChatsStore.getState().error ??
@@ -543,15 +563,23 @@ export function ChatLanding() {
       return;
     }
     const sessionId = result.initialSessionId;
+		const startupQueueId = result.startupQueueId;
     migrateModelOptions(DRAFT_SESSION_ID, sessionId);
+		if (startupQueueId !== null) {
+			// The session and startup item are now durable, but the item stays held
+			// until attachment/context preparation has produced its final payload.
+			await persistQueued(sessionId, startupQueueId, startupInput, {
+				ready: false,
+			});
+		}
     // Issue source: write its Markdown into the chat's real worktree cwd and
     // attach it as an `@`-file so the agent reads it from its own cwd (works
     // for both the Claude `@relPath` and Codex `absPath` mention paths).
-    let finalInput = input;
+		let finalInput = startupInput;
     if (createSource?.issue != null) {
       const ref = await saveContextFile(sessionId, createSource.issue.markdown);
       if (ref !== null) {
-        finalInput = appendContextFileRef(input, ref);
+				finalInput = appendContextFileRef(startupInput, ref);
       }
     }
     if (createSource?.linear?.mode === "combined") {
@@ -627,12 +655,11 @@ export function ChatLanding() {
         }
       }
     }
-    if (opts.asGoal && goalSupported) {
-      void send(sessionId, finalInput, { asGoal: true });
-    } else {
-      // `create()` returns only after the provider handshake completes, so the
-      // agent can begin even when the detached setup script is still running.
-      void send(sessionId, finalInput);
+		if (startupQueueId !== null) {
+			// Finalization is the release edge. If the provider became ready first,
+			// this update requests a drain; if the user deleted the item meanwhile,
+			// the server returns not-found and the item is never resurrected.
+			await updateQueued(sessionId, startupQueueId, finalInput);
     }
     setCreateSource(null);
     useSessionsStore.getState().clearDraft();
@@ -699,11 +726,14 @@ export function ChatLanding() {
             tagging, model/thinking, fast mode, plan mode, runtime, etc. On
             send it hands the parsed input back to `handleDraftSubmit`. */}
         {draftSession !== null ? (
+					<Suspense fallback={<div className="h-28" aria-busy="true" />}>
           <ChatComposer
             key={selectedFolderId ?? "none"}
             session={draftSession}
             composerDraftKey={composerDraftKeyForLanding(selectedFolderId)}
-            onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+							onDraftSubmit={(input, opts) =>
+								void handleDraftSubmit(input, opts)
+							}
             headerSlot={
               <div className="flex w-full items-center justify-between gap-2">
                 <ProjectPicker
@@ -745,7 +775,8 @@ export function ChatLanding() {
                                         ...current,
                                         label: issues
                                           .map(
-                                            (candidate) => candidate.identifier,
+																							(candidate) =>
+																								candidate.identifier,
                                           )
                                           .join(", "),
                                         linear: { ...current.linear, issues },
@@ -788,6 +819,7 @@ export function ChatLanding() {
               </div>
             }
           />
+					</Suspense>
         ) : (
           <p className="text-center text-sm text-muted-foreground">
             Pick a project below to start a new chat.

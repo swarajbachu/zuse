@@ -34,7 +34,9 @@ let resumeCalls: Array<{ readonly sessionId: SessionId }> = [];
 let flushCalls: Array<{ readonly sessionId: SessionId }> = [];
 let addCalls: Array<{
 	readonly sessionId: SessionId;
+	readonly queueId?: string;
 	readonly input: ComposerInput;
+	readonly ready?: boolean;
 }> = [];
 let dispatchedCommandIds: string[] = [];
 let rpcClientFactory: () => Awaited<
@@ -64,7 +66,9 @@ const makeQueueClient = () =>
 			}),
 		"messages.queue.add": (payload: {
 			readonly sessionId: SessionId;
+			readonly queueId?: string;
 			readonly input: ComposerInput;
+			readonly ready?: boolean;
 		}) =>
 			Effect.sync(() => {
 				addCalls.push(payload);
@@ -137,9 +141,29 @@ describe("messages store queue actions", () => {
 		useMessagesStore.getState().queue(sessionId, input);
 
 		await expect.poll(() => flushCalls).toEqual([{ sessionId }]);
-		expect(addCalls).toEqual([{ sessionId, input }]);
+		expect(addCalls).toEqual([
+			{ sessionId, queueId: expect.stringMatching(/^q_/), input },
+		]);
 		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([
 			queued,
+		]);
+	});
+
+	it("persists startup work as held until its payload is finalized", async () => {
+		useMessagesStore.setState({ queueBySession: { [sessionId]: [] } });
+		const queueId = useMessagesStore
+			.getState()
+			.queue(sessionId, input, { persist: false, ready: false });
+
+		expect(
+			useMessagesStore.getState().queueBySession[sessionId]?.[0]?.ready,
+		).toBe(false);
+		await useMessagesStore
+			.getState()
+			.persistQueued(sessionId, queueId, input, { ready: false });
+
+		expect(addCalls).toEqual([
+			{ sessionId, queueId, input, ready: false },
 		]);
 	});
 

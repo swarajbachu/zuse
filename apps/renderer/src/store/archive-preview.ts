@@ -7,7 +7,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";

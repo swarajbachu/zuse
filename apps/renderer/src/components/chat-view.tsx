@@ -22,6 +22,7 @@ import {
   resolveLatestUserMessageId,
   rowAnchorMessageId,
 } from "../lib/chat-timeline-rows.ts";
+import { markRendererInteraction } from "../lib/performance-marks.ts";
 import {
   getAnchoredTurnMetrics,
   resolveScrollableNodeIsAtEnd,
@@ -37,7 +38,7 @@ import {
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
-import { useSessionsStore } from "../store/sessions.ts";
+import { getSessionById, useSessionsStore } from "../store/sessions.ts";
 import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
@@ -53,7 +54,7 @@ import { Spinner } from "./ui/spinner";
 import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 // Stable empty-array reference for the selector below. Returning a fresh
-// `[]` from a Zustand selector each call breaks `useSyncExternalStore`'s
+// `[]` from an atom selector each call breaks `useSyncExternalStore`'s
 // snapshot-equality check and triggers an infinite re-render loop.
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 const TIMELINE_HEADER = (
@@ -83,6 +84,9 @@ function resolveTimelineIsAtEnd(
  * turns near the top until the user manually navigates away.
  */
 export function ChatView({ sessionId }: { sessionId: SessionId }) {
+	useLayoutEffect(() => {
+		markRendererInteraction(sessionId, "first-react-commit");
+	}, [sessionId]);
   const forkMenu = useForkMenu();
   const messages = useMessagesStore(
     (s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
@@ -111,11 +115,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
   const hydrateSkills = useSkillsStore((s) => s.hydrate);
 
   const session = useSessionsStore((s) => {
-    for (const list of Object.values(s.sessionsByProject)) {
-      const match = list.find((session) => session.id === sessionId);
-      if (match !== undefined) return match;
-    }
-    return null;
+		void s.sessionsByProject;
+		return getSessionById(sessionId);
   });
 
   // While this session's worktree is still being set up — or the provider
@@ -791,6 +792,7 @@ function TimelineRow({
   switch (row.kind) {
     case "message":
       return (
+				// biome-ignore lint/a11y/noStaticElementInteractions: context menu is an optional secondary action.
         <div
           onContextMenu={
             row.message.content._tag === "user" ||

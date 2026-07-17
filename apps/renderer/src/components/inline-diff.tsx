@@ -1,11 +1,14 @@
-import { PatchDiff } from "@pierre/diffs/react";
 import { createPatch, structuredPatch } from "diff";
-import { useMemo } from "react";
-
-import { FileIcon } from "./file-icon.tsx";
+import { lazy, Suspense, useMemo } from "react";
 import { isPatchDiffRenderable } from "../lib/patch-diff.ts";
+import { FileIcon } from "./file-icon.tsx";
 
 const UNIFIED_DIFF_OPTIONS = { diffStyle: "unified" } as const;
+const PatchDiff = lazy(() =>
+	import("@pierre/diffs/react").then((module) => ({
+		default: module.PatchDiff,
+	})),
+);
 
 export interface FileEdit {
   readonly path: string;
@@ -245,11 +248,13 @@ export function UnifiedPatchDiff({
         style={{ maxHeight: 420 }}
       >
         {renderable ? (
+					<Suspense fallback={<RawPatchBlock patch={normalizedPatch} />}>
           <PatchDiff
             patch={normalizedPatch}
             options={UNIFIED_DIFF_OPTIONS}
             disableWorkerPool
           />
+					</Suspense>
         ) : (
           <RawPatchBlock patch={patch} />
         )}
@@ -311,11 +316,13 @@ export function EditDiff({
         className="fz-diff code-block-scroll overflow-auto bg-muted/15 text-[12px] leading-[1.45]"
         style={{ maxHeight: 420 }}
       >
+				<Suspense fallback={<RawPatchBlock patch={patchText} />}>
         <PatchDiff
           patch={patchText}
           options={UNIFIED_DIFF_OPTIONS}
           disableWorkerPool
         />
+				</Suspense>
       </div>
     </div>
   );

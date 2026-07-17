@@ -46,6 +46,10 @@ export interface SessionDomainApi {
 		readonly streamId: string;
 		readonly afterSequence?: number;
 	}) => Stream.Stream<StoredEvent, SessionDomainError>;
+	readonly allEvents: (input: {
+		readonly afterSequence?: number;
+	}) => Stream.Stream<StoredEvent, SessionDomainError>;
+	readonly currentSequence: Effect.Effect<number, SessionDomainError>;
 }
 
 export class SessionDomain extends Context.Service<
@@ -107,9 +111,34 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			}),
 		);
 
+	const allEvents: SessionDomainApi["allEvents"] = ({ afterSequence = 0 }) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				const subscription = yield* PubSub.subscribe(eventHub);
+				const replay =
+					yield* dispatchStorage.allEventsAfterSequence(afterSequence);
+				let cursor = afterSequence;
+				return Stream.concat(
+					Stream.fromIterable(replay),
+					Stream.fromSubscription(subscription),
+				).pipe(
+					Stream.filter((record) => {
+						if (record.sequence <= cursor) return false;
+						cursor = record.sequence;
+						return true;
+					}),
+				);
+			}),
+		);
+
 	return SessionDomain.of({
 		catchUp,
 		events,
+		allEvents,
+		currentSequence: sql<{ readonly sequence: number }>`
+			SELECT COALESCE(MAX(sequence), 0) AS sequence
+			FROM events WHERE stream_kind = 'session'
+		`.pipe(Effect.map((rows) => rows[0]?.sequence ?? 0)),
 		dispatch: Effect.fn("SessionDomain.dispatch")(function* (
 			input: DispatchInput,
 		) {

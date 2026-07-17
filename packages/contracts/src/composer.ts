@@ -144,5 +144,7 @@ export class ComposerInput extends Schema.Class<ComposerInput>("ComposerInput")(
       Schema.withConstructorDefault(Effect.succeed([])),
       Schema.withDecodingDefaultType(Effect.succeed([])),
     ),
+		/** Preserve the submission mode while this input waits in the durable queue. */
+		asGoal: Schema.optional(Schema.Boolean),
   },
 ) {}
