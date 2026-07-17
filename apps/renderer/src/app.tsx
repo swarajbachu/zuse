@@ -494,9 +494,10 @@ function MainShell() {
         <Panel
           id="files"
           defaultSize="22%"
-          // minSize 0 so the open/close tween stays smooth all the way to 0
-          // (see the left panel note).
-          minSize="0px"
+          // Keep an opened dock useful. Older persisted layouts may contain a
+          // near-zero expanded width from when this minimum was 0; the panel
+          // library clamps those layouts to this value on launch and reopen.
+          minSize="220px"
           maxSize="55%"
           collapsible
           collapsedSize="0%"
