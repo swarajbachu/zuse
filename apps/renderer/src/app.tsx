@@ -497,7 +497,7 @@ function MainShell() {
           // Keep an opened dock useful. Older persisted layouts may contain a
           // near-zero expanded width from when this minimum was 0; the panel
           // library clamps those layouts to this value on launch and reopen.
-          minSize="220px"
+          minSize="360px"
           maxSize="55%"
           collapsible
           collapsedSize="0%"
