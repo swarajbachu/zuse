@@ -9,6 +9,7 @@
 		"./drivers/*": "./src/drivers/*.ts",
 		"./drivers/acp/*": "./src/drivers/acp/*.ts",
 		"./mcp-gateway": "./src/mcp-gateway/index.ts",
+		"./user-mcp/*": "./src/user-mcp/*.ts",
 		"./kernel/attachment-service": "./src/kernel/attachment-service.ts",
 		"./kernel/driver": "./src/kernel/driver.ts",
 		"./kernel/permission-policy": "./src/kernel/permission-policy.ts",

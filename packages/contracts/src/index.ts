@@ -16,6 +16,7 @@ export * from "./ids.ts";
 export * from "./keybindings.ts";
 export * from "./keybindings-parse.ts";
 export * from "./linear.ts";
+export * from "./mcp.ts";
 export * from "./pairing.ts";
 export * from "./permission.ts";
 export * from "./ping.ts";

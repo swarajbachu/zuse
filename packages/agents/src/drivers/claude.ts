@@ -1,5 +1,6 @@
 import {
 	createSdkMcpServer,
+	type McpServerConfig,
 	type Options,
 	type Query,
 	query,
@@ -31,7 +32,9 @@ import { z } from "zod";
 
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { buildBrowserTools } from "./browser-tools.ts";
+import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
 import {
 	applyClaudeWorktreeEnv,
 	claudeWorktreePrompt,
@@ -53,6 +56,37 @@ import {
 	ORCHESTRATION_MCP_SERVER_NAME,
 	ORCHESTRATION_MCP_TOOLS,
 } from "./orchestration-tools.ts";
+
+/**
+ * User MCP servers → SDK external-server config entries. Tools surface as
+ * `mcp__<name>__<tool>` and fall through `policyFor` to the permission
+ * broker like any unlisted tool. With toolSearch on, the SDK defers their
+ * tool schemas behind search (the default); with it off we pin
+ * `alwaysLoad` so behavior matches the builtins.
+ */
+const userMcpConfigEntries = (
+	servers: ReadonlyArray<ResolvedMcpServer>,
+	toolSearch: boolean,
+): Record<string, McpServerConfig> =>
+	Object.fromEntries(
+		servers.map((server): [string, McpServerConfig] => [
+			server.name,
+			server.transport === "stdio"
+				? {
+						type: "stdio",
+						command: server.command ?? "",
+						args: [...(server.args ?? [])],
+						env: { ...(server.env ?? {}) },
+						alwaysLoad: !toolSearch,
+					}
+				: {
+						type: server.transport,
+						url: server.url ?? "",
+						headers: { ...(server.headers ?? {}) },
+						alwaysLoad: !toolSearch,
+					},
+		]),
+	);
 
 /**
  * Live-only handle for one Claude SDK conversation. The orchestrator
@@ -231,29 +265,6 @@ const userMessageOf = (
 let itemCounter = 0;
 const nextItemId = (): AgentItemId =>
 	`i_${Date.now()}_${++itemCounter}` as AgentItemId;
-
-// Markers Claude Code injects into every subprocess it spawns. If memoize
-// is launched from a Claude Code terminal these get inherited, and the
-// nested `claude` binary then loads a different parent's session state
-// instead of the user's `claude /login` OAuth. Strip them so our spawn
-// runs as if the user had launched it from a fresh shell.
-const INHERITED_CLAUDE_MARKERS = [
-	"CLAUDECODE",
-	"CLAUDE_CODE_ENTRYPOINT",
-	"CLAUDE_CODE_EXECPATH",
-	"CLAUDE_AGENT_SDK_VERSION",
-	"CLAUDE_CODE_SESSION_ID",
-	"CLAUDE_CODE_SESSION_NAME",
-	"CLAUDE_CODE_SESSION_LOG",
-] as const;
-
-const scrubInheritedClaudeMarkers = (
-	base: NodeJS.ProcessEnv,
-): Record<string, string | undefined> => {
-	const next: Record<string, string | undefined> = { ...base };
-	for (const key of INHERITED_CLAUDE_MARKERS) delete next[key];
-	return next;
-};
 
 /**
  * Per-turn accumulator for thinking_delta / redacted_thinking blocks. The
@@ -1435,6 +1446,11 @@ export const startClaudeSession = (
 	// the same MCP surface and smoke-test instructions.
 	orchestrationTools: ReadonlyArray<OrchestrationSdkTool> = [],
 	linearTools: ReadonlyArray<LinearSdkTool> = [],
+	// The user's native MCP servers (from ~/.claude.json / .mcp.json), already
+	// resolved server-side: env refs expanded, held OAuth tokens injected as
+	// Authorization headers. Spread into `Options.mcpServers` after the
+	// builtins, whose names win any collision.
+	userMcpServers: ReadonlyArray<ResolvedMcpServer> = [],
 ): Effect.Effect<
 	ClaudeSessionHandle,
 	AgentSessionStartError,
@@ -1670,7 +1686,9 @@ export const startClaudeSession = (
 			Object.keys(agentsMap).length > 0;
 		// `allowedTools` is a strict allow-list when set: anything not listed
 		// gets disallowed. So when sub-agents are on we must also list our
-		// in-process AskUserQuestion tool by its fully-qualified name.
+		// in-process AskUserQuestion tool by its fully-qualified name, plus a
+		// server-level `mcp__<name>` entry per user MCP server (allowing the
+		// whole server keeps the list stable as its tool set changes).
 		const subagentOptions = subagentsEffective
 			? ({
 					agents: agentsMap,
@@ -1681,6 +1699,7 @@ export const startClaudeSession = (
 						...LINEAR_MCP_TOOLS.map(
 							(tool) => `mcp__${LINEAR_MCP_SERVER_NAME}__${tool.name}`,
 						),
+						...userMcpServers.map((server) => `mcp__${server.name}`),
 					],
 				} as Pick<Options, "agents" | "allowedTools">)
 			: {};
@@ -1721,6 +1740,7 @@ export const startClaudeSession = (
 						)),
 			],
 			mcpServers: {
+				...userMcpConfigEntries(userMcpServers, input.toolSearch ?? false),
 				[ZUSE_MCP_NAME]: memoizeMcpServer,
 				...(orchestrationMcpServer === null
 					? {}

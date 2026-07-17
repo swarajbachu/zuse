@@ -102,6 +102,9 @@ const makeHarness = (
 			setIntegration: () => Effect.void,
 			removeIntegration: () => Effect.void,
 			listIntegrationAccounts: () => Effect.succeed([]),
+			getMcpOauth: (_serverKey: string) => Effect.succeed(null),
+			setMcpOauth: (_serverKey: string, _bundleJson: string) => Effect.void,
+			removeMcpOauth: (_serverKey: string) => Effect.void,
 		}),
 	);
 	const AuthShellLayer = Layer.succeed(

@@ -38,6 +38,15 @@ const integrationAccountFor = (
 	accountId: string,
 ): string => `${integrationPrefix(integration)}${accountId}`;
 
+/**
+ * OAuth bundles for user MCP servers, one account per server descriptor
+ * key (`mcpOAuth:claude:<name>`). No legacy-service promotion — the prefix
+ * is new with this feature.
+ */
+const MCP_OAUTH_PREFIX = "mcpOAuth:";
+const mcpOauthAccountFor = (serverKey: string): string =>
+	`${MCP_OAUTH_PREFIX}${serverKey}`;
+
 const normalizeOrigin = (input: string): string => {
 	try {
 		return new URL(input).origin;
@@ -316,5 +325,21 @@ export const CredentialsServiceLive = Layer.succeed(
 					.filter((account) => account.startsWith(prefix))
 					.map((account) => account.slice(prefix.length));
 			}),
+		getMcpOauth: (serverKey) =>
+			tryKeychain("*", () =>
+				keytar.getPassword(SERVICE_NAME, mcpOauthAccountFor(serverKey)),
+			),
+		setMcpOauth: (serverKey, bundleJson) =>
+			tryKeychain("*", () =>
+				keytar.setPassword(
+					SERVICE_NAME,
+					mcpOauthAccountFor(serverKey),
+					bundleJson,
+				),
+			),
+		removeMcpOauth: (serverKey) =>
+			tryKeychain("*", () =>
+				keytar.deletePassword(SERVICE_NAME, mcpOauthAccountFor(serverKey)),
+			).pipe(Effect.asVoid),
 	}),
 );
