@@ -1,6 +1,5 @@
-import { describe, expect, test, vi } from "vitest";
-
 import type { UnresolvedFile as UnresolvedFileInstance } from "@pierre/diffs";
+import { describe, expect, test, vi } from "vitest";
 import {
 	applyReviewConflictResolution,
 	reviewFingerprint,
@@ -53,5 +52,10 @@ describe("applyReviewConflictResolution", () => {
 			),
 		).not.toThrow();
 		expect(dispatch).toHaveBeenCalledOnce();
+		expect(instance.render).toHaveBeenCalledWith({
+			fileDiff: resolution.fileDiff,
+			actions: resolution.actions,
+			markerRows: resolution.markerRows,
+		});
 	});
 });

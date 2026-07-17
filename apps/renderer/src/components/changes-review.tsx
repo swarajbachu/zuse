@@ -56,6 +56,7 @@ import {
 	X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useAuth } from "../hooks/use-auth.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
@@ -124,7 +125,12 @@ export const applyReviewConflictResolution = (
 	if (instance === undefined || dispatch === undefined) return undefined;
 	const result = instance.resolveConflict(conflictIndex, resolution);
 	if (result === undefined) return undefined;
-	dispatch({ conflict, resolution }, instance);
+	flushSync(() => dispatch({ conflict, resolution }, instance));
+	instance.render({
+		fileDiff: result.fileDiff,
+		actions: result.actions,
+		markerRows: result.markerRows,
+	});
 	return result;
 };
 
