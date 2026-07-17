@@ -61,9 +61,26 @@ const SetCredential = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const RemoveCredential = MemoizeRpcs.toLayerHandler(
+  "provider.removeCredential",
+  ({ providerId }) =>
+    Effect.flatMap(ProviderService, (svc) =>
+      svc.removeCredential(providerId).pipe(
+        Effect.catchTag("CredentialsError", (err) =>
+          Effect.fail(
+            new CredentialStoreError({
+              providerId: err.providerId as ProviderId,
+              reason: err.reason,
+            }),
+          ),
+        ),
+      ),
+    ),
+);
+
 // Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card or in an auth error bubble. `cursor` and `claude` have real
-// handlers — they spawn the provider's `login` subcommand, extract the OAuth
+// provider card or in an auth error bubble. Supported handlers spawn the
+// provider's login subcommand, extract the OAuth
 // URL, and stream progress back. When the renderer unsubscribes (cancel,
 // navigate away, IPC drop), the stream's scope closes and the child process is
 // SIGTERM'd by the service's finalizer.
@@ -528,24 +545,24 @@ const SessionAnswerQuestion = MemoizeRpcs.toLayerHandler(
 );
 
 const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
-	"session.plan.respond",
-	({ sessionId, toolCallId, outcome, feedback }) =>
-		Effect.flatMap(SessionService, (svc) =>
-			svc.respondToPlan(
-				sessionId,
-				toolCallId as import("@zuse/contracts").AgentItemId,
-				outcome,
-				feedback,
-			),
-		),
+  "session.plan.respond",
+  ({ sessionId, toolCallId, outcome, feedback }) =>
+    Effect.flatMap(SessionService, (svc) =>
+      svc.respondToPlan(
+        sessionId,
+        toolCallId as import("@zuse/contracts").AgentItemId,
+        outcome,
+        feedback,
+      ),
+    ),
 );
 
 const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
-	"session.mcp.update",
-	({ sessionId, servers }) =>
-		Effect.flatMap(SessionService, (svc) =>
-			svc.updateMcpServers(sessionId, servers),
-		),
+  "session.mcp.update",
+  ({ sessionId, servers }) =>
+    Effect.flatMap(SessionService, (svc) =>
+      svc.updateMcpServers(sessionId, servers),
+    ),
 );
 
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
@@ -809,6 +826,7 @@ const BrowserFillForOrigin = MemoizeRpcs.toLayerHandler(
 export const ProviderHandlersLayer = Layer.mergeAll(
 	Availability,
 	SetCredential,
+	RemoveCredential,
 	StartLogin,
 	UpdateProvider,
 	OpencodeInventory,

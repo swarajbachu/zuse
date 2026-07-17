@@ -1,29 +1,27 @@
-import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
-import * as readline from "node:readline";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { homedir } from "node:os";
-
+import * as readline from "node:readline";
 import {
   AgentSessionStartError,
   type LoginEvent,
   type ProviderId,
 } from "@zuse/contracts";
+import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 
 // Each provider's interactive login command prints an OAuth URL to stdout (or
 // to stderr inside its TUI frame) and waits for the user to complete the flow
 // in their browser. We anchor each pattern on the provider's own hosts to
 // avoid matching install-instruction or doc URLs the CLI may also print on
 // startup.
-const CURSOR_URL_PATTERN = /https?:\/\/[^\s]*cursor\.(?:com|sh|so)\/[^\s]*/i;
 // `claude auth login` runs an OAuth 2.0 + PKCE flow against claude.ai with a
 // localhost callback server, so it auto-completes once the browser approves —
 // no code paste-back. The authorize URL lives on claude.ai / anthropic.com.
 const CLAUDE_URL_PATTERN =
   /https?:\/\/[^\s]*(?:claude\.ai|(?:console\.)?anthropic\.com)\/[^\s]*/i;
-const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_PATTERN = new RegExp(
+  `${String.fromCharCode(27)}(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
 
 interface LoginSpawnSpec {
   readonly providerId: ProviderId;
@@ -33,12 +31,6 @@ interface LoginSpawnSpec {
 }
 
 const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
-  cursor: {
-    providerId: "cursor",
-    command: "cursor-agent",
-    args: ["login"],
-    urlPattern: CURSOR_URL_PATTERN,
-  },
   claude: {
     providerId: "claude",
     command: "claude",
@@ -51,7 +43,7 @@ const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
 
 /**
  * Spawn a provider's interactive login subcommand and stream progress back
- * to the renderer. Today `cursor` and `claude` have real handlers — other
+ * to the renderer. Providers without a configured browser flow
  * providers resolve to an immediate `{ kind: "done", ok: false, reason: … }`.
  *
  * Cancellation: the stream is wrapped in `Stream.unwrap`, so when the

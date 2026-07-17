@@ -127,11 +127,15 @@ export const availableProviderIds = (
 ): readonly ProviderId[] | null => {
 	if (availability === null || availability === undefined) return null;
 	return availability
-		.filter((entry) =>
-			entry.status === undefined
-				? entry.cliInstalled === true
-				: entry.status === "ready" || entry.status === "warning",
-		)
+		.filter((entry) => {
+			const runtimeAvailable = entry.runtimeAvailable ?? entry.cliInstalled;
+			const statusAllowsUse =
+				entry.status === undefined
+					? runtimeAvailable
+					: entry.status === "ready" || entry.status === "warning";
+			if (!statusAllowsUse) return false;
+			return entry.providerId !== "cursor" || entry.hasApiKey;
+		})
 		.map((entry) => entry.providerId);
 };
 

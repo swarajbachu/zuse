@@ -23,19 +23,20 @@
 		"test": "vitest run test/unit test/integration",
 		"test:unit": "vitest run test/unit",
 		"test:integration": "vitest run test/integration",
-		"test:live-agents": "vitest run ./test/live/agent-smoke.live.ts"
+		"test:live-agents": "vitest run ./test/live/agent-smoke.live.test.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
+		"@cursor/sdk": "1.0.23",
+		"@effect/platform-node": "catalog:",
 		"@modelcontextprotocol/sdk": "^1.0.0",
 		"@zuse/agents": "*",
+		"@zuse/contracts": "*",
 		"@zuse/domain": "*",
 		"@zuse/git": "*",
-		"@effect/platform-node": "catalog:",
 		"@zuse/index": "*",
 		"@zuse/pokemon-data": "*",
 		"@zuse/sqlite": "*",
-		"@zuse/contracts": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:",
 		"fuzzysort": "catalog:",

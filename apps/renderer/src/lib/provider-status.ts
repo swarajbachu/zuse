@@ -87,7 +87,7 @@ export function getProviderSummary(
       actionable: false,
     };
   }
-  if (!a.cliInstalled) {
+  if ((a.runtimeAvailable ?? a.cliInstalled) === false) {
     return {
       statusKey: "error",
       headline: "Not installed",
@@ -108,6 +108,15 @@ export function getProviderSummary(
     };
   }
   if (a.authStatus === "authenticated") {
+    if (a.providerId === "cursor" && a.authType === "apiKey") {
+      return {
+        statusKey: "ready",
+        headline: "API key verified",
+        detail: null,
+        authEmail: null,
+        actionable: false,
+      };
+    }
     const subscription = a.authLabel ?? null;
     return {
       statusKey: "ready",
@@ -123,9 +132,14 @@ export function getProviderSummary(
   }
   if (a.authStatus === "unauthenticated") {
     return {
-      statusKey: "warning",
-      headline: "Sign in required",
-      detail: a.statusMessage ?? `Run the ${name} login command to continue.`,
+      statusKey: a.apiKeyStatus === "invalid" ? "error" : "warning",
+      headline:
+        a.providerId === "cursor" ? "API key required" : "Sign in required",
+      detail:
+        a.statusMessage ??
+        (a.providerId === "cursor"
+          ? "Add an API key in provider settings to continue."
+          : `Run the ${name} login command to continue.`),
       authEmail: null,
       actionable: true,
     };

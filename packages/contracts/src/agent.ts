@@ -226,21 +226,36 @@ export const ProviderAuthStatus = Schema.Literals([
 ]);
 export type ProviderAuthStatus = typeof ProviderAuthStatus.Type;
 
+/** Verification state for an API key kept in the app-managed keychain. */
+export const ProviderApiKeyStatus = Schema.Literals([
+  "verified",
+  "unverified",
+  "invalid",
+]);
+export type ProviderApiKeyStatus = typeof ProviderApiKeyStatus.Type;
+
+export const ProviderRuntimeKind = Schema.Literals(["cli", "bundledSdk"]);
+export type ProviderRuntimeKind = typeof ProviderRuntimeKind.Type;
+
 /**
- * Static availability report for a provider — does the user have the CLI on
- * PATH, is the CLI logged in (so the SDK can ride the local OAuth subprocess),
- * is an API key stored in the keychain. Either `cliLoggedIn` or `hasApiKey`
- * is enough to start a session; the renderer should treat them as equivalent
- * "ready" signals and prefer CLI login as the primary path.
+ * Static availability report for a provider runtime and app-managed
+ * credentials. Legacy CLI fields remain required for older clients;
+ * consumers should prefer runtime metadata when present.
  */
 export const AgentAvailability = Schema.Struct({
   providerId: ProviderId,
   displayName: Schema.String,
+  /** Runtime used to start this provider. Older clients may omit this field. */
+  runtimeKind: Schema.optional(ProviderRuntimeKind),
+  /** Provider-level runtime readiness, independent of authentication. */
+  runtimeAvailable: Schema.optional(Schema.Boolean),
   cliInstalled: Schema.Boolean,
   cliVersion: Schema.optional(Schema.String),
   cliPath: Schema.optional(Schema.String),
   cliLoggedIn: Schema.Boolean,
   hasApiKey: Schema.Boolean,
+  /** Absent when no app-managed API key is configured. */
+  apiKeyStatus: Schema.optional(ProviderApiKeyStatus),
   /**
    * Computed verdict on whether `cliVersion` meets the SDK's minimum. The
    * renderer renders an "Upgrade Codex" card when this is `"outdated"` so
@@ -466,17 +481,17 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
 
 /** Native provider progress for a running child agent. */
 const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
-	childId: Schema.String,
-	parentId: Schema.String,
-	childSessionId: Schema.String,
-	status: Schema.String,
-	durationMs: Schema.Number,
-	turns: Schema.Number,
-	toolCalls: Schema.Number,
-	tokens: Schema.Number,
-	contextPercentage: Schema.Number,
-	toolsUsed: Schema.Array(Schema.String),
-	errorCount: Schema.Number,
+  childId: Schema.String,
+  parentId: Schema.String,
+  childSessionId: Schema.String,
+  status: Schema.String,
+  durationMs: Schema.Number,
+  turns: Schema.Number,
+  toolCalls: Schema.Number,
+  tokens: Schema.Number,
+  contextPercentage: Schema.Number,
+  toolsUsed: Schema.Array(Schema.String),
+  errorCount: Schema.Number,
 });
 
 /**
@@ -566,7 +581,7 @@ const ErrorEvent = Schema.TaggedStruct("Error", {
  */
 const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
   cursor: Schema.String,
-	providerEventCursor: Schema.optional(Schema.String),
+  providerEventCursor: Schema.optional(Schema.String),
   strategy: Schema.Literals([
     "claude-session-id",
     "codex-thread-id",
@@ -578,17 +593,17 @@ const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 });
 
 const ProviderNotificationMetadataEvent = Schema.TaggedStruct(
-	"ProviderNotificationMetadata",
-	{
-		eventId: Schema.optional(Schema.String),
-		promptId: Schema.optional(Schema.String),
-		isReplay: Schema.Boolean,
-		timestampMs: Schema.optional(Schema.Number),
-		streamStartMs: Schema.optional(Schema.Number),
-		turnStartMs: Schema.optional(Schema.Number),
-		totalTokens: Schema.optional(Schema.Number),
-		stopReason: Schema.optional(Schema.String),
-	},
+  "ProviderNotificationMetadata",
+  {
+    eventId: Schema.optional(Schema.String),
+    promptId: Schema.optional(Schema.String),
+    isReplay: Schema.Boolean,
+    timestampMs: Schema.optional(Schema.Number),
+    streamStartMs: Schema.optional(Schema.Number),
+    turnStartMs: Schema.optional(Schema.Number),
+    totalTokens: Schema.optional(Schema.Number),
+    stopReason: Schema.optional(Schema.String),
+  },
 );
 
 /**
@@ -617,20 +632,20 @@ const UserQuestionEvent = Schema.TaggedStruct("UserQuestion", {
 });
 
 export const PlanApprovalOutcome = Schema.Literals([
-	"approved",
-	"cancelled",
-	"abandoned",
+  "approved",
+  "cancelled",
+  "abandoned",
 ]);
 export type PlanApprovalOutcome = typeof PlanApprovalOutcome.Type;
 
 /** Blocking native plan review request. */
 const PlanApprovalRequestedEvent = Schema.TaggedStruct(
-	"PlanApprovalRequested",
-	{
-		sessionId: AgentSessionId,
-		toolCallId: AgentItemId,
-		plan: Schema.String,
-	},
+  "PlanApprovalRequested",
+  {
+    sessionId: AgentSessionId,
+    toolCallId: AgentItemId,
+    plan: Schema.String,
+  },
 );
 
 /**
@@ -680,15 +695,15 @@ export const AgentEvent = Schema.Union([
   ToolResultEvent,
   PermissionRequestEvent,
   SubagentSummaryEvent,
-	SubagentProgressEvent,
+  SubagentProgressEvent,
   UsageDeltaEvent,
   ContextUsageEvent,
   ContextCompactionEvent,
   UsageLimitEvent,
   SessionCursorEvent,
-	ProviderNotificationMetadataEvent,
+  ProviderNotificationMetadataEvent,
   UserQuestionEvent,
-	PlanApprovalRequestedEvent,
+  PlanApprovalRequestedEvent,
   PermissionModeChangedEvent,
   GoalUpdatedEvent,
   GoalClearedEvent,
@@ -1213,18 +1228,9 @@ export const MODELS_BY_PROVIDER: Record<
       supportsWebSearch: "queryOnly",
     },
   ],
-  // Cursor's CLI exposes its full catalog through `cursor-agent models`
-  // (113 entries as of 2026-05). We surface a curated shortlist here; custom
-  // slugs typed in the picker still work because this is just the default
-  // seed, not a whitelist. Selection is applied at session start via ACP
-  // `session/set_config_option { configId: "model" }`. Plan mode lands
-  // natively via `setSessionMode("plan")`.
-  // Cursor's ACP server validates model slugs against its OWN list which
-  // differs from `cursor-agent --list-models`. The valid set lives in the
-  // `models.availableModels` block returned by `session/new` — slugs like
-  // `composer-2-fast` (the CLI default) are rejected by ACP with -32602.
-  // The seed below uses ACP-valid IDs only. The `default` slug means
-  // "Auto" (cursor picks). Custom slugs typed in the picker still work.
+  // The bundled SDK exposes a broad model catalog. We surface a curated
+  // shortlist here; custom slugs still work because this seed is not a
+  // whitelist. The `default` slug maps to the SDK's default composer model.
   cursor: [
     { id: "default", label: "Auto", supportsPlanMode: true },
     { id: "composer-2", label: "Composer 2", supportsPlanMode: true },
@@ -1402,15 +1408,13 @@ export const MODEL_ALIASES_BY_PROVIDER: Record<
   // re-aliased to current cursor catalogue entries so re-opening the app
   // doesn't send the agent a slug it'll silently ignore.
   cursor: {
-    // Legacy slugs from earlier builds (pre-2025.11 cursor-agent CLI list).
+    // Legacy slugs persisted by earlier builds.
     "gpt-5": "composer-2",
     "sonnet-4": "claude-sonnet-4-6",
     "sonnet-4-thinking": "claude-sonnet-4-6",
     "opus-4.1": "claude-opus-4-7",
-    // CLI slugs (from `cursor-agent --list-models`) that the ACP server
-    // rejects with -32602: it has its own narrower set. Re-route to the
-    // closest ACP-valid neighbour so a previously persisted user choice
-    // doesn't crash on session start.
+    // Earlier runtime variants are normalized to SDK-supported base models so
+    // a previously persisted choice does not fail during agent creation.
     "composer-2-fast": "composer-2",
     "composer-2.5-fast": "composer-2.5",
     "gpt-5.5-medium": "gpt-5.5",
@@ -1528,6 +1532,12 @@ export const SetCredentialInput = Schema.Struct({
 });
 export type SetCredentialInput = typeof SetCredentialInput.Type;
 
+export const CredentialSetResult = Schema.Struct({
+  verification: Schema.Literals(["verified", "unverified", "notChecked"]),
+  warning: Schema.optional(Schema.String),
+});
+export type CredentialSetResult = typeof CredentialSetResult.Type;
+
 // ---------------------------------------------------------------------------
 // Wire errors
 // ---------------------------------------------------------------------------
@@ -1552,6 +1562,11 @@ export class CredentialStoreError extends Schema.TaggedErrorClass<CredentialStor
   { providerId: ProviderId, reason: Schema.String },
 ) {}
 
+export class CredentialValidationError extends Schema.TaggedErrorClass<CredentialValidationError>()(
+  "CredentialValidationError",
+  { providerId: ProviderId, reason: Schema.String },
+) {}
+
 // ---------------------------------------------------------------------------
 // RPC definitions. Not yet registered in `MemoizeRpcs` — handlers come
 // online in PR 3 (availability), PR 4 (credentials), PR 5/6 (sessions). Each
@@ -1565,9 +1580,18 @@ export const ProviderAvailabilityRpc = Rpc.make("provider.availability", {
 
 export const ProviderSetCredentialRpc = Rpc.make("provider.setCredential", {
   payload: SetCredentialInput,
-  success: Schema.Void,
-  error: CredentialStoreError,
+  success: CredentialSetResult,
+  error: Schema.Union([CredentialStoreError, CredentialValidationError]),
 });
+
+export const ProviderRemoveCredentialRpc = Rpc.make(
+  "provider.removeCredential",
+  {
+    payload: Schema.Struct({ providerId: ProviderId }),
+    success: Schema.Void,
+    error: CredentialStoreError,
+  },
+);
 
 // ---------------------------------------------------------------------------
 // OpenCode dynamic inventory — single RPC the renderer calls when the user
@@ -1741,8 +1765,8 @@ export const ProviderOpencodeRemoveCustomRpc = Rpc.make(
 // One-click sign-in flow. The renderer subscribes to `provider.startLogin`,
 // which spawns the provider's `login` subcommand server-side, extracts the
 // OAuth URL the CLI prints, and reports progress back as a stream of
-// `LoginEvent`s. Today only `cursor` has a real handler; other providers
-// resolve to an immediate `done(ok=false)`.
+// `LoginEvent`s. Providers without a browser-login handler resolve to an
+// immediate `done(ok=false)`.
 // ---------------------------------------------------------------------------
 
 export const LoginEvent = Schema.Union([

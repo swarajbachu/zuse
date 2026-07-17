@@ -1,7 +1,10 @@
+import type {
+  AgentAvailability,
+  CredentialSetResult,
+  ProviderId,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import { createAtomStore as create } from "../state/atom-store.ts";
-
-import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
@@ -54,7 +57,8 @@ type ProvidersState = {
   readonly setCredential: (
     providerId: ProviderId,
     apiKey: string,
-  ) => Promise<void>;
+  ) => Promise<CredentialSetResult>;
+  readonly removeCredential: (providerId: ProviderId) => Promise<void>;
 };
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
@@ -104,8 +108,21 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   setCredential: async (providerId, apiKey) => {
     try {
       const client = await getRpcClient();
-      await Effect.runPromise(
+      const result = await Effect.runPromise(
         client["provider.setCredential"]({ providerId, apiKey }),
+      );
+      await get().refresh();
+      return result;
+    } catch (err) {
+      set({ error: formatError(err) });
+      throw err;
+    }
+  },
+  removeCredential: async (providerId) => {
+    try {
+      const client = await getRpcClient();
+      await Effect.runPromise(
+        client["provider.removeCredential"]({ providerId }),
       );
       await get().refresh();
     } catch (err) {

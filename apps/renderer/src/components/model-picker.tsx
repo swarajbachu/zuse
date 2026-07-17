@@ -161,8 +161,8 @@ export function ModelPicker(props: ModelPickerProps) {
 	const [events, setEvents] = useState<ModelPickerEvent[]>([]);
 	// Inline feedback for failed picks. The session-mode handlers
 	// (createSession / setSessionProvider / setSessionModel) used to fire-
-	// and-forget, so a failed switch (cursor-agent not installed, ACP
-	// handshake timeout, etc.) just closed the popover with no clue why.
+	// and-forget, so a failed provider startup just closed the popover with no
+	// clue why.
 	// We now await them and surface the reason here.
 	const [pickError, setPickError] = useState<string | null>(null);
 	const [picking, setPicking] = useState(false);

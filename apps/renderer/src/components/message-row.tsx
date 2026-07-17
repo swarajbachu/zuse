@@ -31,7 +31,7 @@ import {
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
-import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
+import { useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import {
@@ -746,7 +746,6 @@ const PROVIDER_LABEL_FOR_ERROR: Record<ProviderId, string> = {
 // the inline one-click sign-in directly in the auth error bubble instead of
 // only pointing the user at Settings.
 const PROVIDERS_WITH_LOGIN: ReadonlySet<ProviderId> = new Set<ProviderId>([
-	"cursor",
 	"claude",
 ]);
 
@@ -1068,11 +1067,13 @@ export function ErrorBubble({
 
 	const headline =
 		error.kind === "auth"
-			? `Sign in to ${
-					error.providerId
-						? PROVIDER_LABEL_FOR_ERROR[error.providerId]
-						: "your provider"
-				}`
+			? error.providerId === "cursor"
+				? "API key required"
+				: `Sign in to ${
+						error.providerId
+							? PROVIDER_LABEL_FOR_ERROR[error.providerId]
+							: "your provider"
+					}`
 			: error.kind === "network"
 				? "Connection lost"
 				: null;

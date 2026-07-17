@@ -1,7 +1,7 @@
 import { buildBrowserTools } from "@zuse/agents/drivers/browser-tools";
 import { startClaudeSession } from "@zuse/agents/drivers/claude";
 import { startCodexSession } from "@zuse/agents/drivers/codex";
-import { prewarmCursor, startCursorSession } from "@zuse/agents/drivers/cursor";
+import { startCursorSession } from "@zuse/agents/drivers/cursor";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
@@ -12,11 +12,12 @@ import type {
 } from "@zuse/agents/kernel/driver";
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import {
-  type AgentAvailability,
+  AgentAvailability,
   type AgentEvent,
   type AgentSessionId,
   AgentSessionNotFoundError,
   AgentSessionStartError,
+  CredentialValidationError,
   DEFAULT_RUNTIME_MODE,
   type FolderId,
   type PermissionDecision,
@@ -29,6 +30,7 @@ import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process"
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
+import { validateApiKey } from "../api-key-validation.ts";
 import { probeAllProviders, resolveCliPath } from "../availability.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
 import { CredentialsService } from "../services/credentials-service.ts";
@@ -78,26 +80,6 @@ export const ProviderServiceLive = Layer.effect(
       new Map(),
     );
 
-    // Prewarm a cursor-agent child at layer boot if cursor is installed.
-    // The ACP authenticate step is the slowest part of cold start (~8s);
-    // having one warm child standing by means the user's first cursor
-    // session skips straight to `session/new`. Fire-and-forget — layer
-    // construction does not depend on it.
-    yield* Effect.forkDetach(
-      Effect.gen(function* () {
-        const cursorPath = yield* resolveCliPath("cursor-agent").pipe(
-          Effect.provideService(CommandExecutor.ChildProcessSpawner, executor),
-          Effect.catch(() => Effect.succeed<string | null>(null)),
-        );
-        if (cursorPath === null) return;
-        // Layer construction is part of application startup. Do not touch the
-        // OS keychain here: unsigned development builds can trigger a native
-        // permission dialog before the user has asked to start a provider.
-        // A real Cursor session still resolves and supplies its API key.
-        yield* Effect.sync(() => prewarmCursor(cursorPath, null));
-      }),
-    );
-
     // The Claude SDK's `canUseTool` callback returns a Promise; here we
     // shim PermissionService.request into that signature using the live
     // runtime captured at layer construction. `projectId` is bound at
@@ -127,9 +109,9 @@ export const ProviderServiceLive = Layer.effect(
             ),
             Effect.provideService(FileSystem.FileSystem, fs),
           );
-          // listConfigured is best-effort — a keychain failure here shouldn't
-          // wipe out the CLI-logged-in picture, which is the primary auth path
-          // and works without any keychain entry of ours.
+          // Keychain enumeration is best-effort for providers that still
+          // support CLI authentication. The API-key-only provider is overlaid
+          // below from the actual stored credential and never trusts CLI login.
           const configured = yield* credentials
             .listConfigured()
             .pipe(
@@ -138,12 +120,77 @@ export const ProviderServiceLive = Layer.effect(
               ),
             );
           const configuredSet = new Set<ProviderId>(configured);
-          return list.map(
-            (a): AgentAvailability => ({
-              ...a,
-              hasApiKey: configuredSet.has(a.providerId),
-            }),
+          const managedApiKey = configuredSet.has("cursor")
+            ? yield* credentials
+                .get("cursor")
+                .pipe(Effect.catch(() => Effect.succeed<string | null>(null)))
+            : null;
+
+          const legacyProviders = yield* Effect.forEach(
+            list.filter((item) => item.providerId !== "cursor"),
+            (a): Effect.Effect<AgentAvailability> => {
+              return Effect.succeed({
+                ...a,
+                runtimeKind: "cli" as const,
+                runtimeAvailable: a.cliInstalled,
+                hasApiKey: configuredSet.has(a.providerId),
+              });
+            },
+            { concurrency: "unbounded" },
           );
+
+          const cursorBase = {
+            providerId: "cursor" as const,
+            displayName: "Cursor",
+            runtimeKind: "bundledSdk" as const,
+            runtimeAvailable: true,
+            cliInstalled: false,
+            cliLoggedIn: false,
+            hasApiKey: managedApiKey !== null,
+            lastCheckedAt: new Date(),
+          };
+          if (managedApiKey === null || managedApiKey.trim().length === 0) {
+            return [
+              ...legacyProviders,
+              AgentAvailability.make({
+                ...cursorBase,
+                hasApiKey: false,
+                authStatus: "unauthenticated",
+                status: "warning",
+                statusMessage:
+                  "API key required. Add one in provider settings.",
+              }),
+            ];
+          }
+
+          const validation = yield* validateApiKey(managedApiKey);
+          const cursorAvailability =
+            validation.status === "verified"
+              ? AgentAvailability.make({
+                  ...cursorBase,
+                  apiKeyStatus: "verified",
+                  authStatus: "authenticated",
+                  authType: "apiKey",
+                  status: "ready",
+                })
+              : validation.status === "invalid"
+                ? AgentAvailability.make({
+                    ...cursorBase,
+                    apiKeyStatus: "invalid",
+                    authStatus: "unauthenticated",
+                    authType: "apiKey",
+                    status: "error",
+                    statusMessage: validation.reason,
+                  })
+                : AgentAvailability.make({
+                    ...cursorBase,
+                    apiKeyStatus: "unverified",
+                    authStatus: "unknown",
+                    authType: "apiKey",
+                    status: "warning",
+                    statusMessage: validation.warning,
+                  });
+          return [...legacyProviders, cursorAvailability];
         }),
     });
 
@@ -170,7 +217,7 @@ export const ProviderServiceLive = Layer.effect(
         resumeCursor = null,
         getRuntimeMode,
         orchestrationTools = null,
-				providerEventCursor = null,
+        providerEventCursor = null,
       ) =>
         Effect.gen(function* () {
           if (input.sessionId !== undefined) {
@@ -298,7 +345,7 @@ export const ProviderServiceLive = Layer.effect(
                 ),
               orchestrationTools,
               resumeCursor,
-							providerEventCursor,
+              providerEventCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "opencode") {
             // OpenCode spawns a local HTTP server (`opencode serve`) and we
@@ -334,37 +381,23 @@ export const ProviderServiceLive = Layer.effect(
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "cursor") {
-            // Cursor exposes an ACP server via `cursor-agent acp`. The
-            // documented installed binary is `cursor-agent` (not `cursor`);
-            // surface a clean install message rather than letting spawn
-            // fail with ENOENT inside the driver. Older `cursor-agent`
-            // builds (pre-ACP) will instead drop into a TUI and the
-            // handshake will time out — that's a separate, also-clean
-            // error path from the driver.
-            const cursorPath = yield* resolveCliPath("cursor-agent").pipe(
-              Effect.provideService(
-                CommandExecutor.ChildProcessSpawner,
-                executor,
-              ),
-            );
-            if (cursorPath === null) {
+            if (apiKey === null || apiKey.trim().length === 0) {
               return yield* Effect.fail(
                 new AgentSessionStartError({
                   providerId: "cursor",
                   reason:
-                    "Cursor CLI not found on PATH. Install Cursor Agent from https://cursor.com/install and try again.",
+                    "API key required. Add an API key in provider settings and try again.",
                 }),
               );
             }
+            const userMcpServers = yield* mcp.resolveForCursorSession(cwd);
             handle = yield* startCursorSession(
               driverInput,
               cwd,
               apiKey,
-              cursorPath,
               sessionId,
-              buildRequestPermission(input.folderId),
-              runtimeModeGetter,
               resumeCursor,
+              userMcpServers,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           } else if (input.providerId === "claude") {
             // Point the SDK at the user's installed `claude` binary. We
@@ -508,26 +541,62 @@ export const ProviderServiceLive = Layer.effect(
         Stream.unwrap(
           Effect.map(lookup(sessionId), ({ handle }) => handle.events),
         ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
-			acknowledgeProviderEventCursor: (sessionId, cursor) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.acknowledgeProviderEventCursor?.(cursor) ?? Effect.void,
-				),
-			releaseProviderEventCursor: (sessionId, cursor) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.releaseProviderEventCursor?.(cursor) ?? Effect.void,
-				),
-			updateMcpServers: (sessionId, servers) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) => handle.updateMcpServers?.(servers) ?? Effect.void,
-				),
+      acknowledgeProviderEventCursor: (sessionId, cursor) =>
+        Effect.flatMap(
+          lookup(sessionId),
+          ({ handle }) =>
+            handle.acknowledgeProviderEventCursor?.(cursor) ?? Effect.void,
+        ),
+      releaseProviderEventCursor: (sessionId, cursor) =>
+        Effect.flatMap(
+          lookup(sessionId),
+          ({ handle }) =>
+            handle.releaseProviderEventCursor?.(cursor) ?? Effect.void,
+        ),
+      updateMcpServers: (sessionId, servers) =>
+        Effect.flatMap(
+          lookup(sessionId),
+          ({ handle }) => handle.updateMcpServers?.(servers) ?? Effect.void,
+        ),
       setCredential: (providerId, apiKey) =>
+        Effect.gen(function* () {
+          const normalized = apiKey.trim();
+          if (providerId === "cursor" && normalized.length === 0) {
+            return yield* Effect.fail(
+              new CredentialValidationError({
+                providerId,
+                reason: "Enter an API key before saving.",
+              }),
+            );
+          }
+          if (providerId !== "cursor") {
+            yield* credentials.set(providerId, normalized);
+            yield* Cache.invalidateAll(availabilityCache);
+            return { verification: "notChecked" as const };
+          }
+
+          const validation = yield* validateApiKey(normalized);
+          if (validation.status === "invalid") {
+            return yield* Effect.fail(
+              new CredentialValidationError({
+                providerId,
+                reason: validation.reason,
+              }),
+            );
+          }
+
+          yield* credentials.set(providerId, normalized);
+          yield* Cache.invalidateAll(availabilityCache);
+          return validation.status === "verified"
+            ? { verification: "verified" as const }
+            : {
+                verification: "unverified" as const,
+                warning: validation.warning,
+              };
+        }),
+      removeCredential: (providerId) =>
         credentials
-          .set(providerId, apiKey)
+          .remove(providerId)
           .pipe(Effect.andThen(Cache.invalidateAll(availabilityCache))),
       setPermissionMode: (sessionId, mode) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
@@ -537,13 +606,13 @@ export const ProviderServiceLive = Layer.effect(
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.answerQuestion(itemId, answers),
         ),
-			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.respondToPlan?.(toolCallId, outcome, feedback) ??
-						Effect.fail(new AgentSessionNotFoundError({ sessionId })),
-				),
+      respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
+        Effect.flatMap(
+          lookup(sessionId),
+          ({ handle }) =>
+            handle.respondToPlan?.(toolCallId, outcome, feedback) ??
+            Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+        ),
       getGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"

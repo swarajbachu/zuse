@@ -1410,12 +1410,9 @@ function ProvidersPane() {
 				>
 					{providers
 						.filter((pid) => {
-							// Hide providers the user has toggled off. Cursor is still
-							// excluded because it has an unconditional subscription gate.
-							// Grok is allowed once the probe confirms a usable paid tier,
-							// including X Premium+.
+							// Hide providers the user has toggled off. Grok is allowed once
+							// the probe confirms a usable paid tier, including X Premium+.
 							if (providerEnabled[pid] === false) return false;
-							if (pid === "cursor") return false;
 							return true;
 						})
 						.map((pid) => {

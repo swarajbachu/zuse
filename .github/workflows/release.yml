@@ -38,7 +38,7 @@ jobs:
         env:
           # Required by .npmrc for @hugeicons-pro packages.
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile "--cpu=*"
 
       - name: Build
         env:
