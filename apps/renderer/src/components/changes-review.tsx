@@ -114,19 +114,29 @@ const REVIEW_HIGHLIGHTER_OPTIONS: WorkerInitializationRenderOptions = {
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
 
 type ReviewConflictInstance = UnresolvedFileInstance<undefined>;
+const initializedConflictInstances = new WeakSet<ReviewConflictInstance>();
 
 export const applyReviewConflictResolution = (
 	instance: ReviewConflictInstance | undefined,
+	sourceFile: FileContents,
 	conflictIndex: number,
 	conflict: MergeConflictActionPayload["conflict"],
 	resolution: MergeConflictResolution,
 ): ReturnType<ReviewConflictInstance["resolveConflict"]> => {
 	const dispatch = instance?.options.onMergeConflictAction;
 	if (instance === undefined || dispatch === undefined) return undefined;
+	// The React adapter initializes its controlled diff state without placing the
+	// original file in the imperative instance cache. Seed it before resolving so
+	// unchanged lines survive reconstruction instead of resolving against `""`.
+	if (!initializedConflictInstances.has(instance)) {
+		instance.render({ file: sourceFile });
+		initializedConflictInstances.add(instance);
+	}
 	const result = instance.resolveConflict(conflictIndex, resolution);
 	if (result === undefined) return undefined;
 	flushSync(() => dispatch({ conflict, resolution }, instance));
 	instance.render({
+		file: result.file,
 		fileDiff: result.fileDiff,
 		actions: result.actions,
 		markerRows: result.markerRows,
@@ -1125,6 +1135,7 @@ function ConflictReview({
 							const resolve = (resolution: MergeConflictResolution) => {
 								const result = applyReviewConflictResolution(
 									getInstance(),
+									{ name: file.path, contents },
 									action.conflictIndex,
 									action.conflict,
 									resolution,

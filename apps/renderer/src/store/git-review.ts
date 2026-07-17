@@ -87,6 +87,10 @@ export const useGitReviewStore = create<ReviewState>((set) => ({
 		set((state) => ({
 			loading: { ...state.loading, [key]: true },
 			errors: { ...state.errors, [key]: null },
+			// A refresh can follow a conflict resolution or edit. Drop the rendered
+			// patches immediately so the old comparison cannot remain visible while
+			// the new summary and patch stream are loading.
+			patches: { ...state.patches, [key]: {} },
 		}));
 		const client = await getRpcClient();
 		const summaryResult = await classifyGit(

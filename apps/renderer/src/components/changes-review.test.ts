@@ -27,10 +27,22 @@ describe("applyReviewConflictResolution", () => {
 			markerRows: [],
 		};
 		const dispatch = vi.fn();
+		let initializedFile = false;
 		const instance = {
-			resolveConflict: vi.fn(() => resolution),
+			resolveConflict: vi.fn(() =>
+				initializedFile
+					? resolution
+					: {
+							...resolution,
+							file: { ...resolution.file, contents: "" },
+						},
+			),
 			options: { onMergeConflictAction: dispatch },
 			render: vi.fn((props: Record<string, unknown>) => {
+				if ("file" in props && !("fileDiff" in props)) {
+					initializedFile = true;
+					return;
+				}
 				if (
 					!("fileDiff" in props) ||
 					!("actions" in props) ||
@@ -43,16 +55,20 @@ describe("applyReviewConflictResolution", () => {
 			}),
 		} as unknown as UnresolvedFileInstance<undefined>;
 
-		expect(() =>
-			applyReviewConflictResolution(
+		let resolvedContents: string | undefined;
+		expect(() => {
+			resolvedContents = applyReviewConflictResolution(
 				instance,
+				{ name: "conflicted.ts", contents: "full conflicted file\n" },
 				0,
 				{ conflictIndex: 0 } as never,
 				"incoming",
-			),
-		).not.toThrow();
+			)?.file.contents;
+		}).not.toThrow();
+		expect(resolvedContents).toBe("resolved\n");
 		expect(dispatch).toHaveBeenCalledOnce();
 		expect(instance.render).toHaveBeenCalledWith({
+			file: resolution.file,
 			fileDiff: resolution.fileDiff,
 			actions: resolution.actions,
 			markerRows: resolution.markerRows,
