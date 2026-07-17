@@ -1,17 +1,15 @@
-import { type ReactNode, useEffect, useRef } from "react";
-
 import type { ChatId } from "@zuse/contracts";
-
+import { type ReactNode, useEffect, useRef } from "react";
+import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useChatsStore } from "../store/chats.ts";
-import * as terminalRegistry from "../lib/terminal-registry.ts";
-import { ShimmerText } from "./ui/shimmer-text.tsx";
 import {
   EMPTY_TERMINALS,
   type TerminalInstance,
   terminalsKey,
   useTerminalsStore,
 } from "../store/terminals.ts";
+import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 /**
  * Right-pane terminal host. Each right-dock terminal tab carries a
@@ -122,7 +120,7 @@ export function PtyTerminal({
   return (
     <div
       ref={containerRef}
-      className="h-full w-full min-w-0 overflow-hidden bg-background p-2"
+      className="h-full w-full min-w-0 overflow-hidden bg-background px-2.5 py-2"
     />
   );
 }
