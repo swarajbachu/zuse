@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import {
   Group,
   Panel,
@@ -7,23 +7,15 @@ import {
   useDefaultLayout,
   usePanelRef,
 } from "react-resizable-panels";
-import { ArchivedChatsPage } from "./components/archived-chats-page.tsx";
-import { ChangesReview } from "./components/changes-review.tsx";
-import { ChatComposer } from "./components/chat-composer";
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ChatSwitcher } from "./components/chat-switcher.tsx";
-import { ChatView } from "./components/chat-view";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
 import { CostFooter } from "./components/cost-footer";
 import { EnvironmentSummary } from "./components/environment-summary.tsx";
-import { FileEditor } from "./components/file-editor.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
-import { OnboardingWizard } from "./components/onboarding/onboarding-wizard.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
-import { RightPane } from "./components/right-pane";
-import { SettingsPage } from "./components/settings-page";
 import {
   SidebarPeekOverlay,
   SidebarPeekTrigger,
@@ -31,7 +23,6 @@ import {
 import { TopBarLeft, TopBarMain, TopBarRight } from "./components/top-bar.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { UpdateBanner } from "./components/update-banner.tsx";
-import { UsageDashboard } from "./components/usage-dashboard.tsx";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMediaQuery } from "./hooks/use-media-query.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
@@ -41,8 +32,8 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useAuthStore } from "./store/auth.ts";
 import { useKeybindingsStore } from "./store/keybindings.ts";
 import { usePermissionsStore } from "./store/permissions.ts";
-import { useProvidersStore } from "./store/providers.ts";
-import { useSessionsStore } from "./store/sessions.ts";
+import { useQueueHydrationStore } from "./store/queue-hydration.ts";
+import { getSessionById, useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
@@ -51,104 +42,75 @@ import { useWorktreesStore } from "./store/worktrees.ts";
 const PANEL_GROUP_ID = "zuse.shell.v3";
 const PANEL_IDS = ["projects", "main", "files"];
 
-const SIDEBAR_ANIM_MS = 150;
-const easeOutQuart = (t: number) => 1 - (1 - t) ** 4;
+const ArchivedChatsPage = lazy(() =>
+  import("./components/archived-chats-page.tsx").then((module) => ({
+    default: module.ArchivedChatsPage,
+  })),
+);
+const ChatComposer = lazy(() =>
+  import("./components/chat-composer.tsx").then((module) => ({
+    default: module.ChatComposer,
+  })),
+);
+const ChatView = lazy(() =>
+  import("./components/chat-view.tsx").then((module) => ({
+    default: module.ChatView,
+  })),
+);
+const ChangesReview = lazy(() =>
+  import("./components/changes-review.tsx").then((module) => ({
+    default: module.ChangesReview,
+  })),
+);
+const FileEditor = lazy(() =>
+  import("./components/file-editor.tsx").then((module) => ({
+    default: module.FileEditor,
+  })),
+);
+const OnboardingWizard = lazy(() =>
+  import("./components/onboarding/onboarding-wizard.tsx").then((module) => ({
+    default: module.OnboardingWizard,
+  })),
+);
+const RightPane = lazy(() =>
+  import("./components/right-pane.tsx").then((module) => ({
+    default: module.RightPane,
+  })),
+);
+const SettingsPage = lazy(() =>
+  import("./components/settings-page.tsx").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
+const UsageDashboard = lazy(() =>
+  import("./components/usage-dashboard.tsx").then((module) => ({
+    default: module.UsageDashboard,
+  })),
+);
 
 /**
- * Animate a collapsible side panel open/closed by driving the library's own
- * imperative `resize()` in a rAF tween, instead of a CSS transition.
- *
- * react-resizable-panels controls panel widths via inline flex styles and a
- * ResizeObserver; a CSS transition on those fights that observer (the panel
- * snaps back / won't collapse). Calling `resize()` each frame keeps the
- * library's model authoritative the whole way, so it stays smooth and always
- * lands in the exact end state (`collapse()` when closed, the remembered width
- * when open). The first run after mount snaps without animating so a restored
- * layout doesn't slide in.
+ * Sidebars snap to their requested state. These controls are used frequently;
+ * avoiding a resize loop keeps navigation responsive under stream pressure.
  */
-function useAnimatedPanelCollapse(
+function usePanelCollapse(
   panelRef: ReturnType<typeof usePanelRef>,
   open: boolean,
-  defaultPct: number,
-  animatingRef: { current: boolean },
 ) {
-  const rafRef = useRef<number | null>(null);
-  const lastOpenPct = useRef(defaultPct);
-  const didInit = useRef(false);
-
   useEffect(() => {
     const panel = panelRef.current;
     if (panel === null) return;
-
-    const cancel = () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      animatingRef.current = false;
-    };
-
-    // First run: snap to the correct state (no animation) so a persisted
-    // layout doesn't animate in on launch.
-    if (!didInit.current) {
-      didInit.current = true;
-      const collapsed = panel.isCollapsed();
-      if (!collapsed) {
-        lastOpenPct.current = panel.getSize().asPercentage || defaultPct;
-      }
-      if (open && collapsed) panel.expand();
-      if (!open && !collapsed) panel.collapse();
-      return;
-    }
-
-    cancel();
-
-    const startPct = panel.getSize().asPercentage;
-    // Remember the width we're collapsing from so reopening restores it.
-    if (!open && startPct > 0) lastOpenPct.current = startPct;
-    const targetPct = open ? lastOpenPct.current || defaultPct : 0;
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      if (open) {
-        if (panel.isCollapsed()) panel.expand();
-        panel.resize(`${targetPct}%`);
-      } else {
-        panel.collapse();
-      }
-      return;
-    }
-
-    if (Math.abs(startPct - targetPct) < 0.05) {
-      if (!open && !panel.isCollapsed()) panel.collapse();
-      return;
-    }
-
-    // Suppress the panel's onResize→store sync while we drive resize()
-    // ourselves, otherwise an intermediate (size > 0) frame would flip the
-    // store back open mid-collapse and fight this tween.
-    animatingRef.current = true;
-    const t0 = performance.now();
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - t0) / SIDEBAR_ANIM_MS);
-      const v = startPct + (targetPct - startPct) * easeOutQuart(t);
-      panel.resize(`${v}%`);
-      if (t < 1) {
-        rafRef.current = requestAnimationFrame(tick);
-        return;
-      }
-      rafRef.current = null;
-      // Settle into the exact end state so the collapsed flag / peek logic
-      // stay correct.
-      if (open) panel.resize(`${targetPct}%`);
-      else panel.collapse();
-      animatingRef.current = false;
-    };
-    rafRef.current = requestAnimationFrame(tick);
-
-    return cancel;
-  }, [panelRef, open, defaultPct, animatingRef]);
+    if (open && panel.isCollapsed()) panel.expand();
+    if (!open && !panel.isCollapsed()) panel.collapse();
+  }, [panelRef, open]);
 }
 
+function SurfaceFallback() {
+  return <div className="min-h-0 flex-1 bg-background" aria-busy="true" />;
+}
+
+function ComposerFallback() {
+  return <div className="h-24 shrink-0" aria-busy="true" />;
+}
 /**
  * Root component. Owns only the cross-cutting concerns that need to run in
  * every mode (permissions stream, fullscreen sync, onboarding gate). The
@@ -197,16 +159,6 @@ export function App() {
     void hydrateKeybindings();
   }, [hydrateSettings, hydrateKeybindings]);
 
-  // Probe provider availability once on boot so the "update available" launch
-  // toast can fire without the user first opening settings. ProvidersPane
-  // re-probes on mount while settings is open (it no longer re-polls on window
-  // focus — that read the keychain and made macOS re-prompt on every refocus
-  // for unsigned/dev builds).
-  const loadProviders = useProvidersStore((s) => s.load);
-  useEffect(() => {
-    void loadProviders();
-  }, [loadProviders]);
-
   // Mirror Electron's fullscreen state into the ui store so the top bars
   // can drop the macOS traffic-light gutter.
   const setFullScreen = useUiStore((s) => s.setFullScreen);
@@ -244,7 +196,9 @@ export function App() {
         <NotchTrayBridge />
         <AppearanceController />
         <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+					<Suspense fallback={<SurfaceFallback />}>
           <OnboardingWizard />
+					</Suspense>
         </div>
       </TooltipProvider>
     );
@@ -256,7 +210,9 @@ export function App() {
         <NotchTrayBridge />
         <AppearanceController />
         <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
+					<Suspense fallback={<SurfaceFallback />}>
           <SettingsPage />
+					</Suspense>
         </div>
       </TooltipProvider>
     );
@@ -283,12 +239,13 @@ function MainShell() {
   const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
   const selectedSession = useSessionsStore((s) => {
     if (s.selectedSessionId === null) return null;
-    for (const list of Object.values(s.sessionsByProject)) {
-      const match = list.find((session) => session.id === s.selectedSessionId);
-      if (match !== undefined) return match;
-    }
-    return null;
+		return getSessionById(s.selectedSessionId);
   });
+	const selectedQueueHydrated = useQueueHydrationStore((state) =>
+		selectedSessionId === null
+			? false
+			: state.hydratedBySession[selectedSessionId] === true,
+	);
   const selectedFolder = selectedFolderId
     ? (folders.find((f) => f.id === selectedFolderId) ?? null)
     : null;
@@ -310,9 +267,7 @@ function MainShell() {
     selectedSessionId !== null &&
     activeMainTab === "chat";
   const showEnvironmentSummary =
-    environmentSummaryAvailable &&
-    environmentSummaryOpen &&
-    !rightSidebarOpen;
+		environmentSummaryAvailable && environmentSummaryOpen && !rightSidebarOpen;
 
   // Switching projects closes the file tab — its path wouldn't resolve
   // under the new project's root anyway.
@@ -389,10 +344,8 @@ function MainShell() {
   // `onCollapse` prop — we peek the imperative handle through `panelRef`.
   const leftPanelRef = usePanelRef();
   const rightPanelRef = usePanelRef();
-  const leftAnimating = useRef(false);
-  const rightAnimating = useRef(false);
-  useAnimatedPanelCollapse(leftPanelRef, leftSidebarOpen, 18, leftAnimating);
-  useAnimatedPanelCollapse(rightPanelRef, rightSidebarOpen, 22, rightAnimating);
+	usePanelCollapse(leftPanelRef, leftSidebarOpen);
+	usePanelCollapse(rightPanelRef, rightSidebarOpen);
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden text-foreground">
@@ -406,16 +359,15 @@ function MainShell() {
         <Panel
           id="projects"
           defaultSize="20%"
-          // minSize 0 so the open/close tween can rest at any width down to 0
-          // — the library otherwise snaps sub-minSize widths to minSize/0,
-          // which turns the last stretch of the animation into a hard jump.
-          minSize="0px"
+          // Keep project and chat labels usable when the pane is open. A
+          // collapsed pane may still rest at 0; stale near-zero expanded
+          // widths from persisted layouts are clamped to this minimum.
+          minSize="280px"
           maxSize="40%"
           collapsible
           collapsedSize="0%"
           panelRef={leftPanelRef}
           onResize={(size) => {
-            if (leftAnimating.current) return;
             const open = size.asPercentage > 0;
             if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
           }}
@@ -451,7 +403,9 @@ function MainShell() {
                 // bottom (no full-screen takeover).
                 <div className="flex min-h-0 min-w-0 flex-1 px-3">
                   <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
+										<Suspense fallback={<SurfaceFallback />}>
                     <ChatView sessionId={selectedSessionId} />
+										</Suspense>
                     <CostFooter
                       sessionId={selectedSessionId}
                       constrain={false}
@@ -460,11 +414,17 @@ function MainShell() {
                       providerId={selectedSession.providerId}
                       constrain={false}
                     />
-                    <ChatComposer
-                      key={selectedSession.id}
-                      session={selectedSession}
-                      constrain={false}
-                    />
+									{selectedQueueHydrated ? (
+										<Suspense fallback={<ComposerFallback />}>
+											<ChatComposer
+												key={selectedSession.id}
+												session={selectedSession}
+												constrain={false}
+											/>
+										</Suspense>
+									) : (
+										<ComposerFallback />
+									)}
                   </div>
                   {environmentSummaryAvailable ? (
                     <div
@@ -497,10 +457,14 @@ function MainShell() {
               className="flex min-h-0 flex-1 flex-col"
             >
               {activeMainTab === "archives" && (
+								<Suspense fallback={<SurfaceFallback />}>
                 <ArchivedChatsPage
                   projectId={selectedFolderId}
-                  projectName={selectedFolder?.name ?? "No repository selected"}
+										projectName={
+											selectedFolder?.name ?? "No repository selected"
+										}
                 />
+								</Suspense>
               )}
             </div>
             <div
@@ -508,8 +472,11 @@ function MainShell() {
               className="flex min-h-0 flex-1 flex-col"
             >
               {activeMainTab === "usage" && (
+								<Suspense fallback={<SurfaceFallback />}>
                 <UsageDashboard
-                  projectId={usageScope === "project" ? selectedFolderId : null}
+										projectId={
+											usageScope === "project" ? selectedFolderId : null
+										}
                   availableProjectId={selectedFolderId}
                   scopeLabel={
                     usageScope === "project"
@@ -517,6 +484,7 @@ function MainShell() {
                       : "All projects"
                   }
                 />
+								</Suspense>
               )}
             </div>
             {openFile !== null && (
@@ -524,7 +492,9 @@ function MainShell() {
                 hidden={activeMainTab !== "file"}
                 className="flex min-h-0 flex-1 flex-col"
               >
+								<Suspense fallback={<SurfaceFallback />}>
                 <FileEditor />
+								</Suspense>
               </div>
             )}
             {changesTabOpen ? (
@@ -532,7 +502,9 @@ function MainShell() {
                 hidden={activeMainTab !== "changes"}
                 className="flex min-h-0 flex-1 flex-col"
               >
-                <ChangesReview />
+								<Suspense fallback={<SurfaceFallback />}>
+									<ChangesReview />
+								</Suspense>
               </div>
             ) : null}
           </main>
@@ -541,15 +513,15 @@ function MainShell() {
         <Panel
           id="files"
           defaultSize="22%"
-          // minSize 0 so the open/close tween stays smooth all the way to 0
-          // (see the left panel note).
-          minSize="0px"
+          // Keep an opened dock useful. Older persisted layouts may contain a
+          // near-zero expanded width from when this minimum was 0; the panel
+          // library clamps those layouts to this value on launch and reopen.
+          minSize="360px"
           maxSize="55%"
           collapsible
           collapsedSize="0%"
           panelRef={rightPanelRef}
           onResize={(size, _id, prev) => {
-            if (rightAnimating.current) return;
             // Ignore the initial mount call (prev === undefined). The right
             // dock defaults to closed (`rightSidebarOpen: false`); the
             // persisted/default panel width would otherwise fire here and
@@ -562,7 +534,11 @@ function MainShell() {
           <div className="flex h-full min-h-0 flex-col bg-background/20">
             <TopBarRight />
             <div className="flex min-h-0 flex-1 flex-col">
+							{rightSidebarOpen ? (
+								<Suspense fallback={<SurfaceFallback />}>
               <RightPane />
+								</Suspense>
+							) : null}
             </div>
           </div>
         </Panel>

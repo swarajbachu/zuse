@@ -11,6 +11,7 @@ import {
   installRendererDiagnostics,
   recordDiagnosticEvent,
 } from "./lib/diagnostics-recorder.ts";
+import { AppAtomProvider } from "./state/registry.tsx";
 
 if (import.meta.env.DEV) {
   void import("./lib/update-demo.ts").then((m) => m.installUpdateDemo());
@@ -92,9 +93,11 @@ ReactDOM.createRoot(root).render(
         });
       }}
     >
+			<AppAtomProvider>
       <ToastProvider>
         <App />
       </ToastProvider>
+			</AppAtomProvider>
     </ErrorBoundary>
   </React.StrictMode>,
 );

@@ -5,10 +5,10 @@ import type {
 	ProviderId,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
-import { create } from "zustand";
 
 import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 export interface McpScope {
 	readonly projectId?: FolderId;

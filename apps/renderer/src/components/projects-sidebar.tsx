@@ -1,4 +1,3 @@
-import type { AutoAnimationPlugin } from "@formkit/auto-animate";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Analytics01Icon,
@@ -20,16 +19,13 @@ import {
   ArchiveArrowUpIcon,
   ArchiveIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import {
-  projectSessionEvent,
-  sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
 import type {
   Chat,
   ChatId,
   FolderId,
   GitOriginInfo,
   ProviderId,
+	Session,
   SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
@@ -57,9 +53,12 @@ import {
 } from "~/lib/chat-attention-state";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
+import {
+	getRpcClient,
+	reportRendererRpcStreamFailure,
+	subscribeRendererRpcConnection,
+} from "../lib/rpc-client.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
-import { useAutoAnimate } from "../lib/use-auto-animate.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import {
   archiveChatWithConfirm,
@@ -73,10 +72,6 @@ import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
 import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
 import { useSessionsStore } from "../store/sessions.ts";
-import {
-  useSidebarMessageStatusStore,
-  useSidebarMessageStatusSubscriptions,
-} from "../store/sidebar-message-status.ts";
 import { useUiStore } from "../store/ui.ts";
 import { useUsageLimitsStore } from "../store/usage-limits.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
@@ -88,50 +83,6 @@ const sidebarErrorToastCache = {
   chats: null as string | null,
   sessions: null as string | null,
   workspace: null as string | null,
-};
-
-/**
- * Keep archive feedback spatial and restrained: the archived row leaves
- * quickly while the rows below it close the gap. New rows do not animate, so
- * expanding a project or hydrating its chats remains instant.
- */
-const archiveListAnimation: AutoAnimationPlugin = (
-  element,
-  action,
-  before,
-  after,
-) => {
-  if (action === "remain" && before !== undefined && after !== undefined) {
-    const x = before.left - after.left;
-    const y = before.top - after.top;
-    return new KeyframeEffect(
-      element,
-      [
-        { transform: `translate3d(${x}px, ${y}px, 0)` },
-        { transform: "translate3d(0, 0, 0)" },
-      ],
-      {
-        duration: 140,
-        easing: "cubic-bezier(0.455, 0.03, 0.515, 0.955)",
-      },
-    );
-  }
-
-  if (action === "remove") {
-    return new KeyframeEffect(
-      element,
-      [
-        { opacity: 1, transform: "translate3d(0, 0, 0)" },
-        { opacity: 0, transform: "translate3d(-4px, 0, 0)" },
-      ],
-      { duration: 100, easing: "cubic-bezier(0.215, 0.61, 0.355, 1)" },
-    );
-  }
-
-  // Project expansion and initial hydration should never animate chat rows.
-  return new KeyframeEffect(element, [{ opacity: 1 }, { opacity: 1 }], {
-    duration: 1,
-  });
 };
 
 const initialsOf = (name: string): string => {
@@ -198,136 +149,172 @@ const formatRelative = (iso: Date): string => {
   return `${day}d ago`;
 };
 
-/** Resolve the chat that owns a session from the renderer session cache. */
-const chatIdForSession = (sessionId: SessionId): ChatId | null => {
-  const buckets = useSessionsStore.getState().sessionsByProject;
-  for (const list of Object.values(buckets)) {
-    const row = list.find((r) => r.id === sessionId);
-    if (row !== undefined) return row.chatId;
-  }
-  return null;
-};
+/** One summary feed per project replaces a transport stream for every row. */
+function applySessionSummary(
+	projectId: FolderId,
+	change:
+		| {
+				readonly _tag: "snapshot";
+				readonly cursor: number;
+				readonly sessions: ReadonlyArray<Session>;
+			  }
+		| {
+				readonly _tag: "change";
+				readonly sequence: number;
+				readonly session: Session;
+			  }
+		| {
+				readonly _tag: "remove";
+				readonly sequence: number;
+				readonly sessionId: SessionId;
+			  },
+): void {
+	const sessions =
+		change._tag === "snapshot"
+			? change.sessions
+			: change._tag === "change"
+				? [change.session]
+				: [];
+	const previousRunning = useMessagesStore.getState().runningBySession;
+	useMessagesStore.getState().observeSessionStatuses(
+		sessions.map((session) => ({
+			sessionId: session.id,
+			status: session.status,
+		})),
+	);
+	for (const session of sessions) {
+		const wasRunning = previousRunning[session.id] === true;
+		noteSessionStatusForCompletionSound(session.id, session.status);
+		if (wasRunning && session.status !== "running") {
+			const chats = useChatsStore.getState();
+			if (chats.selectedChatId === session.chatId) {
+				void chats.markRead(session.chatId);
+			} else {
+				chats.noteChatActivity(session.chatId);
+			}
+		}
+	}
+	useSessionsStore.setState((state) => {
+		const current = state.sessionsByProject[projectId] ?? [];
+		if (change._tag === "snapshot") {
+			const incoming = new Set(change.sessions.map((session) => session.id));
+			const unacknowledged = current.filter(
+				(session) => session.status === "booting" && !incoming.has(session.id),
+			);
+			return {
+				sessionsByProject: {
+					...state.sessionsByProject,
+					[projectId]: [...unacknowledged, ...change.sessions],
+				},
+			};
+		}
+		if (change._tag === "remove") {
+			return {
+				sessionsByProject: {
+					...state.sessionsByProject,
+					[projectId]: current.filter(
+						(session) => session.id !== change.sessionId,
+					),
+				},
+			};
+		}
+		const found = current.some((session) => session.id === change.session.id);
+		return {
+			sessionsByProject: {
+				...state.sessionsByProject,
+				[projectId]: found
+					? current.map((session) =>
+							session.id === change.session.id ? change.session : session,
+						)
+					: [change.session, ...current],
+			},
+		};
+	});
+}
 
-const eventCursorKey = (sessionId: SessionId): string =>
-  `renderer:sidebar-status:${sessionId}`;
-
-/**
- * Keep one durable session-event subscription per known session so the
- * sidebar's busy indicators stay accurate even when a project is collapsed
- * or its row isn't mounted. Lives at the sidebar root so subscription
- * lifetime is decoupled from row-mount lifetime (the prior per-`SessionRow`
- * subscription dropped the moment a project group was collapsed). Each
- * fiber writes into `useMessagesStore.runningBySession[sessionId]`, which
- * every consumer already reads from.
- */
-function useSessionRunningSubscriptions(sessionIds: ReadonlyArray<SessionId>) {
-  // Stable ref-tracked fiber map. We diff incoming `sessionIds` against the
-  // tracked set and only start/stop the deltas. Critically, an existing
-  // session's fiber is NEVER torn down just because another session is
-  // added or removed from the list — tearing it down would force a fresh
-  // event replay and can make the previous session's loader flicker.
-  const fibersRef = useRef<Map<SessionId, Fiber.Fiber<unknown, unknown>>>(
-    new Map(),
-  );
-  const idsKey = sessionIds.join(",");
+function useProjectSessionSummarySubscriptions(
+	projectIds: ReadonlyArray<FolderId>,
+) {
+	const fibersRef = useRef(new Map<FolderId, Fiber.Fiber<unknown, unknown>>());
+	const generationsRef = useRef(new Map<FolderId, number>());
+	const cursorsRef = useRef(new Map<FolderId, number>());
+	const idsKey = projectIds.join("\u0000");
 
   useEffect(() => {
-    const tracked = fibersRef.current;
-    const incoming = new Set(sessionIds);
-    const toAdd = sessionIds.filter((id) => !tracked.has(id));
-    const toRemove = Array.from(tracked.keys()).filter(
-      (id) => !incoming.has(id),
-    );
-    for (const id of toRemove) {
-      const fiber = tracked.get(id);
-      tracked.delete(id);
-      if (fiber !== undefined) {
+		const wanted = new Set(projectIds);
+		for (const [projectId, fiber] of fibersRef.current) {
+			if (wanted.has(projectId)) continue;
+			fibersRef.current.delete(projectId);
+			generationsRef.current.delete(projectId);
+			cursorsRef.current.delete(projectId);
         void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
       }
-    }
-    if (toAdd.length === 0) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const client = await getRpcClient();
-        if (cancelled) return;
-        for (const id of toAdd) {
-          if (tracked.has(id)) continue;
-          const fiber = Effect.runFork(
-            Stream.runForEach(
-              client["session.events"]({
-                sessionId: id,
-                afterSequence: sessionEventCursors.get(eventCursorKey(id)),
-              }),
-              (envelope) =>
-                Effect.sync(() => {
-                  sessionEventCursors.set(
-                    eventCursorKey(id),
-                    envelope.sequence,
-                  );
-                  const event = projectSessionEvent(envelope);
-                  if (event._tag !== "status") return;
-                  // Capture the prior running flag BEFORE the status update so
-                  // we can detect the running→idle edge for unread tracking.
-                  const wasRunning =
-                    useMessagesStore.getState().runningBySession[id] === true;
-                  const isRunning = event.status === "running";
-                  noteSessionStatusForCompletionSound(id, event.status);
-                  useMessagesStore
-                    .getState()
-                    .observeSessionStatus(id, event.status);
-                  // Mirror the full status into the session row so the
-                  // chat surface can branch on `booting` (loading panel)
-                  // vs `idle` (composer ready) without a second stream.
-                  useSessionsStore
-                    .getState()
-                    .setSessionStatus(id, event.status);
-                  // running→idle = the agent just produced new output. Light
-                  // the owning chat unread — unless the user is looking at it,
-                  // in which case stamp it read instead. This is the live
-                  // signal that covers every hydrated session, even in
-                  // collapsed/background chats.
-                  if (wasRunning && !isRunning) {
-                    const chatId = chatIdForSession(id);
-                    if (chatId !== null) {
-                      const chats = useChatsStore.getState();
-                      if (chats.selectedChatId === chatId) {
-                        void chats.markRead(chatId);
-                      } else {
-                        chats.noteChatActivity(chatId);
-                      }
-                    }
-                  }
-                  if (event.status === "idle" || event.status === "closed") {
-                    useMessagesStore.getState().flushQueue(id);
-                  }
-                }),
-            ),
-          );
-          tracked.set(id, fiber);
-        }
-      } catch {
-        // Best-effort — sidebar still renders the branch icon if the
-        // status stream is unavailable.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+		const unsubscribe = subscribeRendererRpcConnection((snapshot) => {
+			if (snapshot.status !== "connected") return;
+			for (const projectId of projectIds) {
+				if (generationsRef.current.get(projectId) === snapshot.generation) {
+					continue;
+				}
+				generationsRef.current.set(projectId, snapshot.generation);
+				const previous = fibersRef.current.get(projectId);
+				if (previous !== undefined) {
+					void Effect.runPromise(Fiber.interrupt(previous)).catch(() => {});
+				}
+				const generation = snapshot.generation;
+				const fiber = Effect.runFork(
+					Effect.tryPromise(() => getRpcClient()).pipe(
+						Effect.flatMap((client) =>
+							Stream.runForEach(
+								client["session.streamChanges"]({
+									projectId,
+									sinceSequence: cursorsRef.current.get(projectId),
+								}),
+								(change) =>
+									Effect.sync(() => {
+										const sequence =
+											change._tag === "snapshot"
+												? change.cursor
+												: change.sequence;
+										if ((cursorsRef.current.get(projectId) ?? -1) >= sequence) {
+											return;
+										}
+										cursorsRef.current.set(projectId, sequence);
+										applySessionSummary(projectId, change);
+									}),
+							),
+						),
+						Effect.match({
+							onFailure: (cause) => {
+								if (generationsRef.current.get(projectId) === generation) {
+									reportRendererRpcStreamFailure(generation, cause);
+								}
+							},
+							onSuccess: () => {
+								if (generationsRef.current.get(projectId) === generation) {
+									reportRendererRpcStreamFailure(
+										generation,
+										new Error("session summary stream completed unexpectedly"),
+									);
+								}
+							},
+						}),
+					),
+				);
+				fibersRef.current.set(projectId, fiber);
+			}
+		});
+		return unsubscribe;
   }, [idsKey]);
 
-  // Final teardown on unmount only (sidebar lives for the whole app, so
-  // this realistically fires once on hot-reload).
-  useEffect(() => {
-    return () => {
-      const tracked = fibersRef.current;
-      for (const fiber of tracked.values()) {
+	useEffect(
+		() => () => {
+			for (const fiber of fibersRef.current.values()) {
         void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
       }
-      tracked.clear();
-    };
-  }, []);
+			fibersRef.current.clear();
+		},
+		[],
+	);
 }
 
 export function ProjectsSidebar() {
@@ -424,25 +411,10 @@ export function ProjectsSidebar() {
     };
   }, [folders, origins]);
 
-  // Flat list of every non-archived session across every hydrated project.
-  // Drives a single sidebar-root subscription per session so busy indicators
-  // stay alive across collapse/expand toggles.
-  const allSessionIds = useMemo(() => {
-    const ids: SessionId[] = [];
-    for (const folder of folders) {
-      const sessions = sessionsByProject[folder.id];
-      if (sessions === undefined) continue;
-      for (const session of sessions) {
-        if (session.archivedAt === null) ids.push(session.id);
-      }
-    }
-    return ids;
-  }, [folders, sessionsByProject]);
-  useSessionRunningSubscriptions(allSessionIds);
-  useSidebarMessageStatusSubscriptions(allSessionIds);
+	useProjectSessionSummarySubscriptions(folders.map((folder) => folder.id));
 
   const onToggleExpanded = (id: FolderId) =>
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+		setExpanded((previous) => ({ ...previous, [id]: !previous[id] }));
 
   return (
     <aside
@@ -618,7 +590,6 @@ function ProjectGroup({
   const anchorRef = useRef<{ getBoundingClientRect: () => DOMRect } | null>(
     null,
   );
-  const chatListRef = useAutoAnimate<HTMLUListElement>(archiveListAnimation);
 
   const openRepositorySettings = () => {
     setSettingsSection({ kind: "repository", projectId: id });
@@ -663,7 +634,7 @@ function ProjectGroup({
       ),
     ),
   );
-  const headerMessageAttention = useSidebarMessageStatusStore((s) =>
+  const headerMessageAttention = useMessagesStore((s) =>
     mergeChatAttentionStates(
       liveSessionIds.map((id) =>
         deriveChatAttentionState(s.messagesBySession[id] ?? [], false),
@@ -693,6 +664,7 @@ function ProjectGroup({
       {/* Project header toggles expansion only. Explicit actions below select
           the project when they need project context. */}
       <li>
+				{/* biome-ignore lint/a11y/useSemanticElements: this row contains nested action buttons. */}
         <div
           role="button"
           tabIndex={0}
@@ -778,15 +750,15 @@ function ProjectGroup({
       </li>
 
       <li className="list-none" hidden={!isExpanded}>
-        <ul ref={chatListRef} className="flex flex-col gap-0.5">
+				<ul aria-label={`${displayName} chats`}>
           {visibleChats.length === 0 && (
-            <li className="px-12 py-1 text-[11px] text-muted-foreground">
+						<li className="px-12 py-1 text-[11px] text-muted-foreground">
               No chats yet.
-            </li>
+						</li>
           )}
-          {visibleChats.map((chat) => (
-            <ChatRow key={chat.id} chat={chat} />
-          ))}
+					{visibleChats.map((chat) => (
+						<ChatRow key={chat.id} chat={chat} />
+					))}
         </ul>
       </li>
     </Fragment>
@@ -989,7 +961,7 @@ function ChatRow({ chat }: { chat: Chat }) {
       ),
     ),
   );
-  const messageAttention = useSidebarMessageStatusStore((s) =>
+  const messageAttention = useMessagesStore((s) =>
     mergeChatAttentionStates(
       sessionIds.map((id) =>
         deriveChatAttentionState(s.messagesBySession[id] ?? [], false),
@@ -1094,7 +1066,9 @@ function ChatRow({ chat }: { chat: Chat }) {
 
   return (
     <>
-      <li
+			<li>
+				{/* biome-ignore lint/a11y/useSemanticElements: this row contains a nested archive action. */}
+				<div
         role="button"
         tabIndex={0}
         onClick={() => selectChat(chat.id)}
@@ -1136,7 +1110,10 @@ function ChatRow({ chat }: { chat: Chat }) {
             className="ml-3"
           />
         )}
-        <TypewriterText text={chat.title} className="min-w-0 flex-1 truncate" />
+					<TypewriterText
+						text={chat.title}
+						className="min-w-0 flex-1 truncate"
+					/>
         <div className="relative flex h-4 w-16 shrink-0 items-center justify-end">
           <span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
             {showDiff && stats !== null ? (
@@ -1177,6 +1154,7 @@ function ChatRow({ chat }: { chat: Chat }) {
             )}
           </button>
         </div>
+				</div>
       </li>
       <Menu open={menuOpen} onOpenChange={setMenuOpen}>
         <MenuPopup
@@ -1269,6 +1247,7 @@ function ChatAttentionIcon({
 
   return (
     <span
+			role="img"
       className={cn(
         "inline-flex size-3.5 shrink-0 items-center justify-center",
         color,

@@ -86,6 +86,9 @@ export interface SqlDispatchStorageApi<
 		streamId: string,
 		sequence: number,
 	) => Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
+	readonly allEventsAfterSequence: (
+		sequence: number,
+	) => Effect.Effect<readonly StoredEvent<Event>[], StorageError>;
 	readonly eventsInVersionRange: (
 		streamId: string,
 		fromExclusive: number,
@@ -142,6 +145,19 @@ export const makeSqlDispatchStorage = <
 			FROM events
 			WHERE stream_kind = ${streamKind} AND stream_id = ${streamId}
 			  AND sequence > ${sequence}
+			ORDER BY sequence ASC
+		`;
+		return yield* decodeRows(rows);
+	});
+
+	const allEventsAfterSequence = Effect.fn(
+		"SqlDispatchStorage.allEventsAfterSequence",
+	)(function* (sequence: number) {
+		const rows = yield* sql<PersistedEventRow>`
+			SELECT sequence, event_id, correlation_id, causation_event_id,
+			       stream_id, stream_version, payload_json
+			FROM events
+			WHERE stream_kind = ${streamKind} AND sequence > ${sequence}
 			ORDER BY sequence ASC
 		`;
 		return yield* decodeRows(rows);
@@ -223,6 +239,7 @@ export const makeSqlDispatchStorage = <
 		receipt,
 		events,
 		eventsAfterSequence,
+		allEventsAfterSequence,
 		eventsInVersionRange,
 		append,
 	};

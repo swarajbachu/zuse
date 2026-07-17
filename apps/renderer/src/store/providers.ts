@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 
@@ -7,7 +7,7 @@ import { formatError } from "../lib/format-error.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 
 // Stable reference for the "no capabilities" case so the `capabilitiesFor`
-// selector doesn't return a fresh array each call (which would churn zustand
+// selector doesn't return a fresh array each call (which would churn the
 // subscribers on every unrelated store update).
 const EMPTY_CAPABILITIES: ReadonlyArray<string> = [];
 

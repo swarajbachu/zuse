@@ -178,6 +178,7 @@ import {
 	SessionSetProviderRpc,
 	SessionSetRuntimeModeRpc,
 	SessionSetWorktreeRpc,
+	SessionStreamChangesRpc,
 	SessionUnarchiveRpc,
 } from "./session.ts";
 import {
@@ -329,6 +330,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ChatUnarchiveRpc,
 	ChatDeleteRpc,
 	SessionListRpc,
+	SessionStreamChangesRpc,
 	SessionMcpUpdateRpc,
 	SessionGetRpc,
 	SessionCreateRpc,

@@ -12,7 +12,7 @@ const EMPTY_PLAN_APPROVAL_MESSAGES: ReadonlyArray<Message> = [];
 /**
  * Select the transcript used to locate a native plan interaction.
  *
- * Zustand selectors consumed through `useSyncExternalStore` must return the
+ * Selectors consumed through `useSyncExternalStore` must return the
  * same snapshot while the store is unchanged. In particular, do not allocate
  * an empty array here while a newly-created session is still loading.
  */
@@ -203,7 +203,7 @@ export const chooseComposerSubmitRoute = ({
   readonly shouldQueue: boolean;
 }): ComposerSubmitRoute => {
   if (sendPlanFeedbackNow) return "planFeedback";
-  if (goalSendMode) return "goal";
   if (shouldQueue) return "queue";
+	if (goalSendMode) return "goal";
   return "send";
 };

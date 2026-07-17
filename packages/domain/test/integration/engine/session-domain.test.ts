@@ -105,4 +105,96 @@ describe("SessionDomain", () => {
 		expect(result.live.map(({ sequence }) => sequence)).toEqual([2]);
 		expect(result.live[0]?.event._tag).toBe("SessionTitleSet");
 	});
+
+	test("replays and tails all session streams with one global cursor", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z'),
+					       ('chat-2', '1970-01-01T00:00:00.000Z')
+				`;
+				let nextEventId = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`event-${++nextEventId}`),
+				);
+				yield* domain.dispatch({
+					commandId: "command-create-1",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				const cursor = yield* domain.currentSequence;
+				const liveFiber = yield* domain
+					.allEvents({ afterSequence: cursor })
+					.pipe(
+						Stream.take(1),
+						Stream.runCollect,
+						Effect.forkChild({ startImmediately: true }),
+					);
+				yield* domain.dispatch({
+					commandId: "command-create-2",
+					streamId: "session-2",
+					command: {
+						...createSessionCommand,
+						sessionId: "session-2",
+						chatId: "chat-2",
+					},
+				});
+				const live = yield* Fiber.join(liveFiber);
+				return { cursor, live: [...live] };
+			}),
+		);
+
+		expect(result.cursor).toBe(1);
+		expect(result.live.map((event) => event.streamId)).toEqual(["session-2"]);
+		expect(result.live.map((event) => event.sequence)).toEqual([2]);
+	});
+
+	test("publishes live events only after the session projection is current", async () => {
+		const observedStatus = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				let nextEventId = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`event-${++nextEventId}`),
+				);
+				yield* domain.dispatch({
+					commandId: "command-create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				const cursor = yield* domain.currentSequence;
+				const observed = yield* domain
+					.allEvents({ afterSequence: cursor })
+					.pipe(
+						Stream.take(1),
+						Stream.mapEffect(() =>
+							sql<{ readonly status: string }>`
+								SELECT status FROM sessions WHERE id = 'session-1'
+							`.pipe(Effect.map((rows) => rows[0]?.status ?? "missing")),
+						),
+						Stream.runHead,
+						Effect.forkChild({ startImmediately: true }),
+					);
+				yield* domain.dispatch({
+					commandId: "command-running",
+					streamId: "session-1",
+					command: { _tag: "SetStatus", status: "running", updatedAt: 2 },
+				});
+				return yield* Fiber.join(observed);
+			}),
+		);
+
+		expect(observedStatus).toMatchObject({
+			_tag: "Some",
+			value: "running",
+		});
+	});
 });

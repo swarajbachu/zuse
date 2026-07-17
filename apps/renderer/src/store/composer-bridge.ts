@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 export type AttachableFile = {
   readonly relPath: string;

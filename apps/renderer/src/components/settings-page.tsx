@@ -33,7 +33,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
 import {
@@ -49,6 +49,7 @@ import {
 } from "../lib/completion-sounds.ts";
 import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
 import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSettingsStore } from "../store/settings.ts";
@@ -77,15 +78,6 @@ import {
   SelectValue,
 } from "./ui/select.tsx";
 import { Switch } from "./ui/switch";
-
-const PROVIDER_LABEL: Record<ProviderId, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  grok: "Grok",
-  cursor: "Cursor",
-  gemini: "Gemini",
-  opencode: "OpenCode",
-};
 
 type RailItemBase = {
   readonly id: string;
@@ -955,10 +947,14 @@ function GeneralPane() {
   // via the auth store). Mirror on external change.
   const [nameDraft, setNameDraft] = useState(displayName);
   const [editingName, setEditingName] = useState(false);
+	const nameInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     setNameDraft(displayName);
     setEditingName(false);
   }, [displayName]);
+	useEffect(() => {
+		if (editingName) nameInputRef.current?.focus();
+	}, [editingName]);
 
   const accountNameIsEmail = Boolean(user?.email && name === user.email);
 
@@ -969,7 +965,6 @@ function GeneralPane() {
         description="Sign in to sync your account across devices and (soon) drive remote agents from your phone."
       >
         {isSignedIn ? (
-          <>
             <div className="flex items-center gap-3 px-4 py-3.5">
               <Avatar className="size-10">
                 {user?.profilePictureUrl ? (
@@ -982,7 +977,7 @@ function GeneralPane() {
               <div className="flex min-w-0 flex-1 flex-col">
                 {editingName ? (
                   <input
-                    autoFocus
+									ref={nameInputRef}
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
                     onBlur={() => {
@@ -1030,15 +1025,10 @@ function GeneralPane() {
                   <BlurredEmail email={user.email} />
                 ) : null}
               </div>
-              <Button
-                variant="settings"
-                size="sm"
-                onClick={() => void signOut()}
-              >
+						<Button variant="settings" size="sm" onClick={() => void signOut()}>
                 Sign out
               </Button>
             </div>
-          </>
         ) : (
           <SettingsRow
             title="Not signed in"
@@ -1229,10 +1219,14 @@ function GeneralPane() {
         >
           {branchNamingStyle === "custom" && (
             <div className="flex flex-col gap-1.5 rounded-lg border border-border/40 bg-background/60 p-3">
-              <label className="text-xs font-medium text-muted-foreground">
+							<label
+								htmlFor="branch-naming-prefix"
+								className="text-xs font-medium text-muted-foreground"
+							>
                 Custom prefix
               </label>
               <input
+								id="branch-naming-prefix"
                 type="text"
                 value={prefixDraft}
                 placeholder="e.g. swaraj or team/wip"
@@ -1435,6 +1429,7 @@ function ProvidersPane() {
             .map((pid) => {
               const selected = pid === defaultProviderId;
               return (
+								// biome-ignore lint/a11y/useSemanticElements: custom radio remains a native focusable button.
                 <button
                   key={pid}
                   type="button"
@@ -1725,6 +1720,7 @@ export function OptionCard({
 }) {
   const compact = !description;
   return (
+		// biome-ignore lint/a11y/useSemanticElements: custom radio remains a native focusable button.
     <button
       type="button"
       role="radio"
@@ -1841,6 +1837,7 @@ export function CheckboxField({
   disabled?: boolean;
 }) {
   return (
+		// biome-ignore lint/a11y/noLabelWithoutControl: CheckboxInput renders a native checkbox.
     <label
       className={cn(
         "group/checkbox flex items-start gap-3 rounded-lg border border-border/50 px-3.5 py-3 text-sm transition-colors hover:bg-muted/40 has-[:focus-visible]:border-foreground/30 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
@@ -2051,5 +2048,5 @@ export function ensureValidDefaultsForRuntime(
   };
 }
 
+export { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 export type { FolderId };
-export { PROVIDER_LABEL };

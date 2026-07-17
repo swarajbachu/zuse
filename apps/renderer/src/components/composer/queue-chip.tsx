@@ -11,10 +11,9 @@ import {
   SentIcon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
+import { ComposerInput, type QueuedMessage, type SessionId } from "@zuse/contracts";
 import { X } from "lucide-react";
 import { useState } from "react";
-
-import { ComposerInput, type QueuedMessage, type SessionId } from "@zuse/contracts";
 
 import {
   Menu,
@@ -77,18 +76,13 @@ export function QueueChip({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.input.text);
   const text = previewText(item);
-  const subtitle = refSubtitle(item);
+  const subtitle = item.ready ? refSubtitle(item) : "Preparing attachments…";
 
   const save = () => {
-    update(
+		void update(
       sessionId,
       item.id,
-      new ComposerInput({
-        text: draft,
-        attachments: item.input.attachments,
-        fileRefs: item.input.fileRefs,
-        skillRefs: item.input.skillRefs,
-      }),
+			ComposerInput.make({ ...item.input, text: draft }),
     );
     setEditing(false);
   };
@@ -194,6 +188,7 @@ export function QueueChip({
                 <button
                   type="button"
                   onClick={() => void steer(sessionId, item.id)}
+					disabled={!item.ready}
                   className={cn(
                     trayPillActionClass,
                     "w-auto gap-1 px-1.5 hover:text-foreground",

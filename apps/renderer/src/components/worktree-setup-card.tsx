@@ -1,15 +1,14 @@
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert01Icon,
   GitBranchIcon,
   Tick01Icon,
 } from "@hugeicons-pro/core-bulk-rounded";
-import { HugeiconsIcon } from "@hugeicons/react";
-
+import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { PROVIDER_LABEL } from "./settings-page";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
@@ -80,8 +79,7 @@ export function WorktreeSetupCard() {
   const worktreePending = ctx.status === "ready" && ctx.worktreePending;
   const setupStatus = worktree?.setupStatus ?? null;
   const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
-  const externalResume =
-    session !== null && session.resumeStrategy !== "none";
+	const externalResume = session !== null && session.resumeStrategy !== "none";
   const providerBooting = session?.status === "booting";
   const providerErrored = session?.status === "error";
 

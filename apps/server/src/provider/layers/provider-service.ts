@@ -90,10 +90,11 @@ export const ProviderServiceLive = Layer.effect(
           Effect.catch(() => Effect.succeed<string | null>(null)),
         );
         if (cursorPath === null) return;
-        const apiKey = yield* credentials
-          .get("cursor")
-          .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
-        yield* Effect.sync(() => prewarmCursor(cursorPath, apiKey));
+        // Layer construction is part of application startup. Do not touch the
+        // OS keychain here: unsigned development builds can trigger a native
+        // permission dialog before the user has asked to start a provider.
+        // A real Cursor session still resolves and supplies its API key.
+        yield* Effect.sync(() => prewarmCursor(cursorPath, null));
       }),
     );
 

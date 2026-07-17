@@ -4,12 +4,12 @@ import type {
 	FolderId,
 	WorktreeId,
 } from "@zuse/contracts";
-import { create } from "zustand";
 import {
 	defaultFileViewForName,
 	isPreviewableFileName,
 } from "~/lib/file-preview";
 import { requestReviewLeave } from "../lib/review-edit-guard.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import { useChatsStore } from "./chats.ts";
 

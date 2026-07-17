@@ -1,10 +1,33 @@
-import { ComposerInput, QueuedMessage, type SessionId } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
-import { beforeEach, describe, expect, it } from "vitest";
+import type { ConnectionSnapshot } from "@zuse/client-runtime/supervisor";
+import {
+	ComposerInput,
+	QueuedMessage,
+	SessionDomainEventEnvelope,
+	type SessionId,
+} from "@zuse/contracts";
+import { Effect, Queue, Stream } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { reportRendererRpcStreamFailure, subscribeRendererRpcConnection } =
+	vi.hoisted(() => ({
+		reportRendererRpcStreamFailure: vi.fn(),
+		subscribeRendererRpcConnection: vi.fn(),
+	}));
+
+vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
+	return {
+		...original,
+		reportRendererRpcStreamFailure,
+		subscribeRendererRpcConnection,
+	};
+});
 
 const {
 	setMessagesRpcClientForTest,
 	setMessagesRpcCommandDispatcherForTest,
+	teardownLiveStreams,
 	useMessagesStore,
 } = await import("../../src/store/messages.ts");
 
@@ -25,6 +48,28 @@ const queued = QueuedMessage.make({
 	updatedAt: new Date("2026-06-21T00:00:00.000Z"),
 });
 
+const externalMessageEvent = (
+	sequence: number,
+	messageId: string,
+	text: string,
+): SessionDomainEventEnvelope =>
+	new SessionDomainEventEnvelope({
+		sequence,
+		eventId: `event-${messageId}`,
+		correlationId: `correlation-${messageId}`,
+		causationEventId: null,
+		sessionId,
+		streamVersion: sequence,
+		type: "MessagePersisted",
+		payloadJson: JSON.stringify({
+			_tag: "MessagePersisted",
+			messageId,
+			role: "assistant",
+			contentJson: JSON.stringify({ _tag: "assistant", text }),
+			createdAt: new Date("2026-06-21T00:00:01.000Z").getTime() + sequence,
+		}),
+	});
+
 let interruptCalls = 0;
 let sendNowCalls: Array<{
 	readonly sessionId: SessionId;
@@ -34,7 +79,9 @@ let resumeCalls: Array<{ readonly sessionId: SessionId }> = [];
 let flushCalls: Array<{ readonly sessionId: SessionId }> = [];
 let addCalls: Array<{
 	readonly sessionId: SessionId;
+	readonly queueId?: string;
 	readonly input: ComposerInput;
+	readonly ready?: boolean;
 }> = [];
 let dispatchedCommandIds: string[] = [];
 let rpcClientFactory: () => Awaited<
@@ -64,7 +111,9 @@ const makeQueueClient = () =>
 			}),
 		"messages.queue.add": (payload: {
 			readonly sessionId: SessionId;
+			readonly queueId?: string;
 			readonly input: ComposerInput;
+			readonly ready?: boolean;
 		}) =>
 			Effect.sync(() => {
 				addCalls.push(payload);
@@ -81,6 +130,10 @@ setMessagesRpcCommandDispatcherForTest(async (commandId, operation) => {
 });
 
 describe("messages store queue actions", () => {
+	afterEach(async () => {
+		await teardownLiveStreams();
+	});
+
 	beforeEach(() => {
 		interruptCalls = 0;
 		sendNowCalls = [];
@@ -88,6 +141,8 @@ describe("messages store queue actions", () => {
 		flushCalls = [];
 		addCalls = [];
 		dispatchedCommandIds = [];
+		reportRendererRpcStreamFailure.mockReset();
+		subscribeRendererRpcConnection.mockReset();
 		rpcClientFactory = makeQueueClient;
 		useMessagesStore.setState({
 			messagesBySession: {},
@@ -137,10 +192,28 @@ describe("messages store queue actions", () => {
 		useMessagesStore.getState().queue(sessionId, input);
 
 		await expect.poll(() => flushCalls).toEqual([{ sessionId }]);
-		expect(addCalls).toEqual([{ sessionId, input }]);
+		expect(addCalls).toEqual([
+			{ sessionId, queueId: expect.stringMatching(/^q_/), input },
+		]);
 		expect(useMessagesStore.getState().queueBySession[sessionId]).toEqual([
 			queued,
 		]);
+	});
+
+	it("persists startup work as held until its payload is finalized", async () => {
+		useMessagesStore.setState({ queueBySession: { [sessionId]: [] } });
+		const queueId = useMessagesStore
+			.getState()
+			.queue(sessionId, input, { persist: false, ready: false });
+
+		expect(
+			useMessagesStore.getState().queueBySession[sessionId]?.[0]?.ready,
+		).toBe(false);
+		await useMessagesStore
+			.getState()
+			.persistQueued(sessionId, queueId, input, { ready: false });
+
+		expect(addCalls).toEqual([{ sessionId, queueId, input, ready: false }]);
 	});
 
 	it("serializes distinct reconnect-safe flush attempts", async () => {
@@ -169,5 +242,108 @@ describe("messages store queue actions", () => {
 		await useMessagesStore.getState().hydrate(sessionId);
 
 		expect(streamCalls).toBe(2);
+	});
+
+	it("applies an externally persisted message to the active transcript", async () => {
+		let publishEvent: ((event: SessionDomainEventEnvelope) => void) | undefined;
+		rpcClientFactory = () =>
+			({
+				"session.events": () =>
+					Stream.callback<SessionDomainEventEnvelope>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					),
+				"messages.queue.stream": () => Stream.empty,
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect.poll(() => publishEvent).toBeDefined();
+		publishEvent?.(
+			externalMessageEvent(1, "message-external", "arrived without reload"),
+		);
+
+		await expect
+			.poll(() => useMessagesStore.getState().messagesBySession[sessionId])
+			.toEqual([
+				expect.objectContaining({
+					id: "message-external",
+					content: {
+						_tag: "assistant",
+						text: "arrived without reload",
+					},
+				}),
+			]);
+	});
+
+	it("resubscribes the active transcript after its connection generation changes", async () => {
+		let observeConnection: ((snapshot: ConnectionSnapshot) => void) | undefined;
+		let streamCalls = 0;
+		let publishEvent: ((event: SessionDomainEventEnvelope) => void) | undefined;
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			observeConnection = listener;
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory = () =>
+			({
+				"session.events": () => {
+					streamCalls += 1;
+					if (streamCalls === 1) {
+						return Stream.fail(new Error("active transcript stream dropped"));
+					}
+					return Stream.callback<SessionDomainEventEnvelope>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					);
+				},
+				"messages.queue.stream": () => Stream.empty,
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+		useMessagesStore.setState({
+			messagesBySession: { [sessionId]: [] },
+			errorBySession: {},
+		});
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect
+			.poll(() => reportRendererRpcStreamFailure.mock.calls.length)
+			.toBe(1);
+		expect(observeConnection).toBeDefined();
+		observeConnection?.({
+			key: "renderer",
+			status: "connected",
+			generation: 2,
+			attempt: 0,
+			error: null,
+		});
+		await expect.poll(() => streamCalls).toBe(2);
+		await expect.poll(() => publishEvent).toBeDefined();
+
+		publishEvent?.(
+			externalMessageEvent(
+				2,
+				"message-after-reconnect",
+				"visible without reload",
+			),
+		);
+
+		await expect
+			.poll(() => useMessagesStore.getState().messagesBySession[sessionId])
+			.toEqual([
+				expect.objectContaining({
+					id: "message-after-reconnect",
+				}),
+			]);
 	});
 });

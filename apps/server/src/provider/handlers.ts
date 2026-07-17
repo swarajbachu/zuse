@@ -9,9 +9,11 @@ import {
   MemoizeRpcs,
   type ProviderId,
   SessionDomainEventEnvelope,
+	type SessionId,
+	type SessionSummaryChange,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
-import { Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Result, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
 import {
@@ -203,9 +205,87 @@ const SessionGet = MemoizeRpcs.toLayerHandler("session.get", ({ sessionId }) =>
   Effect.flatMap(SessionService, (svc) => svc.getSession(sessionId)),
 );
 
+const SessionStreamChanges = MemoizeRpcs.toLayerHandler(
+	"session.streamChanges",
+	({ projectId, sinceSequence }) =>
+		Stream.unwrap(
+			Effect.gen(function* () {
+				const sessions = yield* SessionService;
+				const domain = yield* SessionDomain;
+				const snapshotCursor = yield* domain.currentSequence.pipe(Effect.orDie);
+				const liveCursor = sinceSequence ?? snapshotCursor;
+				const allSessions = yield* sessions.listSessions(projectId, true);
+				const snapshot = allSessions.filter(
+					(session) => session.archivedAt === null,
+				);
+				const known = new Set(allSessions.map((session) => session.id as string));
+				const summaryEvents = new Set([
+					"SessionTitleSet",
+					"SessionModelSet",
+					"SessionProviderSet",
+					"SessionRuntimeModeSet",
+					"SessionPermissionModeSet",
+					"SessionWorktreeSet",
+					"SessionStatusSet",
+					"SessionResumeSet",
+					"SessionArchived",
+					"SessionUnarchived",
+				]);
+				const live = domain.allEvents({ afterSequence: liveCursor }).pipe(
+					Stream.filter((record) => {
+						if (
+							record.event._tag === "SessionCreated" &&
+							record.event.projectId === projectId
+						) {
+							known.add(record.streamId);
+							return true;
+						}
+						return (
+							known.has(record.streamId) && summaryEvents.has(record.event._tag)
+						);
+					}),
+					Stream.filterMapEffect(
+						(
+							record,
+						): Effect.Effect<Result.Result<SessionSummaryChange, undefined>> => {
+						if (record.event._tag === "SessionArchived") {
+							return Effect.succeed(
+								Result.succeed({
+									_tag: "remove" as const,
+									sequence: record.sequence,
+									sessionId: record.streamId as SessionId,
+								}),
+							);
+						}
+						return sessions.getSession(record.streamId as never).pipe(
+							Effect.map((session) =>
+								Result.succeed({
+									_tag: "change" as const,
+									sequence: record.sequence,
+									session,
+								}),
+							),
+							Effect.catch(() => Effect.succeed(Result.fail(undefined))),
+						);
+						},
+					),
+				);
+				return Stream.concat(
+					Stream.succeed({
+						_tag: "snapshot" as const,
+						cursor: snapshotCursor,
+						sessions: snapshot,
+					}),
+					live,
+				);
+			}),
+		).pipe(Stream.orDie),
+);
+
 const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
   Effect.flatMap(SessionService, (svc) =>
     svc.createSession({
+			sessionId: input.sessionId,
       chatId: input.chatId,
       providerId: input.providerId,
       model: input.model,
@@ -247,6 +327,8 @@ const ChatArchivePreview = MemoizeRpcs.toLayerHandler(
 const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
   Effect.flatMap(ChatService, (svc) =>
     svc.createChat({
+			chatId: input.chatId,
+			initialSessionId: input.initialSessionId,
       projectId: input.projectId,
       providerId: input.providerId,
       model: input.model,
@@ -260,6 +342,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler("chat.create", (input) =>
       modelOptions: input.modelOptions,
       toolSearch: input.toolSearch,
       originSessionId: input.originSessionId ?? null,
+			background: input.background,
     }),
   ),
 );
@@ -558,9 +641,9 @@ const MessagesQueueStream = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
   "messages.queue.add",
-  ({ sessionId, input }) =>
+	({ sessionId, queueId, input, ready }) =>
     Effect.flatMap(QueueService, (svc) =>
-      svc.addQueuedMessage(sessionId, input),
+			svc.addQueuedMessage(sessionId, input, queueId, ready),
     ),
 );
 
@@ -708,6 +791,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
   OpencodeAddCustomProvider,
   OpencodeRemoveCustomProvider,
   SessionList,
+	SessionStreamChanges,
   SessionGet,
   SessionCreate,
   SessionRename,

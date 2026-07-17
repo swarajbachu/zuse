@@ -38,6 +38,7 @@ import { Migration0034ToolEventLookup } from "./migrations/0034_tool_event_looku
 import { Migration0035UsageLimitSnapshots } from "./migrations/0035_usage_limit_snapshots.ts";
 import { Migration0036UsageCostDaily } from "./migrations/0036_usage_cost_daily.ts";
 import { Migration0037ProviderEventCursor } from "./migrations/0037_provider_event_cursor.ts";
+import { Migration0038QueuedMessageReady } from "./migrations/0038_queued_message_ready.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -92,6 +93,7 @@ const MigrationDefinitions = {
 	"0035_usage_limit_snapshots": Migration0035UsageLimitSnapshots,
 	"0036_usage_cost_daily": Migration0036UsageCostDaily,
 	"0037_provider_event_cursor": Migration0037ProviderEventCursor,
+	"0038_queued_message_ready": Migration0038QueuedMessageReady,
 } as const;
 
 export const MigrationsLive = Layer.effectDiscard(

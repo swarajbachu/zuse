@@ -5,10 +5,10 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
-import { create } from "zustand";
 
 import { classifyGit } from "../lib/git-rpc.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 type ReviewState = {
 	readonly summaries: Record<string, GitReviewSummary>;

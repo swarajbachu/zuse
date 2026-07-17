@@ -25,7 +25,6 @@ import { usePermissionsStore } from "../store/permissions.ts";
 import { useProvidersStore } from "../store/providers.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useSettingsStore } from "../store/settings.ts";
-import { useSidebarMessageStatusStore } from "../store/sidebar-message-status.ts";
 import { useUiStore } from "../store/ui.ts";
 import { FileIcon } from "./file-icon.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
@@ -87,7 +86,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
   // Per-session running flag — drives the provider-icon → Spinner swap on
   // each tab so the user sees which session is streaming at a glance.
   const runningBySession = useMessagesStore((s) => s.runningBySession);
-  const sidebarMessagesBySession = useSidebarMessageStatusStore(
+  const sidebarMessagesBySession = useMessagesStore(
     (s) => s.messagesBySession,
   );
   // Sessions with a pending permission prompt. Surfaced on the tab as a lock

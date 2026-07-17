@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 /**
  * The four keyboard-navigable regions of the workbench, in Tab-walk order.

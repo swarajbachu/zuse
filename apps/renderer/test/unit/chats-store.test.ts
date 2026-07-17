@@ -7,7 +7,8 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
-import { Effect, Stream } from "effect";
+import { ComposerInput } from "@zuse/contracts";
+import { Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -44,6 +45,7 @@ import {
 	stopChatChangeStream,
 	useChatsStore,
 } from "../../src/store/chats.ts";
+import { useMessagesStore } from "../../src/store/messages.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useUiStore } from "../../src/store/ui.ts";
 import { useWorkspaceStore } from "../../src/store/workspace.ts";
@@ -195,12 +197,82 @@ describe("chats store selection", () => {
 			.getState()
 			.create(projectId, session.providerId, session.model);
 
-		expect(result).toEqual({ chatId, initialSessionId: sessionId });
+		expect(result).toEqual({
+			chatId,
+			initialSessionId: sessionId,
+			startupQueueId: null,
+		});
 		expect(useChatsStore.getState().selectedChatId).toBe(chatId);
 		expect(useSessionsStore.getState().selectedSessionId).toBe(sessionId);
 		expect(
 			useSessionsStore.getState().selectedSessionByProject[projectId],
 		).toBe(sessionId);
+	});
+
+	it("inserts the booting shell and startup queue before creation acknowledges", async () => {
+		const acknowledgement = deferred<void>();
+		let payload:
+			| {
+					readonly chatId: ChatId;
+					readonly initialSessionId: SessionId;
+					readonly background?: boolean;
+			  }
+			| undefined;
+		rpcClientFactory.mockReturnValue({
+			"chat.create": (input: typeof payload) =>
+				Effect.promise(async () => {
+					payload = input;
+					await acknowledgement.promise;
+					if (input === undefined) throw new Error("missing create payload");
+					const createdSession = {
+						...session,
+						id: input.initialSessionId,
+						chatId: input.chatId,
+						status: "booting" as const,
+					};
+					return {
+						chat: {
+							...chat,
+							id: input.chatId,
+							activeSessionId: input.initialSessionId,
+						},
+						initialSession: createdSession,
+						initialMessage: null,
+					};
+				}),
+		});
+		useMessagesStore.setState({ queueBySession: {} });
+		const startupInput = new ComposerInput({
+			text: "start after boot",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+		});
+
+		const pending = useChatsStore
+			.getState()
+			.create(projectId, session.providerId, session.model, { startupInput });
+		const optimisticSessionId = useSessionsStore.getState().selectedSessionId;
+		const optimisticChatId = useChatsStore.getState().selectedChatId;
+
+		expect(optimisticChatId).not.toBeNull();
+		expect(optimisticSessionId).not.toBeNull();
+		expect(
+			useSessionsStore.getState().sessionsByProject[projectId]?.[0]?.status,
+		).toBe("booting");
+		expect(
+			useMessagesStore.getState().queueBySession[optimisticSessionId ?? ""]?.[0]
+				?.input.text,
+		).toBe("start after boot");
+		expect(
+			useMessagesStore.getState().messagesBySession[optimisticSessionId ?? ""],
+		).toBeUndefined();
+
+		acknowledgement.resolve();
+		await pending;
+		expect(payload?.chatId).toBe(optimisticChatId);
+		expect(payload?.initialSessionId).toBe(optimisticSessionId);
+		expect(payload?.background).toBe(true);
 	});
 });
 
@@ -273,6 +345,50 @@ describe("chats store live changes", () => {
 		await stopChatChangeStream(reconnectProjectId);
 		expect(unsubscribeConnection).toHaveBeenCalledTimes(1);
 		expect(observeConnection).toBeUndefined();
+	});
+
+	it("applies a chat created externally after the initial sidebar hydration", async () => {
+		let publishChat: ((chat: Chat) => void) | undefined;
+		const listChats = vi.fn(() => Effect.succeed([] as ReadonlyArray<Chat>));
+		const listSessions = vi.fn(() => Effect.succeed([reconnectSession]));
+		subscribeRendererRpcConnection.mockImplementation((listener) => {
+			listener({
+				key: "renderer",
+				status: "connected",
+				generation: 1,
+				attempt: 0,
+				error: null,
+			});
+			return vi.fn();
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.list": listChats,
+			"chat.streamChanges": () =>
+				Stream.callback<Chat>((queue) =>
+					Effect.sync(() => {
+						publishChat = (chat) => Queue.offerUnsafe(queue, chat);
+					}),
+				),
+			"session.list": listSessions,
+		});
+		useChatsStore.setState({
+			chatsByProject: {},
+			loadingByProject: {},
+			error: null,
+		});
+		useSessionsStore.setState({ sessionsByProject: {} });
+
+		await useChatsStore.getState().hydrate(reconnectProjectId);
+		await vi.waitFor(() => expect(publishChat).toBeDefined());
+		publishChat?.(reconnectChat);
+
+		await vi.waitFor(() =>
+			expect(
+				useChatsStore.getState().chatsByProject[reconnectProjectId],
+			).toEqual([reconnectChat]),
+		);
+		expect(listChats).toHaveBeenCalledTimes(1);
+		expect(listSessions).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not restore chat state or its stream when hydration settles after workspace removal", async () => {

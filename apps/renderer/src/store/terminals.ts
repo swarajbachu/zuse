@@ -1,8 +1,11 @@
-import { create } from "zustand";
-
 import type { ChatId } from "@zuse/contracts";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
-import * as terminalRegistry from "../lib/terminal-registry.ts";
+const disposeTerminal = (id: string): void => {
+	void import("../lib/terminal-registry.ts").then((registry) =>
+		registry.dispose(id),
+	);
+};
 
 /**
  * Renderer-side terminal instances. The xterm + PTY themselves live in
@@ -152,7 +155,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
       if (idx === -1) return state;
       // Component unmount no longer kills the PTY (it only detaches), so an
       // explicit close has to tear the backing shell down here.
-      terminalRegistry.dispose(id);
+			disposeTerminal(id);
       const next = list.filter((t) => t.id !== id);
       const wasActive = state.activeByKey[key] === id;
       // Pick the previous instance when closing the active one; if that
@@ -174,7 +177,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
       const key = terminalsKey(chatId);
       const list = state.byKey[key];
       if (list === undefined) return state;
-      for (const inst of list) terminalRegistry.dispose(inst.id);
+			for (const inst of list) disposeTerminal(inst.id);
       const { [key]: _droppedList, ...byKey } = state.byKey;
       const { [key]: _droppedActive, ...activeByKey } = state.activeByKey;
       return { byKey, activeByKey };

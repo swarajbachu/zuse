@@ -256,14 +256,14 @@ describe("plan feedback routing", () => {
 		).toBe("planFeedback");
 	});
 
-	it("preserves normal goal, queue, and send routing otherwise", () => {
+	it("queues goal submissions while the provider is unavailable", () => {
 		expect(
 			chooseComposerSubmitRoute({
 				sendPlanFeedbackNow: false,
 				goalSendMode: true,
 				shouldQueue: true,
 			}),
-		).toBe("goal");
+		).toBe("queue");
 		expect(
 			chooseComposerSubmitRoute({
 				sendPlanFeedbackNow: false,
@@ -271,6 +271,13 @@ describe("plan feedback routing", () => {
 				shouldQueue: true,
 			}),
 		).toBe("queue");
+		expect(
+			chooseComposerSubmitRoute({
+				sendPlanFeedbackNow: false,
+				goalSendMode: true,
+				shouldQueue: false,
+			}),
+		).toBe("goal");
 		expect(
 			chooseComposerSubmitRoute({
 				sendPlanFeedbackNow: false,

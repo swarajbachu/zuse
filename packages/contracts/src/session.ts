@@ -411,7 +411,17 @@ export class QueuedMessage extends Schema.Class<QueuedMessage>("QueuedMessage")(
     position: Schema.Number,
     createdAt: Schema.DateFromString,
     updatedAt: Schema.DateFromString,
+		/** Held items are durable and visible but cannot be claimed yet. */
+		ready: Schema.Boolean.pipe(
+			Schema.withConstructorDefault(Effect.succeed(true)),
+			Schema.withDecodingDefaultType(Effect.succeed(true)),
+		),
   },
+) {}
+
+export class QueuedMessageNotFoundError extends Schema.TaggedErrorClass<QueuedMessageNotFoundError>()(
+	"QueuedMessageNotFoundError",
+	{ sessionId: SessionId, queueId: Schema.String },
 ) {}
 
 export class QueueState extends Schema.Class<QueueState>("QueueState")({
@@ -500,8 +510,39 @@ export const SessionGetRpc = Rpc.make("session.get", {
   error: SessionNotFoundError,
 });
 
+export const SessionSummaryChange = Schema.Union([
+	Schema.Struct({
+		_tag: Schema.Literal("snapshot"),
+		cursor: Schema.Number,
+		sessions: Schema.Array(Session),
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("change"),
+		sequence: Schema.Number,
+		session: Session,
+	}),
+	Schema.Struct({
+		_tag: Schema.Literal("remove"),
+		sequence: Schema.Number,
+		sessionId: SessionId,
+	}),
+]);
+export type SessionSummaryChange = typeof SessionSummaryChange.Type;
+
+/** One bounded snapshot followed by cursor-ordered session summary changes. */
+export const SessionStreamChangesRpc = Rpc.make("session.streamChanges", {
+	payload: Schema.Struct({
+		projectId: FolderId,
+		sinceSequence: Schema.optional(Schema.Number),
+	}),
+	success: SessionSummaryChange,
+	stream: true,
+});
+
 export const SessionCreateRpc = Rpc.make("session.create", {
   payload: Schema.Struct({
+		/** Stable identity minted by optimistic clients before the RPC starts. */
+		sessionId: Schema.optional(SessionId),
     /**
      * The chat (sidebar entry) the new session is created in. Worktree
      * and project are inherited from the chat row — clients never pick
@@ -789,6 +830,9 @@ export const ChatArchivePreviewRpc = Rpc.make("chat.archivePreview", {
  */
 export const ChatCreateRpc = Rpc.make("chat.create", {
   payload: Schema.Struct({
+		/** Stable identities minted before optimistic entities are inserted. */
+		chatId: Schema.optional(ChatId),
+		initialSessionId: Schema.optional(SessionId),
     projectId: FolderId,
     providerId: ProviderId,
     model: Schema.String,
@@ -806,6 +850,8 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
      */
     originSessionId: Schema.optional(SessionId),
     modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+		/** Return after durable rows exist while provider startup continues. */
+		background: Schema.optional(Schema.Boolean),
   }),
   success: Schema.Struct({
     chat: Chat,
@@ -974,7 +1020,11 @@ export const MessagesQueueStreamRpc = Rpc.make("messages.queue.stream", {
 export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
   payload: Schema.Struct({
     sessionId: SessionId,
+		/** Stable identity used to make persistence retries idempotent. */
+		queueId: Schema.optional(Schema.String),
     input: ComposerInput,
+		/** Persist visibly now, but do not claim until an update finalizes it. */
+		ready: Schema.optional(Schema.Boolean),
   }),
   success: QueuedMessage,
   error: SessionNotFoundError,
@@ -987,7 +1037,7 @@ export const MessagesQueueUpdateRpc = Rpc.make("messages.queue.update", {
     input: ComposerInput,
   }),
   success: QueuedMessage,
-  error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QueuedMessageNotFoundError]),
 });
 
 export const MessagesQueueDeleteRpc = Rpc.make("messages.queue.delete", {

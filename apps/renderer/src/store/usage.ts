@@ -1,6 +1,6 @@
 import type { FolderId, UsageOverview } from "@zuse/contracts";
 import { Effect } from "effect";
-import { create } from "zustand";
+import { createAtomStore as create } from "../state/atom-store.ts";
 
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { sinceForUsagePeriod, type UsagePeriod } from "../lib/usage-period.ts";

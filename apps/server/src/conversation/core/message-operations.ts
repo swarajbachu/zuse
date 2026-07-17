@@ -411,9 +411,10 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			});
 
 		const queueRuntime = yield* makeQueueServiceRuntime({
+			serviceScope,
 			sql,
 			lookupSession,
-			submitUserMessage: (sessionId, input) =>
+			submitUserMessage: (sessionId, input, clientMessageId) =>
 				submitUserMessage(
 					sessionId,
 					input.text,
@@ -421,6 +422,8 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					input.fileRefs,
 					input.skillRefs,
 					input.annotations,
+					input.asGoal,
+					clientMessageId,
 				),
 			settleActiveTurn,
 			setQueuePaused: (sessionId, paused) =>

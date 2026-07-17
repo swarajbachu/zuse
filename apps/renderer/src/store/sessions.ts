@@ -9,15 +9,23 @@ import type {
 	PlanApprovalOutcome,
   ProviderId,
   RuntimeMode,
-  SessionId,
   UserQuestionAnswer,
   WorktreeId,
 } from "@zuse/contracts";
-import { Session } from "@zuse/contracts";
+import { Session, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
-import { create } from "zustand";
 import { formatError } from "../lib/format-error.ts";
+import {
+	markRendererInteraction,
+	trackRendererRpc,
+} from "../lib/performance-marks.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
+import { createAtomStore as create } from "../state/atom-store.ts";
+import { selectChatSession, upsertForkedChat } from "./chat-commands.ts";
+import {
+	markQueueHydrated,
+	notifySessionAcknowledged,
+} from "./queue-hydration.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 /**
@@ -76,7 +84,6 @@ type SessionsState = {
     providerId: ProviderId,
     model: string,
     opts?: {
-      initialPrompt?: string;
       runtimeMode?: RuntimeMode;
       permissionMode?: PermissionMode;
       toolSearch?: boolean;
@@ -169,15 +176,23 @@ type SessionsState = {
 export const DRAFT_SESSION_ID = "draft-session" as SessionId;
 export const DRAFT_CHAT_ID = "draft-chat" as ChatId;
 
+const sessionProjectIndex = new Map<SessionId, FolderId>();
+const sessionEntityIndex = new Map<SessionId, Session>();
+
 const findSessionProject = (
   sessionsByProject: SessionsState["sessionsByProject"],
   sessionId: SessionId,
 ): FolderId | null => {
+	const indexed = sessionProjectIndex.get(sessionId);
+	if (indexed !== undefined) return indexed;
   for (const [pid, sessions] of Object.entries(sessionsByProject)) {
     if (sessions.some((s) => s.id === sessionId)) return pid as FolderId;
   }
   return null;
 };
+
+export const getSessionById = (sessionId: SessionId): Session | null =>
+	sessionEntityIndex.get(sessionId) ?? null;
 
 export const useSessionsStore = create<SessionsState>((set, get) => ({
   sessionsByProject: {},
@@ -235,30 +250,77 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
   create: async (chatId, providerId, model, opts) => {
+		const sessionId = SessionId.make(`s_${crypto.randomUUID()}`);
+		const source = Array.from(sessionEntityIndex.values()).find(
+			(session) => session.chatId === chatId,
+		);
+		const projectId =
+			source?.projectId ?? useWorkspaceStore.getState().selectedFolderId;
+		if (projectId === null) return null;
+		const now = new Date();
+		const optimistic = Session.make({
+			id: sessionId,
+			projectId,
+			title: "New chat",
+			providerId,
+			model,
+			status: "booting",
+			archivedAt: null,
+			cursor: null,
+			resumeStrategy: "none",
+			runtimeMode: opts?.runtimeMode ?? "approval-required",
+			worktreeId: source?.worktreeId ?? null,
+			chatId,
+			forkedFromSessionId: null,
+			forkedFromMessageId: null,
+			permissionMode: opts?.permissionMode ?? "default",
+			toolSearch: opts?.toolSearch ?? false,
+			createdAt: now,
+			updatedAt: now,
+		});
+		markRendererInteraction(sessionId, "click");
     set((s) => ({
       error: null,
       creatingByChat: { ...s.creatingByChat, [chatId]: true },
+			sessionsByProject: {
+				...s.sessionsByProject,
+				[projectId]: [optimistic, ...(s.sessionsByProject[projectId] ?? [])],
+			},
+			selectedSessionId: sessionId,
+			selectedSessionByProject: {
+				...s.selectedSessionByProject,
+				[projectId]: sessionId,
+			},
     }));
+		markRendererInteraction(sessionId, "first-atom-commit");
+		// This tab was minted locally and therefore has no recovered queue to wait for.
+		markQueueHydrated(sessionId);
     try {
       const client = await getRpcClient();
-      const session = await Effect.runPromise(
+			const session = await trackRendererRpc("session.create", () =>
+				Effect.runPromise(
         client["session.create"]({
+						sessionId,
           chatId,
           providerId,
           model,
-          initialPrompt: opts?.initialPrompt,
           runtimeMode: opts?.runtimeMode,
           permissionMode: opts?.permissionMode,
           toolSearch: opts?.toolSearch,
         }),
+				),
       );
-      const projectId = session.projectId;
+			markRendererInteraction(sessionId, "entity-acknowledged");
+			notifySessionAcknowledged(sessionId);
       set((s) => {
         const existing = s.sessionsByProject[projectId] ?? [];
         return {
           sessionsByProject: {
             ...s.sessionsByProject,
-            [projectId]: [session, ...existing],
+						[projectId]: [
+							session,
+							...existing.filter((row) => row.id !== session.id),
+						],
           },
           selectedSessionId: session.id,
           selectedSessionByProject: {
@@ -273,6 +335,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       set((s) => ({
         error: formatError(err),
         creatingByChat: { ...s.creatingByChat, [chatId]: false },
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectId]: (s.sessionsByProject[projectId] ?? []).map((row) =>
+						row.id === sessionId
+							? Session.make({ ...row, status: "error" })
+							: row,
+					),
+				},
       }));
       return null;
     }
@@ -309,28 +379,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           },
         };
       });
-      // Land the chat: a new sidebar entry for `destination: "chat"`, or the
-      // existing chat re-selected for `destination: "tab"`. Lazy-require to
-      // dodge the chats.ts ↔ sessions.ts import cycle.
-      void import("./chats.ts").then(({ useChatsStore }) => {
-        useChatsStore.setState((s) => {
-          const list = s.chatsByProject[projectId] ?? [];
-          const nextList = list.some((row) => row.id === chat.id)
-            ? list.map((row) => (row.id === chat.id ? chat : row))
-            : [chat, ...list];
-          return {
-            chatsByProject: { ...s.chatsByProject, [projectId]: nextList },
-            selectedChatId: chat.id,
-            selectedChatByProject: {
-              ...s.selectedChatByProject,
-              [projectId]: chat.id,
-            },
-          };
-        });
-        // Persist the active tab within the chat so a later sidebar click
-        // restores this forked session.
-        void useChatsStore.getState().setActiveSession(chat.id, session.id);
-      });
+			// The chat domain owns its projection and active-session persistence.
+			upsertForkedChat(chat, session);
       return { chatId: chat.id, sessionId: session.id, forkMode };
     } catch (err) {
       set({ error: formatError(err) });
@@ -699,11 +749,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           )
         : undefined;
     if (sessionRow !== undefined) {
-      // Lazy require to dodge an import cycle with chats.ts which depends
-      // on this store.
-      void import("./chats.ts").then(({ useChatsStore }) =>
-        useChatsStore.getState().setActiveSession(sessionRow.chatId, sessionId),
-      );
+			selectChatSession(sessionRow.chatId, sessionId);
     }
     // If the session lives in a different project than the currently-active
     // one, switch projects too. Without this the chat would jump to the new
@@ -717,6 +763,28 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     }
   },
 }));
+
+useSessionsStore.subscribe((state, previous) => {
+	if (state.sessionsByProject === previous.sessionsByProject) return;
+	const projectIds = new Set([
+		...Object.keys(previous.sessionsByProject),
+		...Object.keys(state.sessionsByProject),
+	]);
+	for (const projectId of projectIds) {
+		const before = previous.sessionsByProject[projectId];
+		const after = state.sessionsByProject[projectId];
+		if (before === after) continue;
+		for (const session of before ?? []) {
+			if (sessionProjectIndex.get(session.id) !== projectId) continue;
+			sessionProjectIndex.delete(session.id);
+			sessionEntityIndex.delete(session.id);
+		}
+		for (const session of after ?? []) {
+			sessionProjectIndex.set(session.id, projectId as FolderId);
+			sessionEntityIndex.set(session.id, session);
+		}
+	}
+});
 
 // Mirror `selectedSessionId` from the active project's per-project slot.
 // Switching projects automatically restores whichever session was last

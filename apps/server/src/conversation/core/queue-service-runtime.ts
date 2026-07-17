@@ -1,12 +1,14 @@
 import {
 	ComposerInput,
+	MessageId,
 	QueuedMessage,
+	QueuedMessageNotFoundError,
 	QueueState,
 	type Session,
 	SessionId,
 	type SessionNotFoundError,
 } from "@zuse/contracts";
-import { Effect, PubSub, Ref, Stream } from "effect";
+import { Effect, PubSub, Ref, type Scope, Stream } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 
 import type { QueueServiceShape } from "../services/conversation-services.ts";
@@ -18,9 +20,11 @@ interface QueuedMessageRow {
 	readonly input_json: string;
 	readonly created_at: string;
 	readonly updated_at: string;
+	readonly ready: number;
 }
 
 export interface QueueServiceRuntimeDeps {
+	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly lookupSession: (
 		sessionId: SessionId,
@@ -28,6 +32,7 @@ export interface QueueServiceRuntimeDeps {
 	readonly submitUserMessage: (
 		sessionId: SessionId,
 		input: ComposerInput,
+		clientMessageId: MessageId,
 	) => Effect.Effect<boolean, SessionNotFoundError>;
 	readonly settleActiveTurn: (
 		sessionId: SessionId,
@@ -54,11 +59,13 @@ const queuedMessageFromRow = (row: QueuedMessageRow): QueuedMessage =>
 		position: row.queue_order,
 		createdAt: new Date(row.created_at),
 		updatedAt: new Date(row.updated_at),
+		ready: row.ready !== 0,
 	});
 
 export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 	function* (deps: QueueServiceRuntimeDeps) {
 		const {
+			serviceScope,
 			sql,
 			lookupSession,
 			submitUserMessage,
@@ -69,6 +76,8 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			ReadonlyMap<SessionId, PubSub.PubSub<QueueState>>
 		>(new Map());
 		const flushing = yield* Ref.make<ReadonlySet<SessionId>>(new Set());
+		let requestFlush: (sessionId: SessionId) => Effect.Effect<void> = () =>
+			Effect.void;
 
 		const getOrMakePubsub = (sessionId: SessionId) =>
 			Effect.gen(function* () {
@@ -86,7 +95,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 
 		const listRows = (sessionId: SessionId) =>
 			sql<QueuedMessageRow>`
-      SELECT id, session_id, queue_order, input_json, created_at, updated_at
+      SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
       FROM queued_messages
       WHERE session_id = ${sessionId}
       ORDER BY queue_order ASC, created_at ASC
@@ -150,32 +159,58 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		const addQueuedMessage: QueueServiceShape["addQueuedMessage"] = (
 			sessionId,
 			input,
+			queueId,
+			ready = true,
 		) =>
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
+				if (queueId !== undefined) {
+					const existing = yield* sql<QueuedMessageRow>`
+        SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
+        FROM queued_messages
+        WHERE session_id = ${sessionId} AND id = ${queueId}
+        LIMIT 1
+      `.pipe(Effect.orDie);
+					if (existing[0] !== undefined) {
+						const item = queuedMessageFromRow(existing[0]);
+						if (item.ready) {
+							yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
+						}
+						return item;
+					}
+				}
 				const maxRows = yield* sql<{ readonly max_position: number | null }>`
         SELECT MAX(queue_order) AS max_position
         FROM queued_messages WHERE session_id = ${sessionId}
       `.pipe(Effect.orDie);
 				const position = (maxRows[0]?.max_position ?? -1) + 1;
 				const now = new Date();
-				const id = `q_${crypto.randomUUID()}`;
+				const id = queueId ?? `q_${crypto.randomUUID()}`;
 				yield* sql`
         INSERT INTO queued_messages
-          (id, session_id, queue_order, input_json, created_at, updated_at)
+          (id, session_id, queue_order, input_json, created_at, updated_at, ready)
         VALUES
           (${id}, ${sessionId}, ${position}, ${JSON.stringify(input)},
-           ${now.toISOString()}, ${now.toISOString()})
+           ${now.toISOString()}, ${now.toISOString()}, ${ready ? 1 : 0})
+		ON CONFLICT(id) DO NOTHING
+				`.pipe(Effect.orDie);
+				const persisted = yield* sql<QueuedMessageRow>`
+        SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
+        FROM queued_messages
+        WHERE session_id = ${sessionId} AND id = ${id}
+        LIMIT 1
       `.pipe(Effect.orDie);
-				const item = QueuedMessage.make({
-					id,
-					sessionId,
-					input,
-					position,
-					createdAt: now,
-					updatedAt: now,
-				});
+				const row = persisted[0];
+				if (row === undefined) {
+					return yield* Effect.die(
+						new Error(`queue id ${id} belongs to another session`),
+					);
+				}
+				const item = queuedMessageFromRow(row);
 				yield* broadcast(sessionId);
+				if (item.ready) {
+					yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
+				}
 				return item;
 			});
 
@@ -211,20 +246,23 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				yield* lookupSession(sessionId);
 				yield* sql`
         UPDATE queued_messages
-        SET input_json = ${JSON.stringify(input)}, updated_at = ${new Date().toISOString()}
+        SET input_json = ${JSON.stringify(input)}, ready = 1,
+            updated_at = ${new Date().toISOString()}
         WHERE session_id = ${sessionId} AND id = ${queueId}
       `.pipe(Effect.orDie);
 				const rows = yield* sql<QueuedMessageRow>`
-        SELECT id, session_id, queue_order, input_json, created_at, updated_at
+        SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
         FROM queued_messages
         WHERE session_id = ${sessionId} AND id = ${queueId}
         LIMIT 1
       `.pipe(Effect.orDie);
-				const item =
-					rows[0] === undefined
-						? yield* addQueuedMessage(sessionId, input)
-						: queuedMessageFromRow(rows[0]);
+				const row = rows[0];
+				if (row === undefined) {
+					return yield* new QueuedMessageNotFoundError({ sessionId, queueId });
+				}
+				const item = queuedMessageFromRow(row);
 				yield* broadcast(sessionId);
+				yield* Effect.forkIn(requestFlush(sessionId), serviceScope);
 				return item;
 			});
 
@@ -276,18 +314,14 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		const claim = (sessionId: SessionId, queueId: string) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<QueuedMessageRow>`
-        SELECT id, session_id, queue_order, input_json, created_at, updated_at
-        FROM queued_messages
-        WHERE session_id = ${sessionId} AND id = ${queueId}
-        LIMIT 1
+		DELETE FROM queued_messages
+		WHERE session_id = ${sessionId} AND id = ${queueId}
+		  AND ready = 1
+		RETURNING id, session_id, queue_order, input_json, created_at, updated_at, ready
       `.pipe(Effect.orDie);
 				const row = rows[0];
 				if (row === undefined) return null;
 				const item = queuedMessageFromRow(row);
-				yield* sql`
-        DELETE FROM queued_messages
-        WHERE session_id = ${sessionId} AND id = ${queueId}
-      `.pipe(Effect.orDie);
 				yield* normalizePositions(sessionId);
 				yield* broadcast(sessionId);
 				return item;
@@ -302,22 +336,33 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				if ((existing[0]?.count ?? 0) > 0) return;
 				yield* sql`
         INSERT INTO queued_messages
-          (id, session_id, queue_order, input_json, created_at, updated_at)
+          (id, session_id, queue_order, input_json, created_at, updated_at, ready)
         VALUES
           (${item.id}, ${item.sessionId}, ${item.position},
            ${JSON.stringify(item.input)}, ${item.createdAt.toISOString()},
-           ${new Date().toISOString()})
+           ${new Date().toISOString()}, 1)
       `.pipe(Effect.orDie);
 				yield* normalizePositions(item.sessionId);
 				yield* broadcast(item.sessionId);
 			});
 
 		const sendClaimed = (item: QueuedMessage) =>
-			Effect.gen(function* () {
-				if (yield* submitUserMessage(item.sessionId, item.input)) return;
-				yield* settleActiveTurn(item.sessionId, "error");
-				yield* restore(item);
-			});
+			submitUserMessage(
+				item.sessionId,
+				item.input,
+				MessageId.make(`queued_${item.id}`),
+			).pipe(
+				Effect.flatMap((accepted) =>
+					accepted
+						? Effect.void
+						: settleActiveTurn(item.sessionId, "error").pipe(
+								Effect.andThen(restore(item)),
+							),
+				),
+				Effect.catch((error) =>
+					restore(item).pipe(Effect.andThen(Effect.fail(error))),
+				),
+			);
 
 		const sendQueuedMessageNow: QueueServiceShape["sendQueuedMessageNow"] = (
 			sessionId,
@@ -342,12 +387,12 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				);
 				try {
 					const session = yield* lookupSession(sessionId);
-					if (session.status === "running" || session.status === "booting") {
+					if (session.status !== "idle") {
 						return;
 					}
 					if (yield* isPaused(sessionId)) return;
 					const head = (yield* listRows(sessionId))[0];
-					if (head === undefined) return;
+					if (head === undefined || !head.ready) return;
 					const item = yield* claim(sessionId, head.id);
 					if (item !== null) yield* sendClaimed(item);
 				} finally {
@@ -367,6 +412,9 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				yield* setPaused(sessionId, false);
 				yield* flushQueuedMessages(sessionId);
 			});
+
+		requestFlush = (sessionId) =>
+			flushQueuedMessages(sessionId).pipe(Effect.catch(() => Effect.void));
 
 		const pauseAfterInterrupt = (sessionId: SessionId) =>
 			Effect.gen(function* () {

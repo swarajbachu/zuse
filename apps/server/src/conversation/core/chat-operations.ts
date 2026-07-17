@@ -129,7 +129,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 	) =>
 		Effect.gen(function* () {
 			const createdAt = yield* currentTimestamp;
-			const chatId = crypto.randomUUID() as unknown as ChatId;
+			const chatId = input.chatId ?? (crypto.randomUUID() as unknown as ChatId);
 			const title =
 				input.title?.trim() || deriveProvisionalTitle(input.initialPrompt);
 			const worktreeId = input.worktreeId ?? null;
@@ -145,6 +145,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				createdAt,
 			});
 			const initialSession = yield* createSession({
+				sessionId: input.initialSessionId,
 				chatId,
 				providerId: input.providerId,
 				model: input.model,
@@ -161,6 +162,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				forkedFromSessionId: input.forkedFromSessionId,
 				forkedFromMessageId: input.forkedFromMessageId,
 				forkFromResume: input.forkFromResume,
+				background: input.background,
 			}).pipe(
 				Effect.tapError(() =>
 					// Roll back the chat row if the provider failed to boot —

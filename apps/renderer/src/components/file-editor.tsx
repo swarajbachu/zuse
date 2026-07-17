@@ -1,23 +1,27 @@
-import { PatchDiff } from "@pierre/diffs/react";
+import type { EditorView } from "@codemirror/view";
 import type {
   AnnotationSide,
   DiffLineAnnotation,
   SelectedLineRange,
 } from "@pierre/diffs";
+import { PatchDiff } from "@pierre/diffs/react";
+import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { CodeAnnotation, GitDiffResult } from "@zuse/contracts";
-
-import { cn } from "~/lib/utils";
 import { ShimmerText } from "~/components/ui/shimmer-text";
-import { classifyGit } from "../lib/git-rpc.ts";
+import { cn } from "~/lib/utils";
 import {
-  bytesForImageContent,
-  imageMimeForFile,
-} from "../lib/image-preview.ts";
-import { getRpcClient } from "../lib/rpc-client.ts";
-import { GitInitCta } from "./git-init-cta.tsx";
+	ANNOTATION_WIDGET_DELETE,
+	ANNOTATION_WIDGET_SAVE,
+	type AnnotationWidgetDeleteDetail,
+	type AnnotationWidgetSaveDetail,
+} from "../lib/codemirror/annotation-reveal.ts";
+import {
+	measureAnnotationSelection,
+	type PendingSelection,
+} from "../lib/codemirror/annotation-selection.ts";
+import { languageForFile } from "../lib/codemirror/languages.ts";
 import {
   clearAnnotationRevealInEditor,
   createEditor,
@@ -26,32 +30,26 @@ import {
   scrollAnnotationIntoView,
   setAnnotationsInEditor,
 } from "../lib/codemirror/setup.ts";
-import { languageForFile } from "../lib/codemirror/languages.ts";
+import { classifyGit } from "../lib/git-rpc.ts";
+import {
+	bytesForImageContent,
+	imageMimeForFile,
+} from "../lib/image-preview.ts";
+import { getRpcClient } from "../lib/rpc-client.ts";
 import { useActiveWorkspaceRoot } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useKeybindingsStore } from "../store/keybindings.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import {
-  isPreviewableFileName,
-  useUiStore,
   type FileView,
+	isPreviewableFileName,
   type OpenFile,
+	useUiStore,
 } from "../store/ui.ts";
-import {
-  ANNOTATION_WIDGET_DELETE,
-  ANNOTATION_WIDGET_SAVE,
-  type AnnotationWidgetDeleteDetail,
-  type AnnotationWidgetSaveDetail,
-} from "../lib/codemirror/annotation-reveal.ts";
-import {
-  measureAnnotationSelection,
-  type PendingSelection,
-} from "../lib/codemirror/annotation-selection.ts";
 import { AnnotateOverlay } from "./annotation/annotate-overlay.tsx";
 import { useAddAnnotation } from "./annotation/use-add-annotation.ts";
+import { GitInitCta } from "./git-init-cta.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
-
-import type { EditorView } from "@codemirror/view";
 
 type EditorState =
   | { status: "loading" }
@@ -294,7 +292,7 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 type EditableFile = Extract<OpenFile, { kind: "text" | "external" }>;
 
 // Stable empty reference for the annotations selector. Returning a fresh
-// `[]` literal from a zustand/`useSyncExternalStore` selector fails React's
+// `[]` literal from an atom/`useSyncExternalStore` selector fails React's
 // snapshot identity check every render → "getSnapshot should be cached" and
 // an infinite update loop. One shared constant keeps the reference stable.
 const EMPTY_ANNOTATIONS: ReadonlyArray<CodeAnnotation> = [];

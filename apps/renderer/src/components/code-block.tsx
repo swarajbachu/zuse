@@ -1,176 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  createHighlighter,
-  type BundledLanguage,
-  type Highlighter,
-  type ThemeRegistration,
-} from "shiki";
-
-import { cn } from "~/lib/utils";
+import type { BundledLanguage } from "shiki";
 import { useResolvedAppearance } from "~/lib/appearance.tsx";
+import { highlightCode } from "~/lib/highlight-worker.ts";
+import {
+	DARK_SHIKI_THEME,
+	LIGHT_SHIKI_THEME,
+	SHIKI_LANGUAGES,
+} from "~/lib/shiki-config.ts";
+import { cn } from "~/lib/utils";
 import { CopyButton } from "./copy-button.tsx";
 import { FileIcon } from "./file-icon.tsx";
-
-const DARK_THEME = "memoize-dark" as const;
-const LIGHT_THEME = "memoize-light" as const;
-
-const MEMOIZE_DARK_SHIKI_THEME: ThemeRegistration = {
-  name: DARK_THEME,
-  type: "dark",
-  colors: {
-    "editor.background": "#00000000",
-    "editor.foreground": "#e4e4e7",
-    "editorLineNumber.foreground": "#71717a",
-    "editor.selectionBackground": "#a855f72e",
-  },
-  tokenColors: [
-    {
-      scope: ["comment", "punctuation.definition.comment"],
-      settings: { foreground: "#71717a", fontStyle: "italic" },
-    },
-    {
-      scope: ["keyword", "storage", "storage.type", "constant.language"],
-      settings: { foreground: "#c084fc" },
-    },
-    {
-      scope: ["string", "constant.character", "markup.inline.raw.string"],
-      settings: { foreground: "#86efac" },
-    },
-    {
-      scope: ["constant.numeric", "constant.language.boolean"],
-      settings: { foreground: "#fbbf24" },
-    },
-    {
-      scope: ["entity.name.function", "support.function", "variable.function"],
-      settings: { foreground: "#7dd3fc" },
-    },
-    {
-      scope: [
-        "entity.name.type",
-        "entity.name.class",
-        "support.type",
-        "support.class",
-      ],
-      settings: { foreground: "#67e8f9" },
-    },
-    {
-      scope: ["entity.other.attribute-name", "variable.parameter"],
-      settings: { foreground: "#fda4af" },
-    },
-    {
-      scope: ["entity.name.tag", "support.class.component"],
-      settings: { foreground: "#f87171" },
-    },
-    {
-      scope: ["punctuation", "meta.brace", "keyword.operator"],
-      settings: { foreground: "#a1a1aa" },
-    },
-    {
-      scope: ["markup.heading", "entity.name.section"],
-      settings: { foreground: "#fafafa", fontStyle: "bold" },
-    },
-    {
-      scope: ["markup.link", "string.other.link"],
-      settings: { foreground: "#7dd3fc", fontStyle: "underline" },
-    },
-    {
-      scope: ["invalid", "invalid.illegal"],
-      settings: { foreground: "#f87171" },
-    },
-  ],
-};
-
-const MEMOIZE_LIGHT_SHIKI_THEME: ThemeRegistration = {
-  name: LIGHT_THEME,
-  type: "light",
-  colors: {
-    "editor.background": "#00000000",
-    "editor.foreground": "var(--foreground)",
-    "editorLineNumber.foreground": "var(--muted-foreground)",
-    "editor.selectionBackground":
-      "color-mix(in oklab, var(--primary) 22%, transparent)",
-  },
-  tokenColors: [
-    {
-      scope: ["comment", "punctuation.definition.comment"],
-      settings: { foreground: "var(--muted-foreground)", fontStyle: "italic" },
-    },
-    {
-      scope: ["keyword", "storage", "storage.type", "constant.language"],
-      settings: { foreground: "var(--syntax-keyword)" },
-    },
-    {
-      scope: ["string", "constant.character", "markup.inline.raw.string"],
-      settings: { foreground: "var(--syntax-string)" },
-    },
-    {
-      scope: ["constant.numeric", "constant.language.boolean"],
-      settings: { foreground: "var(--syntax-number)" },
-    },
-    {
-      scope: ["entity.name.function", "support.function", "variable.function"],
-      settings: { foreground: "var(--syntax-function)" },
-    },
-    {
-      scope: [
-        "entity.name.type",
-        "entity.name.class",
-        "support.type",
-        "support.class",
-      ],
-      settings: { foreground: "var(--syntax-type)" },
-    },
-    {
-      scope: ["entity.other.attribute-name", "variable.parameter"],
-      settings: { foreground: "var(--syntax-attribute)" },
-    },
-    {
-      scope: ["entity.name.tag", "support.class.component"],
-      settings: { foreground: "var(--syntax-tag)" },
-    },
-    {
-      scope: ["punctuation", "meta.brace", "keyword.operator"],
-      settings: { foreground: "var(--muted-foreground)" },
-    },
-    {
-      scope: ["markup.heading", "entity.name.section"],
-      settings: { foreground: "var(--message-heading)", fontStyle: "bold" },
-    },
-    {
-      scope: ["markup.link", "string.other.link"],
-      settings: {
-        foreground: "var(--syntax-function)",
-        fontStyle: "underline",
-      },
-    },
-    {
-      scope: ["invalid", "invalid.illegal"],
-      settings: { foreground: "var(--destructive)" },
-    },
-  ],
-};
-
-/** Languages we eagerly load on highlighter init. Anything outside this set
- *  renders as plain text — Shiki throws if asked to highlight an unloaded
- *  language, so we keep the list tight and predictable. */
-const LANGS: ReadonlyArray<BundledLanguage> = [
-  "ts",
-  "tsx",
-  "js",
-  "jsx",
-  "json",
-  "md",
-  "html",
-  "css",
-  "python",
-  "rust",
-  "go",
-  "bash",
-  "shell",
-  "yaml",
-  "toml",
-  "sql",
-];
 
 const langForExtension = (ext: string): BundledLanguage | null => {
   switch (ext) {
@@ -249,7 +88,7 @@ const langForLanguage = (
   if (normalized.length === 0) return null;
   const aliased = LANG_ALIASES[normalized];
   if (aliased !== undefined) return aliased;
-  if (LANGS.includes(normalized as BundledLanguage)) {
+	if (SHIKI_LANGUAGES.includes(normalized as BundledLanguage)) {
     return normalized as BundledLanguage;
   }
   return langForExtension(normalized);
@@ -266,19 +105,6 @@ const langForFilename = (filename: string): BundledLanguage | null => {
 const basename = (p: string): string => {
   const i = p.lastIndexOf("/");
   return i === -1 ? p : p.slice(i + 1);
-};
-
-// Singleton highlighter — Shiki is expensive to initialize (loads WASM +
-// grammar/theme bundles). One instance per renderer process, cached as a
-// module-level Promise so concurrent first-render calls share the same
-// init.
-let highlighterPromise: Promise<Highlighter> | null = null;
-const getHighlighter = (): Promise<Highlighter> => {
-  highlighterPromise ??= createHighlighter({
-    themes: [MEMOIZE_DARK_SHIKI_THEME, MEMOIZE_LIGHT_SHIKI_THEME],
-    langs: [...LANGS],
-  });
-  return highlighterPromise;
 };
 
 /** Hard cap so a runaway agent reading a giant file doesn't lock the
@@ -311,7 +137,8 @@ export function CodeBlock({
   isError = false,
 }: Props) {
   const resolvedAppearance = useResolvedAppearance();
-  const theme = resolvedAppearance === "dark" ? DARK_THEME : LIGHT_THEME;
+	const theme =
+		resolvedAppearance === "dark" ? DARK_SHIKI_THEME : LIGHT_SHIKI_THEME;
   const lang = useMemo(
     () => langForLanguage(language) ?? langForFilename(filename),
     [filename, language],
@@ -319,7 +146,7 @@ export function CodeBlock({
   const safeText = useMemo(
     () =>
       text.length > MAX_HIGHLIGHT_BYTES
-        ? text.slice(0, MAX_HIGHLIGHT_BYTES) + "\n… (truncated)"
+				? `${text.slice(0, MAX_HIGHLIGHT_BYTES)}\n… (truncated)`
         : text,
     [text],
   );
@@ -335,21 +162,9 @@ export function CodeBlock({
       return;
     }
     let cancelled = false;
-    void getHighlighter()
-      .then((hl) => {
-        if (cancelled) return;
-        const out = hl.codeToHtml(safeText, {
-          lang,
-          theme,
-          transformers: [
-            {
-              line(node, line) {
-                node.properties["data-line"] = String(line);
-              },
-            },
-          ],
-        });
-        setHtml(out);
+		void highlightCode({ code: safeText, lang, theme })
+			.then((out) => {
+				if (!cancelled) setHtml(out);
       })
       .catch(() => {
         if (cancelled) return;

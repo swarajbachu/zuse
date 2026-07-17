@@ -28,6 +28,7 @@ import type {
 	PlanApprovalOutcome,
 	ProviderId,
 	QueuedMessage,
+	QueuedMessageNotFoundError,
 	QueueState,
 	ResumeStrategy,
 	RuntimeMode,
@@ -57,6 +58,8 @@ import { Context, type Effect, type Stream } from "effect";
  *   persisted as messages.
  */
 export interface CreateSessionInput {
+	/** Stable identity minted by an optimistic client. */
+	readonly sessionId?: SessionId;
 	/**
 	 * The chat (sidebar container) this session belongs to. Project +
 	 * worktree are derived from the chat — clients no longer pass either
@@ -123,6 +126,9 @@ export interface CreateSessionInput {
 }
 
 export interface CreateChatInput {
+	/** Stable identities minted by an optimistic client. */
+	readonly chatId?: ChatId;
+	readonly initialSessionId?: SessionId;
 	readonly projectId: FolderId;
 	readonly providerId: ProviderId;
 	readonly model: string;
@@ -135,6 +141,8 @@ export interface CreateChatInput {
 	readonly permissionMode?: PermissionMode;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly toolSearch?: boolean;
+	/** Return after rows are durable and start the provider in the background. */
+	readonly background?: boolean;
 	/**
 	 * Lineage — when set, this chat was spawned by another session via
 	 * orchestration control-plane tools. Persisted on the chat row so the
@@ -477,13 +485,18 @@ export interface ConversationOperations {
 	readonly addQueuedMessage: (
 		sessionId: SessionId,
 		input: ComposerInput,
+		queueId?: string,
+		ready?: boolean,
 	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
 
 	readonly updateQueuedMessage: (
 		sessionId: SessionId,
 		queueId: string,
 		input: ComposerInput,
-	) => Effect.Effect<QueuedMessage, SessionNotFoundError>;
+	) => Effect.Effect<
+		QueuedMessage,
+		SessionNotFoundError | QueuedMessageNotFoundError
+	>;
 
 	readonly deleteQueuedMessage: (
 		sessionId: SessionId,
