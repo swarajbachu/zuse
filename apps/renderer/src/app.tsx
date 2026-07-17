@@ -350,10 +350,10 @@ function MainShell() {
         <Panel
           id="projects"
           defaultSize="20%"
-          // minSize 0 so the open/close tween can rest at any width down to 0
-          // — the library otherwise snaps sub-minSize widths to minSize/0,
-          // which turns the last stretch of the animation into a hard jump.
-          minSize="0px"
+          // Keep project and chat labels usable when the pane is open. A
+          // collapsed pane may still rest at 0; stale near-zero expanded
+          // widths from persisted layouts are clamped to this minimum.
+          minSize="280px"
           maxSize="40%"
           collapsible
           collapsedSize="0%"
