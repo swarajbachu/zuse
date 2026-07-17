@@ -28,14 +28,18 @@ import {
 	Check,
 	ChevronDown,
 	ChevronRight,
+	ChevronsUpDown,
 	Columns2,
 	Copy,
+	EyeOff,
 	FilePenLine,
 	MessageSquarePlus,
 	PanelTop,
 	RotateCcw,
+	Rows3,
 	Save,
-	WrapText,
+	Settings2,
+	SquarePlus,
 } from "lucide-react";
 import {
 	type FormEvent,
@@ -56,6 +60,8 @@ import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { Button } from "./ui/button.tsx";
+import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover.tsx";
+import { Switch } from "./ui/switch.tsx";
 
 type ReviewPreferences = {
 	readonly diffStyle: "split" | "unified";
@@ -175,6 +181,7 @@ function ChangesReviewReady({
 	const refresh = useGitReviewStore((state) => state.refresh);
 	const navigation = useUiStore((state) => state.reviewNavigation);
 	const viewerRef = useRef<CodeViewHandle<AnnotationMetadata>>(null);
+	const lastNavigationTokenRef = useRef<number | null>(null);
 	const parsedRef = useRef(
 		new Map<string, CodeViewDiffItem<AnnotationMetadata>>(),
 	);
@@ -311,6 +318,7 @@ function ChangesReviewReady({
 
 	useEffect(() => {
 		if (navigation?.path === null || navigation?.path === undefined) return;
+		if (lastNavigationTokenRef.current === navigation.token) return;
 		if (!items.some((item) => item.id === navigation.path)) return;
 		const target =
 			navigation.line === null
@@ -328,6 +336,7 @@ function ChangesReviewReady({
 						behavior: "smooth-auto" as const,
 					};
 		viewerRef.current?.scrollTo(target);
+		lastNavigationTokenRef.current = navigation.token;
 	}, [items, navigation]);
 
 	const fileByPath = useMemo(
@@ -627,102 +636,66 @@ function ChangesReviewReady({
 				) ?? null);
 	return (
 		<section className="flex h-full min-h-0 flex-col bg-background">
-			<div className="flex min-h-11 shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-1.5">
-				<div className="mr-2 min-w-0">
-					<h1 className="text-sm font-medium">All changes</h1>
-					<p className="truncate text-[11px] text-muted-foreground">
-						{summary.baseRef === null
-							? "Compared with HEAD"
-							: `Compared with merge base of ${summary.baseRef}`}
-						{` · ${summary.files.length} files · ${viewedCount}/${summary.files.length} viewed`}
-					</p>
+			<div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/70 px-2">
+				<div className="min-w-0 truncate pl-1 text-[11px] text-muted-foreground">
+					<span className="text-foreground">{summary.files.length} files</span>
+					<span className="mx-1.5 text-border">·</span>
+					{summary.baseRef === null ? "HEAD" : summary.baseRef}
+					<span className="mx-1.5 text-border">·</span>
+					{viewedCount}/{summary.files.length} viewed
 				</div>
-				<ToolbarButton
-					active={preferences.diffStyle === "split"}
-					label="Split view"
-					onClick={() => updatePreferences({ diffStyle: "split" })}
-				>
-					<Columns2 />
-				</ToolbarButton>
-				<ToolbarButton
-					active={preferences.diffStyle === "unified"}
-					label="Unified view"
-					onClick={() => updatePreferences({ diffStyle: "unified" })}
-				>
-					<PanelTop />
-				</ToolbarButton>
-				<ToolbarButton
-					active={preferences.wrap}
-					label="Word wrap"
-					onClick={() => updatePreferences({ wrap: !preferences.wrap })}
-				>
-					<WrapText />
-				</ToolbarButton>
-				<Button
-					size="sm"
-					variant="ghost"
-					onClick={() =>
-						updatePreferences({ lineNumbers: !preferences.lineNumbers })
-					}
-				>
-					Lines {preferences.lineNumbers ? "on" : "off"}
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					onClick={() =>
-						updatePreferences({ backgrounds: !preferences.backgrounds })
-					}
-				>
-					Background {preferences.backgrounds ? "on" : "off"}
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					onClick={() =>
-						updatePreferences({
-							indicators:
-								preferences.indicators === "bars"
-									? "classic"
-									: preferences.indicators === "classic"
-										? "none"
-										: "bars",
-						})
-					}
-				>
-					Indicators: {preferences.indicators}
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					onClick={() =>
-						setCollapsed(
+				<div className="ml-auto flex shrink-0 items-center gap-0.5">
+					<div className="mr-1 tabular-nums text-[11px]">
+						<span className="text-emerald-400">+{summary.additions}</span>{" "}
+						<span className="text-rose-400">−{summary.deletions}</span>
+					</div>
+					<ToolbarButton
+						label={
+							preferences.diffStyle === "split"
+								? "Use unified view"
+								: "Use split view"
+						}
+						onClick={() =>
+							updatePreferences({
+								diffStyle:
+									preferences.diffStyle === "split" ? "unified" : "split",
+							})
+						}
+					>
+						{preferences.diffStyle === "split" ? <Columns2 /> : <PanelTop />}
+					</ToolbarButton>
+					<ToolbarButton
+						label={
 							collapsed.size === summary.files.length
-								? new Set()
-								: new Set(summary.files.map((file) => file.path)),
-						)
-					}
-				>
-					{collapsed.size === summary.files.length
-						? "Expand all"
-						: "Collapse all"}
-				</Button>
-				<Button
-					size="sm"
-					variant="ghost"
-					onClick={() =>
-						void navigator.clipboard.writeText(
-							summary.files
-								.map((file) => patches[file.path]?.result.patch ?? "")
-								.join("\n"),
-						)
-					}
-				>
-					<Copy className="size-3.5" /> Copy patch
-				</Button>
-				<div className="ml-auto tabular-nums text-xs">
-					<span className="text-emerald-400">+{summary.additions}</span>{" "}
-					<span className="text-rose-400">−{summary.deletions}</span>
+								? "Expand all files"
+								: "Collapse all files"
+						}
+						onClick={() =>
+							setCollapsed(
+								collapsed.size === summary.files.length
+									? new Set()
+									: new Set(summary.files.map((file) => file.path)),
+							)
+						}
+					>
+						<ChevronsUpDown />
+					</ToolbarButton>
+					<ToolbarButton
+						label="Copy all patches"
+						onClick={() =>
+							void navigator.clipboard.writeText(
+								summary.files
+									.map((file) => patches[file.path]?.result.patch ?? "")
+									.join("\n"),
+							)
+						}
+					>
+						<Copy />
+					</ToolbarButton>
+					<DisplaySettings
+						preferences={preferences}
+						onChange={updatePreferences}
+					/>
 				</div>
 			</div>
 			{error !== null ? (
@@ -735,7 +708,7 @@ function ChangesReviewReady({
 					{editError}
 				</div>
 			) : null}
-			<div className="relative min-h-0 flex-1">
+			<div className="relative min-h-0 flex-1 overflow-hidden">
 				{items.length === 0 && !loading ? (
 					<ReviewState title="No branch changes to review." />
 				) : (
@@ -824,7 +797,7 @@ function ChangesReviewReady({
 							lineHoverHighlight: "both",
 							hunkSeparators: "line-info",
 						}}
-						className="h-full"
+						className="h-full overflow-auto overscroll-contain"
 					/>
 				)}
 				{selectedConflict !== null ? (
@@ -1030,13 +1003,110 @@ function ReviewState({ title }: { readonly title: string }) {
 	);
 }
 
+function DisplaySettings({
+	preferences,
+	onChange,
+}: {
+	readonly preferences: ReviewPreferences;
+	readonly onChange: (patch: Partial<ReviewPreferences>) => void;
+}) {
+	return (
+		<Popover>
+			<PopoverTrigger
+				aria-label="Display settings"
+				title="Display settings"
+				className="grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground data-[popup-open]:bg-foreground/10 data-[popup-open]:text-foreground"
+			>
+				<Settings2 className="size-3.5" />
+			</PopoverTrigger>
+			<PopoverPrimitive.Portal>
+				<PopoverPrimitive.Positioner
+					side="bottom"
+					align="end"
+					sideOffset={6}
+					className="z-50"
+				>
+					<PopoverPrimitive.Popup className="w-60 rounded-lg border border-border/70 bg-popover p-3 text-popover-foreground shadow-xl/15 outline-none">
+						<div className="flex flex-col gap-1">
+							<DisplaySwitch
+								label="Backgrounds"
+								checked={preferences.backgrounds}
+								onCheckedChange={(backgrounds) => onChange({ backgrounds })}
+							/>
+							<DisplaySwitch
+								label="Line numbers"
+								checked={preferences.lineNumbers}
+								onCheckedChange={(lineNumbers) => onChange({ lineNumbers })}
+							/>
+							<DisplaySwitch
+								label="Word wrap"
+								checked={preferences.wrap}
+								onCheckedChange={(wrap) => onChange({ wrap })}
+							/>
+						</div>
+						<div className="mt-2 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+							<span className="text-xs text-muted-foreground">Indicators</span>
+							<div className="flex rounded-md bg-foreground/5 p-0.5">
+								{(
+									[
+										["bars", Rows3, "Bars"],
+										["classic", SquarePlus, "Classic"],
+										["none", EyeOff, "Hidden"],
+									] as const
+								).map(([value, Icon, label]) => (
+									<button
+										key={value}
+										type="button"
+										aria-label={`${label} indicators`}
+										aria-pressed={preferences.indicators === value}
+										title={label}
+										onClick={() => onChange({ indicators: value })}
+										className={`grid size-7 place-items-center rounded-[5px] transition-colors ${
+											preferences.indicators === value
+												? "bg-background text-foreground shadow-sm"
+												: "text-muted-foreground hover:text-foreground"
+										}`}
+									>
+										<Icon className="size-3.5" />
+									</button>
+								))}
+							</div>
+						</div>
+					</PopoverPrimitive.Popup>
+				</PopoverPrimitive.Positioner>
+			</PopoverPrimitive.Portal>
+		</Popover>
+	);
+}
+
+function DisplaySwitch({
+	label,
+	checked,
+	onCheckedChange,
+}: {
+	readonly label: string;
+	readonly checked: boolean;
+	readonly onCheckedChange: (checked: boolean) => void;
+}) {
+	return (
+		<div className="flex h-9 items-center justify-between gap-4 rounded-md px-1 text-xs text-muted-foreground">
+			<span>{label}</span>
+			<Switch
+				aria-label={label}
+				checked={checked}
+				onCheckedChange={onCheckedChange}
+			/>
+		</div>
+	);
+}
+
 function ToolbarButton({
-	active,
+	active = false,
 	label,
 	onClick,
 	children,
 }: {
-	readonly active: boolean;
+	readonly active?: boolean;
 	readonly label: string;
 	readonly onClick: () => void;
 	readonly children: React.ReactNode;
