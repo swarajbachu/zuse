@@ -57,7 +57,10 @@ import {
 	ChildProcessSpawner as CommandExecutor,
 } from "effect/unstable/process";
 import { RepositoryLocator } from "./repository-locator.ts";
-import { buildCreateReviewCommentArgs } from "./review-comment.ts";
+import {
+	buildCreateReviewCommentArgs,
+	parseReviewIdentity,
+} from "./review-comment.ts";
 
 type GitFailure =
 	| GitNotARepoError
@@ -1090,6 +1093,20 @@ export const GitServiceLive = Layer.effect(
 						return { url: null };
 					}
 				}),
+			);
+
+		const reviewIdentity: GitService["Service"]["reviewIdentity"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				ghRun(folderId, cwd, ["api", "user"]).pipe(
+					Effect.map(parseReviewIdentity),
+					Effect.catchTags({
+						GitCommandError: () => Effect.succeed(null),
+						GitNotInstalledError: () => Effect.succeed(null),
+					}),
+				),
 			);
 
 		const prDetails: GitService["Service"]["prDetails"] = (
@@ -2333,6 +2350,7 @@ export const GitServiceLive = Layer.effect(
 			prState,
 			prDetails,
 			createReviewComment,
+			reviewIdentity,
 			listPrs,
 			listIssues,
 			issueMarkdown,

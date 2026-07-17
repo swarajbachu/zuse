@@ -83,6 +83,13 @@ export interface GitServiceShape {
 		body: string,
 		worktreeId?: WorktreeId | null,
 	) => Effect.Effect<{ readonly url: string | null }, GitFailure>;
+	readonly reviewIdentity: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<
+		{ readonly name: string; readonly avatarUrl: string | null } | null,
+		GitFailure
+	>;
 	/**
 	 * Open PRs via `gh pr list`, most-recently-updated first. Degrades to `[]`
 	 * when `gh` is missing / unauthenticated / there's no GitHub remote.

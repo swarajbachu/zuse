@@ -331,6 +331,21 @@ export const GitCreateReviewCommentRpc = Rpc.make("git.createReviewComment", {
   error: GitErrors,
 });
 
+/** Identity used to author review comments from the current GitHub account. */
+export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
+  payload: Schema.Struct({
+    folderId: FolderId,
+    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+  }),
+  success: Schema.NullOr(
+    Schema.Struct({
+      name: Schema.String,
+      avatarUrl: Schema.NullOr(Schema.String),
+    }),
+  ),
+  error: GitErrors,
+});
+
 /**
  * Lightweight PR row for the "Create from…" picker. One entry per open PR from
  * `gh pr list`. `headRefName` is the PR's branch — the picker checks it out

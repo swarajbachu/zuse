@@ -237,6 +237,20 @@ body,
   --accent-red: hsl(0 74% 56%);
   --accent-zinc: hsl(72 4% 42%);
 
+  --file-icon-gray: #6c6c71;
+  --file-icon-red: #d52c36;
+  --file-icon-vermilion: #d5512f;
+  --file-icon-orange: #d47628;
+  --file-icon-yellow: #d5a910;
+  --file-icon-green: #199f43;
+  --file-icon-teal: #17a5af;
+  --file-icon-cyan: #1ca1c7;
+  --file-icon-blue: #1a85d4;
+  --file-icon-indigo: #693acf;
+  --file-icon-purple: #a631be;
+  --file-icon-pink: #d32a61;
+  --file-icon-mauve: #594c5b;
+
   --secondary: hsl(74 10% 92%);
   --secondary-foreground: var(--foreground);
   --muted: hsl(74 10% 86%);
@@ -332,6 +346,20 @@ body,
   --accent-amber: hsl(18 96% 62%);
   --accent-red: hsl(0 84% 60%);
   --accent-zinc: hsl(72 2% 63%);
+
+  --file-icon-gray: #adadb1;
+  --file-icon-red: #ff6762;
+  --file-icon-vermilion: #ff8c5b;
+  --file-icon-orange: #ffa359;
+  --file-icon-yellow: #ffd452;
+  --file-icon-green: #5ecc71;
+  --file-icon-teal: #64d1db;
+  --file-icon-cyan: #68cdf2;
+  --file-icon-blue: #69b1ff;
+  --file-icon-indigo: #9d6afb;
+  --file-icon-purple: #d568ea;
+  --file-icon-pink: #ff678d;
+  --file-icon-mauve: #79697b;
 
   --secondary: hsl(72 4% 10%);
   --secondary-foreground: hsl(72 4% 92%);

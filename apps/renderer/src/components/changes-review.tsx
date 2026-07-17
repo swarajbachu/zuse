@@ -70,7 +70,7 @@ import { useAnnotationsStore } from "../store/annotations.ts";
 import { gitReviewKey, useGitReviewStore } from "../store/git-review.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
+import { FileIcon } from "./file-icon.tsx";
 import { Button } from "./ui/button.tsx";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover.tsx";
 import { Switch } from "./ui/switch.tsx";
@@ -235,14 +235,47 @@ function ChangesReviewReady({
 		(state) => state.selectedSessionId,
 	);
 	const { user: authUser, name: authName } = useAuth();
-	const annotationAuthor = useMemo<AnnotationAuthor>(
-		() => ({
-			name: authName.trim() || "You",
-			avatarUrl: authUser?.profilePictureUrl ?? null,
-			initial: (authName || authUser?.email || "?").charAt(0).toUpperCase(),
-		}),
-		[authName, authUser?.email, authUser?.profilePictureUrl],
-	);
+	const [repositoryAuthor, setRepositoryAuthor] =
+		useState<AnnotationAuthor | null>(null);
+	useEffect(() => {
+		let active = true;
+		setRepositoryAuthor(null);
+		void getRpcClient()
+			.then((client) =>
+				Effect.runPromise(
+					client["git.reviewIdentity"]({
+						folderId,
+						worktreeId,
+					}),
+				),
+			)
+			.then((identity) => {
+				if (!active || identity === null) return;
+				setRepositoryAuthor({
+					name: identity.name,
+					avatarUrl: identity.avatarUrl,
+					initial: identity.name.charAt(0).toUpperCase(),
+				});
+			})
+			.catch(() => undefined);
+		return () => {
+			active = false;
+		};
+	}, [folderId, worktreeId]);
+	const annotationAuthor = useMemo<AnnotationAuthor>(() => {
+		const name = authName.trim() || repositoryAuthor?.name || "You";
+		return {
+			name,
+			avatarUrl:
+				repositoryAuthor?.avatarUrl ?? authUser?.profilePictureUrl ?? null,
+			initial: (name || authUser?.email || "?").charAt(0).toUpperCase(),
+		};
+	}, [
+		authName,
+		authUser?.email,
+		authUser?.profilePictureUrl,
+		repositoryAuthor,
+	]);
 	const annotationsBySession = useAnnotationsStore((state) => state.bySession);
 	const annotations = useMemo(
 		() =>
@@ -608,6 +641,11 @@ function ChangesReviewReady({
 							isViewed(file.path) ? "Mark unviewed" : "Mark viewed and collapse"
 						}
 						className="size-3.5 cursor-pointer accent-foreground"
+					/>
+					<FileIcon
+						name={file.path}
+						kind="file"
+						className="ml-1 size-4 shrink-0"
 					/>
 				</div>
 			);
@@ -1174,27 +1212,10 @@ function DraftReviewAnnotation({
 		>
 			<AnnotationAvatar author={author} />
 			<div className="min-w-0 flex-1">
-				<div className="flex items-center gap-2 text-xs">
+				<div className="flex min-h-5 items-center gap-2 text-xs">
 					<span className="min-w-0 truncate font-medium text-foreground">
 						{author.name}
 					</span>
-					<fieldset
-						aria-label="Annotation destination"
-						className="ml-auto flex shrink-0 items-center rounded-md border-0 bg-foreground/5 p-0.5"
-					>
-						<DestinationOption
-							active={destination === "ai"}
-							label="AI"
-							onClick={() => setDestination("ai")}
-							icon={Bot}
-						/>
-						<DestinationOption
-							active={destination === "github"}
-							label="GitHub"
-							onClick={() => setDestination("github")}
-							icon={GitPullRequest}
-						/>
-					</fieldset>
 				</div>
 				<textarea
 					ref={textareaRef}
@@ -1232,27 +1253,44 @@ function DraftReviewAnnotation({
 						{error ?? disabledReason}
 					</p>
 				) : null}
-			</div>
-			<div className="flex shrink-0 items-end gap-1">
-				<button
-					type="button"
-					aria-label="Cancel annotation"
-					title="Cancel annotation (Esc)"
-					onClick={tryCancel}
-					disabled={submitting}
-					className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
-				>
-					<X className="size-3.5" aria-hidden="true" />
-				</button>
-				<button
-					type="submit"
-					aria-label="Save annotation"
-					title="Save annotation (Enter)"
-					disabled={disabled || submitting || trimmedMessage.length === 0}
-					className="grid size-7 place-items-center rounded-md bg-foreground text-background hover:bg-foreground/90 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
-				>
-					<ArrowUp className="size-4" aria-hidden="true" />
-				</button>
+				<div className="mt-2 flex items-center justify-end gap-1">
+					<fieldset
+						aria-label="Annotation destination"
+						className="mr-0.5 flex shrink-0 items-center rounded-md border-0 bg-foreground/5 p-0.5"
+					>
+						<DestinationOption
+							active={destination === "ai"}
+							label="AI"
+							onClick={() => setDestination("ai")}
+							icon={Bot}
+						/>
+						<DestinationOption
+							active={destination === "github"}
+							label="GitHub"
+							onClick={() => setDestination("github")}
+							icon={GitPullRequest}
+						/>
+					</fieldset>
+					<button
+						type="button"
+						aria-label="Cancel annotation"
+						title="Cancel annotation (Esc)"
+						onClick={tryCancel}
+						disabled={submitting}
+						className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-foreground/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+					>
+						<X className="size-3.5" aria-hidden="true" />
+					</button>
+					<button
+						type="submit"
+						aria-label="Save annotation"
+						title="Save annotation (Enter)"
+						disabled={disabled || submitting || trimmedMessage.length === 0}
+						className="grid size-7 place-items-center rounded-md bg-foreground text-background hover:bg-foreground/90 active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:bg-foreground/10 disabled:text-muted-foreground"
+					>
+						<ArrowUp className="size-4" aria-hidden="true" />
+					</button>
+				</div>
 			</div>
 		</form>
 	);
@@ -1289,13 +1327,23 @@ function DestinationOption({
 }
 
 function AnnotationAvatar({ author }: { readonly author: AnnotationAuthor }) {
+	const [imageFailed, setImageFailed] = useState(false);
+	useEffect(() => setImageFailed(false), [author.avatarUrl]);
+
 	return (
-		<Avatar className="size-8 bg-foreground/10 text-xs text-muted-foreground">
-			{author.avatarUrl !== null ? (
-				<AvatarImage src={author.avatarUrl} alt={author.name} />
-			) : null}
-			<AvatarFallback>{author.initial}</AvatarFallback>
-		</Avatar>
+		<div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground">
+			{author.avatarUrl !== null && !imageFailed ? (
+				<img
+					src={author.avatarUrl}
+					alt={author.name}
+					className="size-full object-cover"
+					referrerPolicy="no-referrer"
+					onError={() => setImageFailed(true)}
+				/>
+			) : (
+				author.initial
+			)}
+		</div>
 	);
 }
 

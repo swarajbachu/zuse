@@ -88,6 +88,14 @@ const CreateReviewComment = MemoizeRpcs.toLayerHandler(
     ),
 );
 
+const ReviewIdentity = MemoizeRpcs.toLayerHandler(
+  "git.reviewIdentity",
+  ({ folderId, worktreeId }) =>
+    Effect.flatMap(GitService, (svc) =>
+      svc.reviewIdentity(folderId, worktreeId ?? null),
+    ),
+);
+
 const ListPrs = MemoizeRpcs.toLayerHandler("git.listPrs", ({ folderId }) =>
   Effect.flatMap(GitService, (svc) => svc.listPrs(folderId)),
 );
@@ -250,6 +258,7 @@ export const GitHandlersLayer = Layer.mergeAll(
   PrState,
   PrDetails,
   CreateReviewComment,
+  ReviewIdentity,
   ListPrs,
   ListIssues,
   IssueMarkdown,
