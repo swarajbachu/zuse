@@ -845,6 +845,7 @@ function ChangesReviewReady({
 				)}
 				{selectedConflict !== null ? (
 					<ConflictReview
+						key={selectedConflict.path}
 						folderId={folderId}
 						worktreeId={worktreeId}
 						file={selectedConflict}
