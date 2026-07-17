@@ -536,14 +536,6 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
   revealAnnotation: (annotation) =>
     set((s) => ({
-      changesTabOpen: true,
-      activeMainTab: "changes",
-      reviewNavigation: {
-        path: annotation.relPath,
-        line: annotation.startLine,
-        side: annotation.diffSide ?? null,
-        token: (s.reviewNavigation?.token ?? 0) + 1,
-      },
       revealedAnnotation: {
         ...annotation,
         revealToken: (s.revealedAnnotation?.revealToken ?? 0) + 1,

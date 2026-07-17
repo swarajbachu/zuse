@@ -519,6 +519,7 @@ export class GitReviewPatch extends Schema.Class<GitReviewPatch>(
 )({
   path: Schema.String,
   result: GitDiffResult,
+  error: Schema.NullOr(Schema.String),
 }) {}
 
 /** Streams complete per-file patches in review order for incremental rendering. */

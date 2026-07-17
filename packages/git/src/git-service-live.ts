@@ -1703,7 +1703,25 @@ export const GitServiceLive = Layer.effect(
 										)
 								).pipe(
 									Effect.map((result) =>
-										GitReviewPatch.make({ path: file.path, result }),
+										GitReviewPatch.make({
+											path: file.path,
+											result,
+											error: null,
+										}),
+									),
+									Effect.catch((cause) =>
+										Effect.succeed(
+											GitReviewPatch.make({
+												path: file.path,
+												result: GitDiffResult.make({
+													mode: "unchanged",
+													patch: "",
+													truncated: false,
+													bytes: 0,
+												}),
+												error: String(cause),
+											}),
+										),
 									),
 								),
 							),

@@ -35,6 +35,11 @@ export const useGitReviewStore = create<ReviewState>((set) => ({
 	errors: {},
 	refresh: async (folderId, worktreeId) => {
 		const key = gitReviewKey(folderId, worktreeId);
+		for (const [activeKey, fiber] of streamFibers) {
+			if (activeKey === key) continue;
+			await Effect.runPromise(Fiber.interrupt(fiber));
+			streamFibers.delete(activeKey);
+		}
 		const previousFiber = streamFibers.get(key);
 		if (previousFiber !== undefined) {
 			await Effect.runPromise(Fiber.interrupt(previousFiber));

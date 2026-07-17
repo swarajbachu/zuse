@@ -44,7 +44,10 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { configureReviewEditGuard } from "../lib/review-edit-guard.ts";
+import {
+	configureReviewEditGuard,
+	requestReviewLeave,
+} from "../lib/review-edit-guard.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
@@ -141,6 +144,7 @@ export function ChangesReview() {
 			highlighterOptions={REVIEW_HIGHLIGHTER_OPTIONS}
 		>
 			<ChangesReviewReady
+				key={`${context.folderId}:${context.worktreeId ?? "main"}`}
 				folderId={context.folderId}
 				worktreeId={context.worktreeId}
 				rootPath={context.rootPath}
@@ -200,26 +204,6 @@ function ChangesReviewReady({
 		localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
 	}, [preferences]);
 
-	useEffect(() => {
-		if (navigation?.path === null || navigation?.path === undefined) return;
-		const target =
-			navigation.line === null
-				? {
-						type: "item" as const,
-						id: navigation.path,
-						behavior: "smooth-auto" as const,
-					}
-				: {
-						type: "line" as const,
-						id: navigation.path,
-						lineNumber: navigation.line,
-						side: navigation.side ?? undefined,
-						align: "center" as const,
-						behavior: "smooth-auto" as const,
-					};
-		viewerRef.current?.scrollTo(target);
-	}, [navigation]);
-
 	const updatePreferences = (patch: Partial<ReviewPreferences>) =>
 		setPreferences((current) => ({ ...current, ...patch }));
 
@@ -248,15 +232,37 @@ function ChangesReviewReady({
 
 	const items = useMemo(() => {
 		if (summary === null) return [];
-		const next: CodeViewDiffItem<AnnotationMetadata>[] = [];
+		const next: CodeViewItem<AnnotationMetadata>[] = [];
 		for (const file of summary.files) {
-			const patch = patches[file.path]?.result.patch;
-			if (patch === undefined || patch.length === 0) continue;
+			const streamedPatch = patches[file.path];
+			if (streamedPatch === undefined) continue;
+			const patch = streamedPatch.result.patch;
+			if (patch.length === 0) {
+				next.push({
+					id: file.path,
+					type: "file",
+					file: {
+						name: file.path,
+						contents:
+							streamedPatch.error !== null
+								? `This file could not be loaded: ${streamedPatch.error}`
+								: file.conflict
+									? "Select this file in the navigator to resolve its conflicts."
+									: file.binary
+										? "Binary file changed — no textual diff is available."
+										: "No textual diff is available for this change.",
+						cacheKey: `${key}:${file.path}:placeholder`,
+					},
+					collapsed: collapsed.has(file.path),
+				});
+				continue;
+			}
 			const fingerprint = reviewFingerprint(patch);
-			const cacheKey = `${key}:${file.path}:${fingerprint}`;
+			const content = hydrated[file.path];
+			const hydrationKey = content?.mtime ?? "partial";
+			const cacheKey = `${key}:${file.path}:${fingerprint}:${hydrationKey}`;
 			let parsed = parsedRef.current.get(cacheKey);
 			if (parsed === undefined) {
-				const content = hydrated[file.path];
 				const fileDiff = processFile(patch, {
 					cacheKey,
 					...(content?.oldContent !== null && content?.oldContent !== undefined
@@ -295,6 +301,27 @@ function ChangesReviewReady({
 		return next;
 	}, [summary, patches, key, hydrated, annotationMap, collapsed, editingPath]);
 
+	useEffect(() => {
+		if (navigation?.path === null || navigation?.path === undefined) return;
+		if (!items.some((item) => item.id === navigation.path)) return;
+		const target =
+			navigation.line === null
+				? {
+						type: "item" as const,
+						id: navigation.path,
+						behavior: "smooth-auto" as const,
+					}
+				: {
+						type: "line" as const,
+						id: navigation.path,
+						lineNumber: navigation.line,
+						side: navigation.side ?? undefined,
+						align: "center" as const,
+						behavior: "smooth-auto" as const,
+					};
+		viewerRef.current?.scrollTo(target);
+	}, [items, navigation]);
+
 	const fileByPath = useMemo(
 		() => new Map(summary?.files.map((file) => [file.path, file]) ?? []),
 		[summary],
@@ -325,38 +352,60 @@ function ChangesReviewReady({
 	);
 
 	const enterEdit = useCallback(
-		async (file: GitReviewFile) => {
+		(file: GitReviewFile) => {
+			const loadEditor = async () => {
+				setEditingPath(null);
+				setEditDraft(null);
+				setEditError(null);
+				try {
+					const client = await getRpcClient();
+					const content = await Effect.runPromise(
+						client["git.reviewFileContents"]({
+							folderId,
+							worktreeId,
+							path: file.path,
+							oldPath: file.oldPath,
+						}),
+					);
+					if (content.newContent === null || content.mtime === null) {
+						setEditError("This file cannot be edited in its current state.");
+						return;
+					}
+					setHydrated((current) => ({ ...current, [file.path]: content }));
+					setEditingPath(file.path);
+				} catch (cause) {
+					setEditError(
+						`Could not open this file for editing. ${String(cause)}`,
+					);
+				}
+			};
 			if (
 				editingPath !== null &&
 				editingPath !== file.path &&
 				editDraft !== null
 			) {
-				if (!window.confirm("Discard the unsaved edit and edit another file?"))
-					return;
-			}
-			setEditError(null);
-			const client = await getRpcClient();
-			const content = await Effect.runPromise(
-				client["git.reviewFileContents"]({
-					folderId,
-					worktreeId,
-					path: file.path,
-					oldPath: file.oldPath,
-				}),
-			);
-			if (content.newContent === null || content.mtime === null) {
-				setEditError("This file cannot be edited in its current state.");
+				requestReviewLeave(() => void loadEditor());
 				return;
 			}
-			setHydrated((current) => ({ ...current, [file.path]: content }));
-			setEditDraft(null);
-			setEditingPath(file.path);
+			void loadEditor();
 		},
 		[editingPath, editDraft, folderId, worktreeId],
 	);
 
+	const leaveEdit = useCallback(() => {
+		requestReviewLeave(() => {
+			setEditingPath(null);
+			setEditDraft(null);
+			setEditError(null);
+		});
+	}, []);
+
 	const saveEdit = useCallback(async (): Promise<boolean> => {
-		if (editingPath === null || editDraft === null) return true;
+		if (editingPath === null) return true;
+		if (editDraft === null) {
+			setEditingPath(null);
+			return true;
+		}
 		const metadata = hydrated[editingPath];
 		if (metadata?.mtime === null || metadata?.mtime === undefined) return false;
 		setEditError(null);
@@ -448,12 +497,19 @@ function ChangesReviewReady({
 						+{file.additions}
 					</span>
 					<span className="tabular-nums text-rose-400">−{file.deletions}</span>
-					<HeaderButton
-						label={editing ? "Save edit" : "Edit file"}
-						onClick={() => (editing ? void saveEdit() : void enterEdit(file))}
-					>
-						{editing ? <Save /> : <FilePenLine />}
-					</HeaderButton>
+					{!file.binary && file.kind !== "deleted" && !file.conflict ? (
+						<HeaderButton
+							label={editing ? "Return to diff" : "Edit file"}
+							onClick={() => (editing ? leaveEdit() : void enterEdit(file))}
+						>
+							<FilePenLine />
+						</HeaderButton>
+					) : null}
+					{editing ? (
+						<HeaderButton label="Save edit" onClick={() => void saveEdit()}>
+							<Save />
+						</HeaderButton>
+					) : null}
 					<HeaderButton
 						label={isViewed(file.path) ? "Mark unviewed" : "Mark viewed"}
 						active={isViewed(file.path)}
@@ -510,6 +566,7 @@ function ChangesReviewReady({
 			enterEdit,
 			fileByPath,
 			isViewed,
+			leaveEdit,
 			patches,
 			restoreToBase,
 			saveEdit,

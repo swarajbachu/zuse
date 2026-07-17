@@ -16,7 +16,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Plus } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
@@ -113,6 +113,8 @@ export function DiffPane({
 					(entry): entry is CodeAnnotation => !("_tag" in entry),
 				),
 	);
+	const updateComment = useAnnotationsStore((s) => s.updateComment);
+	const removeComment = useAnnotationsStore((s) => s.remove);
 
 	// Paths the user has unchecked for the next commit (see `committable` below).
 	const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
@@ -141,7 +143,6 @@ export function DiffPane({
 		void refreshReview(folderId, worktreeId);
 		const id = window.setInterval(() => {
 			void refreshChanges(folderId, worktreeId);
-			void refreshReview(folderId, worktreeId);
 		}, 5000);
 		return () => window.clearInterval(id);
 	}, [folderId, worktreeId, refreshChanges, refreshReview]);
@@ -437,7 +438,7 @@ export function DiffPane({
 						) : (
 							<ul className="space-y-1">
 								{comments.map((comment) => (
-									<li key={comment.id}>
+									<li key={comment.id} className="group relative">
 										<button
 											type="button"
 											onClick={() =>
@@ -456,6 +457,36 @@ export function DiffPane({
 												{comment.comment}
 											</span>
 										</button>
+										<div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+											<button
+												type="button"
+												aria-label="Edit comment"
+												className="rounded bg-background/90 p-1 text-muted-foreground hover:text-foreground"
+												onClick={() => {
+													if (selectedSessionId === null) return;
+													const next = window.prompt(
+														"Edit review comment",
+														comment.comment,
+													);
+													if (next !== null)
+														updateComment(selectedSessionId, comment.id, next);
+												}}
+											>
+												<Pencil className="size-3" />
+											</button>
+											<button
+												type="button"
+												aria-label="Delete comment"
+												className="rounded bg-background/90 p-1 text-muted-foreground hover:text-destructive"
+												onClick={() => {
+													if (selectedSessionId === null) return;
+													if (window.confirm("Delete this review comment?"))
+														removeComment(selectedSessionId, comment.id);
+												}}
+											>
+												<Trash2 className="size-3" />
+											</button>
+										</div>
 									</li>
 								))}
 							</ul>

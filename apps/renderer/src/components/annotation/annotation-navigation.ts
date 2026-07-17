@@ -20,6 +20,7 @@ export const useRevealAnnotation = (opts?: {
   const folderId = opts?.folderId ?? context.folderId;
   const worktreeId = opts?.worktreeId ?? context.worktreeId;
   const openFileInTab = useUiStore((s) => s.openFileInTab);
+  const openChanges = useUiStore((s) => s.openChanges);
   const revealAnnotation = useUiStore((s) => s.revealAnnotation);
   const folderPath = useWorkspaceStore((s) => {
     if (folderId === null) return null;
@@ -51,6 +52,14 @@ export const useRevealAnnotation = (opts?: {
         resolvedAbs !== null && !insideWorkspace ? resolvedAbs : null;
 
       if (folderId !== null && workspaceRelPath !== null) {
+        if (annotation.diffSide !== undefined) {
+          openChanges(
+            workspaceRelPath,
+            annotation.startLine,
+            annotation.diffSide,
+          );
+          return;
+        }
         openFileInTab({
           kind: "text",
           folderId,
@@ -79,6 +88,7 @@ export const useRevealAnnotation = (opts?: {
       folderId,
       folderPath,
       openFileInTab,
+      openChanges,
       revealAnnotation,
       worktreeId,
       worktreePath,
