@@ -219,6 +219,15 @@ describe("mobile UI contracts", () => {
 		);
 		expect(turn).toContain("gap-2 px-3");
 		expect(turn).not.toContain("/tool/[itemId]");
+		expect(thread).toContain("workspaceRoot: detail?.project.path");
+		const messageRow = readFileSync(
+			`${process.cwd()}/src/components/messages/message-row.tsx`,
+			"utf8",
+		);
+		expect(messageRow).toContain(
+			"workspaceDisplayPath(view.editSummaries[0].path, workspaceRoot)",
+		);
+		expect(messageRow).toContain("stats={{ added, removed }}");
 		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
 		expect(sessionActions).toContain("tintColor={colors.fg}");
 		expect(sessionActions).toContain("destructive");

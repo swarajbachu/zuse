@@ -36,6 +36,7 @@ import {
 	buildToolPresentation,
 	type MobileToolIcon,
 } from "~/lib/tool-presentation";
+import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { Markdown } from "./markdown";
 import type { QuestionAnswer } from "./pending-user-input-card";
@@ -139,6 +140,7 @@ const MessageRowContent = ({
 					shimmer={shimmerActive}
 					connectionKey={ctx.connectionKey}
 					sessionId={ctx.sessionId}
+					workspaceRoot={ctx.workspaceRoot}
 				/>
 			);
 		case "tool_result":
@@ -311,12 +313,14 @@ const ToolUseRow = ({
 	shimmer,
 	connectionKey,
 	sessionId,
+	workspaceRoot,
 }: {
 	content: Extract<MessageContent, { _tag: "tool_use" }>;
 	result?: ToolResultRecord;
 	shimmer: boolean;
 	connectionKey: string;
 	sessionId: SessionId;
+	workspaceRoot?: string;
 }) => {
 	const view = buildToolPresentation(content, result);
 	const running = view.resultLabel === "Running";
@@ -366,10 +370,23 @@ const ToolUseRow = ({
 	// the full inline diff after completion, so this live row never opens a
 	// second detail surface.
 	if (view.fileChangeSummary !== null) {
+		const added = view.editSummaries.reduce(
+			(total, summary) => total + summary.added,
+			0,
+		);
+		const removed = view.editSummaries.reduce(
+			(total, summary) => total + summary.removed,
+			0,
+		);
+		const label =
+			view.editSummaries.length === 1 && view.editSummaries[0] !== undefined
+				? workspaceDisplayPath(view.editSummaries[0].path, workspaceRoot)
+				: `${view.editSummaries.length} files edited`;
 		return (
 			<PlainEventRow
 				icon="edit"
-				label={view.fileChangeSummary}
+				label={label}
+				stats={{ added, removed }}
 				shimmer={shimmer && running}
 			>
 				<View className="gap-1">
@@ -382,8 +399,9 @@ const ToolUseRow = ({
 							<Text
 								className="min-w-0 flex-1 font-mono text-xs text-foreground"
 								numberOfLines={1}
+								ellipsizeMode="middle"
 							>
-								{summary.path}
+								{workspaceDisplayPath(summary.path, workspaceRoot)}
 							</Text>
 							<Text className="font-mono text-[11px] text-presence-online">
 								+{summary.added}
@@ -676,11 +694,13 @@ const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
 function PlainEventRow({
 	icon,
 	label,
+	stats,
 	shimmer = false,
 	children,
 }: {
 	icon: "thinking" | "hourglass" | MobileToolIcon;
 	label: string;
+	stats?: { added: number; removed: number };
 	shimmer?: boolean;
 	children: React.ReactNode;
 }) {
@@ -701,11 +721,39 @@ function PlainEventRow({
 					</ShimmerText>
 				) : (
 					<Text
-						className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground"
+						className={cn(
+							"min-w-0 flex-1 text-[13px]",
+							stats === undefined
+								? "font-sans text-muted-foreground"
+								: "font-mono text-foreground",
+						)}
 						numberOfLines={1}
+						ellipsizeMode="middle"
 					>
 						{label}
 					</Text>
+				)}
+				{stats === undefined ? null : (
+					<>
+						<Text
+							className="font-mono text-[12px]"
+							style={{
+								color: colors.diffAdded,
+								fontVariant: ["tabular-nums"],
+							}}
+						>
+							+{stats.added}
+						</Text>
+						<Text
+							className="font-mono text-[12px]"
+							style={{
+								color: colors.diffRemoved,
+								fontVariant: ["tabular-nums"],
+							}}
+						>
+							−{stats.removed}
+						</Text>
+					</>
 				)}
 				<Chevron size={12} color={colors.secondaryFg} />
 			</View>
