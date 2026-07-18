@@ -231,6 +231,9 @@ describe("mobile UI contracts", () => {
 		expect(messageRow).toContain(
 			"<InlineFileDiff lines={change.lines} lineLimit={80} />",
 		);
+		expect(messageRow).toContain("<FileIcon path={change.path} size={16} />");
+		expect(messageRow).toContain("accessibilityState={{ expanded }}");
+		expect(messageRow).toContain("color: colors.accent");
 		expect(messageRow).not.toContain("stats={view.fileChangeTotals}");
 		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
 		expect(sessionActions).toContain("tintColor={colors.fg}");

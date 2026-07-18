@@ -1,3 +1,4 @@
+import type { FileChange } from "@zuse/client-runtime/timeline";
 import type {
 	Message,
 	MessageContent,
@@ -25,6 +26,7 @@ import {
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
 import { InlineFileDiff } from "~/components/diff/inline-file-diff";
+import { FileIcon } from "~/components/ui/file-icon";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
 import { captureMobileError } from "~/lib/crash-reporting";
@@ -366,51 +368,17 @@ const ToolUseRow = ({
 		);
 	}
 
-	// Edits are already concise, structured content. Show the file and its diff
-	// directly instead of adding a redundant disclosure layer.
+	// Skip the redundant tool-level disclosure, but let each file reveal its diff.
 	if (view.fileChangeTotals !== null) {
 		return (
 			<View className="gap-3 px-2 py-1.5">
 				{view.fileChanges.map((change) => (
-					<View key={change.path}>
-						<View className="min-h-8 flex-row items-center gap-2">
-							{renderToolRowIcon("edit", colors.secondaryFg)}
-							{shimmer && running ? (
-								<ShimmerText className="min-w-0 flex-1 font-mono text-[13px] text-foreground">
-									{workspaceDisplayPath(change.path, workspaceRoot)}
-								</ShimmerText>
-							) : (
-								<Text
-									className="min-w-0 flex-1 font-mono text-[13px] text-foreground"
-									numberOfLines={1}
-									ellipsizeMode="middle"
-								>
-									{workspaceDisplayPath(change.path, workspaceRoot)}
-								</Text>
-							)}
-							<Text
-								className="font-mono text-[12px]"
-								style={{
-									color: colors.diffAdded,
-									fontVariant: ["tabular-nums"],
-								}}
-							>
-								+{change.added}
-							</Text>
-							<Text
-								className="font-mono text-[12px]"
-								style={{
-									color: colors.diffRemoved,
-									fontVariant: ["tabular-nums"],
-								}}
-							>
-								−{change.removed}
-							</Text>
-						</View>
-						<View className="ml-6 mt-1 overflow-hidden rounded-xl border border-border bg-background">
-							<InlineFileDiff lines={change.lines} lineLimit={80} />
-						</View>
-					</View>
+					<EditedFileRow
+						key={change.path}
+						change={change}
+						workspaceRoot={workspaceRoot}
+						shimmer={shimmer && running}
+					/>
 				))}
 			</View>
 		);
@@ -443,6 +411,70 @@ const ToolUseRow = ({
 		</PlainEventRow>
 	);
 };
+
+function EditedFileRow({
+	change,
+	workspaceRoot,
+	shimmer,
+}: {
+	change: FileChange;
+	workspaceRoot?: string;
+	shimmer: boolean;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const path = workspaceDisplayPath(change.path, workspaceRoot);
+	return (
+		<View>
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel={`${expanded ? "Collapse" : "Expand"} changes for ${path}`}
+				accessibilityState={{ expanded }}
+				onPress={() => setExpanded((value) => !value)}
+				className="min-h-11 flex-row items-center gap-2 active:opacity-60"
+			>
+				<FileIcon path={change.path} size={16} />
+				{shimmer ? (
+					<ShimmerText className="min-w-0 flex-1 font-mono text-[13px] text-foreground">
+						{path}
+					</ShimmerText>
+				) : (
+					<Text
+						className="min-w-0 flex-1 font-mono text-[13px] text-foreground"
+						numberOfLines={1}
+						ellipsizeMode="middle"
+					>
+						{path}
+					</Text>
+				)}
+				<Text
+					className="font-mono text-[12px]"
+					style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
+				>
+					+{change.added}
+				</Text>
+				<Text
+					className="font-mono text-[12px]"
+					style={{
+						color: colors.diffRemoved,
+						fontVariant: ["tabular-nums"],
+					}}
+				>
+					−{change.removed}
+				</Text>
+				{expanded ? (
+					<ChevronDown size={12} color={colors.secondaryFg} />
+				) : (
+					<ChevronRight size={12} color={colors.secondaryFg} />
+				)}
+			</Pressable>
+			{expanded ? (
+				<View className="ml-6 overflow-hidden rounded-xl border border-border bg-background">
+					<InlineFileDiff lines={change.lines} lineLimit={80} />
+				</View>
+			) : null}
+		</View>
+	);
+}
 
 const DetailButton = ({ onPress }: { onPress: () => void }) => (
 	<Pressable
