@@ -23,6 +23,7 @@ const PAIRING_TTL_MS = 5 * 60 * 1000;
 
 interface TokenRow {
 	readonly id: string;
+	readonly device_id: string | null;
 	readonly label: string | null;
 	readonly created_at: string;
 	readonly last_used_at: string | null;
@@ -93,18 +94,30 @@ export const LanAuthServiceLive = Layer.effect(
 		const config = yield* LanAuthConfig;
 		const pairingCodes = yield* Ref.make(new Map<string, PairingCodeState>());
 
-		const mintToken = (label?: string) =>
+		const mintToken = (label?: string, deviceId?: string) =>
 			Effect.gen(function* () {
 				const id = `auth_${yield* randomBase64Url(16)}` as AuthTokenId;
 				const token = `zt_${yield* randomBase64Url(32)}`;
 				const hash = yield* tokenHash(token);
 				const createdAt = yield* nowIso;
-				yield* sql`
-          INSERT INTO auth_tokens
-            (id, token_hash, label, created_at, last_used_at, revoked_at)
-          VALUES
-            (${id}, ${hash}, ${label ?? null}, ${createdAt}, NULL, NULL)
-        `;
+				yield* sql.withTransaction(
+					Effect.gen(function* () {
+						if (deviceId !== undefined) {
+							yield* sql`
+                UPDATE auth_tokens
+                SET revoked_at = COALESCE(revoked_at, ${createdAt})
+                WHERE device_id = ${deviceId}
+                  AND revoked_at IS NULL
+              `;
+						}
+						yield* sql`
+              INSERT INTO auth_tokens
+                (id, token_hash, device_id, label, created_at, last_used_at, revoked_at)
+              VALUES
+                (${id}, ${hash}, ${deviceId ?? null}, ${label ?? null}, ${createdAt}, NULL, NULL)
+            `;
+					}),
+				);
 				return { id, token } as const;
 			}).pipe(Effect.mapError(toLanAuthError));
 
@@ -196,7 +209,8 @@ export const LanAuthServiceLive = Layer.effect(
               AND revoked_at IS NULL
             LIMIT 1
           `;
-					if (rows.length === 0) {
+					const matchedToken = rows[0];
+					if (matchedToken === undefined) {
 						const relayRows = yield* sql<RelayConfigAuthRow>`
               SELECT environment_id, relay_issuer, relay_mint_public_key
               FROM relay_config
@@ -225,20 +239,21 @@ export const LanAuthServiceLive = Layer.effect(
 					yield* sql`
             UPDATE auth_tokens
             SET last_used_at = ${usedAt}
-            WHERE id = ${rows[0]!.id}
+							WHERE id = ${matchedToken.id}
           `;
 					return true;
 				}).pipe(Effect.mapError(toLanAuthError)),
 			listTokens: () =>
 				Effect.gen(function* () {
 					const rows = yield* sql<TokenRow>`
-            SELECT id, label, created_at, last_used_at, revoked_at
+            SELECT id, device_id, label, created_at, last_used_at, revoked_at
             FROM auth_tokens
             ORDER BY created_at DESC
           `;
 					return rows.map((row) =>
 						AuthTokenSummary.make({
 							id: row.id as AuthTokenId,
+							deviceId: row.device_id ?? undefined,
 							label: row.label ?? undefined,
 							createdAt: new Date(row.created_at),
 							lastUsedAt:
@@ -283,7 +298,7 @@ export const LanAuthServiceLive = Layer.effect(
 						qrText: urls.qrText,
 					} as const;
 				}).pipe(Effect.mapError(toLanAuthError)),
-			redeemPairingCode: (code) =>
+			redeemPairingCode: (code, device) =>
 				Effect.gen(function* () {
 					const now = yield* Clock.currentTimeMillis;
 					const status = yield* Ref.modify(pairingCodes, (codes) => {
@@ -306,7 +321,10 @@ export const LanAuthServiceLive = Layer.effect(
 						);
 					}
 
-					const minted = yield* mintToken("paired device");
+					const minted = yield* mintToken(
+						device?.label ?? "Paired phone",
+						device?.id,
+					);
 					const envId = yield* environmentId();
 					return { token: minted.token, environmentId: envId } as const;
 				}),

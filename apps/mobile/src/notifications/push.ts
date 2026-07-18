@@ -1,30 +1,16 @@
 import * as Notifications from "expo-notifications";
-import * as SecureStore from "expo-secure-store";
 import { Linking, Platform } from "react-native";
 
 import { relayBaseUrl } from "../auth/config.ts";
 import type { WorkosAccount } from "../auth/workos.ts";
+import {
+	clearDeviceIdentity,
+	getOrCreateDeviceId,
+} from "../lib/device-identity.ts";
 import { registerDevice } from "../rpc/relay-client.ts";
 import { registerPushTokenForAccount } from "./registration.ts";
 
-const DEVICE_ID_KEY = "zuse.mobile.push.device_id.v1";
-
-export const clearPushRegistration = (): Promise<void> =>
-	SecureStore.deleteItemAsync(DEVICE_ID_KEY);
-
-const randomId = (): string => {
-	const maybe = globalThis.crypto?.randomUUID;
-	if (typeof maybe === "function") return maybe.call(globalThis.crypto);
-	return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-};
-
-const getOrCreateDeviceId = async (): Promise<string> => {
-	const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
-	if (existing !== null) return existing;
-	const next = `mobile_${randomId()}`;
-	await SecureStore.setItemAsync(DEVICE_ID_KEY, next);
-	return next;
-};
+export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
 
 const getExpoPushToken = async (): Promise<string | null> => {
 	const current = await Notifications.getPermissionsAsync();

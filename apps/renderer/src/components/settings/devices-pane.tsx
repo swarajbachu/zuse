@@ -1,30 +1,20 @@
 import type {
-	AdvertisedEndpoint,
 	AuthTokenSummary,
 	NetworkAccessState,
 	PairingStartResult,
 	RelayLinkStatus,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import {
-	Check,
-	ChevronDown,
-	Copy,
-	QrCode,
-	RefreshCw,
-	Smartphone,
-	Wifi,
-} from "lucide-react";
+import { Copy, QrCode, RefreshCw, Smartphone, Wifi } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-	readEndpointOverride,
-	selectAdvertisedEndpoint,
-	writeEndpointOverride,
-} from "../../lib/advertised-endpoints.ts";
 import { getBridge } from "../../lib/bridge.ts";
 import { formatError } from "../../lib/format-error.ts";
+import {
+	deviceAccessCopy,
+	groupPairedPhoneTokens,
+} from "../../lib/paired-phones.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import {
 	AlertDialog,
@@ -36,11 +26,6 @@ import {
 	AlertDialogTitle,
 } from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "../ui/collapsible.tsx";
 import { Frame, FrameFooter, FramePanel, FrameTitle } from "../ui/frame.tsx";
 import { Input } from "../ui/input.tsx";
 import { Spinner } from "../ui/spinner.tsx";
@@ -53,7 +38,7 @@ const DEFAULT_RELAY_URL =
 const messageForError = (cause: unknown): string => {
 	const formatted = formatError(cause);
 	if (formatted.includes("not_signed_in")) {
-		return "Sign in before linking this computer to your account.";
+		return "Sign in before setting up remote access.";
 	}
 	if (formatted.includes("cloudflared_not_found")) {
 		return "The secure tunnel needs cloudflared installed on this computer.";
@@ -90,15 +75,14 @@ export function DevicesPane() {
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [pairingBusy, setPairingBusy] = useState(false);
+	const [legacyRevokeOpen, setLegacyRevokeOpen] = useState(false);
+	const [legacyRevokeBusy, setLegacyRevokeBusy] = useState(false);
 	const [pendingNetworkMode, setPendingNetworkMode] = useState<boolean | null>(
 		null,
 	);
 	const [label, setLabel] = useState("");
-	const [endpointOverrideId, setEndpointOverrideId] = useState<string | null>(
-		() => readEndpointOverride(),
-	);
-	const [endpointsOpen, setEndpointsOpen] = useState(false);
 	const actionInFlightRef = useRef(false);
+	const pairingTokenIdsRef = useRef<ReadonlySet<string>>(new Set());
 
 	const refresh = useCallback(async () => {
 		const bridge = getBridge();
@@ -132,6 +116,30 @@ export function DevicesPane() {
 		return () => clearTimeout(timer);
 	}, [pairing]);
 
+	useEffect(() => {
+		if (pairing === null) return;
+		const checkForPairedPhone = async () => {
+			try {
+				const client = await getRpcClient();
+				const next = await Effect.runPromise(client["pairing.listTokens"]({}));
+				setTokens(next);
+				if (
+					next.some(
+						(token) =>
+							token.revokedAt === undefined &&
+							!pairingTokenIdsRef.current.has(token.id),
+					)
+				) {
+					setPairing(null);
+				}
+			} catch {
+				// The main refresh/error path remains authoritative; retry next poll.
+			}
+		};
+		const timer = setInterval(() => void checkForPairedPhone(), 1_500);
+		return () => clearInterval(timer);
+	}, [pairing]);
+
 	const updateNetwork = useCallback(async () => {
 		if (pendingNetworkMode === null) return;
 		const bridge = getBridge();
@@ -158,13 +166,18 @@ export function DevicesPane() {
 		setPairingBusy(true);
 		try {
 			const client = await getRpcClient();
+			pairingTokenIdsRef.current = new Set(
+				tokens
+					.filter((token) => token.revokedAt === undefined)
+					.map((token) => token.id),
+			);
 			setPairing(await Effect.runPromise(client["pairing.start"]({})));
 		} catch (cause) {
 			showError("Could not start pairing", cause);
 		} finally {
 			setPairingBusy(false);
 		}
-	}, [pairingBusy]);
+	}, [pairingBusy, tokens]);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
 		try {
@@ -182,6 +195,33 @@ export function DevicesPane() {
 		}
 	}, []);
 
+	const revokeTokens = useCallback(
+		async (items: ReadonlyArray<AuthTokenSummary>) => {
+			if (legacyRevokeBusy) return;
+			setLegacyRevokeBusy(true);
+			try {
+				const client = await getRpcClient();
+				const results = await Promise.allSettled(
+					items.map((token) =>
+						Effect.runPromise(
+							client["pairing.revokeToken"]({ tokenId: token.id }),
+						),
+					),
+				);
+				await refresh();
+				if (results.some((result) => result.status === "rejected")) {
+					throw new Error("Some credentials could not be revoked. Try again.");
+				}
+				setLegacyRevokeOpen(false);
+			} catch (cause) {
+				showError("Could not revoke older phone access", cause);
+			} finally {
+				setLegacyRevokeBusy(false);
+			}
+		},
+		[legacyRevokeBusy, refresh],
+	);
+
 	const connectRelay = useCallback(async () => {
 		if (actionInFlightRef.current) return;
 		actionInFlightRef.current = true;
@@ -197,7 +237,7 @@ export function DevicesPane() {
 				),
 			);
 		} catch (cause) {
-			showError("Could not enable anywhere access", cause);
+			showError("Could not set up remote access", cause);
 		} finally {
 			actionInFlightRef.current = false;
 			setBusy(false);
@@ -213,16 +253,11 @@ export function DevicesPane() {
 			await Effect.runPromise(client["relay.unlink"]());
 			setStatus(null);
 		} catch (cause) {
-			showError("Could not disable anywhere access", cause);
+			showError("Could not turn off remote access", cause);
 		} finally {
 			actionInFlightRef.current = false;
 			setBusy(false);
 		}
-	}, []);
-
-	const selectEndpoint = useCallback((endpointId: string) => {
-		setEndpointOverrideId(endpointId);
-		writeEndpointOverride(endpointId);
 	}, []);
 
 	if (loading) {
@@ -235,12 +270,11 @@ export function DevicesPane() {
 
 	const networkEnabled = network?.mode === "network-accessible";
 	const linked = status?.linked === true;
-	const advertisedEndpoints = status?.advertisedEndpoints ?? [];
-	const selectedEndpoint = selectAdvertisedEndpoint(
-		advertisedEndpoints,
-		endpointOverrideId,
-	);
-	const activeTokens = tokens.filter((token) => token.revokedAt === undefined);
+	const remoteReady = linked && status?.heartbeatActive === true;
+	const { identifiedPhones, legacyCredentials } =
+		groupPairedPhoneTokens(tokens);
+	const hasActiveTokens =
+		identifiedPhones.length > 0 || legacyCredentials.length > 0;
 
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
@@ -251,11 +285,11 @@ export function DevicesPane() {
 							<Wifi className="size-4" aria-hidden />
 						</div>
 						<div className="min-w-0 flex-1">
-							<FrameTitle>Local network access</FrameTitle>
+							<FrameTitle>{deviceAccessCopy.localTitle}</FrameTitle>
 							<p className="mt-1 text-xs text-muted-foreground">
 								{networkEnabled
-									? `Reachable at ${network?.endpointUrl ?? "your local network"}`
-									: "Off. Only this app can reach the desktop server."}
+									? "Your phone can connect on the same Wi-Fi."
+									: "Turn this on to pair a phone over Wi-Fi."}
 							</p>
 						</div>
 						<span
@@ -269,8 +303,7 @@ export function DevicesPane() {
 						</span>
 					</div>
 					<p className="text-xs text-muted-foreground">
-						Pairing uses a one-time code. Each phone receives its own revocable
-						credential; no account or cloud relay is required on the same Wi-Fi.
+						Pairing uses a one-time code and does not require an account.
 					</p>
 				</FramePanel>
 				<FrameFooter className="flex justify-end gap-2 px-3 py-2.5">
@@ -281,19 +314,19 @@ export function DevicesPane() {
 								onClick={() => setPendingNetworkMode(false)}
 								disabled={busy}
 							>
-								Stop network
+								Turn off local access
 							</Button>
 							<Button
 								onClick={() => void startPairing()}
 								disabled={pairingBusy}
 							>
 								<QrCode aria-hidden />
-								{pairingBusy ? "Starting…" : "Pair a phone"}
+								{pairingBusy ? "Starting…" : "Pair phone"}
 							</Button>
 						</>
 					) : (
 						<Button onClick={() => setPendingNetworkMode(true)} disabled={busy}>
-							Start network
+							Turn on local access
 						</Button>
 					)}
 				</FrameFooter>
@@ -341,12 +374,12 @@ export function DevicesPane() {
 				</Frame>
 			)}
 
-			{activeTokens.length > 0 && (
+			{hasActiveTokens && (
 				<Frame>
 					<FramePanel className="space-y-3 p-3">
-						<FrameTitle>Paired devices</FrameTitle>
+						<FrameTitle>{deviceAccessCopy.pairedTitle}</FrameTitle>
 						<div className="flex flex-col gap-2">
-							{activeTokens.map((token) => (
+							{identifiedPhones.map((token) => (
 								<div
 									key={token.id}
 									className="flex min-h-11 items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
@@ -357,7 +390,7 @@ export function DevicesPane() {
 									/>
 									<div className="min-w-0 flex-1">
 										<p className="truncate text-sm font-medium">
-											{token.label ?? "Paired phone"}
+											{token.label ?? "Phone"}
 										</p>
 										<p className="text-xs text-muted-foreground">
 											{token.lastUsedAt
@@ -374,6 +407,31 @@ export function DevicesPane() {
 									</Button>
 								</div>
 							))}
+							{legacyCredentials.length > 0 && (
+								<div className="flex min-h-11 items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+									<Smartphone
+										className="size-4 shrink-0 text-muted-foreground"
+										aria-hidden
+									/>
+									<div className="min-w-0 flex-1">
+										<p className="truncate text-sm font-medium">
+											Older phone access
+										</p>
+										<p className="text-xs text-muted-foreground">
+											{legacyCredentials.length} access credential
+											{legacyCredentials.length === 1 ? "" : "s"} from an
+											earlier version
+										</p>
+									</div>
+									<Button
+										size="sm"
+										variant="destructive-outline"
+										onClick={() => setLegacyRevokeOpen(true)}
+									>
+										Revoke all
+									</Button>
+								</div>
+							)}
 						</div>
 					</FramePanel>
 				</Frame>
@@ -384,29 +442,25 @@ export function DevicesPane() {
 					<div className="flex items-center gap-2">
 						<span
 							className={
-								status?.heartbeatActive === true
+								remoteReady
 									? "size-2 rounded-full bg-emerald-500"
 									: "size-2 rounded-full bg-muted-foreground/40"
 							}
 							aria-hidden
 						/>
-						<FrameTitle>Anywhere access</FrameTitle>
+						<FrameTitle>{deviceAccessCopy.remoteTitle}</FrameTitle>
 					</div>
 					{linked ? (
-						<>
-							<p className="text-xs text-muted-foreground">
-								{status?.label ?? "This computer"} is linked to your account and
-								reachable from your phone away from home.
-							</p>
-							{selectedEndpoint !== null && (
-								<EndpointSummary endpoint={selectedEndpoint} />
-							)}
-						</>
+						<p className="text-xs text-muted-foreground">
+							{remoteReady
+								? `Ready. Use ${status?.label ?? "this computer"} from your phone when you’re away from this Wi-Fi.`
+								: "Linked to your account. Remote access will resume when this computer reconnects."}
+						</p>
 					) : (
 						<>
 							<p className="text-xs text-muted-foreground">
-								Optional. Link this computer to your signed-in account for
-								secure access outside the local network.
+								Optional. Sign in on both devices to use this computer from your
+								phone when you’re away from this Wi-Fi.
 							</p>
 							<label
 								htmlFor="device-computer-label"
@@ -425,65 +479,18 @@ export function DevicesPane() {
 				</FramePanel>
 				<FrameFooter className="flex justify-end px-3 py-2.5">
 					<Button
-						variant={linked ? "destructive" : "default"}
+						variant={linked ? "destructive-outline" : "default"}
 						onClick={() => void (linked ? unlinkRelay() : connectRelay())}
 						disabled={busy}
 					>
 						{linked
-							? "Unlink"
+							? "Turn off remote access"
 							: busy
 								? "Connecting…"
-								: "Enable anywhere access"}
+								: "Set up remote access"}
 					</Button>
 				</FrameFooter>
 			</Frame>
-
-			{advertisedEndpoints.length > 0 && (
-				<Collapsible open={endpointsOpen} onOpenChange={setEndpointsOpen}>
-					<Frame>
-						<FramePanel className="p-3">
-							<CollapsibleTrigger className="flex min-h-11 w-full items-center justify-between gap-3 text-left">
-								<FrameTitle>Connection routes</FrameTitle>
-								<ChevronDown
-									className={
-										endpointsOpen
-											? "size-4 rotate-180 text-muted-foreground transition-transform"
-											: "size-4 text-muted-foreground transition-transform"
-									}
-									aria-hidden
-								/>
-							</CollapsibleTrigger>
-							<CollapsibleContent>
-								<div className="flex flex-col gap-2 pt-2">
-									{advertisedEndpoints.map((endpoint) => {
-										const selected = selectedEndpoint?.id === endpoint.id;
-										return (
-											<button
-												key={endpoint.id}
-												type="button"
-												className="flex min-h-11 min-w-0 items-start gap-3 rounded-lg border border-border/50 bg-muted/20 p-3 text-left hover:bg-muted/40"
-												onClick={() => selectEndpoint(endpoint.id)}
-											>
-												<span
-													className={
-														selected
-															? "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-															: "mt-0.5 size-5 shrink-0 rounded-full border border-border"
-													}
-													aria-hidden
-												>
-													{selected ? <Check className="size-3" /> : null}
-												</span>
-												<EndpointDetails endpoint={endpoint} />
-											</button>
-										);
-									})}
-								</div>
-							</CollapsibleContent>
-						</FramePanel>
-					</Frame>
-				</Collapsible>
-			)}
 
 			<AlertDialog
 				open={pendingNetworkMode !== null}
@@ -495,13 +502,13 @@ export function DevicesPane() {
 					<AlertDialogHeader>
 						<AlertDialogTitle>
 							{pendingNetworkMode
-								? "Start network access?"
-								: "Stop network access?"}
+								? "Turn on local access?"
+								: "Turn off local access?"}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingNetworkMode
-								? "The app will restart and accept authenticated connections from your local network. Running agents will stop during the restart."
-								: "The app will restart and return the server to this computer only. Paired phones will disconnect."}
+								? "The app will restart so paired phones can connect over this Wi-Fi. Running agents will stop during the restart."
+								: "The app will restart and paired phones on this Wi-Fi will disconnect."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -518,52 +525,44 @@ export function DevicesPane() {
 							{busy
 								? "Restarting…"
 								: pendingNetworkMode
-									? "Restart and start"
-									: "Restart and stop"}
+									? "Restart and turn on"
+									: "Restart and turn off"}
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
+
+			<AlertDialog
+				open={legacyRevokeOpen}
+				onOpenChange={(open) => {
+					if (!legacyRevokeBusy) setLegacyRevokeOpen(open);
+				}}
+			>
+				<AlertDialogPopup>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Revoke older phone access?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes {legacyCredentials.length} older access credential
+							{legacyCredentials.length === 1 ? "" : "s"}. Any phone still using
+							them will need to pair again.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogClose
+							render={<Button variant="outline" disabled={legacyRevokeBusy} />}
+						>
+							Cancel
+						</AlertDialogClose>
+						<Button
+							variant="destructive"
+							disabled={legacyRevokeBusy}
+							onClick={() => void revokeTokens(legacyCredentials)}
+						>
+							{legacyRevokeBusy ? "Revoking…" : "Revoke access"}
 						</Button>
 					</AlertDialogFooter>
 				</AlertDialogPopup>
 			</AlertDialog>
 		</section>
-	);
-}
-
-function EndpointSummary({ endpoint }: { endpoint: AdvertisedEndpoint }) {
-	return (
-		<div>
-			<div className="flex items-center justify-between gap-3">
-				<span className="truncate text-xs font-medium">Default route</span>
-				<EndpointBadge endpoint={endpoint} />
-			</div>
-			<p className="mt-1 truncate text-xs text-muted-foreground">
-				{endpoint.label} · {endpoint.status}
-			</p>
-		</div>
-	);
-}
-
-function EndpointDetails({ endpoint }: { endpoint: AdvertisedEndpoint }) {
-	return (
-		<div className="min-w-0 flex-1">
-			<div className="flex min-w-0 items-center justify-between gap-2">
-				<div className="truncate text-sm font-medium">{endpoint.label}</div>
-				<EndpointBadge endpoint={endpoint} />
-			</div>
-			<div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-				<span>{endpoint.providerKind}</span>
-				<span>·</span>
-				<span>{endpoint.reachability}</span>
-				<span>·</span>
-				<span>{endpoint.status}</span>
-			</div>
-		</div>
-	);
-}
-
-function EndpointBadge({ endpoint }: { endpoint: AdvertisedEndpoint }) {
-	return (
-		<span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-			{endpoint.reachability}
-		</span>
 	);
 }

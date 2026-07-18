@@ -65,6 +65,7 @@ import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031
 import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
+import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -137,6 +138,7 @@ const runAllMigrations = Effect.all(
 		Migration0032ReactorEffectReceipts,
 		Migration0033ReactorEffectSteps,
 		Migration0034ToolEventLookup,
+		Migration0039AuthTokenDevices,
 	],
 	{ discard: true },
 );

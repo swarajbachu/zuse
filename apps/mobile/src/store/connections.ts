@@ -8,6 +8,7 @@ import {
 	connectionStorageKey,
 	decodeConnectionRecords,
 } from "~/lib/connection-records";
+import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { getConnectionClient } from "~/rpc/connection";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
@@ -190,10 +191,15 @@ const redeemPairingCodeIfNeeded = async ({
 
 	let response: Response;
 	try {
+		const deviceId = await getOrCreateDeviceId();
 		response = await fetch(`http://${host}:${port}/pair`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ code: trimmed }),
+			body: JSON.stringify({
+				code: trimmed,
+				deviceId,
+				deviceLabel: deviceLabel(),
+			}),
 		});
 	} catch {
 		throw new Error(

@@ -17,6 +17,7 @@ import { Migration0025RelayEnvironmentKeys } from "../../src/persistence/migrati
 import { Migration0026RelayConnectorToken } from "../../src/persistence/migrations/0026_relay_connector_token.ts";
 import { Migration0027RelayTunnelHostname } from "../../src/persistence/migrations/0027_relay_tunnel_hostname.ts";
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
+import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 
 const makeRuntime = () => {
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
@@ -27,6 +28,7 @@ const makeRuntime = () => {
 			Effect.andThen(Migration0026RelayConnectorToken),
 			Effect.andThen(Migration0027RelayTunnelHostname),
 			Effect.andThen(Migration0028RelayMintPublicKey),
+			Effect.andThen(Migration0039AuthTokenDevices),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -152,6 +154,64 @@ describe("LanAuthService", () => {
 			if (Result.isFailure(result.second)) {
 				expect(result.second.failure.reason).toBe("invalid_code");
 			}
+		});
+	});
+
+	it("rotates the credential when the same phone pairs again", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const firstCode = yield* auth.createPairingCode();
+					const first = yield* auth.redeemPairingCode(firstCode.code, {
+						id: "mobile_phone_1",
+						label: "iPhone",
+					});
+					const secondCode = yield* auth.createPairingCode();
+					const second = yield* auth.redeemPairingCode(secondCode.code, {
+						id: "mobile_phone_1",
+						label: "iPhone",
+					});
+					const firstValid = yield* auth.verifyToken(first.token);
+					const secondValid = yield* auth.verifyToken(second.token);
+					const tokens = yield* auth.listTokens();
+					return { firstValid, secondValid, tokens };
+				}),
+			);
+
+			expect(result.firstValid).toBe(false);
+			expect(result.secondValid).toBe(true);
+			expect(
+				result.tokens.filter((token) => token.revokedAt === undefined),
+			).toMatchObject([{ deviceId: "mobile_phone_1", label: "iPhone" }]);
+		});
+	});
+
+	it("keeps the previous phone credential when rotation fails", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const sql = yield* SqlClient.SqlClient;
+					const previous = yield* auth.mintToken("iPhone", "mobile_rollback");
+					yield* sql`
+            CREATE TRIGGER fail_phone_rotation
+            BEFORE INSERT ON auth_tokens
+            WHEN NEW.device_id = 'mobile_rollback'
+            BEGIN
+              SELECT RAISE(ABORT, 'simulated rotation failure');
+            END
+          `;
+					const rotation = yield* Effect.result(
+						auth.mintToken("iPhone", "mobile_rollback"),
+					);
+					const previousStillValid = yield* auth.verifyToken(previous.token);
+					return { rotation, previousStillValid };
+				}),
+			);
+
+			expect(Result.isFailure(result.rotation)).toBe(true);
+			expect(result.previousStillValid).toBe(true);
 		});
 	});
 

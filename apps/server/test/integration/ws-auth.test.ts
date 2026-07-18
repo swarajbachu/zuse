@@ -15,6 +15,7 @@ import {
 import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_auth_tokens.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
+import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { wsServerProtocolLayer } from "../../src/transports/ws.ts";
 
 const TestRpcs = RpcGroup.make(PingRpc);
@@ -52,6 +53,7 @@ const makeRuntime = (opts: {
 		Migration0021AuthTokens.pipe(
 			Effect.andThen(Migration0024RemoteConnectState),
 			Effect.andThen(Migration0028RelayMintPublicKey),
+			Effect.andThen(Migration0039AuthTokenDevices),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -195,7 +197,11 @@ describe("WS LAN auth", () => {
 			const response = await fetch(`http://127.0.0.1:${port}/pair`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ code: pairing.code }),
+				body: JSON.stringify({
+					code: pairing.code,
+					deviceId: "mobile_phone_1",
+					deviceLabel: "iPhone",
+				}),
 			});
 			expect(response.status).toBe(200);
 			const body = (await response.json()) as {
@@ -204,6 +210,15 @@ describe("WS LAN auth", () => {
 			};
 			expect(body.token.startsWith("zt_")).toBe(true);
 			expect(body.environmentId.startsWith("env_")).toBe(true);
+			const summaries = await runtime.runPromise(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return yield* auth.listTokens();
+				}),
+			);
+			expect(summaries).toMatchObject([
+				{ deviceId: "mobile_phone_1", label: "iPhone" },
+			]);
 
 			const second = await fetch(`http://127.0.0.1:${port}/pair`, {
 				method: "POST",

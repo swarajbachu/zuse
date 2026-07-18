@@ -15,7 +15,11 @@ import {
 	PairingRedeemError,
 } from "../lan-auth/services/lan-auth-service.ts";
 
-const PairRequest = Schema.Struct({ code: Schema.String });
+const PairRequest = Schema.Struct({
+	code: Schema.String,
+	deviceId: Schema.optional(Schema.String),
+	deviceLabel: Schema.optional(Schema.String),
+});
 
 type WsDiagnostic = (event: string, fields?: Record<string, unknown>) => void;
 
@@ -51,9 +55,21 @@ const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
 		const body = yield* HttpServerRequest.schemaBodyJson(PairRequest).pipe(
 			Effect.catch(() => Effect.fail("bad_request" as const)),
 		);
+		if (
+			(body.deviceId !== undefined &&
+				(body.deviceId.length === 0 || body.deviceId.length > 128)) ||
+			(body.deviceLabel !== undefined && body.deviceLabel.length > 80)
+		) {
+			return yield* Effect.fail("bad_request" as const);
+		}
 		yield* Effect.sync(() => log("ws.pair.redeem.start"));
 		const redeemed = yield* auth
-			.redeemPairingCode(body.code)
+			.redeemPairingCode(
+				body.code,
+				body.deviceId === undefined
+					? undefined
+					: { id: body.deviceId, label: body.deviceLabel },
+			)
 			.pipe(
 				Effect.mapError((error) =>
 					error instanceof PairingRedeemError ? error.reason : "internal",
