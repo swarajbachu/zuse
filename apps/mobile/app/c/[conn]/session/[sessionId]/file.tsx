@@ -1,7 +1,6 @@
 import type { FolderId, FsFileContent, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Stack, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import { FileText } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -34,7 +33,6 @@ const basename = (path: string) =>
 	path.split("/").filter(Boolean).at(-1) ?? path;
 
 export default function WorkspaceFileScreen() {
-	const headerHeight = useHeaderHeight();
 	const { width } = useWindowDimensions();
 	const { theme } = useUniwind();
 	const syntaxPalette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
@@ -112,11 +110,13 @@ export default function WorkspaceFileScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
+					headerBackVisible: true,
 					headerLargeTitle: false,
+					headerTitleStyle: { color: colors.fg },
 				}}
 			/>
 			<Stack.Screen.Title>{basename(path)}</Stack.Screen.Title>
-			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+			<View className="flex-1">
 				{loading && file === null ? (
 					<View className="mx-4 gap-2 rounded-2xl bg-card p-4">
 						{[0, 1, 2, 3, 4, 5, 6, 7].map((index) => (
@@ -137,7 +137,7 @@ export default function WorkspaceFileScreen() {
 				) : null}
 				{file?.kind === "binary" ? (
 					<ScrollView
-						contentInsetAdjustmentBehavior="never"
+						contentInsetAdjustmentBehavior="automatic"
 						refreshControl={
 							<RefreshControl
 								refreshing={refreshing}
@@ -161,6 +161,7 @@ export default function WorkspaceFileScreen() {
 					<View className="min-h-0 flex-1 overflow-hidden bg-card">
 						<ScrollView horizontal showsHorizontalScrollIndicator>
 							<FlatList
+								contentInsetAdjustmentBehavior="automatic"
 								style={{ width: codeWidth }}
 								data={lines}
 								keyExtractor={(_, index) => `${index}`}

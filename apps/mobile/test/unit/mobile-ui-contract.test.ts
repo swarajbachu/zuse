@@ -143,11 +143,20 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/review-changes-pill.tsx`,
 			"utf8",
 		);
+		const sessionActions = readFileSync(
+			`${process.cwd()}/src/components/session-actions-menu.ios.tsx`,
+			"utf8",
+		);
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/review"');
 		expect(layout).toContain('presentation: "formSheet"');
 		expect(thread).toContain("onFiles={openFiles}");
 		expect(thread).toContain("onChanges={openChanges}");
+		expect(thread).toContain(
+			"<Stack.Screen.Title>{title}</Stack.Screen.Title>",
+		);
+		expect(thread).not.toContain("headerRight:");
+		expect(thread).not.toContain("headerTitle:");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');
@@ -168,6 +177,7 @@ describe("mobile UI contracts", () => {
 		expect(review).toContain('<Stack.Toolbar placement="left">');
 		expect(review).toContain('<Stack.Toolbar placement="right">');
 		expect(review).toContain("<Stack.Toolbar.Menu");
+		expect(review).toContain('"arrow.up.left.and.arrow.down.right"');
 		expect(review).not.toContain("translucentNativeHeaderOptions");
 		expect(review).toContain("collapsable={false}");
 		expect(review).toContain("selectConnectionBundles");
@@ -180,7 +190,8 @@ describe("mobile UI contracts", () => {
 		expect(tool).not.toContain("headerTitle:");
 		expect(tool).toContain("paddingTop: headerHeight");
 		expect(review).toContain("paddingTop: headerHeight");
-		expect(file).toContain("paddingTop: headerHeight");
+		expect(file).not.toContain("useHeaderHeight");
+		expect(file).toContain('contentInsetAdjustmentBehavior="automatic"');
 		expect(file).toContain(
 			"<Stack.Screen.Title>{basename(path)}</Stack.Screen.Title>",
 		);
@@ -196,13 +207,22 @@ describe("mobile UI contracts", () => {
 		expect(diffList).toContain("pinnedFileVisible");
 		expect(diffList).toContain("patchRowsCache");
 		expect(diffList).toContain("maintainVisibleContentPosition");
-		expect(diffList).toContain("collapseAllKey");
+		expect(diffList).toContain("accordionKey");
+		expect(diffList).toContain("allFilesExpanded");
 		expect(syntax).toContain("MAX_HIGHLIGHT_CACHE_ENTRIES");
 		expect(syntax).toContain("MAX_HIGHLIGHT_CHARS");
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).toContain("<DiffCodeRow");
+		expect(turn).toContain(
+			"workspaceDisplayPath(file.path, context.workspaceRoot)",
+		);
+		expect(turn).toContain("gap-2 px-3");
 		expect(turn).not.toContain("/tool/[itemId]");
+		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
+		expect(sessionActions).toContain("tintColor={colors.fg}");
+		expect(sessionActions).toContain("destructive");
+		expect(sessionActions).not.toContain("NEON_GREEN");
 		expect(reviewPill).not.toContain("GitCompareArrows");
 		expect(nativeHeader).toContain(
 			'headerBlurEffect: "systemUltraThinMaterial"',

@@ -1,7 +1,6 @@
-import { Host } from "@expo/ui";
-import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Stack } from "expo-router";
 
-import { NEON_GREEN } from "~/theme";
+import { colors } from "~/theme";
 
 /**
  * Native session-actions menu. Chat-specific actions are hidden until the
@@ -9,6 +8,7 @@ import { NEON_GREEN } from "~/theme";
  */
 export function SessionActionsMenu({
 	isPinned,
+	onNewChat,
 	onPin,
 	onRename,
 	onChanges,
@@ -16,6 +16,7 @@ export function SessionActionsMenu({
 	onArchive,
 }: {
 	isPinned: boolean;
+	onNewChat: () => void;
 	onPin?: () => void;
 	onRename?: () => void;
 	onChanges: () => void;
@@ -23,36 +24,43 @@ export function SessionActionsMenu({
 	onArchive: () => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
-			<Menu label="" systemImage="ellipsis">
+		<Stack.Toolbar placement="right">
+			<Stack.Toolbar.Button
+				icon="square.and.pencil"
+				tintColor={colors.fg}
+				onPress={onNewChat}
+			/>
+			<Stack.Toolbar.Menu icon="ellipsis" tintColor={colors.fg}>
 				{onPin !== undefined ? (
-					<NativeButton
-						label={isPinned ? "Unpin" : "Pin"}
-						systemImage={isPinned ? "pin.slash" : "pin"}
+					<Stack.Toolbar.MenuAction
+						icon={isPinned ? "pin.slash" : "pin"}
 						onPress={onPin}
-					/>
+					>
+						{isPinned ? "Unpin" : "Pin"}
+					</Stack.Toolbar.MenuAction>
 				) : null}
 				{onRename !== undefined ? (
-					<NativeButton
-						label="Rename chat"
-						systemImage="pencil"
-						onPress={onRename}
-					/>
+					<Stack.Toolbar.MenuAction icon="pencil" onPress={onRename}>
+						Rename
+					</Stack.Toolbar.MenuAction>
 				) : null}
-				<NativeButton
-					label="Changes"
-					systemImage="arrow.triangle.branch"
+				<Stack.Toolbar.MenuAction
+					icon="arrow.triangle.branch"
 					onPress={onChanges}
-				/>
-				<NativeButton label="Files" systemImage="folder" onPress={onFiles} />
-				{/* biome-ignore lint/a11y/useValidAriaRole: @expo/ui maps this native role to UIMenu destructive styling. */}
-				<NativeButton
-					label="Archive chat"
-					systemImage="archivebox"
-					role="destructive"
+				>
+					Changes
+				</Stack.Toolbar.MenuAction>
+				<Stack.Toolbar.MenuAction icon="folder" onPress={onFiles}>
+					Files
+				</Stack.Toolbar.MenuAction>
+				<Stack.Toolbar.MenuAction
+					icon="archivebox"
+					destructive
 					onPress={onArchive}
-				/>
-			</Menu>
-		</Host>
+				>
+					Archive
+				</Stack.Toolbar.MenuAction>
+			</Stack.Toolbar.Menu>
+		</Stack.Toolbar>
 	);
 }

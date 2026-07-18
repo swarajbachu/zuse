@@ -100,7 +100,8 @@ export function ReviewDiffList({
 	error,
 	refreshing,
 	onRefresh,
-	collapseAllKey = 0,
+	accordionKey = 0,
+	allFilesExpanded = true,
 }: {
 	summary: GitReviewSummary | null;
 	patches: Readonly<Record<string, PreparedReviewPatch>>;
@@ -108,7 +109,8 @@ export function ReviewDiffList({
 	error: string | null;
 	refreshing: boolean;
 	onRefresh?: () => void;
-	collapseAllKey?: number;
+	accordionKey?: number;
+	allFilesExpanded?: boolean;
 }) {
 	const { theme } = useUniwind();
 	const palette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
@@ -140,9 +142,13 @@ export function ReviewDiffList({
 		});
 	}, [collapsed, patches, summary]);
 	useEffect(() => {
-		if (collapseAllKey === 0) return;
-		setCollapsed(new Set((summary?.files ?? []).map((file) => file.path)));
-	}, [collapseAllKey, summary]);
+		if (accordionKey === 0) return;
+		setCollapsed(
+			allFilesExpanded
+				? new Set()
+				: new Set((summary?.files ?? []).map((file) => file.path)),
+		);
+	}, [accordionKey, allFilesExpanded, summary]);
 	const activeFile = useMemo(
 		() =>
 			(summary?.files ?? []).find((file) => file.path === activeFilePath) ??

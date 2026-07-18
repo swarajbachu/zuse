@@ -21,6 +21,7 @@ import { useUniwind } from "uniwind";
 import { DiffCodeRow } from "~/components/diff/review-diff-list";
 import { FileIcon } from "~/components/ui/file-icon";
 import { DARK_SYNTAX, LIGHT_SYNTAX } from "~/lib/syntax-highlighting";
+import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
 
@@ -242,14 +243,14 @@ export function TurnRow({
 												current === file.path ? null : file.path,
 											)
 										}
-										className="min-h-11 flex-row items-center gap-2 active:opacity-60"
+										className="min-h-12 flex-row items-center gap-2 px-3 active:opacity-60"
 									>
 										<FileIcon path={file.path} size={17} />
 										<Text
 											className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
 											numberOfLines={1}
 										>
-											{file.path}
+											{workspaceDisplayPath(file.path, context.workspaceRoot)}
 										</Text>
 										<Text
 											className="font-mono text-[11px]"

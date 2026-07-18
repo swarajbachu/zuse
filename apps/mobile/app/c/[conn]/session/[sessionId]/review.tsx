@@ -34,7 +34,8 @@ export default function WorkspaceReviewScreen() {
 	const connKey = normalizeConnParam(conn);
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
 	const [scope, setScope] = useState<MobileReviewScope>("branch");
-	const [collapseAllKey, setCollapseAllKey] = useState(0);
+	const [accordionKey, setAccordionKey] = useState(0);
+	const [allFilesExpanded, setAllFilesExpanded] = useState(true);
 	const connections = useConnectionsStore((state) => state.connections);
 	const bundles = useSessionsStore((state) =>
 		selectConnectionBundles(state.bundlesByConnection, connKey),
@@ -100,8 +101,15 @@ export default function WorkspaceReviewScreen() {
 					))}
 				</Stack.Toolbar.Menu>
 				<Stack.Toolbar.Button
-					icon="arrow.down.right.and.arrow.up.left"
-					onPress={() => setCollapseAllKey((current) => current + 1)}
+					icon={
+						allFilesExpanded
+							? "arrow.down.right.and.arrow.up.left"
+							: "arrow.up.left.and.arrow.down.right"
+					}
+					onPress={() => {
+						setAllFilesExpanded((current) => !current);
+						setAccordionKey((current) => current + 1);
+					}}
 				/>
 			</Stack.Toolbar>
 			<View
@@ -132,7 +140,8 @@ export default function WorkspaceReviewScreen() {
 					error={scope === "last_turn" ? null : review.error}
 					refreshing={scope === "last_turn" ? false : review.refreshing}
 					onRefresh={scope === "last_turn" ? undefined : review.refresh}
-					collapseAllKey={collapseAllKey}
+					accordionKey={accordionKey}
+					allFilesExpanded={allFilesExpanded}
 				/>
 				{scope === "branch" && summary?.baseRef !== null ? (
 					<View className="border-t border-border bg-card/95 px-4 py-3">

@@ -7,7 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { ChevronDown, ChevronLeft, SquarePen } from "lucide-react-native";
+import { ChevronDown } from "lucide-react-native";
 import React, {
 	useCallback,
 	useEffect,
@@ -51,7 +51,6 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { captureMobileError } from "~/lib/crash-reporting";
-import { visibleConnectionLabel } from "~/lib/display-names";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
 import { selectConnectionBundles } from "~/lib/session-bundles";
@@ -131,13 +130,6 @@ function ThreadScreen() {
 	const renameChatAction = useSessionsStore((state) => state.renameChat);
 	const markChatRead = useSessionsStore((state) => state.markChatRead);
 	const createSession = useSessionsStore((state) => state.createSession);
-	const machineLabel = useMemo(() => {
-		const record = connections.find(
-			(connection) =>
-				connection.key === connKey || connection.environmentId === connKey,
-		);
-		return record?.label ?? visibleConnectionLabel(undefined, connKey);
-	}, [connections, connKey]);
 	const rawMessages = useMobileMessagesStore((state) =>
 		selectSessionMessages(state.messagesBySession, stateKey),
 	);
@@ -352,6 +344,7 @@ function ThreadScreen() {
 		() => ({
 			connectionKey: connKey,
 			sessionId: normalizedSessionId,
+			workspaceRoot: detail?.project.path,
 			answeredQuestionIds,
 			connKey,
 			questionsByItemId,
@@ -364,6 +357,7 @@ function ThreadScreen() {
 		[
 			answeredQuestionIds,
 			detail?.session.permissionMode,
+			detail?.project.path,
 			onAnswerQuestion,
 			questionsByItemId,
 			sessionStatus,
@@ -558,65 +552,22 @@ function ThreadScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
-					headerBackVisible: false,
-					headerTitleAlign: "center",
-					headerLeft: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Go back"
-							hitSlop={10}
-							onPress={() => router.back()}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-							style={{ borderCurve: "continuous" }}
-						>
-							<ChevronLeft size={20} color={colors.fg} />
-						</Pressable>
-					),
-					headerTitle: () => (
-						<View className="items-center">
-							<Text
-								className="font-sans-medium text-[15px] text-foreground"
-								numberOfLines={1}
-							>
-								{title}
-							</Text>
-							<Text
-								className="font-sans text-[11px] text-muted-foreground"
-								numberOfLines={1}
-							>
-								{detail?.project.name
-									? `${detail.project.name} · ${machineLabel}`
-									: machineLabel}
-							</Text>
-						</View>
-					),
-					headerRight: () => (
-						<View className="flex-row items-center gap-2">
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel="New chat"
-								hitSlop={10}
-								onPress={() => router.push("/new-chat")}
-								className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-								style={{ borderCurve: "continuous" }}
-							>
-								<SquarePen size={18} color={colors.fg} />
-							</Pressable>
-							<SessionActionsMenu
-								isPinned={isPinned}
-								onPin={
-									currentPinKey === null
-										? undefined
-										: () => void togglePinnedChat(currentPinKey)
-								}
-								onRename={chatId === null ? undefined : onRename}
-								onChanges={openChanges}
-								onFiles={openFiles}
-								onArchive={onArchive}
-							/>
-						</View>
-					),
+					headerLargeTitle: false,
 				}}
+			/>
+			<Stack.Screen.Title>{title}</Stack.Screen.Title>
+			<SessionActionsMenu
+				isPinned={isPinned}
+				onNewChat={() => router.push("/new-chat")}
+				onPin={
+					currentPinKey === null
+						? undefined
+						: () => void togglePinnedChat(currentPinKey)
+				}
+				onRename={chatId === null ? undefined : onRename}
+				onChanges={openChanges}
+				onFiles={openFiles}
+				onArchive={onArchive}
 			/>
 			{hydrated && options === null ? (
 				<View className="px-4 py-3">

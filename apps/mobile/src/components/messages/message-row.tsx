@@ -44,6 +44,7 @@ import type { QuestionAnswer } from "./pending-user-input-card";
 export type MessageRowContext = {
 	connectionKey: string;
 	sessionId: SessionId;
+	workspaceRoot?: string;
 	answeredQuestionIds: ReadonlySet<string>;
 	questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
