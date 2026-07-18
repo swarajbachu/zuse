@@ -1,16 +1,10 @@
-import type {
-	FolderId,
-	GitReviewFile,
-	GitReviewSummary,
-	SessionId,
-} from "@zuse/contracts";
+import type { FolderId, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import {
 	ChevronDown,
 	ChevronRight,
 	Folder,
-	GitCompareArrows,
 	Search,
 	X,
 } from "lucide-react-native";
@@ -25,14 +19,16 @@ import {
 	View,
 } from "react-native";
 
+import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { FileIcon } from "~/components/ui/file-icon";
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { useWorkspaceReview } from "~/hooks/use-workspace-review";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { buildFileTree, flattenFileTree } from "~/lib/file-tree";
-import { listWorkspacePaths, loadWorkspaceReview } from "~/rpc/actions";
+import { listWorkspacePaths } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -68,7 +64,6 @@ export default function WorkspaceFilesScreen() {
 		rawTab === "modified" ? "modified" : "all",
 	);
 	const [paths, setPaths] = useState<readonly string[]>([]);
-	const [review, setReview] = useState<GitReviewSummary | null>(null);
 	const [expanded, setExpanded] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
@@ -77,6 +72,12 @@ export default function WorkspaceFilesScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [truncated, setTruncated] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const review = useWorkspaceReview({
+		connection: options,
+		folderId,
+		worktreeId,
+		enabled: tab === "modified",
+	});
 
 	const load = useCallback(
 		async (refresh = false) => {
@@ -86,30 +87,20 @@ export default function WorkspaceFilesScreen() {
 			}
 			if (refresh) setRefreshing(true);
 			setError(null);
-			const [pathResult, reviewResult] = await Promise.allSettled([
-				Effect.runPromise(
+			try {
+				const result = await Effect.runPromise(
 					listWorkspacePaths({
 						connection: options,
 						folderId,
 						worktreeId,
 					}),
-				),
-				Effect.runPromise(
-					loadWorkspaceReview({ connection: options, folderId, worktreeId }),
-				),
-			]);
-			if (pathResult.status === "fulfilled") {
-				setPaths(pathResult.value.paths);
-				setTruncated(pathResult.value.truncated);
-			}
-			if (reviewResult.status === "fulfilled") setReview(reviewResult.value);
-			if (
-				pathResult.status === "rejected" &&
-				reviewResult.status === "rejected"
-			) {
+				);
+				setPaths(result.paths);
+				setTruncated(result.truncated);
+			} catch (cause) {
 				setError(
-					pathResult.reason instanceof Error
-						? pathResult.reason.message
+					cause instanceof Error
+						? cause.message
 						: "This workspace could not be loaded.",
 				);
 			}
@@ -128,11 +119,38 @@ export default function WorkspaceFilesScreen() {
 		() => flattenFileTree({ nodes: tree, expanded, query }),
 		[expanded, query, tree],
 	);
-	const modified = review?.files ?? [];
-
 	return (
 		<View className="flex-1 bg-background">
-			<Stack.Screen options={{ title: projectName, headerLargeTitle: false }} />
+			<Stack.Screen
+				options={{
+					title: projectName,
+					headerLargeTitle: false,
+					headerTitle:
+						tab === "modified" && review.summary !== null
+							? () => (
+									<View className="items-center">
+										<Text className="font-sans-medium text-[15px] text-foreground">
+											{review.summary?.files.length}{" "}
+											{review.summary?.files.length === 1 ? "file" : "files"}{" "}
+											changed
+										</Text>
+										<Text
+											className="font-mono text-[11px]"
+											style={{ fontVariant: ["tabular-nums"] }}
+										>
+											<Text style={{ color: colors.diffAdded }}>
+												+{review.summary?.additions}
+											</Text>
+											<Text style={{ color: colors.secondaryFg }}> </Text>
+											<Text style={{ color: colors.diffRemoved }}>
+												−{review.summary?.deletions}
+											</Text>
+										</Text>
+									</View>
+								)
+							: undefined,
+				}}
+			/>
 			<Stack.Toolbar placement="bottom">
 				{tab === "all" ? (
 					<Stack.Toolbar.View separateBackground>
@@ -174,7 +192,7 @@ export default function WorkspaceFilesScreen() {
 				) : null}
 			</Stack.Toolbar>
 
-			<FileTabs value={tab} onChange={setTab} modifiedCount={modified.length} />
+			<FileTabs value={tab} onChange={setTab} />
 			{tab === "all" ? (
 				<FlatList
 					data={visible}
@@ -188,7 +206,11 @@ export default function WorkspaceFilesScreen() {
 							onRefresh={() => void load(true)}
 						/>
 					}
-					contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 112 }}
+					contentContainerStyle={{
+						paddingHorizontal: 16,
+						paddingTop: 10,
+						paddingBottom: 112,
+					}}
 					renderItem={({ item }) => {
 						const open = expanded.has(item.node.path);
 						return (
@@ -219,7 +241,7 @@ export default function WorkspaceFilesScreen() {
 										},
 									});
 								}}
-								className="min-h-[50px] flex-row items-center gap-2.5"
+								className="min-h-[54px] flex-row items-center gap-3 rounded-xl px-2"
 								style={{ paddingLeft: 8 + item.depth * 18 }}
 							>
 								<View className="w-4 items-center">
@@ -272,53 +294,13 @@ export default function WorkspaceFilesScreen() {
 					}
 				/>
 			) : (
-				<FlatList
-					data={modified}
-					keyExtractor={(file) => file.path}
-					contentInsetAdjustmentBehavior="automatic"
-					refreshControl={
-						<RefreshControl
-							refreshing={refreshing}
-							tintColor={colors.accent}
-							onRefresh={() => void load(true)}
-						/>
-					}
-					contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 10 }}
-					ListHeaderComponent={
-						review === null ? null : (
-							<ReviewSummaryCard
-								review={review}
-								onPress={() =>
-									router.push({
-										pathname: "/c/[conn]/session/[sessionId]/review",
-										params: { conn: connKey, sessionId: normalizedSessionId },
-									})
-								}
-							/>
-						)
-					}
-					renderItem={({ item }) => (
-						<ModifiedFileRow
-							file={item}
-							onPress={() =>
-								router.push({
-									pathname: "/c/[conn]/session/[sessionId]/review",
-									params: {
-										conn: connKey,
-										sessionId: normalizedSessionId,
-										path: item.path,
-									},
-								})
-							}
-						/>
-					)}
-					ListEmptyComponent={
-						<FileEmptyState
-							loading={initialLoading}
-							error={error}
-							onRetry={() => void load(true)}
-						/>
-					}
+				<ReviewDiffList
+					summary={review.summary}
+					patches={review.patches}
+					loading={review.loading}
+					error={review.error}
+					refreshing={review.refreshing}
+					onRefresh={review.refresh}
 				/>
 			)}
 		</View>
@@ -328,14 +310,12 @@ export default function WorkspaceFilesScreen() {
 function FileTabs({
 	value,
 	onChange,
-	modifiedCount,
 }: {
 	value: Tab;
 	onChange: (tab: Tab) => void;
-	modifiedCount: number;
 }) {
 	return (
-		<View className="mx-4 mb-2 mt-2 flex-row rounded-xl bg-muted p-1">
+		<View className="mx-4 mb-2 mt-3 flex-row rounded-xl bg-muted p-1">
 			{(["modified", "all"] as const).map((tab) => {
 				const selected = tab === value;
 				return (
@@ -344,7 +324,7 @@ function FileTabs({
 						accessibilityRole="tab"
 						accessibilityState={{ selected }}
 						onPress={() => onChange(tab)}
-						className="min-h-10 flex-1 items-center justify-center rounded-lg"
+						className="min-h-11 flex-1 items-center justify-center rounded-lg"
 						style={{
 							borderCurve: "continuous",
 							backgroundColor: selected ? colors.cardElevated : "transparent",
@@ -354,108 +334,11 @@ function FileTabs({
 							className="font-sans-medium text-[14px]"
 							style={{ color: selected ? colors.fg : colors.secondaryFg }}
 						>
-							{tab === "modified"
-								? `Modified${modifiedCount > 0 ? ` ${modifiedCount}` : ""}`
-								: "All files"}
+							{tab === "modified" ? "Modified" : "All files"}
 						</Text>
 					</Pressable>
 				);
 			})}
-		</View>
-	);
-}
-
-function ReviewSummaryCard({
-	review,
-	onPress,
-}: {
-	review: GitReviewSummary;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel="Review all changes"
-			onPress={onPress}
-			className="mb-2 min-h-[76px] flex-row items-center gap-3 rounded-2xl border border-border bg-card px-4"
-			style={{ borderCurve: "continuous" }}
-		>
-			<View className="h-10 w-10 items-center justify-center rounded-xl bg-primary/15">
-				<GitCompareArrows size={20} color={colors.accent} />
-			</View>
-			<View className="min-w-0 flex-1">
-				<Text className="font-sans-medium text-[15px] text-foreground">
-					Review changes
-				</Text>
-				<Text className="mt-0.5 font-sans text-[12px] text-muted-foreground">
-					{review.files.length} {review.files.length === 1 ? "file" : "files"}
-					{review.baseRef === null ? "" : ` · compared with ${review.baseRef}`}
-				</Text>
-			</View>
-			<DiffStats additions={review.additions} deletions={review.deletions} />
-			<ChevronRight size={15} color={colors.secondaryFg} />
-		</Pressable>
-	);
-}
-
-function ModifiedFileRow({
-	file,
-	onPress,
-}: {
-	file: GitReviewFile;
-	onPress: () => void;
-}) {
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={`Review ${file.path}`}
-			onPress={onPress}
-			className="min-h-[62px] flex-row items-center gap-3 rounded-2xl bg-card px-3.5"
-			style={{ borderCurve: "continuous" }}
-		>
-			<FileIcon path={file.path} size={20} />
-			<View className="min-w-0 flex-1">
-				<Text
-					className="font-sans-medium text-[14px] text-foreground"
-					numberOfLines={1}
-				>
-					{file.path.split("/").at(-1)}
-				</Text>
-				<Text
-					className="mt-0.5 font-sans text-[11px] text-muted-foreground"
-					numberOfLines={1}
-					ellipsizeMode="middle"
-				>
-					{file.path}
-				</Text>
-			</View>
-			<DiffStats additions={file.additions} deletions={file.deletions} />
-			<ChevronRight size={14} color={colors.secondaryFg} />
-		</Pressable>
-	);
-}
-
-function DiffStats({
-	additions,
-	deletions,
-}: {
-	additions: number;
-	deletions: number;
-}) {
-	return (
-		<View className="flex-row gap-1.5">
-			<Text
-				className="font-mono text-[12px]"
-				style={{ color: colors.diffAdded, fontVariant: ["tabular-nums"] }}
-			>
-				+{additions}
-			</Text>
-			<Text
-				className="font-mono text-[12px]"
-				style={{ color: colors.diffRemoved, fontVariant: ["tabular-nums"] }}
-			>
-				−{deletions}
-			</Text>
 		</View>
 	);
 }

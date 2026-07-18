@@ -8,8 +8,8 @@ import {
 	type FolderId,
 	type FsFileContent,
 	type GitBranchInfo,
-	type GitDiffResult,
 	type GitPrSummary,
+	type GitReviewPatch,
 	type GitReviewSummary,
 	type MessageId,
 	type PermissionDecision,
@@ -21,7 +21,7 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 
 import {
 	dispatchRetryableConnectionCommand,
@@ -463,20 +463,19 @@ export const loadWorkspaceReview = (options: {
 		});
 	});
 
-export const loadWorkspaceDiff = (options: {
+export const streamWorkspaceReviewPatches = (options: {
 	connection: WsProtocolOptions;
 	folderId: FolderId;
-	path: string;
 	worktreeId?: WorktreeId | null;
-}): Effect.Effect<GitDiffResult, unknown, never> =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		return yield* client["git.diff"]({
-			folderId: options.folderId,
-			path: options.path,
-			worktreeId: options.worktreeId ?? null,
-		});
-	});
+}): Stream.Stream<GitReviewPatch, unknown, never> =>
+	Stream.unwrap(
+		Effect.map(getConnectionClient(options.connection), (client) =>
+			client["git.reviewPatches"]({
+				folderId: options.folderId,
+				worktreeId: options.worktreeId ?? null,
+			}),
+		),
+	);
 
 export const readWorkspaceFile = (options: {
 	connection: WsProtocolOptions;

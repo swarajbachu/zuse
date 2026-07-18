@@ -3,16 +3,17 @@ import {
 	extractFileChanges,
 	type FileChange,
 } from "@zuse/client-runtime/timeline";
-import type { MessageContent, SessionId } from "@zuse/contracts";
+import {
+	GitDiffResult,
+	GitReviewFile,
+	GitReviewPatch,
+	GitReviewSummary,
+	type MessageContent,
+	type SessionId,
+} from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import {
-	ChevronLeft,
-	ChevronRight,
-	Copy,
-	Share2,
-	X,
-} from "lucide-react-native";
+import { Copy, Share2, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
 	FlatList,
@@ -22,7 +23,7 @@ import {
 	Text,
 	View,
 } from "react-native";
-
+import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { FileIcon } from "~/components/ui/file-icon";
 import { cn } from "~/lib/cn";
 import { connectionSessionKey } from "~/lib/session-key";
@@ -87,6 +88,48 @@ export default function ToolDetailScreen() {
 	const text = tool === undefined ? "" : rawText(tool, result);
 	const totalAdded = files.reduce((sum, entry) => sum + entry.added, 0);
 	const totalRemoved = files.reduce((sum, entry) => sum + entry.removed, 0);
+	const inlineReview = useMemo(
+		() =>
+			GitReviewSummary.make({
+				baseRef: null,
+				baseSha: "",
+				headSha: "",
+				additions: totalAdded,
+				deletions: totalRemoved,
+				files: files.map((entry) =>
+					GitReviewFile.make({
+						path: entry.path,
+						oldPath: null,
+						kind: "modified",
+						additions: entry.added,
+						deletions: entry.removed,
+						binary: false,
+						conflict: false,
+						hasUncommittedChanges: true,
+					}),
+				),
+			}),
+		[files, totalAdded, totalRemoved],
+	);
+	const inlinePatches = useMemo(
+		() =>
+			Object.fromEntries(
+				files.map((entry) => [
+					entry.path,
+					GitReviewPatch.make({
+						path: entry.path,
+						error: null,
+						result: GitDiffResult.make({
+							mode: "worktree",
+							patch: diffText(entry.lines),
+							truncated: false,
+							bytes: 0,
+						}),
+					}),
+				]),
+			),
+		[files],
+	);
 
 	const copy = () =>
 		Clipboard.setStringAsync(file === undefined ? text : diffText(file.lines));
@@ -169,7 +212,6 @@ export default function ToolDetailScreen() {
 							renderItem={({ item, index }) => (
 								<FileListRow
 									file={item}
-									active={index === fileIndex}
 									onPress={() => {
 										setFileIndex(index);
 										setTab("modified");
@@ -177,86 +219,14 @@ export default function ToolDetailScreen() {
 								/>
 							)}
 						/>
-					) : file === undefined ? null : (
-						<>
-							<View className="gap-2 border-b border-border px-4 pb-3 pt-3">
-								<View className="flex-row items-center gap-2">
-									<FileIcon path={file.path} size={16} />
-									<Text
-										selectable
-										className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
-										numberOfLines={1}
-										ellipsizeMode="middle"
-									>
-										{file.path}
-									</Text>
-								</View>
-								<View className="flex-row items-center">
-									<Text
-										style={{
-											color: colors.diffAdded,
-											fontVariant: ["tabular-nums"],
-										}}
-									>
-										+{file.added}
-									</Text>
-									<Text
-										className="ml-2"
-										style={{
-											color: colors.diffRemoved,
-											fontVariant: ["tabular-nums"],
-										}}
-									>
-										−{file.removed}
-									</Text>
-									<View className="flex-1" />
-									{files.length > 1 ? (
-										<View className="flex-row items-center gap-1">
-											<NavButton
-												label="Previous file"
-												disabled={fileIndex === 0}
-												onPress={() =>
-													setFileIndex((index) => Math.max(0, index - 1))
-												}
-												direction="previous"
-											/>
-											<Text
-												className="px-2 font-sans text-[12px] text-muted-foreground"
-												style={{ fontVariant: ["tabular-nums"] }}
-											>
-												{fileIndex + 1} of {files.length}
-											</Text>
-											<NavButton
-												label="Next file"
-												disabled={fileIndex === files.length - 1}
-												onPress={() =>
-													setFileIndex((index) =>
-														Math.min(files.length - 1, index + 1),
-													)
-												}
-												direction="next"
-											/>
-										</View>
-									) : null}
-								</View>
-							</View>
-							<ScrollView
-								horizontal
-								contentContainerStyle={{ minWidth: "100%" }}
-								showsHorizontalScrollIndicator
-							>
-								<FlatList
-									style={{ minWidth: "100%" }}
-									data={file.lines}
-									keyExtractor={(_, index) => `${file.path}:${index}`}
-									contentInsetAdjustmentBehavior="automatic"
-									renderItem={({ item }) => <DiffRow line={item} />}
-									initialNumToRender={80}
-									maxToRenderPerBatch={100}
-									windowSize={12}
-								/>
-							</ScrollView>
-						</>
+					) : (
+						<ReviewDiffList
+							summary={inlineReview}
+							patches={inlinePatches}
+							loading={false}
+							error={null}
+							refreshing={false}
+						/>
 					)}
 				</>
 			) : (
@@ -320,7 +290,7 @@ function Segmented({
 }) {
 	return (
 		<View
-			className="mx-4 mt-3 flex-row rounded-xl bg-card p-1"
+			className="mx-4 mb-1 mt-3 flex-row rounded-xl bg-card p-1"
 			style={{ borderCurve: "continuous" }}
 		>
 			{(["modified", "all"] as const).map((tab) => {
@@ -331,7 +301,7 @@ function Segmented({
 						accessibilityRole="button"
 						accessibilityState={{ selected: active }}
 						onPress={() => onChange(tab)}
-						className="min-h-9 flex-1 items-center justify-center rounded-lg"
+						className="min-h-11 flex-1 items-center justify-center rounded-lg"
 						style={{
 							borderCurve: "continuous",
 							backgroundColor: active ? colors.cardElevated : "transparent",
@@ -354,21 +324,16 @@ function Segmented({
 
 function FileListRow({
 	file,
-	active,
 	onPress,
 }: {
 	file: FileChange;
-	active: boolean;
 	onPress: () => void;
 }) {
 	return (
 		<Pressable
 			accessibilityRole="button"
 			onPress={onPress}
-			className={cn(
-				"min-h-[52px] flex-row items-center gap-3 px-4 active:bg-card-elevated",
-				active && "bg-card",
-			)}
+			className="min-h-[58px] flex-row items-center gap-3 px-5"
 		>
 			<FileIcon path={file.path} size={18} />
 			<Text
@@ -394,62 +359,6 @@ function FileListRow({
 	);
 }
 
-function DiffRow({ line }: { line: DiffLine }) {
-	if (line.kind === "hunk") {
-		return (
-			<View className="min-h-8 justify-center bg-primary/10 px-3">
-				<Text
-					selectable
-					className="font-mono text-[11px]"
-					style={{ color: colors.diffHunk }}
-				>
-					{line.text}
-				</Text>
-			</View>
-		);
-	}
-	const added = line.kind === "added";
-	const removed = line.kind === "removed";
-	return (
-		<View
-			className="min-h-6 flex-row items-start"
-			style={{
-				backgroundColor: added
-					? colors.diffAddedBg
-					: removed
-						? colors.diffRemovedBg
-						: "transparent",
-			}}
-		>
-			<View className="w-[72px] flex-row justify-end gap-2 border-r border-border/60 px-2 py-0.5">
-				<Text className="w-5 text-right font-mono text-[10px] text-muted-foreground">
-					{line.oldLine ?? ""}
-				</Text>
-				<Text className="w-5 text-right font-mono text-[10px] text-muted-foreground">
-					{line.newLine ?? ""}
-				</Text>
-			</View>
-			<Text
-				selectable
-				className="px-2 py-0.5 font-mono text-[11px] leading-5 text-foreground"
-			>
-				<Text
-					style={{
-						color: added
-							? colors.diffAdded
-							: removed
-								? colors.diffRemoved
-								: colors.secondaryFg,
-					}}
-				>
-					{added ? "+" : removed ? "−" : " "}
-				</Text>
-				{line.text}
-			</Text>
-		</View>
-	);
-}
-
 function HeaderButton({
 	label,
 	onPress,
@@ -472,37 +381,12 @@ function HeaderButton({
 	);
 }
 
-function NavButton({
-	label,
-	disabled,
-	onPress,
-	direction,
-}: {
-	label: string;
-	disabled: boolean;
-	onPress: () => void;
-	direction: "previous" | "next";
-}) {
-	const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			disabled={disabled}
-			className="h-11 w-11 items-center justify-center active:opacity-60"
-			style={{ opacity: disabled ? 0.3 : 1 }}
-			onPress={onPress}
-		>
-			<Icon size={18} color={colors.secondaryFg} />
-		</Pressable>
-	);
-}
-
 const diffText = (lines: readonly DiffLine[]): string =>
 	lines
 		.map((line) => {
 			if (line.kind === "added") return `+${line.text}`;
 			if (line.kind === "removed") return `-${line.text}`;
-			return line.text;
+			if (line.kind === "hunk") return line.text;
+			return ` ${line.text}`;
 		})
 		.join("\n");

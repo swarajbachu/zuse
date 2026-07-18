@@ -115,7 +115,13 @@ describe("mobile UI contracts", () => {
 	test("uses stack-based files and keeps file changes inline", () => {
 		const layout = appFile("_layout.tsx");
 		const files = appFile("c/[conn]/session/[sessionId]/files.tsx");
+		const review = appFile("c/[conn]/session/[sessionId]/review.tsx");
+		const tool = appFile("c/[conn]/session/[sessionId]/tool/[itemId].tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const diffList = readFileSync(
+			`${process.cwd()}/src/components/diff/review-diff-list.tsx`,
+			"utf8",
+		);
 		const turn = readFileSync(
 			`${process.cwd()}/src/components/messages/turn-row.tsx`,
 			"utf8",
@@ -128,6 +134,12 @@ describe("mobile UI contracts", () => {
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');
 		expect(files).not.toContain("<ActivityIndicator");
+		expect(files).toContain("<ReviewDiffList");
+		expect(review).toContain("<ReviewDiffList");
+		expect(tool).toContain("<ReviewDiffList");
+		expect(diffList).toContain("<SectionList");
+		expect(diffList).toContain("stickySectionHeadersEnabled");
+		expect(diffList).toContain("patchRowsCache");
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).not.toContain("/tool/[itemId]");
