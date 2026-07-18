@@ -1,0 +1,1154 @@
+{
+  "timings": {
+    "bootMs": 1209,
+    "workloadStartMs": 11537,
+    "snapshotMs": 921,
+    "sourceProbeFailures": 0,
+    "sourceInterruptionMs": 0,
+    "forkAllMs": 1711,
+    "perDescendant": {
+      "iq4d74uns0bksvdlnbvl8": {
+        "healthyMs": 967,
+        "cdpMs": 1245
+      },
+      "ir4eapzcwq71b9l34te72": {
+        "healthyMs": 965,
+        "cdpMs": 1254
+      },
+      "ir53vkxi2bmpteszfd3gd": {
+        "healthyMs": 998,
+        "cdpMs": 1286
+      },
+      "iuzklm52bg8tgows0l00y": {
+        "healthyMs": 985,
+        "cdpMs": 1261
+      },
+      "i6b6fq3vv6s6z3qhpaj5k": {
+        "healthyMs": 970,
+        "cdpMs": 1250
+      },
+      "ioo675sbqblvnt509kshw": {
+        "healthyMs": 995,
+        "cdpMs": 1275
+      },
+      "iola7ovijae62zuoeni81": {
+        "healthyMs": 1000,
+        "cdpMs": 1278
+      },
+      "i1hoqfkz8jdfx5dn33bde": {
+        "healthyMs": 1046,
+        "cdpMs": 1320
+      },
+      "irws0935hmse2682iz5c5": {
+        "healthyMs": 989,
+        "cdpMs": 1273
+      },
+      "i2kiu7bqodxnr3tjpok37": {
+        "healthyMs": 987,
+        "cdpMs": 1271
+      }
+    },
+    "evidenceRecordMs": 35704,
+    "evidenceShipMs": 1006,
+    "evidenceBytes": 169532
+  },
+  "sourceId": "ipd0qe44g55lt3j29s34a",
+  "sourceWebUrl": "https://8787-ipd0qe44g55lt3j29s34a.e2b.app",
+  "stateBefore": {
+    "capturedAt": "2026-07-18T10:34:11.936Z",
+    "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+    "machineId": "609bb033dc744ad0b777ea0b41c5b7ee",
+    "hostname": "e2b.local",
+    "monotonicMs": 238.87786,
+    "pids": {
+      "sqlite-writer": {
+        "pid": 1117,
+        "startTicks": "338"
+      },
+      "dev-server": {
+        "pid": 1119,
+        "startTicks": "338"
+      },
+      "chromium": {
+        "pid": 1121,
+        "startTicks": "339"
+      },
+      "xvfb": {
+        "pid": 1123,
+        "startTicks": "339"
+      },
+      "electron": {
+        "pid": 1136,
+        "startTicks": "539"
+      },
+      "cloudflared": {
+        "pid": 1138,
+        "startTicks": "539"
+      }
+    },
+    "sqlite": {
+      "rows": 21,
+      "maxId": 21
+    },
+    "tunnelUrl": "https://median-forums-smart-treasurer.trycloudflare.com",
+    "listeningPorts": [
+      "169.254.0.21:20241",
+      "169.254.0.21:9222",
+      "169.254.0.21:9223",
+      "127.0.0.1:9223",
+      "127.0.0.1:9222",
+      "127.0.0.1:20241",
+      "0.0.0.0:111",
+      "*:8787",
+      "*:49983",
+      "*:22",
+      "[::]:111"
+    ]
+  },
+  "snapshotId": "franklensteins-default-team/zuse-fork-spike-live:default",
+  "descendants": [
+    {
+      "id": "i1hoqfkz8jdfx5dn33bde",
+      "createMs": 1620
+    },
+    {
+      "id": "ir4eapzcwq71b9l34te72",
+      "createMs": 1553
+    },
+    {
+      "id": "iuzklm52bg8tgows0l00y",
+      "createMs": 1710
+    },
+    {
+      "id": "ir53vkxi2bmpteszfd3gd",
+      "createMs": 1554
+    },
+    {
+      "id": "iq4d74uns0bksvdlnbvl8",
+      "createMs": 1598
+    },
+    {
+      "id": "iola7ovijae62zuoeni81",
+      "createMs": 1119
+    },
+    {
+      "id": "irws0935hmse2682iz5c5",
+      "createMs": 1549
+    },
+    {
+      "id": "ioo675sbqblvnt509kshw",
+      "createMs": 1675
+    },
+    {
+      "id": "i2kiu7bqodxnr3tjpok37",
+      "createMs": 1343
+    },
+    {
+      "id": "i6b6fq3vv6s6z3qhpaj5k",
+      "createMs": 1133
+    }
+  ],
+  "forkErrors": [],
+  "verify": {
+    "iola7ovijae62zuoeni81": {
+      "label": "e2b-5",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-5-10028",
+              "at": "2026-07-18T10:37:09.877Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z ERR failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Registered tunnel connection connIndex=0 connection=d7c6b4fd-9a44-474b-91be-fa24abcb7abe event=0 ip=198.41.200.23 location=sea09 protocol=quic"
+        }
+      }
+    },
+    "iuzklm52bg8tgows0l00y": {
+      "label": "e2b-2",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-2-4056",
+              "at": "2026-07-18T10:37:09.880Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:25Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:25Z INF Registered tunnel connection connIndex=0 connection=9f43d328-1c2e-41ac-857e-6b414e6dd154 event=0 ip=198.41.200.23 location=sea08 protocol=quic"
+        }
+      }
+    },
+    "i6b6fq3vv6s6z3qhpaj5k": {
+      "label": "e2b-9",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-9-28485",
+              "at": "2026-07-18T10:37:09.862Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Registered tunnel connection connIndex=0 connection=1fbb8d22-4393-42f0-b522-72ccb3a633c0 event=0 ip=198.41.200.23 location=sea08 protocol=quic"
+        }
+      }
+    },
+    "i2kiu7bqodxnr3tjpok37": {
+      "label": "e2b-8",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-8-13794",
+              "at": "2026-07-18T10:37:09.918Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z ERR failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Registered tunnel connection connIndex=0 connection=6fd115b5-338d-4c51-bf74-a6f7838cce0b event=0 ip=198.41.200.23 location=sea07 protocol=quic"
+        }
+      }
+    },
+    "i1hoqfkz8jdfx5dn33bde": {
+      "label": "e2b-0",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-0-24999",
+              "at": "2026-07-18T10:37:09.917Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z WRN Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Registered tunnel connection connIndex=0 connection=91eb2db5-47cd-48ba-b97d-e36f8acdf1a5 event=0 ip=198.41.200.23 location=sea08 protocol=quic"
+        }
+      }
+    },
+    "ir53vkxi2bmpteszfd3gd": {
+      "label": "e2b-3",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-3-5616",
+              "at": "2026-07-18T10:37:09.890Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z WRN Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Registered tunnel connection connIndex=0 connection=6d5ff365-9ab0-4a85-b5f7-3301f41212ca event=0 ip=198.41.200.23 location=sea07 protocol=quic"
+        }
+      }
+    },
+    "irws0935hmse2682iz5c5": {
+      "label": "e2b-6",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-6-29593",
+              "at": "2026-07-18T10:37:09.904Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z WRN Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Registered tunnel connection connIndex=0 connection=bc218eb2-c1e7-4962-a7ad-1797690c4d53 event=0 ip=198.41.200.23 location=sea08 protocol=quic"
+        }
+      }
+    },
+    "ioo675sbqblvnt509kshw": {
+      "label": "e2b-7",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-7-10551",
+              "at": "2026-07-18T10:37:09.894Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"datagram manager encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z WRN Serve tunnel error error=\"datagram manager encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:24Z INF Registered tunnel connection connIndex=0 connection=ee7b4da6-8722-4d53-876a-d6767e18cf9d event=0 ip=198.41.200.23 location=sea07 protocol=quic"
+        }
+      }
+    },
+    "iq4d74uns0bksvdlnbvl8": {
+      "label": "e2b-4",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-4-31955",
+              "at": "2026-07-18T10:37:09.801Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z WRN failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z WRN Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Registered tunnel connection connIndex=0 connection=5ffceac4-f15b-4712-b02b-46b05dcbd822 event=0 ip=198.41.200.23 location=sea07 protocol=quic"
+        }
+      }
+    },
+    "ir4eapzcwq71b9l34te72": {
+      "label": "e2b-1",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1117,
+            "startTicks": "338"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "338",
+          "was": {
+            "pid": 1119,
+            "startTicks": "338"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1121,
+            "startTicks": "339"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "339",
+          "was": {
+            "pid": 1123,
+            "startTicks": "339"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1136,
+            "startTicks": "539"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "539",
+          "was": {
+            "pid": 1138,
+            "startTicks": "539"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 21,
+            "maxId": 21
+          },
+          "now": {
+            "n": 196,
+            "maxId": 196
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "302bc438-035e-4aca-9cfd-6ac5ad533047",
+          "postForkRows": 175
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-e2b-1-2991",
+              "at": "2026-07-18T10:37:09.839Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-18T10:34:23Z ERR failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-18T10:34:23Z INF Registered tunnel connection connIndex=0 connection=289ce557-b78f-4960-a0fd-30df619cc101 event=0 ip=198.41.200.23 location=sea06 protocol=quic"
+        }
+      }
+    }
+  }
+}

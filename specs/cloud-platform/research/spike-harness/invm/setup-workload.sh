@@ -38,7 +38,7 @@ export PATH="$SPIKE/bin:$SPIKE/node/bin:$PATH"
 # chrome-headless-shell via Chrome for Testing (no snap dependency).
 if [ ! -d "$SPIKE/chrome-headless-shell" ]; then
   arch=$(uname -m); [ "$arch" = "aarch64" ] && carch=linux-arm64 || carch=linux64
-  cdp_ver=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/LAST_KNOWN_GOOD_VERSIONS.json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).channels.Stable.version))')
+  cdp_ver=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).channels.Stable.version))')
   curl -fsSL -o /tmp/chs.zip "https://storage.googleapis.com/chrome-for-testing-public/${cdp_ver}/${carch}/chrome-headless-shell-${carch}.zip"
   unzip -q /tmp/chs.zip -d "$SPIKE" && mv "$SPIKE/chrome-headless-shell-${carch}" "$SPIKE/chrome-headless-shell"
 fi
