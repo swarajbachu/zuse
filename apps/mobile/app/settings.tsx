@@ -110,11 +110,25 @@ export default function SettingsScreen() {
 
 	return (
 		<>
-			<Stack.Screen options={{ title: "Settings" }} />
+			<Stack.Screen
+				options={{
+					title: "Settings",
+					headerBackVisible: false,
+					headerTransparent: true,
+				}}
+			/>
+			<Stack.Toolbar placement="right">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
 			<ScrollView
 				className="flex-1"
 				contentInsetAdjustmentBehavior="automatic"
-				contentContainerClassName="gap-6 p-4 pb-12 pt-3"
+				showsVerticalScrollIndicator={false}
+				contentContainerClassName="gap-6 px-5 pb-12 pt-4"
 			>
 				<ListSection
 					header="Connections"

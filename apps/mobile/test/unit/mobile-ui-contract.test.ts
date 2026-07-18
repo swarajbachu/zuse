@@ -23,9 +23,42 @@ describe("mobile UI contracts", () => {
 
 	test("reuses the model sheet from new chat", () => {
 		const newChat = appFile("new-chat.tsx");
+		const modelSheet = readFileSync(
+			`${process.cwd()}/src/components/model-sheet.ios.tsx`,
+			"utf8",
+		);
 		expect(newChat).toContain("<ModelSheetTrigger");
 		expect(newChat).toContain("<ModelSheet");
 		expect(newChat).not.toContain("<ComposerModelMenu");
+		expect(modelSheet).toContain("canChangeProvider && providers.length > 1");
+		expect(modelSheet).not.toContain('label="Mode"');
+		expect(modelSheet).toContain(
+			"PROVIDER_NATIVE_ASSET_NAMES[value.providerId]",
+		);
+	});
+
+	test("keeps plan and attachment actions directly on the composer plus menu", () => {
+		const plusMenu = readFileSync(
+			`${process.cwd()}/src/components/composer-plus-menu.ios.tsx`,
+			"utf8",
+		);
+		expect(plusMenu).toContain('label="Choose photos"');
+		expect(plusMenu).toContain('label="Choose files"');
+		expect(plusMenu).toContain('label="Add goal"');
+		expect(plusMenu).toContain('label="Plan mode"');
+	});
+
+	test("shows selected attachments and plan state inside both composers", () => {
+		const newChat = appFile("new-chat.tsx");
+		const threadComposer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		for (const source of [newChat, threadComposer]) {
+			expect(source).toContain("<ComposerAttachmentStrip");
+			expect(source).toContain("<PlanPill");
+			expect(source).toContain("<ComposerPlusMenu");
+		}
 	});
 
 	test("keeps the camera preview active and explicitly full screen", () => {
@@ -44,7 +77,15 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain(
 			'behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}',
 		);
-		expect(thread).toContain('tint="systemUltraThinMaterial"');
+		expect(thread).toContain("experimental_backgroundImage");
+		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');
+	});
+
+	test("lets UIKit provide the native header material", () => {
+		const layout = appFile("_layout.tsx");
+		expect(layout).toContain("scrollEdgeEffects:");
+		expect(layout).toContain('top: "automatic"');
+		expect(layout).not.toContain("headerBlurEffect");
 	});
 });

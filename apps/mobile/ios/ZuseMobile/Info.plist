@@ -49,6 +49,8 @@
 	<string>Scan pairing codes for local Zuse environments.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose images to attach to your Zuse messages.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>

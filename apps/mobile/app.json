@@ -12,6 +12,7 @@
 			"buildNumber": "1",
 			"infoPlist": {
 				"NSCameraUsageDescription": "Scan pairing codes for local Zuse environments.",
+				"NSPhotoLibraryUsageDescription": "Choose images to attach to your Zuse messages.",
 				"NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
 				"NSAppTransportSecurity": {
 					"NSAllowsLocalNetworking": true
@@ -28,7 +29,8 @@
 			"expo-notifications",
 			"expo-font",
 			"expo-web-browser",
-			"expo-status-bar"
+			"expo-status-bar",
+			"expo-image"
 		]
 	}
 }

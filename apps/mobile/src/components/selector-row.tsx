@@ -24,7 +24,7 @@ export function SelectorRow({
 	emptyLabel?: string;
 }) {
 	return (
-		<View className="h-10 flex-row items-center gap-2">
+		<View className="h-11 flex-row items-center gap-2">
 			<Text
 				className="font-sans-medium text-[15px] text-foreground"
 				numberOfLines={1}

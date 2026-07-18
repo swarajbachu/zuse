@@ -1,5 +1,4 @@
 import {
-	Add01Icon,
 	ArrowUpIcon,
 	CancelCircleIcon,
 	CloudOffIcon,
@@ -23,6 +22,8 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ComposerAttachmentStrip } from "~/components/composer-attachment-strip";
+import { ComposerPlusMenu } from "~/components/composer-plus-menu";
 import type { ModelModeValue } from "~/components/model-mode-menu";
 import { ModelSheet } from "~/components/model-sheet";
 import { ModelSheetTrigger } from "~/components/model-sheet-trigger";
@@ -30,6 +31,12 @@ import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
+import {
+	type LocalComposerAttachment,
+	pickComposerFiles,
+	pickComposerImages,
+	uploadComposerAttachment,
+} from "~/lib/composer-attachments";
 import { optionsForConnection } from "~/lib/connection-params";
 import { availableConnections } from "~/lib/connection-records";
 import {
@@ -51,6 +58,8 @@ import {
 	listBranches,
 	listPullRequests,
 	listWorktrees,
+	makeTextInput,
+	sendMessage,
 } from "~/rpc/actions";
 import { useAuthStore } from "~/store/auth";
 import { useAvailabilityStore } from "~/store/availability";
@@ -63,6 +72,8 @@ export default function NewChatScreen() {
 	const [text, setText] = useState("");
 	const [submitting, setSubmitting] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
+	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([]);
+	const [goalMode, setGoalMode] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedConnectionKey, setSelectedConnectionKey] = useState<
 		string | null
@@ -341,16 +352,36 @@ export default function NewChatScreen() {
 								}),
 							)
 						).id;
+			const requiresRichSend = attachments.length > 0 || goalMode;
 			const result = await createChat(effectiveConnectionKey, selectedOptions, {
 				projectId: payload.projectId,
 				providerId: payload.providerId,
 				model: payload.model,
-				initialPrompt: payload.initialPrompt,
+				initialPrompt: requiresRichSend ? "" : payload.initialPrompt,
 				runtimeMode: payload.runtimeMode,
 				permissionMode: payload.permissionMode,
 				modelOptions: payload.modelOptions,
 				worktreeId,
 			});
+			if (requiresRichSend) {
+				const uploaded = await Promise.all(
+					attachments.map((attachment) =>
+						uploadComposerAttachment(
+							selectedOptions,
+							result.initialSession.id,
+							attachment,
+						),
+					),
+				);
+				await Effect.runPromise(
+					sendMessage({
+						connection: selectedOptions,
+						sessionId: result.initialSession.id,
+						input: makeTextInput(payload.initialPrompt, uploaded, goalMode),
+						asGoal: goalMode,
+					}),
+				);
+			}
 			router.replace(
 				`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(
 					result.initialSession.id,
@@ -363,6 +394,8 @@ export default function NewChatScreen() {
 		}
 	}, [
 		createChat,
+		attachments,
+		goalMode,
 		effectiveModelMode,
 		effectiveConnectionKey,
 		selectedOptions,
@@ -373,7 +406,14 @@ export default function NewChatScreen() {
 
 	return (
 		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
-			<Stack.Screen options={{ title: "New Chat" }} />
+			<Stack.Screen options={{ title: "New Chat", headerBackVisible: false }} />
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="chevron.left"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
 			<ScrollView
 				className="flex-1"
 				contentInsetAdjustmentBehavior="automatic"
@@ -401,7 +441,7 @@ export default function NewChatScreen() {
 				className="px-3 pt-2"
 				style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
 			>
-				<View className="mb-2 gap-0.5 px-1">
+				<View className="mb-4 gap-3 px-1">
 					<SelectorRow
 						symbol="laptopcomputer"
 						label={machineLabel}
@@ -433,16 +473,14 @@ export default function NewChatScreen() {
 						padding: 10,
 					}}
 				>
-					{effectiveModelMode.permissionMode === "plan" ? (
-						<PlanPill
-							onClear={() =>
-								setModelMode((value) => ({
-									...value,
-									permissionMode: "default",
-								}))
-							}
-						/>
-					) : null}
+					<ComposerAttachmentStrip
+						attachments={attachments}
+						onRemove={(id) =>
+							setAttachments((current) =>
+								current.filter((item) => item.id !== id),
+							)
+						}
+					/>
 					<TextInput
 						className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
 						multiline
@@ -451,15 +489,45 @@ export default function NewChatScreen() {
 						value={text}
 						onChangeText={setText}
 					/>
+					{effectiveModelMode.permissionMode === "plan" || goalMode ? (
+						<View className="flex-row flex-wrap gap-2 px-1">
+							{effectiveModelMode.permissionMode === "plan" ? (
+								<PlanPill
+									onClear={() =>
+										setModelMode((value) => ({
+											...value,
+											permissionMode: "default",
+										}))
+									}
+								/>
+							) : null}
+							{goalMode ? (
+								<PlanPill label="Goal" onClear={() => setGoalMode(false)} />
+							) : null}
+						</View>
+					) : null}
 					<View className="flex-row items-center gap-2">
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Add attachment"
-							disabled
-							className="h-9 w-9 items-center justify-center rounded-full opacity-40"
-						>
-							<HugeIcon icon={Add01Icon} size={18} color={colors.secondaryFg} />
-						</Pressable>
+						<ComposerPlusMenu
+							goalMode={goalMode}
+							planMode={effectiveModelMode.permissionMode === "plan"}
+							onPickImages={() =>
+								void pickComposerImages().then((items) =>
+									setAttachments((current) => [...current, ...items]),
+								)
+							}
+							onPickFiles={() =>
+								void pickComposerFiles().then((items) =>
+									setAttachments((current) => [...current, ...items]),
+								)
+							}
+							onToggleGoal={setGoalMode}
+							onTogglePlan={(next) =>
+								setModelMode((value) => ({
+									...value,
+									permissionMode: next ? "plan" : "default",
+								}))
+							}
+						/>
 						<View className="flex-1" />
 						<ModelSheetTrigger
 							value={effectiveModelMode}
@@ -504,9 +572,17 @@ export default function NewChatScreen() {
 	);
 }
 
-const PlanPill = ({ onClear }: { onClear: () => void }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-2">
-		<Text className="font-sans-medium text-[15px] text-foreground">Plan</Text>
+const PlanPill = ({
+	label = "Plan mode",
+	onClear,
+}: {
+	label?: string;
+	onClear: () => void;
+}) => (
+	<View className="self-start flex-row items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5">
+		<Text className="font-sans-medium text-[14px] text-foreground">
+			{label}
+		</Text>
 		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
 			<HugeIcon icon={CancelCircleIcon} size={15} color={colors.secondaryFg} />
 		</Pressable>

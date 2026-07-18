@@ -5,7 +5,6 @@ import type {
 	UserQuestion,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { BlurView } from "expo-blur";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
 import React, {
@@ -24,6 +23,7 @@ import {
 	type NativeSyntheticEvent,
 	Pressable,
 	Text,
+	useColorScheme,
 	View,
 } from "react-native";
 import Animated, {
@@ -90,6 +90,7 @@ export default function ThreadScreenRoute() {
 
 function ThreadScreen() {
 	const insets = useSafeAreaInsets();
+	const colorScheme = useColorScheme();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -706,16 +707,18 @@ function ThreadScreen() {
 						</Pressable>
 					</Animated.View>
 				) : null}
-				<BlurView
+				<View
 					pointerEvents="none"
-					tint="systemUltraThinMaterial"
-					intensity={18}
 					style={{
 						position: "absolute",
 						left: 0,
 						right: 0,
 						bottom: 0,
-						height: bottomAccessoryHeight + 32,
+						height: bottomAccessoryHeight + 40,
+						experimental_backgroundImage:
+							colorScheme === "dark"
+								? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.9) 100%)"
+								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
 					}}
 				/>
 				<View

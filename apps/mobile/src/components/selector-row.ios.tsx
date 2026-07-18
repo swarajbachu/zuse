@@ -32,7 +32,7 @@ export function SelectorRow({
 		<Host
 			matchContents
 			seedColor={colors.fg}
-			style={{ alignSelf: "flex-start", height: 40 }}
+			style={{ alignSelf: "flex-start", height: 48 }}
 		>
 			<Menu label={label} systemImage={sf(symbol)}>
 				{disabled || options.length === 0 ? (

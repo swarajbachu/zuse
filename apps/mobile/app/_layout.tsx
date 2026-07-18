@@ -12,7 +12,7 @@ import {
 } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { useColorScheme, View } from "react-native";
+import { Platform, useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Uniwind } from "uniwind";
 
@@ -58,20 +58,28 @@ export default function RootLayout() {
 				<StatusBar style="auto" />
 				<Stack
 					screenOptions={{
-						// iOS large-title headers that float over a blurred backdrop as
-						// content scrolls beneath them. Screens opt out per-route below.
+						// Keep the native header transparent so UIKit can sample scrolling
+						// content for its own material at the top edge.
 						headerLargeTitle: true,
-						headerTransparent: true,
-						headerBlurEffect:
-							colorScheme === "dark"
-								? "systemChromeMaterialDark"
-								: "systemChromeMaterialLight",
+						headerTransparent: Platform.OS === "ios",
 						headerShadowVisible: false,
 						headerLargeTitleShadowVisible: false,
-						headerStyle: { backgroundColor: "transparent" },
+						headerStyle:
+							Platform.OS === "ios"
+								? { backgroundColor: "transparent" }
+								: { backgroundColor: colors.bg },
+						scrollEdgeEffects:
+							Platform.OS === "ios"
+								? {
+										top: "automatic",
+										bottom: "hidden",
+										left: "hidden",
+										right: "hidden",
+									}
+								: undefined,
 						headerLargeTitleStyle: { color: colors.fg },
 						headerTitleStyle: { color: colors.fg },
-						headerTintColor: colors.accent,
+						headerTintColor: colors.fg,
 						headerBackButtonDisplayMode: "minimal",
 						contentStyle: { backgroundColor: colors.bg },
 					}}
@@ -95,6 +103,7 @@ export default function RootLayout() {
 							sheetInitialDetentIndex: 0,
 							sheetGrabberVisible: true,
 							headerTintColor: colors.fg,
+							headerTransparent: true,
 							contentStyle: { backgroundColor: colors.bg },
 						}}
 					/>

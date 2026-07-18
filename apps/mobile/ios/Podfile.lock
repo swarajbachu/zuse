@@ -182,8 +182,6 @@ PODS:
     - Yoga
   - ExpoAsset (57.0.5):
     - ExpoModulesCore
-  - ExpoBlur (57.0.2):
-    - ExpoModulesCore
   - ExpoCamera (57.0.2):
     - ExpoModulesCore
   - ExpoCameraBarcodeScanning (57.0.2):
@@ -191,6 +189,8 @@ PODS:
   - ExpoClipboard (57.0.1):
     - ExpoModulesCore
   - ExpoCrypto (57.0.1):
+    - ExpoModulesCore
+  - ExpoDocumentPicker (57.0.1):
     - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
     - ExpoModulesCore
@@ -201,6 +201,10 @@ PODS:
   - ExpoGlassEffect (57.0.1):
     - ExpoModulesCore
   - ExpoHaptics (57.0.1):
+    - ExpoModulesCore
+  - ExpoImage (57.0.1):
+    - ExpoModulesCore
+  - ExpoImagePicker (57.0.5):
     - ExpoModulesCore
   - ExpoKeepAwake (57.0.1):
     - ExpoModulesCore
@@ -2519,16 +2523,18 @@ DEPENDENCIES:
   - expo-dev-menu (from `../../../node_modules/expo-dev-menu`)
   - expo-dev-menu-interface (from `../../../node_modules/expo-dev-menu-interface/ios`)
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
-  - ExpoBlur (from `../../../node_modules/expo-blur/ios`)
   - ExpoCamera (from `../../../node_modules/expo-camera/ios/ExpoCamera.podspec`)
   - ExpoCameraBarcodeScanning (from `../../../node_modules/expo-camera/ios/ExpoCameraBarcodeScanning.podspec`)
   - ExpoClipboard (from `../../../node_modules/expo-clipboard/ios`)
   - ExpoCrypto (from `../../../node_modules/expo-crypto/ios`)
+  - ExpoDocumentPicker (from `../../../node_modules/expo-document-picker/ios`)
   - "ExpoDomWebView (from `../../../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../../../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../../../node_modules/expo-font/ios/ExpoFont.podspec`)
   - ExpoGlassEffect (from `../../../node_modules/expo-glass-effect/ios`)
   - ExpoHaptics (from `../../../node_modules/expo-haptics/ios`)
+  - ExpoImage (from `../../../node_modules/expo-image/ios/ExpoImage.podspec`)
+  - ExpoImagePicker (from `../../../node_modules/expo-image-picker/ios`)
   - ExpoKeepAwake (from `../../../node_modules/expo-keep-awake/ios`)
   - ExpoLinking (from `../../../node_modules/expo-linking/ios`)
   - "ExpoLogBox (from `../../../node_modules/@expo/log-box`)"
@@ -2654,8 +2660,6 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-dev-menu-interface/ios"
   ExpoAsset:
     :path: "../../../node_modules/expo-asset/ios"
-  ExpoBlur:
-    :path: "../../../node_modules/expo-blur/ios"
   ExpoCamera:
     :podspec: "../../../node_modules/expo-camera/ios/ExpoCamera.podspec"
   ExpoCameraBarcodeScanning:
@@ -2664,6 +2668,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-clipboard/ios"
   ExpoCrypto:
     :path: "../../../node_modules/expo-crypto/ios"
+  ExpoDocumentPicker:
+    :path: "../../../node_modules/expo-document-picker/ios"
   ExpoDomWebView:
     :path: "../../../node_modules/@expo/dom-webview/ios"
   ExpoFileSystem:
@@ -2674,6 +2680,10 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-glass-effect/ios"
   ExpoHaptics:
     :path: "../../../node_modules/expo-haptics/ios"
+  ExpoImage:
+    :podspec: "../../../node_modules/expo-image/ios/ExpoImage.podspec"
+  ExpoImagePicker:
+    :path: "../../../node_modules/expo-image-picker/ios"
   ExpoKeepAwake:
     :path: "../../../node_modules/expo-keep-awake/ios"
   ExpoLinking:
@@ -2883,16 +2893,18 @@ SPEC CHECKSUMS:
   expo-dev-menu: f76b2f016892b2659c85ad84bc6ed573e809d381
   expo-dev-menu-interface: 7a59e803916fbfd1b96c75ff91ea8dddac7e722f
   ExpoAsset: 05797403b7ab18f56ea9ab1026ef8475f8457ed4
-  ExpoBlur: 69e67b4fbfed6f7325377af2aefa8aa4f00cd2af
   ExpoCamera: 53ac7eb0a13e6b8eb0f65d48ac0568457ffda8e4
   ExpoCameraBarcodeScanning: 1e39ba647f7360870fa6cec2cc5863acd362f74a
   ExpoClipboard: 95055b11758f339b61d4d8064dd799df1cf03b7f
   ExpoCrypto: 366380ffafeb22cc9795438cddcbfa299e1aaf42
+  ExpoDocumentPicker: 6fb67a6f39ba9beb53a4b4a3f2949e0b5e9bc3bf
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: e441dae0ae671fc451640517550973d9e024fdf0
   ExpoFont: 59e1faf66ba9bcd232ae1e2ce58d202a48b6f65e
   ExpoGlassEffect: 4b62afb489e6b84357701737ce002137c9d5fdbc
   ExpoHaptics: 4503d2da51ff7109712ccdfe0e4939f66818183e
+  ExpoImage: 4c1e7634db6033185a98959fb028d8d4b1c89695
+  ExpoImagePicker: 09d89edec1232a30c36014069c92391ee863f8c7
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: b823a14b4ec436e3a6d947b72da6d4020e790515
   ExpoLogBox: 8a3cfa2897e088083cd49fc1ff7fdb2de4385547
