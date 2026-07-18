@@ -1,6 +1,14 @@
 import { Host } from "@expo/ui";
-import { BottomSheet, Form, Picker, Section, Text } from "@expo/ui/swift-ui";
-import { pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import {
+	BottomSheet,
+	Form,
+	Image,
+	Label,
+	Picker,
+	Section,
+	Text,
+} from "@expo/ui/swift-ui";
+import { padding, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
 import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
 
 import {
@@ -11,6 +19,8 @@ import {
 	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 } from "~/lib/model-options";
+import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
+import { colors } from "~/theme";
 import type { ModelModeValue } from "./model-mode-menu";
 
 /**
@@ -52,7 +62,7 @@ export function ModelSheet({
 	const models = modelOptionsForProvider(value.providerId);
 
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={colors.fg}>
 			<BottomSheet
 				isPresented={open}
 				onIsPresentedChange={onOpenChange}
@@ -79,9 +89,19 @@ export function ModelSheet({
 								modifiers={[pickerStyle("menu")]}
 							>
 								{providers.map((provider) => (
-									<Text key={provider.value} modifiers={[tag(provider.value)]}>
-										{provider.label}
-									</Text>
+									<Label
+										key={provider.value}
+										title={provider.label}
+										icon={
+											<Image
+												assetName={PROVIDER_NATIVE_ASSET_NAMES[provider.value]}
+												size={17}
+												color={colors.fg}
+												modifiers={[padding({ trailing: 6 })]}
+											/>
+										}
+										modifiers={[tag(provider.value)]}
+									/>
 								))}
 							</Picker>
 						) : null}

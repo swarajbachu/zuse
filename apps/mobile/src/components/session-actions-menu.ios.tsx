@@ -1,6 +1,8 @@
 import { Host } from "@expo/ui";
 import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 
+import { NEON_GREEN } from "~/theme";
+
 /**
  * Header "…" menu for the session screen: Rename (hidden when the chat has no
  * id yet) and Archive. Native UIMenu via @expo/ui so it matches the platform.
@@ -13,7 +15,7 @@ export function SessionActionsMenu({
 	onArchive: () => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label="" systemImage="ellipsis">
 				{onRename !== undefined ? (
 					<NativeButton

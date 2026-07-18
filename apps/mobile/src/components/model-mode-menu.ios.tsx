@@ -16,6 +16,7 @@ import {
 	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 } from "~/lib/model-options";
+import { NEON_GREEN } from "~/theme";
 
 export type ModelModeValue = {
 	providerId: ProviderId;
@@ -35,7 +36,7 @@ export function ModelModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -83,7 +84,7 @@ export function ComposerModelMenu({
 		<Host
 			key={`${value.providerId}:${value.model}`}
 			matchContents
-			seedColor={WHITE}
+			seedColor={NEON_GREEN}
 		>
 			<Menu
 				label={compactModelLabel(value)}
@@ -118,7 +119,7 @@ export function ComposerSettingsMenu({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents seedColor={WHITE}>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label="" systemImage="gearshape">
 				<Menu label="Mode" systemImage="slider.horizontal.3">
 					<ModeButtons value={value} editable={editable} onChange={onChange} />
@@ -148,7 +149,7 @@ export function ModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -169,7 +170,7 @@ export function RuntimePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label={runtimeLabel(value)} systemImage="lock.open">
 				<PermissionButtons
 					value={value}
@@ -191,7 +192,7 @@ export function StaticModelTitle({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={modelLabel(value)}
 				systemImage={providerSystemImage(value.providerId)}
@@ -216,7 +217,7 @@ export function HeaderModePill({
 	onChange: (value: ModelModeValue) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={modeLabel(value)}
 				systemImage="chevron.left.forwardslash.chevron.right"
@@ -248,7 +249,7 @@ export function ProjectPill({
 	);
 
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label={label} systemImage="folder">
 				{projects.length === 0 ? (
 					<NativeButton
@@ -279,7 +280,7 @@ export function SourcePill({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={label}
 				systemImage="point.topleft.down.curvedto.point.bottomright.up"
@@ -306,7 +307,7 @@ export function ProjectMenuRow({
 	onSelect: (connectionKey: string, projectId: string) => void;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label={`${label} · ${subtitle}`} systemImage="desktopcomputer">
 				{options.map((group) => (
 					<Menu
@@ -347,7 +348,7 @@ export function SourceMenuRow({
 	children: React.ReactNode;
 }) {
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu
 				label={`${label} · ${subtitle}`}
 				systemImage="bubble.left.and.bubble.right"
@@ -571,8 +572,6 @@ const modeLabel = (value: ModelModeValue): string =>
 const runtimeLabel = (value: ModelModeValue): string =>
 	RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
 	value.runtimeMode;
-
-const WHITE = "#ffffff";
 
 const providerSystemImage = (providerId: ProviderId): string => {
 	switch (providerId) {

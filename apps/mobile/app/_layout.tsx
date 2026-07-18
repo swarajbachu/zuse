@@ -14,12 +14,18 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { useColorScheme, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Uniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
 import { colors } from "~/theme";
+
+// The app follows the device appearance. Reset any development-session theme
+// override before the first screen renders so light mode cannot inherit dark
+// utility styles while native navigation is already light.
+Uniwind.setTheme("system");
 
 export default function RootLayout() {
 	const colorScheme = useColorScheme();
@@ -83,8 +89,13 @@ export default function RootLayout() {
 						name="settings"
 						options={{
 							title: "Settings",
-							presentation: "card",
+							presentation: "formSheet",
 							headerLargeTitle: false,
+							sheetAllowedDetents: [0.7, 0.92],
+							sheetInitialDetentIndex: 0,
+							sheetGrabberVisible: true,
+							headerTintColor: colors.fg,
+							contentStyle: { backgroundColor: colors.bg },
 						}}
 					/>
 					<Stack.Screen
@@ -109,6 +120,7 @@ export default function RootLayout() {
 						options={{
 							title: "Scan",
 							headerLargeTitle: false,
+							headerShown: false,
 							presentation: "fullScreenModal",
 						}}
 					/>

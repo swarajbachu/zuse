@@ -248,7 +248,7 @@ export const PendingUserInputCard = ({
 					>
 						<Send
 							size={17}
-							color={isComplete ? colors.bg : colors.tertiaryFg}
+							color={isComplete ? colors.primaryForeground : colors.tertiaryFg}
 						/>
 					</Pressable>
 				</View>

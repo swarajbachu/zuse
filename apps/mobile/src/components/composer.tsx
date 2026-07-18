@@ -35,11 +35,7 @@ import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
-import {
-	availableProviderIds,
-	modelOptionsForProvider,
-	reasoningValueForModel,
-} from "~/lib/model-options";
+import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
@@ -66,7 +62,7 @@ import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerPlusMenu } from "./composer-plus-menu";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
-import { ProviderLogo } from "./provider-logo";
+import { ModelSheetTrigger } from "./model-sheet-trigger";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
 import { HugeIcon } from "./ui/huge-icon";
@@ -437,7 +433,7 @@ export const Composer = ({
 										onChange={setRuntimeMode}
 									/>
 									<View className="min-w-0 flex-1" />
-									<ModelLabel
+									<ModelSheetTrigger
 										value={modelValue}
 										onPress={() => setModelSheetOpen(true)}
 									/>
@@ -497,48 +493,6 @@ export const Composer = ({
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
-const modelLabelFor = (value: ModelModeValue): string =>
-	modelOptionsForProvider(value.providerId).find(
-		(model) => model.value === value.model,
-	)?.label ?? value.model;
-
-/** The right-aligned "5.6 Sol · High" chip that opens the model sheet. */
-const ModelLabel = ({
-	value,
-	onPress,
-}: {
-	value: ModelModeValue;
-	onPress: () => void;
-}) => {
-	const reasoning = reasoningValueForModel(
-		value.providerId,
-		value.model,
-		value.modelOptions,
-	);
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel="Model settings"
-			onPress={onPress}
-			hitSlop={8}
-			className="h-11 flex-row items-center gap-1.5 px-1 active:opacity-60"
-		>
-			<ProviderLogo providerId={value.providerId} size={15} />
-			<Text
-				className="max-w-[140px] font-sans-medium text-[15px] text-foreground"
-				numberOfLines={1}
-			>
-				{modelLabelFor(value)}
-			</Text>
-			{reasoning ? (
-				<Text className="font-sans text-[15px] text-muted-foreground">
-					{reasoning.label}
-				</Text>
-			) : null}
-		</Pressable>
-	);
-};
-
 const SendButton = ({
 	showInterrupt,
 	online,
@@ -567,11 +521,17 @@ const SendButton = ({
 		}
 	>
 		{busy ? (
-			<ActivityIndicator color={showInterrupt ? colors.fg : colors.bg} />
+			<ActivityIndicator
+				color={showInterrupt ? colors.fg : colors.primaryForeground}
+			/>
 		) : showInterrupt ? (
 			<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
 		) : online ? (
-			<HugeIcon icon={ArrowUp02Icon} size={18} color={colors.bg as string} />
+			<HugeIcon
+				icon={ArrowUp02Icon}
+				size={18}
+				color={colors.primaryForeground}
+			/>
 		) : (
 			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
 		)}

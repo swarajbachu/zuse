@@ -5,6 +5,7 @@ import type {
 	UserQuestion,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { BlurView } from "expo-blur";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
 import React, {
@@ -18,6 +19,7 @@ import {
 	Alert,
 	FlatList,
 	KeyboardAvoidingView,
+	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
 	Pressable,
@@ -99,6 +101,9 @@ function ThreadScreen() {
 	const initialScrollQuietUntil = useRef(0);
 	const atBottomRef = useRef(true);
 	const [showJumpButton, setShowJumpButton] = useState(false);
+	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
+		Math.max(insets.bottom, 12) + 64,
+	);
 	const jumpOpacity = useSharedValue(0);
 	const {
 		connections,
@@ -400,6 +405,12 @@ function ThreadScreen() {
 	};
 
 	const jumpStyle = useAnimatedStyle(() => ({ opacity: jumpOpacity.value }));
+	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
+		const nextHeight = event.nativeEvent.layout.height;
+		setBottomAccessoryHeight((current) =>
+			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+		);
+	};
 
 	const onRename = useCallback(() => {
 		if (chatId === null || options === null) return;
@@ -519,7 +530,7 @@ function ThreadScreen() {
 		);
 
 	return (
-		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
+		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
 					headerBackVisible: false,
@@ -594,7 +605,10 @@ function ThreadScreen() {
 					/>
 				)}
 				contentInsetAdjustmentBehavior="automatic"
-				contentContainerClassName="gap-1 px-4 py-3"
+				contentContainerClassName="gap-1 px-4 pt-3"
+				contentContainerStyle={{ paddingBottom: bottomAccessoryHeight + 12 }}
+				scrollIndicatorInsets={{ bottom: bottomAccessoryHeight }}
+				keyboardDismissMode="interactive"
 				ListHeaderComponent={
 					error || connectionProblem ? (
 						<View className="pb-2">
@@ -653,60 +667,96 @@ function ThreadScreen() {
 				onContentSizeChange={scrollToLatest}
 				onLayout={scrollToLatest}
 			/>
-			{showJumpButton ? (
-				<Animated.View
-					pointerEvents={showJumpButton ? "auto" : "none"}
-					style={[jumpStyle, { position: "absolute", right: 16, bottom: 96 }]}
-				>
-					<Pressable
-						accessibilityRole="button"
-						accessibilityLabel="Scroll to latest"
-						onPress={jumpToBottom}
-					>
-						<GlassSurface
-							style={{
-								width: 40,
-								height: 40,
-								borderRadius: 20,
+			<KeyboardAvoidingView
+				behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}
+				pointerEvents="box-none"
+				style={{ position: "absolute", inset: 0 }}
+				contentContainerStyle={{ flex: 1 }}
+			>
+				{showJumpButton ? (
+					<Animated.View
+						pointerEvents="box-none"
+						style={[
+							jumpStyle,
+							{
+								position: "absolute",
+								left: 0,
+								right: 0,
+								bottom: bottomAccessoryHeight + 8,
 								alignItems: "center",
-								justifyContent: "center",
+							},
+						]}
+					>
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel="Scroll to latest"
+							onPress={jumpToBottom}
+						>
+							<GlassSurface
+								style={{
+									width: 40,
+									height: 40,
+									borderRadius: 20,
+									alignItems: "center",
+									justifyContent: "center",
+								}}
+							>
+								<ChevronDown size={20} color={colors.fg} />
+							</GlassSurface>
+						</Pressable>
+					</Animated.View>
+				) : null}
+				<BlurView
+					pointerEvents="none"
+					tint="systemUltraThinMaterial"
+					intensity={18}
+					style={{
+						position: "absolute",
+						left: 0,
+						right: 0,
+						bottom: 0,
+						height: bottomAccessoryHeight + 32,
+					}}
+				/>
+				<View
+					onLayout={onBottomAccessoryLayout}
+					pointerEvents="box-none"
+					style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+				>
+					{options === null ? null : headPermission !== null ? (
+						renderPromptAccessory(permissionRequests, false)
+					) : pendingQuestion !== null ? (
+						<View
+							className="px-3 pt-2"
+							style={{
+								paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
 							}}
 						>
-							<ChevronDown size={20} color={colors.fg} />
-						</GlassSurface>
-					</Pressable>
-				</Animated.View>
-			) : null}
-			{options === null ? null : headPermission !== null ? (
-				renderPromptAccessory(permissionRequests, false)
-			) : pendingQuestion !== null ? (
-				<View
-					className="px-3 pt-2"
-					style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
-				>
-					<PendingUserInputCard
-						itemId={pendingQuestion.itemId}
-						questions={pendingQuestion.questions}
-						onSubmit={onAnswerQuestion}
-					/>
+							<PendingUserInputCard
+								itemId={pendingQuestion.itemId}
+								questions={pendingQuestion.questions}
+								onSubmit={onAnswerQuestion}
+							/>
+						</View>
+					) : planRequest !== null ? (
+						renderPromptAccessory([planRequest], true)
+					) : (
+						<Composer
+							connKey={connKey}
+							connection={options}
+							sessionId={normalizedSessionId}
+							session={detail?.session ?? null}
+							status={sessionStatus}
+							fresh={fresh}
+							online={transportOnline}
+							connectionStatus={connectionSnapshot?.status}
+							onRetryConnection={() => retryConnection(connKey, options)}
+							bottomInset={insets.bottom}
+						/>
+					)}
 				</View>
-			) : planRequest !== null ? (
-				renderPromptAccessory([planRequest], true)
-			) : (
-				<Composer
-					connKey={connKey}
-					connection={options}
-					sessionId={normalizedSessionId}
-					session={detail?.session ?? null}
-					status={sessionStatus}
-					fresh={fresh}
-					online={transportOnline}
-					connectionStatus={connectionSnapshot?.status}
-					onRetryConnection={() => retryConnection(connKey, options)}
-					bottomInset={insets.bottom}
-				/>
-			)}
-		</KeyboardAvoidingView>
+			</KeyboardAvoidingView>
+		</View>
 	);
 }
 

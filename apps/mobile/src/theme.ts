@@ -1,6 +1,10 @@
 import { Color } from "expo-router";
 import { Platform } from "react-native";
 
+/** The single product accent used across native controls and utility styles. */
+export const NEON_GREEN = "#c8ff00";
+export const PRIMARY_FOREGROUND = "#11130a";
+
 const platformColor = <T>(ios: T, android: T | undefined, fallback: T): T =>
 	Platform.select({ ios, android: android ?? fallback, default: fallback }) ??
 	fallback;
@@ -47,11 +51,8 @@ export const colors = {
 		Color.android.dynamic.outlineVariant,
 		"rgba(60,60,67,0.22)",
 	),
-	accent: platformColor(
-		Color.ios.systemGreen,
-		Color.android.dynamic.primary,
-		"#34c759",
-	),
+	accent: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
+	primaryForeground: PRIMARY_FOREGROUND,
 	danger: platformColor(
 		Color.ios.systemRed,
 		Color.android.dynamic.error,
@@ -62,11 +63,7 @@ export const colors = {
 		Color.android.material.yellow600,
 		"#ff9500",
 	),
-	success: platformColor(
-		Color.ios.systemGreen,
-		Color.android.material.green600,
-		"#34c759",
-	),
+	success: platformColor(NEON_GREEN, NEON_GREEN, NEON_GREEN),
 	diffAdded: "#269a3b",
 	diffRemoved: "#d93f4c",
 	diffHunk: "#a63aa5",

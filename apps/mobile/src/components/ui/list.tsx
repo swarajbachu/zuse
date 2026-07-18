@@ -65,7 +65,7 @@ type ListRowProps = Omit<PressableProps, "children"> & {
 	/** Leading icon rendered inside a rounded tile. */
 	icon?: LucideIcon;
 	iconColor?: string;
-	/** `brand` = lime tile + dark glyph; `neutral` = muted tile + light glyph. */
+	/** `brand` = neon tile + dark glyph; `neutral` = adaptive muted tile. */
 	iconTone?: "brand" | "neutral";
 	/** Custom leading node (e.g. a presence dot); overrides `icon`. */
 	leading?: React.ReactNode;
@@ -125,7 +125,8 @@ export function ListRow({
 						<Icon
 							size={17}
 							color={
-								iconColor ?? (iconTone === "brand" ? colors.bg : colors.fg)
+								iconColor ??
+								(iconTone === "brand" ? colors.primaryForeground : colors.fg)
 							}
 						/>
 					</View>

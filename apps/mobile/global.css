@@ -3,16 +3,34 @@
 
 :root {
 	--app-background: #ffffff;
-	--app-foreground: #171717;
-	--app-card: #f2f2f7;
+	--app-foreground: #11130a;
+	--app-card: #f4f4f6;
 	--app-card-elevated: #ffffff;
-	--app-muted: #e5e5ea;
-	--app-muted-foreground: #6b6b70;
-	--app-border: rgba(60, 60, 67, 0.22);
-	--app-primary: #34c759;
-	--app-primary-foreground: #ffffff;
+	--app-muted: #e9e9ec;
+	--app-muted-foreground: #626268;
+	--app-border: rgba(17, 19, 10, 0.14);
+	--app-primary: #c8ff00;
+	--app-primary-foreground: #11130a;
 	--app-danger: #d93f4c;
 	--app-warning: #c76f00;
+}
+
+/* Keep an explicit light adaptive theme. This prevents a stale dark artifact
+   from becoming the base style when the native appearance changes at runtime. */
+@media (prefers-color-scheme: light) {
+	:root {
+		--app-background: #ffffff;
+		--app-foreground: #11130a;
+		--app-card: #f4f4f6;
+		--app-card-elevated: #ffffff;
+		--app-muted: #e9e9ec;
+		--app-muted-foreground: #626268;
+		--app-border: rgba(17, 19, 10, 0.14);
+		--app-primary: #c8ff00;
+		--app-primary-foreground: #11130a;
+		--app-danger: #d93f4c;
+		--app-warning: #a85d00;
+	}
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,8 +42,8 @@
 		--app-muted: hsl(72 4% 20%);
 		--app-muted-foreground: hsl(72 2% 64%);
 		--app-border: rgba(255, 255, 255, 0.1);
-		--app-primary: hsl(72 98% 54%);
-		--app-primary-foreground: hsl(72 5% 6%);
+		--app-primary: #c8ff00;
+		--app-primary-foreground: #11130a;
 		--app-danger: hsl(2 86% 64%);
 		--app-warning: hsl(42 93% 56%);
 	}
@@ -45,7 +63,7 @@
   --color-warning: var(--app-warning);
   /* Live-presence tones, shared by the pulsing dot (bg-presence-*). The halo
      reuses the same tone at a lower, animated opacity. */
-  --color-presence-online: hsl(72 98% 54%);
+  --color-presence-online: #c8ff00;
   --color-presence-offline: hsl(72 2% 64%);
   --color-presence-checking: hsl(42 93% 56%);
   --color-presence-error: hsl(2 86% 64%);

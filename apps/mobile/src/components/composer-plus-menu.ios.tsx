@@ -1,7 +1,8 @@
 import { Host } from "@expo/ui";
 import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 
-const WHITE = "#ffffff";
+import { NEON_GREEN } from "~/theme";
+
 const sf = (name: string) => name as never;
 
 /**
@@ -17,7 +18,7 @@ export function ComposerPlusMenu({
 	onTogglePlan: (next: boolean) => void;
 }) {
 	return (
-		<Host matchContents seedColor={WHITE}>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label="" systemImage="plus">
 				<NativeButton
 					label="Plan mode"

@@ -23,11 +23,9 @@ import {
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-	ComposerModelMenu,
-	ComposerSettingsMenu,
-	type ModelModeValue,
-} from "~/components/model-mode-menu";
+import type { ModelModeValue } from "~/components/model-mode-menu";
+import { ModelSheet } from "~/components/model-sheet";
+import { ModelSheetTrigger } from "~/components/model-sheet-trigger";
 import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
@@ -64,6 +62,7 @@ export default function NewChatScreen() {
 	const insets = useSafeAreaInsets();
 	const [text, setText] = useState("");
 	const [submitting, setSubmitting] = useState(false);
+	const [modelSheetOpen, setModelSheetOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedConnectionKey, setSelectedConnectionKey] = useState<
 		string | null
@@ -461,17 +460,10 @@ export default function NewChatScreen() {
 						>
 							<HugeIcon icon={Add01Icon} size={18} color={colors.secondaryFg} />
 						</Pressable>
-						<ComposerSettingsMenu
-							value={effectiveModelMode}
-							editable
-							onChange={setModelMode}
-						/>
 						<View className="flex-1" />
-						<ComposerModelMenu
+						<ModelSheetTrigger
 							value={effectiveModelMode}
-							editable
-							onChange={setModelMode}
-							availableProviders={availableProviders}
+							onPress={() => setModelSheetOpen(true)}
 						/>
 						<Button
 							size="sm"
@@ -481,15 +473,32 @@ export default function NewChatScreen() {
 							onPress={() => void submit()}
 						>
 							{submitting ? (
-								<ActivityIndicator color={colors.bg} />
+								<ActivityIndicator color={colors.primaryForeground} />
 							) : selectedOptions === null ? (
-								<HugeIcon icon={CloudOffIcon} size={15} color={colors.bg} />
+								<HugeIcon
+									icon={CloudOffIcon}
+									size={15}
+									color={colors.primaryForeground}
+								/>
 							) : (
-								<HugeIcon icon={ArrowUpIcon} size={18} color={colors.bg} />
+								<HugeIcon
+									icon={ArrowUpIcon}
+									size={18}
+									color={colors.primaryForeground}
+								/>
 							)}
 						</Button>
 					</View>
 				</GlassSurface>
+				<ModelSheet
+					open={modelSheetOpen}
+					onOpenChange={setModelSheetOpen}
+					value={effectiveModelMode}
+					availableProviders={availableProviders}
+					canChangeProvider
+					canChangeReasoning
+					onChange={setModelMode}
+				/>
 			</View>
 		</KeyboardAvoidingView>
 	);

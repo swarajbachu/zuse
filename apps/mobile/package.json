@@ -41,6 +41,7 @@
 		"effect": "catalog:",
 		"expo": "~57.0.6",
 		"expo-auth-session": "~57.0.3",
+		"expo-blur": "~57.0.1",
 		"expo-camera": "~57.0.2",
 		"expo-clipboard": "~57.0.1",
 		"expo-constants": "~57.0.5",
