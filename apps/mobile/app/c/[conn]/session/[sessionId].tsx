@@ -34,6 +34,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
+import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
 import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
@@ -628,11 +629,13 @@ function ThreadScreen() {
 				keyboardDismissMode="interactive"
 				ListHeaderComponent={
 					error || connectionProblem ? (
-						<View className="pb-2">
-							{connectionProblem ? (
-								<Text selectable className="font-sans text-[13px] text-danger">
-									{connectionProblem}
-								</Text>
+						<View className="gap-2 pb-2">
+							{connectionProblem && options !== null ? (
+								<ConnectionRecoveryBanner
+									message={connectionProblem}
+									onRetry={() => retryConnection(connKey, options)}
+									onPairAgain={() => router.push("/connect/scan")}
+								/>
 							) : null}
 							{error ? (
 								<Text selectable className="font-sans text-[13px] text-danger">

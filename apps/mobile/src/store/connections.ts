@@ -11,6 +11,7 @@ import {
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { getConnectionClient } from "~/rpc/connection";
+import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 
 export type { ConnectionRecord } from "~/lib/connection-records";
@@ -189,44 +190,13 @@ const redeemPairingCodeIfNeeded = async ({
 	if (!trimmed) return null;
 	if (!trimmed.startsWith("zp_")) return trimmed;
 
-	let response: Response;
-	try {
-		const deviceId = await getOrCreateDeviceId();
-		response = await fetch(`http://${host}:${port}/pair`, {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				code: trimmed,
-				deviceId,
-				deviceLabel: deviceLabel(),
-			}),
-		});
-	} catch {
-		throw new Error(
-			"Could not reach the desktop. Check that both devices are on the same network, then try again.",
-		);
-	}
-	if (!response.ok) {
-		const body = (await response.json().catch(() => null)) as {
-			error?: string;
-		} | null;
-		if (response.status === 410 || body?.error === "expired_code") {
-			throw new Error(
-				"This pairing code expired. Generate a new code on the desktop.",
-			);
-		}
-		if (response.status === 401 || body?.error === "invalid_code") {
-			throw new Error("This pairing code is invalid or has already been used.");
-		}
-		throw new Error(
-			"Could not pair with the desktop. Check that both devices are on the same network.",
-		);
-	}
-	const body = (await response.json()) as { token?: string };
-	if (typeof body.token !== "string" || !body.token.startsWith("zt_")) {
-		throw new Error("Pairing response did not include a bearer token");
-	}
-	return body.token;
+	return redeemPairingCode({
+		host,
+		port,
+		code: trimmed,
+		deviceId: await getOrCreateDeviceId(),
+		deviceLabel: deviceLabel(),
+	});
 };
 
 const describeEnvironment = async (options: WsProtocolOptions) => {

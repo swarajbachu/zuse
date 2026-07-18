@@ -59,6 +59,11 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly schedule: (delayMs: number, fn: () => void) => () => void;
 	readonly classifyError?: (cause: unknown) => "auth" | "transient";
 	readonly isRetryableCommandError?: (cause: unknown) => boolean;
+	/** Reconnect when one logical connection receives a new endpoint or credential. */
+	readonly shouldReconnectOnOptionsChange?: (
+		previous: Options,
+		next: Options,
+	) => boolean;
 	/** Stop background retry churn after this many consecutive failures. */
 	readonly maxAutomaticAttempts?: number;
 	readonly onDiagnostic?: (diagnostic: ConnectionDiagnostic) => void;
@@ -149,8 +154,20 @@ class SupervisorEntryImpl<Options, Client>
 	}
 
 	updateOptions(options: Options): void {
+		const reconnect =
+			this.deps.shouldReconnectOnOptionsChange?.(this.options, options) ===
+			true;
 		this.options = options;
-		this.diagnostic("options.updated");
+		this.diagnostic("options.updated", { reconnect });
+		if (!reconnect || this.removed) return;
+		this.clearRetry();
+		this.invalidateClient();
+		this.emit({
+			status: this.deps.isOnline() ? "reconnecting" : "offline",
+			attempt: 0,
+			error: null,
+		});
+		if (this.deps.isOnline()) void this.ensureClient().catch(() => undefined);
 	}
 
 	snapshot(): ConnectionSnapshot {

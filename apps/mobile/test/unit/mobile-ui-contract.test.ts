@@ -126,4 +126,15 @@ describe("mobile UI contracts", () => {
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).not.toContain("/tool/[itemId]");
 	});
+
+	test("puts an explicit retry action beside connection failures", () => {
+		const home = appFile("index.tsx");
+		const sessions = appFile("c/[conn]/index.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		for (const source of [home, sessions, thread]) {
+			expect(source).toContain("<ConnectionRecoveryBanner");
+		}
+		const scanner = appFile("connect/scan.tsx");
+		expect(scanner).toContain("Try again");
+	});
 });
