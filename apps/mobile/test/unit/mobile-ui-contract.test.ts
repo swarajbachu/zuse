@@ -135,6 +135,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
 			"utf8",
 		);
+		const inlineFileDiff = readFileSync(
+			`${process.cwd()}/src/components/diff/inline-file-diff.tsx`,
+			"utf8",
+		);
 		const reviewPill = readFileSync(
 			`${process.cwd()}/src/components/review-changes-pill.tsx`,
 			"utf8",
@@ -209,7 +213,8 @@ describe("mobile UI contracts", () => {
 		expect(syntax).toContain("MAX_HIGHLIGHT_CHARS");
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
-		expect(turn).toContain("<DiffCodeRow");
+		expect(turn).toContain("<InlineFileDiff");
+		expect(inlineFileDiff).toContain("<DiffCodeRow");
 		expect(turn).toContain(
 			"workspaceDisplayPath(file.path, context.workspaceRoot)",
 		);
@@ -221,9 +226,12 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(messageRow).toContain(
-			"workspaceDisplayPath(view.fileChanges[0].path, workspaceRoot)",
+			"workspaceDisplayPath(change.path, workspaceRoot)",
 		);
-		expect(messageRow).toContain("stats={view.fileChangeTotals}");
+		expect(messageRow).toContain(
+			"<InlineFileDiff lines={change.lines} lineLimit={80} />",
+		);
+		expect(messageRow).not.toContain("stats={view.fileChangeTotals}");
 		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
 		expect(sessionActions).toContain("tintColor={colors.fg}");
 		expect(sessionActions).toContain("destructive");

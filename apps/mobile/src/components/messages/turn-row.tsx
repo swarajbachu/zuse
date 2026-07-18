@@ -1,5 +1,4 @@
 import {
-	type FileChange,
 	summarizeTurnActivity,
 	type TimelineTurn,
 } from "@zuse/client-runtime/timeline";
@@ -15,11 +14,9 @@ import {
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
-import { useUniwind } from "uniwind";
 
-import { DiffCodeRow } from "~/components/diff/review-diff-list";
+import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { FileIcon } from "~/components/ui/file-icon";
-import { DARK_SYNTAX, LIGHT_SYNTAX } from "~/lib/syntax-highlighting";
 import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
@@ -44,16 +41,6 @@ const durationLabel = (durationMs: number): string => {
 		: `Worked for ${rest}s`;
 };
 
-const keyedDiffLines = (lines: FileChange["lines"]) => {
-	const occurrences = new Map<string, number>();
-	return lines.slice(0, 160).map((line) => {
-		const signature = `${line.kind}:${line.oldLine}:${line.newLine}:${line.text}`;
-		const occurrence = occurrences.get(signature) ?? 0;
-		occurrences.set(signature, occurrence + 1);
-		return { key: `${signature}:${occurrence}`, line };
-	});
-};
-
 export function TurnRow({
 	turn,
 	context,
@@ -63,8 +50,6 @@ export function TurnRow({
 	context: MessageRowContext;
 	live: boolean;
 }) {
-	const { theme } = useUniwind();
-	const syntaxPalette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [expandedFile, setExpandedFile] = useState<string | null>(null);
@@ -251,19 +236,7 @@ export function TurnRow({
 											className="overflow-hidden border-t border-border bg-background"
 											style={{ borderCurve: "continuous" }}
 										>
-											{file.lines.length === 0 ? (
-												<Text className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
-													Change preview unavailable.
-												</Text>
-											) : (
-												keyedDiffLines(file.lines).map(({ key, line }) => (
-													<DiffCodeRow
-														key={key}
-														line={line}
-														palette={syntaxPalette}
-													/>
-												))
-											)}
+											<InlineFileDiff lines={file.lines} />
 										</View>
 									) : null}
 								</View>

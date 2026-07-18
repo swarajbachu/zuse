@@ -24,7 +24,7 @@ import {
 } from "lucide-react-native";
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
-import { FileIcon } from "~/components/ui/file-icon";
+import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
 import { captureMobileError } from "~/lib/crash-reporting";
@@ -366,45 +366,53 @@ const ToolUseRow = ({
 		);
 	}
 
-	// File changes stay as compact inline activity. The turn-level summary owns
-	// the full inline diff after completion, so this live row never opens a
-	// second detail surface.
+	// Edits are already concise, structured content. Show the file and its diff
+	// directly instead of adding a redundant disclosure layer.
 	if (view.fileChangeTotals !== null) {
-		const label =
-			view.fileChanges.length === 1 && view.fileChanges[0] !== undefined
-				? workspaceDisplayPath(view.fileChanges[0].path, workspaceRoot)
-				: `${view.fileChanges.length} files edited`;
 		return (
-			<PlainEventRow
-				icon="edit"
-				label={label}
-				stats={view.fileChangeTotals}
-				shimmer={shimmer && running}
-			>
-				<View className="gap-1">
-					{view.fileChanges.map((change) => (
-						<View
-							key={change.path}
-							className="min-h-8 flex-row items-center gap-2"
-						>
-							<FileIcon path={change.path} size={16} />
+			<View className="gap-3 px-2 py-1.5">
+				{view.fileChanges.map((change) => (
+					<View key={change.path}>
+						<View className="min-h-8 flex-row items-center gap-2">
+							{renderToolRowIcon("edit", colors.secondaryFg)}
+							{shimmer && running ? (
+								<ShimmerText className="min-w-0 flex-1 font-mono text-[13px] text-foreground">
+									{workspaceDisplayPath(change.path, workspaceRoot)}
+								</ShimmerText>
+							) : (
+								<Text
+									className="min-w-0 flex-1 font-mono text-[13px] text-foreground"
+									numberOfLines={1}
+									ellipsizeMode="middle"
+								>
+									{workspaceDisplayPath(change.path, workspaceRoot)}
+								</Text>
+							)}
 							<Text
-								className="min-w-0 flex-1 font-mono text-xs text-foreground"
-								numberOfLines={1}
-								ellipsizeMode="middle"
+								className="font-mono text-[12px]"
+								style={{
+									color: colors.diffAdded,
+									fontVariant: ["tabular-nums"],
+								}}
 							>
-								{workspaceDisplayPath(change.path, workspaceRoot)}
-							</Text>
-							<Text className="font-mono text-[11px] text-presence-online">
 								+{change.added}
 							</Text>
-							<Text className="font-mono text-[11px] text-danger">
+							<Text
+								className="font-mono text-[12px]"
+								style={{
+									color: colors.diffRemoved,
+									fontVariant: ["tabular-nums"],
+								}}
+							>
 								−{change.removed}
 							</Text>
 						</View>
-					))}
-				</View>
-			</PlainEventRow>
+						<View className="ml-6 mt-1 overflow-hidden rounded-xl border border-border bg-background">
+							<InlineFileDiff lines={change.lines} lineLimit={80} />
+						</View>
+					</View>
+				))}
+			</View>
 		);
 	}
 
@@ -686,13 +694,11 @@ const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
 function PlainEventRow({
 	icon,
 	label,
-	stats,
 	shimmer = false,
 	children,
 }: {
 	icon: "thinking" | "hourglass" | MobileToolIcon;
 	label: string;
-	stats?: { added: number; removed: number };
 	shimmer?: boolean;
 	children: React.ReactNode;
 }) {
@@ -713,39 +719,12 @@ function PlainEventRow({
 					</ShimmerText>
 				) : (
 					<Text
-						className={cn(
-							"min-w-0 flex-1 text-[13px]",
-							stats === undefined
-								? "font-sans text-muted-foreground"
-								: "font-mono text-foreground",
-						)}
+						className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground"
 						numberOfLines={1}
 						ellipsizeMode="middle"
 					>
 						{label}
 					</Text>
-				)}
-				{stats === undefined ? null : (
-					<>
-						<Text
-							className="font-mono text-[12px]"
-							style={{
-								color: colors.diffAdded,
-								fontVariant: ["tabular-nums"],
-							}}
-						>
-							+{stats.added}
-						</Text>
-						<Text
-							className="font-mono text-[12px]"
-							style={{
-								color: colors.diffRemoved,
-								fontVariant: ["tabular-nums"],
-							}}
-						>
-							−{stats.removed}
-						</Text>
-					</>
 				)}
 				<Chevron size={12} color={colors.secondaryFg} />
 			</View>
