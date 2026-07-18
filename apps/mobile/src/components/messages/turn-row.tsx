@@ -1,5 +1,4 @@
 import {
-	extractFileChanges,
 	type FileChange,
 	summarizeTurnActivity,
 	type TimelineTurn,
@@ -90,29 +89,6 @@ export function TurnRow({
 			message.content._tag === "assistant",
 	).length;
 
-	const fileTargets = useMemo(() => {
-		const byPath = new Map<string, FileChange>();
-		for (const message of turn.body) {
-			const content = message.content;
-			if (content._tag !== "tool_use") continue;
-			for (const file of extractFileChanges(content.tool, content.input)) {
-				const current = byPath.get(file.path);
-				byPath.set(
-					file.path,
-					current === undefined
-						? file
-						: {
-								...current,
-								added: current.added + file.added,
-								removed: current.removed + file.removed,
-								lines: [...current.lines, ...file.lines],
-							},
-				);
-			}
-		}
-		return [...byPath.values()];
-	}, [turn.body]);
-
 	// A completed turn with tool activity AND a final answer collapses like the
 	// desktop: a summary header on top (tool/message counts), the activity hidden
 	// behind it, and the final assistant text always visible below. Anything else
@@ -193,7 +169,7 @@ export function TurnRow({
 				<MessageRow key={message.id} message={message} ctx={context} />
 			))}
 
-			{fileTargets.length > 0 ? (
+			{activity.files.length > 0 ? (
 				<View className="px-2 pt-2">
 					<Pressable
 						accessibilityRole="button"
@@ -207,8 +183,8 @@ export function TurnRow({
 							<ChevronRight size={14} color={colors.secondaryFg} />
 						)}
 						<Text className="font-sans-medium text-[13px] text-muted-foreground">
-							{fileTargets.length} {fileTargets.length === 1 ? "file" : "files"}{" "}
-							changed
+							{activity.files.length}{" "}
+							{activity.files.length === 1 ? "file" : "files"} changed
 						</Text>
 						<Text
 							className="ml-3 font-mono text-[13px]"
@@ -229,7 +205,7 @@ export function TurnRow({
 					</Pressable>
 					{filesOpen ? (
 						<View className="overflow-hidden rounded-2xl border border-border bg-card">
-							{fileTargets.map((file) => (
+							{activity.files.map((file) => (
 								<View key={file.path}>
 									<Pressable
 										key={file.path}

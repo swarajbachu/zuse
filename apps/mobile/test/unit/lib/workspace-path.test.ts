@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { workspaceDisplayPath } from "../../../src/lib/workspace-path";
+import {
+	basename,
+	dirname,
+	workspaceDisplayPath,
+} from "../../../src/lib/workspace-path";
 
 describe("workspaceDisplayPath", () => {
 	test("removes a known workspace root", () => {
@@ -22,5 +26,10 @@ describe("workspaceDisplayPath", () => {
 
 	test("preserves already-relative paths", () => {
 		expect(workspaceDisplayPath("./src/index.ts")).toBe("src/index.ts");
+	});
+
+	test("splits normalized file references", () => {
+		expect(basename("src\\features\\index.ts")).toBe("index.ts");
+		expect(dirname("src\\features\\index.ts")).toBe("src/features");
 	});
 });

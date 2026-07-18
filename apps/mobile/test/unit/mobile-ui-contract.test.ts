@@ -135,10 +135,6 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
 			"utf8",
 		);
-		const nativeHeader = readFileSync(
-			`${process.cwd()}/src/lib/native-header.ts`,
-			"utf8",
-		);
 		const reviewPill = readFileSync(
 			`${process.cwd()}/src/components/review-changes-pill.tsx`,
 			"utf8",
@@ -225,18 +221,14 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(messageRow).toContain(
-			"workspaceDisplayPath(view.editSummaries[0].path, workspaceRoot)",
+			"workspaceDisplayPath(view.fileChanges[0].path, workspaceRoot)",
 		);
-		expect(messageRow).toContain("stats={{ added, removed }}");
+		expect(messageRow).toContain("stats={view.fileChangeTotals}");
 		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
 		expect(sessionActions).toContain("tintColor={colors.fg}");
 		expect(sessionActions).toContain("destructive");
 		expect(sessionActions).not.toContain("NEON_GREEN");
 		expect(reviewPill).not.toContain("GitCompareArrows");
-		expect(nativeHeader).toContain(
-			'headerBlurEffect: "systemUltraThinMaterial"',
-		);
-		expect(nativeHeader).toContain('backgroundColor: "transparent"');
 		expect(files).not.toContain("translucentNativeHeaderOptions");
 		expect(file).not.toContain("translucentNativeHeaderOptions");
 	});

@@ -24,13 +24,11 @@ import {
 	LIGHT_SYNTAX,
 	tokenizeCodeLine,
 } from "~/lib/syntax-highlighting";
+import { basename } from "~/lib/workspace-path";
 import { readWorkspaceFile } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
-
-const basename = (path: string) =>
-	path.split("/").filter(Boolean).at(-1) ?? path;
 
 export default function WorkspaceFileScreen() {
 	const { width } = useWindowDimensions();

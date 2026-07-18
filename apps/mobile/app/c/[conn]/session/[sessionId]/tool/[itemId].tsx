@@ -1,8 +1,4 @@
-import {
-	type DiffLine,
-	extractFileChanges,
-	type FileChange,
-} from "@zuse/client-runtime/timeline";
+import type { DiffLine, FileChange } from "@zuse/client-runtime/timeline";
 import {
 	GitReviewFile,
 	GitReviewSummary,
@@ -70,10 +66,7 @@ export default function ToolDetailScreen() {
 		() => (tool === undefined ? null : buildToolPresentation(tool, result)),
 		[result, tool],
 	);
-	const files = useMemo(
-		() => (tool === undefined ? [] : extractFileChanges(tool.tool, tool.input)),
-		[tool],
-	);
+	const files = presentation?.fileChanges ?? [];
 	const [fileIndex, setFileIndex] = useState(() => {
 		if (filePath === undefined) return 0;
 		return Math.max(
@@ -84,8 +77,8 @@ export default function ToolDetailScreen() {
 	const [tab, setTab] = useState<FileTab>("modified");
 	const file = files[fileIndex];
 	const text = tool === undefined ? "" : rawText(tool, result);
-	const totalAdded = files.reduce((sum, entry) => sum + entry.added, 0);
-	const totalRemoved = files.reduce((sum, entry) => sum + entry.removed, 0);
+	const totalAdded = presentation?.fileChangeTotals?.added ?? 0;
+	const totalRemoved = presentation?.fileChangeTotals?.removed ?? 0;
 	const inlineReview = useMemo(
 		() =>
 			GitReviewSummary.make({

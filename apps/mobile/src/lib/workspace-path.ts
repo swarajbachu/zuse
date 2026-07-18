@@ -1,5 +1,16 @@
 const normalizeSlashes = (value: string): string => value.replaceAll("\\", "/");
 
+export const basename = (path: string): string => {
+	const normalized = normalizeSlashes(path).replace(/\/$/, "");
+	return normalized.slice(normalized.lastIndexOf("/") + 1);
+};
+
+export const dirname = (path: string): string => {
+	const normalized = normalizeSlashes(path).replace(/\/$/, "");
+	const separator = normalized.lastIndexOf("/");
+	return separator <= 0 ? "" : normalized.slice(0, separator);
+};
+
 /** Keep filesystem identity private while presenting a workspace-relative path. */
 export const workspaceDisplayPath = (
 	path: string,

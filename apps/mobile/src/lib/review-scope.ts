@@ -29,3 +29,9 @@ export const reviewScopeCompatibilityError = (
 	requested !== undefined && requested !== "branch" && requested !== actual
 		? "Restart or update the desktop app to review staged and unstaged changes separately."
 		: null;
+
+/** Omit the original branch range for compatibility with older desktops. */
+export const reviewScopeRequestValue = (
+	scope: GitReviewScope | undefined,
+): GitReviewScope | undefined =>
+	scope === undefined || scope === "branch" ? undefined : scope;

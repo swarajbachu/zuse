@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
 	extractFileChanges,
 	groupTimelineTurns,
+	mergeFileChanges,
 	parseUnifiedPatch,
+	summarizeFileChanges,
 	summarizeTurnActivity,
 } from "../../src/timeline.ts";
 
@@ -96,6 +98,19 @@ describe("timeline projection", () => {
 			added: 3,
 			removed: 2,
 		});
+	});
+
+	it("merges repeated file edits and totals them once", () => {
+		const changes = mergeFileChanges([
+			{ path: "src/a.ts", added: 2, removed: 1, lines: [] },
+			{ path: "src/b.ts", added: 1, removed: 0, lines: [] },
+			{ path: "src/a.ts", added: 3, removed: 2, lines: [] },
+		]);
+		expect(changes).toMatchObject([
+			{ path: "src/a.ts", added: 5, removed: 3 },
+			{ path: "src/b.ts", added: 1, removed: 0 },
+		]);
+		expect(summarizeFileChanges(changes)).toEqual({ added: 6, removed: 3 });
 	});
 
 	it("extracts real file paths from apply-patch tool payloads", () => {

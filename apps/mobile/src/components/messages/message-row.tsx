@@ -369,45 +369,37 @@ const ToolUseRow = ({
 	// File changes stay as compact inline activity. The turn-level summary owns
 	// the full inline diff after completion, so this live row never opens a
 	// second detail surface.
-	if (view.fileChangeSummary !== null) {
-		const added = view.editSummaries.reduce(
-			(total, summary) => total + summary.added,
-			0,
-		);
-		const removed = view.editSummaries.reduce(
-			(total, summary) => total + summary.removed,
-			0,
-		);
+	if (view.fileChangeTotals !== null) {
 		const label =
-			view.editSummaries.length === 1 && view.editSummaries[0] !== undefined
-				? workspaceDisplayPath(view.editSummaries[0].path, workspaceRoot)
-				: `${view.editSummaries.length} files edited`;
+			view.fileChanges.length === 1 && view.fileChanges[0] !== undefined
+				? workspaceDisplayPath(view.fileChanges[0].path, workspaceRoot)
+				: `${view.fileChanges.length} files edited`;
 		return (
 			<PlainEventRow
 				icon="edit"
 				label={label}
-				stats={{ added, removed }}
+				stats={view.fileChangeTotals}
 				shimmer={shimmer && running}
 			>
 				<View className="gap-1">
-					{view.editSummaries.map((summary) => (
+					{view.fileChanges.map((change) => (
 						<View
-							key={summary.path}
+							key={change.path}
 							className="min-h-8 flex-row items-center gap-2"
 						>
-							<FileIcon path={summary.path} size={16} />
+							<FileIcon path={change.path} size={16} />
 							<Text
 								className="min-w-0 flex-1 font-mono text-xs text-foreground"
 								numberOfLines={1}
 								ellipsizeMode="middle"
 							>
-								{workspaceDisplayPath(summary.path, workspaceRoot)}
+								{workspaceDisplayPath(change.path, workspaceRoot)}
 							</Text>
 							<Text className="font-mono text-[11px] text-presence-online">
-								+{summary.added}
+								+{change.added}
 							</Text>
 							<Text className="font-mono text-[11px] text-danger">
-								−{summary.removed}
+								−{change.removed}
 							</Text>
 						</View>
 					))}

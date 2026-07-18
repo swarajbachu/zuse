@@ -24,6 +24,7 @@ import {
 	type SyntaxPalette,
 	tokenizeCodeLine,
 } from "~/lib/syntax-highlighting";
+import { basename, dirname } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 
 type DiffRow =
@@ -274,11 +275,8 @@ const DiffFileHeader = memo(function DiffFileHeader({
 	pinned?: boolean;
 	onPress: () => void;
 }) {
-	const name = file.path.split("/").at(-1) ?? file.path;
-	const directory = file.path.slice(
-		0,
-		Math.max(0, file.path.length - name.length - 1),
-	);
+	const name = basename(file.path);
+	const directory = dirname(file.path);
 	return (
 		<View
 			className={expanded || pinned ? "bg-background" : "bg-transparent px-4"}

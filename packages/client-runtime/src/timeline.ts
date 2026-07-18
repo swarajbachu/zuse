@@ -25,6 +25,40 @@ export type FileChange = {
 	readonly lines: readonly DiffLine[];
 };
 
+export type FileChangeTotals = {
+	readonly added: number;
+	readonly removed: number;
+};
+
+export const summarizeFileChanges = (
+	changes: readonly FileChange[],
+): FileChangeTotals => ({
+	added: changes.reduce((total, change) => total + change.added, 0),
+	removed: changes.reduce((total, change) => total + change.removed, 0),
+});
+
+/** Merge repeated edits while preserving the first-seen file order. */
+export const mergeFileChanges = (
+	changes: readonly FileChange[],
+): readonly FileChange[] => {
+	const byPath = new Map<string, FileChange>();
+	for (const change of changes) {
+		const current = byPath.get(change.path);
+		byPath.set(
+			change.path,
+			current === undefined
+				? change
+				: {
+						...current,
+						added: current.added + change.added,
+						removed: current.removed + change.removed,
+						lines: [...current.lines, ...change.lines],
+					},
+		);
+	}
+	return [...byPath.values()];
+};
+
 export type TurnActivitySummary = {
 	readonly tools: number;
 	readonly commands: number;
@@ -325,7 +359,7 @@ export const summarizeTurnActivity = (
 	let reads = 0;
 	let searches = 0;
 	let agents = 0;
-	const files: FileChange[] = [];
+	const extractedFiles: FileChange[] = [];
 	for (const message of body) {
 		if (message.content._tag === "subagent_summary") agents += 1;
 		if (message.content._tag !== "tool_use") continue;
@@ -335,10 +369,12 @@ export const summarizeTurnActivity = (
 		if (/^read|readfile/.test(tool)) reads += 1;
 		if (/grep|glob|search/.test(tool)) searches += 1;
 		if (/task|agent|spawn/.test(tool)) agents += 1;
-		files.push(
+		extractedFiles.push(
 			...extractFileChanges(message.content.tool, message.content.input),
 		);
 	}
+	const files = mergeFileChanges(extractedFiles);
+	const totals = summarizeFileChanges(files);
 	return {
 		tools,
 		commands,
@@ -346,7 +382,7 @@ export const summarizeTurnActivity = (
 		searches,
 		agents,
 		files,
-		added: files.reduce((total, file) => total + file.added, 0),
-		removed: files.reduce((total, file) => total + file.removed, 0),
+		added: totals.added,
+		removed: totals.removed,
 	};
 };

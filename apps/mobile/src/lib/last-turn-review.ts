@@ -1,6 +1,8 @@
 import {
 	extractFileChanges,
 	type FileChange,
+	mergeFileChanges,
+	summarizeFileChanges,
 	type TimelineTurn,
 } from "@zuse/client-runtime/timeline";
 import { GitReviewFile, GitReviewSummary } from "@zuse/contracts";
@@ -18,30 +20,17 @@ export type LocalReview = {
 export const buildLastTurnReview = (
 	turn: TimelineTurn | undefined,
 ): LocalReview => {
-	const byPath = new Map<string, FileChange>();
+	const extractedChanges: FileChange[] = [];
 	for (const message of turn?.body ?? []) {
 		if (message.content._tag !== "tool_use") continue;
-		for (const change of extractFileChanges(
-			message.content.tool,
-			message.content.input,
-		)) {
-			const current = byPath.get(change.path);
-			byPath.set(
-				change.path,
-				current === undefined
-					? change
-					: {
-							...current,
-							added: current.added + change.added,
-							removed: current.removed + change.removed,
-							lines: [...current.lines, ...change.lines],
-						},
-			);
-		}
+		extractedChanges.push(
+			...extractFileChanges(message.content.tool, message.content.input),
+		);
 	}
-	const changes = [...byPath.values()].sort((left, right) =>
+	const changes = [...mergeFileChanges(extractedChanges)].sort((left, right) =>
 		left.path.localeCompare(right.path),
 	);
+	const totals = summarizeFileChanges(changes);
 	const files = changes.map((change) =>
 		GitReviewFile.make({
 			path: change.path,
@@ -62,8 +51,8 @@ export const buildLastTurnReview = (
 			baseSha: "",
 			headSha: "",
 			files,
-			additions: files.reduce((total, file) => total + file.additions, 0),
-			deletions: files.reduce((total, file) => total + file.deletions, 0),
+			additions: totals.added,
+			deletions: totals.removed,
 		}),
 		patches: Object.fromEntries(
 			changes.map((change) => [
