@@ -371,7 +371,7 @@ const ToolUseRow = ({
 	// Skip the redundant tool-level disclosure, but let each file reveal its diff.
 	if (view.fileChangeTotals !== null) {
 		return (
-			<View className="gap-3 px-2 py-1.5">
+			<View className="px-2 py-0.5">
 				{view.fileChanges.map((change) => (
 					<EditedFileRow
 						key={change.path}
