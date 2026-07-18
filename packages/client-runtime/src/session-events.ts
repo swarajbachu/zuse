@@ -43,6 +43,12 @@ class SessionEventCursorRegistry {
 	delete(key: string): void {
 		this.cursors.delete(key);
 	}
+
+	clearPrefix(prefix: string): void {
+		for (const key of this.cursors.keys()) {
+			if (key.startsWith(prefix)) this.cursors.delete(key);
+		}
+	}
 }
 
 /** Shared monotonic cursor owner used by renderer and mobile stream adapters. */

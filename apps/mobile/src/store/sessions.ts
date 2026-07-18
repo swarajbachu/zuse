@@ -105,6 +105,20 @@ const stopFiber = async (
 	}
 };
 
+export const resetSessionsRuntime = async (): Promise<void> => {
+	await Promise.all([
+		...Array.from(statusFibers.keys(), (key) => stopFiber(key, statusFibers)),
+		...Array.from(chatFibers.keys(), (key) => stopFiber(key, chatFibers)),
+	]);
+	sessionEventCursors.clearPrefix("mobile:status:");
+	useSessionsStore.setState({
+		bundlesByConnection: {},
+		statusBySession: {},
+		errorByConnection: {},
+		loadingByConnection: {},
+	});
+};
+
 export const useSessionsStore = create<SessionsState>((set, get) => ({
 	bundlesByConnection: {},
 	statusBySession: {},

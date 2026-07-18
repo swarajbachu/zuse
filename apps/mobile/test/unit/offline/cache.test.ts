@@ -8,13 +8,22 @@ import {
 } from "../../../src/offline/cache-utils";
 
 describe("mobile offline helpers", () => {
-	test("parses Track C pairing URLs", () => {
+	test("parses legacy and routable pairing URLs", () => {
 		expect(
 			parsePairingUrl("zuse://?pairingUrl=127.0.0.1:8787#token=abc"),
 		).toEqual({
 			host: "127.0.0.1",
 			port: 8787,
 			token: "abc",
+		});
+		expect(
+			parsePairingUrl(
+				"zuse:///connect/pair?pairingUrl=ws%3A%2F%2F192.168.1.2%3A9000#token=zp_code",
+			),
+		).toEqual({
+			host: "192.168.1.2",
+			port: 9000,
+			token: "zp_code",
 		});
 	});
 

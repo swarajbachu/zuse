@@ -12,6 +12,7 @@ import {
 
 const connection = {
 	key: "env-1",
+	source: "relay" as const,
 	environmentId: "env-1",
 	host: "relay.example",
 	port: 443,

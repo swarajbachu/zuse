@@ -11,20 +11,19 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "~/components/ui/button";
+import { returnToInbox } from "~/lib/connection-navigation";
 import { useConnectionsStore } from "~/store/connections";
 import { colors } from "~/theme";
 
-/**
- * Manual "Add connection" form, presented as a native iOS form sheet (see the
- * `connect/manual` screen options in `app/_layout.tsx`). The old custom Modal
- * `Sheet` component is gone in favor of this route.
- */
+/** Manual connection setup in the same root navigation stack as the inbox. */
 export default function ManualConnectScreen() {
 	const insets = useSafeAreaInsets();
 	const add = useConnectionsStore((state) => state.add);
 	const [host, setHost] = useState("127.0.0.1");
 	const [port, setPort] = useState(String(DEFAULT_LOCAL_DESKTOP_PORT));
 	const [token, setToken] = useState("");
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
 	const canAdd = useMemo(
 		() => host.trim().length > 0 && Number(port) > 0,
@@ -32,9 +31,21 @@ export default function ManualConnectScreen() {
 	);
 
 	const submit = async () => {
-		if (!canAdd) return;
-		await add({ host, port: Number(port), token });
-		router.back();
+		if (!canAdd || busy) return;
+		setBusy(true);
+		setError(null);
+		try {
+			await add({ host, port: Number(port), token, source: "manual" });
+			returnToInbox(router);
+		} catch (cause) {
+			setError(
+				cause instanceof Error
+					? cause.message
+					: "Could not reach that connection. Check the address and try again.",
+			);
+		} finally {
+			setBusy(false);
+		}
 	};
 
 	return (
@@ -75,8 +86,18 @@ export default function ManualConnectScreen() {
 					/>
 				</View>
 
-				<Button disabled={!canAdd} onPress={submit}>
-					Save connection
+				{error === null ? null : (
+					<Text selectable className="font-sans text-sm text-danger">
+						{error}
+					</Text>
+				)}
+
+				<Button disabled={!canAdd || busy} onPress={submit}>
+					{busy
+						? "Connecting…"
+						: error === null
+							? "Save connection"
+							: "Try again"}
 				</Button>
 			</ScrollView>
 			<View style={{ height: insets.bottom }} />

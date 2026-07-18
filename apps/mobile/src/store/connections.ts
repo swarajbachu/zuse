@@ -2,21 +2,17 @@ import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { Effect } from "effect";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import {
+	type ConnectionRecord,
+	type ConnectionSource,
+	connectionStorageKey,
+	decodeConnectionRecords,
+} from "~/lib/connection-records";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { getConnectionClient } from "~/rpc/connection";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
 
-export type ConnectionRecord = {
-	key: string;
-	environmentId?: string;
-	host: string;
-	port: number;
-	token?: string | null;
-	/** Full ws(s):// base URL for relay/tunnel-reached environments. */
-	wsBaseUrl?: string | null;
-	label: string;
-	updatedAt: number;
-};
+export type { ConnectionRecord } from "~/lib/connection-records";
 
 type ConnectionsState = {
 	connections: ConnectionRecord[];
@@ -26,6 +22,7 @@ type ConnectionsState = {
 		host: string;
 		port: number;
 		token?: string | null;
+		source: Exclude<ConnectionSource, "relay">;
 	}) => Promise<ConnectionRecord>;
 	/** Upsert a relay-discovered environment reached via a managed endpoint. */
 	addRelay: (input: {
@@ -64,7 +61,7 @@ const loadConnections = Effect.tryPromise({
 	try: async () => {
 		const raw = await SecureStore.getItemAsync(STORE_KEY);
 		if (raw === null) return [] as ConnectionRecord[];
-		return JSON.parse(raw) as ConnectionRecord[];
+		return decodeConnectionRecords(JSON.parse(raw));
 	},
 	catch: () => [] as ConnectionRecord[],
 });
@@ -81,8 +78,9 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 	hydrate: async () => {
 		const connections = await Effect.runPromise(loadConnections);
 		set({ connections, hydrated: true });
+		await Effect.runPromise(saveConnections(connections));
 	},
-	add: async ({ host, port, token }) => {
+	add: async ({ host, port, token, source }) => {
 		const trimmedHost = host.trim();
 		const redeemed = await redeemPairingCodeIfNeeded({
 			host: trimmedHost,
@@ -94,15 +92,30 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 			port,
 			token: redeemed,
 		});
-		const key = descriptor?.environmentId ?? connectionKey(trimmedHost, port);
+		if (source === "manual" && descriptor === null) {
+			throw new Error(
+				"Could not reach that desktop. Check the address, token, and network, then try again.",
+			);
+		}
+		const identity =
+			descriptor?.environmentId ?? connectionKey(trimmedHost, port);
+		const key =
+			get().connections.find(
+				(connection) =>
+					connection.source === source &&
+					((descriptor !== null &&
+						connection.environmentId === descriptor.environmentId) ||
+						connection.key === connectionStorageKey(source, identity)),
+			)?.key ?? connectionStorageKey(source, identity);
 		const record: ConnectionRecord = {
 			key,
 			environmentId: descriptor?.environmentId,
 			host: trimmedHost,
 			port,
 			token: redeemed,
-			label: visibleConnectionLabel(descriptor?.label, key),
+			label: visibleConnectionLabel(descriptor?.label, identity),
 			updatedAt: Date.now(),
+			source,
 		};
 		const next = [record, ...get().connections.filter((c) => c.key !== key)];
 		set({ connections: next });
@@ -111,8 +124,14 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 	},
 	addRelay: async ({ environmentId, label, wsBaseUrl, token }) => {
 		const { host, port } = parseHostPort(wsBaseUrl);
+		const key =
+			get().connections.find(
+				(connection) =>
+					connection.source === "relay" &&
+					connection.environmentId === environmentId,
+			)?.key ?? connectionStorageKey("relay", environmentId);
 		const record: ConnectionRecord = {
-			key: environmentId,
+			key,
 			environmentId,
 			host,
 			port,
@@ -120,10 +139,11 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 			token,
 			label: visibleConnectionLabel(label),
 			updatedAt: Date.now(),
+			source: "relay",
 		};
 		const next = [
 			record,
-			...get().connections.filter((c) => c.key !== environmentId),
+			...get().connections.filter((connection) => connection.key !== key),
 		];
 		set({ connections: next });
 		await Effect.runPromise(saveConnections(next));
@@ -168,13 +188,33 @@ const redeemPairingCodeIfNeeded = async ({
 	if (!trimmed) return null;
 	if (!trimmed.startsWith("zp_")) return trimmed;
 
-	const response = await fetch(`http://${host}:${port}/pair`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ code: trimmed }),
-	});
+	let response: Response;
+	try {
+		response = await fetch(`http://${host}:${port}/pair`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ code: trimmed }),
+		});
+	} catch {
+		throw new Error(
+			"Could not reach the desktop. Check that both devices are on the same network, then try again.",
+		);
+	}
 	if (!response.ok) {
-		throw new Error(`Pairing failed (${response.status})`);
+		const body = (await response.json().catch(() => null)) as {
+			error?: string;
+		} | null;
+		if (response.status === 410 || body?.error === "expired_code") {
+			throw new Error(
+				"This pairing code expired. Generate a new code on the desktop.",
+			);
+		}
+		if (response.status === 401 || body?.error === "invalid_code") {
+			throw new Error("This pairing code is invalid or has already been used.");
+		}
+		throw new Error(
+			"Could not pair with the desktop. Check that both devices are on the same network.",
+		);
 	}
 	const body = (await response.json()) as { token?: string };
 	if (typeof body.token !== "string" || !body.token.startsWith("zt_")) {

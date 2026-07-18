@@ -1,5 +1,5 @@
 import type { SessionId } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { create } from "zustand";
 import { connectionSessionKey } from "~/lib/session-key";
 import type { QueuedMessage } from "~/offline/cache";
@@ -39,6 +39,11 @@ type OutboxState = {
 // In-flight guard so a reconnect burst can't start two overlapping flushes for
 // the same session (which would double-send the head of the queue).
 const flushing = new Set<string>();
+const activeFlushFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const flushDrainWaiters = new Set<() => void>();
+const pendingWrites = new Set<Promise<void>>();
+let resetGeneration = 0;
+let resetting = false;
 let counter = 0;
 
 const makeClientId = () =>
@@ -48,10 +53,36 @@ const persist = (
 	connKey: string,
 	sessionId: SessionId,
 	items: readonly QueuedMessage[],
-) =>
-	Effect.runPromise(writeOutboxSnapshot(connKey, sessionId, { items })).catch(
-		() => {},
+) => {
+	const write = Effect.runPromise(
+		writeOutboxSnapshot(connKey, sessionId, { items }),
+	).catch(() => {});
+	pendingWrites.add(write);
+	void write.finally(() => pendingWrites.delete(write));
+	return write;
+};
+
+export const resetOutboxRuntime = async (): Promise<void> => {
+	resetting = true;
+	resetGeneration += 1;
+	const fibers = [...activeFlushFibers.values()];
+	activeFlushFibers.clear();
+	await Promise.all(
+		fibers.map((fiber) =>
+			Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {}),
+		),
 	);
+	if (flushing.size > 0) {
+		await new Promise<void>((resolve) => flushDrainWaiters.add(resolve));
+	}
+	await Promise.allSettled([...pendingWrites]);
+	useOutboxStore.setState({
+		queuedBySession: {},
+		sendingBySession: {},
+		errorBySession: {},
+	});
+	resetting = false;
+};
 
 export const useOutboxStore = create<OutboxState>((set, get) => ({
 	queuedBySession: {},
@@ -98,9 +129,10 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 	},
 	flush: async (connKey, options, sessionId) => {
 		const key = connectionSessionKey(connKey, sessionId);
-		if (flushing.has(key)) return;
+		if (resetting || flushing.has(key)) return;
 		const queued = get().queuedBySession[key] ?? [];
 		if (queued.length === 0) return;
+		const generation = resetGeneration;
 		flushing.add(key);
 		set((state) => ({
 			sendingBySession: { ...state.sendingBySession, [key]: true },
@@ -113,14 +145,21 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 			let remaining = queued;
 			for (const item of queued) {
 				try {
-					await Effect.runPromise(
+					const fiber = Effect.runFork(
 						queueMessage({
 							connection: options,
 							sessionId,
 							input: makeTextInput(item.text),
 						}),
 					);
+					activeFlushFibers.set(key, fiber);
+					await Effect.runPromise(Fiber.join(fiber));
+					if (activeFlushFibers.get(key) === fiber) {
+						activeFlushFibers.delete(key);
+					}
 				} catch (cause) {
+					activeFlushFibers.delete(key);
+					if (generation !== resetGeneration) return;
 					const reason = messageOf(cause);
 					console.warn("[mobile] outbox.queue_add_failed", {
 						sessionId,
@@ -134,6 +173,7 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 					}));
 					break;
 				}
+				if (generation !== resetGeneration) return;
 				remaining = remaining.filter(
 					(entry) => entry.clientId !== item.clientId,
 				);
@@ -141,20 +181,34 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 					queuedBySession: { ...state.queuedBySession, [key]: remaining },
 				}));
 				await persist(connKey, sessionId, remaining);
-				await Effect.runPromise(
+				if (generation !== resetGeneration) return;
+				const flushFiber = Effect.runFork(
 					flushServerQueue({ connection: options, sessionId }),
-				).catch((cause) => {
+				);
+				activeFlushFibers.set(key, flushFiber);
+				await Effect.runPromise(Fiber.join(flushFiber)).catch((cause) => {
 					console.warn("[mobile] outbox.flush_failed", {
 						sessionId,
 						reason: messageOf(cause),
 					});
 				});
+				if (activeFlushFibers.get(key) === flushFiber) {
+					activeFlushFibers.delete(key);
+				}
+				if (generation !== resetGeneration) return;
 			}
 		} finally {
+			activeFlushFibers.delete(key);
 			flushing.delete(key);
-			set((state) => ({
-				sendingBySession: { ...state.sendingBySession, [key]: false },
-			}));
+			if (generation === resetGeneration) {
+				set((state) => ({
+					sendingBySession: { ...state.sendingBySession, [key]: false },
+				}));
+			}
+			if (flushing.size === 0) {
+				for (const resolve of flushDrainWaiters) resolve();
+				flushDrainWaiters.clear();
+			}
 		}
 	},
 }));

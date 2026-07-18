@@ -1,14 +1,10 @@
 import { Host } from "@expo/ui";
 import {
 	Divider,
-	HStack,
-	Image,
 	Menu,
 	Button as NativeButton,
 	Section,
-	Text,
 } from "@expo/ui/swift-ui";
-import { font, foregroundColor } from "@expo/ui/swift-ui/modifiers";
 import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
 
 import {
@@ -90,13 +86,8 @@ export function ComposerModelMenu({
 			seedColor={WHITE}
 		>
 			<Menu
-				label={
-					<ProviderLabel
-						providerId={value.providerId}
-						text={compactModelLabel(value)}
-						tint={WHITE}
-					/>
-				}
+				label={compactModelLabel(value)}
+				systemImage={providerSystemImage(value.providerId)}
 			>
 				<ProviderModelMenus
 					value={value}
@@ -399,9 +390,8 @@ function ProviderModelMenus({
 			{providers.map((provider) => (
 				<Menu
 					key={provider.value}
-					label={
-						<ProviderLabel providerId={provider.value} text={provider.label} />
-					}
+					label={provider.label}
+					systemImage={providerSystemImage(provider.value)}
 				>
 					{modelOptionsForProvider(provider.value).map((model) => (
 						<NativeButton
@@ -447,9 +437,11 @@ const REASONING_GAUGE_ICONS = [
 const reasoningLevelIcon = (index: number, count: number): string => {
 	if (count <= 1) return REASONING_GAUGE_ICONS[2];
 	const ratio = index / (count - 1);
-	return REASONING_GAUGE_ICONS[
-		Math.round(ratio * (REASONING_GAUGE_ICONS.length - 1))
-	]!;
+	return (
+		REASONING_GAUGE_ICONS[
+			Math.round(ratio * (REASONING_GAUGE_ICONS.length - 1))
+		] ?? REASONING_GAUGE_ICONS[2]
+	);
 };
 
 function ReasoningButtons({
@@ -581,47 +573,6 @@ const runtimeLabel = (value: ModelModeValue): string =>
 	value.runtimeMode;
 
 const WHITE = "#ffffff";
-
-/** Asset-catalog name for a provider's real brand logo (template image set). */
-const providerAsset = (providerId: ProviderId): string =>
-	`provider-${providerId}`;
-
-/**
- * A native menu label showing a provider's real brand logo (loaded from the
- * iOS asset catalog as a template image, so it tints) beside its text. Used for
- * the composer trigger and each provider submenu so the menu shows real logos
- * instead of approximated SF Symbols. Pass `tint` to force a colour (white on
- * the dark composer); omit it inside the popup so rows inherit the system menu
- * colour.
- */
-function ProviderLabel({
-	providerId,
-	text,
-	tint,
-	size = 15,
-}: {
-	providerId: ProviderId;
-	text: string;
-	tint?: string;
-	size?: number;
-}) {
-	return (
-		<HStack spacing={6}>
-			<Image
-				assetName={providerAsset(providerId)}
-				size={size}
-				modifiers={tint ? [foregroundColor(tint)] : []}
-			/>
-			<Text
-				modifiers={
-					tint ? [foregroundColor(tint), font({ size })] : [font({ size })]
-				}
-			>
-				{text}
-			</Text>
-		</HStack>
-	);
-}
 
 const providerSystemImage = (providerId: ProviderId): string => {
 	switch (providerId) {

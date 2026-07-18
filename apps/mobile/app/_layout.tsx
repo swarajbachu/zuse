@@ -3,7 +3,8 @@ import "~/polyfills";
 
 import { GeistMono_400Regular } from "@expo-google-fonts/geist-mono";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import * as Linking from "expo-linking";
+import { router, Stack } from "expo-router";
 import {
 	DarkTheme,
 	DefaultTheme,
@@ -16,6 +17,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
 import { installCrashReporting } from "~/lib/crash-reporting";
+import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
 import { colors } from "~/theme";
 
@@ -24,11 +26,21 @@ export default function RootLayout() {
 	const [fontsLoaded] = useFonts({
 		GeistMono_400Regular,
 	});
+	const incomingUrl = Linking.useURL();
 
 	useEffect(() => {
 		installCrashReporting();
 		return installNotificationResponseHandler();
 	}, []);
+
+	useEffect(() => {
+		if (incomingUrl !== null && isLegacyPairingUrl(incomingUrl)) {
+			router.replace({
+				pathname: "/connect/pair",
+				params: { pairing: incomingUrl },
+			});
+		}
+	}, [incomingUrl]);
 
 	if (!fontsLoaded) {
 		return <View className="flex-1 bg-background" />;
@@ -71,14 +83,8 @@ export default function RootLayout() {
 						name="settings"
 						options={{
 							title: "Settings",
-							presentation: "formSheet",
+							presentation: "card",
 							headerLargeTitle: false,
-							headerTransparent: true,
-							contentStyle: { backgroundColor: "transparent" },
-							sheetAllowedDetents: [0.52, 0.92],
-							sheetCornerRadius: 28,
-							sheetGrabberVisible: true,
-							sheetLargestUndimmedDetentIndex: 0,
 						}}
 					/>
 					<Stack.Screen
@@ -93,12 +99,9 @@ export default function RootLayout() {
 						name="connect/manual"
 						options={{
 							title: "Add connection",
-							presentation: "formSheet",
+							presentation: "card",
 							headerLargeTitle: false,
 							headerTransparent: false,
-							sheetGrabberVisible: true,
-							sheetAllowedDetents: [0.55, 0.92],
-							sheetCornerRadius: 20,
 						}}
 					/>
 					<Stack.Screen
@@ -106,7 +109,15 @@ export default function RootLayout() {
 						options={{
 							title: "Scan",
 							headerLargeTitle: false,
-							presentation: "modal",
+							presentation: "fullScreenModal",
+						}}
+					/>
+					<Stack.Screen
+						name="connect/pair"
+						options={{
+							title: "Pair with desktop",
+							headerLargeTitle: false,
+							presentation: "card",
 						}}
 					/>
 					<Stack.Screen name="c/[conn]/index" options={{ title: "Sessions" }} />

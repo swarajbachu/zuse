@@ -2,13 +2,14 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { QrCode } from "lucide-react-native";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { ActivityIndicator, Linking, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
+import { returnToInbox } from "~/lib/connection-navigation";
 import { successTap } from "~/lib/haptics";
-import { parsePairingUrl } from "~/offline/cache-utils";
+import { pairWithDesktop } from "~/lib/pairing";
 import { useConnectionsStore } from "~/store/connections";
 
 export default function ScanScreen() {
@@ -18,7 +19,15 @@ export default function ScanScreen() {
 	const [error, setError] = useState<string | null>(null);
 	const add = useConnectionsStore((state) => state.add);
 
-	if (permission === null || !permission.granted) {
+	if (permission === null) {
+		return (
+			<View className="flex-1 items-center justify-center bg-background">
+				<ActivityIndicator />
+			</View>
+		);
+	}
+
+	if (!permission.granted) {
 		return (
 			<View className="flex-1 bg-background px-4">
 				<EmptyState
@@ -27,7 +36,13 @@ export default function ScanScreen() {
 					detail="Camera access is used only to scan a pairing code shown by the desktop app."
 				/>
 				<View style={{ paddingBottom: insets.bottom + 16 }}>
-					<Button onPress={requestPermission}>Allow camera</Button>
+					<Button
+						onPress={
+							permission.canAskAgain ? requestPermission : Linking.openSettings
+						}
+					>
+						{permission.canAskAgain ? "Allow camera" : "Open iPhone Settings"}
+					</Button>
 				</View>
 			</View>
 		);
@@ -45,10 +60,9 @@ export default function ScanScreen() {
 								setScanned(true);
 								setError(null);
 								try {
-									const parsed = parsePairingUrl(data);
-									const record = await add(parsed);
+									await pairWithDesktop(data, add);
 									successTap();
-									router.replace(`/c/${encodeURIComponent(record.key)}`);
+									returnToInbox(router);
 								} catch (cause) {
 									setError(
 										cause instanceof Error

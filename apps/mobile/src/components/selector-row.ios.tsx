@@ -1,19 +1,5 @@
 import { Host } from "@expo/ui";
-import {
-	HStack,
-	Image,
-	Menu,
-	Button as NativeButton,
-	Spacer,
-	Text,
-} from "@expo/ui/swift-ui";
-import {
-	contentShape,
-	font,
-	foregroundColor,
-	frame,
-	shapes,
-} from "@expo/ui/swift-ui/modifiers";
+import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 
 export type SelectorOption = {
 	key: string;
@@ -22,18 +8,10 @@ export type SelectorOption = {
 	onSelect: () => void;
 };
 
-const WHITE = "#ffffff";
-const CHEVRON = "#c9c9c7";
-
 /**
- * A transparent new-chat selector row rendered entirely as a native SwiftUI
- * Menu: a white leading SF Symbol, a white label, a trailing up/down chevron.
- * The Host stretches to the row width (so the native menu measures a real width
- * — with an intrinsic/`flex-start` width it collapses and clips the icon +
- * hides the label). A trailing `Spacer` eats the leftover width so the icon ·
- * text · chevron cluster stays pinned to the LEFT (SwiftUI ignores the frame's
- * `leading` alignment for this custom menu label, so the Spacer does the work).
- * `contentShape` makes the whole stretched row a tap target.
+ * Uses Menu's stable string/system-image label rather than HStackView. The
+ * latter is unavailable in older development clients and can crash before the
+ * React Native fallback renders.
  */
 export function SelectorRow({
 	symbol,
@@ -50,32 +28,7 @@ export function SelectorRow({
 }) {
 	return (
 		<Host style={{ alignSelf: "stretch", height: 40 }}>
-			<Menu
-				label={
-					<HStack
-						spacing={8}
-						modifiers={[
-							frame({ maxWidth: 10000, height: 40, alignment: "leading" }),
-							contentShape(shapes.rectangle()),
-						]}
-					>
-						<Image
-							systemName={sf(symbol)}
-							size={15}
-							modifiers={[foregroundColor(WHITE)]}
-						/>
-						<Text modifiers={[foregroundColor(WHITE), font({ size: 15 })]}>
-							{label}
-						</Text>
-						<Image
-							systemName={sf("chevron.up.chevron.down")}
-							size={11}
-							modifiers={[foregroundColor(CHEVRON)]}
-						/>
-						<Spacer />
-					</HStack>
-				}
-			>
+			<Menu label={label} systemImage={sf(symbol)}>
 				{disabled || options.length === 0 ? (
 					<NativeButton label={emptyLabel} onPress={() => {}} />
 				) : (

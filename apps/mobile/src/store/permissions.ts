@@ -43,6 +43,11 @@ const stop = async (key: string) => {
 	}
 };
 
+export const resetPermissionsRuntime = async (): Promise<void> => {
+	await Promise.all(Array.from(liveFibers.keys(), stop));
+	usePermissionsStore.setState({ pendingBySession: {} });
+};
+
 export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 	pendingBySession: {},
 	hydrate: async (connKey, options, sessionId) => {

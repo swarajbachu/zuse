@@ -5,6 +5,8 @@ import {
 	ChevronRight,
 	Loader2,
 	MessageSquare,
+	Plus,
+	QrCode,
 	Search,
 	Settings,
 	X,
@@ -30,6 +32,7 @@ import { PresenceDot } from "~/components/ui/presence-dot";
 import { cn } from "~/lib/cn";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
+import { availableConnections } from "~/lib/connection-records";
 import { githubOwnerAvatarUrl } from "~/lib/display-names";
 import { selectionTap, successTap } from "~/lib/haptics";
 import {
@@ -97,6 +100,10 @@ export default function HomeScreen() {
 		archiveChat,
 		archiveSession,
 	} = useSessionsStore();
+	const reachableConnections = useMemo(
+		() => availableConnections(connections, account !== null),
+		[account, connections],
+	);
 
 	useEffect(() => {
 		if (!authHydrated) void hydrateAuth();
@@ -114,7 +121,9 @@ export default function HomeScreen() {
 		if (account === null) return;
 		for (const environment of environments) {
 			const alreadyConnected = connections.some(
-				(connection) => connection.environmentId === environment.environmentId,
+				(connection) =>
+					connection.source === "relay" &&
+					connection.environmentId === environment.environmentId,
 			);
 			if (
 				environment.presence !== "online" ||
@@ -131,34 +140,33 @@ export default function HomeScreen() {
 	}, [account, connect, connections, environments]);
 
 	useEffect(() => {
-		const unwatch = connections.flatMap((connection) => {
+		const unwatch = reachableConnections.flatMap((connection) => {
 			const options = optionsForConnection(connection.key, connections);
 			return options === null ? [] : [watchConnection(connection.key, options)];
 		});
 		return () => {
 			for (const stop of unwatch) stop();
 		};
-	}, [connections, watchConnection]);
+	}, [connections, reachableConnections, watchConnection]);
 
 	useEffect(() => {
-		if (account === null) return;
-		for (const connection of connections) {
+		for (const connection of reachableConnections) {
 			const options = optionsForConnection(connection.key, connections);
 			if (options === null) continue;
 			void hydrateSessions(connection.key, options);
 			void refreshLabel(connection.key, options);
 		}
-	}, [account, connections, hydrateSessions, refreshLabel]);
+	}, [connections, hydrateSessions, reachableConnections, refreshLabel]);
 
 	const groups = useMemo(
 		() =>
 			buildInboxGroups({
-				connections,
+				connections: reachableConnections,
 				bundlesByConnection,
 				statusBySession,
 				query: search,
 			}),
-		[bundlesByConnection, connections, search, statusBySession],
+		[bundlesByConnection, reachableConnections, search, statusBySession],
 	);
 	const listItems = useMemo(
 		() =>
@@ -171,11 +179,17 @@ export default function HomeScreen() {
 	);
 	const loading =
 		!authHydrated ||
-		environmentsLoading ||
-		Object.values(loadingByConnection).some(Boolean);
+		!connectionsHydrated ||
+		(account !== null && environmentsLoading) ||
+		reachableConnections.some(
+			(connection) => loadingByConnection[connection.key] === true,
+		);
 	const connectionError =
 		Object.entries(errorByConnection).find(([key, error]) => {
 			if (!error) return false;
+			if (!reachableConnections.some((connection) => connection.key === key)) {
+				return false;
+			}
 			const status = connectionSnapshots[key]?.status;
 			return (
 				status === undefined || status === "error" || status === "blockedAuth"
@@ -215,48 +229,8 @@ export default function HomeScreen() {
 		[archiveChat, archiveSession, connections],
 	);
 
-	if (!authHydrated) {
+	if (!authHydrated || !connectionsHydrated) {
 		return <View className="flex-1 bg-background" />;
-	}
-
-	if (account === null) {
-		return (
-			<View className="flex-1 bg-background">
-				<Stack.Screen
-					options={{
-						title: "Sign in",
-						headerLargeTitle: false,
-						headerSearchBarOptions: undefined,
-						headerRight: undefined,
-					}}
-				/>
-				<View className="flex-1 justify-center gap-6 px-6">
-					<View className="gap-3">
-						<View className="h-12 w-12 items-center justify-center rounded-2xl bg-card">
-							<MessageSquare size={23} color={colors.accent} />
-						</View>
-						<Text className="font-sans-bold text-[34px] leading-10 text-foreground">
-							Sign in to continue
-						</Text>
-						<Text className="font-sans text-[16px] leading-6 text-muted-foreground">
-							Use the same account as your Mac to see your computers, projects,
-							and active chats.
-						</Text>
-					</View>
-					{authError ? (
-						<Text
-							selectable
-							className="font-sans text-sm leading-5 text-danger"
-						>
-							{authError}
-						</Text>
-					) : null}
-					<Button disabled={busy} onPress={() => void signIn()}>
-						{busy ? "Signing in..." : "Sign in"}
-					</Button>
-				</View>
-			</View>
-		);
 	}
 
 	return (
@@ -267,14 +241,24 @@ export default function HomeScreen() {
 					headerLargeTitle: false,
 					headerTitle: () => <BrandTitle />,
 					headerRight: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Open settings"
-							hitSlop={12}
-							onPress={() => router.push("/settings")}
-						>
-							<Settings size={22} color={colors.accent} />
-						</Pressable>
+						<View className="flex-row items-center gap-5">
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel="Pair with desktop"
+								hitSlop={12}
+								onPress={() => router.push("/connect/scan")}
+							>
+								<QrCode size={21} color={colors.accent} />
+							</Pressable>
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel="Open settings"
+								hitSlop={12}
+								onPress={() => router.push("/settings")}
+							>
+								<Settings size={22} color={colors.accent} />
+							</Pressable>
+						</View>
 					),
 				}}
 			/>
@@ -330,8 +314,8 @@ export default function HomeScreen() {
 						refreshing={loading}
 						tintColor={colors.accent}
 						onRefresh={() => {
-							void refreshEnvironments();
-							for (const connection of connections) {
+							if (account !== null) void refreshEnvironments();
+							for (const connection of reachableConnections) {
 								const options = optionsForConnection(
 									connection.key,
 									connections,
@@ -343,13 +327,16 @@ export default function HomeScreen() {
 					/>
 				}
 			>
-				{(environmentsError ?? connectionError) ? (
+				{((account === null ? null : environmentsError) ?? connectionError) ? (
 					<View className="mb-3 rounded-2xl border border-danger/35 bg-danger/10 px-3 py-2">
 						<Text
 							selectable
 							className="font-sans text-sm leading-5 text-danger"
 						>
-							{connectionErrorMessage(environmentsError ?? connectionError)}
+							{connectionErrorMessage(
+								(account === null ? null : environmentsError) ??
+									connectionError,
+							)}
 						</Text>
 					</View>
 				) : null}
@@ -374,6 +361,40 @@ export default function HomeScreen() {
 								<ActivityIndicator color={colors.accent} />
 							</View>
 						) : null}
+						{search.trim().length === 0 &&
+						reachableConnections.length === 0 &&
+						!loading ? (
+							<View className="mt-8 gap-3 px-4">
+								<Button onPress={() => router.push("/connect/scan")}>
+									<QrCode size={18} color={colors.bg} />
+									Pair with desktop
+								</Button>
+								<Button
+									variant="secondary"
+									onPress={() => router.push("/connect/manual")}
+								>
+									<Plus size={18} color={colors.fg} />
+									Add manually
+								</Button>
+								{account === null ? (
+									<Button
+										variant="ghost"
+										disabled={busy}
+										onPress={() => void signIn()}
+									>
+										{busy ? "Signing in…" : "Sign in for remote access"}
+									</Button>
+								) : null}
+								{account === null && authError ? (
+									<Text
+										selectable
+										className="text-center font-sans text-sm text-danger"
+									>
+										{authError}
+									</Text>
+								) : null}
+							</View>
+						) : null}
 					</View>
 				) : (
 					<View>
@@ -381,7 +402,7 @@ export default function HomeScreen() {
 							<InboxItem
 								key={item.key}
 								item={item}
-								connections={connections}
+								connections={reachableConnections}
 								updateGroup={updateGroup}
 								onArchiveRow={onArchiveRow}
 							/>

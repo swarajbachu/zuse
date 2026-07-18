@@ -33,6 +33,7 @@ import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { optionsForConnection } from "~/lib/connection-params";
+import { availableConnections } from "~/lib/connection-records";
 import {
 	availableProviderIds,
 	defaultModelForProvider,
@@ -53,6 +54,7 @@ import {
 	listPullRequests,
 	listWorktrees,
 } from "~/rpc/actions";
+import { useAuthStore } from "~/store/auth";
 import { useAvailabilityStore } from "~/store/availability";
 import { useConnectionsStore } from "~/store/connections";
 import { useSessionsStore } from "~/store/sessions";
@@ -89,11 +91,16 @@ export default function NewChatScreen() {
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
 	const {
-		connections,
+		connections: allConnections,
 		hydrated,
 		hydrate: hydrateConnections,
 		refreshLabel,
 	} = useConnectionsStore();
+	const account = useAuthStore((state) => state.account);
+	const connections = useMemo(
+		() => availableConnections(allConnections, account !== null),
+		[account, allConnections],
+	);
 	const {
 		bundlesByConnection,
 		loadingByConnection,
@@ -171,7 +178,8 @@ export default function NewChatScreen() {
 		) {
 			return modelMode;
 		}
-		const providerId = availableProviders[0]!;
+		const providerId = availableProviders[0];
+		if (providerId === undefined) return modelMode;
 		const model = defaultModelForProvider(providerId);
 		return {
 			...modelMode,

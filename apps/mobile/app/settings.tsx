@@ -1,32 +1,25 @@
 import { router, Stack } from "expo-router";
 import {
 	Bell,
-	ChevronDown,
-	ChevronRight,
+	HardDrive,
 	LogOut,
 	Monitor,
 	Plus,
 	QrCode,
-	Server,
+	RotateCcw,
 	Trash2,
 	UserRound,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import {
-	ActivityIndicator,
-	Alert,
-	Pressable,
-	ScrollView,
-	Text,
-	View,
-} from "react-native";
+import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
 
-import { EmptyState } from "~/components/ui/empty-state";
 import { ListRow, ListSection } from "~/components/ui/list";
+import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
-import { advancedConnections } from "~/lib/settings-connections";
+import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
+import { downloadedCacheSize } from "~/offline/cache";
 import { useAuthStore } from "~/store/auth";
 import {
 	connectionStatusLabel,
@@ -34,7 +27,13 @@ import {
 } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
 import { useEnvironmentsStore } from "~/store/environments";
-import { colors } from "~/theme";
+
+const formatBytes = (bytes: number | null): string => {
+	if (bytes === null) return "Calculating…";
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export default function SettingsScreen() {
 	const {
@@ -45,6 +44,7 @@ export default function SettingsScreen() {
 		hydrate,
 		signIn,
 		signOut,
+		resetApp,
 		deleteAccount,
 	} = useAuthStore();
 	const {
@@ -58,8 +58,9 @@ export default function SettingsScreen() {
 		(state) => state.snapshotsByConnection,
 	);
 	const [connecting, setConnecting] = useState<string | null>(null);
-	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const [notificationsBusy, setNotificationsBusy] = useState(false);
+	const [storageBusy, setStorageBusy] = useState(false);
+	const [cacheBytes, setCacheBytes] = useState<number | null>(null);
 
 	useEffect(() => {
 		if (!hydrated) void hydrate();
@@ -73,19 +74,37 @@ export default function SettingsScreen() {
 		if (account !== null) void refresh();
 	}, [account, refresh]);
 
-	const manualConnections = useMemo(
-		() => advancedConnections(connections),
+	useEffect(() => {
+		void downloadedCacheSize()
+			.then(setCacheBytes)
+			.catch(() => setCacheBytes(0));
+	}, []);
+
+	const directConnections = useMemo(
+		() => connections.filter((connection) => connection.source !== "relay"),
 		[connections],
 	);
 
 	const onConnect = async (environmentId: string) => {
 		setConnecting(environmentId);
 		try {
-			const key = await connect(environmentId);
+			await connect(environmentId);
 			successTap();
-			router.push(`/c/${encodeURIComponent(key)}`);
+			returnToInbox(router);
 		} finally {
 			setConnecting(null);
+		}
+	};
+
+	const clearDownloaded = async () => {
+		setStorageBusy(true);
+		try {
+			await clearDownloadedMobileData();
+			setCacheBytes(0);
+			successTap();
+			returnToInbox(router);
+		} finally {
+			setStorageBusy(false);
 		}
 	};
 
@@ -97,12 +116,47 @@ export default function SettingsScreen() {
 				contentInsetAdjustmentBehavior="automatic"
 				contentContainerClassName="gap-6 p-4 pb-12 pt-3"
 			>
-				<ListSection header="Account">
+				<ListSection
+					header="Connections"
+					footer="Pairing works directly over your local network and does not require an account."
+				>
+					<ListRow
+						icon={QrCode}
+						title="Pair with desktop"
+						subtitle="Scan the code shown in desktop device settings"
+						onPress={() => router.push("/connect/scan")}
+					/>
+					<ListRow
+						icon={Plus}
+						iconTone="neutral"
+						title="Add manually"
+						onPress={() => router.push("/connect/manual")}
+					/>
+					{directConnections.map((connection) => (
+						<ListRow
+							key={connection.key}
+							icon={Monitor}
+							iconTone="neutral"
+							title={visibleConnectionLabel(connection.label, "Computer")}
+							subtitle={
+								snapshots[connection.key] === undefined
+									? `${connection.host}:${connection.port}`
+									: connectionStatusLabel(snapshots[connection.key])
+							}
+							chevron={false}
+						/>
+					))}
+				</ListSection>
+
+				<ListSection
+					header="Remote access"
+					footer="Sign in only when you want to reach account-linked computers away from your local network."
+				>
 					{account === null ? (
 						<ListRow
 							icon={UserRound}
-							title="Sign in"
-							subtitle="Use the same account as your Mac"
+							title="Sign in for remote access"
+							subtitle="Optional — local pairing works without this"
 							onPress={() => void signIn()}
 							disabled={busy}
 						/>
@@ -114,6 +168,48 @@ export default function SettingsScreen() {
 								subtitle={account.email ?? account.id}
 								chevron={false}
 							/>
+							{loading ? (
+								<View className="min-h-[54px] flex-row items-center gap-3 px-4 py-2.5">
+									<ActivityIndicator />
+									<Text className="font-sans text-[17px] text-foreground">
+										Loading remote computers
+									</Text>
+								</View>
+							) : null}
+							{environments.map((environment) => {
+								const saved = connections.find(
+									(connection) =>
+										connection.source === "relay" &&
+										connection.environmentId === environment.environmentId,
+								);
+								const snapshot = saved ? snapshots[saved.key] : undefined;
+								const subtitle =
+									connecting === environment.environmentId
+										? "Connecting…"
+										: snapshot !== undefined
+											? connectionStatusLabel(snapshot)
+											: environment.presence === "online"
+												? "Online"
+												: environment.presence === "offline"
+													? "Offline"
+													: "Checking…";
+								return (
+									<ListRow
+										key={environment.environmentId}
+										icon={Monitor}
+										iconTone={
+											environment.presence === "online" ? "brand" : "neutral"
+										}
+										title={visibleConnectionLabel(environment.label)}
+										subtitle={subtitle}
+										onPress={() =>
+											saved
+												? returnToInbox(router)
+												: void onConnect(environment.environmentId)
+										}
+									/>
+								);
+							})}
 							<ListRow
 								icon={LogOut}
 								iconTone="neutral"
@@ -121,41 +217,36 @@ export default function SettingsScreen() {
 								destructive
 								onPress={() => void signOut()}
 							/>
-							<ListRow
-								icon={Trash2}
-								iconTone="neutral"
-								title="Delete account"
-								subtitle="Permanently removes your account and linked computers"
-								destructive
-								disabled={busy}
-								onPress={() =>
-									Alert.alert(
-										"Delete account?",
-										"This permanently removes your account, linked computers, device registrations, and cached chats. This cannot be undone.",
-										[
-											{ text: "Cancel", style: "cancel" },
-											{
-												text: "Delete account",
-												style: "destructive",
-												onPress: () => void deleteAccount().catch(() => {}),
-											},
-										],
-									)
-								}
-							/>
 						</>
 					)}
+					{authError ? (
+						<View className="px-4 py-3">
+							<Text
+								selectable
+								className="font-sans text-sm leading-5 text-danger"
+							>
+								{authError}
+							</Text>
+						</View>
+					) : null}
+					{account !== null && error ? (
+						<View className="px-4 py-3">
+							<Text
+								selectable
+								className="font-sans text-sm leading-5 text-danger"
+							>
+								{error}
+							</Text>
+						</View>
+					) : null}
 				</ListSection>
 
 				{account === null ? null : (
-					<ListSection
-						header="Notifications"
-						footer="Enable alerts when an agent needs approval or has a question."
-					>
+					<ListSection header="Notifications">
 						<ListRow
 							icon={Bell}
 							title="Enable notifications"
-							subtitle="You can change this later in iPhone Settings"
+							subtitle="Alerts for approvals and questions"
 							disabled={notificationsBusy}
 							onPress={async () => {
 								setNotificationsBusy(true);
@@ -172,137 +263,80 @@ export default function SettingsScreen() {
 					</ListSection>
 				)}
 
-				{authError ? (
-					<Text selectable className="px-4 font-sans text-sm text-danger">
-						{authError}
-					</Text>
-				) : null}
+				<ListSection
+					header="Storage"
+					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
+				>
+					<ListRow
+						icon={HardDrive}
+						iconTone="neutral"
+						title="Clear downloaded data"
+						value={formatBytes(cacheBytes)}
+						disabled={storageBusy}
+						onPress={() =>
+							Alert.alert(
+								"Clear downloaded data?",
+								"Cached projects, chats, and messages will be removed. Connections and unsent messages will be kept.",
+								[
+									{ text: "Cancel", style: "cancel" },
+									{ text: "Clear", onPress: () => void clearDownloaded() },
+								],
+							)
+						}
+					/>
+					<ListRow
+						icon={RotateCcw}
+						iconTone="neutral"
+						title="Reset app"
+						subtitle="Remove all data stored on this phone"
+						destructive
+						disabled={busy || storageBusy}
+						onPress={() =>
+							Alert.alert(
+								"Reset this app?",
+								"This removes account state, connections, cache, device keys, and unsent messages from this phone. Your remote account is not deleted.",
+								[
+									{ text: "Cancel", style: "cancel" },
+									{
+										text: "Reset app",
+										style: "destructive",
+										onPress: () =>
+											void resetApp()
+												.then(() => returnToInbox(router))
+												.catch(() => {}),
+									},
+								],
+							)
+						}
+					/>
+				</ListSection>
 
-				{account === null ? (
-					<View className="pt-8">
-						<EmptyState
-							icon={Monitor}
-							title="Sign in to manage computers"
-							detail="Account-linked computers are the primary way this app loads projects and chats."
+				{account === null ? null : (
+					<ListSection header="Account">
+						<ListRow
+							icon={Trash2}
+							iconTone="neutral"
+							title="Delete account"
+							subtitle="Permanently remove your account and linked computers"
+							destructive
+							disabled={busy}
+							onPress={() =>
+								Alert.alert(
+									"Delete account?",
+									"This permanently removes your account, linked computers, device registrations, and cached chats. This cannot be undone.",
+									[
+										{ text: "Cancel", style: "cancel" },
+										{
+											text: "Delete account",
+											style: "destructive",
+											onPress: () => void deleteAccount().catch(() => {}),
+										},
+									],
+								)
+							}
 						/>
-					</View>
-				) : (
-					<ListSection
-						header="Computers"
-						footer="Open the desktop app on a linked computer to make its projects and chats available here."
-					>
-						{loading ? (
-							<View className="min-h-[54px] flex-row items-center gap-3 px-4 py-2.5">
-								<ActivityIndicator />
-								<Text className="font-sans text-[17px] text-foreground">
-									Loading computers
-								</Text>
-							</View>
-						) : null}
-						{environments.map((environment) => {
-							const saved = connections.find(
-								(connection) =>
-									connection.environmentId === environment.environmentId,
-							);
-							const snapshot = saved ? snapshots[saved.key] : undefined;
-							const subtitle =
-								connecting === environment.environmentId
-									? "Connecting..."
-									: snapshot !== undefined
-										? connectionStatusLabel(snapshot)
-										: environment.presence === "online"
-											? "Online"
-											: environment.presence === "offline"
-												? "Offline"
-												: "Checking...";
-							return (
-								<ListRow
-									key={environment.environmentId}
-									icon={Monitor}
-									iconTone={
-										environment.presence === "online" ? "brand" : "neutral"
-									}
-									title={visibleConnectionLabel(environment.label)}
-									subtitle={subtitle}
-									onPress={() =>
-										saved
-											? router.push(`/c/${encodeURIComponent(saved.key)}`)
-											: void onConnect(environment.environmentId)
-									}
-								/>
-							);
-						})}
-						{environments.length === 0 && !loading ? (
-							<ListRow
-								icon={Monitor}
-								iconTone="neutral"
-								title="No computers found"
-								subtitle="Check the desktop app device settings"
-								chevron={false}
-							/>
-						) : null}
-						{error ? (
-							<View className="px-4 py-3">
-								<Text
-									selectable
-									className="font-sans text-sm leading-5 text-danger"
-								>
-									{error}
-								</Text>
-							</View>
-						) : null}
 					</ListSection>
 				)}
-
-				<View className="gap-2">
-					<Pressable
-						accessibilityRole="button"
-						accessibilityState={{ expanded: advancedOpen }}
-						className="flex-row items-center gap-2 px-4 active:opacity-70"
-						onPress={() => setAdvancedOpen((open) => !open)}
-					>
-						{advancedOpen ? (
-							<ChevronDown size={18} color={colors.tertiaryFg} />
-						) : (
-							<ChevronRight size={18} color={colors.tertiaryFg} />
-						)}
-						<Text className="font-sans-medium text-[13px] uppercase tracking-wide text-muted-foreground">
-							Advanced connections
-						</Text>
-					</Pressable>
-
-					{advancedOpen ? (
-						<ListSection footer="Manual host and QR pairing are fallback options for local development or direct servers.">
-							{manualConnections.map((connection) => (
-								<ListRow
-									key={connection.key}
-									icon={Server}
-									iconTone="neutral"
-									title={visibleConnectionLabel(
-										connection.label,
-										"Manual connection",
-									)}
-									subtitle={`${connection.host}:${connection.port}`}
-									onPress={() =>
-										router.push(`/c/${encodeURIComponent(connection.key)}`)
-									}
-								/>
-							))}
-							<ListRow
-								icon={Plus}
-								iconTone="neutral"
-								title="Add manually"
-								onPress={() => router.push("/connect/manual")}
-							/>
-							<ListRow
-								icon={QrCode}
-								iconTone="neutral"
-								title="Scan QR code"
-								onPress={() => router.push("/connect/scan")}
-							/>
-						</ListSection>
-					) : null}
-				</View>
 			</ScrollView>
 		</>
 	);

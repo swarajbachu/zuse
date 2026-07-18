@@ -2,12 +2,56 @@ import { Message, MessageEnvelope } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
 import * as FileSystem from "expo-file-system/legacy";
 
-import { CacheCorrupt } from "~/rpc/errors";
+import { CacheCorrupt } from "../rpc/errors";
 import { slugConnectionKey } from "./cache-utils";
 
 const ROOT = `${FileSystem.documentDirectory ?? ""}zuse-cache`;
 
 export const clearOfflineCache = () => deletePath(ROOT);
+
+const downloadedPaths = (connectionRoot: string) => [
+	`${connectionRoot}/sessions.json`,
+	`${connectionRoot}/messages`,
+];
+
+const pathSize = async (path: string): Promise<number> => {
+	const info = await FileSystem.getInfoAsync(path);
+	if (!info.exists) return 0;
+	if (!info.isDirectory) return info.size;
+	const children = await FileSystem.readDirectoryAsync(path);
+	return (
+		await Promise.all(children.map((child) => pathSize(`${path}/${child}`)))
+	).reduce((total, size) => total + size, 0);
+};
+
+const connectionRoots = async (): Promise<string[]> => {
+	const info = await FileSystem.getInfoAsync(ROOT);
+	if (!info.exists || !info.isDirectory) return [];
+	return (await FileSystem.readDirectoryAsync(ROOT)).map(
+		(name) => `${ROOT}/${name}`,
+	);
+};
+
+export const downloadedCacheSize = async (): Promise<number> => {
+	const roots = await connectionRoots();
+	const sizes = await Promise.all(
+		roots.flatMap((root) => downloadedPaths(root)).map(pathSize),
+	);
+	return sizes.reduce((total, size) => total + size, 0);
+};
+
+export const clearDownloadedCache = () =>
+	Effect.tryPromise({
+		try: async () => {
+			const roots = await connectionRoots();
+			await Promise.all(
+				roots
+					.flatMap((root) => downloadedPaths(root))
+					.map((path) => FileSystem.deleteAsync(path, { idempotent: true })),
+			);
+		},
+		catch: (cause) => cause,
+	});
 
 export type SessionsSnapshot = {
 	projects: readonly unknown[];

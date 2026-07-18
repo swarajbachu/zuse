@@ -144,6 +144,7 @@ describe("LanAuthService", () => {
 			);
 
 			expect(result.pairing.code.startsWith("zp_")).toBe(true);
+			expect(result.pairing.qrText).toContain("zuse:///connect/pair?");
 			expect(result.pairing.qrText).toContain("#token=zp_");
 			expect(result.redeemed.token.startsWith("zt_")).toBe(true);
 			expect(result.verified).toBe(true);
