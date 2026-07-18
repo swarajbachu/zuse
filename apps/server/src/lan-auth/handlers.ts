@@ -6,6 +6,7 @@ import {
   EnvironmentEndpoint,
   MemoizeRpcs,
   PairingError,
+  PairingStartResult,
   WIRE_PROTOCOL_VERSION,
   WireProtocolRejected,
   WireWelcome,
@@ -24,14 +25,18 @@ const toPairingError = (cause: unknown): PairingError =>
         : String(cause),
   });
 
+export const makePairingStartResult = (result: {
+  readonly code: string;
+  readonly expiresAt: Date;
+  readonly pairingUrl: string;
+  readonly qrText: string;
+}): PairingStartResult => PairingStartResult.make(result);
+
 const PairingStart = MemoizeRpcs.toLayerHandler("pairing.start", () =>
   Effect.gen(function* () {
     const auth = yield* LanAuthService;
     const result = yield* auth.createPairingCode();
-    return {
-      ...result,
-      expiresAt: result.expiresAt,
-    };
+    return makePairingStartResult(result);
   }).pipe(Effect.mapError(toPairingError)),
 );
 
