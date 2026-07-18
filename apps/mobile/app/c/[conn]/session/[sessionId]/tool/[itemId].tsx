@@ -25,6 +25,7 @@ import {
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
+import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
@@ -143,6 +144,7 @@ export default function ToolDetailScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
+					...translucentNativeHeaderOptions,
 					headerLargeTitle: false,
 					headerBackVisible: false,
 					headerLeft: () => (

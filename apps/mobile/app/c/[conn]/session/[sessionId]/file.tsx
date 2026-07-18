@@ -19,6 +19,7 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import {
 	DARK_SYNTAX,
 	LIGHT_SYNTAX,
@@ -110,7 +111,11 @@ export default function WorkspaceFileScreen() {
 	return (
 		<View className="flex-1 bg-background">
 			<Stack.Screen
-				options={{ title: basename(path), headerLargeTitle: false }}
+				options={{
+					...translucentNativeHeaderOptions,
+					title: basename(path),
+					headerLargeTitle: false,
+				}}
 			/>
 			<View className="flex-1" style={{ paddingTop: headerHeight }}>
 				{loading && file === null ? (

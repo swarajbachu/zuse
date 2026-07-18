@@ -8,11 +8,9 @@ import {
 	Platform,
 	Pressable,
 	RefreshControl,
-	ScrollView,
 	SectionList,
 	StyleSheet,
 	Text,
-	useWindowDimensions,
 	View,
 	type ViewToken,
 } from "react-native";
@@ -42,19 +40,6 @@ type DiffSection = {
 };
 
 const patchRowsCache = new WeakMap<PreparedReviewPatch, readonly DiffRow[]>();
-const patchWidthCache = new WeakMap<PreparedReviewPatch, number>();
-
-function longestPatchLine(patch: PreparedReviewPatch): number {
-	const cached = patchWidthCache.get(patch);
-	if (cached !== undefined) return cached;
-	const longest = patch.lines.reduce(
-		(maximum, line) =>
-			Math.max(maximum, line.text.replaceAll("\t", "    ").length),
-		0,
-	);
-	patchWidthCache.set(patch, longest);
-	return longest;
-}
 
 function rowsForPatch(
 	file: GitReviewFile,
@@ -123,7 +108,6 @@ export function ReviewDiffList({
 	refreshing: boolean;
 	onRefresh?: () => void;
 }) {
-	const { width } = useWindowDimensions();
 	const { theme } = useUniwind();
 	const palette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
@@ -160,14 +144,6 @@ export function ReviewDiffList({
 			null,
 		[activeFilePath, summary],
 	);
-	const codeWidth = useMemo(() => {
-		const longestLine = Object.values(patches).reduce(
-			(longest, patch) => Math.max(longest, longestPatchLine(patch)),
-			0,
-		);
-		return Math.max(width, 88 + Math.min(longestLine, 4_000) * 6.7);
-	}, [patches, width]);
-
 	const toggleFile = useCallback((path: string) => {
 		setCollapsed((current) => {
 			const next = new Set(current);
@@ -182,11 +158,10 @@ export function ReviewDiffList({
 			<DiffFileHeader
 				file={section.file}
 				expanded={section.expanded}
-				width={width}
 				onPress={() => toggleFile(section.file.path)}
 			/>
 		),
-		[toggleFile, width],
+		[toggleFile],
 	);
 
 	const renderItem = useCallback(
@@ -223,61 +198,51 @@ export function ReviewDiffList({
 
 	return (
 		<View className="flex-1">
-			<ScrollView
+			<SectionList
 				className="flex-1"
-				horizontal
-				directionalLockEnabled
-				nestedScrollEnabled
-				showsHorizontalScrollIndicator
-				contentContainerStyle={{ width: codeWidth }}
-			>
-				<SectionList
-					style={{ width: codeWidth }}
-					sections={sections}
-					keyExtractor={(item) => item.key}
-					contentInsetAdjustmentBehavior="never"
-					stickySectionHeadersEnabled={false}
-					initialNumToRender={64}
-					maxToRenderPerBatch={64}
-					updateCellsBatchingPeriod={16}
-					windowSize={11}
-					maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-					removeClippedSubviews={Platform.OS === "android"}
-					onViewableItemsChanged={onViewableItemsChanged}
-					viewabilityConfig={viewabilityConfig}
-					onScroll={onScroll}
-					scrollEventThrottle={32}
-					refreshControl={
-						onRefresh === undefined ? undefined : (
-							<RefreshControl
-								refreshing={refreshing}
-								tintColor={colors.accent}
-								onRefresh={onRefresh}
-							/>
-						)
-					}
-					contentContainerStyle={{ paddingTop: 18, paddingBottom: 40 }}
-					renderSectionHeader={renderSectionHeader}
-					renderSectionFooter={({ section }) =>
-						section.expanded ? (
-							<View className="h-7 bg-background" />
-						) : (
-							<View className="h-3" />
-						)
-					}
-					renderItem={renderItem}
-					ListEmptyComponent={
-						<ReviewEmptyState loading={loading} error={error} />
-					}
-				/>
-			</ScrollView>
+				sections={sections}
+				keyExtractor={(item) => item.key}
+				contentInsetAdjustmentBehavior="never"
+				stickySectionHeadersEnabled={false}
+				initialNumToRender={64}
+				maxToRenderPerBatch={64}
+				updateCellsBatchingPeriod={16}
+				windowSize={11}
+				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+				removeClippedSubviews={Platform.OS === "android"}
+				onViewableItemsChanged={onViewableItemsChanged}
+				viewabilityConfig={viewabilityConfig}
+				onScroll={onScroll}
+				scrollEventThrottle={32}
+				refreshControl={
+					onRefresh === undefined ? undefined : (
+						<RefreshControl
+							refreshing={refreshing}
+							tintColor={colors.accent}
+							onRefresh={onRefresh}
+						/>
+					)
+				}
+				contentContainerStyle={{ paddingTop: 18, paddingBottom: 40 }}
+				renderSectionHeader={renderSectionHeader}
+				renderSectionFooter={({ section }) =>
+					section.expanded ? (
+						<View className="h-7 bg-background" />
+					) : (
+						<View className="h-3" />
+					)
+				}
+				renderItem={renderItem}
+				ListEmptyComponent={
+					<ReviewEmptyState loading={loading} error={error} />
+				}
+			/>
 			{pinnedFileVisible && activeFile !== null ? (
 				<View className="absolute inset-x-0 top-0" style={styles.pinnedHeader}>
 					<DiffFileHeader
 						file={activeFile}
 						expanded
 						pinned
-						width={width}
 						onPress={() => toggleFile(activeFile.path)}
 					/>
 				</View>
@@ -290,13 +255,11 @@ const DiffFileHeader = memo(function DiffFileHeader({
 	file,
 	expanded,
 	pinned = false,
-	width,
 	onPress,
 }: {
 	file: GitReviewFile;
 	expanded: boolean;
 	pinned?: boolean;
-	width: number;
 	onPress: () => void;
 }) {
 	const name = file.path.split("/").at(-1) ?? file.path;
@@ -307,7 +270,6 @@ const DiffFileHeader = memo(function DiffFileHeader({
 	return (
 		<View
 			className={expanded || pinned ? "bg-background" : "bg-transparent px-4"}
-			style={{ width }}
 		>
 			<Pressable
 				accessibilityRole="button"
@@ -405,7 +367,7 @@ const DiffCodeRow = memo(function DiffCodeRow({
 }) {
 	if (line.kind === "hunk") {
 		return (
-			<View className="h-9 justify-center border-y border-border bg-card px-4">
+			<View className="min-h-9 justify-center border-y border-border bg-card px-4 py-2">
 				<Text
 					selectable
 					className="font-mono text-[11px]"
@@ -420,7 +382,7 @@ const DiffCodeRow = memo(function DiffCodeRow({
 	const removed = line.kind === "removed";
 	return (
 		<View
-			className="h-6 flex-row items-start bg-background"
+			className="min-h-6 flex-row items-stretch bg-background"
 			style={{
 				backgroundColor: added
 					? colors.diffAddedBg
@@ -445,8 +407,6 @@ const DiffCodeRow = memo(function DiffCodeRow({
 			</View>
 			<Text
 				selectable
-				numberOfLines={1}
-				ellipsizeMode="clip"
 				className="min-w-0 flex-1 px-2 py-0.5 font-mono text-[11px] leading-5"
 				style={{ color: palette.plain }}
 			>

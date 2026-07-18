@@ -135,6 +135,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
 			"utf8",
 		);
+		const nativeHeader = readFileSync(
+			`${process.cwd()}/src/lib/native-header.ts`,
+			"utf8",
+		);
 		const reviewPill = readFileSync(
 			`${process.cwd()}/src/components/review-changes-pill.tsx`,
 			"utf8",
@@ -162,8 +166,9 @@ describe("mobile UI contracts", () => {
 		expect(file).toContain("tokenizeCodeLine");
 		expect(file).toContain("width: codeWidth");
 		expect(diffList).toContain("<SectionList");
-		expect(diffList).toContain("directionalLockEnabled");
-		expect(diffList).toContain("width: codeWidth");
+		expect(diffList).not.toContain("directionalLockEnabled");
+		expect(diffList).not.toContain('ellipsizeMode="clip"');
+		expect(diffList).toContain("min-h-6 flex-row items-stretch");
 		expect(diffList).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(diffList).toContain("stickySectionHeadersEnabled={false}");
 		expect(diffList).toContain("onViewableItemsChanged");
@@ -176,6 +181,12 @@ describe("mobile UI contracts", () => {
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).not.toContain("/tool/[itemId]");
 		expect(reviewPill).not.toContain("GitCompareArrows");
+		expect(nativeHeader).toContain(
+			'headerBlurEffect: "systemUltraThinMaterial"',
+		);
+		expect(nativeHeader).toContain('backgroundColor: "transparent"');
+		expect(files).toContain("translucentNativeHeaderOptions");
+		expect(file).toContain("translucentNativeHeaderOptions");
 	});
 
 	test("puts an explicit retry action beside connection failures", () => {

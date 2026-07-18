@@ -11,6 +11,7 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
@@ -40,6 +41,7 @@ export default function WorkspaceReviewScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
+					...translucentNativeHeaderOptions,
 					headerBackVisible: false,
 					headerLargeTitle: false,
 					headerTitleAlign: "center",

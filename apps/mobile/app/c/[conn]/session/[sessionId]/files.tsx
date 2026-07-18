@@ -31,6 +31,7 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { buildFileTree, flattenFileTree } from "~/lib/file-tree";
+import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import { listWorkspacePaths } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
@@ -125,6 +126,7 @@ export default function WorkspaceFilesScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
+					...translucentNativeHeaderOptions,
 					title: projectName,
 					headerLargeTitle: false,
 				}}
