@@ -1,33 +1,31 @@
-import {
-	type DiffLine,
-	parseUnifiedPatch,
-} from "@zuse/client-runtime/timeline";
-import type {
-	GitReviewFile,
-	GitReviewPatch,
-	GitReviewSummary,
-} from "@zuse/contracts";
+import type { DiffLine } from "@zuse/client-runtime/timeline";
+import type { GitReviewFile, GitReviewSummary } from "@zuse/contracts";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
+	type NativeScrollEvent,
+	type NativeSyntheticEvent,
+	Platform,
 	Pressable,
 	RefreshControl,
 	SectionList,
 	StyleSheet,
 	Text,
 	View,
+	type ViewToken,
 } from "react-native";
 import { useUniwind } from "uniwind";
 
 import { FileIcon } from "~/components/ui/file-icon";
+import type { PreparedReviewPatch } from "~/lib/review-diff-model";
 import { colors } from "~/theme";
 
 type DiffRow =
-	| { key: string; kind: "line"; line: DiffLine }
-	| { key: string; kind: "loading" }
-	| { key: string; kind: "error"; message: string }
-	| { key: string; kind: "empty"; message: string }
-	| { key: string; kind: "truncated" };
+	| { key: string; kind: "line"; line: DiffLine; filePath: string }
+	| { key: string; kind: "loading"; filePath: string }
+	| { key: string; kind: "error"; message: string; filePath: string }
+	| { key: string; kind: "empty"; message: string; filePath: string }
+	| { key: string; kind: "truncated"; filePath: string };
 
 type DiffSection = {
 	file: GitReviewFile;
@@ -43,6 +41,8 @@ type SyntaxPalette = {
 	plain: string;
 	string: string;
 };
+
+type SyntaxPiece = { key: string; text: string; color: string };
 
 const LIGHT_SYNTAX: SyntaxPalette = {
 	comment: "#71806d",
@@ -65,40 +65,61 @@ const DARK_SYNTAX: SyntaxPalette = {
 const TOKEN_PATTERN =
 	/(\/\/.*$|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|implements|import|in|interface|let|new|null|of|return|switch|throw|true|try|type|typeof|undefined|while|yield)\b|\b\d+(?:\.\d+)?\b)/g;
 
-const patchRowsCache = new WeakMap<object, readonly DiffRow[]>();
+const MAX_HIGHLIGHT_CHARS = 4_000;
+const MAX_HIGHLIGHT_CACHE_ENTRIES = 2_048;
+const syntaxCache = new WeakMap<
+	SyntaxPalette,
+	Map<string, readonly SyntaxPiece[]>
+>();
+
+const patchRowsCache = new WeakMap<PreparedReviewPatch, readonly DiffRow[]>();
 
 function rowsForPatch(
 	file: GitReviewFile,
-	patch: GitReviewPatch,
+	patch: PreparedReviewPatch,
 ): readonly DiffRow[] {
 	const cached = patchRowsCache.get(patch);
 	if (cached !== undefined) return cached;
 	let rows: DiffRow[];
 	if (patch.error !== null) {
-		rows = [{ key: `${file.path}:error`, kind: "error", message: patch.error }];
-	} else if (patch.result.mode === "binary") {
+		rows = [
+			{
+				key: `${file.path}:error`,
+				kind: "error",
+				message: patch.error,
+				filePath: file.path,
+			},
+		];
+	} else if (patch.mode === "binary") {
 		rows = [
 			{
 				key: `${file.path}:binary`,
 				kind: "empty",
 				message: "Binary file changed",
+				filePath: file.path,
 			},
 		];
 	} else {
-		rows = parseUnifiedPatch(patch.result.patch).map((line, index) => ({
+		rows = patch.lines.map((line, index) => ({
 			key: `${file.path}:line:${index}`,
 			kind: "line",
 			line,
+			filePath: file.path,
 		}));
 		if (rows.length === 0) {
 			rows.push({
 				key: `${file.path}:empty`,
 				kind: "empty",
 				message: "No text diff available",
+				filePath: file.path,
 			});
 		}
-		if (patch.result.truncated) {
-			rows.push({ key: `${file.path}:truncated`, kind: "truncated" });
+		if (patch.truncated) {
+			rows.push({
+				key: `${file.path}:truncated`,
+				kind: "truncated",
+				filePath: file.path,
+			});
 		}
 	}
 	patchRowsCache.set(patch, rows);
@@ -114,7 +135,7 @@ export function ReviewDiffList({
 	onRefresh,
 }: {
 	summary: GitReviewSummary | null;
-	patches: Readonly<Record<string, GitReviewPatch>>;
+	patches: Readonly<Record<string, PreparedReviewPatch>>;
 	loading: boolean;
 	error: string | null;
 	refreshing: boolean;
@@ -125,6 +146,11 @@ export function ReviewDiffList({
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
+	const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+	const [showPinnedHeader, setShowPinnedHeader] = useState(false);
+	const activeFilePathRef = useRef<string | null>(null);
+	const pinnedHeaderRef = useRef(false);
+	const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 1 }).current;
 	const sections = useMemo<readonly DiffSection[]>(() => {
 		return (summary?.files ?? []).map((file) => {
 			const expanded = !collapsed.has(file.path);
@@ -137,12 +163,20 @@ export function ReviewDiffList({
 					data: [0, 1, 2].map((index) => ({
 						key: `${file.path}:loading:${index}`,
 						kind: "loading" as const,
+						filePath: file.path,
 					})),
 				};
 			}
 			return { file, expanded, data: rowsForPatch(file, patch) };
 		});
 	}, [collapsed, patches, summary]);
+	const activeFile = useMemo(
+		() =>
+			(summary?.files ?? []).find((file) => file.path === activeFilePath) ??
+			summary?.files.at(0) ??
+			null,
+		[activeFilePath, summary],
+	);
 
 	const toggleFile = useCallback((path: string) => {
 		setCollapsed((current) => {
@@ -170,49 +204,96 @@ export function ReviewDiffList({
 		),
 		[palette],
 	);
+	const onViewableItemsChanged = useRef(
+		({ viewableItems }: { viewableItems: ViewToken<DiffRow>[] }) => {
+			const firstVisibleRow = viewableItems.find(
+				(token) => token.isViewable && token.item !== undefined,
+			)?.item;
+			if (
+				firstVisibleRow !== undefined &&
+				firstVisibleRow.filePath !== activeFilePathRef.current
+			) {
+				activeFilePathRef.current = firstVisibleRow.filePath;
+				setActiveFilePath(firstVisibleRow.filePath);
+			}
+		},
+	).current;
+	const onScroll = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			const shouldPin = event.nativeEvent.contentOffset.y > 18;
+			if (shouldPin === pinnedHeaderRef.current) return;
+			pinnedHeaderRef.current = shouldPin;
+			setShowPinnedHeader(shouldPin);
+		},
+		[],
+	);
+	const pinnedFileVisible =
+		showPinnedHeader && activeFile !== null && !collapsed.has(activeFile.path);
 
 	return (
-		<SectionList
-			className="flex-1"
-			sections={sections}
-			keyExtractor={(item) => item.key}
-			contentInsetAdjustmentBehavior="automatic"
-			stickySectionHeadersEnabled
-			initialNumToRender={48}
-			maxToRenderPerBatch={48}
-			updateCellsBatchingPeriod={16}
-			windowSize={7}
-			refreshControl={
-				onRefresh === undefined ? undefined : (
-					<RefreshControl
-						refreshing={refreshing}
-						tintColor={colors.accent}
-						onRefresh={onRefresh}
+		<View className="flex-1">
+			<SectionList
+				className="flex-1"
+				sections={sections}
+				keyExtractor={(item) => item.key}
+				contentInsetAdjustmentBehavior="never"
+				stickySectionHeadersEnabled={false}
+				initialNumToRender={64}
+				maxToRenderPerBatch={64}
+				updateCellsBatchingPeriod={16}
+				windowSize={11}
+				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+				removeClippedSubviews={Platform.OS === "android"}
+				onViewableItemsChanged={onViewableItemsChanged}
+				viewabilityConfig={viewabilityConfig}
+				onScroll={onScroll}
+				scrollEventThrottle={32}
+				refreshControl={
+					onRefresh === undefined ? undefined : (
+						<RefreshControl
+							refreshing={refreshing}
+							tintColor={colors.accent}
+							onRefresh={onRefresh}
+						/>
+					)
+				}
+				contentContainerStyle={{ paddingTop: 18, paddingBottom: 40 }}
+				renderSectionHeader={renderSectionHeader}
+				renderSectionFooter={({ section }) =>
+					section.expanded ? (
+						<View className="h-7 bg-background" />
+					) : (
+						<View className="h-3" />
+					)
+				}
+				renderItem={renderItem}
+				ListEmptyComponent={
+					<ReviewEmptyState loading={loading} error={error} />
+				}
+			/>
+			{pinnedFileVisible && activeFile !== null ? (
+				<View className="absolute inset-x-0 top-0" style={styles.pinnedHeader}>
+					<DiffFileHeader
+						file={activeFile}
+						expanded
+						pinned
+						onPress={() => toggleFile(activeFile.path)}
 					/>
-				)
-			}
-			contentContainerStyle={{ paddingTop: 18, paddingBottom: 40 }}
-			renderSectionHeader={renderSectionHeader}
-			renderSectionFooter={({ section }) =>
-				section.expanded ? (
-					<View className="h-7 bg-background" />
-				) : (
-					<View className="h-3" />
-				)
-			}
-			renderItem={renderItem}
-			ListEmptyComponent={<ReviewEmptyState loading={loading} error={error} />}
-		/>
+				</View>
+			) : null}
+		</View>
 	);
 }
 
 const DiffFileHeader = memo(function DiffFileHeader({
 	file,
 	expanded,
+	pinned = false,
 	onPress,
 }: {
 	file: GitReviewFile;
 	expanded: boolean;
+	pinned?: boolean;
 	onPress: () => void;
 }) {
 	const name = file.path.split("/").at(-1) ?? file.path;
@@ -221,19 +302,21 @@ const DiffFileHeader = memo(function DiffFileHeader({
 		Math.max(0, file.path.length - name.length - 1),
 	);
 	return (
-		<View className={expanded ? "bg-background" : "bg-transparent px-4"}>
+		<View
+			className={expanded || pinned ? "bg-background" : "bg-transparent px-4"}
+		>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel={`${expanded ? "Collapse" : "Expand"} ${file.path}`}
 				accessibilityState={{ expanded }}
 				onPress={onPress}
 				className={
-					expanded
-						? "min-h-[74px] flex-row items-center gap-3 border-y border-border bg-card px-4 py-3"
-						: "min-h-[70px] flex-row items-center gap-3 rounded-2xl bg-card px-4 py-3"
+					expanded || pinned
+						? "h-[74px] flex-row items-center gap-3 border-y border-border bg-card px-4 py-3"
+						: "h-[70px] flex-row items-center gap-3 rounded-2xl bg-card px-4 py-3"
 				}
 				style={
-					expanded
+					expanded || pinned
 						? {
 								borderTopWidth: StyleSheet.hairlineWidth,
 								borderBottomWidth: StyleSheet.hairlineWidth,
@@ -316,7 +399,7 @@ const DiffCodeRow = memo(function DiffCodeRow({
 }) {
 	if (line.kind === "hunk") {
 		return (
-			<View className="min-h-9 justify-center border-y border-border bg-card px-4">
+			<View className="h-9 justify-center border-y border-border bg-card px-4">
 				<Text
 					selectable
 					className="font-mono text-[11px]"
@@ -331,7 +414,7 @@ const DiffCodeRow = memo(function DiffCodeRow({
 	const removed = line.kind === "removed";
 	return (
 		<View
-			className="min-h-[24px] flex-row items-start bg-background"
+			className="h-6 flex-row items-start bg-background"
 			style={{
 				backgroundColor: added
 					? colors.diffAddedBg
@@ -385,14 +468,41 @@ function SyntaxLine({
 	text: string;
 	palette: SyntaxPalette;
 }) {
-	const pieces: { key: string; text: string; color: string }[] = [];
+	return tokenizeLine(text, palette).map((piece) => (
+		<Text key={piece.key} style={{ color: piece.color }}>
+			{piece.text}
+		</Text>
+	));
+}
+
+function tokenizeLine(
+	text: string,
+	palette: SyntaxPalette,
+): readonly SyntaxPiece[] {
+	let cache = syntaxCache.get(palette);
+	if (cache === undefined) {
+		cache = new Map();
+		syntaxCache.set(palette, cache);
+	}
+	const displayText =
+		text.length > MAX_HIGHLIGHT_CHARS
+			? `${text.slice(0, MAX_HIGHLIGHT_CHARS)}…`
+			: text;
+	const cached = cache.get(displayText);
+	if (cached !== undefined) {
+		cache.delete(displayText);
+		cache.set(displayText, cached);
+		return cached;
+	}
+
+	const pieces: SyntaxPiece[] = [];
 	let cursor = 0;
-	for (const match of text.matchAll(TOKEN_PATTERN)) {
+	for (const match of displayText.matchAll(TOKEN_PATTERN)) {
 		const index = match.index ?? cursor;
 		if (index > cursor)
 			pieces.push({
 				key: `${cursor}:plain`,
-				text: text.slice(cursor, index),
+				text: displayText.slice(cursor, index),
 				color: palette.plain,
 			});
 		const token = match[0];
@@ -411,17 +521,18 @@ function SyntaxLine({
 		pieces.push({ key: `${index}:token`, text: token, color });
 		cursor = index + token.length;
 	}
-	if (cursor < text.length)
+	if (cursor < displayText.length)
 		pieces.push({
 			key: `${cursor}:plain`,
-			text: text.slice(cursor),
+			text: displayText.slice(cursor),
 			color: palette.plain,
 		});
-	return pieces.map((piece) => (
-		<Text key={piece.key} style={{ color: piece.color }}>
-			{piece.text}
-		</Text>
-	));
+	cache.set(displayText, pieces);
+	if (cache.size > MAX_HIGHLIGHT_CACHE_ENTRIES) {
+		const oldest = cache.keys().next().value;
+		if (oldest !== undefined) cache.delete(oldest);
+	}
+	return pieces;
 }
 
 function DiffStats({
@@ -476,3 +587,10 @@ function ReviewEmptyState({
 		</View>
 	);
 }
+
+const styles = StyleSheet.create({
+	pinnedHeader: {
+		zIndex: 10,
+		elevation: 3,
+	},
+});

@@ -1,5 +1,6 @@
 import type { FolderId, SessionId } from "@zuse/contracts";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { X } from "lucide-react-native";
 import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -15,6 +16,7 @@ import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function WorkspaceReviewScreen() {
+	const headerHeight = useHeaderHeight();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -78,14 +80,16 @@ export default function WorkspaceReviewScreen() {
 					),
 				}}
 			/>
-			<ReviewDiffList
-				summary={review.summary}
-				patches={review.patches}
-				loading={review.loading}
-				error={review.error}
-				refreshing={review.refreshing}
-				onRefresh={review.refresh}
-			/>
+			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+				<ReviewDiffList
+					summary={review.summary}
+					patches={review.patches}
+					loading={review.loading}
+					error={review.error}
+					refreshing={review.refreshing}
+					onRefresh={review.refresh}
+				/>
+			</View>
 		</View>
 	);
 }

@@ -4,15 +4,14 @@ import {
 	type FileChange,
 } from "@zuse/client-runtime/timeline";
 import {
-	GitDiffResult,
 	GitReviewFile,
-	GitReviewPatch,
 	GitReviewSummary,
 	type MessageContent,
 	type SessionId,
 } from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { Copy, Share2, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
@@ -26,6 +25,7 @@ import {
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { FileIcon } from "~/components/ui/file-icon";
 import { cn } from "~/lib/cn";
+import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
@@ -49,6 +49,7 @@ const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 };
 
 export default function ToolDetailScreen() {
+	const headerHeight = useHeaderHeight();
 	const { conn, sessionId, itemId, filePath } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -116,16 +117,7 @@ export default function ToolDetailScreen() {
 			Object.fromEntries(
 				files.map((entry) => [
 					entry.path,
-					GitReviewPatch.make({
-						path: entry.path,
-						error: null,
-						result: GitDiffResult.make({
-							mode: "worktree",
-							patch: diffText(entry.lines),
-							truncated: false,
-							bytes: 0,
-						}),
-					}),
+					prepareReviewLines(entry.path, entry.lines),
 				]),
 			),
 		[files],
@@ -200,83 +192,85 @@ export default function ToolDetailScreen() {
 					),
 				}}
 			/>
-			{hasFiles ? (
-				<>
-					<Segmented value={tab} onChange={setTab} />
-					{tab === "all" ? (
-						<FlatList
-							data={files}
-							keyExtractor={(entry) => entry.path}
-							contentInsetAdjustmentBehavior="automatic"
-							contentContainerClassName="py-2"
-							renderItem={({ item, index }) => (
-								<FileListRow
-									file={item}
-									onPress={() => {
-										setFileIndex(index);
-										setTab("modified");
-									}}
-								/>
-							)}
-						/>
-					) : (
-						<ReviewDiffList
-							summary={inlineReview}
-							patches={inlinePatches}
-							loading={false}
-							error={null}
-							refreshing={false}
-						/>
-					)}
-				</>
-			) : (
-				<ScrollView
-					contentInsetAdjustmentBehavior="automatic"
-					contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
-				>
-					<View
-						className="rounded-2xl border border-border bg-card p-4"
-						style={{ borderCurve: "continuous" }}
+			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+				{hasFiles ? (
+					<>
+						<Segmented value={tab} onChange={setTab} />
+						{tab === "all" ? (
+							<FlatList
+								data={files}
+								keyExtractor={(entry) => entry.path}
+								contentInsetAdjustmentBehavior="never"
+								contentContainerClassName="py-2"
+								renderItem={({ item, index }) => (
+									<FileListRow
+										file={item}
+										onPress={() => {
+											setFileIndex(index);
+											setTab("modified");
+										}}
+									/>
+								)}
+							/>
+						) : (
+							<ReviewDiffList
+								summary={inlineReview}
+								patches={inlinePatches}
+								loading={false}
+								error={null}
+								refreshing={false}
+							/>
+						)}
+					</>
+				) : (
+					<ScrollView
+						contentInsetAdjustmentBehavior="never"
+						contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
 					>
-						<Text className="font-sans-medium text-[13px] text-muted-foreground">
-							{presentation.kind === "shell" ? "Shell" : "Input"}
-						</Text>
-						<ScrollView horizontal showsHorizontalScrollIndicator={false}>
-							<Text
-								selectable
-								className="mt-3 font-mono text-[13px] leading-5 text-foreground"
-							>
-								{presentation.body}
-							</Text>
-						</ScrollView>
-					</View>
-					{presentation.resultBody === null ? null : (
 						<View
 							className="rounded-2xl border border-border bg-card p-4"
 							style={{ borderCurve: "continuous" }}
 						>
-							<Text
-								className="font-sans-medium text-[13px]"
-								style={{
-									color: presentation.isError
-										? colors.danger
-										: colors.secondaryFg,
-								}}
-							>
-								{presentation.isError ? "Error" : "Output"}
+							<Text className="font-sans-medium text-[13px] text-muted-foreground">
+								{presentation.kind === "shell" ? "Shell" : "Input"}
 							</Text>
 							<ScrollView horizontal showsHorizontalScrollIndicator={false}>
 								<Text
 									selectable
 									className="mt-3 font-mono text-[13px] leading-5 text-foreground"
 								>
-									{presentation.resultBody}
+									{presentation.body}
 								</Text>
 							</ScrollView>
 						</View>
-					)}
-				</ScrollView>
-			)}
+						{presentation.resultBody === null ? null : (
+							<View
+								className="rounded-2xl border border-border bg-card p-4"
+								style={{ borderCurve: "continuous" }}
+							>
+								<Text
+									className="font-sans-medium text-[13px]"
+									style={{
+										color: presentation.isError
+											? colors.danger
+											: colors.secondaryFg,
+									}}
+								>
+									{presentation.isError ? "Error" : "Output"}
+								</Text>
+								<ScrollView horizontal showsHorizontalScrollIndicator={false}>
+									<Text
+										selectable
+										className="mt-3 font-mono text-[13px] leading-5 text-foreground"
+									>
+										{presentation.resultBody}
+									</Text>
+								</ScrollView>
+							</View>
+						)}
+					</ScrollView>
+				)}
+			</View>
 		</View>
 	);
 }
@@ -290,7 +284,7 @@ function Segmented({
 }) {
 	return (
 		<View
-			className="mx-4 mb-1 mt-3 flex-row rounded-xl bg-card p-1"
+			className="mx-4 mb-2 mt-2 flex-row rounded-lg bg-muted p-0.5"
 			style={{ borderCurve: "continuous" }}
 		>
 			{(["modified", "all"] as const).map((tab) => {
@@ -301,7 +295,7 @@ function Segmented({
 						accessibilityRole="button"
 						accessibilityState={{ selected: active }}
 						onPress={() => onChange(tab)}
-						className="min-h-11 flex-1 items-center justify-center rounded-lg"
+						className="h-9 flex-1 items-center justify-center rounded-md"
 						style={{
 							borderCurve: "continuous",
 							backgroundColor: active ? colors.cardElevated : "transparent",
@@ -309,7 +303,7 @@ function Segmented({
 					>
 						<Text
 							className={cn(
-								"font-sans-medium text-[14px]",
+								"font-sans-medium text-[13px]",
 								active ? "text-foreground" : "text-muted-foreground",
 							)}
 						>

@@ -1,6 +1,7 @@
 import type { FolderId, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -11,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	FlatList,
+	Platform,
 	Pressable,
 	RefreshControl,
 	Text,
@@ -37,6 +39,7 @@ type Tab = "modified" | "all";
 
 export default function WorkspaceFilesScreen() {
 	const { width } = useWindowDimensions();
+	const headerHeight = useHeaderHeight();
 	const {
 		conn,
 		sessionId,
@@ -192,117 +195,125 @@ export default function WorkspaceFilesScreen() {
 				) : null}
 			</Stack.Toolbar>
 
-			<FileTabs value={tab} onChange={setTab} />
-			{tab === "all" ? (
-				<FlatList
-					data={visible}
-					keyExtractor={(item) => item.node.path}
-					contentInsetAdjustmentBehavior="automatic"
-					keyboardDismissMode="on-drag"
-					refreshControl={
-						<RefreshControl
-							refreshing={refreshing}
-							tintColor={colors.accent}
-							onRefresh={() => void load(true)}
-						/>
-					}
-					contentContainerStyle={{
-						paddingHorizontal: 16,
-						paddingTop: 10,
-						paddingBottom: 112,
-					}}
-					renderItem={({ item }) => {
-						const open = expanded.has(item.node.path);
-						return (
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel={item.node.path}
-								accessibilityState={
-									item.node.kind === "directory"
-										? { expanded: open }
-										: undefined
-								}
-								onPress={() => {
-									if (item.node.kind === "directory") {
-										setExpanded((current) => {
-											const next = new Set(current);
-											if (next.has(item.node.path)) next.delete(item.node.path);
-											else next.add(item.node.path);
-											return next;
-										});
-										return;
+			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+				<FileTabs value={tab} onChange={setTab} />
+				{tab === "all" ? (
+					<FlatList
+						data={visible}
+						keyExtractor={(item) => item.node.path}
+						contentInsetAdjustmentBehavior="never"
+						keyboardDismissMode="on-drag"
+						refreshControl={
+							<RefreshControl
+								refreshing={refreshing}
+								tintColor={colors.accent}
+								onRefresh={() => void load(true)}
+							/>
+						}
+						contentContainerStyle={{
+							paddingHorizontal: 16,
+							paddingTop: 10,
+							paddingBottom: 112,
+						}}
+						initialNumToRender={24}
+						maxToRenderPerBatch={24}
+						updateCellsBatchingPeriod={16}
+						windowSize={9}
+						removeClippedSubviews={Platform.OS === "android"}
+						renderItem={({ item }) => {
+							const open = expanded.has(item.node.path);
+							return (
+								<Pressable
+									accessibilityRole="button"
+									accessibilityLabel={item.node.path}
+									accessibilityState={
+										item.node.kind === "directory"
+											? { expanded: open }
+											: undefined
 									}
-									router.push({
-										pathname: "/c/[conn]/session/[sessionId]/file",
-										params: {
-											conn: connKey,
-											sessionId: normalizedSessionId,
-											path: item.node.path,
-										},
-									});
-								}}
-								className="min-h-[54px] flex-row items-center gap-3 rounded-xl px-2"
-								style={{ paddingLeft: 8 + item.depth * 18 }}
-							>
-								<View className="w-4 items-center">
-									{item.node.kind === "directory" ? (
-										open ? (
-											<ChevronDown size={14} color={colors.secondaryFg} />
-										) : (
-											<ChevronRight size={14} color={colors.secondaryFg} />
-										)
-									) : null}
-								</View>
-								{item.node.kind === "directory" ? (
-									<Folder size={19} color={colors.accent} />
-								) : (
-									<FileIcon path={item.node.path} size={18} />
-								)}
-								<Text
-									className="min-w-0 flex-1 font-sans-medium text-[15px] text-foreground"
-									numberOfLines={1}
+									onPress={() => {
+										if (item.node.kind === "directory") {
+											setExpanded((current) => {
+												const next = new Set(current);
+												if (next.has(item.node.path))
+													next.delete(item.node.path);
+												else next.add(item.node.path);
+												return next;
+											});
+											return;
+										}
+										router.push({
+											pathname: "/c/[conn]/session/[sessionId]/file",
+											params: {
+												conn: connKey,
+												sessionId: normalizedSessionId,
+												path: item.node.path,
+											},
+										});
+									}}
+									className="min-h-[54px] flex-row items-center gap-3 rounded-xl px-2"
+									style={{ paddingLeft: 8 + item.depth * 18 }}
 								>
-									{item.node.name}
-								</Text>
-								{item.node.kind === "directory" ? (
+									<View className="w-4 items-center">
+										{item.node.kind === "directory" ? (
+											open ? (
+												<ChevronDown size={14} color={colors.secondaryFg} />
+											) : (
+												<ChevronRight size={14} color={colors.secondaryFg} />
+											)
+										) : null}
+									</View>
+									{item.node.kind === "directory" ? (
+										<Folder size={19} color={colors.accent} />
+									) : (
+										<FileIcon path={item.node.path} size={18} />
+									)}
 									<Text
-										className="pr-2 font-sans text-[11px] text-muted-foreground"
-										style={{ fontVariant: ["tabular-nums"] }}
+										className="min-w-0 flex-1 font-sans-medium text-[15px] text-foreground"
+										numberOfLines={1}
 									>
-										{item.node.children.length}
+										{item.node.name}
 									</Text>
-								) : null}
-							</Pressable>
-						);
-					}}
-					ListHeaderComponent={
-						truncated ? (
-							<Text className="px-2 pb-2 pt-1 font-sans text-xs text-muted-foreground">
-								Showing the first 50,000 paths.
-							</Text>
-						) : null
-					}
-					ListEmptyComponent={
-						<FileEmptyState
-							loading={initialLoading}
-							error={error}
-							query={query}
-							emptyLabel="No files found"
-							emptyMessage="This workspace does not contain any visible files."
-							onRetry={() => void load(true)}
-						/>
-					}
-				/>
-			) : (
-				<ReviewDiffList
-					summary={review.summary}
-					patches={review.patches}
-					loading={review.loading}
-					error={review.error}
-					refreshing={review.refreshing}
-					onRefresh={review.refresh}
-				/>
-			)}
+									{item.node.kind === "directory" ? (
+										<Text
+											className="pr-2 font-sans text-[11px] text-muted-foreground"
+											style={{ fontVariant: ["tabular-nums"] }}
+										>
+											{item.node.children.length}
+										</Text>
+									) : null}
+								</Pressable>
+							);
+						}}
+						ListHeaderComponent={
+							truncated ? (
+								<Text className="px-2 pb-2 pt-1 font-sans text-xs text-muted-foreground">
+									Showing the first 50,000 paths.
+								</Text>
+							) : null
+						}
+						ListEmptyComponent={
+							<FileEmptyState
+								loading={initialLoading}
+								error={error}
+								query={query}
+								emptyLabel="No files found"
+								emptyMessage="This workspace does not contain any visible files."
+								onRetry={() => void load(true)}
+							/>
+						}
+					/>
+				) : (
+					<ReviewDiffList
+						summary={review.summary}
+						patches={review.patches}
+						loading={review.loading}
+						error={review.error}
+						refreshing={review.refreshing}
+						onRefresh={review.refresh}
+					/>
+				)}
+			</View>
 		</View>
 	);
 }
@@ -315,7 +326,7 @@ function FileTabs({
 	onChange: (tab: Tab) => void;
 }) {
 	return (
-		<View className="mx-4 mb-2 mt-3 flex-row rounded-xl bg-muted p-1">
+		<View className="mx-4 mb-2 mt-2 flex-row rounded-lg bg-muted p-0.5">
 			{(["modified", "all"] as const).map((tab) => {
 				const selected = tab === value;
 				return (
@@ -324,14 +335,14 @@ function FileTabs({
 						accessibilityRole="tab"
 						accessibilityState={{ selected }}
 						onPress={() => onChange(tab)}
-						className="min-h-11 flex-1 items-center justify-center rounded-lg"
+						className="h-9 flex-1 items-center justify-center rounded-md"
 						style={{
 							borderCurve: "continuous",
 							backgroundColor: selected ? colors.cardElevated : "transparent",
 						}}
 					>
 						<Text
-							className="font-sans-medium text-[14px]"
+							className="font-sans-medium text-[13px]"
 							style={{ color: selected ? colors.fg : colors.secondaryFg }}
 						>
 							{tab === "modified" ? "Modified" : "All files"}

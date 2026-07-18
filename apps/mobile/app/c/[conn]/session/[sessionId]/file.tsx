@@ -3,7 +3,14 @@ import { Effect } from "effect";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { FileText } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
+import {
+	FlatList,
+	Platform,
+	RefreshControl,
+	ScrollView,
+	Text,
+	View,
+} from "react-native";
 
 import { FileIcon } from "~/components/ui/file-icon";
 import {
@@ -177,11 +184,18 @@ export default function WorkspaceFileScreen() {
 								/>
 							}
 							contentContainerStyle={{ paddingVertical: 8 }}
-							initialNumToRender={80}
-							maxToRenderPerBatch={100}
-							windowSize={12}
+							initialNumToRender={48}
+							maxToRenderPerBatch={48}
+							updateCellsBatchingPeriod={16}
+							windowSize={9}
+							removeClippedSubviews={Platform.OS === "android"}
+							getItemLayout={(_, index) => ({
+								length: 24,
+								offset: 24 * index,
+								index,
+							})}
 							renderItem={({ item, index }) => (
-								<View className="min-h-6 flex-row items-start">
+								<View className="h-6 flex-row items-start">
 									<Text
 										className="w-12 pr-3 text-right font-mono text-[10px] leading-5 text-muted-foreground"
 										style={{ fontVariant: ["tabular-nums"] }}

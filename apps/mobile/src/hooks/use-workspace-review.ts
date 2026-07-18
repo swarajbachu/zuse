@@ -1,12 +1,10 @@
-import type {
-	FolderId,
-	GitReviewPatch,
-	GitReviewSummary,
-	WorktreeId,
-} from "@zuse/contracts";
+import type { FolderId, GitReviewSummary, WorktreeId } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { useCallback, useEffect, useRef, useState } from "react";
-
+import {
+	type PreparedReviewPatch,
+	prepareReviewPatch,
+} from "~/lib/review-diff-model";
 import {
 	loadWorkspaceReview,
 	streamWorkspaceReviewPatches,
@@ -21,7 +19,7 @@ export function useWorkspaceReview(options: {
 }) {
 	const [summary, setSummary] = useState<GitReviewSummary | null>(null);
 	const [patches, setPatches] = useState<
-		Readonly<Record<string, GitReviewPatch>>
+		Readonly<Record<string, PreparedReviewPatch>>
 	>({});
 	const [loading, setLoading] = useState(true);
 	const [refreshing, setRefreshing] = useState(false);
@@ -74,7 +72,11 @@ export function useWorkspaceReview(options: {
 			(patch) =>
 				Effect.sync(() => {
 					if (generationRef.current !== generation) return;
-					setPatches((current) => ({ ...current, [patch.path]: patch }));
+					const prepared = prepareReviewPatch(patch);
+					setPatches((current) => ({
+						...current,
+						[prepared.path]: prepared,
+					}));
 				}),
 		);
 		const patchFiber = Effect.runFork(patchProgram);
