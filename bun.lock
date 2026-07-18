@@ -121,6 +121,7 @@
         "zustand": "^5.0.2",
       },
       "devDependencies": {
+        "@pierre/trees": "1.0.0-beta.5",
         "@repo/typescript-config": "*",
         "@types/node": "catalog:",
         "@types/react": "catalog:",
@@ -128,7 +129,6 @@
         "babel-preset-expo": "~57.0.0",
         "eslint": "catalog:",
         "eslint-config-expo": "~57.0.0",
-        "material-icon-theme": "^5.30.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },

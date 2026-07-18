@@ -8,7 +8,9 @@ import {
 	type FolderId,
 	type FsFileContent,
 	type GitBranchInfo,
+	type GitDiffResult,
 	type GitPrSummary,
+	type GitReviewSummary,
 	type MessageId,
 	type PermissionDecision,
 	type PermissionMode,
@@ -447,6 +449,34 @@ export const listWorkspacePaths = (options: {
 			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
 		),
 	);
+
+export const loadWorkspaceReview = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+}): Effect.Effect<GitReviewSummary, unknown, never> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.reviewSummary"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
+
+export const loadWorkspaceDiff = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	path: string;
+	worktreeId?: WorktreeId | null;
+}): Effect.Effect<GitDiffResult, unknown, never> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.diff"]({
+			folderId: options.folderId,
+			path: options.path,
+			worktreeId: options.worktreeId ?? null,
+		});
+	});
 
 export const readWorkspaceFile = (options: {
 	connection: WsProtocolOptions;

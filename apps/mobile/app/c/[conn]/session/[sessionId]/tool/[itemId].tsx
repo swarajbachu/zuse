@@ -395,40 +395,56 @@ function FileListRow({
 }
 
 function DiffRow({ line }: { line: DiffLine }) {
-	const color =
-		line.kind === "added"
-			? colors.diffAdded
-			: line.kind === "removed"
-				? colors.diffRemoved
-				: line.kind === "hunk"
-					? colors.diffHunk
-					: colors.fg;
-	const background =
-		line.kind === "added"
-			? colors.diffAddedBg
-			: line.kind === "removed"
-				? colors.diffRemovedBg
-				: "transparent";
-	const prefix =
-		line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " ";
+	if (line.kind === "hunk") {
+		return (
+			<View className="min-h-8 justify-center bg-primary/10 px-3">
+				<Text
+					selectable
+					className="font-mono text-[11px]"
+					style={{ color: colors.diffHunk }}
+				>
+					{line.text}
+				</Text>
+			</View>
+		);
+	}
+	const added = line.kind === "added";
+	const removed = line.kind === "removed";
 	return (
 		<View
-			className="min-h-6 flex-row items-start px-3"
-			style={{ backgroundColor: background }}
+			className="min-h-6 flex-row items-start"
+			style={{
+				backgroundColor: added
+					? colors.diffAddedBg
+					: removed
+						? colors.diffRemovedBg
+						: "transparent",
+			}}
 		>
+			<View className="w-[72px] flex-row justify-end gap-2 border-r border-border/60 px-2 py-0.5">
+				<Text className="w-5 text-right font-mono text-[10px] text-muted-foreground">
+					{line.oldLine ?? ""}
+				</Text>
+				<Text className="w-5 text-right font-mono text-[10px] text-muted-foreground">
+					{line.newLine ?? ""}
+				</Text>
+			</View>
 			<Text
 				selectable
-				className="w-16 font-mono text-[11px] text-muted-foreground"
-				style={{ fontVariant: ["tabular-nums"] }}
+				className="px-2 py-0.5 font-mono text-[11px] leading-5 text-foreground"
 			>
-				{line.oldLine ?? ""} {line.newLine ?? ""}
-			</Text>
-			<Text
-				selectable
-				className="font-mono text-[12px] leading-5"
-				style={{ color }}
-			>
-				{line.kind === "hunk" ? line.text : `${prefix}${line.text}`}
+				<Text
+					style={{
+						color: added
+							? colors.diffAdded
+							: removed
+								? colors.diffRemoved
+								: colors.secondaryFg,
+					}}
+				>
+					{added ? "+" : removed ? "−" : " "}
+				</Text>
+				{line.text}
 			</Text>
 		</View>
 	);

@@ -1,5 +1,6 @@
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
+	FolderId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
@@ -39,6 +40,7 @@ import { LivePermissionAccessory } from "~/components/messages/live-permission-a
 import type { MessageRowContext } from "~/components/messages/message-row";
 import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
 import { TurnRow } from "~/components/messages/turn-row";
+import { ReviewChangesPill } from "~/components/review-changes-pill";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
@@ -763,18 +765,37 @@ function ThreadScreen() {
 					) : planRequest !== null ? (
 						renderPromptAccessory([planRequest], true)
 					) : (
-						<Composer
-							connKey={connKey}
-							connection={options}
-							sessionId={normalizedSessionId}
-							session={detail?.session ?? null}
-							status={sessionStatus}
-							fresh={fresh}
-							online={transportOnline}
-							connectionStatus={connectionSnapshot?.status}
-							onRetryConnection={() => retryConnection(connKey, options)}
-							bottomInset={insets.bottom}
-						/>
+						<View pointerEvents="box-none">
+							{detail !== null && sessionStatus !== "running" ? (
+								<ReviewChangesPill
+									connection={options}
+									folderId={detail.project.id as FolderId}
+									worktreeId={detail.session.worktreeId}
+									refreshKey={`${turns.length}`}
+									onPress={() =>
+										router.push({
+											pathname: "/c/[conn]/session/[sessionId]/review",
+											params: {
+												conn: connKey,
+												sessionId: normalizedSessionId,
+											},
+										})
+									}
+								/>
+							) : null}
+							<Composer
+								connKey={connKey}
+								connection={options}
+								sessionId={normalizedSessionId}
+								session={detail?.session ?? null}
+								status={sessionStatus}
+								fresh={fresh}
+								online={transportOnline}
+								connectionStatus={connectionSnapshot?.status}
+								onRetryConnection={() => retryConnection(connKey, options)}
+								bottomInset={insets.bottom}
+							/>
+						</View>
 					)}
 				</View>
 			</KeyboardAvoidingView>

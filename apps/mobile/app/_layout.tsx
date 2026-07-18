@@ -164,6 +164,14 @@ export default function RootLayout() {
 						}}
 					/>
 					<Stack.Screen
+						name="c/[conn]/session/[sessionId]/review"
+						options={{
+							title: "Review changes",
+							headerLargeTitle: false,
+							presentation: "card",
+						}}
+					/>
+					<Stack.Screen
 						name="c/[conn]/session/[sessionId]/tool/[itemId]"
 						options={{
 							title: "Tool details",
