@@ -371,7 +371,7 @@ const ToolUseRow = ({
 	// Skip the redundant tool-level disclosure, but let each file reveal its diff.
 	if (view.fileChangeTotals !== null) {
 		return (
-			<View className="px-2 py-0.5">
+			<View className="px-2">
 				{view.fileChanges.map((change) => (
 					<EditedFileRow
 						key={change.path}
@@ -430,7 +430,8 @@ function EditedFileRow({
 				accessibilityLabel={`${expanded ? "Collapse" : "Expand"} changes for ${path}`}
 				accessibilityState={{ expanded }}
 				onPress={() => setExpanded((value) => !value)}
-				className="min-h-11 flex-row items-center gap-2 active:opacity-60"
+				hitSlop={8}
+				className="flex-row items-center gap-2 py-1.5 active:opacity-60"
 			>
 				<FileIcon path={change.path} size={16} />
 				{shimmer ? (
