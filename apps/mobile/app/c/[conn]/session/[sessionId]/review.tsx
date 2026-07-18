@@ -16,6 +16,7 @@ import {
 import { buildLastTurnReview } from "~/lib/last-turn-review";
 import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import type { MobileReviewScope } from "~/lib/review-scope";
+import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import { useConnectionsStore } from "~/store/connections";
@@ -34,8 +35,8 @@ export default function WorkspaceReviewScreen() {
 	const [scope, setScope] = useState<MobileReviewScope>("branch");
 	const [collapseAllKey, setCollapseAllKey] = useState(0);
 	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore(
-		(state) => state.bundlesByConnection[connKey] ?? [],
+	const bundles = useSessionsStore((state) =>
+		selectConnectionBundles(state.bundlesByConnection, connKey),
 	);
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;
@@ -69,7 +70,7 @@ export default function WorkspaceReviewScreen() {
 		scope === "last_turn" ? lastTurnReview.patches : review.patches;
 
 	return (
-		<View className="flex-1 bg-background/95">
+		<View collapsable={false} className="flex-1 bg-background/95">
 			<Stack.Screen
 				options={{
 					...translucentNativeHeaderOptions,
@@ -121,7 +122,11 @@ export default function WorkspaceReviewScreen() {
 					),
 				}}
 			/>
-			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+			<View
+				collapsable={false}
+				className="flex-1"
+				style={{ paddingTop: headerHeight }}
+			>
 				<ReviewDiffList
 					summary={summary}
 					patches={patches}

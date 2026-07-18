@@ -1,5 +1,5 @@
 import { Rpc } from "effect/unstable/rpc";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 
@@ -493,7 +493,10 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
   "GitReviewSummary",
 )({
   baseRef: Schema.NullOr(Schema.String),
-  headRef: Schema.NullOr(Schema.String),
+  headRef: Schema.NullOr(Schema.String).pipe(
+    Schema.withConstructorDefault(Effect.succeed(null)),
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
   baseSha: Schema.String,
   headSha: Schema.String,
   files: Schema.Array(GitReviewFile),

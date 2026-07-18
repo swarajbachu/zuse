@@ -54,6 +54,7 @@ import { captureMobileError } from "~/lib/crash-reporting";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
+import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
@@ -71,9 +72,6 @@ import { pinnedChatKey, usePinnedChatsStore } from "~/store/pinned-chats";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
 
-const EMPTY_BUNDLES: ReturnType<
-	typeof useSessionsStore.getState
->["bundlesByConnection"][string] = [];
 const EMPTY_PENDING: ReturnType<
 	typeof usePermissionsStore.getState
 >["pendingBySession"][string] = [];
@@ -125,8 +123,8 @@ function ThreadScreen() {
 	const connectionSnapshot = useConnectionRuntimeStore(
 		(state) => state.snapshotsByConnection[connKey],
 	);
-	const bundles = useSessionsStore(
-		(state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
+	const bundles = useSessionsStore((state) =>
+		selectConnectionBundles(state.bundlesByConnection, connKey),
 	);
 	const archiveChat = useSessionsStore((state) => state.archiveChat);
 	const archiveSession = useSessionsStore((state) => state.archiveSession);

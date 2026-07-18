@@ -20,6 +20,7 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { translucentNativeHeaderOptions } from "~/lib/native-header";
+import { selectConnectionBundles } from "~/lib/session-bundles";
 import {
 	DARK_SYNTAX,
 	LIGHT_SYNTAX,
@@ -47,8 +48,8 @@ export default function WorkspaceFileScreen() {
 	const connKey = normalizeConnParam(conn);
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
 	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore(
-		(state) => state.bundlesByConnection[connKey] ?? [],
+	const bundles = useSessionsStore((state) =>
+		selectConnectionBundles(state.bundlesByConnection, connKey),
 	);
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;

@@ -203,7 +203,7 @@ export function ReviewDiffList({
 		showPinnedHeader && activeFile !== null && !collapsed.has(activeFile.path);
 
 	return (
-		<View className="flex-1">
+		<View collapsable={false} className="flex-1">
 			<SectionList
 				className="flex-1"
 				sections={sections}

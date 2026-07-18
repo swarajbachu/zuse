@@ -159,6 +159,9 @@ describe("mobile UI contracts", () => {
 		expect(files).not.toContain("<ActivityIndicator");
 		expect(files).toContain("<ReviewDiffList");
 		expect(review).toContain("<ReviewDiffList");
+		expect(review).toContain("collapsable={false}");
+		expect(review).toContain("selectConnectionBundles");
+		expect(review).not.toContain("bundlesByConnection[connKey] ?? []");
 		expect(tool).toContain("<ReviewDiffList");
 		expect(tool).toContain("paddingTop: headerHeight");
 		expect(review).toContain("paddingTop: headerHeight");

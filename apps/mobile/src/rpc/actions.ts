@@ -462,7 +462,12 @@ export const loadWorkspaceReview = (options: {
 		return yield* client["git.reviewSummary"]({
 			folderId: options.folderId,
 			worktreeId: options.worktreeId ?? null,
-			scope: options.scope ?? "branch",
+			// Omit the default range so a phone can still review changes from a
+			// desktop that predates scoped review payloads.
+			scope:
+				options.scope === undefined || options.scope === "branch"
+					? undefined
+					: options.scope,
 		});
 	});
 
@@ -477,7 +482,10 @@ export const streamWorkspaceReviewPatches = (options: {
 			client["git.reviewPatches"]({
 				folderId: options.folderId,
 				worktreeId: options.worktreeId ?? null,
-				scope: options.scope ?? "branch",
+				scope:
+					options.scope === undefined || options.scope === "branch"
+						? undefined
+						: options.scope,
 			}),
 		),
 	);

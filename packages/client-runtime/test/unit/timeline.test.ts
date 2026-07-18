@@ -97,4 +97,34 @@ describe("timeline projection", () => {
 			removed: 2,
 		});
 	});
+
+	it("extracts real file paths from apply-patch tool payloads", () => {
+		const patch = `*** Begin Patch
+*** Update File: src/a.ts
+@@
+-const value = 1;
++const value = 2;
+*** Add File: src/b.ts
++export const added = true;
+*** End Patch`;
+		const changes = extractFileChanges("Edit", {
+			file_path: "(patch)",
+			patch,
+		});
+
+		expect(changes.map((change) => change.path)).toEqual([
+			"src/a.ts",
+			"src/b.ts",
+		]);
+		expect(changes).toMatchObject([
+			{ added: 1, removed: 1 },
+			{ added: 1, removed: 0 },
+		]);
+		expect(
+			extractFileChanges("Edit", {
+				file_path: "(patch)",
+				patch: { patch },
+			}).map((change) => change.path),
+		).toEqual(["src/a.ts", "src/b.ts"]);
+	});
 });
