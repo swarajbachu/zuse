@@ -1,4 +1,4 @@
-import type { UpdateStatus } from "@zuse/contracts";
+import type { NetworkAccessState, UpdateStatus } from "@zuse/contracts";
 
 /**
  * Shape of the preload bridge that the main process exposes onto
@@ -31,6 +31,13 @@ export interface AppBridge {
   readonly getMainDiagnostics?: () => Promise<
     ReadonlyArray<DiagnosticLogEntry>
   >;
+}
+
+export interface NetworkBridge {
+  readonly getAccessState: () => Promise<NetworkAccessState>;
+  readonly setAccessEnabled: (
+    enabled: boolean,
+  ) => Promise<NetworkAccessState>;
 }
 
 export interface DiagnosticLogEntry {
@@ -258,6 +265,7 @@ export interface ZuseBridge {
   readonly window?: WindowBridge;
   readonly menu?: MenuBridge;
   readonly app?: AppBridge;
+  readonly network?: NetworkBridge;
   readonly updates?: UpdatesBridge;
   readonly browser?: BrowserBridge;
   readonly notch?: NotchBridge;

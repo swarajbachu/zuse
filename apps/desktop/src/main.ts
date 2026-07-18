@@ -3,7 +3,7 @@ import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import * as Path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -49,6 +49,12 @@ import {
 	type MenuAccelerators,
 	type MenuCommand,
 } from "./menu.ts";
+import {
+	type ResolvedNetworkAccessState,
+	readNetworkAccessPreference,
+	resolveNetworkAccessState,
+	writeNetworkAccessPreference,
+} from "./network-access.ts";
 import {
 	NotchTrayController,
 	type NotchTrayItem,
@@ -728,6 +734,23 @@ async function createMainWindow() {
 	const relayPort = await resolveDesktopRelayPort({
 		configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
 	});
+	const userData = app.getPath("userData");
+	const networkAccessEnabled = await readNetworkAccessPreference(userData);
+	let networkAccess: ResolvedNetworkAccessState;
+	try {
+		networkAccess = resolveNetworkAccessState({
+			enabled: networkAccessEnabled,
+			port: relayPort.port,
+			interfaces: networkInterfaces(),
+		});
+	} catch (cause) {
+		recordMainDiagnostic("warn", "network-access", [cause]);
+		networkAccess = resolveNetworkAccessState({
+			enabled: false,
+			port: relayPort.port,
+			interfaces: networkInterfaces(),
+		});
+	}
 	const isMac = process.platform === "darwin";
 	mainWindow = new BrowserWindow({
 		width: 1280,
@@ -863,6 +886,39 @@ async function createMainWindow() {
 	});
 
 	ipcMain.handle("app:getMainDiagnostics", () => mainDiagnosticLogs.slice());
+
+	ipcMain.handle("network:getAccessState", () => ({
+		mode: networkAccess.mode,
+		advertisedHost: networkAccess.advertisedHost,
+		endpointUrl: networkAccess.endpointUrl,
+		port: networkAccess.port,
+	}));
+	ipcMain.handle(
+		"network:setAccessEnabled",
+		async (_event, enabled: unknown) => {
+			if (typeof enabled !== "boolean") {
+				throw new TypeError("Network access must be enabled or disabled.");
+			}
+			const next = resolveNetworkAccessState({
+				enabled,
+				port: relayPort.port,
+				interfaces: networkInterfaces(),
+			});
+			await writeNetworkAccessPreference(userData, enabled);
+			if (next.mode !== networkAccess.mode) {
+				setTimeout(() => {
+					app.relaunch();
+					app.exit(0);
+				}, 250);
+			}
+			return {
+				mode: next.mode,
+				advertisedHost: next.advertisedHost,
+				endpointUrl: next.endpointUrl,
+				port: next.port,
+			};
+		},
+	);
 
 	ipcMain.handle("ssh:listHosts", async () => listSshHosts());
 
@@ -1440,7 +1496,7 @@ async function createMainWindow() {
 	const relayWsPort = relayPort.port;
 	const relayWsProtocol = wsServerProtocolLayer({
 		port: relayWsPort,
-		host: "127.0.0.1",
+		host: networkAccess.bindHost,
 		onDiagnostic: appendRemoteConnectionLog,
 	});
 	appendRemoteConnectionLog("desktop.runtime.start", {
@@ -1456,14 +1512,14 @@ async function createMainWindow() {
 	runtimeFiber = Effect.runFork(
 		Layer.launch(
 			makeMainLayer({
-				userData: app.getPath("userData"),
+				userData,
 				folderPicker,
 				serverProtocol,
 				additionalServerProtocols: [relayWsProtocol],
 				authShell,
 				lanAuth: {
 					policy: "protected",
-					advertisedHost: null,
+					advertisedHost: networkAccess.advertisedHost,
 					port: relayWsPort,
 					pairingBootstrap: false,
 				},

@@ -280,11 +280,10 @@ export const LanAuthServiceLive = Layer.effect(
           const now = yield* Clock.currentTimeMillis;
           const expiresAtMs = now + PAIRING_TTL_MS;
           const urls = yield* makePairingUrls(code);
-          yield* Ref.update(pairingCodes, (codes) => {
-            const next = new Map(codes);
-            next.set(code, { expiresAtMs });
-            return next;
-          });
+          yield* Ref.set(
+            pairingCodes,
+            new Map([[code, { expiresAtMs }]]),
+          );
           return {
             code,
             expiresAt: new Date(expiresAtMs),

@@ -74,6 +74,9 @@ const EMPTY_PENDING: ReturnType<
 const EMPTY_QUEUED: ReturnType<
 	typeof useOutboxStore.getState
 >["queuedBySession"][string] = [];
+const EMPTY_SERVER_QUEUE: ReturnType<
+	typeof useMobileMessagesStore.getState
+>["queueBySession"][string] = [];
 
 export default function ThreadScreenRoute() {
 	return (
@@ -133,6 +136,12 @@ function ThreadScreen() {
 	const errorBySession = useMobileMessagesStore(
 		(state) => state.errorBySession,
 	);
+	const serverQueued = useMobileMessagesStore(
+		(state) => state.queueBySession[stateKey] ?? EMPTY_SERVER_QUEUE,
+	);
+	const deleteServerQueued = useMobileMessagesStore(
+		(state) => state.deleteQueued,
+	);
 	const hydrate = useMobileMessagesStore((state) => state.hydrate);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
@@ -152,10 +161,11 @@ function ThreadScreen() {
 	const hydrateOutbox = useOutboxStore((state) => state.hydrate);
 	const flushOutbox = useOutboxStore((state) => state.flush);
 	const cancelQueued = useOutboxStore((state) => state.cancel);
-	const queued = useOutboxStore(
+	const localQueued = useOutboxStore(
 		(state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
 	);
-	const queuedCount = queued.length;
+	const queuedCount = localQueued.length;
+	const [screenOpenedAt] = useState(() => Date.now());
 
 	useEffect(() => {
 		if (!hydrated) void hydrateConnections();
@@ -283,7 +293,7 @@ function ThreadScreen() {
 			!(request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode"),
 	);
 	const headPermission = permissionRequests[0] ?? null;
-	const pendingQuestion = useMemo(() => {
+	const pendingQuestion = (() => {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
 			const content = messages[index]?.content;
 			if (
@@ -294,7 +304,7 @@ function ThreadScreen() {
 			}
 		}
 		return null;
-	}, [messages, answeredQuestionIds]);
+	})();
 
 	// The live "working" row shows the whole time the agent runs, but not while a
 	// prompt takeover (permission / question / plan) owns the bottom slot.
@@ -303,7 +313,7 @@ function ThreadScreen() {
 		headPermission === null &&
 		pendingQuestion === null &&
 		planRequest === null;
-	const workingSince = turns.at(-1)?.startedAt.getTime() ?? Date.now();
+	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 
 	const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
 		(itemId, answers) =>
@@ -602,10 +612,26 @@ function ThreadScreen() {
 					) : null
 				}
 				ListFooterComponent={
-					workingActive || queued.length > 0 ? (
+					workingActive || localQueued.length > 0 || serverQueued.length > 0 ? (
 						<View className="pt-1">
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-							{queued.map((item) => (
+							{serverQueued.map((item) => (
+								<QueuedBubble
+									key={item.id}
+									text={item.input.text}
+									onCancel={() => {
+										if (options !== null) {
+											void deleteServerQueued(
+												connKey,
+												options,
+												normalizedSessionId,
+												item.id,
+											);
+										}
+									}}
+								/>
+							))}
+							{localQueued.map((item) => (
 								<QueuedBubble
 									key={item.clientId}
 									text={item.text}

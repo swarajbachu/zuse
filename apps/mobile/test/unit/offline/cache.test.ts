@@ -18,6 +18,15 @@ describe("mobile offline helpers", () => {
 		});
 	});
 
+	test("rejects unrelated QR codes and malformed pairing ports", () => {
+		expect(() => parsePairingUrl("https://example.com/marketing")).toThrow(
+			"not a Zuse pairing code",
+		);
+		expect(() =>
+			parsePairingUrl("zuse://?pairingUrl=192.168.1.2:99999#token=abc"),
+		).toThrow("invalid port");
+	});
+
 	test("slugs connection keys for cache paths", () => {
 		expect(slugConnectionKey("127.0.0.1:8787")).toBe("127.0.0.1_8787");
 	});

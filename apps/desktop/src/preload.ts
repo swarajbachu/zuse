@@ -1,5 +1,3 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-
 import {
   AGENTS_RUNNING_COUNT_CHANNEL,
   IPC_CHANNEL,
@@ -9,6 +7,7 @@ import {
   UPDATE_STATUS_CHANNEL,
   type UpdateStatus,
 } from "@zuse/contracts";
+import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.
@@ -203,6 +202,17 @@ const bridge = {
           readonly detail?: string;
         }>
       >,
+  },
+  network: {
+    getAccessState: () =>
+      ipcRenderer.invoke("network:getAccessState") as Promise<
+        import("@zuse/contracts").NetworkAccessState
+      >,
+    setAccessEnabled: (enabled: boolean) =>
+      ipcRenderer.invoke(
+        "network:setAccessEnabled",
+        enabled,
+      ) as Promise<import("@zuse/contracts").NetworkAccessState>,
   },
   ssh: {
     listHosts: () =>

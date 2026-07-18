@@ -154,6 +154,28 @@ describe("LanAuthService", () => {
 		});
 	});
 
+	it("invalidates an older pairing code when a new code is shown", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const previous = yield* auth.createPairingCode();
+					const current = yield* auth.createPairingCode();
+					const previousResult = yield* Effect.result(
+						auth.redeemPairingCode(previous.code),
+					);
+					const currentResult = yield* Effect.result(
+						auth.redeemPairingCode(current.code),
+					);
+					return { previousResult, currentResult };
+				}),
+			);
+
+			expect(Result.isFailure(result.previousResult)).toBe(true);
+			expect(Result.isSuccess(result.currentResult)).toBe(true);
+		});
+	});
+
 	it("expires pairing codes using the Effect clock", async () => {
 		await withRuntime(async (run) => {
 			const result = await run(

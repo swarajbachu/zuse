@@ -1,8 +1,13 @@
-import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import {
   projectSessionEvent,
   sessionEventCursors,
 } from "@zuse/client-runtime/session-events";
+import type {
+  Message,
+  MessageId,
+  QueuedMessage,
+  SessionId,
+} from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { AppState } from "react-native";
 import { create } from "zustand";
@@ -13,6 +18,8 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 type MessagesState = {
   messagesBySession: Record<string, readonly Message[]>;
+  queueBySession: Record<string, readonly QueuedMessage[]>;
+  queuePausedBySession: Record<string, boolean>;
   reconnectingBySession: Record<string, boolean>;
   errorBySession: Record<string, string | null>;
   hydrate: (
@@ -21,24 +28,43 @@ type MessagesState = {
     sessionId: SessionId,
   ) => Promise<void>;
   flush: (connKey: string, sessionId: SessionId) => Promise<void>;
+  deleteQueued: (
+    connKey: string,
+    options: WsProtocolOptions,
+    sessionId: SessionId,
+    queueId: string,
+  ) => Promise<void>;
 };
 
 const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const queueFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const eventCursorKey = (liveKey: string): string =>
   `mobile:messages:${liveKey}`;
 const optimisticIds = new Set<MessageId>();
 let appStateInstalled = false;
 
-const stop = async (key: string) => {
-  const fiber = liveFibers.get(key);
+const stopFiber = async (
+  key: string,
+  fibers: Map<string, Fiber.Fiber<unknown, unknown>>,
+) => {
+  const fiber = fibers.get(key);
   if (fiber !== undefined) {
-    liveFibers.delete(key);
+    fibers.delete(key);
     await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
   }
 };
 
+const stop = async (key: string) => {
+  await Promise.all([
+    stopFiber(key, liveFibers),
+    stopFiber(key, queueFibers),
+  ]);
+};
+
 export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
   messagesBySession: {},
+  queueBySession: {},
+  queuePausedBySession: {},
   reconnectingBySession: {},
   errorBySession: {},
   hydrate: async (connKey, options, sessionId) => {
@@ -73,6 +99,19 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
         const listed = await Effect.runPromise(
           client["messages.list"]({ sessionId }),
         );
+        const listedQueue = await Effect.runPromise(
+          client["messages.queue.list"]({ sessionId }),
+        );
+        set((state) => ({
+          queueBySession: {
+            ...state.queueBySession,
+            [liveKey]: listedQueue.items,
+          },
+          queuePausedBySession: {
+            ...state.queuePausedBySession,
+            [liveKey]: listedQueue.paused,
+          },
+        }));
         if (listed.length > 0) {
           set((state) => ({
             messagesBySession: {
@@ -156,6 +195,32 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
           ),
         );
         liveFibers.set(liveKey, Effect.runFork(program));
+        const queueProgram = Stream.runForEach(
+          client["messages.queue.stream"]({ sessionId }),
+          (queue) =>
+            Effect.sync(() => {
+              set((state) => ({
+                queueBySession: {
+                  ...state.queueBySession,
+                  [liveKey]: queue.items,
+                },
+                queuePausedBySession: {
+                  ...state.queuePausedBySession,
+                  [liveKey]: queue.paused,
+                },
+              }));
+            }),
+        ).pipe(
+          Effect.catch((cause) =>
+            Effect.sync(() => {
+              console.warn("[mobile] queue stream errored", {
+                sessionId,
+                reason: cause instanceof Error ? cause.message : String(cause),
+              });
+            }),
+          ),
+        );
+        queueFibers.set(liveKey, Effect.runFork(queueProgram));
       } catch (cause) {
         reportConnectionFailure(options, cause);
         set((state) => ({
@@ -182,6 +247,27 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
         messages,
       }),
     ).catch(() => {});
+  },
+  deleteQueued: async (connKey, options, sessionId, queueId) => {
+    const liveKey = connectionSessionKey(connKey, sessionId);
+    const previous = get().queueBySession[liveKey] ?? [];
+    set((state) => ({
+      queueBySession: {
+        ...state.queueBySession,
+        [liveKey]: previous.filter((item) => item.id !== queueId),
+      },
+    }));
+    try {
+      const client = await Effect.runPromise(getConnectionClient(options));
+      await Effect.runPromise(
+        client["messages.queue.delete"]({ sessionId, queueId }),
+      );
+    } catch (cause) {
+      reportConnectionFailure(options, cause);
+      set((state) => ({
+        queueBySession: { ...state.queueBySession, [liveKey]: previous },
+      }));
+    }
   },
 }));
 
