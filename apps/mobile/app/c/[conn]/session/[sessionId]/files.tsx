@@ -22,6 +22,7 @@ import {
 } from "react-native";
 
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
+import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { useWorkspaceReview } from "~/hooks/use-workspace-review";
@@ -34,8 +35,6 @@ import { listWorkspacePaths } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
-
-type Tab = "modified" | "all";
 
 export default function WorkspaceFilesScreen() {
 	const { width } = useWindowDimensions();
@@ -63,7 +62,7 @@ export default function WorkspaceFilesScreen() {
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
-	const [tab, setTab] = useState<Tab>(
+	const [tab, setTab] = useState<FileTab>(
 		rawTab === "modified" ? "modified" : "all",
 	);
 	const [paths, setPaths] = useState<readonly string[]>([]);
@@ -264,7 +263,7 @@ export default function WorkspaceFilesScreen() {
 										) : null}
 									</View>
 									{item.node.kind === "directory" ? (
-										<Folder size={19} color={colors.accent} />
+										<Folder size={19} color={colors.fg} />
 									) : (
 										<FileIcon path={item.node.path} size={18} />
 									)}
@@ -314,42 +313,6 @@ export default function WorkspaceFilesScreen() {
 					/>
 				)}
 			</View>
-		</View>
-	);
-}
-
-function FileTabs({
-	value,
-	onChange,
-}: {
-	value: Tab;
-	onChange: (tab: Tab) => void;
-}) {
-	return (
-		<View className="mx-4 mb-2 mt-2 flex-row rounded-lg bg-muted p-0.5">
-			{(["modified", "all"] as const).map((tab) => {
-				const selected = tab === value;
-				return (
-					<Pressable
-						key={tab}
-						accessibilityRole="tab"
-						accessibilityState={{ selected }}
-						onPress={() => onChange(tab)}
-						className="h-9 flex-1 items-center justify-center rounded-md"
-						style={{
-							borderCurve: "continuous",
-							backgroundColor: selected ? colors.cardElevated : "transparent",
-						}}
-					>
-						<Text
-							className="font-sans-medium text-[13px]"
-							style={{ color: selected ? colors.fg : colors.secondaryFg }}
-						>
-							{tab === "modified" ? "Modified" : "All files"}
-						</Text>
-					</Pressable>
-				);
-			})}
 		</View>
 	);
 }

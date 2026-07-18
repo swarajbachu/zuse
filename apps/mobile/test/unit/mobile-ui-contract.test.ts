@@ -117,6 +117,7 @@ describe("mobile UI contracts", () => {
 		const files = appFile("c/[conn]/session/[sessionId]/files.tsx");
 		const review = appFile("c/[conn]/session/[sessionId]/review.tsx");
 		const tool = appFile("c/[conn]/session/[sessionId]/tool/[itemId].tsx");
+		const file = appFile("c/[conn]/session/[sessionId]/file.tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		const diffList = readFileSync(
 			`${process.cwd()}/src/components/diff/review-diff-list.tsx`,
@@ -124,6 +125,14 @@ describe("mobile UI contracts", () => {
 		);
 		const turn = readFileSync(
 			`${process.cwd()}/src/components/messages/turn-row.tsx`,
+			"utf8",
+		);
+		const fileTabs = readFileSync(
+			`${process.cwd()}/src/components/files/file-tabs.tsx`,
+			"utf8",
+		);
+		const syntax = readFileSync(
+			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
 			"utf8",
 		);
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
@@ -135,12 +144,17 @@ describe("mobile UI contracts", () => {
 		expect(files).toContain('placeholder="Search files"');
 		expect(files).toContain("useHeaderHeight");
 		expect(files).toContain("paddingTop: headerHeight");
+		expect(files).toContain("<FileTabs");
+		expect(fileTabs).toContain("@expo/ui/community/segmented-control");
 		expect(files).not.toContain("<ActivityIndicator");
 		expect(files).toContain("<ReviewDiffList");
 		expect(review).toContain("<ReviewDiffList");
 		expect(tool).toContain("<ReviewDiffList");
 		expect(tool).toContain("paddingTop: headerHeight");
 		expect(review).toContain("paddingTop: headerHeight");
+		expect(file).toContain("paddingTop: headerHeight");
+		expect(file).toContain("tokenizeCodeLine");
+		expect(file).toContain("width: codeWidth");
 		expect(diffList).toContain("<SectionList");
 		expect(diffList).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(diffList).toContain("stickySectionHeadersEnabled={false}");
@@ -148,8 +162,8 @@ describe("mobile UI contracts", () => {
 		expect(diffList).toContain("pinnedFileVisible");
 		expect(diffList).toContain("patchRowsCache");
 		expect(diffList).toContain("maintainVisibleContentPosition");
-		expect(diffList).toContain("MAX_HIGHLIGHT_CACHE_ENTRIES");
-		expect(diffList).toContain("MAX_HIGHLIGHT_CHARS");
+		expect(syntax).toContain("MAX_HIGHLIGHT_CACHE_ENTRIES");
+		expect(syntax).toContain("MAX_HIGHLIGHT_CHARS");
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).not.toContain("/tool/[itemId]");

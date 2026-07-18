@@ -23,8 +23,8 @@ import {
 	View,
 } from "react-native";
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
+import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
-import { cn } from "~/lib/cn";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
@@ -34,8 +34,6 @@ import { colors } from "~/theme";
 
 type ToolUse = Extract<MessageContent, { _tag: "tool_use" }>;
 type ToolResult = Extract<MessageContent, { _tag: "tool_result" }>;
-type Tab = "modified" | "all";
-
 const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 	const input = (() => {
 		try {
@@ -84,7 +82,7 @@ export default function ToolDetailScreen() {
 			files.findIndex((entry) => entry.path === filePath),
 		);
 	});
-	const [tab, setTab] = useState<Tab>("modified");
+	const [tab, setTab] = useState<FileTab>("modified");
 	const file = files[fileIndex];
 	const text = tool === undefined ? "" : rawText(tool, result);
 	const totalAdded = files.reduce((sum, entry) => sum + entry.added, 0);
@@ -195,7 +193,7 @@ export default function ToolDetailScreen() {
 			<View className="flex-1" style={{ paddingTop: headerHeight }}>
 				{hasFiles ? (
 					<>
-						<Segmented value={tab} onChange={setTab} />
+						<FileTabs value={tab} onChange={setTab} />
 						{tab === "all" ? (
 							<FlatList
 								data={files}
@@ -271,47 +269,6 @@ export default function ToolDetailScreen() {
 					</ScrollView>
 				)}
 			</View>
-		</View>
-	);
-}
-
-function Segmented({
-	value,
-	onChange,
-}: {
-	value: Tab;
-	onChange: (tab: Tab) => void;
-}) {
-	return (
-		<View
-			className="mx-4 mb-2 mt-2 flex-row rounded-lg bg-muted p-0.5"
-			style={{ borderCurve: "continuous" }}
-		>
-			{(["modified", "all"] as const).map((tab) => {
-				const active = tab === value;
-				return (
-					<Pressable
-						key={tab}
-						accessibilityRole="button"
-						accessibilityState={{ selected: active }}
-						onPress={() => onChange(tab)}
-						className="h-9 flex-1 items-center justify-center rounded-md"
-						style={{
-							borderCurve: "continuous",
-							backgroundColor: active ? colors.cardElevated : "transparent",
-						}}
-					>
-						<Text
-							className={cn(
-								"font-sans-medium text-[13px]",
-								active ? "text-foreground" : "text-muted-foreground",
-							)}
-						>
-							{tab === "modified" ? "Modified" : "All Files"}
-						</Text>
-					</Pressable>
-				);
-			})}
 		</View>
 	);
 }

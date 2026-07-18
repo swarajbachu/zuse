@@ -1,6 +1,7 @@
 import type { FolderId, FsFileContent, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Stack, useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { FileText } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -9,14 +10,20 @@ import {
 	RefreshControl,
 	ScrollView,
 	Text,
+	useWindowDimensions,
 	View,
 } from "react-native";
+import { useUniwind } from "uniwind";
 
-import { FileIcon } from "~/components/ui/file-icon";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
+import {
+	DARK_SYNTAX,
+	LIGHT_SYNTAX,
+	tokenizeCodeLine,
+} from "~/lib/syntax-highlighting";
 import { readWorkspaceFile } from "~/rpc/actions";
 import { useConnectionsStore } from "~/store/connections";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
@@ -25,13 +32,11 @@ import { colors } from "~/theme";
 const basename = (path: string) =>
 	path.split("/").filter(Boolean).at(-1) ?? path;
 
-const languageLabel = (path: string) => {
-	const name = basename(path);
-	const extension = name.includes(".") ? name.split(".").at(-1) : null;
-	return extension?.toUpperCase() ?? "TEXT";
-};
-
 export default function WorkspaceFileScreen() {
+	const headerHeight = useHeaderHeight();
+	const { width } = useWindowDimensions();
+	const { theme } = useUniwind();
+	const syntaxPalette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
 	const {
 		conn,
 		sessionId,
@@ -93,127 +98,124 @@ export default function WorkspaceFileScreen() {
 		() => (file?.kind === "text" ? file.content.split(/\r\n|\r|\n/) : []),
 		[file],
 	);
+	const codeWidth = useMemo(() => {
+		const longestLine = lines.reduce(
+			(longest, line) =>
+				Math.max(longest, line.replaceAll("\t", "    ").length),
+			0,
+		);
+		return Math.max(width - 24, 68 + Math.min(longestLine, 4_000) * 7.4);
+	}, [lines, width]);
 
 	return (
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{ title: basename(path), headerLargeTitle: false }}
 			/>
-			<View className="mx-4 mb-3 mt-2 flex-row items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-3">
-				<View className="h-10 w-10 items-center justify-center rounded-xl bg-background">
-					<FileIcon path={path} size={22} />
-				</View>
-				<View className="min-w-0 flex-1">
-					<Text
-						className="font-sans-medium text-[14px] text-foreground"
-						numberOfLines={1}
-					>
-						{basename(path)}
-					</Text>
-					<Text
-						className="mt-0.5 font-sans text-[11px] text-muted-foreground"
-						numberOfLines={1}
-						ellipsizeMode="middle"
-					>
-						{path}
-					</Text>
-				</View>
-				{file !== null ? (
-					<View className="items-end">
-						<Text className="font-mono text-[11px] text-foreground">
-							{languageLabel(path)}
-						</Text>
-						<Text className="mt-0.5 font-sans text-[10px] text-muted-foreground">
-							{file.size.toLocaleString()} B
+			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+				{loading && file === null ? (
+					<View className="mx-4 gap-2 rounded-2xl bg-card p-4">
+						{[0, 1, 2, 3, 4, 5, 6, 7].map((index) => (
+							<View
+								key={index}
+								className="h-4 rounded-md bg-muted"
+								style={{ width: `${72 + (index % 3) * 8}%` }}
+							/>
+						))}
+					</View>
+				) : null}
+				{error !== null ? (
+					<View className="mx-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-4">
+						<Text className="font-sans text-[13px] leading-5 text-danger">
+							{error}
 						</Text>
 					</View>
 				) : null}
-			</View>
-
-			{loading && file === null ? (
-				<View className="mx-4 gap-2 rounded-2xl bg-card p-4">
-					{[0, 1, 2, 3, 4, 5, 6, 7].map((index) => (
-						<View
-							key={index}
-							className="h-4 rounded-md bg-muted"
-							style={{ width: `${72 + (index % 3) * 8}%` }}
-						/>
-					))}
-				</View>
-			) : null}
-			{error !== null ? (
-				<View className="mx-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-4">
-					<Text className="font-sans text-[13px] leading-5 text-danger">
-						{error}
-					</Text>
-				</View>
-			) : null}
-			{file?.kind === "binary" ? (
-				<ScrollView
-					contentInsetAdjustmentBehavior="automatic"
-					refreshControl={
-						<RefreshControl
-							refreshing={refreshing}
-							onRefresh={() => void load(true)}
-						/>
-					}
-					contentContainerStyle={{ alignItems: "center", padding: 40 }}
-				>
-					<View className="h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-						<FileText size={23} color={colors.secondaryFg} />
-					</View>
-					<Text className="mt-4 font-sans-medium text-[15px] text-foreground">
-						Preview unavailable
-					</Text>
-					<Text className="mt-1 text-center font-sans text-[13px] text-muted-foreground">
-						This binary file can’t be displayed as text.
-					</Text>
-				</ScrollView>
-			) : null}
-			{file?.kind === "text" ? (
-				<View className="mx-3 mb-3 min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
-					<ScrollView horizontal showsHorizontalScrollIndicator>
-						<FlatList
-							style={{ minWidth: "100%" }}
-							data={lines}
-							keyExtractor={(_, index) => `${index}`}
-							refreshControl={
-								<RefreshControl
-									refreshing={refreshing}
-									onRefresh={() => void load(true)}
-								/>
-							}
-							contentContainerStyle={{ paddingVertical: 8 }}
-							initialNumToRender={48}
-							maxToRenderPerBatch={48}
-							updateCellsBatchingPeriod={16}
-							windowSize={9}
-							removeClippedSubviews={Platform.OS === "android"}
-							getItemLayout={(_, index) => ({
-								length: 24,
-								offset: 24 * index,
-								index,
-							})}
-							renderItem={({ item, index }) => (
-								<View className="h-6 flex-row items-start">
-									<Text
-										className="w-12 pr-3 text-right font-mono text-[10px] leading-5 text-muted-foreground"
-										style={{ fontVariant: ["tabular-nums"] }}
-									>
-										{index + 1}
-									</Text>
-									<Text
-										selectable
-										className="pr-5 font-mono text-[12px] leading-5 text-foreground"
-									>
-										{item.length === 0 ? " " : item}
-									</Text>
-								</View>
-							)}
-						/>
+				{file?.kind === "binary" ? (
+					<ScrollView
+						contentInsetAdjustmentBehavior="never"
+						refreshControl={
+							<RefreshControl
+								refreshing={refreshing}
+								onRefresh={() => void load(true)}
+							/>
+						}
+						contentContainerStyle={{ alignItems: "center", padding: 40 }}
+					>
+						<View className="h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+							<FileText size={23} color={colors.secondaryFg} />
+						</View>
+						<Text className="mt-4 font-sans-medium text-[15px] text-foreground">
+							Preview unavailable
+						</Text>
+						<Text className="mt-1 text-center font-sans text-[13px] text-muted-foreground">
+							This binary file can’t be displayed as text.
+						</Text>
 					</ScrollView>
-				</View>
-			) : null}
+				) : null}
+				{file?.kind === "text" ? (
+					<View className="min-h-0 flex-1 overflow-hidden bg-card">
+						<ScrollView horizontal showsHorizontalScrollIndicator>
+							<FlatList
+								style={{ width: codeWidth }}
+								data={lines}
+								keyExtractor={(_, index) => `${index}`}
+								refreshControl={
+									<RefreshControl
+										refreshing={refreshing}
+										onRefresh={() => void load(true)}
+									/>
+								}
+								contentContainerStyle={{ paddingVertical: 8 }}
+								initialNumToRender={48}
+								maxToRenderPerBatch={48}
+								updateCellsBatchingPeriod={16}
+								windowSize={9}
+								removeClippedSubviews={Platform.OS === "android"}
+								getItemLayout={(_, index) => ({
+									length: 24,
+									offset: 24 * index,
+									index,
+								})}
+								renderItem={({ item, index }) => (
+									<View
+										className="h-6 flex-row items-start"
+										style={{ width: codeWidth }}
+									>
+										<Text
+											className="w-12 pr-3 text-right font-mono text-[10px] leading-5 text-muted-foreground"
+											style={{ fontVariant: ["tabular-nums"] }}
+										>
+											{index + 1}
+										</Text>
+										<Text
+											selectable
+											numberOfLines={1}
+											ellipsizeMode="clip"
+											className="pr-5 font-mono text-[12px] leading-5"
+											style={{
+												width: codeWidth - 48,
+												color: syntaxPalette.plain,
+											}}
+										>
+											{item.length === 0
+												? " "
+												: tokenizeCodeLine(item, syntaxPalette).map((piece) => (
+														<Text
+															key={piece.key}
+															style={{ color: piece.color }}
+														>
+															{piece.text}
+														</Text>
+													))}
+										</Text>
+									</View>
+								)}
+							/>
+						</ScrollView>
+					</View>
+				) : null}
+			</View>
 		</View>
 	);
 }
