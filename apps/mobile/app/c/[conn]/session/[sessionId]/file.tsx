@@ -19,7 +19,6 @@ import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
-import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import { selectConnectionBundles } from "~/lib/session-bundles";
 import {
 	DARK_SYNTAX,
@@ -113,11 +112,10 @@ export default function WorkspaceFileScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
-					...translucentNativeHeaderOptions,
-					title: basename(path),
 					headerLargeTitle: false,
 				}}
 			/>
+			<Stack.Screen.Title>{basename(path)}</Stack.Screen.Title>
 			<View className="flex-1" style={{ paddingTop: headerHeight }}>
 				{loading && file === null ? (
 					<View className="mx-4 gap-2 rounded-2xl bg-card p-4">

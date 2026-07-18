@@ -488,6 +488,14 @@ export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")(
   hasUncommittedChanges: Schema.Boolean,
 }) {}
 
+/** Comparison range used by the multi-file reviewer. */
+export const GitReviewScope = Schema.Literals([
+  "unstaged",
+  "staged",
+  "branch",
+]);
+export type GitReviewScope = typeof GitReviewScope.Type;
+
 /** Stable comparison metadata used by the dock and the multi-file reviewer. */
 export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
   "GitReviewSummary",
@@ -497,20 +505,16 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
     Schema.withConstructorDefault(Effect.succeed(null)),
     Schema.withDecodingDefaultType(Effect.succeed(null)),
   ),
+  scope: GitReviewScope.pipe(
+    Schema.withConstructorDefault(Effect.succeed("branch" as const)),
+    Schema.withDecodingDefaultType(Effect.succeed("branch" as const)),
+  ),
   baseSha: Schema.String,
   headSha: Schema.String,
   files: Schema.Array(GitReviewFile),
   additions: Schema.Number,
   deletions: Schema.Number,
 }) {}
-
-/** Comparison range used by the multi-file reviewer. */
-export const GitReviewScope = Schema.Literals([
-  "unstaged",
-  "staged",
-  "branch",
-]);
-export type GitReviewScope = typeof GitReviewScope.Type;
 
 export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
   payload: Schema.Struct({

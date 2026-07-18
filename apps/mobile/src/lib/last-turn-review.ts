@@ -56,6 +56,7 @@ export const buildLastTurnReview = (
 	);
 	return {
 		summary: GitReviewSummary.make({
+			scope: "branch",
 			baseRef: null,
 			headRef: null,
 			baseSha: "",

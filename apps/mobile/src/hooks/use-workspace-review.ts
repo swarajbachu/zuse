@@ -10,6 +10,7 @@ import {
 	type PreparedReviewPatch,
 	prepareReviewPatch,
 } from "~/lib/review-diff-model";
+import { reviewScopeCompatibilityError } from "~/lib/review-scope";
 import {
 	loadWorkspaceReview,
 	streamWorkspaceReviewPatches,
@@ -62,22 +63,21 @@ export function useWorkspaceReview(options: {
 		setPatches({});
 		if (revision === 0) setLoading(true);
 
-		void Effect.runPromise(loadWorkspaceReview(request))
-			.then((nextSummary) => {
+		const reviewProgram = Effect.gen(function* () {
+			const nextSummary = yield* loadWorkspaceReview(request);
+			const compatibilityError = reviewScopeCompatibilityError(
+				options.scope,
+				nextSummary.scope,
+			);
+			if (compatibilityError !== null) {
+				return yield* Effect.fail(new Error(compatibilityError));
+			}
+			yield* Effect.sync(() => {
 				if (generationRef.current !== generation) return;
 				setSummary(nextSummary);
 				setLoading(false);
-			})
-			.catch((cause) => {
-				if (generationRef.current !== generation) return;
-				setError(cause instanceof Error ? cause.message : String(cause));
-				setLoading(false);
-				setRefreshing(false);
 			});
-
-		const patchProgram = Stream.runForEach(
-			streamWorkspaceReviewPatches(request),
-			(patch) =>
+			yield* Stream.runForEach(streamWorkspaceReviewPatches(request), (patch) =>
 				Effect.sync(() => {
 					if (generationRef.current !== generation) return;
 					const prepared = prepareReviewPatch(patch);
@@ -86,12 +86,14 @@ export function useWorkspaceReview(options: {
 						[prepared.path]: prepared,
 					}));
 				}),
-		);
-		const patchFiber = Effect.runFork(patchProgram);
-		void Effect.runPromise(Fiber.join(patchFiber))
+			);
+		});
+		const reviewFiber = Effect.runFork(reviewProgram);
+		void Effect.runPromise(Fiber.join(reviewFiber))
 			.catch((cause) => {
 				if (generationRef.current !== generation) return;
 				setError(cause instanceof Error ? cause.message : String(cause));
+				setLoading(false);
 			})
 			.finally(() => {
 				if (generationRef.current === generation) setRefreshing(false);
@@ -99,7 +101,7 @@ export function useWorkspaceReview(options: {
 
 		return () => {
 			if (generationRef.current === generation) generationRef.current += 1;
-			Effect.runFork(Fiber.interrupt(patchFiber));
+			Effect.runFork(Fiber.interrupt(reviewFiber));
 		};
 	}, [
 		options.connection,

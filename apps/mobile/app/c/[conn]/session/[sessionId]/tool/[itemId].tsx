@@ -12,7 +12,6 @@ import {
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { Copy, Share2, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import {
 	FlatList,
@@ -25,7 +24,6 @@ import {
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
-import { translucentNativeHeaderOptions } from "~/lib/native-header";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
@@ -91,6 +89,7 @@ export default function ToolDetailScreen() {
 	const inlineReview = useMemo(
 		() =>
 			GitReviewSummary.make({
+				scope: "branch",
 				baseRef: null,
 				headRef: null,
 				baseSha: "",
@@ -145,57 +144,42 @@ export default function ToolDetailScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
-					...translucentNativeHeaderOptions,
 					headerLargeTitle: false,
 					headerBackVisible: false,
-					headerLeft: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Close"
-							hitSlop={10}
-							onPress={() => router.back()}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-							style={{ borderCurve: "continuous" }}
-						>
-							<X size={19} color={colors.fg} />
-						</Pressable>
-					),
-					headerTitle: () =>
-						hasFiles ? (
-							<View className="items-center">
-								<Text className="font-sans-medium text-[15px] text-foreground">
-									{files.length} file{files.length === 1 ? "" : "s"} changed
-								</Text>
-								<Text
-									className="font-sans text-[12px]"
-									style={{ fontVariant: ["tabular-nums"] }}
-								>
-									<Text style={{ color: colors.diffAdded }}>+{totalAdded}</Text>
-									<Text style={{ color: colors.secondaryFg }}> </Text>
-									<Text style={{ color: colors.diffRemoved }}>
-										−{totalRemoved}
-									</Text>
-								</Text>
-							</View>
-						) : (
-							<Text
-								className="font-sans-medium text-[15px] text-foreground"
-								numberOfLines={1}
-							>
-								{presentation.label}
-							</Text>
-						),
-					headerRight: () => (
-						<View className="flex-row">
-							<HeaderButton label="Copy" onPress={copy} icon="copy" />
-							<HeaderButton label="Share" onPress={share} icon="share" />
-						</View>
-					),
+					headerTitleStyle: { color: colors.fg },
 				}}
 			/>
+			<Stack.Screen.Title>
+				{hasFiles
+					? `${files.length} file${files.length === 1 ? "" : "s"} changed`
+					: presentation.label}
+			</Stack.Screen.Title>
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
+			<Stack.Toolbar placement="right">
+				<Stack.Toolbar.Button icon="doc.on.doc" onPress={copy} />
+				<Stack.Toolbar.Button icon="square.and.arrow.up" onPress={share} />
+			</Stack.Toolbar>
 			<View className="flex-1" style={{ paddingTop: headerHeight }}>
 				{hasFiles ? (
 					<>
+						<View className="h-8 items-center justify-center border-b border-border">
+							<Text
+								className="font-mono text-[11px]"
+								style={{ fontVariant: ["tabular-nums"] }}
+							>
+								<Text style={{ color: colors.diffAdded }}>+{totalAdded}</Text>
+								<Text style={{ color: colors.secondaryFg }}> </Text>
+								<Text style={{ color: colors.diffRemoved }}>
+									−{totalRemoved}
+								</Text>
+							</Text>
+						</View>
 						<FileTabs value={tab} onChange={setTab} />
 						{tab === "all" ? (
 							<FlatList
@@ -309,28 +293,6 @@ function FileListRow({
 			>
 				−{file.removed}
 			</Text>
-		</Pressable>
-	);
-}
-
-function HeaderButton({
-	label,
-	onPress,
-	icon,
-}: {
-	label: string;
-	onPress: () => void;
-	icon: "copy" | "share";
-}) {
-	const Icon = icon === "copy" ? Copy : Share2;
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			className="h-11 w-11 items-center justify-center active:opacity-60"
-			onPress={onPress}
-		>
-			<Icon size={19} color={colors.accent} />
 		</Pressable>
 	);
 }

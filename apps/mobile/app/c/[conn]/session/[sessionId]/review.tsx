@@ -2,20 +2,21 @@ import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type { FolderId, GitReviewScope, SessionId } from "@zuse/contracts";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import { Minimize2, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Text, View } from "react-native";
 
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
-import { ReviewScopeMenu } from "~/components/review-scope-menu";
 import { useWorkspaceReview } from "~/hooks/use-workspace-review";
 import {
 	normalizeConnParam,
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { buildLastTurnReview } from "~/lib/last-turn-review";
-import { translucentNativeHeaderOptions } from "~/lib/native-header";
-import type { MobileReviewScope } from "~/lib/review-scope";
+import {
+	type MobileReviewScope,
+	REVIEW_SCOPES,
+	reviewScopeLabel,
+} from "~/lib/review-scope";
 import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
@@ -73,60 +74,57 @@ export default function WorkspaceReviewScreen() {
 		<View collapsable={false} className="flex-1 bg-background/95">
 			<Stack.Screen
 				options={{
-					...translucentNativeHeaderOptions,
 					headerBackVisible: false,
 					headerLargeTitle: false,
-					headerTitleAlign: "center",
-					headerLeft: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Close review"
-							hitSlop={10}
-							onPress={() => router.back()}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card"
-							style={{ borderCurve: "continuous" }}
-						>
-							<X size={19} color={colors.fg} />
-						</Pressable>
-					),
-					headerRight: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Collapse all file changes"
-							hitSlop={10}
-							onPress={() => setCollapseAllKey((current) => current + 1)}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card"
-							style={{ borderCurve: "continuous" }}
-						>
-							<Minimize2 size={18} color={colors.fg} />
-						</Pressable>
-					),
-					headerTitle: () => (
-						<View className="items-center">
-							<ReviewScopeMenu value={scope} onChange={setScope} />
-							{summary === null ? null : (
-								<Text
-									className="font-mono text-[11px]"
-									style={{ fontVariant: ["tabular-nums"] }}
-								>
-									<Text style={{ color: colors.diffAdded }}>
-										+{summary.additions}
-									</Text>
-									<Text style={{ color: colors.secondaryFg }}> </Text>
-									<Text style={{ color: colors.diffRemoved }}>
-										−{summary.deletions}
-									</Text>
-								</Text>
-							)}
-						</View>
-					),
+					headerTitleStyle: { color: colors.fg },
 				}}
 			/>
+			<Stack.Screen.Title>{reviewScopeLabel(scope)}</Stack.Screen.Title>
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
+			<Stack.Toolbar placement="right">
+				<Stack.Toolbar.Menu icon="line.3.horizontal.decrease">
+					{REVIEW_SCOPES.map((candidate) => (
+						<Stack.Toolbar.MenuAction
+							key={candidate}
+							isOn={candidate === scope}
+							onPress={() => setScope(candidate)}
+						>
+							{reviewScopeLabel(candidate)}
+						</Stack.Toolbar.MenuAction>
+					))}
+				</Stack.Toolbar.Menu>
+				<Stack.Toolbar.Button
+					icon="arrow.down.right.and.arrow.up.left"
+					onPress={() => setCollapseAllKey((current) => current + 1)}
+				/>
+			</Stack.Toolbar>
 			<View
 				collapsable={false}
 				className="flex-1"
 				style={{ paddingTop: headerHeight }}
 			>
+				{summary === null ? null : (
+					<View className="h-8 items-center justify-center border-b border-border">
+						<Text
+							className="font-mono text-[11px]"
+							style={{ fontVariant: ["tabular-nums"] }}
+						>
+							<Text style={{ color: colors.diffAdded }}>
+								+{summary.additions}
+							</Text>
+							<Text style={{ color: colors.secondaryFg }}> </Text>
+							<Text style={{ color: colors.diffRemoved }}>
+								−{summary.deletions}
+							</Text>
+						</Text>
+					</View>
+				)}
 				<ReviewDiffList
 					summary={summary}
 					patches={patches}

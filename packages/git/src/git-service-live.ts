@@ -1791,6 +1791,7 @@ export const GitServiceLive = Layer.effect(
 					return GitReviewSummary.make({
 						baseRef: comparison.baseRef,
 						headRef: comparison.headRef,
+						scope,
 						baseSha: comparison.baseSha,
 						headSha: comparison.headSha,
 						files,

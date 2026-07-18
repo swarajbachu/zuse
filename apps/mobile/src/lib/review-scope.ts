@@ -21,3 +21,11 @@ export const reviewScopeLabel = (scope: MobileReviewScope): string => {
 			return "Last turn";
 	}
 };
+
+export const reviewScopeCompatibilityError = (
+	requested: GitReviewScope | undefined,
+	actual: GitReviewScope,
+): string | null =>
+	requested !== undefined && requested !== "branch" && requested !== actual
+		? "Restart or update the desktop app to review staged and unstaged changes separately."
+		: null;

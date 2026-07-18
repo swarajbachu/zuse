@@ -252,6 +252,7 @@ describe("GitReviewSummary compatibility", () => {
 		});
 
 		expect(decoded.headRef).toBeNull();
+		expect(decoded.scope).toBe("branch");
 	});
 });
 

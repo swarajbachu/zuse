@@ -154,19 +154,36 @@ describe("mobile UI contracts", () => {
 		expect(files).toContain("useHeaderHeight");
 		expect(files).toContain("paddingTop: headerHeight");
 		expect(files).not.toContain("headerTitle:");
+		expect(files).toContain(
+			"<Stack.Screen.Title>{projectName}</Stack.Screen.Title>",
+		);
 		expect(files).toContain("<FileTabs");
 		expect(fileTabs).toContain("@expo/ui/community/segmented-control");
 		expect(files).not.toContain("<ActivityIndicator");
 		expect(files).toContain("<ReviewDiffList");
 		expect(review).toContain("<ReviewDiffList");
+		expect(review).toContain(
+			"<Stack.Screen.Title>{reviewScopeLabel(scope)}</Stack.Screen.Title>",
+		);
+		expect(review).toContain('<Stack.Toolbar placement="left">');
+		expect(review).toContain('<Stack.Toolbar placement="right">');
+		expect(review).toContain("<Stack.Toolbar.Menu");
+		expect(review).not.toContain("translucentNativeHeaderOptions");
 		expect(review).toContain("collapsable={false}");
 		expect(review).toContain("selectConnectionBundles");
 		expect(review).not.toContain("bundlesByConnection[connKey] ?? []");
 		expect(tool).toContain("<ReviewDiffList");
+		expect(tool).toContain("<Stack.Screen.Title>");
+		expect(tool).toContain('<Stack.Toolbar placement="left">');
+		expect(tool).toContain('<Stack.Toolbar placement="right">');
+		expect(tool).not.toContain("headerLeft:");
+		expect(tool).not.toContain("headerTitle:");
 		expect(tool).toContain("paddingTop: headerHeight");
 		expect(review).toContain("paddingTop: headerHeight");
 		expect(file).toContain("paddingTop: headerHeight");
-		expect(file).toContain("title: basename(path)");
+		expect(file).toContain(
+			"<Stack.Screen.Title>{basename(path)}</Stack.Screen.Title>",
+		);
 		expect(file).toContain("tokenizeCodeLine");
 		expect(file).toContain("width: codeWidth");
 		expect(diffList).toContain("<SectionList");
@@ -191,8 +208,8 @@ describe("mobile UI contracts", () => {
 			'headerBlurEffect: "systemUltraThinMaterial"',
 		);
 		expect(nativeHeader).toContain('backgroundColor: "transparent"');
-		expect(files).toContain("translucentNativeHeaderOptions");
-		expect(file).toContain("translucentNativeHeaderOptions");
+		expect(files).not.toContain("translucentNativeHeaderOptions");
+		expect(file).not.toContain("translucentNativeHeaderOptions");
 	});
 
 	test("puts an explicit retry action beside connection failures", () => {

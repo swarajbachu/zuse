@@ -211,10 +211,12 @@ describe("GitServiceLive", () => {
 		);
 
 		expect(staged.files.map((file) => file.path)).toEqual(["staged.txt"]);
+		expect(staged.scope).toBe("staged");
 		expect(unstaged.files.map((file) => file.path)).toEqual([
 			"README.md",
 			"untracked.txt",
 		]);
+		expect(unstaged.scope).toBe("unstaged");
 		expect(
 			Array.from(stagedPatches, (patch) => patch.result.patch).join("\n"),
 		).toContain("+staged");
