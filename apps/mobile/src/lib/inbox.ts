@@ -28,6 +28,7 @@ export type InboxChatRow = {
   providerModel: string;
   status: SessionStatus;
   unread: boolean;
+  pinned: boolean;
   updatedAt: number;
 };
 
@@ -102,11 +103,13 @@ export const buildInboxGroups = ({
   bundlesByConnection,
   statusBySession,
   query,
+  pinnedChatKeys = new Set<string>(),
 }: {
   connections: readonly ConnectionRecord[];
   bundlesByConnection: Record<string, readonly ProjectBundle[]>;
   statusBySession: Record<string, SessionStatus>;
   query: string;
+  pinnedChatKeys?: ReadonlySet<string>;
 }): InboxProjectGroup[] => {
   const normalizedQuery = query.trim().toLowerCase();
   const groups: InboxProjectGroup[] = [];
@@ -118,6 +121,7 @@ export const buildInboxGroups = ({
         connection,
         bundle,
         statusBySession,
+        pinnedChatKeys,
       }).filter((row) => matchesQuery(row, normalizedQuery));
       if (rows.length === 0) continue;
 
@@ -196,10 +200,12 @@ const buildRowsForProject = ({
   connection,
   bundle,
   statusBySession,
+  pinnedChatKeys,
 }: {
   connection: ConnectionRecord;
   bundle: ProjectBundle;
   statusBySession: Record<string, SessionStatus>;
+  pinnedChatKeys: ReadonlySet<string>;
 }): InboxChatRow[] => {
   const rows: InboxChatRow[] = [];
   const sessionsByChat = new Map<string, Session[]>();
@@ -214,13 +220,31 @@ const buildRowsForProject = ({
     const session =
       sessions.find((item) => item.id === chat.activeSessionId) ?? sessions[0];
     if (session === undefined) continue;
-    rows.push(rowForSession({ connection, bundle, session, chat, statusBySession }));
+    rows.push(
+      rowForSession({
+        connection,
+        bundle,
+        session,
+        chat,
+        statusBySession,
+        pinnedChatKeys,
+      }),
+    );
   }
 
   const chatIds = new Set(bundle.chats.map((chat) => chat.id));
   for (const session of bundle.sessions) {
     if (chatIds.has(session.chatId)) continue;
-    rows.push(rowForSession({ connection, bundle, session, chat: null, statusBySession }));
+    rows.push(
+      rowForSession({
+        connection,
+        bundle,
+        session,
+        chat: null,
+        statusBySession,
+        pinnedChatKeys,
+      }),
+    );
   }
 
   return rows;
@@ -232,12 +256,14 @@ const rowForSession = ({
   session,
   chat,
   statusBySession,
+  pinnedChatKeys,
 }: {
   connection: ConnectionRecord;
   bundle: ProjectBundle;
   session: Session;
   chat: Chat | null;
   statusBySession: Record<string, SessionStatus>;
+  pinnedChatKeys: ReadonlySet<string>;
 }): InboxChatRow => {
   const status =
     statusBySession[connectionSessionKey(connection.key, session.id)] ?? session.status;
@@ -258,6 +284,9 @@ const rowForSession = ({
     providerModel: `${session.providerId} / ${session.model}`,
     status,
     unread: chat !== null && isUnreadChat(chat),
+    pinned:
+      chat !== null &&
+      pinnedChatKeys.has(JSON.stringify([connection.key, chat.id])),
     updatedAt,
   };
 };
@@ -301,6 +330,8 @@ const MONTHS = [
 ];
 
 const compareRows = (a: InboxChatRow, b: InboxChatRow): number => {
+  const pinned = Number(b.pinned) - Number(a.pinned);
+  if (pinned !== 0) return pinned;
   const active = Number(isActiveStatus(b.status)) - Number(isActiveStatus(a.status));
   if (active !== 0) return active;
   const unread = Number(b.unread) - Number(a.unread);

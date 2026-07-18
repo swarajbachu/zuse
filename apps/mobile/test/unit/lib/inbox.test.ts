@@ -105,6 +105,44 @@ describe("mobile inbox helpers", () => {
 		expect(groups[0]?.rows[0]?.title).toBe("Running unread");
 	});
 
+	test("keeps locally pinned chats first within their project", () => {
+		const pinned = chat({
+			id: "chat-pinned",
+			title: "Pinned chat",
+			activeSessionId: "session-pinned",
+			updatedAt: new Date("2025-01-01T00:00:00.000Z"),
+			lastMessageAt: new Date("2025-01-01T00:00:00.000Z"),
+		});
+		const recent = chat({
+			id: "chat-recent",
+			title: "Recent chat",
+			activeSessionId: "session-recent",
+		});
+		const groups = buildInboxGroups({
+			connections: [connection],
+			bundlesByConnection: {
+				"env-1": [
+					{
+						project,
+						chats: [recent, pinned] as never,
+						sessions: [
+							session({ id: "session-recent", chatId: "chat-recent" }),
+							session({ id: "session-pinned", chatId: "chat-pinned" }),
+						] as never,
+					},
+				],
+			},
+			statusBySession: {},
+			query: "",
+			pinnedChatKeys: new Set([JSON.stringify(["env-1", "chat-pinned"])]),
+		});
+
+		expect(groups[0]?.rows.map((row) => row.title)).toEqual([
+			"Pinned chat",
+			"Recent chat",
+		]);
+	});
+
 	test("filters by project, source, model, and chat title", () => {
 		const groups = buildInboxGroups({
 			connections: [connection],
@@ -205,9 +243,11 @@ describe("mobile inbox helpers", () => {
 			DEFAULT_INBOX_GROUP_DISPLAY,
 			"show-more",
 		);
+		const firstGroup = groups[0];
+		if (firstGroup === undefined) throw new Error("Expected an inbox group");
 		const expandedItems = buildInboxListItems({
 			groups,
-			displayStates: new Map([[groups[0]!.key, expanded]]),
+			displayStates: new Map([[firstGroup.key, expanded]]),
 			searching: false,
 		});
 		expect(expandedItems.filter((item) => item.type === "chat")).toHaveLength(

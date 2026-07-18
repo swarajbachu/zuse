@@ -1,18 +1,13 @@
+import type { DiffLine, FileChange } from "@zuse/client-runtime/timeline";
 import {
-	type DiffLine,
-	extractFileChanges,
-	type FileChange,
-} from "@zuse/client-runtime/timeline";
-import type { MessageContent, SessionId } from "@zuse/contracts";
+	GitReviewFile,
+	GitReviewSummary,
+	type MessageContent,
+	type SessionId,
+} from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import {
-	ChevronLeft,
-	ChevronRight,
-	Copy,
-	Share2,
-	X,
-} from "lucide-react-native";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { useMemo, useState } from "react";
 import {
 	FlatList,
@@ -22,9 +17,10 @@ import {
 	Text,
 	View,
 } from "react-native";
-
+import { ReviewDiffList } from "~/components/diff/review-diff-list";
+import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
-import { cn } from "~/lib/cn";
+import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
@@ -33,8 +29,6 @@ import { colors } from "~/theme";
 
 type ToolUse = Extract<MessageContent, { _tag: "tool_use" }>;
 type ToolResult = Extract<MessageContent, { _tag: "tool_result" }>;
-type Tab = "modified" | "all";
-
 const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 	const input = (() => {
 		try {
@@ -48,6 +42,7 @@ const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 };
 
 export default function ToolDetailScreen() {
+	const headerHeight = useHeaderHeight();
 	const { conn, sessionId, itemId, filePath } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -71,10 +66,7 @@ export default function ToolDetailScreen() {
 		() => (tool === undefined ? null : buildToolPresentation(tool, result)),
 		[result, tool],
 	);
-	const files = useMemo(
-		() => (tool === undefined ? [] : extractFileChanges(tool.tool, tool.input)),
-		[tool],
-	);
+	const files = presentation?.fileChanges ?? [];
 	const [fileIndex, setFileIndex] = useState(() => {
 		if (filePath === undefined) return 0;
 		return Math.max(
@@ -82,11 +74,46 @@ export default function ToolDetailScreen() {
 			files.findIndex((entry) => entry.path === filePath),
 		);
 	});
-	const [tab, setTab] = useState<Tab>("modified");
+	const [tab, setTab] = useState<FileTab>("modified");
 	const file = files[fileIndex];
 	const text = tool === undefined ? "" : rawText(tool, result);
-	const totalAdded = files.reduce((sum, entry) => sum + entry.added, 0);
-	const totalRemoved = files.reduce((sum, entry) => sum + entry.removed, 0);
+	const totalAdded = presentation?.fileChangeTotals?.added ?? 0;
+	const totalRemoved = presentation?.fileChangeTotals?.removed ?? 0;
+	const inlineReview = useMemo(
+		() =>
+			GitReviewSummary.make({
+				scope: "branch",
+				baseRef: null,
+				headRef: null,
+				baseSha: "",
+				headSha: "",
+				additions: totalAdded,
+				deletions: totalRemoved,
+				files: files.map((entry) =>
+					GitReviewFile.make({
+						path: entry.path,
+						oldPath: null,
+						kind: "modified",
+						additions: entry.added,
+						deletions: entry.removed,
+						binary: false,
+						conflict: false,
+						hasUncommittedChanges: true,
+					}),
+				),
+			}),
+		[files, totalAdded, totalRemoved],
+	);
+	const inlinePatches = useMemo(
+		() =>
+			Object.fromEntries(
+				files.map((entry) => [
+					entry.path,
+					prepareReviewLines(entry.path, entry.lines),
+				]),
+			),
+		[files],
+	);
 
 	const copy = () =>
 		Clipboard.setStringAsync(file === undefined ? text : diffText(file.lines));
@@ -112,263 +139,132 @@ export default function ToolDetailScreen() {
 				options={{
 					headerLargeTitle: false,
 					headerBackVisible: false,
-					headerLeft: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Close"
-							hitSlop={10}
-							onPress={() => router.back()}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-							style={{ borderCurve: "continuous" }}
-						>
-							<X size={19} color={colors.fg} />
-						</Pressable>
-					),
-					headerTitle: () =>
-						hasFiles ? (
-							<View className="items-center">
-								<Text className="font-sans-medium text-[15px] text-foreground">
-									{files.length} file{files.length === 1 ? "" : "s"} changed
-								</Text>
-								<Text
-									className="font-sans text-[12px]"
-									style={{ fontVariant: ["tabular-nums"] }}
-								>
-									<Text style={{ color: colors.diffAdded }}>+{totalAdded}</Text>
-									<Text style={{ color: colors.secondaryFg }}> </Text>
-									<Text style={{ color: colors.diffRemoved }}>
-										−{totalRemoved}
-									</Text>
-								</Text>
-							</View>
-						) : (
-							<Text
-								className="font-sans-medium text-[15px] text-foreground"
-								numberOfLines={1}
-							>
-								{presentation.label}
-							</Text>
-						),
-					headerRight: () => (
-						<View className="flex-row">
-							<HeaderButton label="Copy" onPress={copy} icon="copy" />
-							<HeaderButton label="Share" onPress={share} icon="share" />
-						</View>
-					),
+					headerTitleStyle: { color: colors.fg },
 				}}
 			/>
-			{hasFiles ? (
-				<>
-					<Segmented value={tab} onChange={setTab} />
-					{tab === "all" ? (
-						<FlatList
-							data={files}
-							keyExtractor={(entry) => entry.path}
-							contentInsetAdjustmentBehavior="automatic"
-							contentContainerClassName="py-2"
-							renderItem={({ item, index }) => (
-								<FileListRow
-									file={item}
-									active={index === fileIndex}
-									onPress={() => {
-										setFileIndex(index);
-										setTab("modified");
-									}}
-								/>
-							)}
-						/>
-					) : file === undefined ? null : (
-						<>
-							<View className="gap-2 border-b border-border px-4 pb-3 pt-3">
-								<View className="flex-row items-center gap-2">
-									<FileIcon path={file.path} size={16} />
-									<Text
-										selectable
-										className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
-										numberOfLines={1}
-										ellipsizeMode="middle"
-									>
-										{file.path}
-									</Text>
-								</View>
-								<View className="flex-row items-center">
-									<Text
-										style={{
-											color: colors.diffAdded,
-											fontVariant: ["tabular-nums"],
-										}}
-									>
-										+{file.added}
-									</Text>
-									<Text
-										className="ml-2"
-										style={{
-											color: colors.diffRemoved,
-											fontVariant: ["tabular-nums"],
-										}}
-									>
-										−{file.removed}
-									</Text>
-									<View className="flex-1" />
-									{files.length > 1 ? (
-										<View className="flex-row items-center gap-1">
-											<NavButton
-												label="Previous file"
-												disabled={fileIndex === 0}
-												onPress={() =>
-													setFileIndex((index) => Math.max(0, index - 1))
-												}
-												direction="previous"
-											/>
-											<Text
-												className="px-2 font-sans text-[12px] text-muted-foreground"
-												style={{ fontVariant: ["tabular-nums"] }}
-											>
-												{fileIndex + 1} of {files.length}
-											</Text>
-											<NavButton
-												label="Next file"
-												disabled={fileIndex === files.length - 1}
-												onPress={() =>
-													setFileIndex((index) =>
-														Math.min(files.length - 1, index + 1),
-													)
-												}
-												direction="next"
-											/>
-										</View>
-									) : null}
-								</View>
-							</View>
-							<ScrollView
-								horizontal
-								contentContainerStyle={{ minWidth: "100%" }}
-								showsHorizontalScrollIndicator
-							>
-								<FlatList
-									style={{ minWidth: "100%" }}
-									data={file.lines}
-									keyExtractor={(_, index) => `${file.path}:${index}`}
-									contentInsetAdjustmentBehavior="automatic"
-									renderItem={({ item }) => <DiffRow line={item} />}
-									initialNumToRender={80}
-									maxToRenderPerBatch={100}
-									windowSize={12}
-								/>
-							</ScrollView>
-						</>
-					)}
-				</>
-			) : (
-				<ScrollView
-					contentInsetAdjustmentBehavior="automatic"
-					contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
-				>
-					<View
-						className="rounded-2xl border border-border bg-card p-4"
-						style={{ borderCurve: "continuous" }}
-					>
-						<Text className="font-sans-medium text-[13px] text-muted-foreground">
-							{presentation.kind === "shell" ? "Shell" : "Input"}
-						</Text>
-						<ScrollView horizontal showsHorizontalScrollIndicator={false}>
+			<Stack.Screen.Title>
+				{hasFiles
+					? `${files.length} file${files.length === 1 ? "" : "s"} changed`
+					: presentation.label}
+			</Stack.Screen.Title>
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
+			<Stack.Toolbar placement="right">
+				<Stack.Toolbar.Button icon="doc.on.doc" onPress={copy} />
+				<Stack.Toolbar.Button icon="square.and.arrow.up" onPress={share} />
+			</Stack.Toolbar>
+			<View className="flex-1" style={{ paddingTop: headerHeight }}>
+				{hasFiles ? (
+					<>
+						<View className="h-8 items-center justify-center border-b border-border">
 							<Text
-								selectable
-								className="mt-3 font-mono text-[13px] leading-5 text-foreground"
+								className="font-mono text-[11px]"
+								style={{ fontVariant: ["tabular-nums"] }}
 							>
-								{presentation.body}
+								<Text style={{ color: colors.diffAdded }}>+{totalAdded}</Text>
+								<Text style={{ color: colors.secondaryFg }}> </Text>
+								<Text style={{ color: colors.diffRemoved }}>
+									−{totalRemoved}
+								</Text>
 							</Text>
-						</ScrollView>
-					</View>
-					{presentation.resultBody === null ? null : (
+						</View>
+						<FileTabs value={tab} onChange={setTab} />
+						{tab === "all" ? (
+							<FlatList
+								data={files}
+								keyExtractor={(entry) => entry.path}
+								contentInsetAdjustmentBehavior="never"
+								contentContainerClassName="py-2"
+								renderItem={({ item, index }) => (
+									<FileListRow
+										file={item}
+										onPress={() => {
+											setFileIndex(index);
+											setTab("modified");
+										}}
+									/>
+								)}
+							/>
+						) : (
+							<ReviewDiffList
+								summary={inlineReview}
+								patches={inlinePatches}
+								loading={false}
+								error={null}
+								refreshing={false}
+							/>
+						)}
+					</>
+				) : (
+					<ScrollView
+						contentInsetAdjustmentBehavior="never"
+						contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 48 }}
+					>
 						<View
 							className="rounded-2xl border border-border bg-card p-4"
 							style={{ borderCurve: "continuous" }}
 						>
-							<Text
-								className="font-sans-medium text-[13px]"
-								style={{
-									color: presentation.isError
-										? colors.danger
-										: colors.secondaryFg,
-								}}
-							>
-								{presentation.isError ? "Error" : "Output"}
+							<Text className="font-sans-medium text-[13px] text-muted-foreground">
+								{presentation.kind === "shell" ? "Shell" : "Input"}
 							</Text>
 							<ScrollView horizontal showsHorizontalScrollIndicator={false}>
 								<Text
 									selectable
 									className="mt-3 font-mono text-[13px] leading-5 text-foreground"
 								>
-									{presentation.resultBody}
+									{presentation.body}
 								</Text>
 							</ScrollView>
 						</View>
-					)}
-				</ScrollView>
-			)}
-		</View>
-	);
-}
-
-function Segmented({
-	value,
-	onChange,
-}: {
-	value: Tab;
-	onChange: (tab: Tab) => void;
-}) {
-	return (
-		<View
-			className="mx-4 mt-3 flex-row rounded-xl bg-card p-1"
-			style={{ borderCurve: "continuous" }}
-		>
-			{(["modified", "all"] as const).map((tab) => {
-				const active = tab === value;
-				return (
-					<Pressable
-						key={tab}
-						accessibilityRole="button"
-						accessibilityState={{ selected: active }}
-						onPress={() => onChange(tab)}
-						className="min-h-9 flex-1 items-center justify-center rounded-lg"
-						style={{
-							borderCurve: "continuous",
-							backgroundColor: active ? colors.cardElevated : "transparent",
-						}}
-					>
-						<Text
-							className={cn(
-								"font-sans-medium text-[14px]",
-								active ? "text-foreground" : "text-muted-foreground",
-							)}
-						>
-							{tab === "modified" ? "Modified" : "All Files"}
-						</Text>
-					</Pressable>
-				);
-			})}
+						{presentation.resultBody === null ? null : (
+							<View
+								className="rounded-2xl border border-border bg-card p-4"
+								style={{ borderCurve: "continuous" }}
+							>
+								<Text
+									className="font-sans-medium text-[13px]"
+									style={{
+										color: presentation.isError
+											? colors.danger
+											: colors.secondaryFg,
+									}}
+								>
+									{presentation.isError ? "Error" : "Output"}
+								</Text>
+								<ScrollView horizontal showsHorizontalScrollIndicator={false}>
+									<Text
+										selectable
+										className="mt-3 font-mono text-[13px] leading-5 text-foreground"
+									>
+										{presentation.resultBody}
+									</Text>
+								</ScrollView>
+							</View>
+						)}
+					</ScrollView>
+				)}
+			</View>
 		</View>
 	);
 }
 
 function FileListRow({
 	file,
-	active,
 	onPress,
 }: {
 	file: FileChange;
-	active: boolean;
 	onPress: () => void;
 }) {
 	return (
 		<Pressable
 			accessibilityRole="button"
 			onPress={onPress}
-			className={cn(
-				"min-h-[52px] flex-row items-center gap-3 px-4 active:bg-card-elevated",
-				active && "bg-card",
-			)}
+			className="min-h-[58px] flex-row items-center gap-3 px-5"
 		>
 			<FileIcon path={file.path} size={18} />
 			<Text
@@ -394,99 +290,12 @@ function FileListRow({
 	);
 }
 
-function DiffRow({ line }: { line: DiffLine }) {
-	const color =
-		line.kind === "added"
-			? colors.diffAdded
-			: line.kind === "removed"
-				? colors.diffRemoved
-				: line.kind === "hunk"
-					? colors.diffHunk
-					: colors.fg;
-	const background =
-		line.kind === "added"
-			? colors.diffAddedBg
-			: line.kind === "removed"
-				? colors.diffRemovedBg
-				: "transparent";
-	const prefix =
-		line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " ";
-	return (
-		<View
-			className="min-h-6 flex-row items-start px-3"
-			style={{ backgroundColor: background }}
-		>
-			<Text
-				selectable
-				className="w-16 font-mono text-[11px] text-muted-foreground"
-				style={{ fontVariant: ["tabular-nums"] }}
-			>
-				{line.oldLine ?? ""} {line.newLine ?? ""}
-			</Text>
-			<Text
-				selectable
-				className="font-mono text-[12px] leading-5"
-				style={{ color }}
-			>
-				{line.kind === "hunk" ? line.text : `${prefix}${line.text}`}
-			</Text>
-		</View>
-	);
-}
-
-function HeaderButton({
-	label,
-	onPress,
-	icon,
-}: {
-	label: string;
-	onPress: () => void;
-	icon: "copy" | "share";
-}) {
-	const Icon = icon === "copy" ? Copy : Share2;
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			className="h-11 w-11 items-center justify-center active:opacity-60"
-			onPress={onPress}
-		>
-			<Icon size={19} color={colors.accent} />
-		</Pressable>
-	);
-}
-
-function NavButton({
-	label,
-	disabled,
-	onPress,
-	direction,
-}: {
-	label: string;
-	disabled: boolean;
-	onPress: () => void;
-	direction: "previous" | "next";
-}) {
-	const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel={label}
-			disabled={disabled}
-			className="h-11 w-11 items-center justify-center active:opacity-60"
-			style={{ opacity: disabled ? 0.3 : 1 }}
-			onPress={onPress}
-		>
-			<Icon size={18} color={colors.secondaryFg} />
-		</Pressable>
-	);
-}
-
 const diffText = (lines: readonly DiffLine[]): string =>
 	lines
 		.map((line) => {
 			if (line.kind === "added") return `+${line.text}`;
 			if (line.kind === "removed") return `-${line.text}`;
-			return line.text;
+			if (line.kind === "hunk") return line.text;
+			return ` ${line.text}`;
 		})
 		.join("\n");

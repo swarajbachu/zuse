@@ -8,8 +8,9 @@ import {
 	ComposerInput,
 	defaultModelEnabledByProvider,
 	defaultModelFor,
-	GitBranchInfo,
 	FsFileContent,
+	GitBranchInfo,
+	GitReviewSummary,
 	isModelVisible,
 	Message,
 	MODELS_BY_PROVIDER,
@@ -236,6 +237,22 @@ describe("RelayEnvironmentList compatibility", () => {
 		});
 
 		expect(decoded.environments[0]?.endpoint).toBeUndefined();
+	});
+});
+
+describe("GitReviewSummary compatibility", () => {
+	it("decodes summaries from desktops that predate headRef", () => {
+		const decoded = Schema.decodeUnknownSync(GitReviewSummary)({
+			baseRef: "origin/main",
+			baseSha: "base",
+			headSha: "head",
+			files: [],
+			additions: 0,
+			deletions: 0,
+		});
+
+		expect(decoded.headRef).toBeNull();
+		expect(decoded.scope).toBe("branch");
 	});
 });
 

@@ -1,98 +1,70 @@
-// Codegen: bake the Material Icon Theme file-icon SVGs (and the filename /
-// extension → icon-name lookup maps) into a single TypeScript module the mobile
-// app can render synchronously via react-native-svg's <SvgXml>. We only emit the
-// FILE icon subset actually reachable from the manifest (folders aren't shown in
-// chat), so the bundle stays bounded.
-//
-// Run: `bun run gen:file-icons` (from apps/mobile). The output is committed.
+// Codegen: turn the structured file tree's built-in SVG sprite into a small
+// React Native lookup. Mobile and desktop then resolve the same file name to
+// the same glyph without shipping a second icon package in the app bundle.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	createFileTreeIconResolver,
+	getBuiltInSpriteSheet,
+} from "@pierre/trees";
 
-const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
-
-const manifestPath = require.resolve(
-	"material-icon-theme/dist/material-icons.json",
+const packageEntry = fileURLToPath(import.meta.resolve("@pierre/trees"));
+const builtInSource = readFileSync(
+	resolve(dirname(packageEntry), "builtInIcons.js"),
+	"utf8",
 );
-const manifestDir = dirname(manifestPath);
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+const resolver = createFileTreeIconResolver("complete");
 
-// Keep in sync with EXTRA_EXTENSIONS in packages/file-icons: these icon names
-// must be present in ICON_XML so the runtime resolver can reach them.
-const EXTRA_ICON_NAMES = [
-	"typescript",
-	"react_ts",
-	"javascript",
-	"react",
-	"html",
-	"yaml",
-];
+const objectKeys = (name) => {
+	const block = new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n\\};`).exec(
+		builtInSource,
+	)?.[1];
+	if (block === undefined) throw new Error(`Could not find ${name}`);
+	return [...block.matchAll(/^\s*(?:"([^"]+)"|([\w-]+)):\s*"[^"]+",?$/gm)].map(
+		(match) => match[1] ?? match[2],
+	);
+};
 
-/** Every icon name the file resolver can return. */
-const reachable = new Set();
-for (const name of Object.values(manifest.fileNames)) reachable.add(name);
-for (const name of Object.values(manifest.fileExtensions)) reachable.add(name);
-for (const name of EXTRA_ICON_NAMES) reachable.add(name);
-reachable.add(manifest.file);
+const resolveToken = (fileName) =>
+	resolver.resolveIcon("file-tree-icon-file", fileName).token ?? "default";
 
-const cleanSvg = (svg) =>
-	svg
-		.replace(/<\?xml[^>]*\?>/g, "")
-		.replace(/<!--[\s\S]*?-->/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
+const fileNames = Object.fromEntries(
+	objectKeys("BUILT_IN_FILE_NAME_TOKENS").map((name) => [
+		name.toLowerCase(),
+		resolveToken(name),
+	]),
+);
+const extensions = Object.fromEntries(
+	objectKeys("BUILT_IN_FILE_EXTENSION_TOKENS").map((extension) => [
+		extension.toLowerCase(),
+		resolveToken(`file.${extension}`),
+	]),
+);
 
-const xmlByName = {};
-let missing = 0;
-for (const name of [...reachable].sort()) {
-	const def = manifest.iconDefinitions[name];
-	if (def === undefined) {
-		missing += 1;
-		continue;
-	}
-	try {
-		const svg = readFileSync(resolve(manifestDir, def.iconPath), "utf8");
-		xmlByName[name] = cleanSvg(svg);
-	} catch {
-		missing += 1;
-	}
+const sprite = getBuiltInSpriteSheet("complete");
+const icons = {};
+for (const match of sprite.matchAll(
+	/<symbol id="file-tree-builtin-([^"]+)" viewBox="([^"]+)">([\s\S]*?)<\/symbol>/g,
+)) {
+	const [, token, viewBox, body] = match;
+	icons[token] = `<svg viewBox="${viewBox}">${body.trim()}</svg>`;
 }
 
-const json = (value) => JSON.stringify(value);
-
-const iconEntries = Object.keys(xmlByName)
-	.sort()
-	.map((name) => `\t${json(name)}: ${json(xmlByName[name])},`)
-	.join("\n");
-
 const output = `// GENERATED FILE — do not edit by hand.
-// Run \`bun run gen:file-icons\` (apps/mobile) to regenerate from material-icon-theme.
-// Source of truth for resolution logic: ~/lib/icons/resolve.
+// Run \`bun run gen:file-icons\` (apps/mobile) to regenerate.
+// The source glyphs and resolution rules come from the structured file tree.
 
-import type { IconLookup } from "./resolve";
-
-export const FILE_ICON_LOOKUP: IconLookup = {
-\tfileNames: ${json(manifest.fileNames)},
-\tfileExtensions: ${json(manifest.fileExtensions)},
-\tdefaultFile: ${json(manifest.file)},
-};
-
-export const ICON_XML: Record<string, string> = {
-${iconEntries}
-};
+export const FILE_ICON_FILE_NAMES: Readonly<Record<string, string>> = ${JSON.stringify(fileNames)};
+export const FILE_ICON_EXTENSIONS: Readonly<Record<string, string>> = ${JSON.stringify(extensions)};
+export const FILE_ICON_XML: Readonly<Record<string, string>> = ${JSON.stringify(icons)};
 `;
 
-const outPath = resolve(
-	here,
-	"../src/lib/icons/material-icon-xml.generated.ts",
-);
+const outPath = resolve(here, "../src/lib/icons/file-icons.generated.ts");
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, output);
-
 console.log(
-	`gen:file-icons → ${Object.keys(xmlByName).length} icons` +
-		` (${missing} missing) → ${outPath}`,
+	`gen:file-icons → ${Object.keys(icons).length} shared glyphs → ${outPath}`,
 );

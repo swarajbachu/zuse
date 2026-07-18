@@ -111,4 +111,147 @@ describe("mobile UI contracts", () => {
 		expect(layout).toContain('top: "automatic"');
 		expect(layout).not.toContain("headerBlurEffect");
 	});
+
+	test("uses stack-based files and keeps file changes inline", () => {
+		const layout = appFile("_layout.tsx");
+		const files = appFile("c/[conn]/session/[sessionId]/files.tsx");
+		const review = appFile("c/[conn]/session/[sessionId]/review.tsx");
+		const tool = appFile("c/[conn]/session/[sessionId]/tool/[itemId].tsx");
+		const file = appFile("c/[conn]/session/[sessionId]/file.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const diffList = readFileSync(
+			`${process.cwd()}/src/components/diff/review-diff-list.tsx`,
+			"utf8",
+		);
+		const turn = readFileSync(
+			`${process.cwd()}/src/components/messages/turn-row.tsx`,
+			"utf8",
+		);
+		const fileTabs = readFileSync(
+			`${process.cwd()}/src/components/files/file-tabs.tsx`,
+			"utf8",
+		);
+		const syntax = readFileSync(
+			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
+			"utf8",
+		);
+		const inlineFileDiff = readFileSync(
+			`${process.cwd()}/src/components/diff/inline-file-diff.tsx`,
+			"utf8",
+		);
+		const reviewPill = readFileSync(
+			`${process.cwd()}/src/components/review-changes-pill.tsx`,
+			"utf8",
+		);
+		const sessionActions = readFileSync(
+			`${process.cwd()}/src/components/session-actions-menu.ios.tsx`,
+			"utf8",
+		);
+		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
+		expect(layout).toContain('name="c/[conn]/session/[sessionId]/review"');
+		expect(layout).toContain('presentation: "formSheet"');
+		expect(thread).toContain("onFiles={openFiles}");
+		expect(thread).toContain("onChanges={openChanges}");
+		expect(thread).toContain(
+			"<Stack.Screen.Title>{title}</Stack.Screen.Title>",
+		);
+		expect(thread).not.toContain("headerRight:");
+		expect(thread).not.toContain("headerTitle:");
+		expect(thread).toContain("<ReviewChangesPill");
+		expect(files).toContain('<Stack.Toolbar placement="bottom">');
+		expect(files).toContain('placeholder="Search files"');
+		expect(files).toContain("useHeaderHeight");
+		expect(files).toContain("paddingTop: headerHeight");
+		expect(files).not.toContain("headerTitle:");
+		expect(files).toContain(
+			"<Stack.Screen.Title>{projectName}</Stack.Screen.Title>",
+		);
+		expect(files).toContain("<FileTabs");
+		expect(fileTabs).toContain("@expo/ui/community/segmented-control");
+		expect(files).not.toContain("<ActivityIndicator");
+		expect(files).toContain("<ReviewDiffList");
+		expect(review).toContain("<ReviewDiffList");
+		expect(review).toContain(
+			"<Stack.Screen.Title>{reviewScopeLabel(scope)}</Stack.Screen.Title>",
+		);
+		expect(review).toContain('<Stack.Toolbar placement="left">');
+		expect(review).toContain('<Stack.Toolbar placement="right">');
+		expect(review).toContain("<Stack.Toolbar.Menu");
+		expect(review).toContain('"arrow.up.left.and.arrow.down.right"');
+		expect(review).not.toContain("translucentNativeHeaderOptions");
+		expect(review).toContain("collapsable={false}");
+		expect(review).toContain("selectConnectionBundles");
+		expect(review).not.toContain("bundlesByConnection[connKey] ?? []");
+		expect(tool).toContain("<ReviewDiffList");
+		expect(tool).toContain("<Stack.Screen.Title>");
+		expect(tool).toContain('<Stack.Toolbar placement="left">');
+		expect(tool).toContain('<Stack.Toolbar placement="right">');
+		expect(tool).not.toContain("headerLeft:");
+		expect(tool).not.toContain("headerTitle:");
+		expect(tool).toContain("paddingTop: headerHeight");
+		expect(review).toContain("paddingTop: headerHeight");
+		expect(file).not.toContain("useHeaderHeight");
+		expect(file).toContain('contentInsetAdjustmentBehavior="automatic"');
+		expect(file).toContain(
+			"<Stack.Screen.Title>{basename(path)}</Stack.Screen.Title>",
+		);
+		expect(file).toContain("tokenizeCodeLine");
+		expect(file).toContain("width: codeWidth");
+		expect(diffList).toContain("<SectionList");
+		expect(diffList).not.toContain("directionalLockEnabled");
+		expect(diffList).not.toContain('ellipsizeMode="clip"');
+		expect(diffList).toContain("min-h-6 flex-row items-stretch");
+		expect(diffList).toContain('contentInsetAdjustmentBehavior="never"');
+		expect(diffList).toContain("stickySectionHeadersEnabled={false}");
+		expect(diffList).toContain("onViewableItemsChanged");
+		expect(diffList).toContain("pinnedFileVisible");
+		expect(diffList).toContain("patchRowsCache");
+		expect(diffList).toContain("maintainVisibleContentPosition");
+		expect(diffList).toContain("accordionKey");
+		expect(diffList).toContain("allFilesExpanded");
+		expect(syntax).toContain("MAX_HIGHLIGHT_CACHE_ENTRIES");
+		expect(syntax).toContain("MAX_HIGHLIGHT_CHARS");
+		expect(turn).toContain("<FileIcon");
+		expect(turn).toContain("setExpandedFile");
+		expect(turn).toContain("<InlineFileDiff");
+		expect(inlineFileDiff).toContain("<DiffCodeRow");
+		expect(turn).toContain(
+			"workspaceDisplayPath(file.path, context.workspaceRoot)",
+		);
+		expect(turn).toContain("gap-2 px-3");
+		expect(turn).not.toContain("/tool/[itemId]");
+		expect(thread).toContain("workspaceRoot: detail?.project.path");
+		const messageRow = readFileSync(
+			`${process.cwd()}/src/components/messages/message-row.tsx`,
+			"utf8",
+		);
+		expect(messageRow).toContain(
+			"workspaceDisplayPath(change.path, workspaceRoot)",
+		);
+		expect(messageRow).toContain(
+			"<InlineFileDiff lines={change.lines} lineLimit={80} />",
+		);
+		expect(messageRow).toContain("<FileIcon path={change.path} size={16} />");
+		expect(messageRow).toContain("accessibilityState={{ expanded }}");
+		expect(messageRow).toContain("color: colors.accent");
+		expect(messageRow).not.toContain("stats={view.fileChangeTotals}");
+		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
+		expect(sessionActions).toContain("tintColor={colors.fg}");
+		expect(sessionActions).toContain("destructive");
+		expect(sessionActions).not.toContain("NEON_GREEN");
+		expect(reviewPill).not.toContain("GitCompareArrows");
+		expect(files).not.toContain("translucentNativeHeaderOptions");
+		expect(file).not.toContain("translucentNativeHeaderOptions");
+	});
+
+	test("puts an explicit retry action beside connection failures", () => {
+		const home = appFile("index.tsx");
+		const sessions = appFile("c/[conn]/index.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		for (const source of [home, sessions, thread]) {
+			expect(source).toContain("<ConnectionRecoveryBanner");
+		}
+		const scanner = appFile("connect/scan.tsx");
+		expect(scanner).toContain("Try again");
+	});
 });

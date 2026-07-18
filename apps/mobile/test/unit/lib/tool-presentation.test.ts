@@ -46,7 +46,7 @@ describe("mobile tool presentation", () => {
 			}),
 		);
 		expect(edit.icon).toBe("edit");
-		expect(edit.editSummaries[0]).toMatchObject({
+		expect(edit.fileChanges[0]).toMatchObject({
 			path: "src/app.ts",
 			added: 2,
 			removed: 1,
@@ -101,11 +101,11 @@ describe("mobile tool presentation", () => {
 					old_string: "a",
 					new_string: "a\nb\nc",
 				}),
-			).fileChangeSummary,
-		).toBe("1 file changed +3 −1");
+			).fileChangeTotals,
+		).toEqual({ added: 3, removed: 1 });
 		expect(
 			buildToolPresentation(toolUse("Bash", { command: "ls" }))
-				.fileChangeSummary,
+				.fileChangeTotals,
 		).toBeNull();
 	});
 });

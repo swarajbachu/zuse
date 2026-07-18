@@ -5,6 +5,7 @@ import {
 	ChevronRight,
 	Loader2,
 	MessageSquare,
+	Pin,
 	Plus,
 	QrCode,
 	Search,
@@ -25,6 +26,7 @@ import {
 	View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
+import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
 import { GlassSurface } from "~/components/ui/glass-surface";
@@ -49,6 +51,7 @@ import { useAuthStore } from "~/store/auth";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
 import { useEnvironmentsStore } from "~/store/environments";
+import { usePinnedChatsStore } from "~/store/pinned-chats";
 import { prStateKey, usePrStateStore } from "~/store/pr-state";
 import {
 	projectOriginKey,
@@ -88,6 +91,7 @@ export default function HomeScreen() {
 		connect,
 	} = useEnvironmentsStore();
 	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+	const retryConnection = useConnectionRuntimeStore((state) => state.retry);
 	const connectionSnapshots = useConnectionRuntimeStore(
 		(state) => state.snapshotsByConnection,
 	);
@@ -100,6 +104,9 @@ export default function HomeScreen() {
 		archiveChat,
 		archiveSession,
 	} = useSessionsStore();
+	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
+	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
+	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
 	const reachableConnections = useMemo(
 		() => availableConnections(connections, account !== null),
 		[account, connections],
@@ -112,6 +119,10 @@ export default function HomeScreen() {
 	useEffect(() => {
 		if (!connectionsHydrated) void hydrateConnections();
 	}, [connectionsHydrated, hydrateConnections]);
+
+	useEffect(() => {
+		if (!pinnedHydrated) void hydratePinnedChats();
+	}, [hydratePinnedChats, pinnedHydrated]);
 
 	useEffect(() => {
 		if (account !== null) void refreshEnvironments();
@@ -165,8 +176,15 @@ export default function HomeScreen() {
 				bundlesByConnection,
 				statusBySession,
 				query: search,
+				pinnedChatKeys: new Set(pinnedKeys),
 			}),
-		[bundlesByConnection, reachableConnections, search, statusBySession],
+		[
+			bundlesByConnection,
+			pinnedKeys,
+			reachableConnections,
+			search,
+			statusBySession,
+		],
 	);
 	const listItems = useMemo(
 		() =>
@@ -180,21 +198,35 @@ export default function HomeScreen() {
 	const loading =
 		!authHydrated ||
 		!connectionsHydrated ||
+		!pinnedHydrated ||
 		(account !== null && environmentsLoading) ||
 		reachableConnections.some(
 			(connection) => loadingByConnection[connection.key] === true,
 		);
-	const connectionError =
-		Object.entries(errorByConnection).find(([key, error]) => {
-			if (!error) return false;
-			if (!reachableConnections.some((connection) => connection.key === key)) {
-				return false;
-			}
-			const status = connectionSnapshots[key]?.status;
-			return (
-				status === undefined || status === "error" || status === "blockedAuth"
-			);
-		})?.[1] ?? null;
+	const connectionFailure =
+		reachableConnections
+			.map((connection) => {
+				const snapshot = connectionSnapshots[connection.key];
+				const failed =
+					snapshot?.status === "error" || snapshot?.status === "blockedAuth";
+				const error = failed
+					? (snapshot.error ?? errorByConnection[connection.key])
+					: snapshot === undefined
+						? errorByConnection[connection.key]
+						: null;
+				return error ? ([connection.key, error] as const) : null;
+			})
+			.find((entry) => entry !== null) ?? null;
+	const connectionError = connectionFailure?.[1] ?? null;
+	const retryFailedConnection = () => {
+		if (connectionFailure === null) {
+			if (account !== null) void refreshEnvironments();
+			return;
+		}
+		const [key] = connectionFailure;
+		const options = optionsForConnection(key, connections);
+		if (options !== null) retryConnection(key, options);
+	};
 
 	const updateGroup = useCallback((key: string, action: InboxDisplayAction) => {
 		selectionTap();
@@ -328,16 +360,15 @@ export default function HomeScreen() {
 				}
 			>
 				{((account === null ? null : environmentsError) ?? connectionError) ? (
-					<View className="mb-3 rounded-2xl border border-danger/35 bg-danger/10 px-3 py-2">
-						<Text
-							selectable
-							className="font-sans text-sm leading-5 text-danger"
-						>
-							{connectionErrorMessage(
+					<View className="mb-3">
+						<ConnectionRecoveryBanner
+							message={connectionErrorMessage(
 								(account === null ? null : environmentsError) ??
 									connectionError,
 							)}
-						</Text>
+							onRetry={retryFailedConnection}
+							onPairAgain={() => router.push("/connect/scan")}
+						/>
 					</View>
 				) : null}
 
@@ -608,7 +639,9 @@ function InboxItem({
 							collapsable={false}
 							className="w-4 items-center justify-center"
 						>
-							{isActive ? (
+							{item.row.pinned ? (
+								<Pin size={12} color={colors.secondaryFg} />
+							) : isActive ? (
 								<PresenceDot tone="online" pulse size={7} />
 							) : item.row.unread ? (
 								<View className="h-[7px] w-[7px] rounded-full bg-primary" />

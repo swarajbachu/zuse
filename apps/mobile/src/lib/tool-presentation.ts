@@ -1,14 +1,13 @@
 import {
 	extractFileChanges,
 	type FileChange,
+	type FileChangeTotals,
+	mergeFileChanges,
+	summarizeFileChanges,
 } from "@zuse/client-runtime/timeline";
 import type { MessageContent } from "@zuse/contracts";
-
-import {
-	extractEditSummaries,
-	summarizeValue,
-	type ToolResultRecord,
-} from "./message-presentation";
+import { summarizeValue, type ToolResultRecord } from "./message-presentation";
+import { basename } from "./workspace-path";
 
 export type MobileToolIcon =
 	| "terminal"
@@ -49,13 +48,8 @@ export type MobileToolPresentation = {
 	resultBody: string | null;
 	resultLabel: "Running" | "Result" | "Error";
 	isError: boolean;
-	editSummaries: ReturnType<typeof extractEditSummaries>;
-	/**
-	 * "N file(s) changed +A −B" header for the file-change container, or `null`
-	 * when the tool produced no edit summaries.
-	 */
-	fileChangeSummary: string | null;
 	fileChanges: readonly FileChange[];
+	fileChangeTotals: FileChangeTotals | null;
 };
 
 type ToolUseContent = Extract<MessageContent, { _tag: "tool_use" }>;
@@ -68,8 +62,9 @@ export const buildToolPresentation = (
 	const input = asRecord(content.input);
 	const resultText =
 		result === undefined ? null : toResultText(result.output) || "(no output)";
-	const editSummaries = extractEditSummaries(content.tool, content.input);
-	const fileChanges = extractFileChanges(content.tool, content.input);
+	const fileChanges = mergeFileChanges(
+		extractFileChanges(content.tool, content.input),
+	);
 	const base = buildBaseToolView(
 		normalizedTool,
 		input,
@@ -89,9 +84,9 @@ export const buildToolPresentation = (
 		resultLabel:
 			result === undefined ? "Running" : result.isError ? "Error" : "Result",
 		isError: result?.isError === true,
-		editSummaries,
-		fileChangeSummary: fileChangeSummaryFor(editSummaries),
 		fileChanges,
+		fileChangeTotals:
+			fileChanges.length === 0 ? null : summarizeFileChanges(fileChanges),
 	};
 };
 
@@ -134,24 +129,9 @@ const inlineLabelFor = (
 	}
 };
 
-const fileChangeSummaryFor = (
-	summaries: readonly { added: number; removed: number }[],
-): string | null => {
-	if (summaries.length === 0) return null;
-	const added = summaries.reduce((sum, item) => sum + item.added, 0);
-	const removed = summaries.reduce((sum, item) => sum + item.removed, 0);
-	const files = `${summaries.length} file${summaries.length === 1 ? "" : "s"} changed`;
-	return `${files} +${added} −${removed}`;
-};
-
 const firstLineOf = (value: string): string => {
 	const line = value.trim().split(/\r\n|\r|\n/)[0] ?? "";
 	return line.length > 0 ? line : value.trim();
-};
-
-const basename = (path: string): string => {
-	const parts = path.split("/").filter((part) => part.length > 0);
-	return parts.at(-1) ?? path;
 };
 
 export const toResultText = (output: unknown): string => {
@@ -194,10 +174,9 @@ const buildBaseToolView = (
 	| "resultBody"
 	| "resultLabel"
 	| "isError"
-	| "editSummaries"
 	| "inlineLabel"
-	| "fileChangeSummary"
 	| "fileChanges"
+	| "fileChangeTotals"
 > => {
 	switch (tool) {
 		case "Bash":

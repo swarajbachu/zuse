@@ -25,6 +25,40 @@ export type FileChange = {
 	readonly lines: readonly DiffLine[];
 };
 
+export type FileChangeTotals = {
+	readonly added: number;
+	readonly removed: number;
+};
+
+export const summarizeFileChanges = (
+	changes: readonly FileChange[],
+): FileChangeTotals => ({
+	added: changes.reduce((total, change) => total + change.added, 0),
+	removed: changes.reduce((total, change) => total + change.removed, 0),
+});
+
+/** Merge repeated edits while preserving the first-seen file order. */
+export const mergeFileChanges = (
+	changes: readonly FileChange[],
+): readonly FileChange[] => {
+	const byPath = new Map<string, FileChange>();
+	for (const change of changes) {
+		const current = byPath.get(change.path);
+		byPath.set(
+			change.path,
+			current === undefined
+				? change
+				: {
+						...current,
+						added: current.added + change.added,
+						removed: current.removed + change.removed,
+						lines: [...current.lines, ...change.lines],
+					},
+		);
+	}
+	return [...byPath.values()];
+};
+
 export type TurnActivitySummary = {
 	readonly tools: number;
 	readonly commands: number;
@@ -181,6 +215,83 @@ const makeChange = (path: string, lines: readonly DiffLine[]): FileChange => ({
 	lines,
 });
 
+const applyPatchTextOf = (value: unknown): string | null => {
+	const direct = stringOf(value);
+	if (direct !== null) return direct;
+	const record = recordOf(value);
+	return stringOf(record?.patch) ?? stringOf(record?.apply_patch);
+};
+
+const parseApplyPatchChanges = (patch: string): FileChange[] => {
+	if (!patch.trimStart().startsWith("*** Begin Patch")) return [];
+	const byPath = new Map<string, DiffLine[]>();
+	let path: string | null = null;
+	let lines: DiffLine[] = [];
+	let oldLine = 1;
+	let newLine = 1;
+	const finish = () => {
+		if (path === null) return;
+		const existing = byPath.get(path);
+		byPath.set(path, existing === undefined ? lines : [...existing, ...lines]);
+	};
+
+	for (const raw of patch.split(/\r\n|\r|\n/)) {
+		const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(raw);
+		if (header !== null) {
+			finish();
+			path = header[1]?.trim() ?? null;
+			lines = [];
+			oldLine = 1;
+			newLine = 1;
+			continue;
+		}
+		const move = /^\*\*\* Move to: (.+)$/.exec(raw);
+		if (move !== null && path !== null) {
+			path = move[1]?.trim() ?? path;
+			continue;
+		}
+		if (path === null || raw === "*** End Patch") continue;
+		if (raw.startsWith("@@")) {
+			lines.push({ kind: "hunk", text: raw, oldLine: null, newLine: null });
+			continue;
+		}
+		if (raw.startsWith("+")) {
+			lines.push({
+				kind: "added",
+				text: raw.slice(1),
+				oldLine: null,
+				newLine,
+			});
+			newLine += 1;
+			continue;
+		}
+		if (raw.startsWith("-")) {
+			lines.push({
+				kind: "removed",
+				text: raw.slice(1),
+				oldLine,
+				newLine: null,
+			});
+			oldLine += 1;
+			continue;
+		}
+		if (raw.startsWith(" ")) {
+			lines.push({
+				kind: "context",
+				text: raw.slice(1),
+				oldLine,
+				newLine,
+			});
+			oldLine += 1;
+			newLine += 1;
+		}
+	}
+	finish();
+	return [...byPath].map(([filePath, fileLines]) =>
+		makeChange(filePath, fileLines),
+	);
+};
+
 export const extractFileChanges = (
 	tool: string,
 	input: unknown,
@@ -201,7 +312,14 @@ export const extractFileChanges = (
 		});
 	}
 
-	const unified = stringOf(value.patch) ?? stringOf(value.unified_diff);
+	const unified =
+		applyPatchTextOf(value.patch) ??
+		stringOf(value.apply_patch) ??
+		stringOf(value.unified_diff);
+	if (unified !== null) {
+		const applyPatchChanges = parseApplyPatchChanges(unified);
+		if (applyPatchChanges.length > 0) return applyPatchChanges;
+	}
 	if (path !== null && unified !== null) {
 		return [makeChange(path, parseUnifiedPatch(unified))];
 	}
@@ -241,7 +359,7 @@ export const summarizeTurnActivity = (
 	let reads = 0;
 	let searches = 0;
 	let agents = 0;
-	const files: FileChange[] = [];
+	const extractedFiles: FileChange[] = [];
 	for (const message of body) {
 		if (message.content._tag === "subagent_summary") agents += 1;
 		if (message.content._tag !== "tool_use") continue;
@@ -251,10 +369,12 @@ export const summarizeTurnActivity = (
 		if (/^read|readfile/.test(tool)) reads += 1;
 		if (/grep|glob|search/.test(tool)) searches += 1;
 		if (/task|agent|spawn/.test(tool)) agents += 1;
-		files.push(
+		extractedFiles.push(
 			...extractFileChanges(message.content.tool, message.content.input),
 		);
 	}
+	const files = mergeFileChanges(extractedFiles);
+	const totals = summarizeFileChanges(files);
 	return {
 		tools,
 		commands,
@@ -262,7 +382,7 @@ export const summarizeTurnActivity = (
 		searches,
 		agents,
 		files,
-		added: files.reduce((total, file) => total + file.added, 0),
-		removed: files.reduce((total, file) => total + file.removed, 0),
+		added: totals.added,
+		removed: totals.removed,
 	};
 };

@@ -28,6 +28,10 @@ const makeHarness = (input?: {
 		readonly dispose: () => Promise<void>;
 	}>;
 	isRetryableCommandError?: (cause: unknown) => boolean;
+	shouldReconnectOnOptionsChange?: (
+		previous: Options,
+		next: Options,
+	) => boolean;
 }) => {
 	let online = input?.online ?? true;
 	let nextId = 0;
@@ -41,6 +45,7 @@ const makeHarness = (input?: {
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		isRetryableCommandError: input?.isRetryableCommandError,
+		shouldReconnectOnOptionsChange: input?.shouldReconnectOnOptionsChange,
 		createClient:
 			input?.createClient ??
 			(async (options) => {
@@ -231,6 +236,27 @@ describe("connection supervisor", () => {
 			"token-1",
 			"token-2",
 		]);
+	});
+
+	test("reconnects immediately when a stable connection moves endpoints", async () => {
+		const harness = makeHarness({
+			shouldReconnectOnOptionsChange: (previous, next) =>
+				previous.token !== next.token,
+		});
+		const entry = harness.supervisor.get({
+			key: "paired-device",
+			token: "old",
+		});
+		await runClient(entry.getClient());
+
+		const updated = harness.supervisor.get({
+			key: "paired-device",
+			token: "new",
+		});
+		await waitUntil(() => updated.snapshot().generation === 2);
+
+		expect(harness.created.map(({ token }) => token)).toEqual(["old", "new"]);
+		expect(harness.disposed).toEqual([1]);
 	});
 
 	test("accepts only one stream failure report per connected generation", async () => {

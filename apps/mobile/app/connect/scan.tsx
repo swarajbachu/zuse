@@ -81,7 +81,6 @@ export default function ScanScreen() {
 											? cause.message
 											: "That pairing code could not be used.",
 									);
-									setScanned(false);
 								}
 							}
 				}
@@ -104,8 +103,13 @@ export default function ScanScreen() {
 				}}
 			>
 				<Text className="text-center font-sans text-sm text-white">
-					Point your camera at the pairing code.
+					{scanned
+						? "Connecting to your desktop…"
+						: "Point your camera at the pairing code."}
 				</Text>
+				{scanned && error === null ? (
+					<ActivityIndicator className="pt-3" color={colors.accent} />
+				) : null}
 				{error !== null ? (
 					<Text
 						selectable
@@ -113,6 +117,18 @@ export default function ScanScreen() {
 					>
 						{error}
 					</Text>
+				) : null}
+				{error !== null ? (
+					<View className="pt-3">
+						<Button
+							onPress={() => {
+								setError(null);
+								setScanned(false);
+							}}
+						>
+							Try again
+						</Button>
+					</View>
 				) : null}
 			</View>
 		</View>

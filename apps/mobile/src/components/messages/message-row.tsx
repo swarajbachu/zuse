@@ -1,3 +1,4 @@
+import type { FileChange } from "@zuse/client-runtime/timeline";
 import type {
 	Message,
 	MessageContent,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react-native";
 import React, { useState } from "react";
 import { type ColorValue, Pressable, Text, View } from "react-native";
+import { InlineFileDiff } from "~/components/diff/inline-file-diff";
 import { FileIcon } from "~/components/ui/file-icon";
 import { ShimmerText } from "~/components/ui/shimmer-text";
 import { cn } from "~/lib/cn";
@@ -36,6 +38,7 @@ import {
 	buildToolPresentation,
 	type MobileToolIcon,
 } from "~/lib/tool-presentation";
+import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { Markdown } from "./markdown";
 import type { QuestionAnswer } from "./pending-user-input-card";
@@ -44,6 +47,7 @@ import type { QuestionAnswer } from "./pending-user-input-card";
 export type MessageRowContext = {
 	connectionKey: string;
 	sessionId: SessionId;
+	workspaceRoot?: string;
 	answeredQuestionIds: ReadonlySet<string>;
 	questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
@@ -138,6 +142,7 @@ const MessageRowContent = ({
 					shimmer={shimmerActive}
 					connectionKey={ctx.connectionKey}
 					sessionId={ctx.sessionId}
+					workspaceRoot={ctx.workspaceRoot}
 				/>
 			);
 		case "tool_result":
@@ -310,12 +315,14 @@ const ToolUseRow = ({
 	shimmer,
 	connectionKey,
 	sessionId,
+	workspaceRoot,
 }: {
 	content: Extract<MessageContent, { _tag: "tool_use" }>;
 	result?: ToolResultRecord;
 	shimmer: boolean;
 	connectionKey: string;
 	sessionId: SessionId;
+	workspaceRoot?: string;
 }) => {
 	const view = buildToolPresentation(content, result);
 	const running = view.resultLabel === "Running";
@@ -361,49 +368,19 @@ const ToolUseRow = ({
 		);
 	}
 
-	// File-changing tools keep a subtle rounded container headed by the change
-	// summary, expandable to the per-file mono diffs.
-	if (view.fileChangeSummary !== null) {
+	// Skip the redundant tool-level disclosure, but let each file reveal its diff.
+	if (view.fileChangeTotals !== null) {
 		return (
-			<ExpandableEventRow
-				icon="edit"
-				title={view.fileChangeSummary}
-				badge={running ? "Running" : undefined}
-				shimmer={shimmer && running}
-			>
-				<View className="gap-2">
-					{view.editSummaries.map((summary) => (
-						<View
-							key={summary.path}
-							className="rounded-xl border border-border bg-muted/45 px-3 py-2"
-							style={{ borderCurve: "continuous" }}
-						>
-							<View className="flex-row items-center gap-2">
-								<FileIcon path={summary.path} size={16} />
-								<Text
-									className="min-w-0 flex-1 font-mono text-xs text-foreground"
-									numberOfLines={1}
-								>
-									{summary.path}
-								</Text>
-								<Text className="font-mono text-[11px] text-presence-online">
-									+{summary.added}
-								</Text>
-								<Text className="font-mono text-[11px] text-danger">
-									-{summary.removed}
-								</Text>
-							</View>
-							<Text
-								className="mt-2 font-mono text-xs leading-5 text-muted-foreground"
-								numberOfLines={6}
-							>
-								{summary.preview}
-							</Text>
-						</View>
-					))}
-				</View>
-				<DetailButton onPress={openDetails} />
-			</ExpandableEventRow>
+			<View className="px-2">
+				{view.fileChanges.map((change) => (
+					<EditedFileRow
+						key={change.path}
+						change={change}
+						workspaceRoot={workspaceRoot}
+						shimmer={shimmer && running}
+					/>
+				))}
+			</View>
 		);
 	}
 
@@ -426,20 +403,90 @@ const ToolUseRow = ({
 					{view.resultBody}
 				</Text>
 			) : null}
-			<DetailButton onPress={openDetails} />
+			{view.kind === "read" ||
+			(view.kind === "shell" &&
+				(view.body.length > 600 || (view.resultBody?.length ?? 0) > 1_200)) ? (
+				<DetailButton onPress={openDetails} />
+			) : null}
 		</PlainEventRow>
 	);
 };
+
+function EditedFileRow({
+	change,
+	workspaceRoot,
+	shimmer,
+}: {
+	change: FileChange;
+	workspaceRoot?: string;
+	shimmer: boolean;
+}) {
+	const [expanded, setExpanded] = useState(false);
+	const path = workspaceDisplayPath(change.path, workspaceRoot);
+	return (
+		<View>
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel={`${expanded ? "Collapse" : "Expand"} changes for ${path}`}
+				accessibilityState={{ expanded }}
+				onPress={() => setExpanded((value) => !value)}
+				hitSlop={8}
+				className="flex-row items-center gap-2 py-1.5 active:opacity-60"
+			>
+				<FileIcon path={change.path} size={16} />
+				{shimmer ? (
+					<ShimmerText className="min-w-0 flex-1 font-mono text-[13px] text-foreground">
+						{path}
+					</ShimmerText>
+				) : (
+					<Text
+						className="min-w-0 flex-1 font-mono text-[13px] text-foreground"
+						numberOfLines={1}
+						ellipsizeMode="middle"
+					>
+						{path}
+					</Text>
+				)}
+				<Text
+					className="font-mono text-[12px]"
+					style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
+				>
+					+{change.added}
+				</Text>
+				<Text
+					className="font-mono text-[12px]"
+					style={{
+						color: colors.diffRemoved,
+						fontVariant: ["tabular-nums"],
+					}}
+				>
+					−{change.removed}
+				</Text>
+				{expanded ? (
+					<ChevronDown size={12} color={colors.secondaryFg} />
+				) : (
+					<ChevronRight size={12} color={colors.secondaryFg} />
+				)}
+			</Pressable>
+			{expanded ? (
+				<View className="ml-6 overflow-hidden rounded-xl border border-border bg-background">
+					<InlineFileDiff lines={change.lines} lineLimit={80} />
+				</View>
+			) : null}
+		</View>
+	);
+}
 
 const DetailButton = ({ onPress }: { onPress: () => void }) => (
 	<Pressable
 		accessibilityRole="button"
 		accessibilityLabel="Open tool details"
 		onPress={onPress}
-		className="mt-2 min-h-11 self-start justify-center rounded-full bg-muted px-4 active:opacity-60"
+		hitSlop={10}
+		className="mt-1 min-h-11 self-start justify-center active:opacity-60"
 	>
-		<Text className="font-sans-medium text-[13px] text-foreground">
-			Open details
+		<Text className="font-sans-medium text-[11px] text-muted-foreground">
+			View detail
 		</Text>
 	</Pressable>
 );
@@ -707,6 +754,7 @@ function PlainEventRow({
 					<Text
 						className="min-w-0 flex-1 font-sans text-[13px] text-muted-foreground"
 						numberOfLines={1}
+						ellipsizeMode="middle"
 					>
 						{label}
 					</Text>

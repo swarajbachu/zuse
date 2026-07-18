@@ -1,12 +1,13 @@
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
+	FolderId,
 	PermissionRequest,
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
+import { ChevronDown } from "lucide-react-native";
 import React, {
 	useCallback,
 	useEffect,
@@ -34,10 +35,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
+import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
 import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
 import { TurnRow } from "~/components/messages/turn-row";
+import { ReviewChangesPill } from "~/components/review-changes-pill";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
@@ -48,9 +51,9 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { captureMobileError } from "~/lib/crash-reporting";
-import { visibleConnectionLabel } from "~/lib/display-names";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
+import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
@@ -64,12 +67,10 @@ import { useConnectionsStore } from "~/store/connections";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
+import { pinnedChatKey, usePinnedChatsStore } from "~/store/pinned-chats";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
 
-const EMPTY_BUNDLES: ReturnType<
-	typeof useSessionsStore.getState
->["bundlesByConnection"][string] = [];
 const EMPTY_PENDING: ReturnType<
 	typeof usePermissionsStore.getState
 >["pendingBySession"][string] = [];
@@ -121,21 +122,14 @@ function ThreadScreen() {
 	const connectionSnapshot = useConnectionRuntimeStore(
 		(state) => state.snapshotsByConnection[connKey],
 	);
-	const bundles = useSessionsStore(
-		(state) => state.bundlesByConnection[connKey] ?? EMPTY_BUNDLES,
+	const bundles = useSessionsStore((state) =>
+		selectConnectionBundles(state.bundlesByConnection, connKey),
 	);
 	const archiveChat = useSessionsStore((state) => state.archiveChat);
 	const archiveSession = useSessionsStore((state) => state.archiveSession);
 	const renameChatAction = useSessionsStore((state) => state.renameChat);
 	const markChatRead = useSessionsStore((state) => state.markChatRead);
 	const createSession = useSessionsStore((state) => state.createSession);
-	const machineLabel = useMemo(() => {
-		const record = connections.find(
-			(connection) =>
-				connection.key === connKey || connection.environmentId === connKey,
-		);
-		return record?.label ?? visibleConnectionLabel(undefined, connKey);
-	}, [connections, connKey]);
 	const rawMessages = useMobileMessagesStore((state) =>
 		selectSessionMessages(state.messagesBySession, stateKey),
 	);
@@ -200,6 +194,16 @@ function ThreadScreen() {
 	]);
 
 	const chatId = detail?.chat?.id ?? null;
+	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
+	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
+	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
+	const togglePinnedChat = usePinnedChatsStore((state) => state.toggle);
+	const currentPinKey =
+		chatId === null ? null : pinnedChatKey(connKey, String(chatId));
+	const isPinned = currentPinKey !== null && pinnedKeys.includes(currentPinKey);
+	useEffect(() => {
+		if (!pinnedHydrated) void hydratePinnedChats();
+	}, [hydratePinnedChats, pinnedHydrated]);
 	// Mark the chat read on open/focus (and when the chat resolves after a
 	// hydrate) so the inbox unread styling clears. Idempotent server-side.
 	useEffect(() => {
@@ -340,6 +344,7 @@ function ThreadScreen() {
 		() => ({
 			connectionKey: connKey,
 			sessionId: normalizedSessionId,
+			workspaceRoot: detail?.project.path,
 			answeredQuestionIds,
 			connKey,
 			questionsByItemId,
@@ -352,6 +357,7 @@ function ThreadScreen() {
 		[
 			answeredQuestionIds,
 			detail?.session.permissionMode,
+			detail?.project.path,
 			onAnswerQuestion,
 			questionsByItemId,
 			sessionStatus,
@@ -432,6 +438,18 @@ function ThreadScreen() {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	}, [archiveChat, chatId, connKey, options]);
+	const openChanges = useCallback(() => {
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/review",
+			params: { conn: connKey, sessionId: normalizedSessionId },
+		});
+	}, [connKey, normalizedSessionId]);
+	const openFiles = useCallback(() => {
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/files",
+			params: { conn: connKey, sessionId: normalizedSessionId },
+		});
+	}, [connKey, normalizedSessionId]);
 
 	// One bottom accessory for both real permission prompts and plan review
 	// (`withPlan`). Rendered in the composer's slot — it replaces the composer.
@@ -534,57 +552,22 @@ function ThreadScreen() {
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
-					headerBackVisible: false,
-					headerTitleAlign: "center",
-					headerLeft: () => (
-						<Pressable
-							accessibilityRole="button"
-							accessibilityLabel="Go back"
-							hitSlop={10}
-							onPress={() => router.back()}
-							className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-							style={{ borderCurve: "continuous" }}
-						>
-							<ChevronLeft size={20} color={colors.fg} />
-						</Pressable>
-					),
-					headerTitle: () => (
-						<View className="items-center">
-							<Text
-								className="font-sans-medium text-[15px] text-foreground"
-								numberOfLines={1}
-							>
-								{title}
-							</Text>
-							<Text
-								className="font-sans text-[11px] text-muted-foreground"
-								numberOfLines={1}
-							>
-								{detail?.project.name
-									? `${detail.project.name} · ${machineLabel}`
-									: machineLabel}
-							</Text>
-						</View>
-					),
-					headerRight: () => (
-						<View className="flex-row items-center gap-2">
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel="New chat"
-								hitSlop={10}
-								onPress={() => router.push("/new-chat")}
-								className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
-								style={{ borderCurve: "continuous" }}
-							>
-								<Plus size={19} color={colors.fg} />
-							</Pressable>
-							<SessionActionsMenu
-								onRename={chatId === null ? undefined : onRename}
-								onArchive={onArchive}
-							/>
-						</View>
-					),
+					headerLargeTitle: false,
 				}}
+			/>
+			<Stack.Screen.Title>{title}</Stack.Screen.Title>
+			<SessionActionsMenu
+				isPinned={isPinned}
+				onNewChat={() => router.push("/new-chat")}
+				onPin={
+					currentPinKey === null
+						? undefined
+						: () => void togglePinnedChat(currentPinKey)
+				}
+				onRename={chatId === null ? undefined : onRename}
+				onChanges={openChanges}
+				onFiles={openFiles}
+				onArchive={onArchive}
 			/>
 			{hydrated && options === null ? (
 				<View className="px-4 py-3">
@@ -612,11 +595,13 @@ function ThreadScreen() {
 				keyboardDismissMode="interactive"
 				ListHeaderComponent={
 					error || connectionProblem ? (
-						<View className="pb-2">
-							{connectionProblem ? (
-								<Text selectable className="font-sans text-[13px] text-danger">
-									{connectionProblem}
-								</Text>
+						<View className="gap-2 pb-2">
+							{connectionProblem && options !== null ? (
+								<ConnectionRecoveryBanner
+									message={connectionProblem}
+									onRetry={() => retryConnection(connKey, options)}
+									onPairAgain={() => router.push("/connect/scan")}
+								/>
 							) : null}
 							{error ? (
 								<Text selectable className="font-sans text-[13px] text-danger">
@@ -744,18 +729,37 @@ function ThreadScreen() {
 					) : planRequest !== null ? (
 						renderPromptAccessory([planRequest], true)
 					) : (
-						<Composer
-							connKey={connKey}
-							connection={options}
-							sessionId={normalizedSessionId}
-							session={detail?.session ?? null}
-							status={sessionStatus}
-							fresh={fresh}
-							online={transportOnline}
-							connectionStatus={connectionSnapshot?.status}
-							onRetryConnection={() => retryConnection(connKey, options)}
-							bottomInset={insets.bottom}
-						/>
+						<View pointerEvents="box-none">
+							{detail !== null && sessionStatus !== "running" ? (
+								<ReviewChangesPill
+									connection={options}
+									folderId={detail.project.id as FolderId}
+									worktreeId={detail.session.worktreeId}
+									refreshKey={`${turns.length}`}
+									onPress={() =>
+										router.push({
+											pathname: "/c/[conn]/session/[sessionId]/review",
+											params: {
+												conn: connKey,
+												sessionId: normalizedSessionId,
+											},
+										})
+									}
+								/>
+							) : null}
+							<Composer
+								connKey={connKey}
+								connection={options}
+								sessionId={normalizedSessionId}
+								session={detail?.session ?? null}
+								status={sessionStatus}
+								fresh={fresh}
+								online={transportOnline}
+								connectionStatus={connectionSnapshot?.status}
+								onRetryConnection={() => retryConnection(connKey, options)}
+								bottomInset={insets.bottom}
+							/>
+						</View>
 					)}
 				</View>
 			</KeyboardAvoidingView>

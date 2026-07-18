@@ -186,6 +186,43 @@ describe("GitServiceLive", () => {
 		expect(Array.from(streamed, (entry) => entry.path)).toEqual(
 			summary.files.map((file) => file.path),
 		);
+		const streamedText = Array.from(
+			streamed,
+			(entry) => entry.result.patch,
+		).join("\n");
+		expect(streamedText).toContain("+committed");
+		expect(streamedText).toContain("+uncommitted");
+	});
+
+	test("separates staged and unstaged review ranges", async () => {
+		writeFileSync(join(repositoryRoot, "staged.txt"), "staged\n");
+		git(repositoryRoot, "add", "staged.txt");
+		writeFileSync(join(repositoryRoot, "README.md"), "first\nunstaged\n");
+		writeFileSync(join(repositoryRoot, "untracked.txt"), "untracked\n");
+
+		const [staged, unstaged, stagedPatches, unstagedPatches] = await run(
+			(service) =>
+				Effect.all([
+					service.reviewSummary(folderId, null, "staged"),
+					service.reviewSummary(folderId, null, "unstaged"),
+					Stream.runCollect(service.reviewPatches(folderId, null, "staged")),
+					Stream.runCollect(service.reviewPatches(folderId, null, "unstaged")),
+				]),
+		);
+
+		expect(staged.files.map((file) => file.path)).toEqual(["staged.txt"]);
+		expect(staged.scope).toBe("staged");
+		expect(unstaged.files.map((file) => file.path)).toEqual([
+			"README.md",
+			"untracked.txt",
+		]);
+		expect(unstaged.scope).toBe("unstaged");
+		expect(
+			Array.from(stagedPatches, (patch) => patch.result.patch).join("\n"),
+		).toContain("+staged");
+		expect(
+			Array.from(unstagedPatches, (patch) => patch.result.patch).join("\n"),
+		).toContain("+unstaged");
 	});
 
 	test("restores a reviewed file to the comparison base as a worktree change", async () => {

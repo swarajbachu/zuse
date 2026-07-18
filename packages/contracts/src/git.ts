@@ -1,5 +1,5 @@
 import { Rpc } from "effect/unstable/rpc";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 
@@ -488,11 +488,27 @@ export class GitReviewFile extends Schema.Class<GitReviewFile>("GitReviewFile")(
   hasUncommittedChanges: Schema.Boolean,
 }) {}
 
+/** Comparison range used by the multi-file reviewer. */
+export const GitReviewScope = Schema.Literals([
+  "unstaged",
+  "staged",
+  "branch",
+]);
+export type GitReviewScope = typeof GitReviewScope.Type;
+
 /** Stable comparison metadata used by the dock and the multi-file reviewer. */
 export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
   "GitReviewSummary",
 )({
   baseRef: Schema.NullOr(Schema.String),
+  headRef: Schema.NullOr(Schema.String).pipe(
+    Schema.withConstructorDefault(Effect.succeed(null)),
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  scope: GitReviewScope.pipe(
+    Schema.withConstructorDefault(Effect.succeed("branch" as const)),
+    Schema.withDecodingDefaultType(Effect.succeed("branch" as const)),
+  ),
   baseSha: Schema.String,
   headSha: Schema.String,
   files: Schema.Array(GitReviewFile),
@@ -504,6 +520,7 @@ export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
   payload: Schema.Struct({
     folderId: FolderId,
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    scope: Schema.optional(GitReviewScope),
   }),
   success: GitReviewSummary,
   error: GitErrors,
@@ -556,6 +573,7 @@ export const GitReviewPatchesRpc = Rpc.make("git.reviewPatches", {
   payload: Schema.Struct({
     folderId: FolderId,
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    scope: Schema.optional(GitReviewScope),
   }),
   success: GitReviewPatch,
   error: GitErrors,

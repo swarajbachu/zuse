@@ -86,6 +86,12 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		validateClient: (client) =>
 			Effect.runPromise(client["connect.describe"]().pipe(Effect.asVoid)),
 		isOnline: () => currentOnline,
+		shouldReconnectOnOptionsChange: (previous, next) =>
+			previous.host !== next.host ||
+			previous.port !== next.port ||
+			previous.wsBaseUrl !== next.wsBaseUrl ||
+			previous.token !== next.token ||
+			previous.environmentId !== next.environmentId,
 		maxAutomaticAttempts: 6,
 		schedule: (delayMs, fn) => {
 			const timer = setTimeout(fn, delayMs);

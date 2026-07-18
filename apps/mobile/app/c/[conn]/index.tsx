@@ -3,6 +3,7 @@ import { MessageSquare } from "lucide-react-native";
 import { useEffect, useMemo } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 
+import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { SessionRow } from "~/components/session-row";
 import { EmptyState } from "~/components/ui/empty-state";
 import { ListSection } from "~/components/ui/list";
@@ -45,6 +46,7 @@ export default function SessionsScreen() {
 		[connKey, connections],
 	);
 	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
+	const retryConnection = useConnectionRuntimeStore((state) => state.retry);
 	const connectionSnapshot = useConnectionRuntimeStore(
 		(state) => state.snapshotsByConnection[connKey],
 	);
@@ -76,6 +78,16 @@ export default function SessionsScreen() {
 			),
 		[bundles],
 	);
+	const connectionFailure =
+		(connectionSnapshot?.status === "blockedAuth" ||
+			connectionSnapshot?.status === "error") &&
+		connectionSnapshot.error
+			? connectionSnapshot.error
+			: connectionSnapshot === undefined ||
+					connectionSnapshot.status === "error" ||
+					connectionSnapshot.status === "blockedAuth"
+				? errorByConnection[connKey]
+				: null;
 	return (
 		<>
 			<Stack.Screen
@@ -103,20 +115,14 @@ export default function SessionsScreen() {
 						connect the computer again.
 					</Text>
 				) : null}
-				{errorByConnection[connKey] &&
-				(connectionSnapshot === undefined ||
-					connectionSnapshot.status === "error" ||
-					connectionSnapshot.status === "blockedAuth") ? (
-					<Text selectable className="px-4 font-sans text-[13px] text-danger">
-						{connectionErrorMessage(errorByConnection[connKey])}
-					</Text>
-				) : null}
-				{(connectionSnapshot?.status === "blockedAuth" ||
-					connectionSnapshot?.status === "error") &&
-				connectionSnapshot.error ? (
-					<Text selectable className="px-4 font-sans text-[13px] text-danger">
-						{connectionErrorMessage(connectionSnapshot.error)}
-					</Text>
+				{connectionFailure !== null &&
+				connectionFailure !== undefined &&
+				options !== null ? (
+					<ConnectionRecoveryBanner
+						message={connectionErrorMessage(connectionFailure)}
+						onRetry={() => retryConnection(connKey, options)}
+						onPairAgain={() => router.push("/connect/scan")}
+					/>
 				) : null}
 
 				{rows.length === 0 ? (

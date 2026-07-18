@@ -5,8 +5,13 @@ import {
 	ComposerInput,
 	type ComposerInput as ComposerInputType,
 	type Folder,
+	type FolderId,
+	type FsFileContent,
 	type GitBranchInfo,
 	type GitPrSummary,
+	type GitReviewPatch,
+	type GitReviewScope,
+	type GitReviewSummary,
 	type MessageId,
 	type PermissionDecision,
 	type PermissionMode,
@@ -17,8 +22,9 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 
+import { reviewScopeRequestValue } from "~/lib/review-scope";
 import {
 	dispatchRetryableConnectionCommand,
 	getConnectionClient,
@@ -428,3 +434,70 @@ export const listPullRequests = (options: {
 		});
 	return program.pipe(Effect.catch(() => Effect.succeed([])));
 };
+
+export const listWorkspacePaths = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["fs.listPaths"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
+
+export const loadWorkspaceReview = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+	scope?: GitReviewScope;
+}): Effect.Effect<GitReviewSummary, unknown, never> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["git.reviewSummary"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+			scope: reviewScopeRequestValue(options.scope),
+		});
+	});
+
+export const streamWorkspaceReviewPatches = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+	scope?: GitReviewScope;
+}): Stream.Stream<GitReviewPatch, unknown, never> =>
+	Stream.unwrap(
+		Effect.map(getConnectionClient(options.connection), (client) =>
+			client["git.reviewPatches"]({
+				folderId: options.folderId,
+				worktreeId: options.worktreeId ?? null,
+				scope: reviewScopeRequestValue(options.scope),
+			}),
+		),
+	);
+
+export const readWorkspaceFile = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	path: string;
+	worktreeId?: WorktreeId | null;
+}): Effect.Effect<typeof FsFileContent.Type, unknown, never> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["fs.readFile"]({
+			folderId: options.folderId,
+			path: options.path,
+			worktreeId: options.worktreeId ?? null,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);

@@ -1,12 +1,9 @@
 import {
-	extractFileChanges,
-	type FileChange,
 	summarizeTurnActivity,
 	type TimelineTurn,
 } from "@zuse/client-runtime/timeline";
 import type { Message } from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
-import { router } from "expo-router";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -18,6 +15,9 @@ import {
 import { useMemo, useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
 
+import { InlineFileDiff } from "~/components/diff/inline-file-diff";
+import { FileIcon } from "~/components/ui/file-icon";
+import { workspaceDisplayPath } from "~/lib/workspace-path";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
 
@@ -52,6 +52,7 @@ export function TurnRow({
 }) {
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
+	const [expandedFile, setExpandedFile] = useState<string | null>(null);
 	const activity = useMemo(() => summarizeTurnActivity(turn.body), [turn.body]);
 	const narrative = turn.body.filter(isNarrative);
 	const utility = turn.body.filter(
@@ -72,32 +73,6 @@ export function TurnRow({
 			message.content._tag === "thinking" ||
 			message.content._tag === "assistant",
 	).length;
-
-	const fileTargets = useMemo(() => {
-		const byPath = new Map<string, { file: FileChange; itemId: string }>();
-		for (const message of turn.body) {
-			const content = message.content;
-			if (content._tag !== "tool_use") continue;
-			for (const file of extractFileChanges(content.tool, content.input)) {
-				const current = byPath.get(file.path);
-				byPath.set(
-					file.path,
-					current === undefined
-						? { file, itemId: content.itemId }
-						: {
-								...current,
-								file: {
-									...current.file,
-									added: current.file.added + file.added,
-									removed: current.file.removed + file.removed,
-									lines: [...current.file.lines, ...file.lines],
-								},
-							},
-				);
-			}
-		}
-		return [...byPath.values()];
-	}, [turn.body]);
 
 	// A completed turn with tool activity AND a final answer collapses like the
 	// desktop: a summary header on top (tool/message counts), the activity hidden
@@ -179,22 +154,26 @@ export function TurnRow({
 				<MessageRow key={message.id} message={message} ctx={context} />
 			))}
 
-			{fileTargets.length > 0 ? (
-				<View className="px-2 pt-1">
+			{activity.files.length > 0 ? (
+				<View className="px-2 pt-2">
 					<Pressable
 						accessibilityRole="button"
 						accessibilityState={{ expanded: filesOpen }}
 						onPress={() => setFilesOpen((open) => !open)}
-						className="min-h-12 flex-row items-center rounded-2xl border border-border bg-card px-4 active:opacity-70"
-						style={{ borderCurve: "continuous" }}
+						className="min-h-11 flex-row items-center gap-2 py-1 active:opacity-60"
 					>
-						<Text className="font-sans-medium text-[14px] text-foreground">
-							{fileTargets.length} {fileTargets.length === 1 ? "file" : "files"}{" "}
-							changed
+						{filesOpen ? (
+							<ChevronDown size={14} color={colors.secondaryFg} />
+						) : (
+							<ChevronRight size={14} color={colors.secondaryFg} />
+						)}
+						<Text className="font-sans-medium text-[13px] text-muted-foreground">
+							{activity.files.length}{" "}
+							{activity.files.length === 1 ? "file" : "files"} changed
 						</Text>
 						<Text
 							className="ml-3 font-mono text-[13px]"
-							style={{ color: colors.diffAdded, fontVariant: ["tabular-nums"] }}
+							style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
 						>
 							+{activity.added}
 						</Text>
@@ -208,43 +187,59 @@ export function TurnRow({
 							−{activity.removed}
 						</Text>
 						<View className="flex-1" />
-						{filesOpen ? (
-							<ChevronDown size={17} color={colors.secondaryFg} />
-						) : (
-							<ChevronRight size={17} color={colors.secondaryFg} />
-						)}
 					</Pressable>
 					{filesOpen ? (
-						<View className="overflow-hidden rounded-b-2xl border-x border-b border-border bg-card">
-							{fileTargets.map(({ file, itemId }) => (
-								<Pressable
-									key={file.path}
-									accessibilityRole="button"
-									accessibilityLabel={`Open diff for ${file.path}`}
-									onPress={() =>
-										router.push({
-											pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
-											params: {
-												conn: context.connectionKey,
-												sessionId: context.sessionId,
-												itemId,
-												filePath: file.path,
-											},
-										})
-									}
-									className="min-h-12 flex-row items-center border-t border-border px-4 active:opacity-60"
-								>
-									<Text
-										className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
-										numberOfLines={1}
+						<View className="overflow-hidden rounded-2xl border border-border bg-card">
+							{activity.files.map((file) => (
+								<View key={file.path}>
+									<Pressable
+										key={file.path}
+										accessibilityRole="button"
+										accessibilityLabel={`${expandedFile === file.path ? "Collapse" : "Expand"} changes for ${file.path}`}
+										accessibilityState={{
+											expanded: expandedFile === file.path,
+										}}
+										onPress={() =>
+											setExpandedFile((current) =>
+												current === file.path ? null : file.path,
+											)
+										}
+										className="min-h-12 flex-row items-center gap-2 px-3 active:opacity-60"
 									>
-										{file.path}
-									</Text>
-									<Text style={{ color: colors.diffAdded }}>+{file.added}</Text>
-									<Text className="ml-2" style={{ color: colors.diffRemoved }}>
-										−{file.removed}
-									</Text>
-								</Pressable>
+										<FileIcon path={file.path} size={17} />
+										<Text
+											className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
+											numberOfLines={1}
+										>
+											{workspaceDisplayPath(file.path, context.workspaceRoot)}
+										</Text>
+										<Text
+											className="font-mono text-[11px]"
+											style={{ color: colors.accent }}
+										>
+											+{file.added}
+										</Text>
+										<Text
+											className="font-mono text-[11px]"
+											style={{ color: colors.diffRemoved }}
+										>
+											−{file.removed}
+										</Text>
+										{expandedFile === file.path ? (
+											<ChevronDown size={12} color={colors.secondaryFg} />
+										) : (
+											<ChevronRight size={12} color={colors.secondaryFg} />
+										)}
+									</Pressable>
+									{expandedFile === file.path ? (
+										<View
+											className="overflow-hidden border-t border-border bg-background"
+											style={{ borderCurve: "continuous" }}
+										>
+											<InlineFileDiff lines={file.lines} />
+										</View>
+									) : null}
+								</View>
 							))}
 						</View>
 					) : null}

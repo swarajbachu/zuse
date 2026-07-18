@@ -1,37 +1,66 @@
-import { Host } from "@expo/ui";
-import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Stack } from "expo-router";
 
-import { NEON_GREEN } from "~/theme";
+import { colors } from "~/theme";
 
 /**
- * Header "…" menu for the session screen: Rename (hidden when the chat has no
- * id yet) and Archive. Native UIMenu via @expo/ui so it matches the platform.
+ * Native session-actions menu. Chat-specific actions are hidden until the
+ * remote chat id exists; workspace actions remain available immediately.
  */
 export function SessionActionsMenu({
+	isPinned,
+	onNewChat,
+	onPin,
 	onRename,
+	onChanges,
+	onFiles,
 	onArchive,
 }: {
+	isPinned: boolean;
+	onNewChat: () => void;
+	onPin?: () => void;
 	onRename?: () => void;
+	onChanges: () => void;
+	onFiles: () => void;
 	onArchive: () => void;
 }) {
 	return (
-		<Host matchContents seedColor={NEON_GREEN}>
-			<Menu label="" systemImage="ellipsis">
-				{onRename !== undefined ? (
-					<NativeButton
-						label="Rename chat"
-						systemImage="pencil"
-						onPress={onRename}
-					/>
+		<Stack.Toolbar placement="right">
+			<Stack.Toolbar.Button
+				icon="square.and.pencil"
+				tintColor={colors.fg}
+				onPress={onNewChat}
+			/>
+			<Stack.Toolbar.Menu icon="ellipsis" tintColor={colors.fg}>
+				{onPin !== undefined ? (
+					<Stack.Toolbar.MenuAction
+						icon={isPinned ? "pin.slash" : "pin"}
+						onPress={onPin}
+					>
+						{isPinned ? "Unpin" : "Pin"}
+					</Stack.Toolbar.MenuAction>
 				) : null}
-				{/* biome-ignore lint/a11y/useValidAriaRole: @expo/ui maps this native role to UIMenu destructive styling. */}
-				<NativeButton
-					label="Archive chat"
-					systemImage="archivebox"
-					role="destructive"
+				{onRename !== undefined ? (
+					<Stack.Toolbar.MenuAction icon="pencil" onPress={onRename}>
+						Rename
+					</Stack.Toolbar.MenuAction>
+				) : null}
+				<Stack.Toolbar.MenuAction
+					icon="arrow.triangle.branch"
+					onPress={onChanges}
+				>
+					Changes
+				</Stack.Toolbar.MenuAction>
+				<Stack.Toolbar.MenuAction icon="folder" onPress={onFiles}>
+					Files
+				</Stack.Toolbar.MenuAction>
+				<Stack.Toolbar.MenuAction
+					icon="archivebox"
+					destructive
 					onPress={onArchive}
-				/>
-			</Menu>
-		</Host>
+				>
+					Archive
+				</Stack.Toolbar.MenuAction>
+			</Stack.Toolbar.Menu>
+		</Stack.Toolbar>
 	);
 }

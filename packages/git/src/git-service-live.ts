@@ -26,6 +26,7 @@ import {
 	GitReviewFile,
 	GitReviewFileContents,
 	GitReviewPatch,
+	type GitReviewScope,
 	GitReviewSummary,
 	GitStatusSummary,
 } from "@zuse/contracts";
@@ -1502,6 +1503,38 @@ export const GitServiceLive = Layer.effect(
 				return { baseRef, baseSha, headSha } as const;
 			});
 
+		const resolveReviewComparison = (
+			folderId: FolderId,
+			cwd: string,
+			scope: GitReviewScope,
+		) =>
+			Effect.gen(function* () {
+				const range = yield* resolveReviewRange(folderId, cwd);
+				const headRef = yield* run(folderId, cwd, [
+					"symbolic-ref",
+					"--quiet",
+					"--short",
+					"HEAD",
+				]).pipe(
+					Effect.map((value) => value.trim()),
+					Effect.catch(() => Effect.succeed(null)),
+				);
+				if (scope === "branch") {
+					return {
+						...range,
+						headRef,
+						args: range.baseSha.length === 0 ? [] : [range.baseSha],
+					} as const;
+				}
+				return {
+					baseRef: scope === "staged" ? "HEAD" : null,
+					headRef,
+					baseSha: range.headSha,
+					headSha: range.headSha,
+					args: scope === "staged" ? ["--cached", "HEAD"] : [],
+				} as const;
+			});
+
 		const changes: GitService["Service"]["changes"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				run(folderId, cwd, [
@@ -1659,37 +1692,36 @@ export const GitServiceLive = Layer.effect(
 		const reviewSummary: GitService["Service"]["reviewSummary"] = (
 			folderId,
 			worktreeId,
+			scope = "branch",
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					const range = yield* resolveReviewRange(folderId, cwd);
+					const comparison = yield* resolveReviewComparison(
+						folderId,
+						cwd,
+						scope,
+					);
 					const uncommitted = yield* changes(folderId, worktreeId);
-					const names =
-						range.baseSha.length === 0
-							? []
-							: parseReviewNames(
-									yield* run(folderId, cwd, [
-										"diff",
-										"--name-status",
-										"-z",
-										"--find-renames",
-										range.baseSha,
-										"--",
-									]),
-								);
-					const stats =
-						range.baseSha.length === 0
-							? new Map<string, ReviewStat>()
-							: parseReviewStats(
-									yield* run(folderId, cwd, [
-										"diff",
-										"--numstat",
-										"-z",
-										"--find-renames",
-										range.baseSha,
-										"--",
-									]),
-								);
+					const names = parseReviewNames(
+						yield* run(folderId, cwd, [
+							"diff",
+							"--name-status",
+							"-z",
+							"--find-renames",
+							...comparison.args,
+							"--",
+						]),
+					);
+					const stats = parseReviewStats(
+						yield* run(folderId, cwd, [
+							"diff",
+							"--numstat",
+							"-z",
+							"--find-renames",
+							...comparison.args,
+							"--",
+						]),
+					);
 					const pendingByPath = new Map<string, GitChange>();
 					for (const change of uncommitted) {
 						pendingByPath.set(change.path, change);
@@ -1713,14 +1745,21 @@ export const GitServiceLive = Layer.effect(
 							...stat,
 							conflict:
 								entry.kind === "unmerged" || pending?.kind === "unmerged",
-							hasUncommittedChanges: pending !== undefined,
+							hasUncommittedChanges:
+								scope === "branch" ? pending !== undefined : true,
 						});
 					});
 					const seen = new Set(
 						files.flatMap((file) => [file.path, file.oldPath ?? ""]),
 					);
 					for (const pending of uncommitted) {
-						if (pending.kind === "ignored" || seen.has(pending.path)) continue;
+						if (
+							pending.kind === "ignored" ||
+							seen.has(pending.path) ||
+							scope === "staged" ||
+							(scope === "unstaged" && pending.kind !== "untracked")
+						)
+							continue;
 						let stat: ReviewStat = {
 							additions: 0,
 							deletions: 0,
@@ -1750,7 +1789,11 @@ export const GitServiceLive = Layer.effect(
 					}
 					files.sort((left, right) => left.path.localeCompare(right.path));
 					return GitReviewSummary.make({
-						...range,
+						baseRef: comparison.baseRef,
+						headRef: comparison.headRef,
+						scope,
+						baseSha: comparison.baseSha,
+						headSha: comparison.headSha,
 						files,
 						additions: files.reduce((total, file) => total + file.additions, 0),
 						deletions: files.reduce((total, file) => total + file.deletions, 0),
@@ -1761,70 +1804,73 @@ export const GitServiceLive = Layer.effect(
 		const reviewPatches: GitService["Service"]["reviewPatches"] = (
 			folderId,
 			worktreeId,
+			scope = "branch",
 		) =>
 			Stream.unwrap(
-				reviewSummary(folderId, worktreeId).pipe(
-					Effect.map((summary) =>
-						Stream.fromIterable(summary.files).pipe(
-							Stream.mapEffect(
-								(file) =>
-									(file.oldPath === null
-										? diff(folderId, file.path, worktreeId)
-										: Effect.flatMap(
-												resolvePathForWorktree(folderId, worktreeId),
-												(cwd) =>
-													Effect.gen(function* () {
-														const { baseSha } = yield* resolveReviewRange(
-															folderId,
-															cwd,
-														);
-														const patch = yield* run(folderId, cwd, [
-															"diff",
-															"--no-color",
-															"--no-ext-diff",
-															"--find-renames",
-															baseSha,
-															"--",
-															file.oldPath ?? file.path,
-															file.path,
-														]);
-														const maxBytes = 2_000_000;
-														return GitDiffResult.make({
-															mode: file.binary ? "binary" : "worktree",
-															patch: patch.slice(0, maxBytes),
-															truncated: patch.length > maxBytes,
-															bytes: patch.length,
-														});
-													}),
-											)
-									).pipe(
-										Effect.map((result) =>
+				Effect.gen(function* () {
+					const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
+					const summary = yield* reviewSummary(folderId, worktreeId, scope);
+					const comparison = yield* resolveReviewComparison(
+						folderId,
+						cwd,
+						scope,
+					);
+					return Stream.fromIterable(summary.files).pipe(
+						Stream.mapEffect(
+							(file) =>
+								(file.kind === "untracked"
+									? diff(folderId, file.path, worktreeId)
+									: run(folderId, cwd, [
+											"diff",
+											"--no-color",
+											"--no-ext-diff",
+											"--find-renames",
+											...comparison.args,
+											"--",
+											file.oldPath ?? file.path,
+											file.path,
+										]).pipe(
+											Effect.map((patch) => {
+												const maxBytes = 2_000_000;
+												return GitDiffResult.make({
+													mode: file.binary
+														? "binary"
+														: file.kind === "deleted"
+															? "deleted"
+															: "worktree",
+													patch: patch.slice(0, maxBytes),
+													truncated: patch.length > maxBytes,
+													bytes: patch.length,
+												});
+											}),
+										)
+								).pipe(
+									Effect.map((result) =>
+										GitReviewPatch.make({
+											path: file.path,
+											result,
+											error: null,
+										}),
+									),
+									Effect.catch((cause) =>
+										Effect.succeed(
 											GitReviewPatch.make({
 												path: file.path,
-												result,
-												error: null,
+												result: GitDiffResult.make({
+													mode: "unchanged",
+													patch: "",
+													truncated: false,
+													bytes: 0,
+												}),
+												error: String(cause),
 											}),
 										),
-										Effect.catch((cause) =>
-											Effect.succeed(
-												GitReviewPatch.make({
-													path: file.path,
-													result: GitDiffResult.make({
-														mode: "unchanged",
-														patch: "",
-														truncated: false,
-														bytes: 0,
-													}),
-													error: String(cause),
-												}),
-											),
-										),
 									),
-								{ concurrency: 4 },
-							),
+								),
+							{ concurrency: 4 },
 						),
-					),
-				),
+					);
+				}),
 			);
 
 		const reviewFileContents: GitService["Service"]["reviewFileContents"] = (
