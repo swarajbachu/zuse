@@ -32,14 +32,16 @@ import {
 	View,
 } from "react-native";
 import {
+	type LocalComposerAttachment,
+	pickComposerFiles,
+	pickComposerImages,
+	uploadComposerAttachment,
+} from "~/lib/composer-attachments";
+import {
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
-import {
-	availableProviderIds,
-	modelOptionsForProvider,
-	reasoningValueForModel,
-} from "~/lib/model-options";
+import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
@@ -63,10 +65,11 @@ import {
 import { useOutboxStore } from "~/store/outbox";
 import { colors } from "~/theme";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
+import { ComposerAttachmentStrip } from "./composer-attachment-strip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
-import { ProviderLogo } from "./provider-logo";
+import { ModelSheetTrigger } from "./model-sheet-trigger";
 import { Button } from "./ui/button";
 import { GlassSurface } from "./ui/glass-surface";
 import { HugeIcon } from "./ui/huge-icon";
@@ -98,6 +101,9 @@ export const Composer = ({
 	const [busy, setBusy] = useState(false);
 	const [focused, setFocused] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
+	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([]);
+	const [goalMode, setGoalMode] = useState(false);
+	const [composerError, setComposerError] = useState<string | null>(null);
 	// Only auto-focus the input when the user taps the collapsed pill — never when
 	// the bar auto-expands (e.g. opening a running session) so the keyboard
 	// doesn't pop unexpectedly.
@@ -157,7 +163,7 @@ export const Composer = ({
 		[availability],
 	);
 
-	const canSend = text.trim().length > 0 && !busy;
+	const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
 	const showInterrupt = isInterruptVisible(status);
 	const modelValue: ModelModeValue | null =
 		session === null
@@ -172,7 +178,13 @@ export const Composer = ({
 	// Collapse to a compact pill when the composer is idle: not focused, empty,
 	// and the agent isn't running. Any of those expands it to the full bar.
 	const expanded =
-		focused || text.trim().length > 0 || showInterrupt || modelSheetOpen;
+		focused ||
+		text.trim().length > 0 ||
+		attachments.length > 0 ||
+		goalMode ||
+		planMode ||
+		showInterrupt ||
+		modelSheetOpen;
 
 	const fileCount = currentActivity?.files.length ?? 0;
 	const agentCount = currentActivity?.agents ?? 0;
@@ -182,70 +194,75 @@ export const Composer = ({
 	const submit = async () => {
 		if (!canSend) return;
 		const value = text.trim();
-		setText("");
 		if (!online) {
+			if (attachments.length > 0 || goalMode) {
+				setComposerError("Attachments and goals require an active connection.");
+				return;
+			}
+			setText("");
 			await enqueue(connKey, sessionId, value);
 			return;
 		}
 		setBusy(true);
-		if (showInterrupt) {
-			try {
+		setComposerError(null);
+		let optimisticMessageId: MessageId | null = null;
+		try {
+			const uploaded = await Promise.all(
+				attachments.map((attachment) =>
+					uploadComposerAttachment(connection, sessionId, attachment),
+				),
+			);
+			const input = makeTextInput(value, uploaded, goalMode);
+			if (showInterrupt) {
 				await Effect.runPromise(
 					queueMessage({
 						connection,
 						sessionId,
-						input: makeTextInput(value),
+						input,
 					}),
 				);
-			} catch (cause) {
-				console.warn("[mobile] composer.queue_add_failed", {
-					sessionId,
-					reason: messageOf(cause),
-				});
-				await enqueue(connKey, sessionId, value);
-				setBusy(false);
+				await Effect.runPromise(flushServerQueue({ connection, sessionId }));
+				setText("");
+				setAttachments([]);
+				setGoalMode(false);
 				return;
 			}
-			await Effect.runPromise(
-				flushServerQueue({ connection, sessionId }),
-			).catch((cause) => {
-				console.warn("[mobile] composer.queue_flush_failed", {
-					sessionId,
-					reason: messageOf(cause),
-				});
-			});
-			setBusy(false);
-			return;
-		}
-		const messageId = MessageId.make(Crypto.randomUUID());
-		const optimisticContent: MessageContent = {
-			_tag: "user",
-			text: value,
-			goal: false,
-		};
-		addOptimisticMessage(
-			stateKey,
-			Message.make({
-				id: messageId,
-				sessionId,
-				role: "user",
-				content: optimisticContent,
-				createdAt: new Date(),
-			}),
-		);
-		try {
+			const messageId = MessageId.make(Crypto.randomUUID());
+			if (uploaded.length === 0) {
+				optimisticMessageId = messageId;
+				const optimisticContent: MessageContent = {
+					_tag: "user",
+					text: value,
+					goal: goalMode,
+				};
+				addOptimisticMessage(
+					stateKey,
+					Message.make({
+						id: messageId,
+						sessionId,
+						role: "user",
+						content: optimisticContent,
+						createdAt: new Date(),
+					}),
+				);
+			}
 			await Effect.runPromise(
 				sendMessage({
 					connection,
 					sessionId,
-					input: makeTextInput(value),
+					input,
+					asGoal: goalMode,
 					clientMessageId: messageId,
 				}),
 			);
-		} catch {
-			removeOptimisticMessage(stateKey, messageId);
-			// Lost the connection mid-send — keep the text safe in the outbox.
-			await enqueue(connKey, sessionId, value);
+			setText("");
+			setAttachments([]);
+			setGoalMode(false);
+		} catch (cause) {
+			setComposerError(messageOf(cause));
+			if (optimisticMessageId !== null) {
+				removeOptimisticMessage(stateKey, optimisticMessageId);
+			}
 		} finally {
 			setBusy(false);
 		}
@@ -399,12 +416,16 @@ export const Composer = ({
 					borderColor: planMode ? colors.accent : "transparent",
 				}}
 			>
-				{expanded && planMode ? (
-					<PlanPill onClear={() => setPermissionMode("default")} />
-				) : null}
-
 				{expanded ? (
 					<>
+						<ComposerAttachmentStrip
+							attachments={attachments}
+							onRemove={(id) =>
+								setAttachments((current) =>
+									current.filter((item) => item.id !== id),
+								)
+							}
+						/>
 						<TextInput
 							// Focus on mount only when the user opened the bar by tapping the
 							// collapsed pill — avoids popping the keyboard on auto-expand.
@@ -423,11 +444,33 @@ export const Composer = ({
 							onFocus={() => setFocused(true)}
 							onBlur={() => setFocused(false)}
 						/>
+						{planMode || goalMode ? (
+							<View className="flex-row flex-wrap gap-2 px-1">
+								{planMode ? (
+									<PlanPill onClear={() => setPermissionMode("default")} />
+								) : null}
+								{goalMode ? (
+									<ModePill label="Goal" onClear={() => setGoalMode(false)} />
+								) : null}
+							</View>
+						) : null}
 						<View className="flex-row items-center gap-2">
 							{modelValue === null ? null : (
 								<>
 									<ComposerPlusMenu
+										goalMode={goalMode}
 										planMode={planMode}
+										onPickImages={() =>
+											void pickComposerImages().then((items) =>
+												setAttachments((current) => [...current, ...items]),
+											)
+										}
+										onPickFiles={() =>
+											void pickComposerFiles().then((items) =>
+												setAttachments((current) => [...current, ...items]),
+											)
+										}
+										onToggleGoal={setGoalMode}
 										onTogglePlan={(next) =>
 											setPermissionMode(next ? "plan" : "default")
 										}
@@ -437,7 +480,7 @@ export const Composer = ({
 										onChange={setRuntimeMode}
 									/>
 									<View className="min-w-0 flex-1" />
-									<ModelLabel
+									<ModelSheetTrigger
 										value={modelValue}
 										onPress={() => setModelSheetOpen(true)}
 									/>
@@ -456,7 +499,19 @@ export const Composer = ({
 					<View className="flex-row items-center gap-1">
 						{modelValue === null ? null : (
 							<ComposerPlusMenu
+								goalMode={goalMode}
 								planMode={planMode}
+								onPickImages={() =>
+									void pickComposerImages().then((items) =>
+										setAttachments((current) => [...current, ...items]),
+									)
+								}
+								onPickFiles={() =>
+									void pickComposerFiles().then((items) =>
+										setAttachments((current) => [...current, ...items]),
+									)
+								}
+								onToggleGoal={setGoalMode}
 								onTogglePlan={(next) =>
 									setPermissionMode(next ? "plan" : "default")
 								}
@@ -478,6 +533,11 @@ export const Composer = ({
 					</View>
 				)}
 			</GlassSurface>
+			{composerError ? (
+				<Text selectable className="px-3 pt-2 font-sans text-xs text-danger">
+					{composerError}
+				</Text>
+			) : null}
 
 			{modelValue === null ? null : (
 				<ModelSheet
@@ -496,48 +556,6 @@ export const Composer = ({
 
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
-
-const modelLabelFor = (value: ModelModeValue): string =>
-	modelOptionsForProvider(value.providerId).find(
-		(model) => model.value === value.model,
-	)?.label ?? value.model;
-
-/** The right-aligned "5.6 Sol · High" chip that opens the model sheet. */
-const ModelLabel = ({
-	value,
-	onPress,
-}: {
-	value: ModelModeValue;
-	onPress: () => void;
-}) => {
-	const reasoning = reasoningValueForModel(
-		value.providerId,
-		value.model,
-		value.modelOptions,
-	);
-	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel="Model settings"
-			onPress={onPress}
-			hitSlop={8}
-			className="h-11 flex-row items-center gap-1.5 px-1 active:opacity-60"
-		>
-			<ProviderLogo providerId={value.providerId} size={15} />
-			<Text
-				className="max-w-[140px] font-sans-medium text-[15px] text-foreground"
-				numberOfLines={1}
-			>
-				{modelLabelFor(value)}
-			</Text>
-			{reasoning ? (
-				<Text className="font-sans text-[15px] text-muted-foreground">
-					{reasoning.label}
-				</Text>
-			) : null}
-		</Pressable>
-	);
-};
 
 const SendButton = ({
 	showInterrupt,
@@ -567,11 +585,17 @@ const SendButton = ({
 		}
 	>
 		{busy ? (
-			<ActivityIndicator color={showInterrupt ? colors.fg : colors.bg} />
+			<ActivityIndicator
+				color={showInterrupt ? colors.fg : colors.primaryForeground}
+			/>
 		) : showInterrupt ? (
 			<HugeIcon icon={StopIcon} size={15} color={colors.fg as string} />
 		) : online ? (
-			<HugeIcon icon={ArrowUp02Icon} size={18} color={colors.bg as string} />
+			<HugeIcon
+				icon={ArrowUp02Icon}
+				size={18}
+				color={colors.primaryForeground}
+			/>
 		) : (
 			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
 		)}
@@ -580,9 +604,28 @@ const SendButton = ({
 
 /** The "Plan" indicator pill docked at the top of the composer in plan mode. */
 const PlanPill = ({ onClear }: { onClear: () => void }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
+	<View className="self-start flex-row items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5">
 		<ListTodo size={15} color={colors.accent} />
-		<Text className="font-sans-medium text-[14px] text-foreground">Plan</Text>
+		<Text className="font-sans-medium text-[14px] text-foreground">
+			Plan mode
+		</Text>
+		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
+			<X size={14} color={colors.secondaryFg} />
+		</Pressable>
+	</View>
+);
+
+const ModePill = ({
+	label,
+	onClear,
+}: {
+	label: string;
+	onClear: () => void;
+}) => (
+	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
+		<Text className="font-sans-medium text-[14px] text-foreground">
+			{label}
+		</Text>
 		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
 			<X size={14} color={colors.secondaryFg} />
 		</Pressable>

@@ -1,54 +1,50 @@
 @import "tailwindcss";
 @import "uniwind";
 
-:root {
-	--app-background: #ffffff;
-	--app-foreground: #171717;
-	--app-card: #f2f2f7;
-	--app-card-elevated: #ffffff;
-	--app-muted: #e5e5ea;
-	--app-muted-foreground: #6b6b70;
-	--app-border: rgba(60, 60, 67, 0.22);
-	--app-primary: #34c759;
-	--app-primary-foreground: #ffffff;
-	--app-danger: #d93f4c;
-	--app-warning: #c76f00;
-}
-
-@media (prefers-color-scheme: dark) {
+/* Uniwind compiles these variants into separate native token tables and swaps
+   them when the system appearance changes. Ordinary CSS media queries do not
+   provide that native runtime scoping. */
+@layer theme {
 	:root {
-		--app-background: hsl(72 5% 6%);
-		--app-foreground: hsl(72 4% 92%);
-		--app-card: hsl(72 4% 13%);
-		--app-card-elevated: hsl(72 4% 16%);
-		--app-muted: hsl(72 4% 20%);
-		--app-muted-foreground: hsl(72 2% 64%);
-		--app-border: rgba(255, 255, 255, 0.1);
-		--app-primary: hsl(72 98% 54%);
-		--app-primary-foreground: hsl(72 5% 6%);
-		--app-danger: hsl(2 86% 64%);
-		--app-warning: hsl(42 93% 56%);
+		@variant light {
+			--color-background: #ffffff;
+			--color-foreground: #11130a;
+			--color-card: #f4f4f6;
+			--color-card-elevated: #ffffff;
+			--color-muted: #e9e9ec;
+			--color-muted-foreground: #626268;
+			--color-border: rgba(17, 19, 10, 0.14);
+			--color-primary: #c8ff00;
+			--color-primary-foreground: #11130a;
+			--color-danger: #d93f4c;
+			--color-warning: #a85d00;
+			--color-presence-online: #78a600;
+			--color-presence-offline: #626268;
+			--color-presence-checking: #a85d00;
+			--color-presence-error: #d93f4c;
+		}
+
+		@variant dark {
+			--color-background: hsl(72 5% 6%);
+			--color-foreground: hsl(72 4% 92%);
+			--color-card: hsl(72 4% 13%);
+			--color-card-elevated: hsl(72 4% 16%);
+			--color-muted: hsl(72 4% 20%);
+			--color-muted-foreground: hsl(72 2% 64%);
+			--color-border: rgba(255, 255, 255, 0.1);
+			--color-primary: #c8ff00;
+			--color-primary-foreground: #11130a;
+			--color-danger: hsl(2 86% 64%);
+			--color-warning: hsl(42 93% 56%);
+			--color-presence-online: #c8ff00;
+			--color-presence-offline: hsl(72 2% 64%);
+			--color-presence-checking: hsl(42 93% 56%);
+			--color-presence-error: hsl(2 86% 64%);
+		}
 	}
 }
 
 @theme {
-  --color-background: var(--app-background);
-  --color-foreground: var(--app-foreground);
-  --color-card: var(--app-card);
-  --color-card-elevated: var(--app-card-elevated);
-  --color-muted: var(--app-muted);
-  --color-muted-foreground: var(--app-muted-foreground);
-  --color-border: var(--app-border);
-  --color-primary: var(--app-primary);
-  --color-primary-foreground: var(--app-primary-foreground);
-  --color-danger: var(--app-danger);
-  --color-warning: var(--app-warning);
-  /* Live-presence tones, shared by the pulsing dot (bg-presence-*). The halo
-     reuses the same tone at a lower, animated opacity. */
-  --color-presence-online: hsl(72 98% 54%);
-  --color-presence-offline: hsl(72 2% 64%);
-  --color-presence-checking: hsl(42 93% 56%);
-  --color-presence-error: hsl(2 86% 64%);
   --font-sans: 'System';
   --font-sans-medium: 'System';
   --font-sans-bold: 'System';

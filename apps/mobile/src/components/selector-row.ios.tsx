@@ -1,6 +1,8 @@
 import { Host } from "@expo/ui";
 import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 
+import { colors } from "~/theme";
+
 export type SelectorOption = {
 	key: string;
 	label: string;
@@ -27,7 +29,11 @@ export function SelectorRow({
 	emptyLabel?: string;
 }) {
 	return (
-		<Host style={{ alignSelf: "stretch", height: 40 }}>
+		<Host
+			matchContents
+			seedColor={colors.fg}
+			style={{ alignSelf: "flex-start", height: 48 }}
+		>
 			<Menu label={label} systemImage={sf(symbol)}>
 				{disabled || options.length === 0 ? (
 					<NativeButton label={emptyLabel} onPress={() => {}} />

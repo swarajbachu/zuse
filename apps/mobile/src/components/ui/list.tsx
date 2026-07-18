@@ -35,13 +35,13 @@ export function ListSection({
 	return (
 		<View className={cn("gap-2", className)} {...rest}>
 			{header ? (
-				<Text className="px-4 font-sans text-[13px] uppercase tracking-wide text-muted-foreground">
+				<Text className="px-2 font-sans text-[15px] text-muted-foreground">
 					{header}
 				</Text>
 			) : null}
 			<View
 				style={CONTINUOUS}
-				className="overflow-hidden rounded-2xl border border-border bg-card"
+				className="overflow-hidden rounded-3xl border border-border bg-card"
 			>
 				{rows.map((row, index) => (
 					<View key={row.key}>
@@ -65,7 +65,7 @@ type ListRowProps = Omit<PressableProps, "children"> & {
 	/** Leading icon rendered inside a rounded tile. */
 	icon?: LucideIcon;
 	iconColor?: string;
-	/** `brand` = lime tile + dark glyph; `neutral` = muted tile + light glyph. */
+	/** `brand` = neon tile + dark glyph; `neutral` = adaptive muted tile. */
 	iconTone?: "brand" | "neutral";
 	/** Custom leading node (e.g. a presence dot); overrides `icon`. */
 	leading?: React.ReactNode;
@@ -83,7 +83,7 @@ export function ListRow({
 	subtitle,
 	icon: Icon,
 	iconColor,
-	iconTone = "brand",
+	iconTone = "neutral",
 	leading,
 	value,
 	trailing,
@@ -125,7 +125,8 @@ export function ListRow({
 						<Icon
 							size={17}
 							color={
-								iconColor ?? (iconTone === "brand" ? colors.bg : colors.fg)
+								iconColor ??
+								(iconTone === "brand" ? colors.primaryForeground : colors.fg)
 							}
 						/>
 					</View>

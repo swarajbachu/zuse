@@ -12,8 +12,9 @@ import {
 } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { useColorScheme, View } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { Uniwind, useUniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
 import { installCrashReporting } from "~/lib/crash-reporting";
@@ -21,8 +22,14 @@ import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
 import { colors } from "~/theme";
 
+// The app follows the device appearance. Reset any development-session theme
+// override before the first screen renders so light mode cannot inherit dark
+// utility styles while native navigation is already light.
+Uniwind.setTheme("system");
+
 export default function RootLayout() {
-	const colorScheme = useColorScheme();
+	const { theme } = useUniwind();
+	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
 		GeistMono_400Regular,
 	});
@@ -48,24 +55,32 @@ export default function RootLayout() {
 
 	return (
 		<GestureHandlerRootView style={{ flex: 1 }}>
-			<ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+			<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
 				<StatusBar style="auto" />
 				<Stack
 					screenOptions={{
-						// iOS large-title headers that float over a blurred backdrop as
-						// content scrolls beneath them. Screens opt out per-route below.
+						// Keep the native header transparent so UIKit can sample scrolling
+						// content for its own material at the top edge.
 						headerLargeTitle: true,
-						headerTransparent: true,
-						headerBlurEffect:
-							colorScheme === "dark"
-								? "systemChromeMaterialDark"
-								: "systemChromeMaterialLight",
+						headerTransparent: Platform.OS === "ios",
 						headerShadowVisible: false,
 						headerLargeTitleShadowVisible: false,
-						headerStyle: { backgroundColor: "transparent" },
+						headerStyle:
+							Platform.OS === "ios"
+								? { backgroundColor: "transparent" }
+								: { backgroundColor: colors.bg },
+						scrollEdgeEffects:
+							Platform.OS === "ios"
+								? {
+										top: "automatic",
+										bottom: "hidden",
+										left: "hidden",
+										right: "hidden",
+									}
+								: undefined,
 						headerLargeTitleStyle: { color: colors.fg },
 						headerTitleStyle: { color: colors.fg },
-						headerTintColor: colors.accent,
+						headerTintColor: colors.fg,
 						headerBackButtonDisplayMode: "minimal",
 						contentStyle: { backgroundColor: colors.bg },
 					}}
@@ -83,8 +98,14 @@ export default function RootLayout() {
 						name="settings"
 						options={{
 							title: "Settings",
-							presentation: "card",
+							presentation: "formSheet",
 							headerLargeTitle: false,
+							sheetAllowedDetents: [0.7, 0.92],
+							sheetInitialDetentIndex: 0,
+							sheetGrabberVisible: true,
+							headerTintColor: colors.fg,
+							headerTransparent: true,
+							contentStyle: { backgroundColor: colors.bg },
 						}}
 					/>
 					<Stack.Screen
@@ -109,6 +130,7 @@ export default function RootLayout() {
 						options={{
 							title: "Scan",
 							headerLargeTitle: false,
+							headerShown: false,
 							presentation: "fullScreenModal",
 						}}
 					/>

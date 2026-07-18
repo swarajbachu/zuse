@@ -1,8 +1,15 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
-import { QrCode } from "lucide-react-native";
+import { QrCode, X } from "lucide-react-native";
 import { useState } from "react";
-import { ActivityIndicator, Linking, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Linking,
+	Pressable,
+	StyleSheet,
+	Text,
+	View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "~/components/ui/button";
@@ -11,6 +18,7 @@ import { returnToInbox } from "~/lib/connection-navigation";
 import { successTap } from "~/lib/haptics";
 import { pairWithDesktop } from "~/lib/pairing";
 import { useConnectionsStore } from "~/store/connections";
+import { colors } from "~/theme";
 
 export default function ScanScreen() {
 	const insets = useSafeAreaInsets();
@@ -30,6 +38,7 @@ export default function ScanScreen() {
 	if (!permission.granted) {
 		return (
 			<View className="flex-1 bg-background px-4">
+				<ScannerCloseButton top={insets.top + 8} />
 				<EmptyState
 					icon={QrCode}
 					title="Camera permission required"
@@ -49,9 +58,12 @@ export default function ScanScreen() {
 	}
 
 	return (
-		<View className="flex-1 bg-background">
+		<View style={{ flex: 1, backgroundColor: "#000000" }}>
+			<ScannerCloseButton top={insets.top + 8} />
 			<CameraView
-				className="flex-1"
+				active
+				facing="back"
+				style={StyleSheet.absoluteFill}
 				barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
 				onBarcodeScanned={
 					scanned
@@ -75,11 +87,24 @@ export default function ScanScreen() {
 				}
 			/>
 			<View
-				className="border-t border-border bg-background px-4 pt-4"
-				style={{ paddingBottom: insets.bottom + 16 }}
+				pointerEvents="none"
+				style={StyleSheet.absoluteFill}
+				className="items-center justify-center px-10"
 			>
-				<Text className="text-center font-sans text-sm text-muted-foreground">
-					Scan a zuse:// pairing QR code.
+				<View
+					className="aspect-square w-full rounded-[28px] border-2 border-primary"
+					style={{ borderCurve: "continuous" }}
+				/>
+			</View>
+			<View
+				className="absolute inset-x-0 bottom-0 px-4 pt-10"
+				style={{
+					paddingBottom: insets.bottom + 16,
+					backgroundColor: "rgba(0,0,0,0.58)",
+				}}
+			>
+				<Text className="text-center font-sans text-sm text-white">
+					Point your camera at the pairing code.
 				</Text>
 				{error !== null ? (
 					<Text
@@ -93,3 +118,25 @@ export default function ScanScreen() {
 		</View>
 	);
 }
+
+const ScannerCloseButton = ({ top }: { top: number }) => (
+	<Pressable
+		accessibilityRole="button"
+		accessibilityLabel="Close scanner"
+		onPress={() => router.back()}
+		style={{
+			position: "absolute",
+			top,
+			left: 16,
+			zIndex: 2,
+			width: 44,
+			height: 44,
+			borderRadius: 22,
+			alignItems: "center",
+			justifyContent: "center",
+			backgroundColor: "rgba(0,0,0,0.58)",
+		}}
+	>
+		<X size={21} color={colors.accent} />
+	</Pressable>
+);

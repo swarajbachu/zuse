@@ -1,16 +1,25 @@
 import { Host } from "@expo/ui";
-import { BottomSheet, Form, Picker, Section, Text } from "@expo/ui/swift-ui";
-import { pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
-import type { PermissionMode, ProviderId, RuntimeMode } from "@zuse/contracts";
+import {
+	BottomSheet,
+	Form,
+	Image,
+	Label,
+	Picker,
+	Section,
+	Text,
+} from "@expo/ui/swift-ui";
+import { padding, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import type { ProviderId, RuntimeMode } from "@zuse/contracts";
 
 import {
 	defaultModelOptions,
 	modelOptionsForProvider,
-	PERMISSION_OPTIONS,
 	providerOptions,
 	RUNTIME_OPTIONS,
 	reasoningValueForModel,
 } from "~/lib/model-options";
+import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
+import { colors } from "~/theme";
 import type { ModelModeValue } from "./model-mode-menu";
 
 /**
@@ -52,7 +61,7 @@ export function ModelSheet({
 	const models = modelOptionsForProvider(value.providerId);
 
 	return (
-		<Host matchContents>
+		<Host matchContents seedColor={colors.fg}>
 			<BottomSheet
 				isPresented={open}
 				onIsPresentedChange={onOpenChange}
@@ -66,6 +75,7 @@ export function ModelSheet({
 								systemImage="cpu"
 								selection={value.providerId}
 								onSelectionChange={(providerId) => {
+									if (!canChangeProvider) return;
 									const id = providerId as ProviderId;
 									const nextModel =
 										modelOptionsForProvider(id)[0]?.value ?? value.model;
@@ -79,9 +89,19 @@ export function ModelSheet({
 								modifiers={[pickerStyle("menu")]}
 							>
 								{providers.map((provider) => (
-									<Text key={provider.value} modifiers={[tag(provider.value)]}>
-										{provider.label}
-									</Text>
+									<Label
+										key={provider.value}
+										title={`\u00a0\u00a0${provider.label}`}
+										icon={
+											<Image
+												assetName={PROVIDER_NATIVE_ASSET_NAMES[provider.value]}
+												size={17}
+												color={colors.fg}
+												modifiers={[padding({ trailing: 6 })]}
+											/>
+										}
+										modifiers={[tag(provider.value)]}
+									/>
 								))}
 							</Picker>
 						) : null}
@@ -101,11 +121,29 @@ export function ModelSheet({
 							}
 							modifiers={[pickerStyle("menu")]}
 						>
-							{models.map((model) => (
-								<Text key={model.value} modifiers={[tag(model.value)]}>
-									{model.label}
-								</Text>
-							))}
+							{models.map((model) =>
+								canChangeProvider ? (
+									<Text key={model.value} modifiers={[tag(model.value)]}>
+										{model.label}
+									</Text>
+								) : (
+									<Label
+										key={model.value}
+										title={model.label}
+										icon={
+											<Image
+												assetName={
+													PROVIDER_NATIVE_ASSET_NAMES[value.providerId]
+												}
+												size={17}
+												color={colors.fg}
+												modifiers={[padding({ trailing: 6 })]}
+											/>
+										}
+										modifiers={[tag(model.value)]}
+									/>
+								),
+							)}
 						</Picker>
 						{canChangeReasoning && reasoning !== null ? (
 							<Picker
@@ -142,24 +180,6 @@ export function ModelSheet({
 							modifiers={[pickerStyle("menu")]}
 						>
 							{RUNTIME_OPTIONS.map((option) => (
-								<Text key={option.value} modifiers={[tag(option.value)]}>
-									{option.label}
-								</Text>
-							))}
-						</Picker>
-						<Picker
-							label="Mode"
-							systemImage="slider.horizontal.3"
-							selection={value.permissionMode}
-							onSelectionChange={(permissionMode) =>
-								onChange({
-									...value,
-									permissionMode: permissionMode as PermissionMode,
-								})
-							}
-							modifiers={[pickerStyle("menu")]}
-						>
-							{PERMISSION_OPTIONS.map((option) => (
 								<Text key={option.value} modifiers={[tag(option.value)]}>
 									{option.label}
 								</Text>

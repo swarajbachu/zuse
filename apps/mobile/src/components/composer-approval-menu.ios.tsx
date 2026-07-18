@@ -3,8 +3,8 @@ import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 import type { RuntimeMode } from "@zuse/contracts";
 
 import { RUNTIME_OPTIONS } from "~/lib/model-options";
+import { NEON_GREEN } from "~/theme";
 
-const WHITE = "#ffffff";
 const sf = (name: string) => name as never;
 
 /** The composer "hand" button: a native menu of approval (runtime) modes. */
@@ -16,7 +16,7 @@ export function ComposerApprovalMenu({
 	onChange: (mode: RuntimeMode) => void;
 }) {
 	return (
-		<Host matchContents seedColor={WHITE}>
+		<Host matchContents seedColor={NEON_GREEN}>
 			<Menu label="" systemImage="checkmark.shield">
 				{RUNTIME_OPTIONS.map((option) => (
 					<NativeButton

@@ -1,11 +1,6 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
-import {
-	Platform,
-	StyleSheet,
-	useColorScheme,
-	View,
-	type ViewProps,
-} from "react-native";
+import { Platform, StyleSheet, View, type ViewProps } from "react-native";
+import { useUniwind } from "uniwind";
 
 import { colors } from "~/theme";
 
@@ -26,7 +21,7 @@ const styles = StyleSheet.create({
  * `style`; this component only owns the background/border/corner treatment.
  */
 export function GlassSurface({ style, children, ...rest }: ViewProps) {
-	const colorScheme = useColorScheme();
+	const { theme } = useUniwind();
 	const supportsGlass = Platform.OS === "ios" && isGlassEffectAPIAvailable();
 
 	if (supportsGlass) {
@@ -34,7 +29,7 @@ export function GlassSurface({ style, children, ...rest }: ViewProps) {
 			<GlassView
 				glassEffectStyle="regular"
 				isInteractive
-				colorScheme={colorScheme === "dark" ? "dark" : "light"}
+				colorScheme={theme === "dark" ? "dark" : "light"}
 				style={[styles.base, styles.glass, style]}
 				{...rest}
 			>

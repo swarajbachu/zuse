@@ -366,7 +366,7 @@ export default function HomeScreen() {
 						!loading ? (
 							<View className="mt-8 gap-3 px-4">
 								<Button onPress={() => router.push("/connect/scan")}>
-									<QrCode size={18} color={colors.bg} />
+									<QrCode size={18} color={colors.primaryForeground} />
 									Pair with desktop
 								</Button>
 								<Button

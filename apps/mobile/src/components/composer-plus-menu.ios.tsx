@@ -1,24 +1,47 @@
 import { Host } from "@expo/ui";
 import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 
-const WHITE = "#ffffff";
+import { colors } from "~/theme";
+
 const sf = (name: string) => name as never;
 
 /**
- * The composer "+" button: a native menu. Plan mode is the primary action (it
- * drives the plan indicator on the composer); attachment sources are shown as
- * placeholders until wired up.
+ * Native composer action menu. Attachments launch system pickers and the two
+ * send modes remain visible here instead of being buried in model settings.
  */
 export function ComposerPlusMenu({
+	goalMode,
 	planMode,
+	onPickImages,
+	onPickFiles,
+	onToggleGoal,
 	onTogglePlan,
 }: {
+	goalMode: boolean;
 	planMode: boolean;
+	onPickImages: () => void;
+	onPickFiles: () => void;
+	onToggleGoal: (next: boolean) => void;
 	onTogglePlan: (next: boolean) => void;
 }) {
 	return (
-		<Host matchContents seedColor={WHITE}>
+		<Host matchContents seedColor={colors.fg}>
 			<Menu label="" systemImage="plus">
+				<NativeButton
+					label="Choose photos"
+					systemImage={sf("photo.on.rectangle")}
+					onPress={onPickImages}
+				/>
+				<NativeButton
+					label="Choose files"
+					systemImage={sf("doc")}
+					onPress={onPickFiles}
+				/>
+				<NativeButton
+					label="Add goal"
+					systemImage={goalMode ? sf("checkmark") : sf("target")}
+					onPress={() => onToggleGoal(!goalMode)}
+				/>
 				<NativeButton
 					label="Plan mode"
 					systemImage={planMode ? sf("checkmark") : sf("list.bullet.rectangle")}
