@@ -6,7 +6,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { ChevronDown, ChevronLeft, Plus } from "lucide-react-native";
+import { ChevronDown, ChevronLeft, Files, Plus } from "lucide-react-native";
 import React, {
 	useCallback,
 	useEffect,
@@ -568,6 +568,22 @@ function ThreadScreen() {
 					),
 					headerRight: () => (
 						<View className="flex-row items-center gap-2">
+							<Pressable
+								accessibilityRole="button"
+								accessibilityLabel="Browse workspace files"
+								hitSlop={10}
+								disabled={detail === null}
+								onPress={() =>
+									router.push({
+										pathname: "/c/[conn]/session/[sessionId]/files",
+										params: { conn: connKey, sessionId: normalizedSessionId },
+									})
+								}
+								className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70 disabled:opacity-40"
+								style={{ borderCurve: "continuous" }}
+							>
+								<Files size={18} color={colors.fg} />
+							</Pressable>
 							<Pressable
 								accessibilityRole="button"
 								accessibilityLabel="New chat"

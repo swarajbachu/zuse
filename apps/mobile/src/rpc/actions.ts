@@ -5,6 +5,8 @@ import {
 	ComposerInput,
 	type ComposerInput as ComposerInputType,
 	type Folder,
+	type FolderId,
+	type FsFileContent,
 	type GitBranchInfo,
 	type GitPrSummary,
 	type MessageId,
@@ -428,3 +430,39 @@ export const listPullRequests = (options: {
 		});
 	return program.pipe(Effect.catch(() => Effect.succeed([])));
 };
+
+export const listWorkspacePaths = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	worktreeId?: WorktreeId | null;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["fs.listPaths"]({
+			folderId: options.folderId,
+			worktreeId: options.worktreeId ?? null,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
+
+export const readWorkspaceFile = (options: {
+	connection: WsProtocolOptions;
+	folderId: FolderId;
+	path: string;
+	worktreeId?: WorktreeId | null;
+}): Effect.Effect<typeof FsFileContent.Type, unknown, never> =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["fs.readFile"]({
+			folderId: options.folderId,
+			path: options.path,
+			worktreeId: options.worktreeId ?? null,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);

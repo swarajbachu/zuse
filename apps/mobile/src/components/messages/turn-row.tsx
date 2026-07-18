@@ -6,7 +6,6 @@ import {
 } from "@zuse/client-runtime/timeline";
 import type { Message } from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
-import { router } from "expo-router";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -18,6 +17,8 @@ import {
 import { useMemo, useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
 
+import { FileIcon } from "~/components/ui/file-icon";
+import { cn } from "~/lib/cn";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
 
@@ -41,6 +42,16 @@ const durationLabel = (durationMs: number): string => {
 		: `Worked for ${rest}s`;
 };
 
+const keyedDiffLines = (lines: FileChange["lines"]) => {
+	const occurrences = new Map<string, number>();
+	return lines.slice(0, 160).map((line) => {
+		const signature = `${line.kind}:${line.oldLine}:${line.newLine}:${line.text}`;
+		const occurrence = occurrences.get(signature) ?? 0;
+		occurrences.set(signature, occurrence + 1);
+		return { key: `${signature}:${occurrence}`, line };
+	});
+};
+
 export function TurnRow({
 	turn,
 	context,
@@ -52,6 +63,7 @@ export function TurnRow({
 }) {
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
+	const [expandedFile, setExpandedFile] = useState<string | null>(null);
 	const activity = useMemo(() => summarizeTurnActivity(turn.body), [turn.body]);
 	const narrative = turn.body.filter(isNarrative);
 	const utility = turn.body.filter(
@@ -74,7 +86,7 @@ export function TurnRow({
 	).length;
 
 	const fileTargets = useMemo(() => {
-		const byPath = new Map<string, { file: FileChange; itemId: string }>();
+		const byPath = new Map<string, FileChange>();
 		for (const message of turn.body) {
 			const content = message.content;
 			if (content._tag !== "tool_use") continue;
@@ -83,15 +95,12 @@ export function TurnRow({
 				byPath.set(
 					file.path,
 					current === undefined
-						? { file, itemId: content.itemId }
+						? file
 						: {
 								...current,
-								file: {
-									...current.file,
-									added: current.file.added + file.added,
-									removed: current.file.removed + file.removed,
-									lines: [...current.file.lines, ...file.lines],
-								},
+								added: current.added + file.added,
+								removed: current.removed + file.removed,
+								lines: [...current.lines, ...file.lines],
 							},
 				);
 			}
@@ -180,15 +189,19 @@ export function TurnRow({
 			))}
 
 			{fileTargets.length > 0 ? (
-				<View className="px-2 pt-1">
+				<View className="px-2 pt-2">
 					<Pressable
 						accessibilityRole="button"
 						accessibilityState={{ expanded: filesOpen }}
 						onPress={() => setFilesOpen((open) => !open)}
-						className="min-h-12 flex-row items-center rounded-2xl border border-border bg-card px-4 active:opacity-70"
-						style={{ borderCurve: "continuous" }}
+						className="min-h-11 flex-row items-center gap-2 py-1 active:opacity-60"
 					>
-						<Text className="font-sans-medium text-[14px] text-foreground">
+						{filesOpen ? (
+							<ChevronDown size={14} color={colors.secondaryFg} />
+						) : (
+							<ChevronRight size={14} color={colors.secondaryFg} />
+						)}
+						<Text className="font-sans-medium text-[13px] text-muted-foreground">
 							{fileTargets.length} {fileTargets.length === 1 ? "file" : "files"}{" "}
 							changed
 						</Text>
@@ -208,43 +221,89 @@ export function TurnRow({
 							−{activity.removed}
 						</Text>
 						<View className="flex-1" />
-						{filesOpen ? (
-							<ChevronDown size={17} color={colors.secondaryFg} />
-						) : (
-							<ChevronRight size={17} color={colors.secondaryFg} />
-						)}
 					</Pressable>
 					{filesOpen ? (
-						<View className="overflow-hidden rounded-b-2xl border-x border-b border-border bg-card">
-							{fileTargets.map(({ file, itemId }) => (
-								<Pressable
-									key={file.path}
-									accessibilityRole="button"
-									accessibilityLabel={`Open diff for ${file.path}`}
-									onPress={() =>
-										router.push({
-											pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
-											params: {
-												conn: context.connectionKey,
-												sessionId: context.sessionId,
-												itemId,
-												filePath: file.path,
-											},
-										})
-									}
-									className="min-h-12 flex-row items-center border-t border-border px-4 active:opacity-60"
-								>
-									<Text
-										className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
-										numberOfLines={1}
+						<View className="border-l border-border pl-3">
+							{fileTargets.map((file) => (
+								<View key={file.path}>
+									<Pressable
+										key={file.path}
+										accessibilityRole="button"
+										accessibilityLabel={`${expandedFile === file.path ? "Collapse" : "Expand"} changes for ${file.path}`}
+										accessibilityState={{
+											expanded: expandedFile === file.path,
+										}}
+										onPress={() =>
+											setExpandedFile((current) =>
+												current === file.path ? null : file.path,
+											)
+										}
+										className="min-h-11 flex-row items-center gap-2 active:opacity-60"
 									>
-										{file.path}
-									</Text>
-									<Text style={{ color: colors.diffAdded }}>+{file.added}</Text>
-									<Text className="ml-2" style={{ color: colors.diffRemoved }}>
-										−{file.removed}
-									</Text>
-								</Pressable>
+										<FileIcon path={file.path} size={17} />
+										<Text
+											className="min-w-0 flex-1 font-mono text-[12px] text-foreground"
+											numberOfLines={1}
+										>
+											{file.path}
+										</Text>
+										<Text
+											className="font-mono text-[11px]"
+											style={{ color: colors.diffAdded }}
+										>
+											+{file.added}
+										</Text>
+										<Text
+											className="font-mono text-[11px]"
+											style={{ color: colors.diffRemoved }}
+										>
+											−{file.removed}
+										</Text>
+										{expandedFile === file.path ? (
+											<ChevronDown size={12} color={colors.secondaryFg} />
+										) : (
+											<ChevronRight size={12} color={colors.secondaryFg} />
+										)}
+									</Pressable>
+									{expandedFile === file.path ? (
+										<View
+											className="mb-2 overflow-hidden rounded-xl bg-muted/50 py-1"
+											style={{ borderCurve: "continuous" }}
+										>
+											{file.lines.length === 0 ? (
+												<Text className="px-3 py-2 font-mono text-[11px] text-muted-foreground">
+													Change preview unavailable.
+												</Text>
+											) : (
+												keyedDiffLines(file.lines).map(({ key, line }) => (
+													<View
+														key={key}
+														className={cn(
+															"flex-row px-2",
+															line.kind === "added" && "bg-presence-online/10",
+															line.kind === "removed" && "bg-danger/10",
+														)}
+													>
+														<Text className="w-9 text-right font-mono text-[10px] text-muted-foreground">
+															{line.newLine ?? line.oldLine ?? ""}
+														</Text>
+														<Text
+															className="ml-2 min-w-0 flex-1 font-mono text-[11px] text-foreground"
+															numberOfLines={1}
+														>
+															{line.kind === "added"
+																? "+"
+																: line.kind === "removed"
+																	? "−"
+																	: " "}{" "}
+															{line.text}
+														</Text>
+													</View>
+												))
+											)}
+										</View>
+									) : null}
+								</View>
 							))}
 						</View>
 					) : null}

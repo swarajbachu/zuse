@@ -111,4 +111,19 @@ describe("mobile UI contracts", () => {
 		expect(layout).toContain('top: "automatic"');
 		expect(layout).not.toContain("headerBlurEffect");
 	});
+
+	test("uses stack-based files and keeps file changes inline", () => {
+		const layout = appFile("_layout.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const turn = readFileSync(
+			`${process.cwd()}/src/components/messages/turn-row.tsx`,
+			"utf8",
+		);
+		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
+		expect(layout).toContain('presentation: "card"');
+		expect(thread).toContain('accessibilityLabel="Browse workspace files"');
+		expect(turn).toContain("<FileIcon");
+		expect(turn).toContain("setExpandedFile");
+		expect(turn).not.toContain("/tool/[itemId]");
+	});
 });

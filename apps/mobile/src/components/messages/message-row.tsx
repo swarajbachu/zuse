@@ -361,49 +361,39 @@ const ToolUseRow = ({
 		);
 	}
 
-	// File-changing tools keep a subtle rounded container headed by the change
-	// summary, expandable to the per-file mono diffs.
+	// File changes stay as compact inline activity. The turn-level summary owns
+	// the full inline diff after completion, so this live row never opens a
+	// second detail surface.
 	if (view.fileChangeSummary !== null) {
 		return (
-			<ExpandableEventRow
+			<PlainEventRow
 				icon="edit"
-				title={view.fileChangeSummary}
-				badge={running ? "Running" : undefined}
+				label={view.fileChangeSummary}
 				shimmer={shimmer && running}
 			>
-				<View className="gap-2">
+				<View className="gap-1">
 					{view.editSummaries.map((summary) => (
 						<View
 							key={summary.path}
-							className="rounded-xl border border-border bg-muted/45 px-3 py-2"
-							style={{ borderCurve: "continuous" }}
+							className="min-h-8 flex-row items-center gap-2"
 						>
-							<View className="flex-row items-center gap-2">
-								<FileIcon path={summary.path} size={16} />
-								<Text
-									className="min-w-0 flex-1 font-mono text-xs text-foreground"
-									numberOfLines={1}
-								>
-									{summary.path}
-								</Text>
-								<Text className="font-mono text-[11px] text-presence-online">
-									+{summary.added}
-								</Text>
-								<Text className="font-mono text-[11px] text-danger">
-									-{summary.removed}
-								</Text>
-							</View>
+							<FileIcon path={summary.path} size={16} />
 							<Text
-								className="mt-2 font-mono text-xs leading-5 text-muted-foreground"
-								numberOfLines={6}
+								className="min-w-0 flex-1 font-mono text-xs text-foreground"
+								numberOfLines={1}
 							>
-								{summary.preview}
+								{summary.path}
+							</Text>
+							<Text className="font-mono text-[11px] text-presence-online">
+								+{summary.added}
+							</Text>
+							<Text className="font-mono text-[11px] text-danger">
+								−{summary.removed}
 							</Text>
 						</View>
 					))}
 				</View>
-				<DetailButton onPress={openDetails} />
-			</ExpandableEventRow>
+			</PlainEventRow>
 		);
 	}
 
@@ -426,7 +416,11 @@ const ToolUseRow = ({
 					{view.resultBody}
 				</Text>
 			) : null}
-			<DetailButton onPress={openDetails} />
+			{view.kind === "read" ||
+			(view.kind === "shell" &&
+				(view.body.length > 600 || (view.resultBody?.length ?? 0) > 1_200)) ? (
+				<DetailButton onPress={openDetails} />
+			) : null}
 		</PlainEventRow>
 	);
 };
@@ -436,10 +430,11 @@ const DetailButton = ({ onPress }: { onPress: () => void }) => (
 		accessibilityRole="button"
 		accessibilityLabel="Open tool details"
 		onPress={onPress}
-		className="mt-2 min-h-11 self-start justify-center rounded-full bg-muted px-4 active:opacity-60"
+		hitSlop={10}
+		className="mt-1 min-h-11 self-start justify-center active:opacity-60"
 	>
-		<Text className="font-sans-medium text-[13px] text-foreground">
-			Open details
+		<Text className="font-sans-medium text-[11px] text-muted-foreground">
+			View detail
 		</Text>
 	</Pressable>
 );

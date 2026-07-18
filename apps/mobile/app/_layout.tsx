@@ -148,6 +148,22 @@ export default function RootLayout() {
 						options={{ title: "Thread", headerLargeTitle: false }}
 					/>
 					<Stack.Screen
+						name="c/[conn]/session/[sessionId]/files"
+						options={{
+							title: "Files",
+							headerLargeTitle: false,
+							presentation: "card",
+						}}
+					/>
+					<Stack.Screen
+						name="c/[conn]/session/[sessionId]/file"
+						options={{
+							title: "File",
+							headerLargeTitle: false,
+							presentation: "card",
+						}}
+					/>
+					<Stack.Screen
 						name="c/[conn]/session/[sessionId]/tool/[itemId]"
 						options={{
 							title: "Tool details",
