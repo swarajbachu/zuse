@@ -127,30 +127,6 @@ export default function WorkspaceFilesScreen() {
 				options={{
 					title: projectName,
 					headerLargeTitle: false,
-					headerTitle:
-						tab === "modified" && review.summary !== null
-							? () => (
-									<View className="items-center">
-										<Text className="font-sans-medium text-[15px] text-foreground">
-											{review.summary?.files.length}{" "}
-											{review.summary?.files.length === 1 ? "file" : "files"}{" "}
-											changed
-										</Text>
-										<Text
-											className="font-mono text-[11px]"
-											style={{ fontVariant: ["tabular-nums"] }}
-										>
-											<Text style={{ color: colors.diffAdded }}>
-												+{review.summary?.additions}
-											</Text>
-											<Text style={{ color: colors.secondaryFg }}> </Text>
-											<Text style={{ color: colors.diffRemoved }}>
-												−{review.summary?.deletions}
-											</Text>
-										</Text>
-									</View>
-								)
-							: undefined,
 				}}
 			/>
 			<Stack.Toolbar placement="bottom">

@@ -135,6 +135,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/lib/syntax-highlighting.ts`,
 			"utf8",
 		);
+		const reviewPill = readFileSync(
+			`${process.cwd()}/src/components/review-changes-pill.tsx`,
+			"utf8",
+		);
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/review"');
 		expect(layout).toContain('presentation: "card"');
@@ -144,6 +148,7 @@ describe("mobile UI contracts", () => {
 		expect(files).toContain('placeholder="Search files"');
 		expect(files).toContain("useHeaderHeight");
 		expect(files).toContain("paddingTop: headerHeight");
+		expect(files).not.toContain("headerTitle:");
 		expect(files).toContain("<FileTabs");
 		expect(fileTabs).toContain("@expo/ui/community/segmented-control");
 		expect(files).not.toContain("<ActivityIndicator");
@@ -153,9 +158,12 @@ describe("mobile UI contracts", () => {
 		expect(tool).toContain("paddingTop: headerHeight");
 		expect(review).toContain("paddingTop: headerHeight");
 		expect(file).toContain("paddingTop: headerHeight");
+		expect(file).toContain("title: basename(path)");
 		expect(file).toContain("tokenizeCodeLine");
 		expect(file).toContain("width: codeWidth");
 		expect(diffList).toContain("<SectionList");
+		expect(diffList).toContain("directionalLockEnabled");
+		expect(diffList).toContain("width: codeWidth");
 		expect(diffList).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(diffList).toContain("stickySectionHeadersEnabled={false}");
 		expect(diffList).toContain("onViewableItemsChanged");
@@ -167,6 +175,7 @@ describe("mobile UI contracts", () => {
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
 		expect(turn).not.toContain("/tool/[itemId]");
+		expect(reviewPill).not.toContain("GitCompareArrows");
 	});
 
 	test("puts an explicit retry action beside connection failures", () => {

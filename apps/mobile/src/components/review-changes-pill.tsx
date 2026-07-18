@@ -1,6 +1,5 @@
 import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect } from "effect";
-import { GitCompareArrows } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -65,7 +64,6 @@ export function ReviewChangesPill({
 						paddingHorizontal: 14,
 					}}
 				>
-					<GitCompareArrows size={16} color={colors.secondaryFg} />
 					<Text className="font-sans-medium text-[13px] text-foreground">
 						{summary.files} {summary.files === 1 ? "file" : "files"}
 					</Text>
