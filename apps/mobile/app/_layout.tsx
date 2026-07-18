@@ -168,7 +168,11 @@ export default function RootLayout() {
 						options={{
 							title: "Review changes",
 							headerLargeTitle: false,
-							presentation: "card",
+							presentation: "formSheet",
+							sheetAllowedDetents: [0.72, 1],
+							sheetInitialDetentIndex: 0,
+							sheetGrabberVisible: true,
+							contentStyle: { backgroundColor: "transparent" },
 						}}
 					/>
 					<Stack.Screen

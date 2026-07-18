@@ -7,7 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { ChevronDown, ChevronLeft, Files, Plus } from "lucide-react-native";
+import { ChevronDown, ChevronLeft, SquarePen } from "lucide-react-native";
 import React, {
 	useCallback,
 	useEffect,
@@ -67,6 +67,7 @@ import { useConnectionsStore } from "~/store/connections";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
+import { pinnedChatKey, usePinnedChatsStore } from "~/store/pinned-chats";
 import { selectSessionChat, useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
 
@@ -203,6 +204,16 @@ function ThreadScreen() {
 	]);
 
 	const chatId = detail?.chat?.id ?? null;
+	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
+	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
+	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
+	const togglePinnedChat = usePinnedChatsStore((state) => state.toggle);
+	const currentPinKey =
+		chatId === null ? null : pinnedChatKey(connKey, String(chatId));
+	const isPinned = currentPinKey !== null && pinnedKeys.includes(currentPinKey);
+	useEffect(() => {
+		if (!pinnedHydrated) void hydratePinnedChats();
+	}, [hydratePinnedChats, pinnedHydrated]);
 	// Mark the chat read on open/focus (and when the chat resolves after a
 	// hydrate) so the inbox unread styling clears. Idempotent server-side.
 	useEffect(() => {
@@ -435,6 +446,18 @@ function ThreadScreen() {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
 	}, [archiveChat, chatId, connKey, options]);
+	const openChanges = useCallback(() => {
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/review",
+			params: { conn: connKey, sessionId: normalizedSessionId },
+		});
+	}, [connKey, normalizedSessionId]);
+	const openFiles = useCallback(() => {
+		router.push({
+			pathname: "/c/[conn]/session/[sessionId]/files",
+			params: { conn: connKey, sessionId: normalizedSessionId },
+		});
+	}, [connKey, normalizedSessionId]);
 
 	// One bottom accessory for both real permission prompts and plan review
 	// (`withPlan`). Rendered in the composer's slot — it replaces the composer.
@@ -573,32 +596,24 @@ function ThreadScreen() {
 						<View className="flex-row items-center gap-2">
 							<Pressable
 								accessibilityRole="button"
-								accessibilityLabel="Browse workspace files"
-								hitSlop={10}
-								disabled={detail === null}
-								onPress={() =>
-									router.push({
-										pathname: "/c/[conn]/session/[sessionId]/files",
-										params: { conn: connKey, sessionId: normalizedSessionId },
-									})
-								}
-								className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70 disabled:opacity-40"
-								style={{ borderCurve: "continuous" }}
-							>
-								<Files size={18} color={colors.fg} />
-							</Pressable>
-							<Pressable
-								accessibilityRole="button"
 								accessibilityLabel="New chat"
 								hitSlop={10}
 								onPress={() => router.push("/new-chat")}
 								className="h-9 w-9 items-center justify-center rounded-full bg-card active:opacity-70"
 								style={{ borderCurve: "continuous" }}
 							>
-								<Plus size={19} color={colors.fg} />
+								<SquarePen size={18} color={colors.fg} />
 							</Pressable>
 							<SessionActionsMenu
+								isPinned={isPinned}
+								onPin={
+									currentPinKey === null
+										? undefined
+										: () => void togglePinnedChat(currentPinKey)
+								}
 								onRename={chatId === null ? undefined : onRename}
+								onChanges={openChanges}
+								onFiles={openFiles}
 								onArchive={onArchive}
 							/>
 						</View>

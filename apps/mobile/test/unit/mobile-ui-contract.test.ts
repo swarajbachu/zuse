@@ -145,8 +145,9 @@ describe("mobile UI contracts", () => {
 		);
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/review"');
-		expect(layout).toContain('presentation: "card"');
-		expect(thread).toContain('accessibilityLabel="Browse workspace files"');
+		expect(layout).toContain('presentation: "formSheet"');
+		expect(thread).toContain("onFiles={openFiles}");
+		expect(thread).toContain("onChanges={openChanges}");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');
@@ -175,10 +176,12 @@ describe("mobile UI contracts", () => {
 		expect(diffList).toContain("pinnedFileVisible");
 		expect(diffList).toContain("patchRowsCache");
 		expect(diffList).toContain("maintainVisibleContentPosition");
+		expect(diffList).toContain("collapseAllKey");
 		expect(syntax).toContain("MAX_HIGHLIGHT_CACHE_ENTRIES");
 		expect(syntax).toContain("MAX_HIGHLIGHT_CHARS");
 		expect(turn).toContain("<FileIcon");
 		expect(turn).toContain("setExpandedFile");
+		expect(turn).toContain("<DiffCodeRow");
 		expect(turn).not.toContain("/tool/[itemId]");
 		expect(reviewPill).not.toContain("GitCompareArrows");
 		expect(nativeHeader).toContain(

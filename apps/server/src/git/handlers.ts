@@ -122,18 +122,18 @@ const Changes = MemoizeRpcs.toLayerHandler(
 
 const ReviewSummary = MemoizeRpcs.toLayerHandler(
   "git.reviewSummary",
-  ({ folderId, worktreeId }) =>
+  ({ folderId, worktreeId, scope }) =>
     Effect.flatMap(GitService, (svc) =>
-      svc.reviewSummary(folderId, worktreeId ?? null),
+      svc.reviewSummary(folderId, worktreeId ?? null, scope ?? "branch"),
     ),
 );
 
 const ReviewPatches = MemoizeRpcs.toLayerHandler(
   "git.reviewPatches",
-  ({ folderId, worktreeId }) =>
+  ({ folderId, worktreeId, scope }) =>
     Stream.unwrap(
       Effect.map(GitService, (svc) =>
-        svc.reviewPatches(folderId, worktreeId ?? null),
+        svc.reviewPatches(folderId, worktreeId ?? null, scope ?? "branch"),
       ),
     ),
 );

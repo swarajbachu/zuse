@@ -1,4 +1,9 @@
-import type { FolderId, GitReviewSummary, WorktreeId } from "@zuse/contracts";
+import type {
+	FolderId,
+	GitReviewScope,
+	GitReviewSummary,
+	WorktreeId,
+} from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +20,7 @@ export function useWorkspaceReview(options: {
 	connection: WsProtocolOptions | null;
 	folderId?: FolderId;
 	worktreeId?: WorktreeId | null;
+	scope?: GitReviewScope;
 	enabled?: boolean;
 }) {
 	const [summary, setSummary] = useState<GitReviewSummary | null>(null);
@@ -49,8 +55,10 @@ export function useWorkspaceReview(options: {
 			connection: options.connection,
 			folderId: options.folderId,
 			worktreeId: options.worktreeId,
+			scope: options.scope,
 		};
 		setError(null);
+		setSummary(null);
 		setPatches({});
 		if (revision === 0) setLoading(true);
 
@@ -97,6 +105,7 @@ export function useWorkspaceReview(options: {
 		options.connection,
 		options.enabled,
 		options.folderId,
+		options.scope,
 		options.worktreeId,
 		revision,
 	]);

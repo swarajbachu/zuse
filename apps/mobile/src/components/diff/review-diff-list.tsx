@@ -1,7 +1,7 @@
 import type { DiffLine } from "@zuse/client-runtime/timeline";
 import type { GitReviewFile, GitReviewSummary } from "@zuse/contracts";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -100,6 +100,7 @@ export function ReviewDiffList({
 	error,
 	refreshing,
 	onRefresh,
+	collapseAllKey = 0,
 }: {
 	summary: GitReviewSummary | null;
 	patches: Readonly<Record<string, PreparedReviewPatch>>;
@@ -107,6 +108,7 @@ export function ReviewDiffList({
 	error: string | null;
 	refreshing: boolean;
 	onRefresh?: () => void;
+	collapseAllKey?: number;
 }) {
 	const { theme } = useUniwind();
 	const palette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
@@ -137,6 +139,10 @@ export function ReviewDiffList({
 			return { file, expanded, data: rowsForPatch(file, patch) };
 		});
 	}, [collapsed, patches, summary]);
+	useEffect(() => {
+		if (collapseAllKey === 0) return;
+		setCollapsed(new Set((summary?.files ?? []).map((file) => file.path)));
+	}, [collapseAllKey, summary]);
 	const activeFile = useMemo(
 		() =>
 			(summary?.files ?? []).find((file) => file.path === activeFilePath) ??
@@ -358,7 +364,7 @@ const DiffDocumentRow = memo(function DiffDocumentRow({
 	return <DiffCodeRow line={item.line} palette={palette} />;
 });
 
-const DiffCodeRow = memo(function DiffCodeRow({
+export const DiffCodeRow = memo(function DiffCodeRow({
 	line,
 	palette,
 }: {

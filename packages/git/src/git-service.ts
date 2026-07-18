@@ -18,6 +18,7 @@ import type {
 	GitPrSummary,
 	GitReviewFileContents,
 	GitReviewPatch,
+	GitReviewScope,
 	GitReviewSummary,
 	GitStatusSummary,
 	WorktreeId,
@@ -126,10 +127,12 @@ export interface GitServiceShape {
 	readonly reviewSummary: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
+		scope?: GitReviewScope,
 	) => Effect.Effect<GitReviewSummary, GitFailure>;
 	readonly reviewPatches: (
 		folderId: FolderId,
 		worktreeId?: WorktreeId | null,
+		scope?: GitReviewScope,
 	) => Stream.Stream<GitReviewPatch, GitFailure>;
 	readonly reviewFileContents: (
 		folderId: FolderId,

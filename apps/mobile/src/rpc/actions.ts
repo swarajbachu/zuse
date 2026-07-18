@@ -10,6 +10,7 @@ import {
 	type GitBranchInfo,
 	type GitPrSummary,
 	type GitReviewPatch,
+	type GitReviewScope,
 	type GitReviewSummary,
 	type MessageId,
 	type PermissionDecision,
@@ -454,12 +455,14 @@ export const loadWorkspaceReview = (options: {
 	connection: WsProtocolOptions;
 	folderId: FolderId;
 	worktreeId?: WorktreeId | null;
+	scope?: GitReviewScope;
 }): Effect.Effect<GitReviewSummary, unknown, never> =>
 	Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		return yield* client["git.reviewSummary"]({
 			folderId: options.folderId,
 			worktreeId: options.worktreeId ?? null,
+			scope: options.scope ?? "branch",
 		});
 	});
 
@@ -467,12 +470,14 @@ export const streamWorkspaceReviewPatches = (options: {
 	connection: WsProtocolOptions;
 	folderId: FolderId;
 	worktreeId?: WorktreeId | null;
+	scope?: GitReviewScope;
 }): Stream.Stream<GitReviewPatch, unknown, never> =>
 	Stream.unwrap(
 		Effect.map(getConnectionClient(options.connection), (client) =>
 			client["git.reviewPatches"]({
 				folderId: options.folderId,
 				worktreeId: options.worktreeId ?? null,
+				scope: options.scope ?? "branch",
 			}),
 		),
 	);

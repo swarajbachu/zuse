@@ -16,9 +16,11 @@ import {
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Share, Text, View } from "react-native";
+import { useUniwind } from "uniwind";
 
+import { DiffCodeRow } from "~/components/diff/review-diff-list";
 import { FileIcon } from "~/components/ui/file-icon";
-import { cn } from "~/lib/cn";
+import { DARK_SYNTAX, LIGHT_SYNTAX } from "~/lib/syntax-highlighting";
 import { colors } from "~/theme";
 import { MessageRow, type MessageRowContext } from "./message-row";
 
@@ -61,6 +63,8 @@ export function TurnRow({
 	context: MessageRowContext;
 	live: boolean;
 }) {
+	const { theme } = useUniwind();
+	const syntaxPalette = theme === "dark" ? DARK_SYNTAX : LIGHT_SYNTAX;
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [expandedFile, setExpandedFile] = useState<string | null>(null);
@@ -223,7 +227,7 @@ export function TurnRow({
 						<View className="flex-1" />
 					</Pressable>
 					{filesOpen ? (
-						<View className="border-l border-border pl-3">
+						<View className="overflow-hidden rounded-2xl border border-border bg-card">
 							{fileTargets.map((file) => (
 								<View key={file.path}>
 									<Pressable
@@ -267,7 +271,7 @@ export function TurnRow({
 									</Pressable>
 									{expandedFile === file.path ? (
 										<View
-											className="mb-2 overflow-hidden rounded-xl bg-muted/50 py-1"
+											className="overflow-hidden border-t border-border bg-background"
 											style={{ borderCurve: "continuous" }}
 										>
 											{file.lines.length === 0 ? (
@@ -276,29 +280,11 @@ export function TurnRow({
 												</Text>
 											) : (
 												keyedDiffLines(file.lines).map(({ key, line }) => (
-													<View
+													<DiffCodeRow
 														key={key}
-														className={cn(
-															"flex-row px-2",
-															line.kind === "added" && "bg-presence-online/10",
-															line.kind === "removed" && "bg-danger/10",
-														)}
-													>
-														<Text className="w-9 text-right font-mono text-[10px] text-muted-foreground">
-															{line.newLine ?? line.oldLine ?? ""}
-														</Text>
-														<Text
-															className="ml-2 min-w-0 flex-1 font-mono text-[11px] text-foreground"
-															numberOfLines={1}
-														>
-															{line.kind === "added"
-																? "+"
-																: line.kind === "removed"
-																	? "−"
-																	: " "}{" "}
-															{line.text}
-														</Text>
-													</View>
+														line={line}
+														palette={syntaxPalette}
+													/>
 												))
 											)}
 										</View>

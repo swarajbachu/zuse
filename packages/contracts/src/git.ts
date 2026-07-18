@@ -493,6 +493,7 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
   "GitReviewSummary",
 )({
   baseRef: Schema.NullOr(Schema.String),
+  headRef: Schema.NullOr(Schema.String),
   baseSha: Schema.String,
   headSha: Schema.String,
   files: Schema.Array(GitReviewFile),
@@ -500,10 +501,19 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
   deletions: Schema.Number,
 }) {}
 
+/** Comparison range used by the multi-file reviewer. */
+export const GitReviewScope = Schema.Literals([
+  "unstaged",
+  "staged",
+  "branch",
+]);
+export type GitReviewScope = typeof GitReviewScope.Type;
+
 export const GitReviewSummaryRpc = Rpc.make("git.reviewSummary", {
   payload: Schema.Struct({
     folderId: FolderId,
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    scope: Schema.optional(GitReviewScope),
   }),
   success: GitReviewSummary,
   error: GitErrors,
@@ -556,6 +566,7 @@ export const GitReviewPatchesRpc = Rpc.make("git.reviewPatches", {
   payload: Schema.Struct({
     folderId: FolderId,
     worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+    scope: Schema.optional(GitReviewScope),
   }),
   success: GitReviewPatch,
   error: GitErrors,

@@ -5,6 +5,7 @@ import {
 	ChevronRight,
 	Loader2,
 	MessageSquare,
+	Pin,
 	Plus,
 	QrCode,
 	Search,
@@ -50,6 +51,7 @@ import { useAuthStore } from "~/store/auth";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
 import { useEnvironmentsStore } from "~/store/environments";
+import { usePinnedChatsStore } from "~/store/pinned-chats";
 import { prStateKey, usePrStateStore } from "~/store/pr-state";
 import {
 	projectOriginKey,
@@ -102,6 +104,9 @@ export default function HomeScreen() {
 		archiveChat,
 		archiveSession,
 	} = useSessionsStore();
+	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
+	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
+	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
 	const reachableConnections = useMemo(
 		() => availableConnections(connections, account !== null),
 		[account, connections],
@@ -114,6 +119,10 @@ export default function HomeScreen() {
 	useEffect(() => {
 		if (!connectionsHydrated) void hydrateConnections();
 	}, [connectionsHydrated, hydrateConnections]);
+
+	useEffect(() => {
+		if (!pinnedHydrated) void hydratePinnedChats();
+	}, [hydratePinnedChats, pinnedHydrated]);
 
 	useEffect(() => {
 		if (account !== null) void refreshEnvironments();
@@ -167,8 +176,15 @@ export default function HomeScreen() {
 				bundlesByConnection,
 				statusBySession,
 				query: search,
+				pinnedChatKeys: new Set(pinnedKeys),
 			}),
-		[bundlesByConnection, reachableConnections, search, statusBySession],
+		[
+			bundlesByConnection,
+			pinnedKeys,
+			reachableConnections,
+			search,
+			statusBySession,
+		],
 	);
 	const listItems = useMemo(
 		() =>
@@ -182,6 +198,7 @@ export default function HomeScreen() {
 	const loading =
 		!authHydrated ||
 		!connectionsHydrated ||
+		!pinnedHydrated ||
 		(account !== null && environmentsLoading) ||
 		reachableConnections.some(
 			(connection) => loadingByConnection[connection.key] === true,
@@ -622,7 +639,9 @@ function InboxItem({
 							collapsable={false}
 							className="w-4 items-center justify-center"
 						>
-							{isActive ? (
+							{item.row.pinned ? (
+								<Pin size={12} color={colors.secondaryFg} />
+							) : isActive ? (
 								<PresenceDot tone="online" pulse size={7} />
 							) : item.row.unread ? (
 								<View className="h-[7px] w-[7px] rounded-full bg-primary" />

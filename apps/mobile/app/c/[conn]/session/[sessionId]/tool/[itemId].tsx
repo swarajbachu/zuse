@@ -92,6 +92,7 @@ export default function ToolDetailScreen() {
 		() =>
 			GitReviewSummary.make({
 				baseRef: null,
+				headRef: null,
 				baseSha: "",
 				headSha: "",
 				additions: totalAdded,

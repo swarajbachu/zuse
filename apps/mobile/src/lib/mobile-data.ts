@@ -13,6 +13,7 @@ import { useEnvironmentsStore } from "../store/environments";
 import { resetMessagesRuntime } from "../store/messages";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
+import { usePinnedChatsStore } from "../store/pinned-chats";
 import { usePrStateStore } from "../store/pr-state";
 import { useProjectOriginStore } from "../store/project-origins";
 import { resetSessionsRuntime } from "../store/sessions";
@@ -63,6 +64,7 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		clearPushRegistration(),
 		Effect.runPromise(clearOfflineCache()),
 		useConnectionsStore.getState().clear(),
+		usePinnedChatsStore.getState().clear(),
 		clearLastCrashReport(),
 	]);
 	resetRelayAccessToken();
