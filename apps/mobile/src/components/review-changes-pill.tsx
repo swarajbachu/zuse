@@ -69,7 +69,7 @@ export function ReviewChangesPill({
 					</Text>
 					<Text
 						className="font-mono text-[12px]"
-						style={{ color: colors.diffAdded, fontVariant: ["tabular-nums"] }}
+						style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
 					>
 						+{summary.additions}
 					</Text>

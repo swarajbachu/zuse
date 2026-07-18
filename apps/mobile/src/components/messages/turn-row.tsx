@@ -173,7 +173,7 @@ export function TurnRow({
 						</Text>
 						<Text
 							className="ml-3 font-mono text-[13px]"
-							style={{ color: colors.diffAdded, fontVariant: ["tabular-nums"] }}
+							style={{ color: colors.accent, fontVariant: ["tabular-nums"] }}
 						>
 							+{activity.added}
 						</Text>
@@ -215,7 +215,7 @@ export function TurnRow({
 										</Text>
 										<Text
 											className="font-mono text-[11px]"
-											style={{ color: colors.diffAdded }}
+											style={{ color: colors.accent }}
 										>
 											+{file.added}
 										</Text>
