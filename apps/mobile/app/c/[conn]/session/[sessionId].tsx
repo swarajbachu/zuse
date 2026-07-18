@@ -23,7 +23,6 @@ import {
 	type NativeSyntheticEvent,
 	Pressable,
 	Text,
-	useColorScheme,
 	View,
 } from "react-native";
 import Animated, {
@@ -32,6 +31,7 @@ import Animated, {
 	withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
@@ -90,7 +90,7 @@ export default function ThreadScreenRoute() {
 
 function ThreadScreen() {
 	const insets = useSafeAreaInsets();
-	const colorScheme = useColorScheme();
+	const { theme } = useUniwind();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -716,7 +716,7 @@ function ThreadScreen() {
 						bottom: 0,
 						height: bottomAccessoryHeight + 40,
 						experimental_backgroundImage:
-							colorScheme === "dark"
+							theme === "dark"
 								? "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.6) 55%, rgba(0,0,0,0.9) 100%)"
 								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 55%, rgba(255,255,255,0.9) 100%)",
 					}}

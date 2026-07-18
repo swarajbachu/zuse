@@ -12,9 +12,9 @@ import {
 } from "expo-router/react-navigation";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { Platform, useColorScheme, View } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { Uniwind } from "uniwind";
+import { Uniwind, useUniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
 import { installCrashReporting } from "~/lib/crash-reporting";
@@ -28,7 +28,8 @@ import { colors } from "~/theme";
 Uniwind.setTheme("system");
 
 export default function RootLayout() {
-	const colorScheme = useColorScheme();
+	const { theme } = useUniwind();
+	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
 		GeistMono_400Regular,
 	});
@@ -54,7 +55,7 @@ export default function RootLayout() {
 
 	return (
 		<GestureHandlerRootView style={{ flex: 1 }}>
-			<ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+			<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
 				<StatusBar style="auto" />
 				<Stack
 					screenOptions={{

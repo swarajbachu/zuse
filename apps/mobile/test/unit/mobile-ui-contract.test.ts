@@ -7,10 +7,33 @@ const appFile = (relativePath: string): string =>
 describe("mobile UI contracts", () => {
 	test("keeps light surfaces light and uses one neon accent in both themes", () => {
 		const css = readFileSync(`${process.cwd()}/global.css`, "utf8");
-		expect(css).toContain("@media (prefers-color-scheme: light)");
-		expect(css).toContain("--app-background: #ffffff");
-		expect(css.match(/--app-primary: #c8ff00/g)).toHaveLength(3);
+		expect(css).toContain("@variant light");
+		expect(css).toContain("@variant dark");
+		expect(css).toContain("--color-background: #ffffff");
+		expect(css).toContain("--color-background: hsl(72 5% 6%)");
+		expect(css.match(/--color-primary: #c8ff00/g)).toHaveLength(2);
+		expect(css).not.toContain("@media (prefers-color-scheme:");
 		expect(css).not.toContain("#34c759");
+	});
+
+	test("uses the Uniwind theme as the single live appearance source", () => {
+		const layout = appFile("_layout.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const appConfig = JSON.parse(
+			readFileSync(`${process.cwd()}/app.json`, "utf8"),
+		) as { expo: { userInterfaceStyle: string } };
+		const nativeTheme = readFileSync(`${process.cwd()}/src/theme.ts`, "utf8");
+		const glass = readFileSync(
+			`${process.cwd()}/src/components/ui/glass-surface.tsx`,
+			"utf8",
+		);
+		expect(appConfig.expo.userInterfaceStyle).toBe("automatic");
+		expect(nativeTheme).toContain("Color.ios.systemBackground");
+		expect(nativeTheme).toContain("Color.ios.label");
+		for (const source of [layout, thread, glass]) {
+			expect(source).toContain("useUniwind");
+			expect(source).not.toContain("useColorScheme");
+		}
 	});
 
 	test("presents settings as a system-backed native form sheet", () => {
