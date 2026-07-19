@@ -198,7 +198,7 @@ function GoalSheet({
 					value={objective}
 					onChangeText={setObjective}
 					multiline
-					className="min-h-24 rounded-2xl border border-border bg-card p-4 font-sans text-base text-foreground"
+					className="min-h-24 rounded-3xl border border-border bg-card p-4 font-sans text-base text-foreground"
 					placeholder="Goal objective"
 					placeholderTextColor={colors.tertiaryFg}
 				/>
@@ -207,7 +207,7 @@ function GoalSheet({
 					value={budget}
 					onChangeText={setBudget}
 					keyboardType="number-pad"
-					className="h-12 rounded-xl border border-border bg-card px-4 font-sans text-base text-foreground"
+					className="h-11 rounded-2xl border border-border bg-card px-4 font-sans text-base text-foreground"
 					placeholder="Token budget (optional)"
 					placeholderTextColor={colors.tertiaryFg}
 				/>
@@ -320,7 +320,7 @@ function LocalQueueItem({
 }) {
 	const [text, setText] = useState(item.text);
 	return (
-		<View className="rounded-2xl border border-border bg-card p-4">
+		<View className="rounded-3xl border border-border bg-card p-4">
 			<TextInput
 				accessibilityLabel="Offline queued message"
 				value={text}
@@ -363,7 +363,7 @@ function QueueItem({
 }) {
 	const [text, setText] = useState(item.input.text);
 	return (
-		<View className="rounded-2xl border border-border bg-card p-4">
+		<View className="rounded-3xl border border-border bg-card p-4">
 			<TextInput
 				accessibilityLabel="Queued message"
 				value={text}
@@ -442,10 +442,10 @@ const Action = ({
 		accessibilityRole="button"
 		accessibilityLabel={label}
 		onPress={onPress}
-		className="h-12 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+		className="h-11 items-center justify-center rounded-full border border-border bg-card active:opacity-70"
 	>
 		<Text
-			className={`font-sans-medium text-base ${danger ? "text-danger" : "text-foreground"}`}
+			className={`font-sans-medium text-[15px] ${danger ? "text-danger" : "text-foreground"}`}
 		>
 			{label}
 		</Text>

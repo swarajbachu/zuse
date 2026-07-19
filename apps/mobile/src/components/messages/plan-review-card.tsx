@@ -180,20 +180,24 @@ const ActionButton = ({
 		accessibilityLabel={label}
 		disabled={disabled === true || busy}
 		onPress={onPress}
-		className={`h-11 items-center justify-center rounded-xl ${primary ? "bg-primary" : "border border-border bg-card"} active:opacity-70`}
+		className="h-11 items-center justify-center active:opacity-70"
 		style={{ borderCurve: "continuous", opacity: disabled ? 0.4 : 1 }}
 	>
-		{busy ? (
-			<ActivityIndicator
-				color={primary ? colors.primaryForeground : colors.fg}
-			/>
-		) : (
-			<Text
-				className={`font-sans-medium text-[15px] ${primary ? "text-primary-foreground" : "text-foreground"}`}
-			>
-				{label}
-			</Text>
-		)}
+		<View
+			className={`h-10 w-full items-center justify-center rounded-full ${primary ? "bg-primary" : "border border-border bg-card"}`}
+		>
+			{busy ? (
+				<ActivityIndicator
+					color={primary ? colors.primaryForeground : colors.fg}
+				/>
+			) : (
+				<Text
+					className={`font-sans-medium text-[14px] ${primary ? "text-primary-foreground" : "text-foreground"}`}
+				>
+					{label}
+				</Text>
+			)}
+		</View>
 	</Pressable>
 );
 
@@ -213,16 +217,18 @@ const CompactAction = ({
 		accessibilityLabel={label}
 		disabled={disabled}
 		onPress={onPress}
-		className="h-11 min-w-20 items-center justify-center rounded-full border border-border bg-card px-4 active:opacity-70"
+		className="h-11 min-w-20 items-center justify-center active:opacity-70"
 		style={{ borderCurve: "continuous", opacity: disabled ? 0.45 : 1 }}
 	>
-		{busy ? (
-			<ActivityIndicator color={colors.fg} />
-		) : (
-			<Text className="font-sans-medium text-[15px] text-foreground">
-				{label}
-			</Text>
-		)}
+		<View className="h-10 min-w-20 items-center justify-center rounded-full border border-border bg-card px-4">
+			{busy ? (
+				<ActivityIndicator color={colors.fg} />
+			) : (
+				<Text className="font-sans-medium text-[14px] text-foreground">
+					{label}
+				</Text>
+			)}
+		</View>
 	</Pressable>
 );
 

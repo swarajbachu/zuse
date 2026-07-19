@@ -1,8 +1,4 @@
-import {
-	ArrowUpIcon,
-	CancelCircleIcon,
-	CloudOffIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import { ArrowUpIcon, CloudOffIcon } from "@hugeicons-pro/core-solid-rounded";
 import type {
 	Folder,
 	GitBranchInfo,
@@ -14,15 +10,19 @@ import { router, Stack } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
+	Keyboard,
 	KeyboardAvoidingView,
-	Pressable,
 	ScrollView,
 	Text,
 	TextInput,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ComposerActionSlot } from "~/components/composer-action-slot";
+import { ComposerApprovalMenu } from "~/components/composer-approval-menu";
 import { ComposerAttachmentStrip } from "~/components/composer-attachment-strip";
+import { ComposerInputFrame } from "~/components/composer-input-frame";
+import { ComposerModeDock } from "~/components/composer-mode-dock";
 import { ComposerPlusMenu } from "~/components/composer-plus-menu";
 import type { ModelModeValue } from "~/components/model-mode-menu";
 import { ModelSheet } from "~/components/model-sheet";
@@ -386,6 +386,7 @@ export default function NewChatScreen() {
 					}),
 				);
 			}
+			Keyboard.dismiss();
 			router.replace(
 				`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(
 					result.initialSession.id,
@@ -471,6 +472,17 @@ export default function NewChatScreen() {
 						emptyLabel={emptyBranchLabel}
 					/>
 				</View>
+				<ComposerModeDock
+					planMode={effectiveModelMode.permissionMode === "plan"}
+					goalMode={goalMode}
+					onClearPlan={() =>
+						setModelMode((value) => ({
+							...value,
+							permissionMode: "default",
+						}))
+					}
+					onClearGoal={() => setGoalMode(false)}
+				/>
 				<GlassSurface
 					style={{
 						gap: 8,
@@ -485,83 +497,86 @@ export default function NewChatScreen() {
 							)
 						}
 					/>
-					<TextInput
-						className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
-						multiline
-						placeholder="Ask Zuse"
-						placeholderTextColor={colors.tertiaryFg}
-						value={text}
-						onChangeText={setText}
+					<ComposerInputFrame
+						input={
+							<TextInput
+								className="max-h-36 min-h-12 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
+								multiline
+								placeholder="Ask Zuse"
+								placeholderTextColor={colors.tertiaryFg}
+								value={text}
+								onChangeText={setText}
+							/>
+						}
+						leadingAction={
+							<View className="flex-row items-center gap-1">
+								<ComposerActionSlot>
+									<ComposerPlusMenu
+										goalMode={goalMode}
+										goalSupported={goalSupported}
+										planMode={effectiveModelMode.permissionMode === "plan"}
+										onPickImages={() =>
+											void pickComposerImages().then((items) =>
+												setAttachments((current) => [...current, ...items]),
+											)
+										}
+										onPickFiles={() =>
+											void pickComposerFiles().then((items) =>
+												setAttachments((current) => [...current, ...items]),
+											)
+										}
+										onToggleGoal={setGoalMode}
+										onTogglePlan={(next) =>
+											setModelMode((value) => ({
+												...value,
+												permissionMode: next ? "plan" : "default",
+											}))
+										}
+									/>
+								</ComposerActionSlot>
+								<ComposerActionSlot>
+									<ComposerApprovalMenu
+										runtimeMode={effectiveModelMode.runtimeMode}
+										onChange={(runtimeMode) =>
+											setModelMode((value) => ({ ...value, runtimeMode }))
+										}
+									/>
+								</ComposerActionSlot>
+							</View>
+						}
+						trailingAction={
+							<View className="min-w-0 flex-row items-center gap-1.5">
+								<ModelSheetTrigger
+									value={effectiveModelMode}
+									onPress={() => setModelSheetOpen(true)}
+								/>
+								<Button
+									size="sm"
+									variant="primary"
+									className="h-10 w-10 rounded-2xl px-0"
+									hitSlop={4}
+									disabled={!canSubmit}
+									onPress={() => void submit()}
+								>
+									{submitting ? (
+										<ActivityIndicator color={colors.primaryForeground} />
+									) : selectedOptions === null ? (
+										<HugeIcon
+											icon={CloudOffIcon}
+											size={15}
+											color={colors.primaryForeground}
+										/>
+									) : (
+										<HugeIcon
+											icon={ArrowUpIcon}
+											size={18}
+											color={colors.primaryForeground}
+										/>
+									)}
+								</Button>
+							</View>
+						}
 					/>
-					{effectiveModelMode.permissionMode === "plan" || goalMode ? (
-						<View className="flex-row flex-wrap gap-2 px-1">
-							{effectiveModelMode.permissionMode === "plan" ? (
-								<PlanPill
-									onClear={() =>
-										setModelMode((value) => ({
-											...value,
-											permissionMode: "default",
-										}))
-									}
-								/>
-							) : null}
-							{goalMode ? (
-								<PlanPill label="Goal" onClear={() => setGoalMode(false)} />
-							) : null}
-						</View>
-					) : null}
-					<View className="flex-row items-center gap-2">
-						<ComposerPlusMenu
-							goalMode={goalMode}
-							goalSupported={goalSupported}
-							planMode={effectiveModelMode.permissionMode === "plan"}
-							onPickImages={() =>
-								void pickComposerImages().then((items) =>
-									setAttachments((current) => [...current, ...items]),
-								)
-							}
-							onPickFiles={() =>
-								void pickComposerFiles().then((items) =>
-									setAttachments((current) => [...current, ...items]),
-								)
-							}
-							onToggleGoal={setGoalMode}
-							onTogglePlan={(next) =>
-								setModelMode((value) => ({
-									...value,
-									permissionMode: next ? "plan" : "default",
-								}))
-							}
-						/>
-						<View className="flex-1" />
-						<ModelSheetTrigger
-							value={effectiveModelMode}
-							onPress={() => setModelSheetOpen(true)}
-						/>
-						<Button
-							size="sm"
-							variant="primary"
-							className="h-10 w-10 rounded-2xl px-0"
-							disabled={!canSubmit}
-							onPress={() => void submit()}
-						>
-							{submitting ? (
-								<ActivityIndicator color={colors.primaryForeground} />
-							) : selectedOptions === null ? (
-								<HugeIcon
-									icon={CloudOffIcon}
-									size={15}
-									color={colors.primaryForeground}
-								/>
-							) : (
-								<HugeIcon
-									icon={ArrowUpIcon}
-									size={18}
-									color={colors.primaryForeground}
-								/>
-							)}
-						</Button>
-					</View>
 				</GlassSurface>
 				<ModelSheet
 					open={modelSheetOpen}
@@ -576,20 +591,3 @@ export default function NewChatScreen() {
 		</KeyboardAvoidingView>
 	);
 }
-
-const PlanPill = ({
-	label = "Plan",
-	onClear,
-}: {
-	label?: string;
-	onClear: () => void;
-}) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
-		<Text className="font-sans-medium text-[14px] text-foreground">
-			{label}
-		</Text>
-		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
-			<HugeIcon icon={CancelCircleIcon} size={15} color={colors.secondaryFg} />
-		</Pressable>
-	</View>
-);

@@ -1,6 +1,6 @@
 import type { SessionId } from "@zuse/contracts";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ScrollView, Text, View } from "react-native";
 
 import { Markdown } from "~/components/messages/markdown";
@@ -37,7 +37,21 @@ export default function PlanViewerScreen() {
 
 	return (
 		<View className="flex-1 bg-background">
-			<Stack.Screen options={{ title: "Plan", presentation: "modal" }} />
+			<Stack.Screen
+				options={{
+					title: "Plan",
+					presentation: "modal",
+					headerBackVisible: false,
+					headerLargeTitle: false,
+				}}
+			/>
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
 			<ScrollView
 				className="flex-1"
 				contentInsetAdjustmentBehavior="automatic"

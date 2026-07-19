@@ -50,6 +50,7 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/model-sheet.ios.tsx`,
 			"utf8",
 		);
+		expect(newChat).toContain("<ComposerModeDock");
 		expect(newChat).toContain("<ModelSheetTrigger");
 		expect(newChat).toContain("<ModelSheet");
 		expect(newChat).not.toContain("<ComposerModelMenu");
@@ -65,22 +66,41 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/composer-plus-menu.ios.tsx`,
 			"utf8",
 		);
+		const approvalMenu = readFileSync(
+			`${process.cwd()}/src/components/composer-approval-menu.ios.tsx`,
+			"utf8",
+		);
 		expect(plusMenu).toContain('label="Choose photos"');
 		expect(plusMenu).toContain('label="Choose files"');
 		expect(plusMenu).toContain('label="Add goal"');
 		expect(plusMenu).toContain('label="Plan mode"');
+		for (const source of [plusMenu, approvalMenu]) {
+			expect(source).toContain('ignoreSafeArea="keyboard"');
+			expect(source).toContain("style={{ width: 40, height: 40 }}");
+			expect(source).not.toContain("<Host matchContents");
+		}
 	});
 
-	test("shows selected attachments and plan state inside both composers", () => {
+	test("keeps attachments in the editor and variable modes in a shared dock", () => {
 		const newChat = appFile("new-chat.tsx");
 		const threadComposer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
 			"utf8",
 		);
+		const modeDock = readFileSync(
+			`${process.cwd()}/src/components/composer-mode-dock.tsx`,
+			"utf8",
+		);
 		for (const source of [newChat, threadComposer]) {
 			expect(source).toContain("<ComposerAttachmentStrip");
-			expect(source).toContain("<PlanPill");
+			expect(source).toContain("<ComposerInputFrame");
+			expect(source).toContain("<ComposerModeDock");
 			expect(source).toContain("<ComposerPlusMenu");
+		}
+		expect(modeDock).toContain('<ModeChip label="Plan"');
+		for (const source of [newChat, threadComposer]) {
+			expect(source).toContain("<ComposerApprovalMenu");
+			expect(source).toContain("<ModelSheetTrigger");
 		}
 		expect(threadComposer).not.toContain("fileCount > 0");
 		expect(threadComposer).not.toContain("fileItemId");
@@ -102,12 +122,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("transcriptBottomInset(");
 		expect(thread).toContain("onScrollBeginDrag={detachReader}");
 		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
+		expect(thread).toContain("bottom: keyboardOverlap");
 		expect(thread).toContain(
-			'position: "absolute", left: 0, right: 0, bottom: 0',
+			"bottom: keyboardOverlap + bottomAccessoryHeight + 8",
 		);
-		expect(thread).toContain(
-			'behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}',
-		);
+		expect(thread).toContain('"keyboardWillChangeFrame"');
+		expect(thread).not.toContain("<KeyboardAvoidingView");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');

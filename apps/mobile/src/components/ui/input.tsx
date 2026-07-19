@@ -10,7 +10,7 @@ export const Input = forwardRef<TextInput, TextInputProps>(
 			ref={ref}
 			placeholderTextColor={placeholderTextColor}
 			className={cn(
-				"h-11 rounded-lg border border-border bg-card px-3 font-sans text-foreground",
+				"h-11 rounded-2xl border border-border bg-card px-3 font-sans text-foreground",
 				className,
 			)}
 			{...props}

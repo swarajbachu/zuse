@@ -22,10 +22,10 @@ import {
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
-import { ListTodo, X } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
+	Keyboard,
 	Pressable,
 	Text,
 	TextInput,
@@ -63,8 +63,11 @@ import {
 import { useOutboxStore } from "~/store/outbox";
 import { useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
+import { ComposerActionSlot } from "./composer-action-slot";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
+import { ComposerInputFrame } from "./composer-input-frame";
+import { ComposerModeDock } from "./composer-mode-dock";
 import { ComposerPlusMenu } from "./composer-plus-menu";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
@@ -170,19 +173,26 @@ export const Composer = ({
 					permissionMode: session.permissionMode,
 				};
 	const planMode = modelValue?.permissionMode === "plan";
-	// Collapse to a compact pill when the composer is idle: not focused, empty,
-	// and the agent isn't running. Any of those expands it to the full bar.
+	// Collapse to a compact pill when the editor itself is idle. A running agent
+	// remains interruptible from the compact trailing control.
 	const expanded =
 		focused ||
 		text.trim().length > 0 ||
 		attachments.length > 0 ||
 		goalMode ||
 		planMode ||
-		showInterrupt ||
 		modelSheetOpen;
 
 	const agentCount = currentActivity?.agents ?? 0;
 	const hasPills = !online || agentCount > 0;
+	const finishSuccessfulSubmission = () => {
+		setText("");
+		setAttachments([]);
+		setGoalMode(false);
+		setFocused(false);
+		onFocusChange?.(false);
+		Keyboard.dismiss();
+	};
 
 	const submit = async () => {
 		if (!canSend) return;
@@ -193,9 +203,8 @@ export const Composer = ({
 				return;
 			}
 			onMessageSubmitted?.();
-			setText("");
 			await enqueue(connKey, sessionId, value, goalMode);
-			setGoalMode(false);
+			finishSuccessfulSubmission();
 			return;
 		}
 		onMessageSubmitted?.();
@@ -223,9 +232,7 @@ export const Composer = ({
 					}),
 				);
 				await Effect.runPromise(flushServerQueue({ connection, sessionId }));
-				setText("");
-				setAttachments([]);
-				setGoalMode(false);
+				finishSuccessfulSubmission();
 				return;
 			}
 			const messageId = MessageId.make(Crypto.randomUUID());
@@ -256,9 +263,7 @@ export const Composer = ({
 					clientMessageId: messageId,
 				}),
 			);
-			setText("");
-			setAttachments([]);
-			setGoalMode(false);
+			finishSuccessfulSubmission();
 		} catch (cause) {
 			setComposerError(messageOf(cause));
 			if (optimisticMessageId !== null) {
@@ -389,6 +394,15 @@ export const Composer = ({
 				</View>
 			) : null}
 
+			{expanded && modelValue !== null ? (
+				<ComposerModeDock
+					planMode={planMode}
+					goalMode={goalMode}
+					onClearPlan={() => setPermissionMode("default")}
+					onClearGoal={() => setGoalMode(false)}
+				/>
+			) : null}
+
 			<GlassSurface
 				style={{
 					gap: 8,
@@ -407,104 +421,111 @@ export const Composer = ({
 								)
 							}
 						/>
-						<TextInput
-							// Focus on mount only when the user opened the bar by tapping the
-							// collapsed pill — avoids popping the keyboard on auto-expand.
-							ref={(node) => {
-								if (node && shouldAutoFocus.current) {
-									shouldAutoFocus.current = false;
-									node.focus();
-								}
-							}}
-							className="max-h-36 min-h-11 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
-							multiline
-							placeholder={online ? "Ask Zuse" : "Offline · message will queue"}
-							placeholderTextColor={colors.tertiaryFg}
-							value={text}
-							onChangeText={setText}
-							onFocus={() => {
-								setFocused(true);
-								onFocusChange?.(true);
-							}}
-							onBlur={() => {
-								setFocused(false);
-								onFocusChange?.(false);
-							}}
+						<ComposerInputFrame
+							input={
+								<TextInput
+									// Focus on mount only when the user opened the bar by tapping the
+									// collapsed pill — avoids popping the keyboard on auto-expand.
+									ref={(node) => {
+										if (node && shouldAutoFocus.current) {
+											shouldAutoFocus.current = false;
+											node.focus();
+										}
+									}}
+									className="max-h-36 min-h-11 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
+									multiline
+									placeholder={
+										online ? "Ask Zuse" : "Offline · message will queue"
+									}
+									placeholderTextColor={colors.tertiaryFg}
+									value={text}
+									onChangeText={setText}
+									onFocus={() => {
+										setFocused(true);
+										onFocusChange?.(true);
+									}}
+									onBlur={() => {
+										setFocused(false);
+										onFocusChange?.(false);
+									}}
+								/>
+							}
+							leadingAction={
+								modelValue === null ? null : (
+									<View className="flex-row items-center gap-1">
+										<ComposerActionSlot>
+											<ComposerPlusMenu
+												goalMode={goalMode}
+												goalSupported={goalSupported}
+												planMode={planMode}
+												onPickImages={() =>
+													void pickComposerImages().then((items) =>
+														setAttachments((current) => [...current, ...items]),
+													)
+												}
+												onPickFiles={() =>
+													void pickComposerFiles().then((items) =>
+														setAttachments((current) => [...current, ...items]),
+													)
+												}
+												onToggleGoal={setGoalMode}
+												onTogglePlan={(next) =>
+													setPermissionMode(next ? "plan" : "default")
+												}
+											/>
+										</ComposerActionSlot>
+										<ComposerActionSlot>
+											<ComposerApprovalMenu
+												runtimeMode={modelValue.runtimeMode}
+												onChange={setRuntimeMode}
+											/>
+										</ComposerActionSlot>
+									</View>
+								)
+							}
+							trailingAction={
+								<View className="min-w-0 flex-row items-center gap-1.5">
+									{modelValue === null ? null : (
+										<ModelSheetTrigger
+											value={modelValue}
+											onPress={() => setModelSheetOpen(true)}
+										/>
+									)}
+									<SendButton
+										showInterrupt={showInterrupt}
+										online={online}
+										busy={busy}
+										disabled={showInterrupt ? busy || !online : !canSend}
+										onPress={showInterrupt ? interrupt : submit}
+									/>
+								</View>
+							}
 						/>
-						{planMode || goalMode ? (
-							<View className="flex-row flex-wrap gap-2 px-1">
-								{planMode ? (
-									<PlanPill onClear={() => setPermissionMode("default")} />
-								) : null}
-								{goalMode ? (
-									<ModePill label="Goal" onClear={() => setGoalMode(false)} />
-								) : null}
-							</View>
-						) : null}
-						<View className="flex-row items-center gap-2">
-							{modelValue === null ? null : (
-								<>
-									<ComposerPlusMenu
-										goalMode={goalMode}
-										goalSupported={goalSupported}
-										planMode={planMode}
-										onPickImages={() =>
-											void pickComposerImages().then((items) =>
-												setAttachments((current) => [...current, ...items]),
-											)
-										}
-										onPickFiles={() =>
-											void pickComposerFiles().then((items) =>
-												setAttachments((current) => [...current, ...items]),
-											)
-										}
-										onToggleGoal={setGoalMode}
-										onTogglePlan={(next) =>
-											setPermissionMode(next ? "plan" : "default")
-										}
-									/>
-									<ComposerApprovalMenu
-										runtimeMode={modelValue.runtimeMode}
-										onChange={setRuntimeMode}
-									/>
-									<View className="min-w-0 flex-1" />
-									<ModelSheetTrigger
-										value={modelValue}
-										onPress={() => setModelSheetOpen(true)}
-									/>
-								</>
-							)}
-							<SendButton
-								showInterrupt={showInterrupt}
-								online={online}
-								busy={busy}
-								disabled={showInterrupt ? busy || !online : !canSend}
-								onPress={showInterrupt ? interrupt : submit}
-							/>
-						</View>
 					</>
 				) : (
-					<View className="flex-row items-center gap-1">
+					<View className="h-11 flex-row items-center gap-1">
 						{modelValue === null ? null : (
-							<ComposerPlusMenu
-								goalMode={goalMode}
-								goalSupported={goalSupported}
-								planMode={planMode}
-								onPickImages={() =>
-									void pickComposerImages().then((items) =>
-										setAttachments((current) => [...current, ...items]),
-									)
-								}
-								onPickFiles={() =>
-									void pickComposerFiles().then((items) =>
-										setAttachments((current) => [...current, ...items]),
-									)
-								}
-								onToggleGoal={setGoalMode}
-								onTogglePlan={(next) =>
-									setPermissionMode(next ? "plan" : "default")
-								}
-							/>
+							<ComposerActionSlot>
+								<ComposerPlusMenu
+									goalMode={goalMode}
+									goalSupported={goalSupported}
+									planMode={planMode}
+									onPickImages={() =>
+										void pickComposerImages().then((items) =>
+											setAttachments((current) => [...current, ...items]),
+										)
+									}
+									onPickFiles={() =>
+										void pickComposerFiles().then((items) =>
+											setAttachments((current) => [...current, ...items]),
+										)
+									}
+									onToggleGoal={setGoalMode}
+									onTogglePlan={(next) =>
+										setPermissionMode(next ? "plan" : "default")
+									}
+								/>
+							</ComposerActionSlot>
 						)}
 						<Pressable
 							accessibilityRole="button"
@@ -519,6 +540,13 @@ export const Composer = ({
 								{online ? "Ask Zuse" : "Offline · message will queue"}
 							</Text>
 						</Pressable>
+						<SendButton
+							showInterrupt={showInterrupt}
+							online={online}
+							busy={busy}
+							disabled={showInterrupt ? busy || !online : !canSend}
+							onPress={showInterrupt ? interrupt : submit}
+						/>
 					</View>
 				)}
 			</GlassSurface>
@@ -562,7 +590,8 @@ const SendButton = ({
 	<Button
 		size="sm"
 		variant={showInterrupt ? "secondary" : online ? "primary" : "secondary"}
-		className="h-11 w-11 rounded-full px-0"
+		className="h-10 w-10 rounded-2xl px-0"
+		hitSlop={4}
 		disabled={disabled}
 		onPress={onPress}
 		accessibilityLabel={
@@ -582,41 +611,13 @@ const SendButton = ({
 		) : online ? (
 			<HugeIcon
 				icon={ArrowUp02Icon}
-				size={18}
+				size={16}
 				color={colors.primaryForeground}
 			/>
 		) : (
 			<HugeIcon icon={CloudOffIcon} size={15} color={colors.fg as string} />
 		)}
 	</Button>
-);
-
-/** The "Plan" indicator pill docked at the top of the composer in plan mode. */
-const PlanPill = ({ onClear }: { onClear: () => void }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
-		<ListTodo size={15} color={colors.secondaryFg} />
-		<Text className="font-sans-medium text-[14px] text-foreground">Plan</Text>
-		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
-			<X size={14} color={colors.secondaryFg} />
-		</Pressable>
-	</View>
-);
-
-const ModePill = ({
-	label,
-	onClear,
-}: {
-	label: string;
-	onClear: () => void;
-}) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
-		<Text className="font-sans-medium text-[14px] text-foreground">
-			{label}
-		</Text>
-		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
-			<X size={14} color={colors.secondaryFg} />
-		</Pressable>
-	</View>
 );
 
 function StatusPill({

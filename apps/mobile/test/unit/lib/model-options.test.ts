@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
 	availableProviderIds,
 	reasoningValueForModel,
+	runtimeOptionFor,
 } from "../../../src/lib/model-options";
 
 const entry = (
@@ -54,5 +55,21 @@ describe("reasoningValueForModel", () => {
 		expect(
 			reasoningValueForModel("codex", "gpt-5.5", { reasoning: "ultra" }),
 		).toMatchObject({ value: "medium", label: "Medium" });
+	});
+});
+
+describe("runtimeOptionFor", () => {
+	test("gives every permission level a distinct icon and risk color", () => {
+		const options = [
+			runtimeOptionFor("approval-required"),
+			runtimeOptionFor("auto-accept-edits"),
+			runtimeOptionFor("auto-accept-edits-and-bash"),
+			runtimeOptionFor("full-access"),
+		];
+
+		expect(new Set(options.map((option) => option.systemImage)).size).toBe(4);
+		expect(new Set(options.map((option) => option.tint)).size).toBe(4);
+		expect(runtimeOptionFor("auto-accept-edits").tint).toBe("#0A84FF");
+		expect(runtimeOptionFor("full-access").tint).toBe("#FF453A");
 	});
 });

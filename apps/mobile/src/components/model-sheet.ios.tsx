@@ -8,7 +8,7 @@ import {
 	Section,
 	Text,
 } from "@expo/ui/swift-ui";
-import { padding, pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import { padding, pickerStyle, tag, tint } from "@expo/ui/swift-ui/modifiers";
 import type { ProviderId, RuntimeMode } from "@zuse/contracts";
 
 import {
@@ -17,10 +17,13 @@ import {
 	providerOptions,
 	RUNTIME_OPTIONS,
 	reasoningValueForModel,
+	runtimeOptionFor,
 } from "~/lib/model-options";
 import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
 import { colors } from "~/theme";
 import type { ModelModeValue } from "./model-mode-menu";
+
+const sf = (name: string) => name as never;
 
 /**
  * The model / mode picker as a real native `@expo/ui` BottomSheet: a SwiftUI
@@ -45,6 +48,7 @@ export function ModelSheet({
 	canChangeReasoning: boolean;
 	onChange: (value: ModelModeValue) => void;
 }) {
+	const runtimeOption = runtimeOptionFor(value.runtimeMode);
 	const reasoning = reasoningValueForModel(
 		value.providerId,
 		value.model,
@@ -172,12 +176,12 @@ export function ModelSheet({
 					<Section title="Permissions">
 						<Picker
 							label="Approval"
-							systemImage="checkmark.shield"
+							systemImage={sf(runtimeOption.systemImage)}
 							selection={value.runtimeMode}
 							onSelectionChange={(runtimeMode) =>
 								onChange({ ...value, runtimeMode: runtimeMode as RuntimeMode })
 							}
-							modifiers={[pickerStyle("menu")]}
+							modifiers={[pickerStyle("menu"), tint(runtimeOption.tint)]}
 						>
 							{RUNTIME_OPTIONS.map((option) => (
 								<Text key={option.value} modifiers={[tag(option.value)]}>

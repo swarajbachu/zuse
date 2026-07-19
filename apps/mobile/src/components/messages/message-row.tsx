@@ -285,7 +285,7 @@ const PlanPreview = ({
 						},
 					});
 				}}
-				className="rounded-2xl border border-border bg-card px-4 py-4 active:opacity-80"
+				className="rounded-3xl border border-border bg-card px-4 py-4 active:opacity-80"
 				style={{ borderCurve: "continuous" }}
 			>
 				<View className="mb-3 flex-row items-center gap-2">

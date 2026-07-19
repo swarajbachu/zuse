@@ -28,7 +28,6 @@ import {
 	Dimensions,
 	FlatList,
 	Keyboard,
-	KeyboardAvoidingView,
 	type KeyboardEvent,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
@@ -473,6 +472,7 @@ function ThreadScreen() {
 
 	useEffect(() => {
 		const updateKeyboardOverlap = (event: KeyboardEvent) => {
+			Keyboard.scheduleLayoutAnimation(event);
 			const screenHeight = Dimensions.get("screen").height;
 			const keyboardBottom =
 				event.endCoordinates.screenY + event.endCoordinates.height;
@@ -483,14 +483,17 @@ function ThreadScreen() {
 			setKeyboardOverlap(nextOverlap);
 		};
 		const showEvent =
-			process.env.EXPO_OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+			process.env.EXPO_OS === "ios"
+				? "keyboardWillChangeFrame"
+				: "keyboardDidShow";
 		const hideEvent =
 			process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 		const showSubscription = Keyboard.addListener(
 			showEvent,
 			updateKeyboardOverlap,
 		);
-		const hideSubscription = Keyboard.addListener(hideEvent, () => {
+		const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+			Keyboard.scheduleLayoutAnimation(event);
 			setKeyboardOverlap(0);
 		});
 		return () => {
@@ -913,12 +916,7 @@ function ThreadScreen() {
 					scrollToLatest();
 				}}
 			/>
-			<KeyboardAvoidingView
-				behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}
-				pointerEvents="box-none"
-				style={{ position: "absolute", inset: 0 }}
-				contentContainerStyle={{ flex: 1 }}
-			>
+			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
 				{showJumpButton ? (
 					<Animated.View
 						pointerEvents="box-none"
@@ -928,7 +926,7 @@ function ThreadScreen() {
 								position: "absolute",
 								left: 0,
 								right: 0,
-								bottom: bottomAccessoryHeight + 8,
+								bottom: keyboardOverlap + bottomAccessoryHeight + 8,
 								alignItems: "center",
 							},
 						]}
@@ -989,7 +987,7 @@ function ThreadScreen() {
 						position: "absolute",
 						left: 0,
 						right: 0,
-						bottom: 0,
+						bottom: keyboardOverlap,
 						height: bottomAccessoryHeight + 40,
 						experimental_backgroundImage:
 							theme === "dark"
@@ -1000,7 +998,12 @@ function ThreadScreen() {
 				<View
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
-					style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+					style={{
+						position: "absolute",
+						left: 0,
+						right: 0,
+						bottom: keyboardOverlap,
+					}}
 				>
 					{options === null ? null : bottomState.blocking?.kind ===
 						"permission" ? (
@@ -1122,7 +1125,7 @@ function ThreadScreen() {
 						</View>
 					)}
 				</View>
-			</KeyboardAvoidingView>
+			</View>
 		</View>
 	);
 }

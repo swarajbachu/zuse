@@ -85,7 +85,7 @@ export function LivePermissionAccessory({
 				</Text>
 				{mono ? (
 					<View
-						className="rounded-xl border border-border bg-card px-3 py-2"
+						className="rounded-2xl border border-border bg-card px-3 py-2"
 						style={{ borderCurve: "continuous" }}
 					>
 						<Text
@@ -130,7 +130,7 @@ export function LivePermissionAccessory({
 				)}
 				{denying ? (
 					<TextInput
-						className="min-h-11 rounded-xl bg-card px-4 py-2.5 font-sans text-[15px] text-foreground"
+						className="min-h-11 rounded-2xl bg-card px-4 py-2.5 font-sans text-[15px] text-foreground"
 						placeholder="Add a note to deny with (optional)"
 						placeholderTextColor={colors.tertiaryFg}
 						value={denyText}
@@ -170,10 +170,10 @@ const PrimaryButton = ({
 		accessibilityRole="button"
 		disabled={busy}
 		onPress={onPress}
-		className="h-12 items-center justify-center rounded-xl bg-foreground active:opacity-80"
+		className="h-11 items-center justify-center rounded-full bg-foreground active:opacity-80"
 		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
 	>
-		<Text className="font-sans-medium text-[16px] text-background">
+		<Text className="font-sans-medium text-[15px] text-background">
 			{label}
 		</Text>
 	</Pressable>
@@ -194,16 +194,18 @@ const SecondaryButton = ({
 		accessibilityRole="button"
 		disabled={busy}
 		onPress={onPress}
-		className="h-11 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+		className="h-11 items-center justify-center active:opacity-70"
 		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
 	>
-		<Text
-			className={cn(
-				"font-sans-medium text-[15px]",
-				danger ? "text-danger" : "text-foreground",
-			)}
-		>
-			{label}
-		</Text>
+		<View className="h-10 w-full items-center justify-center rounded-full border border-border bg-card">
+			<Text
+				className={cn(
+					"font-sans-medium text-[14px]",
+					danger ? "text-danger" : "text-foreground",
+				)}
+			>
+				{label}
+			</Text>
+		</View>
 	</Pressable>
 );
