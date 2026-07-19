@@ -82,6 +82,8 @@ describe("mobile UI contracts", () => {
 			expect(source).toContain("<PlanPill");
 			expect(source).toContain("<ComposerPlusMenu");
 		}
+		expect(threadComposer).not.toContain("fileCount > 0");
+		expect(threadComposer).not.toContain("fileItemId");
 	});
 
 	test("keeps the camera preview active and explicitly full screen", () => {
@@ -93,7 +95,13 @@ describe("mobile UI contracts", () => {
 
 	test("floats the composer over the feed and centers the jump control", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
-		expect(thread).toContain("paddingBottom: bottomAccessoryHeight + 12");
+		expect(thread).toContain("useHeaderHeight");
+		expect(thread).toContain("paddingTop: headerHeight + 12");
+		expect(thread).toContain("height: transcriptFooterHeight");
+		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
+		expect(thread).toContain("transcriptBottomInset(");
+		expect(thread).toContain("onScrollBeginDrag={detachReader}");
+		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
 		expect(thread).toContain(
 			'position: "absolute", left: 0, right: 0, bottom: 0',
 		);

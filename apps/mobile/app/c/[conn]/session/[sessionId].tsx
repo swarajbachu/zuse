@@ -7,6 +7,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
+import { useHeaderHeight } from "expo-router/react-navigation";
 import { ChevronDown } from "lucide-react-native";
 import React, {
 	useCallback,
@@ -16,9 +17,13 @@ import React, {
 	useState,
 } from "react";
 import {
+	AccessibilityInfo,
 	Alert,
+	Dimensions,
 	FlatList,
+	Keyboard,
 	KeyboardAvoidingView,
+	type KeyboardEvent,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -57,6 +62,14 @@ import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
+	latestTurnAnchorSpace,
+	nextThreadScrollMode,
+	shouldFollowTranscript,
+	shouldShowLatestAction,
+	type ThreadScrollMode,
+	transcriptBottomInset,
+} from "~/lib/thread-scroll";
+import {
 	answerQuestion,
 	flushServerQueue,
 	makeTextInput,
@@ -91,6 +104,7 @@ export default function ThreadScreenRoute() {
 
 function ThreadScreen() {
 	const insets = useSafeAreaInsets();
+	const headerHeight = useHeaderHeight();
 	const { theme } = useUniwind();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;
@@ -101,8 +115,16 @@ function ThreadScreen() {
 	const listRef = useRef<FlatList>(null);
 	const didInitialScroll = useRef(false);
 	const initialScrollQuietUntil = useRef(0);
-	const atBottomRef = useRef(true);
+	const scrollModeRef = useRef<ThreadScrollMode>("initial");
+	const distanceFromBottomRef = useRef(0);
+	const hasUnseenContentRef = useRef(false);
+	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
+	const [hasUnseenContent, setHasUnseenContent] = useState(false);
+	const [keyboardOverlap, setKeyboardOverlap] = useState(0);
+	const [listViewportHeight, setListViewportHeight] = useState(0);
+	const [latestTurnHeight, setLatestTurnHeight] = useState(0);
+	const [liveFooterHeight, setLiveFooterHeight] = useState(0);
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
 		Math.max(insets.bottom, 12) + 64,
 	);
@@ -145,6 +167,7 @@ function ThreadScreen() {
 	const hydrate = useMobileMessagesStore((state) => state.hydrate);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+	const latestTurnId = turns.at(-1)?.id ?? null;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
 	const sessionStatus =
@@ -371,8 +394,65 @@ function ThreadScreen() {
 		void stateKey;
 		didInitialScroll.current = false;
 		initialScrollQuietUntil.current = Date.now() + 500;
-		atBottomRef.current = true;
+		scrollModeRef.current = "initial";
+		distanceFromBottomRef.current = 0;
+		hasUnseenContentRef.current = false;
+		previousMessagesRef.current = null;
+		setHasUnseenContent(false);
+		setShowJumpButton(false);
+		setLatestTurnHeight(0);
 	}, [stateKey]);
+
+	useEffect(() => {
+		void latestTurnId;
+		setLatestTurnHeight(0);
+	}, [latestTurnId]);
+
+	useEffect(() => {
+		const updateKeyboardOverlap = (event: KeyboardEvent) => {
+			const screenHeight = Dimensions.get("screen").height;
+			const keyboardBottom =
+				event.endCoordinates.screenY + event.endCoordinates.height;
+			const isDocked = keyboardBottom >= screenHeight - 2;
+			const nextOverlap = isDocked
+				? Math.max(0, screenHeight - event.endCoordinates.screenY)
+				: 0;
+			setKeyboardOverlap(nextOverlap);
+		};
+		const showEvent =
+			process.env.EXPO_OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+		const hideEvent =
+			process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+		const showSubscription = Keyboard.addListener(
+			showEvent,
+			updateKeyboardOverlap,
+		);
+		const hideSubscription = Keyboard.addListener(hideEvent, () => {
+			setKeyboardOverlap(0);
+		});
+		return () => {
+			showSubscription.remove();
+			hideSubscription.remove();
+		};
+	}, []);
+
+	useEffect(() => {
+		if (previousMessagesRef.current === null) {
+			previousMessagesRef.current = messages;
+			return;
+		}
+		if (previousMessagesRef.current === messages) return;
+		previousMessagesRef.current = messages;
+		if (scrollModeRef.current !== "detached" || hasUnseenContentRef.current) {
+			return;
+		}
+		hasUnseenContentRef.current = true;
+		setHasUnseenContent(true);
+		setShowJumpButton(true);
+		void AccessibilityInfo.announceForAccessibility(
+			"New response available below.",
+		);
+	}, [messages]);
 
 	// Fade the jump button in/out from its visibility state (assignment must
 	// live in an effect for the React Compiler's shared-value immutability rule).
@@ -382,15 +462,17 @@ function ThreadScreen() {
 
 	const scrollToLatest = useCallback(() => {
 		if (messages.length === 0) return;
-		// Only autoscroll when the user is already at the bottom, or during the
-		// very first positioning of a freshly-opened chat. Otherwise leave the
-		// scroll position alone so reading isn't yanked (D6).
-		if (didInitialScroll.current && !atBottomRef.current) return;
+		if (!shouldFollowTranscript(scrollModeRef.current)) return;
 		const animated =
 			didInitialScroll.current && Date.now() > initialScrollQuietUntil.current;
 		didInitialScroll.current = true;
 		requestAnimationFrame(() => {
 			listRef.current?.scrollToEnd({ animated });
+			if (scrollModeRef.current === "initial") {
+				scrollModeRef.current = nextThreadScrollMode("initial", {
+					type: "initial-positioned",
+				});
+			}
 		});
 	}, [messages.length]);
 
@@ -400,16 +482,67 @@ function ThreadScreen() {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
-		const atBottom = distanceFromBottom <= 40;
-		atBottomRef.current = atBottom;
-		if (atBottom === showJumpButton) setShowJumpButton(!atBottom);
+		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
+		setShowJumpButton(
+			shouldShowLatestAction({
+				mode: scrollModeRef.current,
+				distance: distanceFromBottomRef.current,
+				hasUnseenContent: hasUnseenContentRef.current,
+			}),
+		);
+	};
+	const detachReader = () => {
+		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+			type: "reader-interacted",
+		});
+		setShowJumpButton(
+			shouldShowLatestAction({
+				mode: scrollModeRef.current,
+				distance: distanceFromBottomRef.current,
+				hasUnseenContent: hasUnseenContentRef.current,
+			}),
+		);
+	};
+	const resumeAtLiveEdge = () => {
+		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+			type: "returned-to-live-edge",
+			distance: distanceFromBottomRef.current,
+		});
+		if (scrollModeRef.current !== "following") return;
+		hasUnseenContentRef.current = false;
+		setHasUnseenContent(false);
+		setShowJumpButton(false);
 	};
 
 	const jumpToBottom = () => {
-		atBottomRef.current = true;
+		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+			type: "jumped-to-latest",
+		});
+		hasUnseenContentRef.current = false;
+		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		listRef.current?.scrollToEnd({ animated: true });
 	};
+	const onMessageSubmitted = () => {
+		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+			type: "message-submitted",
+		});
+		hasUnseenContentRef.current = false;
+		setHasUnseenContent(false);
+		setShowJumpButton(false);
+		setLatestTurnHeight(0);
+		requestAnimationFrame(scrollToLatest);
+	};
+	const onComposerFocusChange = (focused: boolean) => {
+		if (focused && shouldFollowTranscript(scrollModeRef.current)) {
+			requestAnimationFrame(scrollToLatest);
+		}
+	};
+	useEffect(() => {
+		if (keyboardOverlap > 0 && shouldFollowTranscript(scrollModeRef.current)) {
+			scrollToLatest();
+		}
+	}, [keyboardOverlap, scrollToLatest]);
 
 	const jumpStyle = useAnimatedStyle(() => ({ opacity: jumpOpacity.value }));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
@@ -418,6 +551,20 @@ function ThreadScreen() {
 			Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 		);
 	};
+	const effectiveBottomInset = transcriptBottomInset(
+		bottomAccessoryHeight,
+		keyboardOverlap,
+	);
+	const anchorSpace =
+		turns.length === 0
+			? 0
+			: latestTurnAnchorSpace({
+					viewportHeight: listViewportHeight,
+					bottomInset: effectiveBottomInset,
+					latestTurnHeight: latestTurnHeight + liveFooterHeight,
+					previousContext: headerHeight + 12,
+				});
+	const transcriptFooterHeight = effectiveBottomInset + anchorSpace;
 
 	const onRename = useCallback(() => {
 		if (chatId === null || options === null) return;
@@ -582,17 +729,34 @@ function ThreadScreen() {
 				data={turns}
 				keyExtractor={(turn) => turn.id}
 				renderItem={({ item, index }) => (
-					<TurnRow
-						turn={item}
-						context={ctx}
-						live={sessionStatus === "running" && index === turns.length - 1}
-					/>
+					<View
+						onLayout={
+							index === turns.length - 1
+								? (event) => {
+										const nextHeight = event.nativeEvent.layout.height;
+										setLatestTurnHeight((current) =>
+											Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+										);
+									}
+								: undefined
+						}
+					>
+						<TurnRow
+							turn={item}
+							context={ctx}
+							live={sessionStatus === "running" && index === turns.length - 1}
+						/>
+					</View>
 				)}
-				contentInsetAdjustmentBehavior="automatic"
-				contentContainerClassName="gap-1 px-4 pt-3"
-				contentContainerStyle={{ paddingBottom: bottomAccessoryHeight + 12 }}
-				scrollIndicatorInsets={{ bottom: bottomAccessoryHeight }}
+				contentInsetAdjustmentBehavior="never"
+				contentContainerClassName="gap-1 px-4"
+				contentContainerStyle={{ paddingTop: headerHeight + 12 }}
+				scrollIndicatorInsets={{
+					top: headerHeight,
+					bottom: effectiveBottomInset,
+				}}
 				keyboardDismissMode="interactive"
+				keyboardShouldPersistTaps="handled"
 				ListHeaderComponent={
 					error || connectionProblem ? (
 						<View className="gap-2 pb-2">
@@ -612,8 +776,16 @@ function ThreadScreen() {
 					) : null
 				}
 				ListFooterComponent={
-					workingActive || localQueued.length > 0 || serverQueued.length > 0 ? (
-						<View className="pt-1">
+					<View>
+						<View
+							className="pt-1"
+							onLayout={(event) => {
+								const nextHeight = event.nativeEvent.layout.height;
+								setLiveFooterHeight((current) =>
+									Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+								);
+							}}
+						>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
 							{serverQueued.map((item) => (
 								<QueuedBubble
@@ -645,13 +817,24 @@ function ThreadScreen() {
 								/>
 							))}
 						</View>
-					) : null
+						<View style={{ height: transcriptFooterHeight }} />
+					</View>
 				}
 				onScroll={onScroll}
+				onScrollBeginDrag={detachReader}
+				onScrollEndDrag={resumeAtLiveEdge}
+				onMomentumScrollEnd={resumeAtLiveEdge}
+				onTouchStart={detachReader}
 				scrollEventThrottle={32}
 				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
 				onContentSizeChange={scrollToLatest}
-				onLayout={scrollToLatest}
+				onLayout={(event) => {
+					const nextHeight = event.nativeEvent.layout.height;
+					setListViewportHeight((current) =>
+						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
+					);
+					scrollToLatest();
+				}}
 			/>
 			<KeyboardAvoidingView
 				behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}
@@ -675,19 +858,50 @@ function ThreadScreen() {
 					>
 						<Pressable
 							accessibilityRole="button"
-							accessibilityLabel="Scroll to latest"
+							accessibilityLabel={
+								hasUnseenContent
+									? "Jump to latest, new response available"
+									: "Jump to latest"
+							}
+							accessibilityHint="Resumes following the live response"
 							onPress={jumpToBottom}
 						>
 							<GlassSurface
 								style={{
-									width: 40,
-									height: 40,
-									borderRadius: 20,
+									width: 46,
+									height: 46,
+									borderRadius: 23,
+									borderWidth: 1,
+									borderColor:
+										theme === "dark"
+											? "rgba(255,255,255,0.16)"
+											: "rgba(0,0,0,0.12)",
+									backgroundColor:
+										theme === "dark"
+											? "rgba(24,24,24,0.72)"
+											: "rgba(255,255,255,0.78)",
 									alignItems: "center",
 									justifyContent: "center",
+									shadowColor: "#000",
+									shadowOpacity: theme === "dark" ? 0.32 : 0.14,
+									shadowRadius: 14,
+									shadowOffset: { width: 0, height: 6 },
 								}}
 							>
 								<ChevronDown size={20} color={colors.fg} />
+								{hasUnseenContent ? (
+									<View
+										style={{
+											position: "absolute",
+											top: 5,
+											right: 5,
+											width: 7,
+											height: 7,
+											borderRadius: 4,
+											backgroundColor: colors.accent,
+										}}
+									/>
+								) : null}
 							</GlassSurface>
 						</Pressable>
 					</Animated.View>
@@ -757,6 +971,8 @@ function ThreadScreen() {
 								online={transportOnline}
 								connectionStatus={connectionSnapshot?.status}
 								onRetryConnection={() => retryConnection(connKey, options)}
+								onFocusChange={onComposerFocusChange}
+								onMessageSubmitted={onMessageSubmitted}
 								bottomInset={insets.bottom}
 							/>
 						</View>
