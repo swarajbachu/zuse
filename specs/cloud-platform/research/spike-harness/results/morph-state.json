@@ -1,0 +1,1082 @@
+{
+  "timings": {
+    "baseSnapshotCreateMs": 41919,
+    "bootToReadyMs": 732,
+    "setupMs": 65599,
+    "branchTotalMs": 11847,
+    "sourceProbeFailures": 2,
+    "sourceInterruptionMs": 4260,
+    "perDescendant": {
+      "morphvm_jtv3cgzn": {
+        "readyMs": 399,
+        "healthyMs": 1205,
+        "cdpMs": 1662
+      },
+      "morphvm_yxqmkyve": {
+        "readyMs": 406,
+        "healthyMs": 1108,
+        "cdpMs": 1682
+      },
+      "morphvm_1w85inx7": {
+        "readyMs": 402,
+        "healthyMs": 1261,
+        "cdpMs": 1808
+      },
+      "morphvm_lyewu544": {
+        "readyMs": 394,
+        "healthyMs": 1261,
+        "cdpMs": 1808
+      },
+      "morphvm_ig9y60f9": {
+        "readyMs": 391,
+        "healthyMs": 1325,
+        "cdpMs": 1975
+      },
+      "morphvm_2l4t9iur": {
+        "readyMs": 405,
+        "healthyMs": 1207,
+        "cdpMs": 1817
+      },
+      "morphvm_cjxijmuk": {
+        "readyMs": 386,
+        "healthyMs": 1372,
+        "cdpMs": 1922
+      },
+      "morphvm_x74560oh": {
+        "readyMs": 402,
+        "healthyMs": 1333,
+        "cdpMs": 2003
+      },
+      "morphvm_qix66sed": {
+        "readyMs": 400,
+        "healthyMs": 1267,
+        "cdpMs": 2145
+      },
+      "morphvm_6povlolb": {
+        "readyMs": 396,
+        "healthyMs": 1418,
+        "cdpMs": 2086
+      }
+    },
+    "evidenceRecordMs": 31224,
+    "evidenceShipMs": 3014
+  },
+  "baseSnapshotId": "snapshot_g7ugu1sx",
+  "sourceInstanceId": "morphvm_pg2psh71",
+  "sourceWebUrl": "https://web-morphvm-pg2psh71.http.cloud.morph.so",
+  "forkSnapshotId": "snapshot_z2jec7zb",
+  "descendants": [
+    "morphvm_2l4t9iur",
+    "morphvm_yxqmkyve",
+    "morphvm_cjxijmuk",
+    "morphvm_lyewu544",
+    "morphvm_6povlolb",
+    "morphvm_ig9y60f9",
+    "morphvm_jtv3cgzn",
+    "morphvm_qix66sed",
+    "morphvm_x74560oh",
+    "morphvm_1w85inx7"
+  ],
+  "verify": {
+    "morphvm_jtv3cgzn": {
+      "label": "morph-6",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 55,
+            "maxId": 55
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 20
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-6-28671",
+              "at": "2026-07-19T16:44:27.323Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:15Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:20Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:20Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:24Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.13\n2026-07-19T16:44:24Z INF Registered tunnel connection connIndex=0 connection=63d2cf10-b808-4023-8328-b9b214071aa3 event=0 ip=198.41.200.13 location=ord08 protocol=quic"
+        }
+      }
+    },
+    "morphvm_yxqmkyve": {
+      "label": "morph-1",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 58,
+            "maxId": 58
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 23
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-1-4880",
+              "at": "2026-07-19T16:44:27.340Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:13Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:18Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:18Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.113\n2026-07-19T16:44:21Z INF Registered tunnel connection connIndex=0 connection=61be1ce2-cf41-4dbb-bbd1-37e923394e85 event=0 ip=198.41.200.113 location=ord11 protocol=quic"
+        }
+      }
+    },
+    "morphvm_1w85inx7": {
+      "label": "morph-9",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 53,
+            "maxId": 53
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 18
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-9-8731",
+              "at": "2026-07-19T16:44:27.583Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:17Z ERR failed to serve tunnel connection error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:17Z ERR Serve tunnel error error=\"accept stream listener encountered a failure while serving\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:17Z INF Retrying connection in up to 1s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z INF Registered tunnel connection connIndex=0 connection=b8c89cd3-85b8-401b-966a-718172df1b93 event=0 ip=198.41.192.37 location=ord02 protocol=quic"
+        }
+      }
+    },
+    "morphvm_qix66sed": {
+      "label": "morph-7",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 55,
+            "maxId": 55
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 20
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-7-12084",
+              "at": "2026-07-19T16:44:27.972Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:17Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.233\n2026-07-19T16:44:23Z INF Registered tunnel connection connIndex=0 connection=538b9b22-1547-49ce-b029-6a577dfeee9d event=0 ip=198.41.200.233 location=ord07 protocol=quic"
+        }
+      }
+    },
+    "morphvm_2l4t9iur": {
+      "label": "morph-0",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 59,
+            "maxId": 59
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 24
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-0-9062",
+              "at": "2026-07-19T16:44:27.703Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:12Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:17Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:17Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:20Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.113\n2026-07-19T16:44:21Z INF Registered tunnel connection connIndex=0 connection=6a6a170a-c75a-4820-acde-90ed81cffd6b event=0 ip=198.41.200.113 location=ord07 protocol=quic"
+        }
+      }
+    },
+    "morphvm_ig9y60f9": {
+      "label": "morph-5",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 56,
+            "maxId": 56
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 21
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-5-14415",
+              "at": "2026-07-19T16:44:27.637Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:16Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:21Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:21Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:23Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.23\n2026-07-19T16:44:24Z INF Registered tunnel connection connIndex=0 connection=86196750-9ad0-45d5-b6d4-8a532b67cf69 event=0 ip=198.41.200.23 location=ord07 protocol=quic"
+        }
+      }
+    },
+    "morphvm_lyewu544": {
+      "label": "morph-3",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 57,
+            "maxId": 57
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 22
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-3-1985",
+              "at": "2026-07-19T16:44:27.613Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:14Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:20Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.233\n2026-07-19T16:44:21Z INF Registered tunnel connection connIndex=0 connection=a822b85e-7305-4135-aed1-0925b8c49460 event=0 ip=198.41.200.233 location=ord07 protocol=quic"
+        }
+      }
+    },
+    "morphvm_cjxijmuk": {
+      "label": "morph-2",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 58,
+            "maxId": 58
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 23
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-2-2279",
+              "at": "2026-07-19T16:44:27.927Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:14Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:19Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:21Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.233\n2026-07-19T16:44:21Z INF Registered tunnel connection connIndex=0 connection=e0a5f46e-5384-4239-80bb-6a33b81c9895 event=0 ip=198.41.200.233 location=ord11 protocol=quic"
+        }
+      }
+    },
+    "morphvm_x74560oh": {
+      "label": "morph-8",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 54,
+            "maxId": 54
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 19
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-8-27582",
+              "at": "2026-07-19T16:44:27.823Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:17Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.113\n2026-07-19T16:44:22Z INF Registered tunnel connection connIndex=0 connection=597bd1c4-0f98-4fca-bb7e-06ae30185209 event=0 ip=198.41.200.113 location=ord12 protocol=quic"
+        }
+      }
+    },
+    "morphvm_6povlolb": {
+      "label": "morph-4",
+      "verdict": "PASS",
+      "failed": [],
+      "checks": {
+        "process:sqlite-writer": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5161,
+            "startTicks": "19509"
+          }
+        },
+        "process:dev-server": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5163,
+            "startTicks": "19509"
+          }
+        },
+        "process:chromium": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5165,
+            "startTicks": "19509"
+          }
+        },
+        "process:xvfb": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19509",
+          "was": {
+            "pid": 5167,
+            "startTicks": "19509"
+          }
+        },
+        "process:electron": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5262,
+            "startTicks": "19710"
+          }
+        },
+        "process:cloudflared": {
+          "pass": true,
+          "alive": true,
+          "startTicks": "19710",
+          "was": {
+            "pid": 5264,
+            "startTicks": "19710"
+          }
+        },
+        "sqlite:advancing": {
+          "pass": true,
+          "integrity": "ok",
+          "before": {
+            "rows": 35,
+            "maxId": 35
+          },
+          "now": {
+            "n": 57,
+            "maxId": 57
+          }
+        },
+        "sqlite:diverged": {
+          "pass": true,
+          "bootIdChanged": false,
+          "bootId": "c0458e34-0495-481a-a0c8-3b76da69f00f",
+          "postForkRows": 22
+        },
+        "watcher": {
+          "pass": true,
+          "events": [
+            {
+              "eventType": "rename",
+              "filename": "marker-morph-4-17038",
+              "at": "2026-07-19T16:44:28.013Z"
+            }
+          ]
+        },
+        "cdp:chromium": {
+          "pass": true
+        },
+        "cdp:electron": {
+          "pass": true
+        },
+        "tunnel": {
+          "pass": true,
+          "note": "manual judgement: does the pre-fork URL route to exactly one descendant?",
+          "tail": "2026-07-19T16:44:16Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:21Z ERR Failed to dial a quic connection error=\"failed to dial to edge with quic: timeout: no recent network activity\" connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:21Z INF Retrying connection in up to 4s connIndex=0 event=0 ip=198.41.192.37\n2026-07-19T16:44:22Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=198.41.200.113\n2026-07-19T16:44:23Z INF Registered tunnel connection connIndex=0 connection=d60fa85e-f745-4e12-b14d-07bc5e2d82be event=0 ip=198.41.200.113 location=ord07 protocol=quic"
+        }
+      }
+    }
+  }
+}

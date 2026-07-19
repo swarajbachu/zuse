@@ -43,7 +43,7 @@ if (cmd === "boot") {
   // sudo shim for root-user minimal images (harness scripts call sudo).
   await sh(instance, "command -v sudo >/dev/null || { printf '#!/bin/sh\\nexec \"$@\"\\n' > /usr/local/bin/sudo && chmod +x /usr/local/bin/sudo; }");
   let t = now();
-  await instance.sync(HARNESS + "/invm", "root@" + instance.id + ":/root/invm");
+  await instance.sync(HARNESS + "/invm", instance.id + ":/root/invm");
   log("harness uploaded in", now() - t, "ms");
   t = now();
   const out = await instance.exec("bash /root/invm/setup-workload.sh 2>&1 | tail -25", { timeout: 1800 });
@@ -104,9 +104,10 @@ if (cmd === "boot") {
       const tHealthy = now() - t0;
       await sh(inst, "for i in $(seq 1 60); do curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1", 90);
       const tCdp = now() - t0;
-      const verdict = await sh(inst, `bash /root/invm/verify-fork.sh morph-${n} 2>&1 | tail -40`, 180);
+      await sh(inst, `bash /root/invm/verify-fork.sh morph-${n} >/dev/null 2>&1 || true`, 180);
+      const verdict = await sh(inst, `cat /opt/spike/verify-morph-${n}.json`, 60);
       state.timings.perDescendant[id] = { readyMs: tReady, healthyMs: tHealthy, cdpMs: tCdp };
-      state.verify[id] = JSON.parse(verdict.slice(verdict.indexOf("{")));
+      state.verify[id] = JSON.parse(verdict.slice(verdict.lastIndexOf('{\n  "label"')));
       log(id, "ready", tReady, "healthy", tHealthy, "cdp", tCdp, "verdict", state.verify[id].verdict, state.verify[id].failed);
     }),
   );

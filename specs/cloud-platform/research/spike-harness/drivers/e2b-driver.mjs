@@ -90,9 +90,10 @@ if (cmd === "boot") {
       const tHealthy = now() - t0;
       await sh(sbx, "for i in $(seq 1 60); do curl -fsS http://127.0.0.1:9222/json/version >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1", 90_000);
       const tCdp = now() - t0;
-      const verdict = await sh(sbx, `bash /opt/spike/invm/verify-fork.sh e2b-${n} 2>&1 | tail -60`, 240_000);
+      await sh(sbx, `bash /opt/spike/invm/verify-fork.sh e2b-${n} >/dev/null 2>&1 || true`, 240_000);
+      const verdict = await sh(sbx, `cat /opt/spike/verify-e2b-${n}.json`, 60_000);
       state.timings.perDescendant[id] = { healthyMs: tHealthy, cdpMs: tCdp };
-      state.verify[id] = JSON.parse(verdict.slice(verdict.indexOf("{")));
+      state.verify[id] = JSON.parse(verdict.slice(verdict.lastIndexOf('{\n  "label"')));
       log(id, "healthy", tHealthy, "cdp", tCdp, "verdict", state.verify[id].verdict, JSON.stringify(state.verify[id].failed));
     }),
   ).then((rs) => rs.forEach((r, i) => r.status === "rejected" && log("descendant", state.descendants[i]?.id, "FAILED:", String(r.reason).slice(0, 400))));
