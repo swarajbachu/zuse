@@ -1,3 +1,7 @@
+import {
+	findPendingPlanInteraction,
+	isPlanApprovalRequest,
+} from "@zuse/client-runtime/plan-interactions";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
@@ -5,6 +9,7 @@ import type {
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
+import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -19,6 +24,7 @@ import React, {
 import {
 	AccessibilityInfo,
 	Alert,
+	AppState,
 	Dimensions,
 	FlatList,
 	Keyboard,
@@ -41,14 +47,17 @@ import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
+import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
 import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
+import { PlanReviewCard } from "~/components/messages/plan-review-card";
 import { TurnRow } from "~/components/messages/turn-row";
 import { ReviewChangesPill } from "~/components/review-changes-pill";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
 import { isFreshChat } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -71,12 +80,13 @@ import {
 } from "~/lib/thread-scroll";
 import {
 	answerQuestion,
-	flushServerQueue,
 	makeTextInput,
-	queueMessage,
+	respondToPlan,
+	sendMessage,
 } from "~/rpc/actions";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
+import { useGoalsStore } from "~/store/goals";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
@@ -164,6 +174,21 @@ function ThreadScreen() {
 	const deleteServerQueued = useMobileMessagesStore(
 		(state) => state.deleteQueued,
 	);
+	const updateServerQueued = useMobileMessagesStore(
+		(state) => state.updateQueued,
+	);
+	const reorderServerQueued = useMobileMessagesStore(
+		(state) => state.reorderQueued,
+	);
+	const sendServerQueuedNow = useMobileMessagesStore(
+		(state) => state.sendQueuedNow,
+	);
+	const resumeServerQueue = useMobileMessagesStore(
+		(state) => state.resumeQueue,
+	);
+	const serverQueuePaused = useMobileMessagesStore(
+		(state) => state.queuePausedBySession[stateKey] === true,
+	);
 	const hydrate = useMobileMessagesStore((state) => state.hydrate);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
@@ -177,17 +202,27 @@ function ThreadScreen() {
 	const sessionRunning = sessionStatus === "running";
 
 	const hydratePermissions = usePermissionsStore((state) => state.hydrate);
+	const reconcilePermissions = usePermissionsStore((state) => state.reconcile);
 	const decidePermission = usePermissionsStore((state) => state.decide);
 	const pending = usePermissionsStore(
 		(state) => state.pendingBySession[stateKey] ?? EMPTY_PENDING,
 	);
 	const hydrateOutbox = useOutboxStore((state) => state.hydrate);
 	const flushOutbox = useOutboxStore((state) => state.flush);
-	const cancelQueued = useOutboxStore((state) => state.cancel);
+	const cancelLocalQueued = useOutboxStore((state) => state.cancel);
+	const updateLocalQueued = useOutboxStore((state) => state.update);
 	const localQueued = useOutboxStore(
 		(state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
 	);
 	const queuedCount = localQueued.length;
+	const unackedLocalQueued = localQueued.filter(
+		(item) =>
+			!serverQueued.some((serverItem) => serverItem.id === item.clientId),
+	);
+	const hydrateGoal = useGoalsStore((state) => state.hydrate);
+	const goal = useGoalsStore((state) => state.goalBySession[stateKey] ?? null);
+	const setGoal = useGoalsStore((state) => state.setGoal);
+	const clearGoal = useGoalsStore((state) => state.clearGoal);
 	const [screenOpenedAt] = useState(() => Date.now());
 
 	useEffect(() => {
@@ -204,6 +239,7 @@ function ThreadScreen() {
 		if (normalizedSessionId.length > 0 && options !== null) {
 			void hydrate(connKey, options, normalizedSessionId);
 			void hydratePermissions(connKey, options, normalizedSessionId);
+			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
 	}, [
@@ -212,9 +248,46 @@ function ThreadScreen() {
 		hydrate,
 		hydrateOutbox,
 		hydratePermissions,
+		hydrateGoal,
 		normalizedSessionId,
 		options,
 	]);
+
+	useEffect(() => {
+		if (options === null || (!sessionRunning && pending.length === 0)) return;
+		const poll = () =>
+			void reconcilePermissions(connKey, options, normalizedSessionId);
+		const timer = setInterval(poll, pending.length > 0 ? 5_000 : 15_000);
+		return () => clearInterval(timer);
+	}, [
+		connKey,
+		normalizedSessionId,
+		options,
+		pending.length,
+		reconcilePermissions,
+		sessionRunning,
+	]);
+
+	useEffect(() => {
+		if (options === null) return;
+		void sessionStatus;
+		void reconcilePermissions(connKey, options, normalizedSessionId);
+	}, [
+		connKey,
+		normalizedSessionId,
+		options,
+		reconcilePermissions,
+		sessionStatus,
+	]);
+
+	useEffect(() => {
+		if (options === null) return;
+		const subscription = AppState.addEventListener("change", (state) => {
+			if (state === "active")
+				void reconcilePermissions(connKey, options, normalizedSessionId);
+		});
+		return () => subscription.remove();
+	}, [connKey, normalizedSessionId, options, reconcilePermissions]);
 
 	const chatId = detail?.chat?.id ?? null;
 	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
@@ -294,37 +367,20 @@ function ThreadScreen() {
 		() => buildToolResultsByItemId(messages),
 		[messages],
 	);
-	const pendingPlan = (() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const content = messages[index]?.content;
-			if (content?._tag !== "tool_use" || content.tool !== "ExitPlanMode") {
-				continue;
-			}
-			const input = content.input;
-			if (typeof input !== "object" || input === null || !("plan" in input)) {
-				continue;
-			}
-			const plan = Reflect.get(input, "plan");
-			if (typeof plan === "string" && plan.trim().length > 0) {
-				return { itemId: content.itemId, plan };
-			}
-		}
-		return null;
-	})();
-
-	// Bottom-slot precedence (matches web): a permission or an unanswered
-	// question fully replaces the composer; plan review replaces it only when
-	// neither is pending. Permission outranks question because the agent is
-	// already mid-tool-call. ExitPlanMode is split out from real permissions.
-	const planRequest =
-		pending.find(
-			(request) =>
-				request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode",
-		) ?? null;
 	const permissionRequests = pending.filter(
-		(request) =>
-			!(request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode"),
+		(request) => !isPlanApprovalRequest(request, normalizedSessionId),
 	);
+	const pendingPlanInteraction =
+		detail === null
+			? null
+			: findPendingPlanInteraction({
+					messages,
+					requests: pending,
+					sessionId: normalizedSessionId,
+					providerId: detail.session.providerId,
+					permissionMode: detail.session.permissionMode,
+					isRunning: sessionRunning,
+				});
 	const headPermission = permissionRequests[0] ?? null;
 	const pendingQuestion = (() => {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -338,6 +394,15 @@ function ThreadScreen() {
 		}
 		return null;
 	})();
+	const bottomState = coordinateChatBottomState({
+		permissions: permissionRequests,
+		question: pendingQuestion,
+		planReview: pendingPlanInteraction,
+		goal,
+		serverQueueCount: serverQueued.length,
+		localQueueCount: unackedLocalQueued.length,
+		queuePaused: serverQueuePaused,
+	});
 
 	// The live "working" row shows the whole time the agent runs, but not while a
 	// prompt takeover (permission / question / plan) owns the bottom slot.
@@ -345,7 +410,7 @@ function ThreadScreen() {
 		sessionRunning &&
 		headPermission === null &&
 		pendingQuestion === null &&
-		planRequest === null;
+		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 
 	const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
@@ -372,14 +437,12 @@ function ThreadScreen() {
 			connKey,
 			questionsByItemId,
 			toolResultsByItemId,
-			planMode: detail?.session.permissionMode === "plan",
 			sessionRunning: sessionStatus === "running",
 			onAnswerQuestion,
 			normalizedSessionId,
 		}),
 		[
 			answeredQuestionIds,
-			detail?.session.permissionMode,
 			detail?.project.path,
 			onAnswerQuestion,
 			questionsByItemId,
@@ -598,12 +661,7 @@ function ThreadScreen() {
 		});
 	}, [connKey, normalizedSessionId]);
 
-	// One bottom accessory for both real permission prompts and plan review
-	// (`withPlan`). Rendered in the composer's slot — it replaces the composer.
-	const renderPromptAccessory = (
-		requests: readonly PermissionRequest[],
-		withPlan: boolean,
-	) =>
+	const renderPermissionAccessory = (requests: readonly PermissionRequest[]) =>
 		options === null ? null : (
 			<LivePermissionAccessory
 				requests={requests}
@@ -625,75 +683,123 @@ function ThreadScreen() {
 						request.id,
 						{ _tag: "Deny" },
 					);
-					// Queue the typed guidance as the next user message (the Deny wire
-					// decision carries no text of its own).
 					await Effect.runPromise(
-						queueMessage({
+						sendMessage({
 							connection: options,
 							sessionId: normalizedSessionId,
 							input: makeTextInput(message),
 						}),
-					).catch(() => {});
-					await Effect.runPromise(
-						flushServerQueue({
-							connection: options,
-							sessionId: normalizedSessionId,
-						}),
-					).catch(() => {});
+					);
 				}}
-				planText={withPlan ? pendingPlan?.plan : undefined}
-				onOpenPlan={
-					withPlan && pendingPlan !== null
-						? () =>
-								router.push({
-									pathname: "/plan-viewer",
-									params: {
-										conn: connKey,
-										sessionId: normalizedSessionId,
-										itemId: pendingPlan.itemId,
-									},
-								})
-						: undefined
-				}
-				onHandoffPlan={
-					withPlan
-						? async (request) => {
-								if (
-									pendingPlan === null ||
-									detail?.chat === undefined ||
-									detail.session.model.trim().length === 0
-								) {
-									throw new Error("This plan cannot be handed off yet.");
-								}
-								const session = await createSession(connKey, options, {
-									chatId: detail.chat.id,
-									providerId: detail.session.providerId,
-									model: detail.session.model,
-									runtimeMode: detail.session.runtimeMode,
-									permissionMode: "default",
-									initialPrompt: `Implement this approved plan.\n\n${pendingPlan.plan}`,
-								});
-								try {
-									await decidePermission(
-										connKey,
-										options,
-										normalizedSessionId,
-										request.id,
-										{ _tag: "Deny" },
-									);
-								} catch (cause) {
-									await archiveSession(connKey, options, session.id);
-									throw cause;
-								}
-								router.replace({
-									pathname: "/c/[conn]/session/[sessionId]",
-									params: { conn: connKey, sessionId: session.id },
-								});
-							}
-						: undefined
-				}
 			/>
 		);
+
+	const resolvePlanInteraction = async (
+		outcome: "approved" | "cancelled" | "abandoned",
+		feedback?: string,
+	) => {
+		if (options === null || pendingPlanInteraction === null) return;
+		if (pendingPlanInteraction.kind === "permission") {
+			await decidePermission(
+				connKey,
+				options,
+				normalizedSessionId,
+				pendingPlanInteraction.request.id,
+				outcome === "approved" ? { _tag: "AllowOnce" } : { _tag: "Deny" },
+			);
+			return;
+		}
+		if (pendingPlanInteraction.kind === "native") {
+			await Effect.runPromise(
+				respondToPlan({
+					connection: options,
+					sessionId: normalizedSessionId,
+					toolCallId: pendingPlanInteraction.native.toolCallId,
+					outcome,
+					feedback,
+				}),
+			);
+		}
+	};
+
+	const runPlanAction = async (
+		action: "approve" | "feedback" | "handoff" | "abandon",
+		feedback: string,
+	) => {
+		if (options === null || pendingPlanInteraction === null || detail === null)
+			return;
+		if (action === "feedback") {
+			if (pendingPlanInteraction.kind === "native") {
+				await resolvePlanInteraction("cancelled", feedback);
+				return;
+			}
+			if (pendingPlanInteraction.kind === "permission")
+				await resolvePlanInteraction("cancelled", feedback);
+			await Effect.runPromise(
+				sendMessage({
+					connection: options,
+					sessionId: normalizedSessionId,
+					input: makeTextInput(feedback),
+				}),
+			);
+			return;
+		}
+		if (action === "handoff") {
+			if (pendingPlanInteraction.plan === null || detail.chat === undefined)
+				throw new Error("The exact plan is unavailable.");
+			const session = await createSession(connKey, options, {
+				chatId: detail.chat.id,
+				providerId: detail.session.providerId,
+				model: detail.session.model,
+				runtimeMode: detail.session.runtimeMode,
+				permissionMode: "default",
+				initialPrompt: `${PLAN_APPROVAL_PROMPT}\n\n${pendingPlanInteraction.plan}`,
+			});
+			try {
+				if (pendingPlanInteraction.kind === "emulated") {
+					await useSessionsStore
+						.getState()
+						.setPermissionMode(
+							connKey,
+							options,
+							normalizedSessionId,
+							"default",
+						);
+				} else {
+					await resolvePlanInteraction("abandoned");
+				}
+			} catch (cause) {
+				await archiveSession(connKey, options, session.id);
+				throw cause;
+			}
+			router.replace({
+				pathname: "/c/[conn]/session/[sessionId]",
+				params: { conn: connKey, sessionId: session.id },
+			});
+			return;
+		}
+		if (action === "abandon") {
+			await resolvePlanInteraction("abandoned");
+			await useSessionsStore
+				.getState()
+				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			return;
+		}
+		if (pendingPlanInteraction.kind === "emulated") {
+			await useSessionsStore
+				.getState()
+				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			await Effect.runPromise(
+				sendMessage({
+					connection: options,
+					sessionId: normalizedSessionId,
+					input: makeTextInput(PLAN_APPROVAL_PROMPT),
+				}),
+			);
+			return;
+		}
+		await resolvePlanInteraction("approved");
+	};
 
 	return (
 		<View className="flex-1 bg-background">
@@ -787,35 +893,6 @@ function ThreadScreen() {
 							}}
 						>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-							{serverQueued.map((item) => (
-								<QueuedBubble
-									key={item.id}
-									text={item.input.text}
-									onCancel={() => {
-										if (options !== null) {
-											void deleteServerQueued(
-												connKey,
-												options,
-												normalizedSessionId,
-												item.id,
-											);
-										}
-									}}
-								/>
-							))}
-							{localQueued.map((item) => (
-								<QueuedBubble
-									key={item.clientId}
-									text={item.text}
-									onCancel={() =>
-										void cancelQueued(
-											connKey,
-											normalizedSessionId,
-											item.clientId,
-										)
-									}
-								/>
-							))}
 						</View>
 						<View style={{ height: transcriptFooterHeight }} />
 					</View>
@@ -925,9 +1002,10 @@ function ThreadScreen() {
 					pointerEvents="box-none"
 					style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
 				>
-					{options === null ? null : headPermission !== null ? (
-						renderPromptAccessory(permissionRequests, false)
-					) : pendingQuestion !== null ? (
+					{options === null ? null : bottomState.blocking?.kind ===
+						"permission" ? (
+						renderPermissionAccessory(bottomState.blocking.requests)
+					) : bottomState.blocking?.kind === "question" ? (
 						<View
 							className="px-3 pt-2"
 							style={{
@@ -935,15 +1013,81 @@ function ThreadScreen() {
 							}}
 						>
 							<PendingUserInputCard
-								itemId={pendingQuestion.itemId}
-								questions={pendingQuestion.questions}
+								itemId={bottomState.blocking.question.itemId}
+								questions={bottomState.blocking.question.questions}
 								onSubmit={onAnswerQuestion}
 							/>
 						</View>
-					) : planRequest !== null ? (
-						renderPromptAccessory([planRequest], true)
-					) : (
-						<View pointerEvents="box-none">
+					) : bottomState.planReview !== null ? (
+						<PlanReviewCard
+							interaction={bottomState.planReview}
+							bottomInset={insets.bottom}
+							onAction={runPlanAction}
+						/>
+					) : null}
+					{options === null ? null : (
+						<View
+							pointerEvents="box-none"
+							style={
+								bottomState.blocking !== null || bottomState.planReview !== null
+									? { display: "none" }
+									: undefined
+							}
+						>
+							<ChatManagementBars
+								goal={goal}
+								planBlocked={pendingPlanInteraction !== null}
+								queue={serverQueued}
+								localQueue={unackedLocalQueued}
+								queueCount={bottomState.queue.count}
+								queuePaused={serverQueuePaused}
+								onSetGoal={(input) =>
+									setGoal(connKey, options, normalizedSessionId, input)
+								}
+								onClearGoal={() =>
+									clearGoal(connKey, options, normalizedSessionId)
+								}
+								onDeleteQueue={(id) =>
+									deleteServerQueued(connKey, options, normalizedSessionId, id)
+								}
+								onUpdateQueue={(item, text) =>
+									updateServerQueued(
+										connKey,
+										options,
+										normalizedSessionId,
+										item.id,
+										{ ...item.input, text },
+									)
+								}
+								onSendQueue={(id) =>
+									sendServerQueuedNow(connKey, options, normalizedSessionId, id)
+								}
+								onMoveQueue={(id, direction) => {
+									const ids = serverQueued.map((item) => item.id);
+									const from = ids.indexOf(id);
+									const to = from + direction;
+									if (from < 0 || to < 0 || to >= ids.length)
+										return Promise.resolve();
+									const next = [...ids];
+									const [moved] = next.splice(from, 1);
+									if (moved !== undefined) next.splice(to, 0, moved);
+									return reorderServerQueued(
+										connKey,
+										options,
+										normalizedSessionId,
+										next,
+									);
+								}}
+								onResumeQueue={() =>
+									resumeServerQueue(connKey, options, normalizedSessionId)
+								}
+								onDeleteLocalQueue={(id) =>
+									cancelLocalQueued(connKey, normalizedSessionId, id)
+								}
+								onUpdateLocalQueue={(id, text) =>
+									updateLocalQueued(connKey, normalizedSessionId, id, text)
+								}
+							/>
 							{detail !== null && sessionStatus !== "running" ? (
 								<ReviewChangesPill
 									connection={options}
@@ -1016,38 +1160,3 @@ class ThreadScreenBoundary extends React.Component<
 		return this.props.children;
 	}
 }
-
-const QueuedBubble = ({
-	text,
-	onCancel,
-}: {
-	text: string;
-	onCancel: () => void;
-}) => (
-	<View className="items-end px-3 py-1.5">
-		<View
-			style={{ borderCurve: "continuous" }}
-			className="max-w-[88%] rounded-2xl border border-primary/40 bg-primary/15 px-3 py-2"
-		>
-			<View className="mb-0.5 flex-row items-center">
-				<Text className="font-sans-medium text-[11px] text-warning">
-					Queued
-				</Text>
-				<View className="flex-1" />
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel="Cancel queued message"
-					hitSlop={8}
-					onPress={onCancel}
-				>
-					<Text className="font-sans-medium text-[12px] text-muted-foreground">
-						Cancel
-					</Text>
-				</Pressable>
-			</View>
-			<Text className="font-sans text-[15px] leading-5 text-foreground">
-				{text}
-			</Text>
-		</View>
-	</View>
-);

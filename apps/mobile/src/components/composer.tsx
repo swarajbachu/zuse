@@ -3,6 +3,7 @@ import {
 	CloudOffIcon,
 	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
+import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
 	groupTimelineTurns,
@@ -50,9 +51,7 @@ import {
 	queueMessage,
 	sendMessage,
 	setSessionModel,
-	setSessionPermissionMode,
 	setSessionProvider,
-	setSessionRuntimeMode,
 } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useAvailabilityStore } from "~/store/availability";
@@ -62,6 +61,7 @@ import {
 	useMobileMessagesStore,
 } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
+import { useSessionsStore } from "~/store/sessions";
 import { colors } from "~/theme";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
@@ -113,14 +113,13 @@ export const Composer = ({
 	const shouldAutoFocus = useRef(false);
 	const stateKey = connectionSessionKey(connKey, sessionId);
 
-	const queuedCount = useOutboxStore(
-		(state) => (state.queuedBySession[stateKey] ?? []).length,
-	);
-	const queueSending = useOutboxStore(
-		(state) => state.sendingBySession[stateKey] === true,
-	);
-	const queueError = useOutboxStore((state) => state.errorBySession[stateKey]);
 	const enqueue = useOutboxStore((state) => state.enqueue);
+	const setPermissionModeOptimistic = useSessionsStore(
+		(state) => state.setPermissionMode,
+	);
+	const setRuntimeModeOptimistic = useSessionsStore(
+		(state) => state.setRuntimeMode,
+	);
 	const messages = useMobileMessagesStore((state) =>
 		selectSessionMessages(state.messagesBySession, stateKey),
 	);
@@ -154,6 +153,10 @@ export const Composer = ({
 		() => availableProviderIds(availability),
 		[availability],
 	);
+	const goalSupported =
+		availability
+			?.find((entry) => entry.providerId === session?.providerId)
+			?.capabilities?.includes("goalMode") === true;
 
 	const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
 	const showInterrupt = isInterruptVisible(status);
@@ -179,19 +182,20 @@ export const Composer = ({
 		modelSheetOpen;
 
 	const agentCount = currentActivity?.agents ?? 0;
-	const hasPills = !online || queuedCount > 0 || agentCount > 0;
+	const hasPills = !online || agentCount > 0;
 
 	const submit = async () => {
 		if (!canSend) return;
 		const value = text.trim();
 		if (!online) {
-			if (attachments.length > 0 || goalMode) {
-				setComposerError("Attachments and goals require an active connection.");
+			if (attachments.length > 0) {
+				setComposerError("Attachments require an active connection.");
 				return;
 			}
 			onMessageSubmitted?.();
 			setText("");
-			await enqueue(connKey, sessionId, value);
+			await enqueue(connKey, sessionId, value, goalMode);
+			setGoalMode(false);
 			return;
 		}
 		onMessageSubmitted?.();
@@ -205,7 +209,12 @@ export const Composer = ({
 				),
 			);
 			const input = makeTextInput(value, uploaded, goalMode);
-			if (showInterrupt) {
+			const route = chooseComposerSubmitRoute({
+				sendPlanFeedbackNow: false,
+				goalSendMode: goalMode,
+				shouldQueue: showInterrupt,
+			});
+			if (route === "queue") {
 				await Effect.runPromise(
 					queueMessage({
 						connection,
@@ -273,6 +282,7 @@ export const Composer = ({
 	const changeModelMode = async (next: ModelModeValue) => {
 		if (session === null) return;
 		const actions = nextModelChangeActions(session, next, fresh);
+		setComposerError(null);
 		try {
 			for (const action of actions) {
 				switch (action.type) {
@@ -292,27 +302,33 @@ export const Composer = ({
 						);
 						break;
 					case "setRuntimeMode":
-						await Effect.runPromise(
-							setSessionRuntimeMode({
+						if (
+							!(await setRuntimeModeOptimistic(
+								connKey,
 								connection,
 								sessionId,
-								runtimeMode: action.runtimeMode,
-							}),
-						);
+								action.runtimeMode,
+							))
+						)
+							throw new Error(
+								"Could not change approval mode. Tap the option to retry.",
+							);
 						break;
 					case "setPermissionMode":
-						await Effect.runPromise(
-							setSessionPermissionMode({
+						if (
+							!(await setPermissionModeOptimistic(
+								connKey,
 								connection,
 								sessionId,
-								mode: action.permissionMode,
-							}),
-						);
+								action.permissionMode,
+							))
+						)
+							throw new Error("Could not change Plan mode. Tap Plan to retry.");
 						break;
 				}
 			}
-		} catch {
-			// Started sessions can reject some changes. Keep this quiet on mobile.
+		} catch (cause) {
+			setComposerError(messageOf(cause));
 		}
 	};
 
@@ -351,12 +367,6 @@ export const Composer = ({
 							}
 						/>
 					) : null}
-					{queuedCount > 0 ? (
-						<StatusPill
-							label={`${queuedCount} queued${queueSending ? " · sending" : queueError ? " · retry" : ""}`}
-							tone={queueError ? "danger" : "neutral"}
-						/>
-					) : null}
 					{agentCount > 0 ? (
 						<StatusPill
 							label={`${agentCount} ${agentCount === 1 ? "agent" : "agents"}`}
@@ -385,8 +395,6 @@ export const Composer = ({
 					paddingHorizontal: expanded ? 16 : 12,
 					paddingVertical: expanded ? 10 : 6,
 					borderRadius: 26,
-					borderWidth: planMode ? 1.5 : 0,
-					borderColor: planMode ? colors.accent : "transparent",
 				}}
 			>
 				{expanded ? (
@@ -438,6 +446,7 @@ export const Composer = ({
 								<>
 									<ComposerPlusMenu
 										goalMode={goalMode}
+										goalSupported={goalSupported}
 										planMode={planMode}
 										onPickImages={() =>
 											void pickComposerImages().then((items) =>
@@ -479,6 +488,7 @@ export const Composer = ({
 						{modelValue === null ? null : (
 							<ComposerPlusMenu
 								goalMode={goalMode}
+								goalSupported={goalSupported}
 								planMode={planMode}
 								onPickImages={() =>
 									void pickComposerImages().then((items) =>
@@ -583,11 +593,9 @@ const SendButton = ({
 
 /** The "Plan" indicator pill docked at the top of the composer in plan mode. */
 const PlanPill = ({ onClear }: { onClear: () => void }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5">
-		<ListTodo size={15} color={colors.accent} />
-		<Text className="font-sans-medium text-[14px] text-foreground">
-			Plan mode
-		</Text>
+	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
+		<ListTodo size={15} color={colors.secondaryFg} />
+		<Text className="font-sans-medium text-[14px] text-foreground">Plan</Text>
 		<Pressable accessibilityRole="button" onPress={onClear} hitSlop={8}>
 			<X size={14} color={colors.secondaryFg} />
 		</Pressable>

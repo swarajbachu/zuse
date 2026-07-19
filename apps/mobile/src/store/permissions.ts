@@ -24,6 +24,11 @@ type PermissionsState = {
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 	) => Promise<void>;
+	reconcile: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+	) => Promise<void>;
 	decide: (
 		connKey: string,
 		options: WsProtocolOptions,
@@ -60,7 +65,10 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 				client["permission.listPending"]({ sessionId }),
 			);
 			set((state) => ({
-				pendingBySession: { ...state.pendingBySession, [liveKey]: listed },
+				pendingBySession: {
+					...state.pendingBySession,
+					[liveKey]: normalizeRequests(listed),
+				},
 			}));
 
 			const program = Stream.runForEach(
@@ -75,7 +83,7 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 							return {
 								pendingBySession: {
 									...state.pendingBySession,
-									[liveKey]: [...current, request],
+									[liveKey]: normalizeRequests([...current, request]),
 								},
 							};
 						});
@@ -86,6 +94,23 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 			reportConnectionFailure(options, cause);
 			// A dropped permission stream is non-fatal: the messages store already
 			// surfaces the connection error, and hydrate re-runs on the next mount.
+		}
+	},
+	reconcile: async (connKey, options, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const listed = await Effect.runPromise(
+				client["permission.listPending"]({ sessionId }),
+			);
+			set((state) => ({
+				pendingBySession: {
+					...state.pendingBySession,
+					[key]: normalizeRequests(listed),
+				},
+			}));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
 		}
 	},
 	decide: async (connKey, options, sessionId, requestId, decision) => {
@@ -115,10 +140,20 @@ export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 							(entry) => entry.id === requestId,
 						)
 							? (state.pendingBySession[key] ?? [])
-							: [failedRequest, ...(state.pendingBySession[key] ?? [])],
+							: normalizeRequests([
+									failedRequest,
+									...(state.pendingBySession[key] ?? []),
+								]),
 				},
 			}));
 			throw cause;
 		}
 	},
 }));
+
+const normalizeRequests = (
+	requests: readonly PermissionRequest[],
+): PermissionRequest[] =>
+	Array.from(
+		new Map(requests.map((request) => [request.id, request])).values(),
+	).sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime());

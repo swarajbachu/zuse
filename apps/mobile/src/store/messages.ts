@@ -3,6 +3,7 @@ import {
 	sessionEventCursors,
 } from "@zuse/client-runtime/session-events";
 import type {
+	ComposerInput,
 	Message,
 	MessageId,
 	QueuedMessage,
@@ -33,6 +34,30 @@ type MessagesState = {
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 		queueId: string,
+	) => Promise<void>;
+	updateQueued: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueId: string,
+		input: ComposerInput,
+	) => Promise<void>;
+	reorderQueued: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueIds: readonly string[],
+	) => Promise<void>;
+	sendQueuedNow: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueId: string,
+	) => Promise<void>;
+	resumeQueue: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
 	) => Promise<void>;
 };
 
@@ -280,7 +305,100 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 			}));
 		}
 	},
+	updateQueued: async (connKey, options, sessionId, queueId, input) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const updated = await Effect.runPromise(
+				client["messages.queue.update"]({ sessionId, queueId, input }),
+			);
+			set((state) => ({
+				queueBySession: {
+					...state.queueBySession,
+					[key]: (state.queueBySession[key] ?? []).map((item) =>
+						item.id === queueId ? updated : item,
+					),
+				},
+			}));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+				errorBySession: { ...state.errorBySession, [key]: messageOf(cause) },
+			}));
+			throw cause;
+		}
+	},
+	reorderQueued: async (connKey, options, sessionId, queueIds) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		const byId = new Map(previous.map((item) => [item.id, item]));
+		const optimistic = queueIds.flatMap((id) => byId.get(id) ?? []);
+		set((state) => ({
+			queueBySession: { ...state.queueBySession, [key]: optimistic },
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const next = await Effect.runPromise(
+				client["messages.queue.reorder"]({
+					sessionId,
+					queueIds: [...queueIds],
+				}),
+			);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: next },
+			}));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+			}));
+			throw cause;
+		}
+	},
+	sendQueuedNow: async (connKey, options, sessionId, queueId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		set((state) => ({
+			queueBySession: {
+				...state.queueBySession,
+				[key]: previous.filter((item) => item.id !== queueId),
+			},
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(
+				client["messages.queue.sendNow"]({ sessionId, queueId }),
+			);
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+			}));
+			throw cause;
+		}
+	},
+	resumeQueue: async (connKey, options, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		set((state) => ({
+			queuePausedBySession: { ...state.queuePausedBySession, [key]: false },
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queuePausedBySession: { ...state.queuePausedBySession, [key]: true },
+			}));
+			throw cause;
+		}
+	},
 }));
+
+const messageOf = (cause: unknown): string =>
+	cause instanceof Error ? cause.message : String(cause);
 
 export const addOptimisticMessage = (key: string, message: Message): void => {
 	optimisticIds.add(message.id);

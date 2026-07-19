@@ -15,6 +15,7 @@ import {
 	type MessageId,
 	type PermissionDecision,
 	type PermissionMode,
+	type PlanApprovalOutcome,
 	type ProviderId,
 	type RuntimeMode,
 	type SessionId,
@@ -115,12 +116,14 @@ export const queueMessage = (options: {
 	connection: WsProtocolOptions;
 	sessionId: SessionId;
 	input: ComposerInputType;
+	queueId?: string;
 }) => {
 	const program = Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		yield* client["messages.queue.add"]({
 			sessionId: options.sessionId,
 			input: options.input,
+			queueId: options.queueId,
 		});
 	});
 	return program.pipe(
@@ -178,6 +181,27 @@ export const decidePermission = (options: {
 		),
 	);
 };
+
+export const respondToPlan = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	toolCallId: string;
+	outcome: PlanApprovalOutcome;
+	feedback?: string;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		yield* client["session.plan.respond"]({
+			sessionId: options.sessionId,
+			toolCallId: options.toolCallId,
+			outcome: options.outcome,
+			feedback: options.feedback,
+		});
+	}).pipe(
+		Effect.tapError((cause) =>
+			Effect.sync(() => reportConnectionFailure(options.connection, cause)),
+		),
+	);
 
 export const answerQuestion = (options: {
 	connection: WsProtocolOptions;

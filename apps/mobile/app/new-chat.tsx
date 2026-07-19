@@ -198,6 +198,10 @@ export default function NewChatScreen() {
 			modelOptions: defaultModelOptions(providerId, model),
 		};
 	}, [availableProviders, modelMode]);
+	const goalSupported =
+		availability
+			?.find((entry) => entry.providerId === effectiveModelMode.providerId)
+			?.capabilities?.includes("goalMode") === true;
 
 	useEffect(() => {
 		if (selectedOptions === null || effectiveProjectId === null) return;
@@ -509,6 +513,7 @@ export default function NewChatScreen() {
 					<View className="flex-row items-center gap-2">
 						<ComposerPlusMenu
 							goalMode={goalMode}
+							goalSupported={goalSupported}
 							planMode={effectiveModelMode.permissionMode === "plan"}
 							onPickImages={() =>
 								void pickComposerImages().then((items) =>
@@ -573,13 +578,13 @@ export default function NewChatScreen() {
 }
 
 const PlanPill = ({
-	label = "Plan mode",
+	label = "Plan",
 	onClear,
 }: {
 	label?: string;
 	onClear: () => void;
 }) => (
-	<View className="self-start flex-row items-center gap-2 rounded-full border border-primary/40 bg-primary/10 px-3 py-1.5">
+	<View className="self-start flex-row items-center gap-2 rounded-full bg-card-elevated px-3 py-1.5">
 		<Text className="font-sans-medium text-[14px] text-foreground">
 			{label}
 		</Text>

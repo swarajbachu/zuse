@@ -37,6 +37,7 @@
 		"@noble/hashes": "^1.8.0",
 		"@zuse/client-runtime": "*",
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"clsx": "^2.1.1",
 		"effect": "catalog:",
 		"expo": "~57.0.6",

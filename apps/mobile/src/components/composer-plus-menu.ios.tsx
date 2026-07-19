@@ -11,6 +11,7 @@ const sf = (name: string) => name as never;
  */
 export function ComposerPlusMenu({
 	goalMode,
+	goalSupported,
 	planMode,
 	onPickImages,
 	onPickFiles,
@@ -18,6 +19,7 @@ export function ComposerPlusMenu({
 	onTogglePlan,
 }: {
 	goalMode: boolean;
+	goalSupported: boolean;
 	planMode: boolean;
 	onPickImages: () => void;
 	onPickFiles: () => void;
@@ -37,11 +39,13 @@ export function ComposerPlusMenu({
 					systemImage={sf("doc")}
 					onPress={onPickFiles}
 				/>
-				<NativeButton
-					label="Add goal"
-					systemImage={goalMode ? sf("checkmark") : sf("target")}
-					onPress={() => onToggleGoal(!goalMode)}
-				/>
+				{goalSupported ? (
+					<NativeButton
+						label="Add goal"
+						systemImage={goalMode ? sf("checkmark") : sf("target")}
+						onPress={() => onToggleGoal(!goalMode)}
+					/>
+				) : null}
 				<NativeButton
 					label="Plan mode"
 					systemImage={planMode ? sf("checkmark") : sf("list.bullet.rectangle")}

@@ -20,6 +20,8 @@ import { readSessionsSnapshot, writeSessionsSnapshot } from "~/offline/cache";
 import {
 	markChatRead as markChatReadRpc,
 	renameChat as renameChatRpc,
+	setSessionPermissionMode as setSessionPermissionModeRpc,
+	setSessionRuntimeMode as setSessionRuntimeModeRpc,
 } from "~/rpc/actions";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
@@ -58,6 +60,18 @@ type SessionsState = {
 		options: WsProtocolOptions,
 		chatId: Chat["id"],
 	) => Promise<void>;
+	setPermissionMode: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: Session["id"],
+		mode: PermissionMode,
+	) => Promise<boolean>;
+	setRuntimeMode: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: Session["id"],
+		mode: RuntimeMode,
+	) => Promise<boolean>;
 	createChat: (
 		connKey: string,
 		options: WsProtocolOptions,
@@ -227,6 +241,98 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			}));
 		} catch {
 			// Non-fatal: the optimistic stamp stands until the next hydrate.
+		}
+	},
+	setPermissionMode: async (connKey, options, sessionId, mode) => {
+		const previous = findSession(
+			get().bundlesByConnection[connKey] ?? [],
+			sessionId,
+		);
+		set((state) => ({
+			bundlesByConnection: {
+				...state.bundlesByConnection,
+				[connKey]: patchSessionFields(
+					state.bundlesByConnection[connKey] ?? [],
+					sessionId,
+					{ permissionMode: mode },
+				),
+			},
+			errorByConnection: { ...state.errorByConnection, [connKey]: null },
+		}));
+		try {
+			await Effect.runPromise(
+				setSessionPermissionModeRpc({
+					connection: options,
+					sessionId,
+					mode,
+				}),
+			);
+			return true;
+		} catch (cause) {
+			set((state) => ({
+				bundlesByConnection: {
+					...state.bundlesByConnection,
+					[connKey]:
+						previous === null
+							? (state.bundlesByConnection[connKey] ?? [])
+							: patchSessionFields(
+									state.bundlesByConnection[connKey] ?? [],
+									sessionId,
+									{ permissionMode: previous.permissionMode },
+								),
+				},
+				errorByConnection: {
+					...state.errorByConnection,
+					[connKey]: cause instanceof Error ? cause.message : String(cause),
+				},
+			}));
+			return false;
+		}
+	},
+	setRuntimeMode: async (connKey, options, sessionId, mode) => {
+		const previous = findSession(
+			get().bundlesByConnection[connKey] ?? [],
+			sessionId,
+		);
+		set((state) => ({
+			bundlesByConnection: {
+				...state.bundlesByConnection,
+				[connKey]: patchSessionFields(
+					state.bundlesByConnection[connKey] ?? [],
+					sessionId,
+					{ runtimeMode: mode },
+				),
+			},
+			errorByConnection: { ...state.errorByConnection, [connKey]: null },
+		}));
+		try {
+			await Effect.runPromise(
+				setSessionRuntimeModeRpc({
+					connection: options,
+					sessionId,
+					runtimeMode: mode,
+				}),
+			);
+			return true;
+		} catch (cause) {
+			set((state) => ({
+				bundlesByConnection: {
+					...state.bundlesByConnection,
+					[connKey]:
+						previous === null
+							? (state.bundlesByConnection[connKey] ?? [])
+							: patchSessionFields(
+									state.bundlesByConnection[connKey] ?? [],
+									sessionId,
+									{ runtimeMode: previous.runtimeMode },
+								),
+				},
+				errorByConnection: {
+					...state.errorByConnection,
+					[connKey]: cause instanceof Error ? cause.message : String(cause),
+				},
+			}));
+			return false;
 		}
 	},
 	createChat: async (connKey, options, input) => {
@@ -402,13 +508,40 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 						Effect.sync(() => {
 							sessionEventCursors.set(eventCursorKey(key), envelope.sequence);
 							const event = projectSessionEvent(envelope);
-							if (event._tag !== "status") return;
-							set((state) => ({
-								statusBySession: {
-									...state.statusBySession,
-									[connectionSessionKey(connKey, session.id)]: event.status,
-								},
-							}));
+							if (event._tag === "status") {
+								set((state) => ({
+									statusBySession: {
+										...state.statusBySession,
+										[connectionSessionKey(connKey, session.id)]: event.status,
+									},
+								}));
+								return;
+							}
+							if (event._tag === "permissionMode") {
+								set((state) => ({
+									bundlesByConnection: {
+										...state.bundlesByConnection,
+										[connKey]: patchSessionFields(
+											state.bundlesByConnection[connKey] ?? [],
+											session.id,
+											{ permissionMode: event.permissionMode },
+										),
+									},
+								}));
+								return;
+							}
+							if (event._tag === "runtimeMode") {
+								set((state) => ({
+									bundlesByConnection: {
+										...state.bundlesByConnection,
+										[connKey]: patchSessionFields(
+											state.bundlesByConnection[connKey] ?? [],
+											session.id,
+											{ runtimeMode: event.runtimeMode },
+										),
+									},
+								}));
+							}
 						}),
 				).pipe(Effect.catch(() => Effect.void));
 				statusFibers.set(key, Effect.runFork(statusProgram));
@@ -523,6 +656,31 @@ const patchSession = (
 					],
 				},
 	);
+
+const findSession = (
+	bundles: readonly ProjectBundle[],
+	sessionId: Session["id"],
+): Session | null => {
+	for (const bundle of bundles) {
+		const session = bundle.sessions.find((item) => item.id === sessionId);
+		if (session !== undefined) return session;
+	}
+	return null;
+};
+
+const patchSessionFields = (
+	bundles: readonly ProjectBundle[],
+	sessionId: Session["id"],
+	fields: Partial<Session>,
+): ProjectBundle[] =>
+	bundles.map((bundle) => ({
+		...bundle,
+		sessions: bundle.sessions.map((session) =>
+			session.id === sessionId
+				? ({ ...session, ...fields } as Session)
+				: session,
+		),
+	}));
 
 export const selectSessionChat = (
 	bundles: readonly ProjectBundle[],
