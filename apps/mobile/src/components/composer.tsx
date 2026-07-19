@@ -5,7 +5,6 @@ import {
 } from "@hugeicons-pro/core-solid-rounded";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
-	extractFileChanges,
 	groupTimelineTurns,
 	summarizeTurnActivity,
 } from "@zuse/client-runtime/timeline";
@@ -84,6 +83,8 @@ export const Composer = ({
 	online,
 	connectionStatus,
 	onRetryConnection,
+	onFocusChange,
+	onMessageSubmitted,
 	bottomInset = 0,
 }: {
 	connKey: string;
@@ -95,6 +96,8 @@ export const Composer = ({
 	online: boolean;
 	connectionStatus?: ConnectionStatus;
 	onRetryConnection?: () => void;
+	onFocusChange?: (focused: boolean) => void;
+	onMessageSubmitted?: () => void;
 	bottomInset?: number;
 }) => {
 	const [text, setText] = useState("");
@@ -125,13 +128,6 @@ export const Composer = ({
 		const turn = groupTimelineTurns(messages).at(-1);
 		if (turn === undefined) return null;
 		const summary = summarizeTurnActivity(turn.body);
-		const firstFileTool = turn.body.find((message) => {
-			const content = message.content;
-			return (
-				content._tag === "tool_use" &&
-				extractFileChanges(content.tool, content.input).length > 0
-			);
-		});
 		const firstAgentTool = turn.body.find((message) => {
 			const content = message.content;
 			return (
@@ -140,10 +136,6 @@ export const Composer = ({
 		});
 		return {
 			...summary,
-			fileItemId:
-				firstFileTool?.content._tag === "tool_use"
-					? firstFileTool.content.itemId
-					: null,
 			agentItemId:
 				firstAgentTool?.content._tag === "tool_use"
 					? firstAgentTool.content.itemId
@@ -186,10 +178,8 @@ export const Composer = ({
 		showInterrupt ||
 		modelSheetOpen;
 
-	const fileCount = currentActivity?.files.length ?? 0;
 	const agentCount = currentActivity?.agents ?? 0;
-	const hasPills =
-		!online || queuedCount > 0 || fileCount > 0 || agentCount > 0;
+	const hasPills = !online || queuedCount > 0 || agentCount > 0;
 
 	const submit = async () => {
 		if (!canSend) return;
@@ -199,10 +189,12 @@ export const Composer = ({
 				setComposerError("Attachments and goals require an active connection.");
 				return;
 			}
+			onMessageSubmitted?.();
 			setText("");
 			await enqueue(connKey, sessionId, value);
 			return;
 		}
+		onMessageSubmitted?.();
 		setBusy(true);
 		setComposerError(null);
 		let optimisticMessageId: MessageId | null = null;
@@ -365,25 +357,6 @@ export const Composer = ({
 							tone={queueError ? "danger" : "neutral"}
 						/>
 					) : null}
-					{fileCount > 0 ? (
-						<StatusPill
-							label={`${fileCount} files  +${currentActivity?.added ?? 0} −${currentActivity?.removed ?? 0}`}
-							tone="files"
-							onPress={
-								currentActivity?.fileItemId == null
-									? undefined
-									: () =>
-											router.push({
-												pathname: "/c/[conn]/session/[sessionId]/tool/[itemId]",
-												params: {
-													conn: connKey,
-													sessionId,
-													itemId: currentActivity?.fileItemId ?? "",
-												},
-											})
-							}
-						/>
-					) : null}
 					{agentCount > 0 ? (
 						<StatusPill
 							label={`${agentCount} ${agentCount === 1 ? "agent" : "agents"}`}
@@ -441,8 +414,14 @@ export const Composer = ({
 							placeholderTextColor={colors.tertiaryFg}
 							value={text}
 							onChangeText={setText}
-							onFocus={() => setFocused(true)}
-							onBlur={() => setFocused(false)}
+							onFocus={() => {
+								setFocused(true);
+								onFocusChange?.(true);
+							}}
+							onBlur={() => {
+								setFocused(false);
+								onFocusChange?.(false);
+							}}
 						/>
 						{planMode || goalMode ? (
 							<View className="flex-row flex-wrap gap-2 px-1">
@@ -638,7 +617,7 @@ function StatusPill({
 	onPress,
 }: {
 	label: string;
-	tone: "neutral" | "warning" | "danger" | "files";
+	tone: "neutral" | "warning" | "danger";
 	onPress?: () => void;
 }) {
 	const color =
