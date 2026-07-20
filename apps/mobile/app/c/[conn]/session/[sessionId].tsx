@@ -1,3 +1,8 @@
+import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
+import {
+	findPendingPlanInteraction,
+	isPlanApprovalRequest,
+} from "@zuse/client-runtime/plan-interactions";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import type {
 	FolderId,
@@ -5,6 +10,7 @@ import type {
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
+import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -19,10 +25,10 @@ import React, {
 import {
 	AccessibilityInfo,
 	Alert,
+	AppState,
 	Dimensions,
 	FlatList,
 	Keyboard,
-	KeyboardAvoidingView,
 	type KeyboardEvent,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
@@ -41,14 +47,18 @@ import { useUniwind } from "uniwind";
 
 import { Composer } from "~/components/composer";
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
+import { ChatManagementBars } from "~/components/messages/chat-management-bars";
 import { LivePermissionAccessory } from "~/components/messages/live-permission-accessory";
 import type { MessageRowContext } from "~/components/messages/message-row";
 import { PendingUserInputCard } from "~/components/messages/pending-user-input-card";
+import { PlanReviewCard } from "~/components/messages/plan-review-card";
 import { TurnRow } from "~/components/messages/turn-row";
 import { ReviewChangesPill } from "~/components/review-changes-pill";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
+import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
+import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
 import { isFreshChat } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
@@ -70,13 +80,18 @@ import {
 	transcriptBottomInset,
 } from "~/lib/thread-scroll";
 import {
+	readThreadViewState,
+	writeThreadViewState,
+} from "~/lib/thread-view-state";
+import {
 	answerQuestion,
-	flushServerQueue,
 	makeTextInput,
-	queueMessage,
+	respondToPlan,
+	sendMessage,
 } from "~/rpc/actions";
 import { useConnectionRuntimeStore } from "~/store/connection-runtime";
 import { useConnectionsStore } from "~/store/connections";
+import { useGoalsStore } from "~/store/goals";
 import { useMobileMessagesStore } from "~/store/messages";
 import { useOutboxStore } from "~/store/outbox";
 import { usePermissionsStore } from "~/store/permissions";
@@ -117,6 +132,8 @@ function ThreadScreen() {
 	const initialScrollQuietUntil = useRef(0);
 	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
+	const scrollOffsetRef = useRef(0);
+	const pendingRestoreOffsetRef = useRef<number | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
@@ -164,30 +181,84 @@ function ThreadScreen() {
 	const deleteServerQueued = useMobileMessagesStore(
 		(state) => state.deleteQueued,
 	);
+	const updateServerQueued = useMobileMessagesStore(
+		(state) => state.updateQueued,
+	);
+	const reorderServerQueued = useMobileMessagesStore(
+		(state) => state.reorderQueued,
+	);
+	const sendServerQueuedNow = useMobileMessagesStore(
+		(state) => state.sendQueuedNow,
+	);
+	const resumeServerQueue = useMobileMessagesStore(
+		(state) => state.resumeQueue,
+	);
+	const serverQueuePaused = useMobileMessagesStore(
+		(state) => state.queuePausedBySession[stateKey] === true,
+	);
 	const hydrate = useMobileMessagesStore((state) => state.hydrate);
+	const releaseMessages = useMobileMessagesStore((state) => state.release);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const latestTurnId = turns.at(-1)?.id ?? null;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
+	const chatId = detail?.chat?.id ?? null;
+	const allConnectionSessions = useMemo(
+		() => bundles.flatMap((bundle) => bundle.sessions),
+		[bundles],
+	);
+	const chatThreads = useMemo(
+		() =>
+			chatId === null
+				? detail === null
+					? []
+					: [detail.session]
+				: orderedChatSessions(allConnectionSessions, chatId),
+		[allConnectionSessions, chatId, detail],
+	);
+	const threadIds = useMemo(
+		() => chatThreads.map((thread) => thread.id),
+		[chatThreads],
+	);
+	const currentThreadIndex = chatThreads.findIndex(
+		(thread) => thread.id === normalizedSessionId,
+	);
+	const statusBySession = useSessionsStore((state) => state.statusBySession);
+	const runningThreadCount = chatThreads.filter((thread) => {
+		const status = statusBySession[connectionSessionKey(connKey, thread.id)];
+		return (status ?? thread.status) === "running";
+	}).length;
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
-	const sessionStatus =
-		useSessionsStore((state) => state.statusBySession[stateKey]) ??
-		detail?.session.status;
+	const setActiveSession = useSessionsStore((state) => state.setActiveSession);
+	const sessionStatus = statusBySession[stateKey] ?? detail?.session.status;
 	const fresh = isFreshChat(messages);
 	const sessionRunning = sessionStatus === "running";
 
-	const hydratePermissions = usePermissionsStore((state) => state.hydrate);
+	const hydratePermissionConnection = usePermissionsStore(
+		(state) => state.hydrateConnection,
+	);
+	const reconcilePermissions = usePermissionsStore((state) => state.reconcile);
 	const decidePermission = usePermissionsStore((state) => state.decide);
 	const pending = usePermissionsStore(
 		(state) => state.pendingBySession[stateKey] ?? EMPTY_PENDING,
 	);
 	const hydrateOutbox = useOutboxStore((state) => state.hydrate);
 	const flushOutbox = useOutboxStore((state) => state.flush);
-	const cancelQueued = useOutboxStore((state) => state.cancel);
+	const cancelLocalQueued = useOutboxStore((state) => state.cancel);
+	const updateLocalQueued = useOutboxStore((state) => state.update);
 	const localQueued = useOutboxStore(
 		(state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
 	);
 	const queuedCount = localQueued.length;
+	const unackedLocalQueued = localQueued.filter(
+		(item) =>
+			!serverQueued.some((serverItem) => serverItem.id === item.clientId),
+	);
+	const hydrateGoal = useGoalsStore((state) => state.hydrate);
+	const releaseGoal = useGoalsStore((state) => state.release);
+	const goal = useGoalsStore((state) => state.goalBySession[stateKey] ?? null);
+	const setGoal = useGoalsStore((state) => state.setGoal);
+	const clearGoal = useGoalsStore((state) => state.clearGoal);
 	const [screenOpenedAt] = useState(() => Date.now());
 
 	useEffect(() => {
@@ -200,23 +271,84 @@ function ThreadScreen() {
 	}, [connKey, options, watchConnection]);
 
 	useEffect(() => {
+		if (chatId === null || options === null) return;
+		void setActiveSession(connKey, options, chatId, normalizedSessionId).catch(
+			() => {},
+		);
+	}, [chatId, connKey, normalizedSessionId, options, setActiveSession]);
+
+	useEffect(() => {
 		void connectionSnapshot?.generation;
 		if (normalizedSessionId.length > 0 && options !== null) {
 			void hydrate(connKey, options, normalizedSessionId);
-			void hydratePermissions(connKey, options, normalizedSessionId);
+			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
+		return () => {
+			if (normalizedSessionId.length === 0) return;
+			void releaseMessages(connKey, normalizedSessionId);
+			void releaseGoal(connKey, normalizedSessionId);
+		};
 	}, [
 		connKey,
 		connectionSnapshot?.generation,
 		hydrate,
 		hydrateOutbox,
-		hydratePermissions,
+		hydrateGoal,
 		normalizedSessionId,
 		options,
+		releaseGoal,
+		releaseMessages,
 	]);
 
-	const chatId = detail?.chat?.id ?? null;
+	useEffect(() => {
+		void connectionSnapshot?.generation;
+		if (options === null || threadIds.length === 0) return;
+		void hydratePermissionConnection(connKey, options, threadIds);
+	}, [
+		connKey,
+		connectionSnapshot?.generation,
+		hydratePermissionConnection,
+		options,
+		threadIds,
+	]);
+
+	useEffect(() => {
+		if (options === null || (!sessionRunning && pending.length === 0)) return;
+		const poll = () =>
+			void reconcilePermissions(connKey, options, normalizedSessionId);
+		const timer = setInterval(poll, pending.length > 0 ? 5_000 : 15_000);
+		return () => clearInterval(timer);
+	}, [
+		connKey,
+		normalizedSessionId,
+		options,
+		pending.length,
+		reconcilePermissions,
+		sessionRunning,
+	]);
+
+	useEffect(() => {
+		if (options === null) return;
+		void sessionStatus;
+		void reconcilePermissions(connKey, options, normalizedSessionId);
+	}, [
+		connKey,
+		normalizedSessionId,
+		options,
+		reconcilePermissions,
+		sessionStatus,
+	]);
+
+	useEffect(() => {
+		if (options === null) return;
+		const subscription = AppState.addEventListener("change", (state) => {
+			if (state === "active")
+				void reconcilePermissions(connKey, options, normalizedSessionId);
+		});
+		return () => subscription.remove();
+	}, [connKey, normalizedSessionId, options, reconcilePermissions]);
+
 	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
 	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
 	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
@@ -294,37 +426,20 @@ function ThreadScreen() {
 		() => buildToolResultsByItemId(messages),
 		[messages],
 	);
-	const pendingPlan = (() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const content = messages[index]?.content;
-			if (content?._tag !== "tool_use" || content.tool !== "ExitPlanMode") {
-				continue;
-			}
-			const input = content.input;
-			if (typeof input !== "object" || input === null || !("plan" in input)) {
-				continue;
-			}
-			const plan = Reflect.get(input, "plan");
-			if (typeof plan === "string" && plan.trim().length > 0) {
-				return { itemId: content.itemId, plan };
-			}
-		}
-		return null;
-	})();
-
-	// Bottom-slot precedence (matches web): a permission or an unanswered
-	// question fully replaces the composer; plan review replaces it only when
-	// neither is pending. Permission outranks question because the agent is
-	// already mid-tool-call. ExitPlanMode is split out from real permissions.
-	const planRequest =
-		pending.find(
-			(request) =>
-				request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode",
-		) ?? null;
 	const permissionRequests = pending.filter(
-		(request) =>
-			!(request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode"),
+		(request) => !isPlanApprovalRequest(request, normalizedSessionId),
 	);
+	const pendingPlanInteraction =
+		detail === null
+			? null
+			: findPendingPlanInteraction({
+					messages,
+					requests: pending,
+					sessionId: normalizedSessionId,
+					providerId: detail.session.providerId,
+					permissionMode: detail.session.permissionMode,
+					isRunning: sessionRunning,
+				});
 	const headPermission = permissionRequests[0] ?? null;
 	const pendingQuestion = (() => {
 		for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -338,6 +453,15 @@ function ThreadScreen() {
 		}
 		return null;
 	})();
+	const bottomState = coordinateChatBottomState({
+		permissions: permissionRequests,
+		question: pendingQuestion,
+		planReview: pendingPlanInteraction,
+		goal,
+		serverQueueCount: serverQueued.length,
+		localQueueCount: unackedLocalQueued.length,
+		queuePaused: serverQueuePaused,
+	});
 
 	// The live "working" row shows the whole time the agent runs, but not while a
 	// prompt takeover (permission / question / plan) owns the bottom slot.
@@ -345,7 +469,7 @@ function ThreadScreen() {
 		sessionRunning &&
 		headPermission === null &&
 		pendingQuestion === null &&
-		planRequest === null;
+		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 
 	const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
@@ -372,14 +496,12 @@ function ThreadScreen() {
 			connKey,
 			questionsByItemId,
 			toolResultsByItemId,
-			planMode: detail?.session.permissionMode === "plan",
 			sessionRunning: sessionStatus === "running",
 			onAnswerQuestion,
 			normalizedSessionId,
 		}),
 		[
 			answeredQuestionIds,
-			detail?.session.permissionMode,
 			detail?.project.path,
 			onAnswerQuestion,
 			questionsByItemId,
@@ -391,16 +513,28 @@ function ThreadScreen() {
 	);
 
 	useEffect(() => {
-		void stateKey;
+		const saved = readThreadViewState(stateKey);
 		didInitialScroll.current = false;
 		initialScrollQuietUntil.current = Date.now() + 500;
-		scrollModeRef.current = "initial";
-		distanceFromBottomRef.current = 0;
+		scrollModeRef.current = saved?.mode ?? "initial";
+		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
+		scrollOffsetRef.current = saved?.offsetY ?? 0;
+		pendingRestoreOffsetRef.current =
+			saved?.mode === "detached" ? saved.offsetY : null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		setLatestTurnHeight(0);
+		return () => {
+			const mode = scrollModeRef.current;
+			if (mode === "initial") return;
+			writeThreadViewState(stateKey, {
+				mode,
+				offsetY: scrollOffsetRef.current,
+				distanceFromBottom: distanceFromBottomRef.current,
+			});
+		};
 	}, [stateKey]);
 
 	useEffect(() => {
@@ -410,6 +544,7 @@ function ThreadScreen() {
 
 	useEffect(() => {
 		const updateKeyboardOverlap = (event: KeyboardEvent) => {
+			Keyboard.scheduleLayoutAnimation(event);
 			const screenHeight = Dimensions.get("screen").height;
 			const keyboardBottom =
 				event.endCoordinates.screenY + event.endCoordinates.height;
@@ -420,14 +555,17 @@ function ThreadScreen() {
 			setKeyboardOverlap(nextOverlap);
 		};
 		const showEvent =
-			process.env.EXPO_OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+			process.env.EXPO_OS === "ios"
+				? "keyboardWillChangeFrame"
+				: "keyboardDidShow";
 		const hideEvent =
 			process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 		const showSubscription = Keyboard.addListener(
 			showEvent,
 			updateKeyboardOverlap,
 		);
-		const hideSubscription = Keyboard.addListener(hideEvent, () => {
+		const hideSubscription = Keyboard.addListener(hideEvent, (event) => {
+			Keyboard.scheduleLayoutAnimation(event);
 			setKeyboardOverlap(0);
 		});
 		return () => {
@@ -475,14 +613,31 @@ function ThreadScreen() {
 			}
 		});
 	}, [messages.length]);
+	const restoreDetachedPosition = useCallback(() => {
+		const offset = pendingRestoreOffsetRef.current;
+		if (offset === null || messages.length === 0) return false;
+		pendingRestoreOffsetRef.current = null;
+		requestAnimationFrame(() => {
+			listRef.current?.scrollToOffset({ offset, animated: false });
+		});
+		return true;
+	}, [messages.length]);
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+		scrollOffsetRef.current = Math.max(0, contentOffset.y);
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
 		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
+		if (scrollModeRef.current !== "initial") {
+			writeThreadViewState(stateKey, {
+				mode: scrollModeRef.current,
+				offsetY: scrollOffsetRef.current,
+				distanceFromBottom: distanceFromBottomRef.current,
+			});
+		}
 		setShowJumpButton(
 			shouldShowLatestAction({
 				mode: scrollModeRef.current,
@@ -597,13 +752,19 @@ function ThreadScreen() {
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
 	}, [connKey, normalizedSessionId]);
+	const openThreads = useCallback(() => {
+		if (chatId === null) return;
+		router.push({
+			pathname: "/c/[conn]/chat/[chatId]/threads",
+			params: {
+				conn: connKey,
+				chatId,
+				sessionId: normalizedSessionId,
+			},
+		});
+	}, [chatId, connKey, normalizedSessionId]);
 
-	// One bottom accessory for both real permission prompts and plan review
-	// (`withPlan`). Rendered in the composer's slot — it replaces the composer.
-	const renderPromptAccessory = (
-		requests: readonly PermissionRequest[],
-		withPlan: boolean,
-	) =>
+	const renderPermissionAccessory = (requests: readonly PermissionRequest[]) =>
 		options === null ? null : (
 			<LivePermissionAccessory
 				requests={requests}
@@ -625,84 +786,141 @@ function ThreadScreen() {
 						request.id,
 						{ _tag: "Deny" },
 					);
-					// Queue the typed guidance as the next user message (the Deny wire
-					// decision carries no text of its own).
 					await Effect.runPromise(
-						queueMessage({
+						sendMessage({
 							connection: options,
 							sessionId: normalizedSessionId,
 							input: makeTextInput(message),
 						}),
-					).catch(() => {});
-					await Effect.runPromise(
-						flushServerQueue({
-							connection: options,
-							sessionId: normalizedSessionId,
-						}),
-					).catch(() => {});
+					);
 				}}
-				planText={withPlan ? pendingPlan?.plan : undefined}
-				onOpenPlan={
-					withPlan && pendingPlan !== null
-						? () =>
-								router.push({
-									pathname: "/plan-viewer",
-									params: {
-										conn: connKey,
-										sessionId: normalizedSessionId,
-										itemId: pendingPlan.itemId,
-									},
-								})
-						: undefined
-				}
-				onHandoffPlan={
-					withPlan
-						? async (request) => {
-								if (
-									pendingPlan === null ||
-									detail?.chat === undefined ||
-									detail.session.model.trim().length === 0
-								) {
-									throw new Error("This plan cannot be handed off yet.");
-								}
-								const session = await createSession(connKey, options, {
-									chatId: detail.chat.id,
-									providerId: detail.session.providerId,
-									model: detail.session.model,
-									runtimeMode: detail.session.runtimeMode,
-									permissionMode: "default",
-									initialPrompt: `Implement this approved plan.\n\n${pendingPlan.plan}`,
-								});
-								try {
-									await decidePermission(
-										connKey,
-										options,
-										normalizedSessionId,
-										request.id,
-										{ _tag: "Deny" },
-									);
-								} catch (cause) {
-									await archiveSession(connKey, options, session.id);
-									throw cause;
-								}
-								router.replace({
-									pathname: "/c/[conn]/session/[sessionId]",
-									params: { conn: connKey, sessionId: session.id },
-								});
-							}
-						: undefined
-				}
 			/>
 		);
+
+	const resolvePlanInteraction = async (
+		outcome: "approved" | "cancelled" | "abandoned",
+		feedback?: string,
+	) => {
+		if (options === null || pendingPlanInteraction === null) return;
+		if (pendingPlanInteraction.kind === "permission") {
+			await decidePermission(
+				connKey,
+				options,
+				normalizedSessionId,
+				pendingPlanInteraction.request.id,
+				outcome === "approved" ? { _tag: "AllowOnce" } : { _tag: "Deny" },
+			);
+			return;
+		}
+		if (pendingPlanInteraction.kind === "native") {
+			await Effect.runPromise(
+				respondToPlan({
+					connection: options,
+					sessionId: normalizedSessionId,
+					toolCallId: pendingPlanInteraction.native.toolCallId,
+					outcome,
+					feedback,
+				}),
+			);
+		}
+	};
+
+	const runPlanAction = async (
+		action: "approve" | "feedback" | "handoff" | "abandon",
+		feedback: string,
+	) => {
+		if (options === null || pendingPlanInteraction === null || detail === null)
+			return;
+		if (action === "feedback") {
+			if (pendingPlanInteraction.kind === "native") {
+				await resolvePlanInteraction("cancelled", feedback);
+				return;
+			}
+			if (pendingPlanInteraction.kind === "permission")
+				await resolvePlanInteraction("cancelled", feedback);
+			await Effect.runPromise(
+				sendMessage({
+					connection: options,
+					sessionId: normalizedSessionId,
+					input: makeTextInput(feedback),
+				}),
+			);
+			return;
+		}
+		if (action === "handoff") {
+			if (pendingPlanInteraction.plan === null || detail.chat === undefined)
+				throw new Error("The exact plan is unavailable.");
+			const session = await createSession(connKey, options, {
+				chatId: detail.chat.id,
+				providerId: detail.session.providerId,
+				model: detail.session.model,
+				title: "Build",
+				runtimeMode: detail.session.runtimeMode,
+				permissionMode: "default",
+				initialPrompt: `${PLAN_APPROVAL_PROMPT}\n\n${pendingPlanInteraction.plan}`,
+			});
+			try {
+				if (pendingPlanInteraction.kind === "emulated") {
+					await useSessionsStore
+						.getState()
+						.setPermissionMode(
+							connKey,
+							options,
+							normalizedSessionId,
+							"default",
+						);
+				} else {
+					await resolvePlanInteraction("abandoned");
+				}
+			} catch (cause) {
+				await archiveSession(connKey, options, session.id);
+				throw cause;
+			}
+			router.replace({
+				pathname: "/c/[conn]/session/[sessionId]",
+				params: { conn: connKey, sessionId: session.id },
+			});
+			return;
+		}
+		if (action === "abandon") {
+			await resolvePlanInteraction("abandoned");
+			await useSessionsStore
+				.getState()
+				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			return;
+		}
+		if (pendingPlanInteraction.kind === "emulated") {
+			await useSessionsStore
+				.getState()
+				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			await Effect.runPromise(
+				sendMessage({
+					connection: options,
+					sessionId: normalizedSessionId,
+					input: makeTextInput(PLAN_APPROVAL_PROMPT),
+				}),
+			);
+			return;
+		}
+		await resolvePlanInteraction("approved");
+	};
 
 	return (
 		<View className="flex-1 bg-background">
 			<Stack.Screen
 				options={{
 					headerLargeTitle: false,
+					headerTitle: () => (
+						<ThreadHeaderTitle
+							title={title}
+							current={Math.max(1, currentThreadIndex + 1)}
+							total={Math.max(1, chatThreads.length)}
+							runningCount={runningThreadCount}
+							onPress={openThreads}
+						/>
+					),
 				}}
 			/>
-			<Stack.Screen.Title>{title}</Stack.Screen.Title>
 			<SessionActionsMenu
 				isPinned={isPinned}
 				onNewChat={() => router.push("/new-chat")}
@@ -712,6 +930,7 @@ function ThreadScreen() {
 						: () => void togglePinnedChat(currentPinKey)
 				}
 				onRename={chatId === null ? undefined : onRename}
+				onThreads={openThreads}
 				onChanges={openChanges}
 				onFiles={openFiles}
 				onArchive={onArchive}
@@ -787,35 +1006,6 @@ function ThreadScreen() {
 							}}
 						>
 							{workingActive ? <WorkingIndicator since={workingSince} /> : null}
-							{serverQueued.map((item) => (
-								<QueuedBubble
-									key={item.id}
-									text={item.input.text}
-									onCancel={() => {
-										if (options !== null) {
-											void deleteServerQueued(
-												connKey,
-												options,
-												normalizedSessionId,
-												item.id,
-											);
-										}
-									}}
-								/>
-							))}
-							{localQueued.map((item) => (
-								<QueuedBubble
-									key={item.clientId}
-									text={item.text}
-									onCancel={() =>
-										void cancelQueued(
-											connKey,
-											normalizedSessionId,
-											item.clientId,
-										)
-									}
-								/>
-							))}
 						</View>
 						<View style={{ height: transcriptFooterHeight }} />
 					</View>
@@ -827,21 +1017,18 @@ function ThreadScreen() {
 				onTouchStart={detachReader}
 				scrollEventThrottle={32}
 				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-				onContentSizeChange={scrollToLatest}
+				onContentSizeChange={() => {
+					if (!restoreDetachedPosition()) scrollToLatest();
+				}}
 				onLayout={(event) => {
 					const nextHeight = event.nativeEvent.layout.height;
 					setListViewportHeight((current) =>
 						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 					);
-					scrollToLatest();
+					if (!restoreDetachedPosition()) scrollToLatest();
 				}}
 			/>
-			<KeyboardAvoidingView
-				behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}
-				pointerEvents="box-none"
-				style={{ position: "absolute", inset: 0 }}
-				contentContainerStyle={{ flex: 1 }}
-			>
+			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
 				{showJumpButton ? (
 					<Animated.View
 						pointerEvents="box-none"
@@ -851,7 +1038,7 @@ function ThreadScreen() {
 								position: "absolute",
 								left: 0,
 								right: 0,
-								bottom: bottomAccessoryHeight + 8,
+								bottom: keyboardOverlap + bottomAccessoryHeight + 8,
 								alignItems: "center",
 							},
 						]}
@@ -912,7 +1099,7 @@ function ThreadScreen() {
 						position: "absolute",
 						left: 0,
 						right: 0,
-						bottom: 0,
+						bottom: keyboardOverlap,
 						height: bottomAccessoryHeight + 40,
 						experimental_backgroundImage:
 							theme === "dark"
@@ -923,11 +1110,17 @@ function ThreadScreen() {
 				<View
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
-					style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+					style={{
+						position: "absolute",
+						left: 0,
+						right: 0,
+						bottom: keyboardOverlap,
+					}}
 				>
-					{options === null ? null : headPermission !== null ? (
-						renderPromptAccessory(permissionRequests, false)
-					) : pendingQuestion !== null ? (
+					{options === null ? null : bottomState.blocking?.kind ===
+						"permission" ? (
+						renderPermissionAccessory(bottomState.blocking.requests)
+					) : bottomState.blocking?.kind === "question" ? (
 						<View
 							className="px-3 pt-2"
 							style={{
@@ -935,15 +1128,82 @@ function ThreadScreen() {
 							}}
 						>
 							<PendingUserInputCard
-								itemId={pendingQuestion.itemId}
-								questions={pendingQuestion.questions}
+								itemId={bottomState.blocking.question.itemId}
+								questions={bottomState.blocking.question.questions}
 								onSubmit={onAnswerQuestion}
 							/>
 						</View>
-					) : planRequest !== null ? (
-						renderPromptAccessory([planRequest], true)
-					) : (
-						<View pointerEvents="box-none">
+					) : bottomState.planReview !== null ? (
+						<PlanReviewCard
+							interaction={bottomState.planReview}
+							bottomInset={insets.bottom}
+							onAction={runPlanAction}
+						/>
+					) : null}
+					{options === null ? null : (
+						<View
+							pointerEvents="box-none"
+							style={
+								bottomState.blocking !== null || bottomState.planReview !== null
+									? { display: "none" }
+									: undefined
+							}
+						>
+							<ChatManagementBars
+								runningThreads={runningThreadCount}
+								goal={goal}
+								planBlocked={pendingPlanInteraction !== null}
+								queue={serverQueued}
+								localQueue={unackedLocalQueued}
+								queueCount={bottomState.queue.count}
+								queuePaused={serverQueuePaused}
+								onSetGoal={(input) =>
+									setGoal(connKey, options, normalizedSessionId, input)
+								}
+								onClearGoal={() =>
+									clearGoal(connKey, options, normalizedSessionId)
+								}
+								onDeleteQueue={(id) =>
+									deleteServerQueued(connKey, options, normalizedSessionId, id)
+								}
+								onUpdateQueue={(item, text) =>
+									updateServerQueued(
+										connKey,
+										options,
+										normalizedSessionId,
+										item.id,
+										{ ...item.input, text },
+									)
+								}
+								onSendQueue={(id) =>
+									sendServerQueuedNow(connKey, options, normalizedSessionId, id)
+								}
+								onMoveQueue={(id, direction) => {
+									const ids = serverQueued.map((item) => item.id);
+									const from = ids.indexOf(id);
+									const to = from + direction;
+									if (from < 0 || to < 0 || to >= ids.length)
+										return Promise.resolve();
+									const next = [...ids];
+									const [moved] = next.splice(from, 1);
+									if (moved !== undefined) next.splice(to, 0, moved);
+									return reorderServerQueued(
+										connKey,
+										options,
+										normalizedSessionId,
+										next,
+									);
+								}}
+								onResumeQueue={() =>
+									resumeServerQueue(connKey, options, normalizedSessionId)
+								}
+								onDeleteLocalQueue={(id) =>
+									cancelLocalQueued(connKey, normalizedSessionId, id)
+								}
+								onUpdateLocalQueue={(id, text) =>
+									updateLocalQueued(connKey, normalizedSessionId, id, text)
+								}
+							/>
 							{detail !== null && sessionStatus !== "running" ? (
 								<ReviewChangesPill
 									connection={options}
@@ -962,6 +1222,7 @@ function ThreadScreen() {
 								/>
 							) : null}
 							<Composer
+								key={stateKey}
 								connKey={connKey}
 								connection={options}
 								sessionId={normalizedSessionId}
@@ -978,7 +1239,7 @@ function ThreadScreen() {
 						</View>
 					)}
 				</View>
-			</KeyboardAvoidingView>
+			</View>
 		</View>
 	);
 }
@@ -1016,38 +1277,3 @@ class ThreadScreenBoundary extends React.Component<
 		return this.props.children;
 	}
 }
-
-const QueuedBubble = ({
-	text,
-	onCancel,
-}: {
-	text: string;
-	onCancel: () => void;
-}) => (
-	<View className="items-end px-3 py-1.5">
-		<View
-			style={{ borderCurve: "continuous" }}
-			className="max-w-[88%] rounded-2xl border border-primary/40 bg-primary/15 px-3 py-2"
-		>
-			<View className="mb-0.5 flex-row items-center">
-				<Text className="font-sans-medium text-[11px] text-warning">
-					Queued
-				</Text>
-				<View className="flex-1" />
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel="Cancel queued message"
-					hitSlop={8}
-					onPress={onCancel}
-				>
-					<Text className="font-sans-medium text-[12px] text-muted-foreground">
-						Cancel
-					</Text>
-				</Pressable>
-			</View>
-			<Text className="font-sans text-[15px] leading-5 text-foreground">
-				{text}
-			</Text>
-		</View>
-	</View>
-);

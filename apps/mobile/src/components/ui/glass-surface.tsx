@@ -2,13 +2,10 @@ import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { Platform, StyleSheet, View, type ViewProps } from "react-native";
 import { useUniwind } from "uniwind";
 
-import { colors } from "~/theme";
-
-// rounded-2xl — matches the app's other inset surfaces.
-const RADIUS = 16;
+import { colors, radii } from "~/theme";
 
 const styles = StyleSheet.create({
-	base: { borderRadius: RADIUS, borderCurve: "continuous" },
+	base: { borderRadius: radii.lg, borderCurve: "continuous" },
 	glass: { overflow: "hidden" },
 	// Mirrors `bg-card` + `border-border` for the pre-iOS-26 fallback.
 	fallback: { borderWidth: StyleSheet.hairlineWidth },

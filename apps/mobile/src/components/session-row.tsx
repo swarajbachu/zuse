@@ -16,12 +16,16 @@ export const SessionRow = ({
 	chat,
 	status,
 	unread,
+	threadCount = 1,
+	runningCount = 0,
 	onPress,
 }: {
 	session: Session;
 	chat?: Chat;
 	status?: SessionStatus;
 	unread: boolean;
+	threadCount?: number;
+	runningCount?: number;
 	onPress: () => void;
 }) => (
 	<Pressable
@@ -46,7 +50,9 @@ export const SessionRow = ({
 				className="mt-0.5 font-sans text-[12px] text-muted-foreground"
 				numberOfLines={1}
 			>
-				{session.providerId} / {session.model} · {status ?? session.status}
+				{session.providerId} / {session.model}
+				{runningCount > 0 ? ` · ${runningCount} running` : ""}
+				{` · ${threadCount} ${threadCount === 1 ? "thread" : "threads"}`}
 			</Text>
 		</View>
 		<ChevronRight size={18} color={colors.tertiaryFg} />

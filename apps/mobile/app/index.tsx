@@ -662,8 +662,16 @@ function InboxItem({
 									className="min-w-0 flex-1 font-sans text-[12px] text-muted-foreground"
 									numberOfLines={1}
 								>
-									{item.row.subtitle}
-									{isActive ? " · Running" : ""}
+									{item.row.threadLabel}
+									{item.row.runningCount > 0
+										? ` · ${item.row.runningCount} running`
+										: ""}
+									{item.row.threadCount > 1
+										? ` · ${item.row.threadCount} threads`
+										: ""}
+									{item.row.subtitle.length > 0
+										? ` · ${item.row.subtitle}`
+										: ""}
 								</Text>
 								<BranchStateBadge state={branchState} />
 							</View>

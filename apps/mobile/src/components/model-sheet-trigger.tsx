@@ -1,4 +1,4 @@
-import { Pressable, Text } from "react-native";
+import { Pressable, Text, View } from "react-native";
 
 import {
 	modelOptionsForProvider,
@@ -25,26 +25,29 @@ export function ModelSheetTrigger({
 		value.model,
 		value.modelOptions,
 	);
+	const modelLabel = [labelForModel(value), reasoning?.label]
+		.filter((part): part is string => part !== undefined)
+		.join(" ");
 	return (
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel="Model settings"
 			onPress={onPress}
 			hitSlop={8}
-			className="h-11 min-w-0 flex-row items-center gap-1.5 px-1 active:opacity-60"
+			className="h-10 min-w-7 max-w-[150px] flex-shrink flex-row items-center gap-1.5 px-1 active:opacity-60"
 		>
-			<ProviderLogo providerId={value.providerId} size={16} />
+			<View
+				collapsable={false}
+				className="h-[18px] w-[18px] flex-none items-center justify-center"
+			>
+				<ProviderLogo providerId={value.providerId} size={18} />
+			</View>
 			<Text
-				className="max-w-[140px] font-sans-medium text-[15px] text-foreground"
+				className="min-w-0 flex-shrink font-sans-medium text-[15px] text-foreground"
 				numberOfLines={1}
 			>
-				{labelForModel(value)}
+				{modelLabel}
 			</Text>
-			{reasoning ? (
-				<Text className="font-sans text-[15px] text-muted-foreground">
-					{reasoning.label}
-				</Text>
-			) : null}
 		</Pressable>
 	);
 }

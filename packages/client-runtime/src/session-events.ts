@@ -3,6 +3,8 @@ import {
 	MessageContent,
 	MessageId,
 	MessageRole,
+	PermissionMode,
+	RuntimeMode,
 	type SessionDomainEventEnvelope,
 	SessionStatus,
 } from "@zuse/contracts";
@@ -23,9 +25,29 @@ const SessionStatusSet = Schema.fromJsonString(
 	}),
 );
 
+const SessionPermissionModeSet = Schema.fromJsonString(
+	Schema.TaggedStruct("SessionPermissionModeSet", {
+		permissionMode: PermissionMode,
+	}),
+);
+
+const SessionRuntimeModeSet = Schema.fromJsonString(
+	Schema.TaggedStruct("SessionRuntimeModeSet", {
+		runtimeMode: RuntimeMode,
+	}),
+);
+
 export type SessionEventProjection =
 	| { readonly _tag: "message"; readonly message: Message }
 	| { readonly _tag: "status"; readonly status: typeof SessionStatus.Type }
+	| {
+			readonly _tag: "permissionMode";
+			readonly permissionMode: typeof PermissionMode.Type;
+	  }
+	| {
+			readonly _tag: "runtimeMode";
+			readonly runtimeMode: typeof RuntimeMode.Type;
+	  }
 	| { readonly _tag: "other" };
 
 class SessionEventCursorRegistry {
@@ -89,6 +111,30 @@ export const projectSessionEvent = (
 		);
 		if (Result.isSuccess(payload)) {
 			return { _tag: "status", status: payload.success.status };
+		}
+	}
+
+	if (envelope.type === "SessionPermissionModeSet") {
+		const payload = Schema.decodeUnknownResult(SessionPermissionModeSet)(
+			envelope.payloadJson,
+		);
+		if (Result.isSuccess(payload)) {
+			return {
+				_tag: "permissionMode",
+				permissionMode: payload.success.permissionMode,
+			};
+		}
+	}
+
+	if (envelope.type === "SessionRuntimeModeSet") {
+		const payload = Schema.decodeUnknownResult(SessionRuntimeModeSet)(
+			envelope.payloadJson,
+		);
+		if (Result.isSuccess(payload)) {
+			return {
+				_tag: "runtimeMode",
+				runtimeMode: payload.success.runtimeMode,
+			};
 		}
 	}
 

@@ -50,6 +50,7 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/model-sheet.ios.tsx`,
 			"utf8",
 		);
+		expect(newChat).toContain("<ComposerModeChip");
 		expect(newChat).toContain("<ModelSheetTrigger");
 		expect(newChat).toContain("<ModelSheet");
 		expect(newChat).not.toContain("<ComposerModelMenu");
@@ -65,25 +66,59 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/composer-plus-menu.ios.tsx`,
 			"utf8",
 		);
+		const approvalMenu = readFileSync(
+			`${process.cwd()}/src/components/composer-approval-menu.ios.tsx`,
+			"utf8",
+		);
 		expect(plusMenu).toContain('label="Choose photos"');
 		expect(plusMenu).toContain('label="Choose files"');
 		expect(plusMenu).toContain('label="Add goal"');
 		expect(plusMenu).toContain('label="Plan mode"');
+		for (const source of [plusMenu, approvalMenu]) {
+			expect(source).toContain('ignoreSafeArea="keyboard"');
+			expect(source).toContain("style={{ width: 40, height: 40 }}");
+			expect(source).not.toContain("<Host matchContents");
+		}
 	});
 
-	test("shows selected attachments and plan state inside both composers", () => {
+	test("keeps attachments and unboxed mode state inside both composers", () => {
 		const newChat = appFile("new-chat.tsx");
 		const threadComposer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
 			"utf8",
 		);
+		const modeChip = readFileSync(
+			`${process.cwd()}/src/components/composer-mode-chip.tsx`,
+			"utf8",
+		);
 		for (const source of [newChat, threadComposer]) {
 			expect(source).toContain("<ComposerAttachmentStrip");
-			expect(source).toContain("<PlanPill");
+			expect(source).toContain("<ComposerInputFrame");
+			expect(source).toContain("<ComposerModeChip");
 			expect(source).toContain("<ComposerPlusMenu");
+		}
+		expect(modeChip).toContain("plan ? colors.accent : colors.fg");
+		for (const source of [newChat, threadComposer]) {
+			expect(source).toContain("<ComposerApprovalMenu");
+			expect(source).toContain("<ModelSheetTrigger");
 		}
 		expect(threadComposer).not.toContain("fileCount > 0");
 		expect(threadComposer).not.toContain("fileItemId");
+	});
+
+	test("keeps selected modes visible without forcing the composer active", () => {
+		const threadComposer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		const expandedPolicy = threadComposer.slice(
+			threadComposer.indexOf("const expanded ="),
+			threadComposer.indexOf("const agentCount"),
+		);
+
+		expect(expandedPolicy).not.toContain("goalMode");
+		expect(expandedPolicy).not.toContain("planMode");
+		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
 	test("keeps the camera preview active and explicitly full screen", () => {
@@ -102,12 +137,12 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("transcriptBottomInset(");
 		expect(thread).toContain("onScrollBeginDrag={detachReader}");
 		expect(thread).toContain("onMessageSubmitted={onMessageSubmitted}");
+		expect(thread).toContain("bottom: keyboardOverlap");
 		expect(thread).toContain(
-			'position: "absolute", left: 0, right: 0, bottom: 0',
+			"bottom: keyboardOverlap + bottomAccessoryHeight + 8",
 		);
-		expect(thread).toContain(
-			'behavior={process.env.EXPO_OS === "ios" ? "position" : "height"}',
-		);
+		expect(thread).toContain('"keyboardWillChangeFrame"');
+		expect(thread).not.toContain("<KeyboardAvoidingView");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');
@@ -160,11 +195,9 @@ describe("mobile UI contracts", () => {
 		expect(layout).toContain('presentation: "formSheet"');
 		expect(thread).toContain("onFiles={openFiles}");
 		expect(thread).toContain("onChanges={openChanges}");
-		expect(thread).toContain(
-			"<Stack.Screen.Title>{title}</Stack.Screen.Title>",
-		);
+		expect(thread).toContain("<ThreadHeaderTitle");
+		expect(thread).toContain("headerTitle: () => (");
 		expect(thread).not.toContain("headerRight:");
-		expect(thread).not.toContain("headerTitle:");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');

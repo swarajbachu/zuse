@@ -1,5 +1,6 @@
 import { Host } from "@expo/ui";
-import { Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { frame } from "@expo/ui/swift-ui/modifiers";
 
 import { colors } from "~/theme";
 
@@ -11,6 +12,7 @@ const sf = (name: string) => name as never;
  */
 export function ComposerPlusMenu({
 	goalMode,
+	goalSupported,
 	planMode,
 	onPickImages,
 	onPickFiles,
@@ -18,6 +20,7 @@ export function ComposerPlusMenu({
 	onTogglePlan,
 }: {
 	goalMode: boolean;
+	goalSupported: boolean;
 	planMode: boolean;
 	onPickImages: () => void;
 	onPickFiles: () => void;
@@ -25,8 +28,21 @@ export function ComposerPlusMenu({
 	onTogglePlan: (next: boolean) => void;
 }) {
 	return (
-		<Host matchContents seedColor={colors.fg}>
-			<Menu label="" systemImage="plus">
+		<Host
+			ignoreSafeArea="keyboard"
+			seedColor={colors.fg}
+			style={{ width: 40, height: 40 }}
+		>
+			<Menu
+				label={
+					<Image
+						systemName={sf("plus")}
+						size={20}
+						color={colors.fg}
+						modifiers={[frame({ width: 40, height: 40 })]}
+					/>
+				}
+			>
 				<NativeButton
 					label="Choose photos"
 					systemImage={sf("photo.on.rectangle")}
@@ -37,14 +53,16 @@ export function ComposerPlusMenu({
 					systemImage={sf("doc")}
 					onPress={onPickFiles}
 				/>
-				<NativeButton
-					label="Add goal"
-					systemImage={goalMode ? sf("checkmark") : sf("target")}
-					onPress={() => onToggleGoal(!goalMode)}
-				/>
+				{goalSupported ? (
+					<NativeButton
+						label="Add goal"
+						systemImage={goalMode ? sf("checkmark") : sf("target")}
+						onPress={() => onToggleGoal(!goalMode)}
+					/>
+				) : null}
 				<NativeButton
 					label="Plan mode"
-					systemImage={planMode ? sf("checkmark") : sf("list.bullet.rectangle")}
+					systemImage={planMode ? sf("checkmark") : sf("checklist")}
 					onPress={() => onTogglePlan(!planMode)}
 				/>
 			</Menu>

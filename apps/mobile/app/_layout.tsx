@@ -158,6 +158,17 @@ export default function RootLayout() {
 						options={{ title: "Thread", headerLargeTitle: false }}
 					/>
 					<Stack.Screen
+						name="c/[conn]/chat/[chatId]/threads"
+						options={{
+							title: "Threads",
+							headerLargeTitle: false,
+							presentation: "formSheet",
+							sheetAllowedDetents: [0.62, 0.92],
+							sheetInitialDetentIndex: 0,
+							sheetGrabberVisible: true,
+						}}
+					/>
+					<Stack.Screen
 						name="c/[conn]/session/[sessionId]/files"
 						options={{
 							title: "Files",

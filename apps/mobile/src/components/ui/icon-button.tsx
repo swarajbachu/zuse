@@ -20,7 +20,7 @@ export const IconButton = ({
 	<Pressable
 		accessibilityLabel={label}
 		className={cn(
-			"h-10 w-10 items-center justify-center rounded-lg border active:opacity-80",
+			"h-10 w-10 items-center justify-center rounded-full border active:opacity-80",
 			tone === "primary"
 				? "border-primary bg-primary"
 				: "border-border bg-card",

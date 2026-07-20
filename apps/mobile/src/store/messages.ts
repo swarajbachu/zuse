@@ -3,6 +3,7 @@ import {
 	sessionEventCursors,
 } from "@zuse/client-runtime/session-events";
 import type {
+	ComposerInput,
 	Message,
 	MessageId,
 	QueuedMessage,
@@ -27,12 +28,37 @@ type MessagesState = {
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 	) => Promise<void>;
+	release: (connKey: string, sessionId: SessionId) => Promise<void>;
 	flush: (connKey: string, sessionId: SessionId) => Promise<void>;
 	deleteQueued: (
 		connKey: string,
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 		queueId: string,
+	) => Promise<void>;
+	updateQueued: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueId: string,
+		input: ComposerInput,
+	) => Promise<void>;
+	reorderQueued: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueIds: readonly string[],
+	) => Promise<void>;
+	sendQueuedNow: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
+		queueId: string,
+	) => Promise<void>;
+	resumeQueue: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: SessionId,
 	) => Promise<void>;
 };
 
@@ -41,6 +67,7 @@ const queueFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const eventCursorKey = (liveKey: string): string =>
 	`mobile:messages:${liveKey}`;
 const optimisticIds = new Set<MessageId>();
+const hydrationGeneration = new Map<string, number>();
 let appStateInstalled = false;
 
 const stopFiber = async (
@@ -62,6 +89,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	const keys = new Set([...liveFibers.keys(), ...queueFibers.keys()]);
 	await Promise.all(Array.from(keys, stop));
 	optimisticIds.clear();
+	hydrationGeneration.clear();
 	sessionEventCursors.clearPrefix("mobile:messages:");
 	useMobileMessagesStore.setState({
 		messagesBySession: {},
@@ -78,14 +106,22 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 	queuePausedBySession: {},
 	reconnectingBySession: {},
 	errorBySession: {},
+	release: async (connKey, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		hydrationGeneration.set(key, (hydrationGeneration.get(key) ?? 0) + 1);
+		await stop(key);
+	},
 	hydrate: async (connKey, options, sessionId) => {
 		installAppStateFlush(get);
 		const liveKey = connectionSessionKey(connKey, sessionId);
+		const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
+		hydrationGeneration.set(liveKey, generation);
 		await stop(liveKey);
 
 		const cached = await Effect.runPromise(
 			readMessagesSnapshot(connKey, sessionId),
 		);
+		if (hydrationGeneration.get(liveKey) !== generation) return;
 		if (cached !== null) {
 			sessionEventCursors.set(eventCursorKey(liveKey), cached.highestSequence);
 			set((state) => ({
@@ -113,6 +149,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				const listedQueue = await Effect.runPromise(
 					client["messages.queue.list"]({ sessionId }),
 				);
+				if (hydrationGeneration.get(liveKey) !== generation) return;
 				set((state) => ({
 					queueBySession: {
 						...state.queueBySession,
@@ -139,6 +176,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					client["session.events"]({ sessionId, afterSequence }),
 					(envelope) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							sessionEventCursors.set(
 								eventCursorKey(liveKey),
 								envelope.sequence,
@@ -191,6 +229,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				).pipe(
 					Effect.catch((cause) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							set((state) => ({
 								reconnectingBySession: {
 									...state.reconnectingBySession,
@@ -210,6 +249,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					client["messages.queue.stream"]({ sessionId }),
 					(queue) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							set((state) => ({
 								queueBySession: {
 									...state.queueBySession,
@@ -233,6 +273,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				);
 				queueFibers.set(liveKey, Effect.runFork(queueProgram));
 			} catch (cause) {
+				if (hydrationGeneration.get(liveKey) !== generation) return;
 				reportConnectionFailure(options, cause);
 				set((state) => ({
 					reconnectingBySession: {
@@ -280,7 +321,100 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 			}));
 		}
 	},
+	updateQueued: async (connKey, options, sessionId, queueId, input) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const updated = await Effect.runPromise(
+				client["messages.queue.update"]({ sessionId, queueId, input }),
+			);
+			set((state) => ({
+				queueBySession: {
+					...state.queueBySession,
+					[key]: (state.queueBySession[key] ?? []).map((item) =>
+						item.id === queueId ? updated : item,
+					),
+				},
+			}));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+				errorBySession: { ...state.errorBySession, [key]: messageOf(cause) },
+			}));
+			throw cause;
+		}
+	},
+	reorderQueued: async (connKey, options, sessionId, queueIds) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		const byId = new Map(previous.map((item) => [item.id, item]));
+		const optimistic = queueIds.flatMap((id) => byId.get(id) ?? []);
+		set((state) => ({
+			queueBySession: { ...state.queueBySession, [key]: optimistic },
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			const next = await Effect.runPromise(
+				client["messages.queue.reorder"]({
+					sessionId,
+					queueIds: [...queueIds],
+				}),
+			);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: next },
+			}));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+			}));
+			throw cause;
+		}
+	},
+	sendQueuedNow: async (connKey, options, sessionId, queueId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		const previous = get().queueBySession[key] ?? [];
+		set((state) => ({
+			queueBySession: {
+				...state.queueBySession,
+				[key]: previous.filter((item) => item.id !== queueId),
+			},
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(
+				client["messages.queue.sendNow"]({ sessionId, queueId }),
+			);
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queueBySession: { ...state.queueBySession, [key]: previous },
+			}));
+			throw cause;
+		}
+	},
+	resumeQueue: async (connKey, options, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		set((state) => ({
+			queuePausedBySession: { ...state.queuePausedBySession, [key]: false },
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				queuePausedBySession: { ...state.queuePausedBySession, [key]: true },
+			}));
+			throw cause;
+		}
+	},
 }));
+
+const messageOf = (cause: unknown): string =>
+	cause instanceof Error ? cause.message : String(cause);
 
 export const addOptimisticMessage = (key: string, message: Message): void => {
 	optimisticIds.add(message.id);
