@@ -14,6 +14,7 @@ import { CostFooter } from "./components/cost-footer";
 import { EnvironmentSummary } from "./components/environment-summary.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
+import { NearbyPairingApproval } from "./components/nearby-pairing-approval.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
 import {
@@ -194,6 +195,7 @@ export function App() {
     return (
       <TooltipProvider>
         <NotchTrayBridge />
+        <NearbyPairingApproval />
         <AppearanceController />
         <div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -208,6 +210,7 @@ export function App() {
     return (
       <TooltipProvider>
         <NotchTrayBridge />
+        <NearbyPairingApproval />
         <AppearanceController />
         <div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -221,6 +224,7 @@ export function App() {
   return (
     <TooltipProvider>
       <NotchTrayBridge />
+      <NearbyPairingApproval />
       <AppearanceController />
       <MainShell />
     </TooltipProvider>

@@ -2511,6 +2511,8 @@ PODS:
     - ReactNativeDependencies
     - Yoga
   - Yoga (0.0.0)
+  - ZuseLocalConnectivity (1.0.0):
+    - ExpoModulesCore
 
 DEPENDENCIES:
   - EXApplication (from `../../../node_modules/expo-application/ios`)
@@ -2634,6 +2636,7 @@ DEPENDENCIES:
   - RNSVG (from `../../../node_modules/react-native-svg`)
   - RNWorklets (from `../../../node_modules/react-native-worklets`)
   - Yoga (from `../../../node_modules/react-native/ReactCommon/yoga`)
+  - ZuseLocalConnectivity (from `../modules/local-connectivity/ios`)
 
 SPEC REPOS:
   trunk:
@@ -2881,6 +2884,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/react-native-worklets"
   Yoga:
     :path: "../../../node_modules/react-native/ReactCommon/yoga"
+  ZuseLocalConnectivity:
+    :path: "../modules/local-connectivity/ios"
 
 SPEC CHECKSUMS:
   EXApplication: 7c453f04a11df858ebe42e05aa858da4e7a32f77
@@ -2908,7 +2913,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: b823a14b4ec436e3a6d947b72da6d4020e790515
   ExpoLogBox: 8a3cfa2897e088083cd49fc1ff7fdb2de4385547
-  ExpoModulesCore: 34c69dd080b32bdd38e066963e75493d8cf5ad84
+  ExpoModulesCore: 24a282b04d4d6ec14d4ce0573eb1ac02d8faaef5
   ExpoModulesJSI: 4b5d68bf019c251c2c8b7246aa36306dc381fe7f
   ExpoModulesWorklets: 18419b65da3b14a8df484baccec7dd6dad15387a
   ExpoModulesWorkletsAdapter: f01c9ff0ac77071ae2a89a5f5778cbf7c1115221
@@ -2920,7 +2925,7 @@ SPEC CHECKSUMS:
   ExpoWebBrowser: 2a3445af48b78130a1d570616c83692e9a3d0275
   EXUpdatesInterface: 92d2aa5194b6fb93ca8ab749db75665cb28b2e60
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: 81bc8e476e1bae3c96b3c88056b8a2ab41581651
+  hermes-engine: cebf5d5c1adb3a4f935bf7d7a01a69aafc9e868d
   OpenSSL-Universal: ecee7b138fa75a74ecf00d7ffd248fb584739b9e
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
@@ -2930,7 +2935,7 @@ SPEC CHECKSUMS:
   React: 2574546f2d017abd14d0c9b48cf2b6a0547c2591
   React-callinvoker: 03cd4b931d1d583d87aae99b8f7b6fe26bf571ee
   React-Core: 1c824d9c7dd8aa760b5f1b50d5a54c2a3f598f87
-  React-Core-prebuilt: 28e7badf40b16a6565396b81f197cf287d638fb8
+  React-Core-prebuilt: 13924a267683b3d6fa4bde9c80380becf83a9c5c
   React-CoreModules: 2f9ed75bca7f6dea2b70e8a1f4a5ca9b6be52d76
   React-cxxreact: 7103d5ba69848c039e11079e74ceede05efe795e
   React-debug: 8cc8d99ccc664ef9e873027f7fc3fb0a50496012
@@ -2996,7 +3001,7 @@ SPEC CHECKSUMS:
   ReactAppDependencyProvider: dcdd0e1b9559a6d8d8aea05286f4ed085091978e
   ReactCodegen: 21807c5e7d6d0e334667f755e23063834d581e62
   ReactCommon: d5c1bb4427bf51c443de5926aac332c89ddd9363
-  ReactNativeDependencies: 1bde419b968a85b78fcb444a0870d66fcdc9c937
+  ReactNativeDependencies: fa0a54b3f5319ae0e3b9aff32bfee7a424b88e66
   RNCMaskedView: eb2b2e538afa907f05a5848a1a1ac26092e6fec9
   RNGestureHandler: 92172e79df6e88e0e93b6341f9dcd8b5a02746ba
   RNReanimated: c66c5c9b1200bb4c0ca7b597064328b16bb1d667
@@ -3004,6 +3009,7 @@ SPEC CHECKSUMS:
   RNSVG: 3fe8590403ac9f107b4d14591bc6e54da4894e5c
   RNWorklets: e539c59f0fe8cee9a77989b7fb20d0cd7fb0e7d8
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
+  ZuseLocalConnectivity: fef64e7a2c5177941f3c1d6175a5c3314aa9f58e
 
 PODFILE CHECKSUM: 500ef5fd3ab9c8c1dd690e55ce780036d6114379
 

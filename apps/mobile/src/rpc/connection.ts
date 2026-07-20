@@ -8,6 +8,7 @@ import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
 import {
 	logConnectionDiagnostic,
 	logConnectionProblem,
@@ -53,6 +54,24 @@ const makeClientSession = (options: WsProtocolOptions) => {
 const prepareOptions = async (
 	options: WsProtocolOptions,
 ): Promise<WsProtocolOptions> => {
+	if (
+		options.serverPublicKey !== undefined &&
+		options.serverKeyPin !== undefined
+	) {
+		await verifyPinnedLocalServer({
+			host: options.host,
+			port: options.port,
+			publicKey: options.serverPublicKey,
+			pin: options.serverKeyPin,
+		});
+	}
+	if (
+		options.refreshAccountGrant === true &&
+		options.environmentId !== undefined
+	) {
+		const grant = await connectEnvironment(options.environmentId);
+		return { ...options, token: grant.connectToken };
+	}
 	if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
 		return options;
 	}
@@ -91,7 +110,8 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 			previous.port !== next.port ||
 			previous.wsBaseUrl !== next.wsBaseUrl ||
 			previous.token !== next.token ||
-			previous.environmentId !== next.environmentId,
+			previous.environmentId !== next.environmentId ||
+			previous.routeGeneration !== next.routeGeneration,
 		maxAutomaticAttempts: 6,
 		schedule: (delayMs, fn) => {
 			const timer = setTimeout(fn, delayMs);

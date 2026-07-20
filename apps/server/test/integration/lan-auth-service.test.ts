@@ -1,3 +1,4 @@
+import { createHmac, generateKeyPairSync } from "node:crypto";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Duration, Effect, Layer, ManagedRuntime, Result } from "effect";
 import { TestClock } from "effect/testing";
@@ -18,8 +19,15 @@ import { Migration0026RelayConnectorToken } from "../../src/persistence/migratio
 import { Migration0027RelayTunnelHostname } from "../../src/persistence/migrations/0027_relay_tunnel_hostname.ts";
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
+import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
 
-const makeRuntime = () => {
+const makeRuntime = (
+	trust: {
+		readonly recordId: string;
+		readonly secret: string;
+		readonly transportCertificatePin?: string;
+	} | null = null,
+) => {
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
 	const Migrated = Layer.effectDiscard(
 		Migration0021AuthTokens.pipe(
@@ -29,6 +37,7 @@ const makeRuntime = () => {
 			Effect.andThen(Migration0027RelayTunnelHostname),
 			Effect.andThen(Migration0028RelayMintPublicKey),
 			Effect.andThen(Migration0039AuthTokenDevices),
+			Effect.andThen(Migration0040BlockedNearbyDevices),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {
@@ -36,6 +45,9 @@ const makeRuntime = () => {
 		advertisedHost: "192.168.1.10",
 		port: 8787,
 		pairingBootstrap: false,
+		icloudTrustRecordId: trust?.recordId,
+		icloudTrustSecret: trust?.secret,
+		transportCertificatePin: trust?.transportCertificatePin,
 	});
 	const TestLayer = LanAuthServiceLive.pipe(
 		Layer.provideMerge(Migrated),
@@ -45,14 +57,25 @@ const makeRuntime = () => {
 	return ManagedRuntime.make(TestLayer);
 };
 
+const nearbyPublicKey = (): string => {
+	const jwk = generateKeyPairSync("x25519").publicKey.export({ format: "jwk" });
+	if (jwk.x === undefined) throw new Error("x25519 test key missing x");
+	return jwk.x;
+};
+
 const withRuntime = async <A>(
 	fn: (
 		run: <X>(
 			effect: Effect.Effect<X, unknown, LanAuthService | SqlClient.SqlClient>,
 		) => Promise<X>,
 	) => Promise<A>,
+	trust: {
+		readonly recordId: string;
+		readonly secret: string;
+		readonly transportCertificatePin?: string;
+	} | null = null,
 ): Promise<A> => {
-	const runtime = makeRuntime();
+	const runtime = makeRuntime(trust);
 	const run = <X>(
 		effect: Effect.Effect<X, unknown, LanAuthService | SqlClient.SqlClient>,
 	): Promise<X> =>
@@ -185,6 +208,193 @@ describe("LanAuthService", () => {
 				result.tokens.filter((token) => token.revokedAt === undefined),
 			).toMatchObject([{ deviceId: "mobile_phone_1", label: "iPhone" }]);
 		});
+	});
+
+	it("binds one nearby approval to the requesting phone identity", async () => {
+		await withRuntime(async (run) => {
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const challenge = yield* auth.createNearbyPairingChallenge();
+					const request = yield* auth.requestNearbyPairing({
+						deviceId: "mobile_nearby_1",
+						deviceLabel: "Swaraj's iPhone",
+						deviceModel: "iPhone",
+						devicePublicKey: nearbyPublicKey(),
+						ephemeralPublicKey: nearbyPublicKey(),
+						clientNonce: "client-nonce",
+						serverNonce: challenge.serverNonce,
+					});
+					const pending = yield* auth.listNearbyPairingRequests();
+					const resolution = yield* auth.resolveNearbyPairingRequest({
+						requestId: request.requestId,
+						decision: "allow",
+					});
+					const status = yield* auth.nearbyPairingStatus(request.requestId);
+					const tokens = yield* auth.listTokens();
+					const verified = tokens.some(
+						(token) =>
+							token.deviceId === "mobile_nearby_1" &&
+							token.revokedAt === undefined,
+					);
+					return { request, pending, resolution, status, verified };
+				}),
+			);
+
+			expect(result.pending).toMatchObject([
+				{
+					deviceId: "mobile_nearby_1",
+					deviceLabel: "Swaraj's iPhone",
+					deviceIdentifier: expect.stringMatching(/^[A-Z0-9]{4}$/),
+					safetyPhrase: expect.stringMatching(/^\w+-\w+-\w+$/),
+				},
+			]);
+			expect(result.resolution).toBe("approved");
+			expect(result.status).toMatchObject({ state: "approved" });
+			expect(result.verified).toBe(true);
+		});
+	});
+
+	it("denies a nearby request without issuing a credential", async () => {
+		await withRuntime(async (run) => {
+			const status = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const challenge = yield* auth.createNearbyPairingChallenge();
+					const request = yield* auth.requestNearbyPairing({
+						deviceId: "mobile_denied",
+						deviceLabel: "Unknown iPhone",
+						devicePublicKey: nearbyPublicKey(),
+						ephemeralPublicKey: nearbyPublicKey(),
+						clientNonce: "nonce",
+						serverNonce: challenge.serverNonce,
+					});
+					yield* auth.resolveNearbyPairingRequest({
+						requestId: request.requestId,
+						decision: "deny",
+					});
+					return yield* auth.nearbyPairingStatus(request.requestId);
+				}),
+			);
+
+			expect(status).toEqual({ state: "denied" });
+		});
+	});
+
+	it("automatically approves a valid synchronized trust proof", async () => {
+		const trust = {
+			recordId: "mac-trust-1",
+			secret: Buffer.alloc(32, 7).toString("base64url"),
+		};
+		await withRuntime(async (run) => {
+			const devicePublicKey = nearbyPublicKey();
+			const serverChallenge = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					return yield* auth.createNearbyPairingChallenge();
+				}),
+			);
+			const challenge = [
+				"zuse-icloud-v1",
+				trust.recordId,
+				"mobile_icloud",
+				devicePublicKey,
+				"client-nonce",
+				serverChallenge.serverNonce,
+				serverChallenge.environmentPublicKey,
+			].join("|");
+			const proof = createHmac("sha256", Buffer.from(trust.secret, "base64url"))
+				.update(challenge)
+				.digest("base64url");
+			const result = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const request = yield* auth.requestNearbyPairing({
+						deviceId: "mobile_icloud",
+						deviceLabel: "iPhone",
+						devicePublicKey,
+						ephemeralPublicKey: nearbyPublicKey(),
+						clientNonce: "client-nonce",
+						serverNonce: serverChallenge.serverNonce,
+						icloudTrustRecordId: trust.recordId,
+						icloudTrustProof: proof,
+					});
+					return {
+						pending: yield* auth.listNearbyPairingRequests(),
+						status: yield* auth.nearbyPairingStatus(request.requestId),
+					};
+				}),
+			);
+			expect(result.pending).toEqual([]);
+			expect(result.status).toMatchObject({
+				state: "approved",
+				credential: {
+					ephemeralPublicKey: expect.any(String),
+					nonce: expect.any(String),
+					ciphertext: expect.any(String),
+				},
+			});
+		}, trust);
+	});
+
+	it("automatically approves only a challenge-bound account assertion", async () => {
+		const transportCertificatePin = "T".repeat(43);
+		const trust = {
+			recordId: "unused",
+			secret: Buffer.alloc(32, 9).toString("base64url"),
+			transportCertificatePin,
+		};
+		await withRuntime(async (run) => {
+			const mintKey = await generateKeyPair("EdDSA", { extractable: true });
+			const mintPublicKey = JSON.stringify(await exportJWK(mintKey.publicKey));
+			const devicePublicKey = nearbyPublicKey();
+			const challenge = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const environmentId = yield* auth.environmentId();
+					yield* auth.saveRelayConfig({
+						relayUrl: "https://relay.test",
+						relayIssuer: "https://relay.test",
+						environmentId,
+						environmentCredential: "zec_secret",
+						mintPublicKey,
+					});
+					return yield* auth.createNearbyPairingChallenge();
+				}),
+			);
+			const nowSec = Math.floor(Date.now() / 1000);
+			const assertion = await new SignJWT({
+				environmentId: challenge.environmentId,
+				localPairing: {
+					serverNonce: challenge.serverNonce,
+					devicePublicKey,
+					transportCertificatePin,
+				},
+			})
+				.setProtectedHeader({ alg: "EdDSA", typ: "connect+jwt" })
+				.setIssuer("https://relay.test")
+				.setAudience(`zuse-env:${challenge.environmentId}`)
+				.setSubject("acct_test")
+				.setIssuedAt(nowSec)
+				.setExpirationTime(nowSec + 60)
+				.sign(mintKey.privateKey);
+			const status = await run(
+				Effect.gen(function* () {
+					const auth = yield* LanAuthService;
+					const request = yield* auth.requestNearbyPairing({
+						deviceId: "mobile_account",
+						deviceLabel: "Account iPhone",
+						devicePublicKey,
+						ephemeralPublicKey: nearbyPublicKey(),
+						clientNonce: "client-account-nonce",
+						serverNonce: challenge.serverNonce,
+						accountAssertion: assertion,
+					});
+					return yield* auth.nearbyPairingStatus(request.requestId);
+				}),
+			);
+			expect(status.state).toBe("approved");
+		}, trust);
 	});
 
 	it("keeps the previous phone credential when rotation fails", async () => {

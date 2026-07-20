@@ -14,10 +14,16 @@
 				"NSCameraUsageDescription": "Scan pairing codes for local Zuse environments.",
 				"NSPhotoLibraryUsageDescription": "Choose images to attach to your Zuse messages.",
 				"NSLocalNetworkUsageDescription": "Connect to a local Zuse server on your network.",
+				"NSBonjourServices": ["_zuse._tcp"],
 				"NSAppTransportSecurity": {
 					"NSAllowsLocalNetworking": true
 				},
 				"ITSAppUsesNonExemptEncryption": false
+			},
+			"entitlements": {
+				"keychain-access-groups": [
+					"$(AppIdentifierPrefix)com.zuse.shared-connectivity"
+				]
 			},
 			"bundleIdentifier": "com.zuse.sh",
 			"appleTeamId": "HMCST4VV42"

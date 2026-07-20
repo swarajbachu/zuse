@@ -6,6 +6,11 @@ export type AddPairedConnection = (input: {
 	readonly port: number;
 	readonly token: string;
 	readonly source: "paired";
+	readonly serverKeyPin?: string;
+	readonly serverPublicKey?: string;
+	readonly nearbyServiceName?: string;
+	readonly pathType?: "lan" | "apple-peer";
+	readonly refreshAccountGrant?: boolean;
 }) => Promise<ConnectionRecord>;
 
 export const isLegacyPairingUrl = (value: string): boolean => {

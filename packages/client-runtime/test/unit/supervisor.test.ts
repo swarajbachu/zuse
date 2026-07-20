@@ -6,7 +6,11 @@ import {
 	createConnectionSupervisor,
 } from "../../src/supervisor.js";
 
-type Options = { readonly key: string; readonly token?: string };
+type Options = {
+	readonly key: string;
+	readonly token?: string;
+	readonly routeGeneration?: number;
+};
 type Client = { readonly id: number };
 
 const deferred = <A>() => {
@@ -257,6 +261,36 @@ describe("connection supervisor", () => {
 
 		expect(harness.created.map(({ token }) => token)).toEqual(["old", "new"]);
 		expect(harness.disposed).toEqual([1]);
+	});
+
+	test("a new route generation recovers an entry after retries are exhausted", async () => {
+		let available = false;
+		const harness = makeHarness({
+			maxAutomaticAttempts: 1,
+			shouldReconnectOnOptionsChange: (previous, next) =>
+				previous.routeGeneration !== next.routeGeneration,
+			createClient: async () => {
+				if (!available) throw new Error("old Wi-Fi route unavailable");
+				return { client: { id: 1 }, dispose: async () => undefined };
+			},
+		});
+		const entry = harness.supervisor.get({
+			key: "paired-device",
+			routeGeneration: 1,
+		});
+		await expect(runClient(entry.getClient())).rejects.toThrow(
+			"old Wi-Fi route unavailable",
+		);
+		expect(entry.snapshot().status).toBe("error");
+
+		available = true;
+		const moved = harness.supervisor.get({
+			key: "paired-device",
+			routeGeneration: 2,
+		});
+		await waitUntil(() => moved.snapshot().status === "connected");
+
+		expect(moved.snapshot()).toMatchObject({ status: "connected", attempt: 0 });
 	});
 
 	test("accepts only one stream failure report per connected generation", async () => {

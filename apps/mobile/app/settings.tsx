@@ -136,9 +136,9 @@ export default function SettingsScreen() {
 				>
 					<ListRow
 						icon={QrCode}
-						title="Pair with desktop"
-						subtitle="Scan the code shown in desktop device settings"
-						onPress={() => router.push("/connect/scan")}
+						title="Connect to a nearby Mac"
+						subtitle="Find it automatically over Wi-Fi"
+						onPress={() => router.push("/connect/nearby")}
 					/>
 					<ListRow
 						icon={Plus}

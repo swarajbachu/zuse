@@ -28,6 +28,23 @@ export class PairingError extends Schema.TaggedErrorClass<PairingError>()(
 	{ reason: Schema.String },
 ) {}
 
+export class NearbyPairingRequest extends Schema.Class<NearbyPairingRequest>(
+	"NearbyPairingRequest",
+)({
+	requestId: Schema.String,
+	deviceId: Schema.String,
+	deviceLabel: Schema.String,
+	deviceModel: Schema.optional(Schema.String),
+	deviceIdentifier: Schema.String,
+	devicePublicKey: Schema.String,
+	ephemeralPublicKey: Schema.String,
+	clientNonce: Schema.String,
+	serverNonce: Schema.String,
+	safetyPhrase: Schema.String,
+	createdAt: Schema.DateFromString,
+	expiresAt: Schema.DateFromString,
+}) {}
+
 export const PairingStartRpc = Rpc.make("pairing.start", {
 	payload: Schema.Struct({}),
 	success: PairingStartResult,
@@ -45,3 +62,24 @@ export const PairingRevokeTokenRpc = Rpc.make("pairing.revokeToken", {
 	success: Schema.Void,
 	error: PairingError,
 });
+
+export const PairingListNearbyRequestsRpc = Rpc.make(
+	"pairing.listNearbyRequests",
+	{
+		payload: Schema.Struct({}),
+		success: Schema.Array(NearbyPairingRequest),
+		error: PairingError,
+	},
+);
+
+export const PairingResolveNearbyRequestRpc = Rpc.make(
+	"pairing.resolveNearbyRequest",
+	{
+		payload: Schema.Struct({
+			requestId: Schema.String,
+			decision: Schema.Literals(["allow", "deny", "block"]),
+		}),
+		success: Schema.Literals(["approved", "denied"]),
+		error: PairingError,
+	},
+);

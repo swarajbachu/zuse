@@ -20,6 +20,7 @@ import { CrashReportOverlay } from "~/components/crash-report-overlay";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
+import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime";
 import { colors } from "~/theme";
 
 // The app follows the device appearance. Reset any development-session theme
@@ -28,6 +29,7 @@ import { colors } from "~/theme";
 Uniwind.setTheme("system");
 
 export default function RootLayout() {
+	useLocalConnectivityRuntime();
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
@@ -114,6 +116,14 @@ export default function RootLayout() {
 							title: "Plan",
 							presentation: "modal",
 							headerLargeTitle: false,
+						}}
+					/>
+					<Stack.Screen
+						name="connect/nearby"
+						options={{
+							title: "Nearby Macs",
+							headerLargeTitle: false,
+							presentation: "card",
 						}}
 					/>
 					<Stack.Screen

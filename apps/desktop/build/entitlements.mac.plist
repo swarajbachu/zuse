@@ -25,5 +25,15 @@
   <!-- Outbound network (Anthropic API, GitHub, model providers, update feed). -->
   <key>com.apple.security.network.client</key>
   <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- The signed desktop helper and iOS app share only a random, synchronized
+       local-pairing trust record. Account identity is never inferred from a
+       device name or network address. -->
+  <key>keychain-access-groups</key>
+  <array>
+    <string>HMCST4VV42.com.zuse.shared-connectivity</string>
+  </array>
 </dict>
 </plist>

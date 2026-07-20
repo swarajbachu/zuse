@@ -13,6 +13,9 @@ export interface LanAuthConfigShape {
 	readonly advertisedHost: string | null;
 	readonly port: number | null;
 	readonly pairingBootstrap: boolean;
+	readonly icloudTrustRecordId?: string;
+	readonly icloudTrustSecret?: string;
+	readonly transportCertificatePin?: string;
 }
 
 export class LanAuthConfig extends Context.Service<
@@ -29,6 +32,34 @@ export class PairingRedeemError extends Schema.TaggedErrorClass<PairingRedeemErr
 	"PairingRedeemError",
 	{ reason: Schema.Literals(["invalid_code", "expired_code"]) },
 ) {}
+
+export type NearbyPairingRequest = {
+	readonly requestId: string;
+	readonly deviceId: string;
+	readonly deviceLabel: string;
+	readonly deviceModel?: string;
+	readonly deviceIdentifier: string;
+	readonly devicePublicKey: string;
+	readonly ephemeralPublicKey: string;
+	readonly clientNonce: string;
+	readonly serverNonce: string;
+	readonly safetyPhrase: string;
+	readonly createdAt: Date;
+	readonly expiresAt: Date;
+};
+
+export type NearbyPairingStatus =
+	| { readonly state: "pending" }
+	| { readonly state: "denied" }
+	| { readonly state: "expired" }
+	| {
+			readonly state: "approved";
+			readonly credential: {
+				readonly ephemeralPublicKey: string;
+				readonly nonce: string;
+				readonly ciphertext: string;
+			};
+	  };
 
 export interface LanAuthServiceShape {
 	readonly policy: LanAuthPolicy;
@@ -63,9 +94,47 @@ export interface LanAuthServiceShape {
 			readonly label?: string;
 		},
 	) => Effect.Effect<
-		{ readonly token: string; readonly environmentId: EnvironmentId },
+		{
+			readonly token: string;
+			readonly environmentId: EnvironmentId;
+			readonly environmentPublicKey: string;
+			readonly transportCertificatePin?: string;
+		},
 		PairingRedeemError | LanAuthError
 	>;
+	readonly requestNearbyPairing: (input: {
+		readonly deviceId: string;
+		readonly deviceLabel: string;
+		readonly deviceModel?: string;
+		readonly devicePublicKey: string;
+		readonly ephemeralPublicKey: string;
+		readonly clientNonce: string;
+		readonly icloudTrustRecordId?: string;
+		readonly icloudTrustProof?: string;
+		readonly serverNonce: string;
+		readonly accountAssertion?: string;
+	}) => Effect.Effect<NearbyPairingRequest, LanAuthError>;
+	readonly createNearbyPairingChallenge: () => Effect.Effect<
+		{
+			readonly serverNonce: string;
+			readonly environmentPublicKey: string;
+			readonly environmentId: EnvironmentId;
+			readonly transportCertificatePin?: string;
+			readonly expiresAt: Date;
+		},
+		LanAuthError
+	>;
+	readonly listNearbyPairingRequests: () => Effect.Effect<
+		ReadonlyArray<NearbyPairingRequest>,
+		LanAuthError
+	>;
+	readonly resolveNearbyPairingRequest: (input: {
+		readonly requestId: string;
+		readonly decision: "allow" | "deny" | "block";
+	}) => Effect.Effect<"approved" | "denied", LanAuthError>;
+	readonly nearbyPairingStatus: (
+		requestId: string,
+	) => Effect.Effect<NearbyPairingStatus, LanAuthError>;
 	readonly environmentId: () => Effect.Effect<EnvironmentId, LanAuthError>;
 	/**
 	 * The environment's Ed25519 keypair (generated + persisted on first use). The

@@ -14,8 +14,10 @@ import {
 } from "../../src/lan-auth/services/lan-auth-service.ts";
 import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_auth_tokens.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
+import { Migration0025RelayEnvironmentKeys } from "../../src/persistence/migrations/0025_relay_environment_keys.ts";
 import { Migration0028RelayMintPublicKey } from "../../src/persistence/migrations/0028_relay_mint_public_key.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
+import { Migration0040BlockedNearbyDevices } from "../../src/persistence/migrations/0040_blocked_nearby_devices.ts";
 import { wsServerProtocolLayer } from "../../src/transports/ws.ts";
 
 const TestRpcs = RpcGroup.make(PingRpc);
@@ -52,8 +54,10 @@ const makeRuntime = (opts: {
 	const Migrated = Layer.effectDiscard(
 		Migration0021AuthTokens.pipe(
 			Effect.andThen(Migration0024RemoteConnectState),
+			Effect.andThen(Migration0025RelayEnvironmentKeys),
 			Effect.andThen(Migration0028RelayMintPublicKey),
 			Effect.andThen(Migration0039AuthTokenDevices),
+			Effect.andThen(Migration0040BlockedNearbyDevices),
 		),
 	).pipe(Layer.provideMerge(SqlLive));
 	const ConfigLive = Layer.succeed(LanAuthConfig, {

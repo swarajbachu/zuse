@@ -7,9 +7,12 @@ import {
 	type ConnectionSource,
 	connectionStorageKey,
 	decodeConnectionRecords,
+	type LocalPathType,
+	replaceDiscoveredRoute,
 } from "~/lib/connection-records";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { visibleConnectionLabel } from "~/lib/display-names";
+import { serverKeyPin as serverKeyPinForPublicKey } from "~/lib/nearby-pairing";
 import { getConnectionClient } from "~/rpc/connection";
 import { redeemPairingCode } from "~/rpc/pairing-client";
 import { connectionKey, type WsProtocolOptions } from "~/rpc/ws-protocol";
@@ -25,6 +28,12 @@ type ConnectionsState = {
 		port: number;
 		token?: string | null;
 		source: Exclude<ConnectionSource, "relay">;
+		serverKeyPin?: string;
+		serverPublicKey?: string;
+		transportCertificatePin?: string;
+		nearbyServiceName?: string;
+		pathType?: LocalPathType;
+		refreshAccountGrant?: boolean;
 	}) => Promise<ConnectionRecord>;
 	/** Upsert a relay-discovered environment reached via a managed endpoint. */
 	addRelay: (input: {
@@ -41,6 +50,15 @@ type ConnectionsState = {
 	 * change lands on desktop). No-op when the label is unchanged.
 	 */
 	refreshLabel: (key: string, options: WsProtocolOptions) => Promise<void>;
+	/** Replace only the disposable network route for a stable paired Mac. */
+	updateDiscoveredRoute: (input: {
+		key: string;
+		host: string;
+		port: number;
+		pathType: LocalPathType;
+		nearbyServiceName?: string;
+		transportCertificatePin?: string;
+	}) => Promise<void>;
 	remove: (key: string) => Promise<void>;
 	clear: () => Promise<void>;
 };
@@ -82,7 +100,18 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 		set({ connections, hydrated: true });
 		await Effect.runPromise(saveConnections(connections));
 	},
-	add: async ({ host, port, token, source }) => {
+	add: async ({
+		host,
+		port,
+		token,
+		source,
+		serverKeyPin,
+		serverPublicKey,
+		transportCertificatePin,
+		nearbyServiceName,
+		pathType,
+		refreshAccountGrant,
+	}) => {
 		const trimmedHost = host.trim();
 		const redeemed = await redeemPairingCodeIfNeeded({
 			host: trimmedHost,
@@ -92,15 +121,20 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 		const descriptor = await describeEnvironment({
 			host: trimmedHost,
 			port,
-			token: redeemed,
+			token: redeemed.token,
 		});
-		if (source === "manual" && descriptor === null) {
+		if (
+			descriptor === null &&
+			(source === "manual" || (source === "paired" && redeemed.token !== null))
+		) {
 			throw new Error(
 				"Could not reach that desktop. Check the address, token, and network, then try again.",
 			);
 		}
 		const identity =
-			descriptor?.environmentId ?? connectionKey(trimmedHost, port);
+			descriptor?.environmentId ??
+			redeemed.environmentId ??
+			connectionKey(trimmedHost, port);
 		const key =
 			get().connections.find(
 				(connection) =>
@@ -114,10 +148,22 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 			environmentId: descriptor?.environmentId,
 			host: trimmedHost,
 			port,
-			token: redeemed,
+			token: redeemed.token,
 			label: visibleConnectionLabel(descriptor?.label, identity),
 			updatedAt: Date.now(),
 			source,
+			serverKeyPin:
+				serverKeyPin ??
+				(redeemed.environmentPublicKey === undefined
+					? undefined
+					: serverKeyPinForPublicKey(redeemed.environmentPublicKey)),
+			serverPublicKey: serverPublicKey ?? redeemed.environmentPublicKey,
+			transportCertificatePin:
+				transportCertificatePin ?? redeemed.transportCertificatePin,
+			nearbyServiceName,
+			pathType,
+			refreshAccountGrant,
+			routeGeneration: 1,
 		};
 		const next = [record, ...get().connections.filter((c) => c.key !== key)];
 		set({ connections: next });
@@ -166,6 +212,28 @@ export const useConnectionsStore = create<ConnectionsState>((set, get) => ({
 		if (current === undefined || current.label === nextLabel) return;
 		await get().updateLabel(key, nextLabel);
 	},
+	updateDiscoveredRoute: async ({
+		key,
+		host,
+		port,
+		pathType,
+		nearbyServiceName,
+		transportCertificatePin,
+	}) => {
+		const next = get().connections.map((connection) =>
+			connection.key === key
+				? replaceDiscoveredRoute(connection, {
+						host,
+						port,
+						pathType,
+						nearbyServiceName,
+						transportCertificatePin,
+					})
+				: connection,
+		);
+		set({ connections: next });
+		await Effect.runPromise(saveConnections(next));
+	},
 	remove: async (key) => {
 		const next = get().connections.filter((c) => c.key !== key);
 		set({ connections: next });
@@ -185,10 +253,15 @@ const redeemPairingCodeIfNeeded = async ({
 	host: string;
 	port: number;
 	token?: string | null;
-}): Promise<string | null> => {
+}): Promise<{
+	readonly token: string | null;
+	readonly environmentId?: string;
+	readonly environmentPublicKey?: string;
+	readonly transportCertificatePin?: string;
+}> => {
 	const trimmed = token?.trim();
-	if (!trimmed) return null;
-	if (!trimmed.startsWith("zp_")) return trimmed;
+	if (!trimmed) return { token: null };
+	if (!trimmed.startsWith("zp_")) return { token: trimmed };
 
 	return redeemPairingCode({
 		host,

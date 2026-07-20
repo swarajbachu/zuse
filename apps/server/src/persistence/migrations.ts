@@ -40,6 +40,7 @@ import { Migration0036UsageCostDaily } from "./migrations/0036_usage_cost_daily.
 import { Migration0037ProviderEventCursor } from "./migrations/0037_provider_event_cursor.ts";
 import { Migration0038QueuedMessageReady } from "./migrations/0038_queued_message_ready.ts";
 import { Migration0039AuthTokenDevices } from "./migrations/0039_auth_token_devices.ts";
+import { Migration0040BlockedNearbyDevices } from "./migrations/0040_blocked_nearby_devices.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -96,6 +97,7 @@ const MigrationDefinitions = {
 	"0037_provider_event_cursor": Migration0037ProviderEventCursor,
 	"0038_queued_message_ready": Migration0038QueuedMessageReady,
 	"0039_auth_token_devices": Migration0039AuthTokenDevices,
+	"0040_blocked_nearby_devices": Migration0040BlockedNearbyDevices,
 } as const;
 
 export const MigrationsLive = Layer.effectDiscard(
