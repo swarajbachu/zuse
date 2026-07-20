@@ -891,6 +891,7 @@ export const WorktreeServiceLive = Layer.effect(
 			recordCheckpoint?: (
 				outcome: WorktreeArchiveOutcome,
 			) => Effect.Effect<void, WorktreeCheckpointError>,
+			allowRemoval?: () => Effect.Effect<boolean>,
 		) {
 			const row = yield* get(worktreeId);
 			if (row === null) {
@@ -902,6 +903,14 @@ export const WorktreeServiceLive = Layer.effect(
 					new WorktreeRemoveError({ worktreeId, reason: "project not found" }),
 				);
 			}
+			const ensureRemovalAllowed =
+				allowRemoval === undefined
+					? Effect.void
+					: allowRemoval().pipe(
+							Effect.flatMap((allowed) =>
+								allowed ? Effect.void : Effect.interrupt,
+							),
+						);
 
 			const status = yield* runGit(row.path, ["status", "--porcelain"]).pipe(
 				Effect.mapError(
@@ -923,6 +932,7 @@ export const WorktreeServiceLive = Layer.effect(
 					);
 			}
 			if (status.trim().length > 0) {
+				yield* ensureRemovalAllowed;
 				yield* runGit(row.path, ["add", "-A"]).pipe(
 					Effect.mapError(
 						(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
@@ -990,6 +1000,7 @@ export const WorktreeServiceLive = Layer.effect(
 				}
 			} else {
 				archiveRef = `refs/zuse/archive/${worktreeId}`;
+				yield* ensureRemovalAllowed;
 				yield* runGit(folder.path, [
 					"update-ref",
 					archiveRef,
@@ -1023,6 +1034,7 @@ export const WorktreeServiceLive = Layer.effect(
 							}),
 						);
 					}
+					yield* ensureRemovalAllowed;
 					yield* moveDirectory(contextSource, contextDestination).pipe(
 						Effect.mapError(
 							(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
@@ -1086,6 +1098,22 @@ export const WorktreeServiceLive = Layer.effect(
 				}
 			}
 
+			if (allowRemoval !== undefined && !(yield* allowRemoval())) {
+				if (archivedContextPath !== null) {
+					yield* sql`
+						UPDATE attachments
+						SET abs_path = replace(abs_path, ${archivedContextPath}, ${contextSource})
+						WHERE abs_path IS NOT NULL
+						  AND abs_path LIKE ${`${archivedContextPath}/%`}
+					`.pipe(Effect.orDie);
+					yield* moveDirectory(archivedContextPath, contextSource).pipe(
+						Effect.mapError(
+							(reason) => new WorktreeCheckpointError({ worktreeId, reason }),
+						),
+					);
+				}
+				return { ...outcome, archivedContextPath: null };
+			}
 			yield* deleteCheckoutAndRow(row, folder.path);
 			return outcome;
 		});

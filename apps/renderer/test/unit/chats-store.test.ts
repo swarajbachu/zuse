@@ -459,7 +459,7 @@ describe("archiveChatWithConfirm", () => {
 		).toBeUndefined();
 	});
 
-	it("clears progress and throws when archive fails", async () => {
+	it("clears progress without leaking a rejected promise when archive fails", async () => {
 		useChatsStore.setState({
 			archive: async () => ({
 				ok: false,
@@ -467,15 +467,13 @@ describe("archiveChatWithConfirm", () => {
 			}),
 		});
 
-		await expect(archiveChatWithConfirm(chatId)).rejects.toThrow(
-			"git worktree remove failed",
-		);
+		await expect(archiveChatWithConfirm(chatId)).resolves.toBeUndefined();
 		expect(
 			useChatsStore.getState().archiveProgressByChat[chatId],
 		).toBeUndefined();
 	});
 
-	it("shows a concise toast after a successful archive", async () => {
+	it("keeps successful background cleanup silent", async () => {
 		const archivedChat = { ...chat, archivedAt: now } as Chat;
 		rpcClientFactory.mockReturnValue({
 			"chat.archive": () =>
@@ -488,6 +486,7 @@ describe("archiveChatWithConfirm", () => {
 						archiveRef: null,
 						branch: "feature",
 					},
+					job: null,
 				}),
 			"chat.list": () => Effect.succeed([archivedChat]),
 			"worktree.list": () => Effect.succeed([]),
@@ -496,11 +495,84 @@ describe("archiveChatWithConfirm", () => {
 		const result = await useChatsStore.getState().archive(chatId);
 
 		expect(result).toEqual({ ok: true });
-		expect(toastAdd).toHaveBeenCalledTimes(1);
-		expect(toastAdd).toHaveBeenCalledWith({
-			type: "success",
-			title: "Archived",
+		expect(toastAdd).not.toHaveBeenCalled();
+	});
+
+	it("removes the chat before archive acknowledgement", async () => {
+		const acknowledgement = deferred<{
+			readonly chat: Chat;
+			readonly cleanup: null;
+			readonly checkpoint: null;
+			readonly job: null;
+		}>();
+		const archivedChat = { ...chat, archivedAt: now } as Chat;
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": () => Effect.promise(() => acknowledgement.promise),
+			"chat.list": () => Effect.succeed([]),
+			"worktree.list": () => Effect.succeed([]),
 		});
+
+		const pending = useChatsStore.getState().archive(chatId);
+		expect(useChatsStore.getState().chatsByProject[projectId]).toEqual([]);
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		acknowledgement.resolve({
+			chat: archivedChat,
+			cleanup: null,
+			checkpoint: null,
+			job: null,
+		});
+		await expect(pending).resolves.toEqual({ ok: true });
+	});
+
+	it("rolls back only the failed chat when two archives overlap", async () => {
+		const firstAcknowledgement = deferred<never>();
+		const secondAcknowledgement = deferred<{
+			readonly chat: Chat;
+			readonly cleanup: null;
+			readonly checkpoint: null;
+			readonly job: null;
+		}>();
+		useChatsStore.setState({
+			chatsByProject: { [projectId]: [chat, nextChat] },
+			selectedChatId: chatId,
+			selectedChatByProject: { [projectId]: chatId },
+		});
+		useSessionsStore.setState({
+			sessionsByProject: { [projectId]: [session, nextSession] },
+			selectedSessionId: sessionId,
+			selectedSessionByProject: { [projectId]: sessionId },
+		});
+		rpcClientFactory.mockReturnValue({
+			"chat.archive": ({ chatId: requestedChatId }: { chatId: ChatId }) =>
+				requestedChatId === chatId
+					? Effect.promise(() => firstAcknowledgement.promise)
+					: Effect.promise(() => secondAcknowledgement.promise),
+			"chat.list": () => Effect.succeed([chat]),
+			"worktree.list": () => Effect.succeed([]),
+		});
+
+		const first = useChatsStore.getState().archive(chatId);
+		const second = useChatsStore.getState().archive(nextChatId);
+		secondAcknowledgement.resolve({
+			chat: { ...nextChat, archivedAt: now },
+			cleanup: null,
+			checkpoint: null,
+			job: null,
+		});
+		await expect(second).resolves.toEqual({ ok: true });
+		firstAcknowledgement.reject(new Error("durable acceptance failed"));
+		await expect(first).resolves.toEqual({
+			ok: false,
+			reason: "durable acceptance failed",
+		});
+
+		expect(useChatsStore.getState().chatsByProject[projectId]).toEqual([chat]);
+		expect(
+			useSessionsStore
+				.getState()
+				.sessionsByProject[projectId]?.map((candidate) => candidate.chatId),
+		).toEqual([chatId]);
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
 	});
 
 	it("moves the archived chat into its folder and selects the next live chat", async () => {

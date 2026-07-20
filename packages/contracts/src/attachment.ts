@@ -1,23 +1,23 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { SessionId, SessionNotFoundError } from "./session.ts";
 
 export class AttachmentTooLargeError extends Schema.TaggedErrorClass<AttachmentTooLargeError>()(
-  "AttachmentTooLargeError",
-  {
-    sessionId: SessionId,
-    sizeBytes: Schema.Number,
-    limit: Schema.Number,
-  },
+	"AttachmentTooLargeError",
+	{
+		sessionId: SessionId,
+		sizeBytes: Schema.Number,
+		limit: Schema.Number,
+	},
 ) {}
 
 export class AttachmentBadMimeError extends Schema.TaggedErrorClass<AttachmentBadMimeError>()(
-  "AttachmentBadMimeError",
-  {
-    sessionId: SessionId,
-    mimeType: Schema.String,
-  },
+	"AttachmentBadMimeError",
+	{
+		sessionId: SessionId,
+		mimeType: Schema.String,
+	},
 ) {}
 
 /**
@@ -33,22 +33,22 @@ export class AttachmentBadMimeError extends Schema.TaggedErrorClass<AttachmentBa
  * legacy userData attachments directory.
  */
 export const AttachmentUploadRpc = Rpc.make("attachments.upload", {
-  payload: Schema.Struct({
-    sessionId: SessionId,
-    bytes: Schema.Uint8ArrayFromBase64,
-    mimeType: Schema.String,
-    originalName: Schema.String,
-    rootPath: Schema.optional(Schema.String),
-  }),
-  success: Schema.Struct({
-    id: Schema.String,
-    sizeBytes: Schema.Number,
-    mimeType: Schema.String,
-    ext: Schema.String,
-  }),
-  error: Schema.Union([
-    AttachmentTooLargeError,
-    AttachmentBadMimeError,
-    SessionNotFoundError,
-  ]),
+	payload: Schema.Struct({
+		sessionId: SessionId,
+		bytes: Schema.Uint8ArrayFromBase64,
+		mimeType: Schema.String,
+		originalName: Schema.String,
+		rootPath: Schema.optional(Schema.String),
+	}),
+	success: Schema.Struct({
+		id: Schema.String,
+		sizeBytes: Schema.Number,
+		mimeType: Schema.String,
+		ext: Schema.String,
+	}),
+	error: Schema.Union([
+		AttachmentTooLargeError,
+		AttachmentBadMimeError,
+		SessionNotFoundError,
+	]),
 });

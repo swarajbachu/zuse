@@ -381,6 +381,41 @@ describe("WorktreeServiceLive", () => {
 		expect(restoredRows[0]?.abs_path).toBe(contextFile);
 	});
 
+	test("restores relocated context when archive removal is cancelled", async () => {
+		const created = await run((service) => service.create(projectId));
+		await run((service) =>
+			service.setupStream(created.id).pipe(Stream.runCollect),
+		);
+		const contextFile = join(created.path, ".context", "files", "note.txt");
+		const archivedContextPath = join(worktreeRoot, "archived", created.id);
+		mkdirSync(join(created.path, ".context", "files"), { recursive: true });
+		writeFileSync(contextFile, "context survives cancellation\n");
+		await runSql(
+			(sql) =>
+				sql`INSERT INTO attachments (id, abs_path) VALUES ('attachment-cancelled', ${contextFile})`,
+		);
+
+		const outcome = await run((service) =>
+			service.archive(created.id, undefined, () =>
+				Effect.sync(() => !existsSync(archivedContextPath)),
+			),
+		);
+
+		expect(outcome.archivedContextPath).toBeNull();
+		expect(existsSync(created.path)).toBe(true);
+		expect(readFileSync(contextFile, "utf8")).toBe(
+			"context survives cancellation\n",
+		);
+		expect(existsSync(archivedContextPath)).toBe(false);
+		const rows = await runSql(
+			(sql) =>
+				sql<{
+					readonly abs_path: string;
+				}>`SELECT abs_path FROM attachments WHERE id = 'attachment-cancelled'`,
+		);
+		expect(rows[0]?.abs_path).toBe(contextFile);
+	});
+
 	test("uses a local fallback identity for checkpoint commits", async () => {
 		const created = await run((service) => service.create(projectId));
 		await run((service) =>

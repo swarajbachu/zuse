@@ -1,5 +1,6 @@
 import {
 	Chat,
+	type ChatArchiveJob,
 	type ChatArchiveResult,
 	ChatId,
 	type ChatUnarchiveResult,
@@ -42,6 +43,51 @@ export type ChatUnarchiveOutcome =
 	| { readonly ok: false; readonly reason: string };
 
 const unarchivePromises = new Map<ChatId, Promise<ChatUnarchiveOutcome>>();
+const archiveStatusTimers = new Map<ChatId, number>();
+const notifiedArchiveFailures = new Set<ChatId>();
+
+const notifyArchiveFailure = (job: ChatArchiveJob): void => {
+	if (notifiedArchiveFailures.has(job.chatId)) return;
+	notifiedArchiveFailures.add(job.chatId);
+	toastManager.add({
+		type: "error",
+		title: "Archive cleanup failed",
+		description:
+			job.error ?? "The chat is archived, but its directory was preserved.",
+		actionProps: {
+			children: "Force archive",
+			onClick: () => void useChatsStore.getState().archive(job.chatId, true),
+		},
+	});
+};
+
+const monitorArchiveJob = (chatId: ChatId): void => {
+	if (archiveStatusTimers.has(chatId)) return;
+	const poll = async () => {
+		try {
+			const client = await getRpcClient();
+			const job = await Effect.runPromise(
+				client["chat.archiveStatus"]({ chatId }),
+			);
+			if (
+				job === null ||
+				["completed", "forced", "cancelled"].includes(job.status)
+			) {
+				archiveStatusTimers.delete(chatId);
+				return;
+			}
+			if (job.status === "failed") {
+				archiveStatusTimers.delete(chatId);
+				notifyArchiveFailure(job);
+				return;
+			}
+		} catch {
+			// Retry after reconnect; transport failures are not archive failures.
+		}
+		archiveStatusTimers.set(chatId, window.setTimeout(poll, 2_000));
+	};
+	archiveStatusTimers.set(chatId, window.setTimeout(poll, 2_000));
+};
 
 export const chatArchiveProgressLabel = (
 	_phase: ChatArchiveProgressPhase,
@@ -97,6 +143,7 @@ type ChatsState = {
 	) => Promise<void>;
 	readonly archive: (
 		chatId: ChatId,
+		force?: boolean,
 	) => Promise<
 		{ readonly ok: true } | { readonly ok: false; readonly reason: string }
 	>;
@@ -308,7 +355,21 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}));
 		try {
 			const client = await getRpcClient();
-			const chats = await Effect.runPromise(client["chat.list"]({ projectId }));
+			const archiveJobsRpc = (
+				client as typeof client & {
+					readonly "chat.archiveJobs"?: (typeof client)["chat.archiveJobs"];
+				}
+			)["chat.archiveJobs"];
+			const [chats, archiveJobs] = await Promise.all([
+				Effect.runPromise(client["chat.list"]({ projectId })),
+				archiveJobsRpc === undefined
+					? Promise.resolve([])
+					: Effect.runPromise(archiveJobsRpc({ projectId })),
+			]);
+			for (const job of archiveJobs) {
+				if (job.status === "failed") notifyArchiveFailure(job);
+				else monitorArchiveJob(job.chatId);
+			}
 			if (currentChangeLifecycle(projectId) !== lifecycle) return;
 			set((s) => ({
 				chatsByProject: { ...s.chatsByProject, [projectId]: chats },
@@ -377,9 +438,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		});
 		let startupQueueId: string | null = null;
 		batchAtomUpdates(() => {
-		set((s) => ({
-			error: null,
-			creatingByProject: { ...s.creatingByProject, [projectId]: true },
+			set((s) => ({
+				error: null,
+				creatingByProject: { ...s.creatingByProject, [projectId]: true },
 				chatsByProject: {
 					...s.chatsByProject,
 					[projectId]: upsertChat(
@@ -406,7 +467,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					...s.selectedSessionByProject,
 					[projectId]: initialSessionId,
 				},
-		}));
+			}));
 			if (opts?.startupInput !== undefined) {
 				startupQueueId = useMessagesStore
 					.getState()
@@ -419,19 +480,19 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			const client = await getRpcClient();
 			const result = await trackRendererRpc("chat.create", () =>
 				Effect.runPromise(
-				client["chat.create"]({
+					client["chat.create"]({
 						chatId,
 						initialSessionId,
-					projectId,
-					providerId,
-					model,
-					title: opts?.title,
-					runtimeMode: opts?.runtimeMode,
+						projectId,
+						providerId,
+						model,
+						title: opts?.title,
+						runtimeMode: opts?.runtimeMode,
 						worktreeId,
-					permissionMode: opts?.permissionMode,
-					toolSearch: opts?.toolSearch,
+						permissionMode: opts?.permissionMode,
+						toolSearch: opts?.toolSearch,
 						background: true,
-				}),
+					}),
 				),
 			);
 			markRendererInteraction(initialSessionId, "entity-acknowledged");
@@ -636,7 +697,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			set({ error: formatError(err) });
 		}
 	},
-	archive: async (chatId) => {
+	archive: async (chatId, force = false) => {
 		set({ error: null });
 		const projectIdBeforeArchive = findChatProject(
 			get().chatsByProject,
@@ -658,22 +719,135 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				: (liveChatsBefore[archivedIndex + 1]?.id ??
 					liveChatsBefore[archivedIndex - 1]?.id ??
 					null);
+		const chatsSnapshot =
+			projectIdBeforeArchive === null
+				? null
+				: (get().chatsByProject[projectIdBeforeArchive] ?? []);
+		const sessionsState = useSessionsStore.getState();
+		const sessionsSnapshot =
+			projectIdBeforeArchive === null
+				? null
+				: (sessionsState.sessionsByProject[projectIdBeforeArchive] ?? []);
+		const selectedSessionSnapshot = sessionsState.selectedSessionId;
+		const failedChatSnapshot = chatsSnapshot?.find(
+			(candidate) => candidate.id === chatId,
+		);
+		const failedSessionSnapshots =
+			sessionsSnapshot?.filter((candidate) => candidate.chatId === chatId) ??
+			[];
+		if (projectIdBeforeArchive !== null) {
+			set((s) => ({
+				chatsByProject: {
+					...s.chatsByProject,
+					[projectIdBeforeArchive]: (
+						s.chatsByProject[projectIdBeforeArchive] ?? []
+					).filter((chat) => chat.id !== chatId),
+				},
+			}));
+			useSessionsStore.setState((s) => ({
+				sessionsByProject: {
+					...s.sessionsByProject,
+					[projectIdBeforeArchive]: (
+						s.sessionsByProject[projectIdBeforeArchive] ?? []
+					).filter((row) => row.chatId !== chatId),
+				},
+			}));
+			if (selectedAtStart) get().select(fallbackChatId);
+		}
 		let result: ChatArchiveResult;
 		try {
 			const client = await getRpcClient();
-			result = await Effect.runPromise(client["chat.archive"]({ chatId }));
+			result = await Effect.runPromise(
+				client["chat.archive"]({ chatId, ...(force ? { force: true } : {}) }),
+			);
 		} catch (err) {
 			const reason = formatError(err);
-			set({ error: reason });
-			return { ok: false, reason } as const;
+			let reconciled: ChatArchiveResult | null = null;
+			let definitiveFailure = false;
+			try {
+				const client = await getRpcClient();
+				const [chat, job] = await Promise.all([
+					Effect.runPromise(client["chat.get"]({ chatId })),
+					Effect.runPromise(client["chat.archiveStatus"]({ chatId })),
+				]);
+				if (chat.archivedAt !== null) {
+					reconciled = { chat, cleanup: null, checkpoint: null, job };
+				} else {
+					definitiveFailure = true;
+				}
+			} catch {
+				// A disconnect after commit is ambiguous. Reconcile on hydration and do
+				// not offer a destructive override until the server answers definitively.
+			}
+			if (reconciled !== null) {
+				result = reconciled;
+			} else {
+				const shouldRestoreSelection =
+					selectedAtStart && get().selectedChatId === fallbackChatId;
+				if (
+					projectIdBeforeArchive !== null &&
+					failedChatSnapshot !== undefined
+				) {
+					set((s) => ({
+						error: reason,
+						chatsByProject: {
+							...s.chatsByProject,
+							[projectIdBeforeArchive]: upsertChat(
+								s.chatsByProject[projectIdBeforeArchive] ?? [],
+								failedChatSnapshot,
+							),
+						},
+					}));
+					if (failedSessionSnapshots.length > 0) {
+						useSessionsStore.setState((s) => ({
+							sessionsByProject: {
+								...s.sessionsByProject,
+								[projectIdBeforeArchive]: [
+									...failedSessionSnapshots,
+									...(s.sessionsByProject[projectIdBeforeArchive] ?? []).filter(
+										(candidate) => candidate.chatId !== chatId,
+									),
+								],
+							},
+							selectedSessionId: shouldRestoreSelection
+								? selectedSessionSnapshot
+								: s.selectedSessionId,
+						}));
+					}
+					if (shouldRestoreSelection) get().select(chatId);
+				} else {
+					set({ error: reason });
+				}
+				toastManager.add({
+					type: "error",
+					title: definitiveFailure
+						? force
+							? "Force archive failed"
+							: "Archive failed"
+						: "Archive status unavailable",
+					description: reason,
+					...(force || !definitiveFailure
+						? {}
+						: {
+								actionProps: {
+									children: "Force archive",
+									onClick: () => void get().archive(chatId, true),
+								},
+							}),
+				});
+				return { ok: false, reason } as const;
+			}
 		}
 
 		// The RPC is the commit point. Reconcile every local store synchronously
 		// before starting optional refresh work so the archived live view cannot
 		// linger or turn a successful mutation into a reported failure.
-		toastManager.add({ type: "success", title: "Archived" });
 		const projectId = projectIdBeforeArchive ?? result.chat.projectId;
 		useArchivePreviewStore.getState().upsertChat(result.chat);
+		if (result.job?.status === "queued" || result.job?.status === "running") {
+			notifiedArchiveFailures.delete(chatId);
+			monitorArchiveJob(chatId);
+		}
 		set((s) => {
 			const chats = s.chatsByProject[projectId] ?? [];
 			return {
@@ -1018,7 +1192,7 @@ export async function archiveChatWithConfirm(chatId: ChatId): Promise<void> {
 	setArchiveProgress(chatId, "archiving");
 	try {
 		const result = await archive(chatId);
-		if (!result.ok) throw new Error(result.reason);
+		if (!result.ok) return;
 	} finally {
 		clearArchiveProgress(chatId);
 	}

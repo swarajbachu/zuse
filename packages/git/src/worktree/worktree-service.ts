@@ -59,6 +59,7 @@ export interface WorktreeServiceShape {
 		recordCheckpoint?: (
 			outcome: WorktreeArchiveOutcome,
 		) => Effect.Effect<void, WorktreeCheckpointError>,
+		allowRemoval?: () => Effect.Effect<boolean>,
 	) => Effect.Effect<
 		WorktreeArchiveOutcome,
 		WorktreeNotFoundError | WorktreeCheckpointError | WorktreeRemoveError

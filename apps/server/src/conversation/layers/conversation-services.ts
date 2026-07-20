@@ -14,7 +14,7 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { DateTime, Effect, Layer, Option } from "effect";
+import { DateTime, Effect, FileSystem, Layer, Option } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { LinearService } from "../../linear/services/linear-service.ts";
@@ -123,6 +123,7 @@ const ConversationRuntimeLive = Layer.effect(
 			});
 		const ndjson = yield* NdjsonLogger;
 		const worktrees = yield* WorktreeService;
+		const fs = yield* FileSystem.FileSystem;
 		const repositorySettings = yield* RepositorySettingsService;
 		const ptys = yield* PtyService;
 		const git = yield* GitService;
@@ -402,6 +403,9 @@ const ConversationRuntimeLive = Layer.effect(
 			setChatWorktree,
 			setChatActiveSession,
 			archiveChatWithReactor,
+			getArchiveStatus,
+			listArchiveJobs,
+			getChatDirectoryStatus,
 			unarchiveChat,
 			deleteChatWithReactor,
 			handleChatArchive,
@@ -415,8 +419,15 @@ const ConversationRuntimeLive = Layer.effect(
 				chatArchive: handleChatArchive,
 				chatDelete: handleChatDelete,
 			});
-		const archiveChat: ConversationOperations["archiveChat"] = (chatId) =>
-			archiveChatWithReactor(chatId, reactorRuntime.runChatArchive);
+		const archiveChat: ConversationOperations["archiveChat"] = (
+			chatId,
+			force,
+		) =>
+			archiveChatWithReactor(
+				chatId,
+				force ?? false,
+				reactorRuntime.runChatArchive,
+			);
 		const deleteChat: ConversationOperations["deleteChat"] = (chatId) =>
 			deleteChatWithReactor(chatId, reactorRuntime.runChatDelete);
 		yield* reactorRuntime.catchUpAll;
@@ -441,6 +452,7 @@ const ConversationRuntimeLive = Layer.effect(
 
 		const messageOperations: MessageOperations = yield* makeMessageOperations({
 			sql,
+			fs,
 			provider,
 			goalState,
 			lookupSession,
@@ -504,6 +516,9 @@ const ConversationRuntimeLive = Layer.effect(
 			setChatWorktree,
 			setChatActiveSession,
 			archiveChat,
+			getArchiveStatus,
+			listArchiveJobs,
+			getChatDirectoryStatus,
 			unarchiveChat,
 			deleteChat,
 		} satisfies ChatServiceShape;

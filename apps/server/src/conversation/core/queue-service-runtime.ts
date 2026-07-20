@@ -1,5 +1,6 @@
 import {
 	ComposerInput,
+	type DirectoryUnavailableError,
 	MessageId,
 	QueuedMessage,
 	QueuedMessageNotFoundError,
@@ -33,7 +34,7 @@ export interface QueueServiceRuntimeDeps {
 		sessionId: SessionId,
 		input: ComposerInput,
 		clientMessageId: MessageId,
-	) => Effect.Effect<boolean, SessionNotFoundError>;
+	) => Effect.Effect<boolean, SessionNotFoundError | DirectoryUnavailableError>;
 	readonly settleActiveTurn: (
 		sessionId: SessionId,
 		outcome: "error",
@@ -358,6 +359,9 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 						: settleActiveTurn(item.sessionId, "error").pipe(
 								Effect.andThen(restore(item)),
 							),
+				),
+				Effect.catchTag("DirectoryUnavailableError", () =>
+					restore(item).pipe(Effect.andThen(setPaused(item.sessionId, true))),
 				),
 				Effect.catch((error) =>
 					restore(item).pipe(Effect.andThen(Effect.fail(error))),
