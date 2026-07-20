@@ -51,6 +51,7 @@ import {
   derivePermissionAttention,
   mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
+import { displayPath } from "~/lib/display-path";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import { noteSessionStatusForCompletionSound } from "../lib/completion-sounds.ts";
 import {
@@ -719,7 +720,11 @@ function ProjectGroup({
           </div>
           <span
             className="min-w-0 flex-1 truncate text-sm"
-            title={origin ? `${origin.owner}/${origin.repo} · ${path}` : path}
+            title={
+              origin
+                ? `${origin.owner}/${origin.repo} · ${displayPath(path)}`
+                : displayPath(path)
+            }
           >
             {displayName}
           </span>

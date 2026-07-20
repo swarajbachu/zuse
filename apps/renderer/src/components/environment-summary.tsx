@@ -14,6 +14,7 @@ import type { Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { useMemo } from "react";
 
+import { displayPath } from "../lib/display-path.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
@@ -161,7 +162,7 @@ export function EnvironmentSummary() {
 				<HugeiconsIcon icon={GitCompareIcon} className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">{changesLabel}</span>
 			</button>
-			<div className={rowClass} title={ctx.rootPath}>
+			<div className={rowClass} title={displayPath(ctx.rootPath)}>
 				<HugeiconsIcon
 					icon={ComputerTerminal01Icon}
 					className="size-4 shrink-0 text-muted-foreground"

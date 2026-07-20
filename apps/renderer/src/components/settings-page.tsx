@@ -33,6 +33,7 @@ import {
 import { Effect } from "effect";
 import { Plus, RefreshCw as RefreshIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { displayPath } from "~/lib/display-path";
 import { isInitialProviderAvailabilityLoading } from "~/lib/provider-status";
 
 import {
@@ -246,7 +247,7 @@ function Rail({
                   }
                   icon={Folder01Icon}
                   label={f.name}
-                  title={f.path}
+                  title={displayPath(f.path)}
                   truncate
                 />
               );
@@ -362,7 +363,7 @@ function SectionTitle({
     const f = folders.find((x) => x.id === section.projectId);
     return {
       title: f?.name ?? "Repository",
-      subtitle: f?.path ?? "",
+      subtitle: f?.path !== undefined ? displayPath(f.path) : "",
     };
   }, [section, folders]);
   return (

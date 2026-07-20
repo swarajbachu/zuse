@@ -31,6 +31,7 @@ import {
 import { parseOrchestrationResult } from "~/lib/orchestration-tools";
 import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
+import { displayPath } from "~/lib/display-path";
 import { useChatsStore } from "~/store/chats";
 import { useSessionsStore } from "~/store/sessions";
 
@@ -283,6 +284,7 @@ function MutedFilePath({
     view,
   });
   const canOpen = openTarget !== null;
+  const shownPath = displayPath(path, [worktreePath, folderPath]);
 
   const onClick = (e: React.MouseEvent<HTMLSpanElement>) => {
     if (openTarget === null) return;
@@ -314,7 +316,7 @@ function MutedFilePath({
                 ? "cursor-pointer hover:text-foreground/80"
                 : "cursor-default",
             )}
-            title={path}
+            title={shownPath}
           >
             <FileIcon
               name={name}
@@ -334,7 +336,7 @@ function MutedFilePath({
           </span>
         }
       />
-      <TooltipPopup>{canOpen ? `Open ${path}` : path}</TooltipPopup>
+      <TooltipPopup>{canOpen ? `Open ${shownPath}` : shownPath}</TooltipPopup>
     </Tooltip>
   );
 }

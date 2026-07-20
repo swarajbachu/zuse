@@ -15,6 +15,7 @@ import { useSettingsStore } from "../store/settings.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { cn } from "~/lib/utils";
+import { displayPath } from "~/lib/display-path";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { PermissionsInspector } from "./permissions-inspector.tsx";
 import { MODES_ORDER, MODE_META } from "./runtime-mode-meta.ts";
@@ -454,7 +455,10 @@ function WorktreeSection({
                   icon={GitBranchIcon}
                   className="size-4 shrink-0 text-muted-foreground"
                 />
-                <div className="flex min-w-0 flex-col gap-0.5" title={wt.path}>
+                <div
+                  className="flex min-w-0 flex-col gap-0.5"
+                  title={displayPath(wt.path)}
+                >
                   <span className="truncate text-sm font-medium text-foreground">
                     {wt.name}
                   </span>

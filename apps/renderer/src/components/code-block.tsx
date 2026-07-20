@@ -183,7 +183,6 @@ export function CodeBlock({
   }, [safeText, lang, theme]);
 
   const name = title ?? basename(filename);
-  const lineCount = safeText.length === 0 ? 0 : safeText.split("\n").length;
 
   return (
     <div
@@ -208,9 +207,6 @@ export function CodeBlock({
             label={`Copy ${name}`}
             className="size-5 rounded text-muted-foreground/60 hover:bg-muted/60"
           />
-          <span className="tabular-nums opacity-70">
-            {lineCount} {lineCount === 1 ? "line" : "lines"}
-          </span>
         </div>
       ) : (
         <CopyButton
