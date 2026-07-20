@@ -741,7 +741,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
                         },
                       }
                 }
-                maintainVisibleContentPosition={{ data: true, size: false }}
+                // `size: true` compensates the scroll offset when items above
+                // the viewport re-measure (estimated 96px -> real height, or
+                // async shiki/mermaid swaps). Without it, upward scrolling
+                // jitters every time an unmeasured row above settles.
+                maintainVisibleContentPosition={{ data: true, size: true }}
                 onScroll={handleScroll}
                 className="h-full min-h-0 flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
                 data-pane="chat"
