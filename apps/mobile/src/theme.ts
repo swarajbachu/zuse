@@ -4,7 +4,6 @@ import { Platform } from "react-native";
 /** The single product accent used across native controls and utility styles. */
 export const NEON_GREEN = "#c8ff00";
 export const PRIMARY_FOREGROUND = "#11130a";
-export const PLAN_MODE_TINT = "#BF5AF2";
 
 const platformColor = <T>(ios: T, android: T | undefined, fallback: T): T =>
 	Platform.select({ ios, android: android ?? fallback, default: fallback }) ??

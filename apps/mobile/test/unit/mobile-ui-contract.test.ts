@@ -50,7 +50,7 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/model-sheet.ios.tsx`,
 			"utf8",
 		);
-		expect(newChat).toContain("<ComposerModeDock");
+		expect(newChat).toContain("<ComposerModeChip");
 		expect(newChat).toContain("<ModelSheetTrigger");
 		expect(newChat).toContain("<ModelSheet");
 		expect(newChat).not.toContain("<ComposerModelMenu");
@@ -81,29 +81,44 @@ describe("mobile UI contracts", () => {
 		}
 	});
 
-	test("keeps attachments in the editor and variable modes in a shared dock", () => {
+	test("keeps attachments and unboxed mode state inside both composers", () => {
 		const newChat = appFile("new-chat.tsx");
 		const threadComposer = readFileSync(
 			`${process.cwd()}/src/components/composer.tsx`,
 			"utf8",
 		);
-		const modeDock = readFileSync(
-			`${process.cwd()}/src/components/composer-mode-dock.tsx`,
+		const modeChip = readFileSync(
+			`${process.cwd()}/src/components/composer-mode-chip.tsx`,
 			"utf8",
 		);
 		for (const source of [newChat, threadComposer]) {
 			expect(source).toContain("<ComposerAttachmentStrip");
 			expect(source).toContain("<ComposerInputFrame");
-			expect(source).toContain("<ComposerModeDock");
+			expect(source).toContain("<ComposerModeChip");
 			expect(source).toContain("<ComposerPlusMenu");
 		}
-		expect(modeDock).toContain('<ModeChip label="Plan"');
+		expect(modeChip).toContain("plan ? colors.accent : colors.fg");
 		for (const source of [newChat, threadComposer]) {
 			expect(source).toContain("<ComposerApprovalMenu");
 			expect(source).toContain("<ModelSheetTrigger");
 		}
 		expect(threadComposer).not.toContain("fileCount > 0");
 		expect(threadComposer).not.toContain("fileItemId");
+	});
+
+	test("keeps selected modes visible without forcing the composer active", () => {
+		const threadComposer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
+		const expandedPolicy = threadComposer.slice(
+			threadComposer.indexOf("const expanded ="),
+			threadComposer.indexOf("const agentCount"),
+		);
+
+		expect(expandedPolicy).not.toContain("goalMode");
+		expect(expandedPolicy).not.toContain("planMode");
+		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
 	test("keeps the camera preview active and explicitly full screen", () => {

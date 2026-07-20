@@ -22,7 +22,7 @@ import { ComposerActionSlot } from "~/components/composer-action-slot";
 import { ComposerApprovalMenu } from "~/components/composer-approval-menu";
 import { ComposerAttachmentStrip } from "~/components/composer-attachment-strip";
 import { ComposerInputFrame } from "~/components/composer-input-frame";
-import { ComposerModeDock } from "~/components/composer-mode-dock";
+import { ComposerModeChip } from "~/components/composer-mode-chip";
 import { ComposerPlusMenu } from "~/components/composer-plus-menu";
 import type { ModelModeValue } from "~/components/model-mode-menu";
 import { ModelSheet } from "~/components/model-sheet";
@@ -472,17 +472,6 @@ export default function NewChatScreen() {
 						emptyLabel={emptyBranchLabel}
 					/>
 				</View>
-				<ComposerModeDock
-					planMode={effectiveModelMode.permissionMode === "plan"}
-					goalMode={goalMode}
-					onClearPlan={() =>
-						setModelMode((value) => ({
-							...value,
-							permissionMode: "default",
-						}))
-					}
-					onClearGoal={() => setGoalMode(false)}
-				/>
 				<GlassSurface
 					style={{
 						gap: 8,
@@ -542,6 +531,24 @@ export default function NewChatScreen() {
 										}
 									/>
 								</ComposerActionSlot>
+								{effectiveModelMode.permissionMode === "plan" ? (
+									<ComposerModeChip
+										label="Plan"
+										plan
+										onClear={() =>
+											setModelMode((value) => ({
+												...value,
+												permissionMode: "default",
+											}))
+										}
+									/>
+								) : null}
+								{goalMode ? (
+									<ComposerModeChip
+										label="Goal"
+										onClear={() => setGoalMode(false)}
+									/>
+								) : null}
 							</View>
 						}
 						trailingAction={

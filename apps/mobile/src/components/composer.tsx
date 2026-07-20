@@ -67,7 +67,7 @@ import { ComposerActionSlot } from "./composer-action-slot";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
 import { ComposerInputFrame } from "./composer-input-frame";
-import { ComposerModeDock } from "./composer-mode-dock";
+import { ComposerModeChip } from "./composer-mode-chip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
@@ -173,14 +173,12 @@ export const Composer = ({
 					permissionMode: session.permissionMode,
 				};
 	const planMode = modelValue?.permissionMode === "plan";
-	// Collapse to a compact pill when the editor itself is idle. A running agent
-	// remains interruptible from the compact trailing control.
+	// Modes remain visible in both layouts, but only editor activity expands the
+	// composer. A running agent remains interruptible from the compact control.
 	const expanded =
 		focused ||
 		text.trim().length > 0 ||
 		attachments.length > 0 ||
-		goalMode ||
-		planMode ||
 		modelSheetOpen;
 
 	const agentCount = currentActivity?.agents ?? 0;
@@ -394,15 +392,6 @@ export const Composer = ({
 				</View>
 			) : null}
 
-			{expanded && modelValue !== null ? (
-				<ComposerModeDock
-					planMode={planMode}
-					goalMode={goalMode}
-					onClearPlan={() => setPermissionMode("default")}
-					onClearGoal={() => setGoalMode(false)}
-				/>
-			) : null}
-
 			<GlassSurface
 				style={{
 					gap: 8,
@@ -480,6 +469,19 @@ export const Composer = ({
 												onChange={setRuntimeMode}
 											/>
 										</ComposerActionSlot>
+										{planMode ? (
+											<ComposerModeChip
+												label="Plan"
+												plan
+												onClear={() => setPermissionMode("default")}
+											/>
+										) : null}
+										{goalMode ? (
+											<ComposerModeChip
+												label="Goal"
+												onClear={() => setGoalMode(false)}
+											/>
+										) : null}
 									</View>
 								)
 							}
@@ -527,6 +529,19 @@ export const Composer = ({
 								/>
 							</ComposerActionSlot>
 						)}
+						{planMode ? (
+							<ComposerModeChip
+								label="Plan"
+								plan
+								onClear={() => setPermissionMode("default")}
+							/>
+						) : null}
+						{goalMode ? (
+							<ComposerModeChip
+								label="Goal"
+								onClear={() => setGoalMode(false)}
+							/>
+						) : null}
 						<Pressable
 							accessibilityRole="button"
 							accessibilityLabel="Write a message"
