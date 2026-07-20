@@ -1,7 +1,3 @@
-import {
-	projectSessionEvent,
-	sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
 import type {
 	Chat,
 	Folder,
@@ -55,6 +51,18 @@ type SessionsState = {
 		chatId: Chat["id"],
 		title: string,
 	) => Promise<void>;
+	renameSession: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionId: Session["id"],
+		title: string,
+	) => Promise<void>;
+	setActiveSession: (
+		connKey: string,
+		options: WsProtocolOptions,
+		chatId: Chat["id"],
+		sessionId: Session["id"],
+	) => Promise<void>;
 	markChatRead: (
 		connKey: string,
 		options: WsProtocolOptions,
@@ -97,16 +105,17 @@ type SessionsState = {
 			chatId: Chat["id"];
 			providerId: ProviderId;
 			model: string;
-			initialPrompt: string;
+			title?: string;
+			initialPrompt?: string;
 			runtimeMode?: RuntimeMode;
 			permissionMode?: PermissionMode;
+			modelOptions?: Record<string, string>;
 		},
 	) => Promise<Session>;
 };
 
-const statusFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const eventCursorKey = (key: string): string => `mobile:status:${key}`;
 const chatFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const sessionSummaryFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 
 const stopFiber = async (
 	key: string,
@@ -121,10 +130,11 @@ const stopFiber = async (
 
 export const resetSessionsRuntime = async (): Promise<void> => {
 	await Promise.all([
-		...Array.from(statusFibers.keys(), (key) => stopFiber(key, statusFibers)),
 		...Array.from(chatFibers.keys(), (key) => stopFiber(key, chatFibers)),
+		...Array.from(sessionSummaryFibers.keys(), (key) =>
+			stopFiber(key, sessionSummaryFibers),
+		),
 	]);
-	sessionEventCursors.clearPrefix("mobile:status:");
 	useSessionsStore.setState({
 		bundlesByConnection: {},
 		statusBySession: {},
@@ -213,6 +223,79 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					[connKey]: cause instanceof Error ? cause.message : String(cause),
 				},
 			}));
+		}
+	},
+	renameSession: async (connKey, options, sessionId, title) => {
+		const trimmed = title.trim();
+		if (trimmed.length === 0) return;
+		const previous = findSession(
+			get().bundlesByConnection[connKey] ?? [],
+			sessionId,
+		);
+		set((state) => ({
+			bundlesByConnection: {
+				...state.bundlesByConnection,
+				[connKey]: patchSessionFields(
+					state.bundlesByConnection[connKey] ?? [],
+					sessionId,
+					{ title: trimmed },
+				),
+			},
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(
+				client["session.rename"]({ sessionId, title: trimmed }),
+			);
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			if (previous !== null) {
+				set((state) => ({
+					bundlesByConnection: {
+						...state.bundlesByConnection,
+						[connKey]: patchSession(
+							state.bundlesByConnection[connKey] ?? [],
+							previous,
+						),
+					},
+				}));
+			}
+			throw cause;
+		}
+	},
+	setActiveSession: async (connKey, options, chatId, sessionId) => {
+		const previous = findChat(
+			get().bundlesByConnection[connKey] ?? [],
+			chatId,
+		)?.activeSessionId;
+		set((state) => ({
+			bundlesByConnection: {
+				...state.bundlesByConnection,
+				[connKey]: patchChatFields(
+					state.bundlesByConnection[connKey] ?? [],
+					chatId,
+					{ activeSessionId: sessionId },
+				),
+			},
+		}));
+		try {
+			const client = await Effect.runPromise(getConnectionClient(options));
+			await Effect.runPromise(
+				client["chat.setActiveSession"]({ chatId, sessionId }),
+			);
+		} catch (cause) {
+			reportConnectionFailure(options, cause);
+			set((state) => ({
+				bundlesByConnection: {
+					...state.bundlesByConnection,
+					[connKey]: patchChatFields(
+						state.bundlesByConnection[connKey] ?? [],
+						chatId,
+						{ activeSessionId: previous ?? null },
+					),
+				},
+			}));
+			throw cause;
 		}
 	},
 	markChatRead: async (connKey, options, chatId) => {
@@ -397,9 +480,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					chatId: input.chatId,
 					providerId: input.providerId,
 					model: input.model,
+					title: input.title,
 					initialPrompt: input.initialPrompt,
 					runtimeMode: input.runtimeMode,
 					permissionMode: input.permissionMode,
+					modelOptions: input.modelOptions,
 				}),
 			);
 			set((state) => ({
@@ -462,6 +547,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					[connKey]: bundles,
 				},
 				loadingByConnection: { ...state.loadingByConnection, [connKey]: false },
+				statusBySession: patchConnectionStatuses(
+					state.statusBySession,
+					connKey,
+					bundles.flatMap((bundle) => bundle.sessions),
+				),
 			}));
 
 			await Effect.runPromise(
@@ -488,63 +578,70 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 									),
 								},
 							}));
+							void persistConnectionBundles(connKey);
 						}),
 				).pipe(Effect.catch(() => Effect.void));
 				chatFibers.set(
 					`${connKey}:chat:${bundle.project.id}`,
 					Effect.runFork(chatProgram),
 				);
-			}
 
-			for (const session of bundles.flatMap((b) => b.sessions)) {
-				const key = `${connKey}:status:${session.id}`;
-				await stopFiber(key, statusFibers);
-				const statusProgram = Stream.runForEach(
-					client["session.events"]({
-						sessionId: session.id,
-						afterSequence: sessionEventCursors.get(eventCursorKey(key)),
-					}),
-					(envelope) =>
+				const summaryKey = `${connKey}:sessions:${bundle.project.id}`;
+				await stopFiber(summaryKey, sessionSummaryFibers);
+				const summaryProgram = Stream.runForEach(
+					client["session.streamChanges"]({ projectId: bundle.project.id }),
+					(change) =>
 						Effect.sync(() => {
-							sessionEventCursors.set(eventCursorKey(key), envelope.sequence);
-							const event = projectSessionEvent(envelope);
-							if (event._tag === "status") {
+							if (change._tag === "snapshot") {
 								set((state) => ({
+									bundlesByConnection: {
+										...state.bundlesByConnection,
+										[connKey]: replaceProjectSessions(
+											state.bundlesByConnection[connKey] ?? [],
+											bundle.project.id,
+											change.sessions,
+										),
+									},
+									statusBySession: patchConnectionStatuses(
+										state.statusBySession,
+										connKey,
+										change.sessions,
+									),
+								}));
+								void persistConnectionBundles(connKey);
+								return;
+							}
+							if (change._tag === "change") {
+								set((state) => ({
+									bundlesByConnection: {
+										...state.bundlesByConnection,
+										[connKey]: patchSession(
+											state.bundlesByConnection[connKey] ?? [],
+											change.session,
+										),
+									},
 									statusBySession: {
 										...state.statusBySession,
-										[connectionSessionKey(connKey, session.id)]: event.status,
+										[connectionSessionKey(connKey, change.session.id)]:
+											change.session.status,
 									},
 								}));
+								void persistConnectionBundles(connKey);
 								return;
 							}
-							if (event._tag === "permissionMode") {
-								set((state) => ({
-									bundlesByConnection: {
-										...state.bundlesByConnection,
-										[connKey]: patchSessionFields(
-											state.bundlesByConnection[connKey] ?? [],
-											session.id,
-											{ permissionMode: event.permissionMode },
-										),
-									},
-								}));
-								return;
-							}
-							if (event._tag === "runtimeMode") {
-								set((state) => ({
-									bundlesByConnection: {
-										...state.bundlesByConnection,
-										[connKey]: patchSessionFields(
-											state.bundlesByConnection[connKey] ?? [],
-											session.id,
-											{ runtimeMode: event.runtimeMode },
-										),
-									},
-								}));
-							}
+							set((state) => ({
+								bundlesByConnection: {
+									...state.bundlesByConnection,
+									[connKey]: removeSession(
+										state.bundlesByConnection[connKey] ?? [],
+										change.sessionId,
+									),
+								},
+							}));
+							void persistConnectionBundles(connKey);
 						}),
 				).pipe(Effect.catch(() => Effect.void));
-				statusFibers.set(key, Effect.runFork(statusProgram));
+				sessionSummaryFibers.set(summaryKey, Effect.runFork(summaryProgram));
 			}
 		} catch (cause) {
 			reportConnectionFailure(options, cause);
@@ -577,6 +674,15 @@ const removeSession = (
 		...bundle,
 		sessions: bundle.sessions.filter((session) => session.id !== sessionId),
 	}));
+
+const replaceProjectSessions = (
+	bundles: readonly ProjectBundle[],
+	projectId: Folder["id"],
+	sessions: readonly Session[],
+): ProjectBundle[] =>
+	bundles.map((bundle) =>
+		bundle.project.id === projectId ? { ...bundle, sessions } : bundle,
+	);
 
 const rebuildBundles = (
 	projects: readonly Folder[],
@@ -668,6 +774,17 @@ const findSession = (
 	return null;
 };
 
+const findChat = (
+	bundles: readonly ProjectBundle[],
+	chatId: Chat["id"],
+): Chat | null => {
+	for (const bundle of bundles) {
+		const chat = bundle.chats.find((item) => item.id === chatId);
+		if (chat !== undefined) return chat;
+	}
+	return null;
+};
+
 const patchSessionFields = (
 	bundles: readonly ProjectBundle[],
 	sessionId: Session["id"],
@@ -708,8 +825,35 @@ const timestampOf = (value: unknown): number => {
 	return 0;
 };
 
+const patchConnectionStatuses = (
+	current: Readonly<Record<string, SessionStatus>>,
+	connKey: string,
+	sessions: readonly Session[],
+): Record<string, SessionStatus> => ({
+	...current,
+	...Object.fromEntries(
+		sessions.map((session) => [
+			connectionSessionKey(connKey, session.id),
+			session.status,
+		]),
+	),
+});
+
 export const isUnread = (chat: Chat): boolean => {
 	const lastMessageAt = timestampOf(chat.lastMessageAt);
 	const lastReadAt = timestampOf(chat.lastReadAt);
 	return lastMessageAt > 0 && lastReadAt > 0 && lastMessageAt > lastReadAt;
 };
+
+async function persistConnectionBundles(connKey: string): Promise<void> {
+	const bundles =
+		useSessionsStore.getState().bundlesByConnection[connKey] ?? [];
+	await Effect.runPromise(
+		writeSessionsSnapshot(connKey, {
+			projects: bundles.map((bundle) => bundle.project),
+			chats: bundles.flatMap((bundle) => bundle.chats),
+			sessions: bundles.flatMap((bundle) => bundle.sessions),
+			savedAt: Date.now(),
+		}),
+	).catch(() => {});
+}

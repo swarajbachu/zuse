@@ -13,12 +13,17 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 /**
  * Pending tool-permission prompts, surfaced as inline approval cards. These
  * arrive on the global `permission.requests` stream (not the message log), so
- * this store cold-loads via `permission.listPending` on mount and then filters
- * the live stream down to the active session — mirroring the fiber lifecycle of
- * the messages store.
+ * this store cold-loads via `permission.listPending` and shares one live stream
+ * across every thread on a connection. Transcript streams remain session-local;
+ * permission observation is intentionally connection-scoped.
  */
 type PermissionsState = {
 	pendingBySession: Record<string, readonly PermissionRequest[]>;
+	hydrateConnection: (
+		connKey: string,
+		options: WsProtocolOptions,
+		sessionIds: readonly SessionId[],
+	) => Promise<void>;
 	hydrate: (
 		connKey: string,
 		options: WsProtocolOptions,
@@ -39,62 +44,85 @@ type PermissionsState = {
 };
 
 const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const startingConnections = new Set<string>();
 
-const stop = async (key: string) => {
-	const fiber = liveFibers.get(key);
+const stop = async (connKey: string) => {
+	const fiber = liveFibers.get(connKey);
 	if (fiber !== undefined) {
-		liveFibers.delete(key);
+		liveFibers.delete(connKey);
 		await Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
 	}
 };
 
 export const resetPermissionsRuntime = async (): Promise<void> => {
+	startingConnections.clear();
 	await Promise.all(Array.from(liveFibers.keys(), stop));
 	usePermissionsStore.setState({ pendingBySession: {} });
 };
 
 export const usePermissionsStore = create<PermissionsState>((set, get) => ({
 	pendingBySession: {},
-	hydrate: async (connKey, options, sessionId) => {
-		const liveKey = connectionSessionKey(connKey, sessionId);
-		await stop(liveKey);
+	hydrateConnection: async (connKey, options, sessionIds) => {
+		const shouldStartStream =
+			!liveFibers.has(connKey) && !startingConnections.has(connKey);
+		if (shouldStartStream) startingConnections.add(connKey);
 		try {
 			const client = await Effect.runPromise(getConnectionClient(options));
-
-			const listed = await Effect.runPromise(
-				client["permission.listPending"]({ sessionId }),
+			const snapshots = await Promise.all(
+				sessionIds.map(async (sessionId) => ({
+					sessionId,
+					requests: await Effect.runPromise(
+						client["permission.listPending"]({ sessionId }),
+					),
+				})),
 			);
-			set((state) => ({
-				pendingBySession: {
-					...state.pendingBySession,
-					[liveKey]: normalizeRequests(listed),
-				},
-			}));
+			set((state) => {
+				const next = { ...state.pendingBySession };
+				for (const snapshot of snapshots) {
+					next[connectionSessionKey(connKey, snapshot.sessionId)] =
+						normalizeRequests(snapshot.requests);
+				}
+				return { pendingBySession: next };
+			});
 
-			const program = Stream.runForEach(
-				client["permission.requests"]({}),
-				(request) =>
-					Effect.sync(() => {
-						if (request.sessionId !== sessionId) return;
-						set((state) => {
-							const current = state.pendingBySession[liveKey] ?? [];
-							if (current.some((entry) => entry.id === request.id))
-								return state;
-							return {
-								pendingBySession: {
-									...state.pendingBySession,
-									[liveKey]: normalizeRequests([...current, request]),
-								},
-							};
-						});
-					}),
-			).pipe(Effect.catch(() => Effect.void));
-			liveFibers.set(liveKey, Effect.runFork(program));
+			if (shouldStartStream && !liveFibers.has(connKey)) {
+				let fiber: Fiber.Fiber<unknown, unknown>;
+				const program = Stream.runForEach(
+					client["permission.requests"]({}),
+					(request) =>
+						Effect.sync(() => {
+							const key = connectionSessionKey(connKey, request.sessionId);
+							set((state) => {
+								const current = state.pendingBySession[key] ?? [];
+								if (current.some((entry) => entry.id === request.id))
+									return state;
+								return {
+									pendingBySession: {
+										...state.pendingBySession,
+										[key]: normalizeRequests([...current, request]),
+									},
+								};
+							});
+						}),
+				).pipe(
+					Effect.catch(() => Effect.void),
+					Effect.ensuring(
+						Effect.sync(() => {
+							if (liveFibers.get(connKey) === fiber) liveFibers.delete(connKey);
+						}),
+					),
+				);
+				fiber = Effect.runFork(program);
+				liveFibers.set(connKey, fiber);
+			}
 		} catch (cause) {
 			reportConnectionFailure(options, cause);
-			// A dropped permission stream is non-fatal: the messages store already
-			// surfaces the connection error, and hydrate re-runs on the next mount.
+		} finally {
+			if (shouldStartStream) startingConnections.delete(connKey);
 		}
+	},
+	hydrate: async (connKey, options, sessionId) => {
+		await get().hydrateConnection(connKey, options, [sessionId]);
 	},
 	reconcile: async (connKey, options, sessionId) => {
 		const key = connectionSessionKey(connKey, sessionId);

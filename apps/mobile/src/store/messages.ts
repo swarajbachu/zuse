@@ -28,6 +28,7 @@ type MessagesState = {
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 	) => Promise<void>;
+	release: (connKey: string, sessionId: SessionId) => Promise<void>;
 	flush: (connKey: string, sessionId: SessionId) => Promise<void>;
 	deleteQueued: (
 		connKey: string,
@@ -66,6 +67,7 @@ const queueFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const eventCursorKey = (liveKey: string): string =>
 	`mobile:messages:${liveKey}`;
 const optimisticIds = new Set<MessageId>();
+const hydrationGeneration = new Map<string, number>();
 let appStateInstalled = false;
 
 const stopFiber = async (
@@ -87,6 +89,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	const keys = new Set([...liveFibers.keys(), ...queueFibers.keys()]);
 	await Promise.all(Array.from(keys, stop));
 	optimisticIds.clear();
+	hydrationGeneration.clear();
 	sessionEventCursors.clearPrefix("mobile:messages:");
 	useMobileMessagesStore.setState({
 		messagesBySession: {},
@@ -103,14 +106,22 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 	queuePausedBySession: {},
 	reconnectingBySession: {},
 	errorBySession: {},
+	release: async (connKey, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		hydrationGeneration.set(key, (hydrationGeneration.get(key) ?? 0) + 1);
+		await stop(key);
+	},
 	hydrate: async (connKey, options, sessionId) => {
 		installAppStateFlush(get);
 		const liveKey = connectionSessionKey(connKey, sessionId);
+		const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
+		hydrationGeneration.set(liveKey, generation);
 		await stop(liveKey);
 
 		const cached = await Effect.runPromise(
 			readMessagesSnapshot(connKey, sessionId),
 		);
+		if (hydrationGeneration.get(liveKey) !== generation) return;
 		if (cached !== null) {
 			sessionEventCursors.set(eventCursorKey(liveKey), cached.highestSequence);
 			set((state) => ({
@@ -138,6 +149,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				const listedQueue = await Effect.runPromise(
 					client["messages.queue.list"]({ sessionId }),
 				);
+				if (hydrationGeneration.get(liveKey) !== generation) return;
 				set((state) => ({
 					queueBySession: {
 						...state.queueBySession,
@@ -164,6 +176,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					client["session.events"]({ sessionId, afterSequence }),
 					(envelope) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							sessionEventCursors.set(
 								eventCursorKey(liveKey),
 								envelope.sequence,
@@ -216,6 +229,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				).pipe(
 					Effect.catch((cause) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							set((state) => ({
 								reconnectingBySession: {
 									...state.reconnectingBySession,
@@ -235,6 +249,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					client["messages.queue.stream"]({ sessionId }),
 					(queue) =>
 						Effect.sync(() => {
+							if (hydrationGeneration.get(liveKey) !== generation) return;
 							set((state) => ({
 								queueBySession: {
 									...state.queueBySession,
@@ -258,6 +273,7 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 				);
 				queueFibers.set(liveKey, Effect.runFork(queueProgram));
 			} catch (cause) {
+				if (hydrationGeneration.get(liveKey) !== generation) return;
 				reportConnectionFailure(options, cause);
 				set((state) => ({
 					reconnectingBySession: {

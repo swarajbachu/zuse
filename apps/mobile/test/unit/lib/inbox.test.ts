@@ -143,6 +143,38 @@ describe("mobile inbox helpers", () => {
 		]);
 	});
 
+	test.each([
+		1, 2, 8, 50,
+	])("projects %i threads in one chat as one inbox row", (threadCount) => {
+		const sessions = Array.from({ length: threadCount }, (_, index) =>
+			session({
+				id: `session-${index}`,
+				chatId: "chat-1",
+				status: index < 2 ? "running" : "idle",
+			}),
+		);
+		const groups = buildInboxGroups({
+			connections: [connection],
+			bundlesByConnection: {
+				"env-1": [
+					{
+						project,
+						chats: [
+							chat({ activeSessionId: `session-${threadCount - 1}` }),
+						] as never,
+						sessions: sessions as never,
+					},
+				],
+			},
+			statusBySession: {},
+			query: "",
+		});
+
+		expect(groups[0]?.rows).toHaveLength(1);
+		expect(groups[0]?.rows[0]?.threadCount).toBe(threadCount);
+		expect(groups[0]?.rows[0]?.runningCount).toBe(Math.min(2, threadCount));
+	});
+
 	test("filters by project, source, model, and chat title", () => {
 		const groups = buildInboxGroups({
 			connections: [connection],

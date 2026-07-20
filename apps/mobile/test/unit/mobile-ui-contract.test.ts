@@ -195,11 +195,9 @@ describe("mobile UI contracts", () => {
 		expect(layout).toContain('presentation: "formSheet"');
 		expect(thread).toContain("onFiles={openFiles}");
 		expect(thread).toContain("onChanges={openChanges}");
-		expect(thread).toContain(
-			"<Stack.Screen.Title>{title}</Stack.Screen.Title>",
-		);
+		expect(thread).toContain("<ThreadHeaderTitle");
+		expect(thread).toContain("headerTitle: () => (");
 		expect(thread).not.toContain("headerRight:");
-		expect(thread).not.toContain("headerTitle:");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');

@@ -1,3 +1,4 @@
+import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
 import {
 	findPendingPlanInteraction,
 	isPlanApprovalRequest,
@@ -54,6 +55,7 @@ import { PlanReviewCard } from "~/components/messages/plan-review-card";
 import { TurnRow } from "~/components/messages/turn-row";
 import { ReviewChangesPill } from "~/components/review-changes-pill";
 import { SessionActionsMenu } from "~/components/session-actions-menu";
+import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
@@ -77,6 +79,10 @@ import {
 	type ThreadScrollMode,
 	transcriptBottomInset,
 } from "~/lib/thread-scroll";
+import {
+	readThreadViewState,
+	writeThreadViewState,
+} from "~/lib/thread-view-state";
 import {
 	answerQuestion,
 	makeTextInput,
@@ -126,6 +132,8 @@ function ThreadScreen() {
 	const initialScrollQuietUntil = useRef(0);
 	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
+	const scrollOffsetRef = useRef(0);
+	const pendingRestoreOffsetRef = useRef<number | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
@@ -189,18 +197,46 @@ function ThreadScreen() {
 		(state) => state.queuePausedBySession[stateKey] === true,
 	);
 	const hydrate = useMobileMessagesStore((state) => state.hydrate);
+	const releaseMessages = useMobileMessagesStore((state) => state.release);
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const latestTurnId = turns.at(-1)?.id ?? null;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
+	const chatId = detail?.chat?.id ?? null;
+	const allConnectionSessions = useMemo(
+		() => bundles.flatMap((bundle) => bundle.sessions),
+		[bundles],
+	);
+	const chatThreads = useMemo(
+		() =>
+			chatId === null
+				? detail === null
+					? []
+					: [detail.session]
+				: orderedChatSessions(allConnectionSessions, chatId),
+		[allConnectionSessions, chatId, detail],
+	);
+	const threadIds = useMemo(
+		() => chatThreads.map((thread) => thread.id),
+		[chatThreads],
+	);
+	const currentThreadIndex = chatThreads.findIndex(
+		(thread) => thread.id === normalizedSessionId,
+	);
+	const statusBySession = useSessionsStore((state) => state.statusBySession);
+	const runningThreadCount = chatThreads.filter((thread) => {
+		const status = statusBySession[connectionSessionKey(connKey, thread.id)];
+		return (status ?? thread.status) === "running";
+	}).length;
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
-	const sessionStatus =
-		useSessionsStore((state) => state.statusBySession[stateKey]) ??
-		detail?.session.status;
+	const setActiveSession = useSessionsStore((state) => state.setActiveSession);
+	const sessionStatus = statusBySession[stateKey] ?? detail?.session.status;
 	const fresh = isFreshChat(messages);
 	const sessionRunning = sessionStatus === "running";
 
-	const hydratePermissions = usePermissionsStore((state) => state.hydrate);
+	const hydratePermissionConnection = usePermissionsStore(
+		(state) => state.hydrateConnection,
+	);
 	const reconcilePermissions = usePermissionsStore((state) => state.reconcile);
 	const decidePermission = usePermissionsStore((state) => state.decide);
 	const pending = usePermissionsStore(
@@ -219,6 +255,7 @@ function ThreadScreen() {
 			!serverQueued.some((serverItem) => serverItem.id === item.clientId),
 	);
 	const hydrateGoal = useGoalsStore((state) => state.hydrate);
+	const releaseGoal = useGoalsStore((state) => state.release);
 	const goal = useGoalsStore((state) => state.goalBySession[stateKey] ?? null);
 	const setGoal = useGoalsStore((state) => state.setGoal);
 	const clearGoal = useGoalsStore((state) => state.clearGoal);
@@ -234,22 +271,46 @@ function ThreadScreen() {
 	}, [connKey, options, watchConnection]);
 
 	useEffect(() => {
+		if (chatId === null || options === null) return;
+		void setActiveSession(connKey, options, chatId, normalizedSessionId).catch(
+			() => {},
+		);
+	}, [chatId, connKey, normalizedSessionId, options, setActiveSession]);
+
+	useEffect(() => {
 		void connectionSnapshot?.generation;
 		if (normalizedSessionId.length > 0 && options !== null) {
 			void hydrate(connKey, options, normalizedSessionId);
-			void hydratePermissions(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
+		return () => {
+			if (normalizedSessionId.length === 0) return;
+			void releaseMessages(connKey, normalizedSessionId);
+			void releaseGoal(connKey, normalizedSessionId);
+		};
 	}, [
 		connKey,
 		connectionSnapshot?.generation,
 		hydrate,
 		hydrateOutbox,
-		hydratePermissions,
 		hydrateGoal,
 		normalizedSessionId,
 		options,
+		releaseGoal,
+		releaseMessages,
+	]);
+
+	useEffect(() => {
+		void connectionSnapshot?.generation;
+		if (options === null || threadIds.length === 0) return;
+		void hydratePermissionConnection(connKey, options, threadIds);
+	}, [
+		connKey,
+		connectionSnapshot?.generation,
+		hydratePermissionConnection,
+		options,
+		threadIds,
 	]);
 
 	useEffect(() => {
@@ -288,7 +349,6 @@ function ThreadScreen() {
 		return () => subscription.remove();
 	}, [connKey, normalizedSessionId, options, reconcilePermissions]);
 
-	const chatId = detail?.chat?.id ?? null;
 	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
 	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
 	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
@@ -453,16 +513,28 @@ function ThreadScreen() {
 	);
 
 	useEffect(() => {
-		void stateKey;
+		const saved = readThreadViewState(stateKey);
 		didInitialScroll.current = false;
 		initialScrollQuietUntil.current = Date.now() + 500;
-		scrollModeRef.current = "initial";
-		distanceFromBottomRef.current = 0;
+		scrollModeRef.current = saved?.mode ?? "initial";
+		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
+		scrollOffsetRef.current = saved?.offsetY ?? 0;
+		pendingRestoreOffsetRef.current =
+			saved?.mode === "detached" ? saved.offsetY : null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		setLatestTurnHeight(0);
+		return () => {
+			const mode = scrollModeRef.current;
+			if (mode === "initial") return;
+			writeThreadViewState(stateKey, {
+				mode,
+				offsetY: scrollOffsetRef.current,
+				distanceFromBottom: distanceFromBottomRef.current,
+			});
+		};
 	}, [stateKey]);
 
 	useEffect(() => {
@@ -541,14 +613,31 @@ function ThreadScreen() {
 			}
 		});
 	}, [messages.length]);
+	const restoreDetachedPosition = useCallback(() => {
+		const offset = pendingRestoreOffsetRef.current;
+		if (offset === null || messages.length === 0) return false;
+		pendingRestoreOffsetRef.current = null;
+		requestAnimationFrame(() => {
+			listRef.current?.scrollToOffset({ offset, animated: false });
+		});
+		return true;
+	}, [messages.length]);
 
 	// Plain functions (not useCallback): the React Compiler memoizes them, and
 	// manual memoization of setState-calling callbacks trips its preservation rule.
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+		scrollOffsetRef.current = Math.max(0, contentOffset.y);
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
 		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
+		if (scrollModeRef.current !== "initial") {
+			writeThreadViewState(stateKey, {
+				mode: scrollModeRef.current,
+				offsetY: scrollOffsetRef.current,
+				distanceFromBottom: distanceFromBottomRef.current,
+			});
+		}
 		setShowJumpButton(
 			shouldShowLatestAction({
 				mode: scrollModeRef.current,
@@ -663,6 +752,17 @@ function ThreadScreen() {
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
 	}, [connKey, normalizedSessionId]);
+	const openThreads = useCallback(() => {
+		if (chatId === null) return;
+		router.push({
+			pathname: "/c/[conn]/chat/[chatId]/threads",
+			params: {
+				conn: connKey,
+				chatId,
+				sessionId: normalizedSessionId,
+			},
+		});
+	}, [chatId, connKey, normalizedSessionId]);
 
 	const renderPermissionAccessory = (requests: readonly PermissionRequest[]) =>
 		options === null ? null : (
@@ -754,6 +854,7 @@ function ThreadScreen() {
 				chatId: detail.chat.id,
 				providerId: detail.session.providerId,
 				model: detail.session.model,
+				title: "Build",
 				runtimeMode: detail.session.runtimeMode,
 				permissionMode: "default",
 				initialPrompt: `${PLAN_APPROVAL_PROMPT}\n\n${pendingPlanInteraction.plan}`,
@@ -809,9 +910,17 @@ function ThreadScreen() {
 			<Stack.Screen
 				options={{
 					headerLargeTitle: false,
+					headerTitle: () => (
+						<ThreadHeaderTitle
+							title={title}
+							current={Math.max(1, currentThreadIndex + 1)}
+							total={Math.max(1, chatThreads.length)}
+							runningCount={runningThreadCount}
+							onPress={openThreads}
+						/>
+					),
 				}}
 			/>
-			<Stack.Screen.Title>{title}</Stack.Screen.Title>
 			<SessionActionsMenu
 				isPinned={isPinned}
 				onNewChat={() => router.push("/new-chat")}
@@ -821,6 +930,7 @@ function ThreadScreen() {
 						: () => void togglePinnedChat(currentPinKey)
 				}
 				onRename={chatId === null ? undefined : onRename}
+				onThreads={openThreads}
 				onChanges={openChanges}
 				onFiles={openFiles}
 				onArchive={onArchive}
@@ -907,13 +1017,15 @@ function ThreadScreen() {
 				onTouchStart={detachReader}
 				scrollEventThrottle={32}
 				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-				onContentSizeChange={scrollToLatest}
+				onContentSizeChange={() => {
+					if (!restoreDetachedPosition()) scrollToLatest();
+				}}
 				onLayout={(event) => {
 					const nextHeight = event.nativeEvent.layout.height;
 					setListViewportHeight((current) =>
 						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 					);
-					scrollToLatest();
+					if (!restoreDetachedPosition()) scrollToLatest();
 				}}
 			/>
 			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
@@ -1038,6 +1150,7 @@ function ThreadScreen() {
 							}
 						>
 							<ChatManagementBars
+								runningThreads={runningThreadCount}
 								goal={goal}
 								planBlocked={pendingPlanInteraction !== null}
 								queue={serverQueued}
@@ -1109,6 +1222,7 @@ function ThreadScreen() {
 								/>
 							) : null}
 							<Composer
+								key={stateKey}
 								connKey={connKey}
 								connection={options}
 								sessionId={normalizedSessionId}

@@ -19,6 +19,7 @@ import type { QueuedMessage as LocalQueuedMessage } from "~/offline/cache";
 import { colors } from "~/theme";
 
 export function ChatManagementBars({
+	runningThreads,
 	goal,
 	planBlocked,
 	queue,
@@ -35,6 +36,7 @@ export function ChatManagementBars({
 	onDeleteLocalQueue,
 	onUpdateLocalQueue,
 }: {
+	runningThreads: number;
 	goal: ThreadGoal | null;
 	planBlocked: boolean;
 	queue: readonly QueuedMessage[];
@@ -56,6 +58,9 @@ export function ChatManagementBars({
 	return (
 		<>
 			<View className="mb-2 items-center gap-2">
+				{runningThreads > 1 ? (
+					<CompactBar label={`${runningThreads} threads running`} />
+				) : null}
 				{goal ? (
 					<CompactBar
 						label={
@@ -104,12 +109,13 @@ const CompactBar = ({
 	onPress,
 }: {
 	label: string;
-	onPress: () => void;
+	onPress?: () => void;
 }) => (
 	<Pressable
 		accessibilityRole="button"
 		accessibilityLabel={label}
 		onPress={onPress}
+		disabled={onPress === undefined}
 		className="min-h-11 max-w-[86%] justify-center active:opacity-70"
 	>
 		<GlassSurface

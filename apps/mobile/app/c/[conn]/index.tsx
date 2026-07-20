@@ -1,3 +1,7 @@
+import {
+	orderedChatSessions,
+	resolveActiveChatSession,
+} from "@zuse/client-runtime/chat-threads";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { MessageSquare } from "lucide-react-native";
 import { useEffect, useMemo } from "react";
@@ -70,13 +74,49 @@ export default function SessionsScreen() {
 
 	const rows = useMemo(
 		() =>
-			bundles.flatMap((bundle) =>
-				bundle.sessions.map((session) => {
-					const chat = bundle.chats.find((item) => item.id === session.chatId);
-					return { project: bundle.project, session, chat };
-				}),
-			),
-		[bundles],
+			bundles.flatMap((bundle) => {
+				const activeChats = bundle.chats.filter(
+					(chat) => chat.archivedAt === null,
+				);
+				const knownChatIds = new Set(activeChats.map((chat) => chat.id));
+				const chatRows = activeChats.flatMap((chat) => {
+					const threads = orderedChatSessions(bundle.sessions, chat.id);
+					const session = resolveActiveChatSession(chat, threads);
+					if (session === null) return [];
+					const runningCount = threads.filter((thread) => {
+						const status =
+							statusBySession[connectionSessionKey(connKey, thread.id)];
+						return (status ?? thread.status) === "running";
+					}).length;
+					return [
+						{
+							project: bundle.project,
+							session,
+							chat,
+							threadCount: threads.length,
+							runningCount,
+						},
+					];
+				});
+				const orphanRows = bundle.sessions
+					.filter(
+						(session) =>
+							session.archivedAt === null && !knownChatIds.has(session.chatId),
+					)
+					.map((session) => ({
+						project: bundle.project,
+						session,
+						chat: undefined,
+						threadCount: 1,
+						runningCount:
+							(statusBySession[connectionSessionKey(connKey, session.id)] ??
+								session.status) === "running"
+								? 1
+								: 0,
+					}));
+				return [...chatRows, ...orphanRows];
+			}),
+		[bundles, connKey, statusBySession],
 	);
 	const connectionFailure =
 		(connectionSnapshot?.status === "blockedAuth" ||
@@ -135,7 +175,7 @@ export default function SessionsScreen() {
 					</View>
 				) : (
 					<ListSection header={connectionLabel}>
-						{rows.map(({ session, chat }) => (
+						{rows.map(({ session, chat, threadCount, runningCount }) => (
 							<SessionRow
 								key={session.id}
 								session={session}
@@ -144,6 +184,8 @@ export default function SessionsScreen() {
 									statusBySession[connectionSessionKey(connKey, session.id)]
 								}
 								unread={chat !== undefined && isUnread(chat)}
+								threadCount={threadCount}
+								runningCount={runningCount}
 								onPress={() =>
 									router.push(
 										`/c/${encodeURIComponent(connKey)}/session/${encodeURIComponent(session.id)}`,

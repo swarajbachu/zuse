@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./chat-threads": "./src/chat-threads.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./connection": "./src/connection.ts",
 		"./plan-interactions": "./src/plan-interactions.ts",

@@ -1,15 +1,21 @@
 import { ArrowUpIcon, CloudOffIcon } from "@hugeicons-pro/core-solid-rounded";
+import {
+	orderedChatSessions,
+	resolveActiveChatSession,
+} from "@zuse/client-runtime/chat-threads";
 import type {
+	ChatId,
 	Folder,
 	GitBranchInfo,
 	GitPrSummary,
 	Worktree,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { router, Stack } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { router, Stack, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
+	Alert,
 	Keyboard,
 	KeyboardAvoidingView,
 	ScrollView,
@@ -53,6 +59,8 @@ import {
 	WORK_MODE_OPTIONS,
 	workModeLabel,
 } from "~/lib/new-chat";
+import { connectionSessionKey } from "~/lib/session-key";
+import { hasRunningChatThread } from "~/lib/thread-presentation";
 import {
 	createWorktree,
 	listBranches,
@@ -69,6 +77,13 @@ import { colors } from "~/theme";
 
 export default function NewChatScreen() {
 	const insets = useSafeAreaInsets();
+	const { conn, chatId } = useLocalSearchParams<{
+		conn?: string;
+		chatId?: string;
+	}>();
+	const requestedConnectionKey = conn?.trim() ?? "";
+	const requestedChatId = (chatId?.trim() ?? "") as ChatId;
+	const inheritedModel = useRef(false);
 	const [text, setText] = useState("");
 	const [submitting, setSubmitting] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
@@ -116,6 +131,8 @@ export default function NewChatScreen() {
 		loadingByConnection,
 		hydrate: hydrateSessions,
 		createChat,
+		createSession,
+		statusBySession,
 	} = useSessionsStore();
 
 	useEffect(() => {
@@ -134,7 +151,28 @@ export default function NewChatScreen() {
 	}, [connections, hydrateSessions, refreshLabel]);
 
 	const effectiveConnectionKey =
-		selectedConnectionKey ?? connections[0]?.key ?? null;
+		selectedConnectionKey ??
+		(requestedConnectionKey.length > 0 ? requestedConnectionKey : null) ??
+		connections[0]?.key ??
+		null;
+
+	const threadContext = useMemo(() => {
+		if (effectiveConnectionKey === null || requestedChatId.length === 0)
+			return null;
+		for (const bundle of bundlesByConnection[effectiveConnectionKey] ?? []) {
+			const chat = bundle.chats.find((item) => item.id === requestedChatId);
+			if (chat === undefined) continue;
+			const threads = orderedChatSessions(bundle.sessions, chat.id);
+			return {
+				chat,
+				project: bundle.project,
+				threads,
+				activeThread: resolveActiveChatSession(chat, threads),
+			};
+		}
+		return null;
+	}, [bundlesByConnection, effectiveConnectionKey, requestedChatId]);
+	const threadMode = requestedChatId.length > 0;
 
 	const projectChoices = useMemo(() => {
 		if (effectiveConnectionKey === null) return [];
@@ -147,10 +185,11 @@ export default function NewChatScreen() {
 	}, [bundlesByConnection, effectiveConnectionKey]);
 
 	const effectiveProjectId =
-		selectedProjectId !== null &&
+		threadContext?.chat.projectId ??
+		(selectedProjectId !== null &&
 		projectChoices.some((item) => item.project.id === selectedProjectId)
 			? selectedProjectId
-			: (projectChoices[0]?.project.id ?? null);
+			: (projectChoices[0]?.project.id ?? null));
 
 	const selectedOptions = useMemo(
 		() =>
@@ -174,6 +213,20 @@ export default function NewChatScreen() {
 		() => availableProviderIds(availability),
 		[availability],
 	);
+
+	useEffect(() => {
+		const active = threadContext?.activeThread;
+		if (active === null || active === undefined || inheritedModel.current)
+			return;
+		inheritedModel.current = true;
+		setModelMode({
+			providerId: active.providerId,
+			model: active.model,
+			runtimeMode: active.runtimeMode,
+			permissionMode: active.permissionMode,
+			modelOptions: defaultModelOptions(active.providerId, active.model),
+		});
+	}, [threadContext?.activeThread]);
 
 	// Codex is the hardcoded default provider; if the selected machine doesn't
 	// have it installed, derive a fallback to the first available provider so the
@@ -204,7 +257,8 @@ export default function NewChatScreen() {
 			?.capabilities?.includes("goalMode") === true;
 
 	useEffect(() => {
-		if (selectedOptions === null || effectiveProjectId === null) return;
+		if (threadMode || selectedOptions === null || effectiveProjectId === null)
+			return;
 		let cancelled = false;
 		void Promise.all([
 			Effect.runPromise(
@@ -234,12 +288,13 @@ export default function NewChatScreen() {
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedOptions, effectiveProjectId]);
+	}, [selectedOptions, effectiveProjectId, threadMode]);
 
 	const loading = Object.values(loadingByConnection).some(Boolean);
-	const selectedProject = projectChoices.find(
-		(item) => item.project.id === effectiveProjectId,
-	)?.project;
+	const selectedProject =
+		threadContext?.project ??
+		projectChoices.find((item) => item.project.id === effectiveProjectId)
+			?.project;
 
 	// Selector-stack derived values (machine → project → work-mode → branch).
 	const machineOptions = connections.map((connection) => ({
@@ -320,9 +375,10 @@ export default function NewChatScreen() {
 		// For a non-"main" work mode, require a concrete sub-option (a real
 		// worktree/branch/PR) — otherwise `source` is still the MAIN fallback and
 		// we'd silently create a main-checkout chat.
-		(sourceKind === "main" || source.kind === sourceKind);
+		(threadMode || sourceKind === "main" || source.kind === sourceKind) &&
+		(!threadMode || threadContext !== null);
 
-	const submit = useCallback(async () => {
+	const performSubmit = useCallback(async () => {
 		const payload = buildNewChatCreatePayload({
 			connectionKey: effectiveConnectionKey,
 			projectId: effectiveProjectId,
@@ -344,6 +400,43 @@ export default function NewChatScreen() {
 		setSubmitting(true);
 		setError(null);
 		try {
+			const requiresRichSend = attachments.length > 0 || goalMode;
+			if (threadMode && threadContext !== null) {
+				const session = await createSession(
+					effectiveConnectionKey,
+					selectedOptions,
+					{
+						chatId: threadContext.chat.id,
+						providerId: payload.providerId,
+						model: payload.model,
+						initialPrompt: requiresRichSend ? "" : payload.initialPrompt,
+						runtimeMode: payload.runtimeMode,
+						permissionMode: payload.permissionMode,
+						modelOptions: payload.modelOptions,
+					},
+				);
+				if (requiresRichSend) {
+					const uploaded = await Promise.all(
+						attachments.map((attachment) =>
+							uploadComposerAttachment(selectedOptions, session.id, attachment),
+						),
+					);
+					await Effect.runPromise(
+						sendMessage({
+							connection: selectedOptions,
+							sessionId: session.id,
+							input: makeTextInput(payload.initialPrompt, uploaded, goalMode),
+							asGoal: goalMode,
+						}),
+					);
+				}
+				Keyboard.dismiss();
+				router.replace(
+					`/c/${encodeURIComponent(effectiveConnectionKey)}/session/${encodeURIComponent(session.id)}`,
+				);
+				return;
+			}
+
 			const worktreeId =
 				payload.createSource === null
 					? payload.worktreeId
@@ -356,7 +449,6 @@ export default function NewChatScreen() {
 								}),
 							)
 						).id;
-			const requiresRichSend = attachments.length > 0 || goalMode;
 			const result = await createChat(effectiveConnectionKey, selectedOptions, {
 				projectId: payload.projectId,
 				providerId: payload.providerId,
@@ -399,6 +491,7 @@ export default function NewChatScreen() {
 		}
 	}, [
 		createChat,
+		createSession,
 		attachments,
 		goalMode,
 		effectiveModelMode,
@@ -407,11 +500,50 @@ export default function NewChatScreen() {
 		effectiveProjectId,
 		source,
 		text,
+		threadContext,
+		threadMode,
+	]);
+
+	const submit = useCallback(() => {
+		if (!threadMode || threadContext === null) {
+			void performSubmit();
+			return;
+		}
+		const siblingRunning = hasRunningChatThread(
+			threadContext.threads,
+			(thread) =>
+				statusBySession[
+					connectionSessionKey(effectiveConnectionKey ?? "", thread.id)
+				] ?? thread.status,
+		);
+		if (!siblingRunning) {
+			void performSubmit();
+			return;
+		}
+		Alert.alert(
+			"Another thread is running",
+			"Both threads share this workspace and may edit the same files. Start this thread anyway?",
+			[
+				{ text: "Cancel", style: "cancel" },
+				{ text: "Start thread", onPress: () => void performSubmit() },
+			],
+		);
+	}, [
+		effectiveConnectionKey,
+		performSubmit,
+		statusBySession,
+		threadContext,
+		threadMode,
 	]);
 
 	return (
 		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
-			<Stack.Screen options={{ title: "New Chat", headerBackVisible: false }} />
+			<Stack.Screen
+				options={{
+					title: threadMode ? "New Thread" : "New Chat",
+					headerBackVisible: false,
+				}}
+			/>
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
 					icon="chevron.left"
@@ -446,32 +578,43 @@ export default function NewChatScreen() {
 				className="px-3 pt-2"
 				style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
 			>
-				<View className="mb-4 gap-3 px-1">
-					<SelectorRow
-						symbol="laptopcomputer"
-						label={machineLabel}
-						options={machineOptions}
-						emptyLabel="No machines"
-					/>
-					<SelectorRow
-						symbol="folder"
-						label={projectLabel}
-						options={projectOptions}
-						emptyLabel={loading ? "Loading projects" : "No projects"}
-					/>
-					<SelectorRow
-						symbol="desktopcomputer"
-						label={workModeLabel(sourceKind)}
-						options={workModeOptions}
-					/>
-					<SelectorRow
-						symbol="arrow.triangle.branch"
-						label={branchLabel}
-						options={branchOptions}
-						disabled={sourceKind === "main"}
-						emptyLabel={emptyBranchLabel}
-					/>
-				</View>
+				{threadMode && threadContext !== null ? (
+					<View className="mb-4 gap-1 px-2">
+						<Text className="font-sans-medium text-[15px] text-foreground">
+							{threadContext.chat.title}
+						</Text>
+						<Text className="font-sans text-[12px] text-muted-foreground">
+							{threadContext.project.name} · current workspace
+						</Text>
+					</View>
+				) : (
+					<View className="mb-4 gap-3 px-1">
+						<SelectorRow
+							symbol="laptopcomputer"
+							label={machineLabel}
+							options={machineOptions}
+							emptyLabel="No machines"
+						/>
+						<SelectorRow
+							symbol="folder"
+							label={projectLabel}
+							options={projectOptions}
+							emptyLabel={loading ? "Loading projects" : "No projects"}
+						/>
+						<SelectorRow
+							symbol="desktopcomputer"
+							label={workModeLabel(sourceKind)}
+							options={workModeOptions}
+						/>
+						<SelectorRow
+							symbol="arrow.triangle.branch"
+							label={branchLabel}
+							options={branchOptions}
+							disabled={sourceKind === "main"}
+							emptyLabel={emptyBranchLabel}
+						/>
+					</View>
+				)}
 				<GlassSurface
 					style={{
 						gap: 8,

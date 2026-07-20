@@ -19,6 +19,7 @@ type GoalsState = {
 		options: WsProtocolOptions,
 		sessionId: SessionId,
 	) => Promise<void>;
+	release: (connKey: string, sessionId: SessionId) => Promise<void>;
 	setGoal: (
 		connKey: string,
 		options: WsProtocolOptions,
@@ -33,6 +34,7 @@ type GoalsState = {
 };
 
 const fibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
+const hydrationGeneration = new Map<string, number>();
 
 const stop = async (key: string) => {
 	const fiber = fibers.get(key);
@@ -43,6 +45,7 @@ const stop = async (key: string) => {
 
 export const resetGoalsRuntime = async (): Promise<void> => {
 	await Promise.all(Array.from(fibers.keys(), stop));
+	hydrationGeneration.clear();
 	useGoalsStore.setState({
 		goalBySession: {},
 		loadingBySession: {},
@@ -54,8 +57,15 @@ export const useGoalsStore = create<GoalsState>((set) => ({
 	goalBySession: {},
 	loadingBySession: {},
 	errorBySession: {},
+	release: async (connKey, sessionId) => {
+		const key = connectionSessionKey(connKey, sessionId);
+		hydrationGeneration.set(key, (hydrationGeneration.get(key) ?? 0) + 1);
+		await stop(key);
+	},
 	hydrate: async (connKey, options, sessionId) => {
 		const key = connectionSessionKey(connKey, sessionId);
+		const generation = (hydrationGeneration.get(key) ?? 0) + 1;
+		hydrationGeneration.set(key, generation);
 		await stop(key);
 		set((state) => ({
 			loadingBySession: { ...state.loadingBySession, [key]: true },
@@ -66,6 +76,7 @@ export const useGoalsStore = create<GoalsState>((set) => ({
 			const goal = await Effect.runPromise(
 				client["session.goal.get"]({ sessionId }),
 			);
+			if (hydrationGeneration.get(key) !== generation) return;
 			set((state) => ({
 				goalBySession: { ...state.goalBySession, [key]: goal },
 				loadingBySession: { ...state.loadingBySession, [key]: false },
@@ -73,14 +84,16 @@ export const useGoalsStore = create<GoalsState>((set) => ({
 			const program = Stream.runForEach(
 				client["session.goal.stream"]({ sessionId }),
 				(event) =>
-					Effect.sync(() =>
+					Effect.sync(() => {
+						if (hydrationGeneration.get(key) !== generation) return;
 						set((state) => ({
 							goalBySession: { ...state.goalBySession, [key]: event.goal },
-						})),
-					),
+						}));
+					}),
 			).pipe(Effect.catch(() => Effect.void));
 			fibers.set(key, Effect.runFork(program));
 		} catch (cause) {
+			if (hydrationGeneration.get(key) !== generation) return;
 			const unsupported =
 				typeof cause === "object" &&
 				cause !== null &&

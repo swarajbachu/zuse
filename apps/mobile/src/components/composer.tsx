@@ -55,6 +55,7 @@ import {
 } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { useAvailabilityStore } from "~/store/availability";
+import { composerDraft, useComposerDraftsStore } from "~/store/composer-drafts";
 import {
 	addOptimisticMessage,
 	removeOptimisticMessage,
@@ -103,18 +104,26 @@ export const Composer = ({
 	onMessageSubmitted?: () => void;
 	bottomInset?: number;
 }) => {
-	const [text, setText] = useState("");
+	const stateKey = connectionSessionKey(connKey, sessionId);
+	const initialDraft = useRef(composerDraft(stateKey)).current;
+	const [text, setText] = useState(initialDraft.text);
 	const [busy, setBusy] = useState(false);
 	const [focused, setFocused] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
-	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([]);
-	const [goalMode, setGoalMode] = useState(false);
+	const [attachments, setAttachments] = useState<LocalComposerAttachment[]>([
+		...initialDraft.attachments,
+	]);
+	const [goalMode, setGoalMode] = useState(initialDraft.goalMode);
 	const [composerError, setComposerError] = useState<string | null>(null);
 	// Only auto-focus the input when the user taps the collapsed pill — never when
 	// the bar auto-expands (e.g. opening a running session) so the keyboard
 	// doesn't pop unexpectedly.
 	const shouldAutoFocus = useRef(false);
-	const stateKey = connectionSessionKey(connKey, sessionId);
+	const setDraft = useComposerDraftsStore((state) => state.setDraft);
+	const clearDraft = useComposerDraftsStore((state) => state.clearDraft);
+	useEffect(() => {
+		setDraft(stateKey, { text, attachments, goalMode });
+	}, [attachments, goalMode, setDraft, stateKey, text]);
 
 	const enqueue = useOutboxStore((state) => state.enqueue);
 	const setPermissionModeOptimistic = useSessionsStore(
@@ -184,6 +193,7 @@ export const Composer = ({
 	const agentCount = currentActivity?.agents ?? 0;
 	const hasPills = !online || agentCount > 0;
 	const finishSuccessfulSubmission = () => {
+		clearDraft(stateKey);
 		setText("");
 		setAttachments([]);
 		setGoalMode(false);
