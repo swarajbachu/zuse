@@ -6,6 +6,7 @@ import { colors } from "~/theme";
 /** Non-iOS fallback opens the document picker directly. */
 export function ComposerPlusMenu(props: {
 	goalMode: boolean;
+	goalSupported: boolean;
 	planMode: boolean;
 	onPickImages: () => void;
 	onPickFiles: () => void;

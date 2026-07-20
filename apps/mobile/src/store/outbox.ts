@@ -23,11 +23,18 @@ type OutboxState = {
 		connKey: string,
 		sessionId: SessionId,
 		text: string,
+		asGoal?: boolean,
 	) => Promise<void>;
 	cancel: (
 		connKey: string,
 		sessionId: SessionId,
 		clientId: string,
+	) => Promise<void>;
+	update: (
+		connKey: string,
+		sessionId: SessionId,
+		clientId: string,
+		text: string,
 	) => Promise<void>;
 	flush: (
 		connKey: string,
@@ -101,12 +108,13 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 			errorBySession: { ...state.errorBySession, [key]: null },
 		}));
 	},
-	enqueue: async (connKey, sessionId, text) => {
+	enqueue: async (connKey, sessionId, text, asGoal) => {
 		const trimmed = text.trim();
 		if (trimmed.length === 0) return;
 		const item: QueuedMessage = {
 			clientId: makeClientId(),
 			text: trimmed,
+			...(asGoal === undefined ? {} : { asGoal }),
 			createdAt: Date.now(),
 		};
 		const key = connectionSessionKey(connKey, sessionId);
@@ -121,6 +129,18 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 		const key = connectionSessionKey(connKey, sessionId);
 		const next = (get().queuedBySession[key] ?? []).filter(
 			(item) => item.clientId !== clientId,
+		);
+		set((state) => ({
+			queuedBySession: { ...state.queuedBySession, [key]: next },
+		}));
+		await persist(connKey, sessionId, next);
+	},
+	update: async (connKey, sessionId, clientId, text) => {
+		const trimmed = text.trim();
+		if (trimmed.length === 0) return;
+		const key = connectionSessionKey(connKey, sessionId);
+		const next = (get().queuedBySession[key] ?? []).map((item) =>
+			item.clientId === clientId ? { ...item, text: trimmed } : item,
 		);
 		set((state) => ({
 			queuedBySession: { ...state.queuedBySession, [key]: next },
@@ -149,7 +169,8 @@ export const useOutboxStore = create<OutboxState>((set, get) => ({
 						queueMessage({
 							connection: options,
 							sessionId,
-							input: makeTextInput(item.text),
+							input: makeTextInput(item.text, [], item.asGoal),
+							queueId: item.clientId,
 						}),
 					);
 					activeFlushFibers.set(key, fiber);

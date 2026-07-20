@@ -1,5 +1,6 @@
 import type { SessionId } from "@zuse/contracts";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { ScrollView, Text, View } from "react-native";
 
 import { Markdown } from "~/components/messages/markdown";
@@ -20,27 +21,37 @@ export default function PlanViewerScreen() {
 			connectionSessionKey(conn, sessionId as SessionId),
 		),
 	);
-	const target = messages.find(
-		(message) =>
-			message.id === messageId ||
-			(message.content._tag === "tool_use" &&
-				message.content.itemId === itemId),
-	);
-	const text = (() => {
-		if (target?.content._tag === "assistant") return target.content.text;
-		if (target?.content._tag !== "tool_use") return null;
-		const input = target.content.input;
-		return input !== null &&
-			typeof input === "object" &&
-			"plan" in input &&
-			typeof (input as { plan?: unknown }).plan === "string"
-			? (input as { plan: string }).plan
-			: null;
-	})();
+	const target = messages.find((message) => {
+		if (messageId !== undefined && message.id !== messageId) return false;
+		if (
+			itemId !== undefined &&
+			(message.content._tag !== "tool_use" || message.content.itemId !== itemId)
+		)
+			return false;
+		return messageId !== undefined || itemId !== undefined;
+	});
+	const text =
+		target === undefined
+			? null
+			: proposedPlanMarkdownFromContent(target.content);
 
 	return (
 		<View className="flex-1 bg-background">
-			<Stack.Screen options={{ title: "Plan", presentation: "modal" }} />
+			<Stack.Screen
+				options={{
+					title: "Plan",
+					presentation: "modal",
+					headerBackVisible: false,
+					headerLargeTitle: false,
+				}}
+			/>
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					separateBackground
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
 			<ScrollView
 				className="flex-1"
 				contentInsetAdjustmentBehavior="automatic"

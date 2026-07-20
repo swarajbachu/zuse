@@ -15,9 +15,6 @@ export function LivePermissionAccessory({
 	bottomInset,
 	onDecide,
 	onDenyWithMessage,
-	planText,
-	onOpenPlan,
-	onHandoffPlan,
 }: {
 	requests: readonly PermissionRequest[];
 	bottomInset: number;
@@ -33,13 +30,11 @@ export function LivePermissionAccessory({
 		request: PermissionRequest,
 		message: string,
 	) => void | Promise<void>;
-	planText?: string | null;
-	onOpenPlan?: (request: PermissionRequest) => void;
-	onHandoffPlan?: (request: PermissionRequest) => void | Promise<void>;
 }) {
 	const [decidingId, setDecidingId] = useState<string | null>(null);
 	const [denyText, setDenyText] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [denying, setDenying] = useState(false);
 	const request = requests[0];
 
 	if (!request) return null;
@@ -75,67 +70,6 @@ export function LivePermissionAccessory({
 		);
 	};
 
-	const isPlanRequest =
-		request.kind._tag === "Other" && request.kind.tool === "ExitPlanMode";
-
-	if (isPlanRequest) {
-		return (
-			<View
-				pointerEvents="box-none"
-				style={{ paddingBottom: Math.max(bottomInset, 8) }}
-				className="px-3 pt-2"
-			>
-				<GlassSurface style={{ padding: 16, gap: 12 }}>
-					<Text className="font-sans-medium text-[12px] uppercase tracking-wide text-primary">
-						Review plan{countLabel}
-					</Text>
-					<Text className="font-sans-bold text-[17px] leading-6 text-foreground">
-						Approve to start building
-					</Text>
-					{planText ? (
-						<Pressable
-							accessibilityRole="button"
-							onPress={() => onOpenPlan?.(request)}
-							className="min-h-12 flex-row items-center justify-between rounded-xl border border-border bg-card px-4 active:opacity-60"
-							style={{ borderCurve: "continuous" }}
-						>
-							<Text className="font-sans-medium text-[15px] text-foreground">
-								View proposed plan
-							</Text>
-							<Text className="font-sans text-[14px] text-muted-foreground">
-								Open
-							</Text>
-						</Pressable>
-					) : null}
-					{error === null ? null : <ErrorText message={error} />}
-					<PrimaryButton
-						label="Approve and build"
-						busy={busy}
-						onPress={() => decide({ _tag: "AllowOnce" })}
-					/>
-					<View className="flex-row gap-2">
-						<View className="flex-1">
-							<SecondaryButton
-								label="Keep planning"
-								busy={busy}
-								onPress={() => decide({ _tag: "Deny" })}
-							/>
-						</View>
-						{onHandoffPlan === undefined ? null : (
-							<View className="flex-1">
-								<SecondaryButton
-									label="Hand off"
-									busy={busy}
-									onPress={() => void run(() => onHandoffPlan(request))}
-								/>
-							</View>
-						)}
-					</View>
-				</GlassSurface>
-			</View>
-		);
-	}
-
 	return (
 		<View
 			pointerEvents="box-none"
@@ -151,7 +85,7 @@ export function LivePermissionAccessory({
 				</Text>
 				{mono ? (
 					<View
-						className="rounded-xl border border-border bg-card px-3 py-2"
+						className="rounded-2xl border border-border bg-card px-3 py-2"
 						style={{ borderCurve: "continuous" }}
 					>
 						<Text
@@ -172,32 +106,45 @@ export function LivePermissionAccessory({
 				)}
 				{error === null ? null : <ErrorText message={error} />}
 				<PrimaryButton
-					label="Allow"
+					label="Allow once"
 					busy={busy}
 					onPress={() => decide({ _tag: "AllowOnce" })}
 				/>
 				{request.forcePrompt ? null : (
-					<SecondaryButton
-						label="Always allow"
-						busy={busy}
-						onPress={() => decide({ _tag: "AllowForSession" })}
-					/>
+					<View className="flex-row gap-2">
+						<View className="flex-1">
+							<SecondaryButton
+								label="For session"
+								busy={busy}
+								onPress={() => decide({ _tag: "AllowForSession" })}
+							/>
+						</View>
+						<View className="flex-1">
+							<SecondaryButton
+								label="Always for folder"
+								busy={busy}
+								onPress={() => decide({ _tag: "AlwaysAllow", scope: "folder" })}
+							/>
+						</View>
+					</View>
 				)}
-				<TextInput
-					className="min-h-11 rounded-xl bg-card px-4 py-2.5 font-sans text-[15px] text-foreground"
-					placeholder="Add a note to deny with (optional)"
-					placeholderTextColor={colors.tertiaryFg}
-					value={denyText}
-					onChangeText={setDenyText}
-					editable={!busy}
-					multiline
-					style={{ borderCurve: "continuous" }}
-				/>
+				{denying ? (
+					<TextInput
+						className="min-h-11 rounded-2xl bg-card px-4 py-2.5 font-sans text-[15px] text-foreground"
+						placeholder="Add a note to deny with (optional)"
+						placeholderTextColor={colors.tertiaryFg}
+						value={denyText}
+						onChangeText={setDenyText}
+						editable={!busy}
+						multiline
+						style={{ borderCurve: "continuous" }}
+					/>
+				) : null}
 				<SecondaryButton
-					label={denyText.trim().length > 0 ? "Send & deny" : "Deny"}
+					label={denying && denyText.trim().length > 0 ? "Send & deny" : "Deny"}
 					busy={busy}
 					danger
-					onPress={deny}
+					onPress={denying ? deny : () => setDenying(true)}
 				/>
 			</GlassSurface>
 		</View>
@@ -223,10 +170,10 @@ const PrimaryButton = ({
 		accessibilityRole="button"
 		disabled={busy}
 		onPress={onPress}
-		className="h-12 items-center justify-center rounded-xl bg-foreground active:opacity-80"
+		className="h-11 items-center justify-center rounded-full bg-foreground active:opacity-80"
 		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
 	>
-		<Text className="font-sans-medium text-[16px] text-background">
+		<Text className="font-sans-medium text-[15px] text-background">
 			{label}
 		</Text>
 	</Pressable>
@@ -247,16 +194,18 @@ const SecondaryButton = ({
 		accessibilityRole="button"
 		disabled={busy}
 		onPress={onPress}
-		className="h-11 items-center justify-center rounded-xl border border-border bg-card active:opacity-70"
+		className="h-11 items-center justify-center active:opacity-70"
 		style={{ borderCurve: "continuous", opacity: busy ? 0.45 : 1 }}
 	>
-		<Text
-			className={cn(
-				"font-sans-medium text-[15px]",
-				danger ? "text-danger" : "text-foreground",
-			)}
-		>
-			{label}
-		</Text>
+		<View className="h-10 w-full items-center justify-center rounded-full border border-border bg-card">
+			<Text
+				className={cn(
+					"font-sans-medium text-[14px]",
+					danger ? "text-danger" : "text-foreground",
+				)}
+			>
+				{label}
+			</Text>
+		</View>
 	</Pressable>
 );

@@ -15,6 +15,7 @@ import {
 	providerOptions,
 	RUNTIME_OPTIONS,
 	reasoningValueForModel,
+	runtimeOptionFor,
 } from "~/lib/model-options";
 import { NEON_GREEN } from "~/theme";
 
@@ -531,8 +532,9 @@ function PermissionButtons({
 					key={item.value}
 					label={item.label}
 					systemImage={sf(
-						value.runtimeMode === item.value ? "checkmark" : "lock.open",
+						value.runtimeMode === item.value ? "checkmark" : item.systemImage,
 					)}
+					role={item.value === "full-access" ? "destructive" : undefined}
 					onPress={() => {
 						if (!editable) return;
 						onChange({ ...value, runtimeMode: item.value });
@@ -570,8 +572,7 @@ const modeLabel = (value: ModelModeValue): string =>
 		?.label ?? value.permissionMode;
 
 const runtimeLabel = (value: ModelModeValue): string =>
-	RUNTIME_OPTIONS.find((item) => item.value === value.runtimeMode)?.label ??
-	value.runtimeMode;
+	runtimeOptionFor(value.runtimeMode).label;
 
 const providerSystemImage = (providerId: ProviderId): string => {
 	switch (providerId) {

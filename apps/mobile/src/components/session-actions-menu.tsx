@@ -5,6 +5,7 @@ export function SessionActionsMenu(_props: {
 	onNewChat: () => void;
 	onPin?: () => void;
 	onRename?: () => void;
+	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
 	onArchive: () => void;
