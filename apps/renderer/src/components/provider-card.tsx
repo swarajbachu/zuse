@@ -6,7 +6,7 @@ import {
   LinkSquare01Icon,
   Loading02Icon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect, Fiber, Stream } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 

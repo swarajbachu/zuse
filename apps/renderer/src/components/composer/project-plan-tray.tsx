@@ -2,7 +2,7 @@ import {
   ArrowDown01Icon,
   CheckListIcon,
   Tick02Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo, useState } from "react";
 

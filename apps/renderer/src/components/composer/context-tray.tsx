@@ -1,4 +1,4 @@
-import { CheckListIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { CheckListIcon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useState } from "react";
 

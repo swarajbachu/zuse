@@ -7,7 +7,7 @@ import {
   GitCompareIcon,
   GlobeIcon,
   MagicWand01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";

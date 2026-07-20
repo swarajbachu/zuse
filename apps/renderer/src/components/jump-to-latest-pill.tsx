@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowDown01Icon } from "@hugeicons-pro/core-solid-rounded";
 
 import { cn } from "~/lib/utils";
 

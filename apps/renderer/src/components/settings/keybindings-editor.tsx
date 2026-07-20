@@ -5,7 +5,7 @@ import {
   PencilIcon,
   Search01Icon,
   UndoIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { Plus } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,

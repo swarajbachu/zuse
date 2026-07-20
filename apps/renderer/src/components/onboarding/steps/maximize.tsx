@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   CircleArrowUp01Icon,
   Loading02Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { useEffect, useState } from "react";
 

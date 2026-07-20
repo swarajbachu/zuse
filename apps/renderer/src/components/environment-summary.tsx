@@ -8,7 +8,7 @@ import {
 	GitMergeIcon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";

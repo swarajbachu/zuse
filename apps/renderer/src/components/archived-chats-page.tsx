@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   Search01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
   ArchiveArrowUpIcon,
   ArchiveIcon,

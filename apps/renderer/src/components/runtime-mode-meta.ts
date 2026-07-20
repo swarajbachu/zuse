@@ -4,7 +4,7 @@ import {
   PencilEdit01Icon,
   SquareUnlock01Icon,
   TerminalIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 
 import type { RuntimeMode } from "@zuse/contracts";
 

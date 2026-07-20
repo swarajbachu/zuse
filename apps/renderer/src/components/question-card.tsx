@@ -2,7 +2,7 @@ import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
   ArrowUp01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { X } from "lucide-react";
 import type React from "react";

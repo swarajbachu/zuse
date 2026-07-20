@@ -13,7 +13,7 @@ import {
   SquareLock01Icon,
   TaskDone01Icon,
   UserCircleIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
   ArchiveArrowDownIcon,
   ArchiveArrowUpIcon,
@@ -489,7 +489,7 @@ function SidebarAccount() {
             type="button"
             onPointerEnter={() => void loadUsageLimits()}
             onFocus={() => void loadUsageLimits()}
-            className="flex w-full items-center gap-2 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
           >
             {isSignedIn ? (
               <Avatar className="size-5 text-[9px]">
@@ -723,18 +723,24 @@ function ProjectGroup({
           >
             {displayName}
           </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              openRepositorySettings();
-            }}
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            aria-label={`Settings for ${displayName}`}
-            title="Repository settings"
-          >
-            <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openRepositorySettings();
+                  }}
+                  className="rounded-md p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  aria-label={`Settings for ${displayName}`}
+                >
+                  <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup>Repository settings</TooltipPopup>
+          </Tooltip>
           <NewChatButton projectId={id} />
         </div>
 
@@ -792,28 +798,28 @@ function ProjectContextMenu({
       >
         <MenuItem
           onClick={onOpenSettings}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
         >
           <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
           Settings
         </MenuItem>
         <MenuItem
           onClick={onOpenArchives}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
         >
           <HugeiconsIcon icon={ArchiveIcon} className="size-3.5" />
           Archived chats
         </MenuItem>
         <MenuItem
           onClick={onOpenUsage}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
         >
           <HugeiconsIcon icon={Analytics01Icon} className="size-3.5" />
           Usage
         </MenuItem>
         <MenuItem
           onClick={onRemove}
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+          className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
         >
           <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
           Remove project
@@ -872,7 +878,7 @@ function NewChatButton({ projectId }: { projectId: FolderId }) {
           <button
             type="button"
             onClick={onClick}
-            className="rounded p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            className="rounded-md p-0.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
             aria-label="New chat"
           >
             <HugeiconsIcon icon={Edit01Icon} className="size-3.5" />
@@ -1141,7 +1147,7 @@ function ChatRow({ chat }: { chat: Chat }) {
               }
             }}
             className={cn(
-              "items-center rounded p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
+              "items-center rounded-md p-0.5 text-muted-foreground transition-opacity duration-150 ease-out hover:text-sidebar-accent-foreground motion-reduce:transition-none",
               isArchiving ? "flex" : "hidden group-hover:flex",
             )}
             aria-label={`${primaryActionLabel} ${chat.title}`}
@@ -1165,7 +1171,7 @@ function ChatRow({ chat }: { chat: Chat }) {
         >
           <MenuItem
             onClick={onRename}
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
           >
             <HugeiconsIcon icon={PencilIcon} className="size-3.5" />
             Rename
@@ -1173,7 +1179,7 @@ function ChatRow({ chat }: { chat: Chat }) {
           {isArchived ? (
             <MenuItem
               onClick={() => void unarchiveChat(chat.id)}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
               <HugeiconsIcon icon={ArchiveArrowUpIcon} className="size-3.5" />
               Unarchive
@@ -1182,7 +1188,7 @@ function ChatRow({ chat }: { chat: Chat }) {
             <MenuItem
               disabled={isArchiving}
               onClick={archiveChat}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-sidebar-accent"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-sidebar-accent"
             >
               {isArchiving ? (
                 <Spinner className="size-3.5" />
@@ -1197,7 +1203,7 @@ function ChatRow({ chat }: { chat: Chat }) {
           )}
           <MenuItem
             onClick={onDelete}
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-red-300 hover:bg-red-500/20"
           >
             <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
             Delete

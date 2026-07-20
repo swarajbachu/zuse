@@ -4,7 +4,7 @@ import {
   Copy01Icon,
   LinkSquare01Icon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 

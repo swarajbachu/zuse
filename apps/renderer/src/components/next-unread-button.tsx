@@ -1,4 +1,4 @@
-import { ArrowRight01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowRight01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMemo } from "react";
 

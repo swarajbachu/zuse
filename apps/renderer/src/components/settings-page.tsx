@@ -7,8 +7,7 @@ import {
   Delete02Icon,
   DocumentAttachmentIcon,
   Folder01Icon,
-  GitBranchIcon,
-  GlobeIcon,
+  InformationCircleIcon,
   KeyboardIcon,
   PackageIcon,
   PencilEdit01Icon,
@@ -19,7 +18,7 @@ import {
   TestTubeIcon,
   Tick01Icon,
   VolumeHighIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
   type AppearanceMode,
   type BranchNamingStyle,
@@ -78,6 +77,7 @@ import {
   SelectValue,
 } from "./ui/select.tsx";
 import { Switch } from "./ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 type RailItemBase = {
   readonly id: string;
@@ -106,12 +106,6 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "mcp" },
   },
   {
-    id: "workspace",
-    label: "Workspace",
-    Icon: GitBranchIcon,
-    section: { kind: "workspace" },
-  },
-  {
     id: "integrations",
     label: "Integrations",
     Icon: ConnectIcon,
@@ -130,28 +124,16 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
     section: { kind: "pokedex" },
   },
   {
-    id: "browser",
-    label: "Browser",
-    Icon: GlobeIcon,
-    section: { kind: "browser" },
-  },
-  {
-    id: "notch",
-    label: "Notch",
-    Icon: Alert01Icon,
-    section: { kind: "notch" },
-  },
-  {
-    id: "diagnostics",
-    label: "Diagnostics",
-    Icon: DocumentAttachmentIcon,
-    section: { kind: "diagnostics" },
-  },
-  {
     id: "shortcuts",
     label: "Keyboard shortcuts",
     Icon: KeyboardIcon,
     section: { kind: "shortcuts" },
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    Icon: DocumentAttachmentIcon,
+    section: { kind: "advanced" },
   },
   // Dev-only visual playground (accent swatches + workflow chip/button
   // showcase). Filtered out of production bundles below.
@@ -225,7 +207,7 @@ function Rail({
   folders: ReadonlyArray<Folder>;
 }) {
   return (
-    <nav className="flex w-56 shrink-0 flex-col gap-6 border-r border-border/40 bg-sidebar px-3 py-6 text-sm text-sidebar-foreground">
+    <nav className="flex w-56 shrink-0 flex-col gap-5 border-r border-border/40 bg-sidebar px-2.5 py-4 text-sm text-sidebar-foreground">
       <div className="flex flex-col gap-0.5">
         {VISIBLE_RAIL.map((item) => {
           const active =
@@ -244,7 +226,7 @@ function Rail({
       {folders.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between px-2">
-            <span className="text-xs font-medium text-muted-foreground">
+            <span className="text-[11px] font-medium tracking-wide text-muted-foreground/80">
               Repositories
             </span>
             <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -297,7 +279,7 @@ function RailButton({
       onClick={onClick}
       title={title}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex min-h-7 items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -351,34 +333,17 @@ function SectionTitle({
           "Link this Mac to your account so you can drive it from your phone.",
       };
     }
-    if (section.kind === "workspace") {
-      return {
-        title: "Workspace",
-        subtitle: "How new chats relate to your git checkout.",
-      };
-    }
     if (section.kind === "pokedex") {
       return {
         title: "Pokedex",
         subtitle: "Unlocked Pokémon from all worktrees.",
       };
     }
-    if (section.kind === "browser") {
+    if (section.kind === "advanced") {
       return {
-        title: "Browser",
-        subtitle: "Dummy test logins the agent browser can autofill.",
-      };
-    }
-    if (section.kind === "notch") {
-      return {
-        title: "Notch",
-        subtitle: "Show agent notifications in the MacBook notch area.",
-      };
-    }
-    if (section.kind === "diagnostics") {
-      return {
-        title: "Diagnostics",
-        subtitle: "Export a redacted support bundle for debugging user issues.",
+        title: "Advanced",
+        subtitle:
+          "Browser test logins and diagnostics — settings you rarely need.",
       };
     }
     if (section.kind === "shortcuts") {
@@ -401,22 +366,36 @@ function SectionTitle({
     };
   }, [section, folders]);
   return (
-    <div className="flex flex-col gap-1">
-      <h1 className="text-xl font-semibold tracking-tight text-foreground">
+    <div className="flex min-w-0 items-center gap-1.5">
+      <h1 className="truncate text-base font-semibold tracking-tight text-foreground">
         {title}
       </h1>
-      {subtitle && (
-        <p
-          className={cn(
-            "text-sm text-muted-foreground",
-            section.kind === "repository" && "truncate font-mono text-xs",
-          )}
-          title={section.kind === "repository" ? subtitle : undefined}
-        >
-          {subtitle}
-        </p>
-      )}
+      {subtitle && <InfoTip content={subtitle} />}
     </div>
+  );
+}
+
+/**
+ * Small info affordance carrying explanatory copy that used to render as a
+ * visible subtitle/description. Keeps headers to a single clean line.
+ */
+function InfoTip({ content }: { content: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="More info"
+            className="inline-flex shrink-0 cursor-default items-center text-muted-foreground/50 hover:text-muted-foreground"
+          >
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-3.5" />
+          </button>
+        }
+      />
+      <TooltipPopup className="max-w-72">{content}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -425,12 +404,9 @@ function Pane({ section }: { section: SettingsSection }) {
   if (section.kind === "providers") return <ProvidersPane />;
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
-  if (section.kind === "workspace") return <WorkspacePane />;
   if (section.kind === "devices") return <DevicesPane />;
   if (section.kind === "pokedex") return <PokedexPane />;
-  if (section.kind === "browser") return <BrowserSettingsPane />;
-  if (section.kind === "notch") return <NotchSettingsPane />;
-  if (section.kind === "diagnostics") return <DiagnosticsPane />;
+  if (section.kind === "advanced") return <AdvancedPane />;
   if (section.kind === "shortcuts") return <KeybindingsPane />;
   if (section.kind === "developer") return <DeveloperPane />;
   return <RepositorySettings projectId={section.projectId} />;
@@ -1266,6 +1242,21 @@ function GeneralPane() {
           }
         />
       </SettingsGroup>
+      <WorkspacePane />
+      <NotchSettingsPane />
+    </div>
+  );
+}
+
+/**
+ * Rarely-needed settings that used to be standalone rail sections (browser
+ * test logins + diagnostics). One pane keeps the rail short.
+ */
+function AdvancedPane() {
+  return (
+    <div className="flex flex-col gap-4">
+      <BrowserSettingsPane />
+      <DiagnosticsPane />
     </div>
   );
 }
@@ -1501,21 +1492,19 @@ export function SettingsFrame({
 }) {
   return (
     <Frame>
-      <FrameHeader className="flex flex-row items-center justify-between px-2 py-2 w-full">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
+      <FrameHeader className="flex w-full flex-row items-center justify-between px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-[13px] font-medium text-foreground">
+            {title}
+          </p>
+          {description && <InfoTip content={description} />}
+        </div>
         {trailing}
       </FrameHeader>
       {children && (
         <Card className={bodyClassName}>
           {flush ? children : <div className="px-4 py-3">{children}</div>}
         </Card>
-      )}
-      {description && (
-        <FrameFooter className="px-2 py-1 w-full">
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </p>
-        </FrameFooter>
       )}
     </Frame>
   );
@@ -1539,16 +1528,14 @@ export function SettingsGroup({
 }) {
   return (
     <Frame>
-      <FrameHeader className="flex flex-row items-start justify-between gap-3 px-2 py-2 w-full">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          {description && (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {description}
-            </p>
-          )}
+      <FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-2 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate text-[13px] font-medium text-foreground">
+            {title}
+          </p>
+          {description && <InfoTip content={description} />}
         </div>
-        {trailing && <div className="shrink-0 pt-0.5">{trailing}</div>}
+        {trailing && <div className="shrink-0">{trailing}</div>}
       </FrameHeader>
       <Card className="overflow-hidden">
         <div className="flex flex-col divide-y divide-border/40">
@@ -1601,7 +1588,7 @@ export function SettingsCardHeader({
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 px-4 text-muted-foreground">
       {Icon && <HugeiconsIcon icon={Icon} className="size-3.5" aria-hidden />}
-      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+      <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
         {title}
       </span>
       {trailing && (
@@ -1632,7 +1619,7 @@ export function SettingsRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex flex-col gap-3 px-4 py-3.5", className)}>
+    <div className={cn("flex flex-col gap-3 px-4 py-3", className)}>
       <div className="flex items-start gap-3">
         {Icon && (
           <HugeiconsIcon
@@ -1644,7 +1631,7 @@ export function SettingsRow({
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="text-sm font-medium text-foreground">{title}</div>
           {description && (
-            <div className="text-xs leading-snug text-muted-foreground">
+            <div className="text-[11px] leading-snug text-muted-foreground">
               {description}
             </div>
           )}

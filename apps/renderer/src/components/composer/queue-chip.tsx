@@ -10,7 +10,7 @@ import {
   PencilIcon,
   SentIcon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { ComposerInput, type QueuedMessage, type SessionId } from "@zuse/contracts";
 import { X } from "lucide-react";
 import { useState } from "react";

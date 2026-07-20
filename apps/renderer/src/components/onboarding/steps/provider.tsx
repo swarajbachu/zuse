@@ -4,7 +4,7 @@ import {
   Tick01Icon,
   ViewIcon,
   ViewOffIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { useState } from "react";
 

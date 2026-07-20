@@ -7,7 +7,7 @@ import {
   CheckmarkCircle02Icon,
   InformationCircleIcon,
   Loading03Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { cn } from "~/lib/utils";

@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "~/components/ui/button";

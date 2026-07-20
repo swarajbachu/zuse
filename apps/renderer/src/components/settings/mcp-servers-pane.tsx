@@ -4,7 +4,7 @@ import {
 	Key01Icon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	McpServerDescriptor,
 	McpServerSource,

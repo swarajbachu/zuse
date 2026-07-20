@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { MinusSignIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { MinusSignIcon } from "@hugeicons-pro/core-solid-rounded";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { Plus } from "lucide-react";
 import * as React from "react";

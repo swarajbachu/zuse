@@ -3,7 +3,7 @@ import {
   GitCompareIcon,
   SquareLock01Icon,
   TaskDone01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
   defaultModelFor,
   type FolderId,

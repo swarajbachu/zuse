@@ -4,7 +4,7 @@ import {
   Loading02Icon,
   MinusSignCircleIcon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
 import { ArrowUpRight, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

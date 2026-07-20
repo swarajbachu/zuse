@@ -11,7 +11,7 @@ import {
   Search01Icon,
   ViewIcon,
   ViewOffIcon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";
 

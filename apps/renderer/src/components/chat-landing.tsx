@@ -4,7 +4,7 @@ import {
   Folder01Icon,
   FolderAddIcon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
   type ChatId,
 	ComposerInput,

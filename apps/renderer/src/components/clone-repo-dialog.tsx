@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { GlobeIcon, LockIcon } from "@hugeicons-pro/core-bulk-rounded";
+import { GlobeIcon, LockIcon } from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useState } from "react";
 
 import type { GithubRepoSummary } from "@zuse/contracts";

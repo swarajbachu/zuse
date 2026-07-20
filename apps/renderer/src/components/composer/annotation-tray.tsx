@@ -4,7 +4,7 @@ import {
   CursorMagicSelection01Icon,
   PencilEdit01Icon,
   Tick01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { X } from "lucide-react";
 import { useState } from "react";

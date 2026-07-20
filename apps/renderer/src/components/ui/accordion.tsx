@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { ArrowDown01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { Accordion as AccordionPrimitive } from "@base-ui/react/accordion";
 import type React from "react";
 import { cn } from "~/lib/utils";

@@ -3,7 +3,7 @@ import {
   ArrowRight01Icon,
   BubbleChatIcon,
   Wrench01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo, useMemo, useState } from "react";
 
