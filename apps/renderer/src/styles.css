@@ -731,6 +731,7 @@ body,
     color: var(--message-text);
     background: transparent;
     border: 0;
+    box-shadow: none;
     padding: 0;
     font-size: inherit;
   }
@@ -878,6 +879,7 @@ body,
     background: transparent;
     border: 0;
     border-radius: 0;
+    box-shadow: none;
     padding: 0;
     font-size: inherit;
   }
