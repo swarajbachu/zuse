@@ -31,12 +31,9 @@ export type SettingsSection =
 	| { readonly kind: "providers" }
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }
-	| { readonly kind: "workspace" }
 	| { readonly kind: "devices" }
 	| { readonly kind: "pokedex" }
-	| { readonly kind: "browser" }
-	| { readonly kind: "notch" }
-	| { readonly kind: "diagnostics" }
+	| { readonly kind: "advanced" }
 	| { readonly kind: "shortcuts" }
 	| { readonly kind: "developer" }
 	| { readonly kind: "repository"; readonly projectId: FolderId };

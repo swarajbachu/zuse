@@ -5,7 +5,7 @@ import {
 	MinusSignIcon,
 	Tick02Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { GitStatus, GitStatusEntry } from "@pierre/trees";
 import {
 	FileTree as StructuredFileTree,
@@ -292,7 +292,7 @@ export function DiffPane({
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<div className="flex shrink-0 items-center border-b border-border px-2 pt-2">
+			<div className="flex shrink-0 items-center px-2 pt-2">
 				{(["files", "comments"] as const).map((tab) => (
 					<button
 						key={tab}

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Analytics01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Analytics01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type {
 	ProviderId,
 	ProviderUsageLimits,

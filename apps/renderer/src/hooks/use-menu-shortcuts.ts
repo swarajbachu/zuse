@@ -1,6 +1,5 @@
-import { useEffect } from "react";
-
 import type { Command } from "@zuse/contracts";
+import { useEffect } from "react";
 
 import type { MenuAction } from "../lib/bridge";
 import { dispatchCommand } from "../lib/commands";
@@ -17,21 +16,21 @@ import { useUiStore } from "../store/ui";
  * long as we don't introduce menu items that aren't commands.
  */
 export function useMenuShortcuts(): void {
-  useEffect(() => {
-    const menu = window.zuse?.menu;
-    if (menu === undefined) return;
+	useEffect(() => {
+		const menu = window.zuse?.menu;
+		if (menu === undefined) return;
 
-    const handle = (action: MenuAction) => {
-      recordUiAction("menu.action", action);
-      if (action === "export-diagnostics") {
-        const ui = useUiStore.getState();
-        ui.setSettingsSection({ kind: "diagnostics" });
-        ui.setView("settings");
-        return;
-      }
-      dispatchCommand(action as Command);
-    };
+		const handle = (action: MenuAction) => {
+			recordUiAction("menu.action", action);
+			if (action === "export-diagnostics") {
+				const ui = useUiStore.getState();
+				ui.setSettingsSection({ kind: "advanced" });
+				ui.setView("settings");
+				return;
+			}
+			dispatchCommand(action as Command);
+		};
 
-    return menu.onAction(handle as (action: string) => void);
-  }, []);
+		return menu.onAction(handle as (action: string) => void);
+	}, []);
 }
