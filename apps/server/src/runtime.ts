@@ -38,6 +38,7 @@ import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
 import { CredentialsServiceLive } from "./provider/layers/credentials-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
+import { SponsorServiceLive } from "./provider/layers/sponsor-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
@@ -245,6 +246,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(BackfilledSqlite),
 	);
 
+	// SponsorService serves the composer footer's single sponsored line via the
+	// ADtention SDK. Server-side so the ad API call isn't CORS-blocked and the
+	// per-install subject id is persisted under userData (hence AppPaths).
+	const SponsorLayer = SponsorServiceLive.pipe(Layer.provide(AppPathsLayer));
+
 	// PermissionService brokers between the SDK permission callback (driver
 	// side) and the renderer toast (RPC side). It writes decisions to
 	// SQLite so an `AllowForSession` row survives a process crash and the
@@ -446,6 +452,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		SessionDomainLayer,
 		ConversationServicesLayer,
 		PermissionLayer,
+		SponsorLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,
 		// browser.* credential RPCs read/write the keychain directly.
