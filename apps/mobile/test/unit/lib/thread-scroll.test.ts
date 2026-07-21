@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
 	latestTurnAnchorSpace,
+	latestTurnTopOffset,
 	nextThreadScrollMode,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
@@ -85,6 +86,11 @@ describe("thread scroll policy", () => {
 				previousContext: 72,
 			}),
 		).toBe(0);
+	});
+
+	test("positions the latest user turn directly below the native header", () => {
+		expect(latestTurnTopOffset(900, 120, 12)).toBe(768);
+		expect(latestTurnTopOffset(80, 120, 12)).toBe(0);
 	});
 
 	test("only initial and following modes permit content-driven movement", () => {

@@ -155,6 +155,30 @@ describe("mobile UI contracts", () => {
 		expect(layout).not.toContain("headerBlurEffect");
 	});
 
+	test("opens and populates threads from canonical session data", () => {
+		const layout = appFile("_layout.tsx");
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const threads = appFile("c/[conn]/chat/[chatId]/threads.tsx");
+		expect(layout).toContain("sheetAllowedDetents: [0.42, 0.92]");
+		expect(layout).toContain("sheetInitialDetentIndex: 0");
+		expect(thread).toContain("const chatId = detail?.session.chatId ?? null");
+		expect(threads).toContain("bundles.flatMap((bundle) => bundle.sessions)");
+		expect(threads).toContain(
+			"orderedChatSessions(allConnectionSessions, normalizedChatId)",
+		);
+		expect(threads).toContain("normalizedChatId,");
+		expect(threads).toContain('style={{ width: "100%", height: "100%" }}');
+		expect(threads).not.toContain("sheetContentHeight");
+		expect(threads).not.toContain('className="flex-1 bg-background"');
+	});
+
+	test("anchors latest-turn navigation without bottom-scroll races", () => {
+		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		expect(thread).toContain("scrollToLatestTurn");
+		expect(thread).toContain("latestTurnTopOffset");
+		expect(thread).not.toContain("scrollToEnd");
+	});
+
 	test("uses stack-based files and keeps file changes inline", () => {
 		const layout = appFile("_layout.tsx");
 		const files = appFile("c/[conn]/session/[sessionId]/files.tsx");
@@ -197,7 +221,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("onChanges={openChanges}");
 		expect(thread).toContain("<ThreadHeaderTitle");
 		expect(thread).toContain("headerTitle: () => (");
-		expect(thread).not.toContain("headerRight:");
+		expect(thread).toContain("headerRight: () => (");
+		expect(sessionActions).toContain("<Menu");
+		expect(sessionActions).toContain("<NativeButton");
+		expect(sessionActions).not.toContain("ActionSheetIOS");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');
@@ -276,9 +303,10 @@ describe("mobile UI contracts", () => {
 		expect(messageRow).toContain("accessibilityState={{ expanded }}");
 		expect(messageRow).toContain("color: colors.accent");
 		expect(messageRow).not.toContain("stats={view.fileChangeTotals}");
-		expect(sessionActions).toContain('<Stack.Toolbar placement="right">');
-		expect(sessionActions).toContain("tintColor={colors.fg}");
-		expect(sessionActions).toContain("destructive");
+		expect(sessionActions).toContain("<Host");
+		expect(sessionActions).toContain("<Menu");
+		expect(sessionActions).toContain("color={colors.fg}");
+		expect(sessionActions).toContain('role="destructive"');
 		expect(sessionActions).not.toContain("NEON_GREEN");
 		expect(reviewPill).not.toContain("GitCompareArrows");
 		expect(files).not.toContain("translucentNativeHeaderOptions");

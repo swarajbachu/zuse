@@ -163,9 +163,10 @@ export default function RootLayout() {
 							title: "Threads",
 							headerLargeTitle: false,
 							presentation: "formSheet",
-							sheetAllowedDetents: [0.62, 0.92],
+							sheetAllowedDetents: [0.42, 0.92],
 							sheetInitialDetentIndex: 0,
 							sheetGrabberVisible: true,
+							contentStyle: { backgroundColor: "transparent" },
 						}}
 					/>
 					<Stack.Screen

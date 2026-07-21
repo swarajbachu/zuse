@@ -13,6 +13,10 @@ import {
 	logConnectionDiagnostic,
 	logConnectionProblem,
 } from "./connection-diagnostics";
+import {
+	isIntentionalConnectionInterruption,
+	isRetryableClientError,
+} from "./connection-failures";
 import { ConnectionFailed } from "./errors";
 import { makeMobileWebSocket } from "./mobile-websocket";
 import { connectEnvironment } from "./relay-client";
@@ -121,6 +125,7 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 			logConnectionDiagnostic(`supervisor.${event}`, { key, ...details });
 		},
 		isRetryableCommandError: isRetryableClientError,
+		isIgnorableFailure: isIntentionalConnectionInterruption,
 	},
 );
 
@@ -129,16 +134,6 @@ let currentOnline = true;
 const connectionEntry = (
 	options: WsProtocolOptions,
 ): ConnectionSupervisorEntry<MemoizeClient> => supervisor.get(options);
-
-function isRetryableClientError(cause: unknown): boolean {
-	return (
-		(cause instanceof ConnectionFailed && cause.message !== "offline") ||
-		(typeof cause === "object" &&
-			cause !== null &&
-			"_tag" in cause &&
-			cause._tag === "RpcClientError")
-	);
-}
 
 export const getConnectionClient = (
 	options: WsProtocolOptions,
@@ -158,6 +153,12 @@ export const reportConnectionFailure = (
 	options: WsProtocolOptions,
 	cause: unknown,
 ): void => {
+	if (
+		isIntentionalConnectionInterruption(cause) ||
+		!isRetryableClientError(cause)
+	) {
+		return;
+	}
 	logConnectionProblem("runtime.report_failure", {
 		key: runtimeKey(options),
 		reason: cause instanceof Error ? cause.message : String(cause),

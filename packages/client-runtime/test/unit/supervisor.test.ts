@@ -32,6 +32,7 @@ const makeHarness = (input?: {
 		readonly dispose: () => Promise<void>;
 	}>;
 	isRetryableCommandError?: (cause: unknown) => boolean;
+	isIgnorableFailure?: (cause: unknown) => boolean;
 	shouldReconnectOnOptionsChange?: (
 		previous: Options,
 		next: Options,
@@ -49,6 +50,7 @@ const makeHarness = (input?: {
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		isRetryableCommandError: input?.isRetryableCommandError,
+		isIgnorableFailure: input?.isIgnorableFailure,
 		shouldReconnectOnOptionsChange: input?.shouldReconnectOnOptionsChange,
 		createClient:
 			input?.createClient ??
@@ -240,6 +242,23 @@ describe("connection supervisor", () => {
 			"token-1",
 			"token-2",
 		]);
+	});
+
+	test("does not replace a healthy client for an ignorable cancellation", async () => {
+		const harness = makeHarness({
+			isIgnorableFailure: (cause) =>
+				cause instanceof Error &&
+				cause.message === "All fibers interrupted without error",
+		});
+		const entry = harness.supervisor.get({ key: "local" });
+		await runClient(entry.getClient());
+
+		expect(
+			entry.reportFailure(new Error("All fibers interrupted without error")),
+		).toBe(false);
+		expect(entry.snapshot().status).toBe("connected");
+		expect(harness.disposed).toEqual([]);
+		expect(harness.scheduled).toEqual([]);
 	});
 
 	test("reconnects immediately when a stable connection moves endpoints", async () => {

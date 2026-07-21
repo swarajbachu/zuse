@@ -9,9 +9,11 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { Check, Ellipsis, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+	ActivityIndicator,
 	Alert,
 	FlatList,
 	Pressable,
+	StyleSheet,
 	Text,
 	TextInput,
 	View,
@@ -24,12 +26,14 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { lightTap } from "~/lib/haptics";
+import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
 	nearestSurvivingThread,
 	threadDisplayTitle,
 	threadStatusLabel,
 } from "~/lib/thread-presentation";
+import { activeThreadSelection, switchToThread } from "~/lib/thread-switching";
 import { useConnectionsStore } from "~/store/connections";
 import { usePermissionsStore } from "~/store/permissions";
 import { useSessionsStore } from "~/store/sessions";
@@ -47,9 +51,11 @@ export default function ThreadsScreen() {
 	const normalizedChatId = normalizeConnParam(chatId) as ChatId;
 	const currentSessionId = normalizeConnParam(sessionId ?? "") as SessionId;
 	const [query, setQuery] = useState("");
+	const [switchingSessionId, setSwitchingSessionId] =
+		useState<SessionId | null>(null);
 	const connections = useConnectionsStore((state) => state.connections);
-	const bundles = useSessionsStore(
-		(state) => state.bundlesByConnection[connKey] ?? [],
+	const bundles = useSessionsStore((state) =>
+		selectConnectionBundles(state.bundlesByConnection, connKey),
 	);
 	const statuses = useSessionsStore((state) => state.statusBySession);
 	const pendingBySession = usePermissionsStore(
@@ -64,28 +70,36 @@ export default function ThreadsScreen() {
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
-	const detail = useMemo(() => {
-		for (const bundle of bundles) {
-			const chat = bundle.chats.find((item) => item.id === normalizedChatId);
-			if (chat !== undefined) return { chat, project: bundle.project, bundle };
-		}
-		return null;
-	}, [bundles, normalizedChatId]);
-	const threads = useMemo(
+	const chat = useMemo(
 		() =>
-			orderedChatSessions(
-				detail?.bundle.sessions ?? [],
-				detail?.chat.id ?? null,
-			),
-		[detail],
+			bundles
+				.flatMap((bundle) => bundle.chats)
+				.find((item) => item.id === normalizedChatId) ?? null,
+		[bundles, normalizedChatId],
 	);
+	const allConnectionSessions = useMemo(
+		() => bundles.flatMap((bundle) => bundle.sessions),
+		[bundles],
+	);
+	const threads = useMemo(
+		() => orderedChatSessions(allConnectionSessions, normalizedChatId),
+		[allConnectionSessions, normalizedChatId],
+	);
+	const activeSessionId = activeThreadSelection(
+		chat?.activeSessionId,
+		currentSessionId,
+	);
+	const switchingThread =
+		switchingSessionId === null
+			? null
+			: (threads.find((thread) => thread.id === switchingSessionId) ?? null);
 	const rows = useMemo(() => {
 		const normalized = query.trim().toLowerCase();
 		return threads
 			.map((thread, index) => ({
 				thread,
 				index,
-				title: threadDisplayTitle(thread, detail?.chat ?? null, index),
+				title: threadDisplayTitle(thread, chat, index),
 			}))
 			.filter(({ thread, title }) =>
 				normalized.length === 0
@@ -94,31 +108,56 @@ export default function ThreadsScreen() {
 							.toLowerCase()
 							.includes(normalized),
 			);
-	}, [detail?.chat, query, threads]);
+	}, [chat, query, threads]);
 
 	useEffect(() => {
-		if (options !== null && detail === null) void hydrate(connKey, options);
-	}, [connKey, detail, hydrate, options]);
+		if (options !== null && chat === null && threads.length === 0) {
+			void hydrate(connKey, options);
+		}
+	}, [chat, connKey, hydrate, options, threads.length]);
 
 	const navigateToThread = useCallback(
 		(thread: Session) => {
-			if (options !== null && detail !== null) {
-				void setActiveSession(
-					connKey,
-					options,
-					detail.chat.id,
-					thread.id,
-				).catch(() => {});
+			if (switchingSessionId !== null) return;
+			if (thread.id === activeSessionId) {
+				router.back();
+				return;
 			}
-			router.back();
-			requestAnimationFrame(() => {
-				router.replace({
-					pathname: "/c/[conn]/session/[sessionId]",
-					params: { conn: connKey, sessionId: thread.id },
-				});
-			});
+			if (options === null) {
+				Alert.alert(
+					"Can’t switch threads",
+					"The Mac connection is unavailable.",
+				);
+				return;
+			}
+			try {
+				switchToThread(
+					thread.id,
+					setSwitchingSessionId,
+					(sessionId) =>
+						setActiveSession(connKey, options, normalizedChatId, sessionId),
+					(sessionId) =>
+						router.dismissTo({
+							pathname: "/c/[conn]/session/[sessionId]",
+							params: { conn: connKey, sessionId, openAtLatest: "1" },
+						}),
+				);
+			} catch {
+				setSwitchingSessionId(null);
+				Alert.alert(
+					"Couldn’t switch threads",
+					"The selected thread could not be activated. Try again.",
+				);
+			}
 		},
-		[connKey, detail, options, setActiveSession],
+		[
+			activeSessionId,
+			connKey,
+			normalizedChatId,
+			options,
+			setActiveSession,
+			switchingSessionId,
+		],
 	);
 
 	const openNewThread = useCallback(() => {
@@ -133,7 +172,7 @@ export default function ThreadsScreen() {
 
 	const archiveThread = useCallback(
 		(thread: Session) => {
-			if (options === null || detail === null) return;
+			if (options === null) return;
 			if (threads.length === 1) {
 				Alert.alert(
 					"Archive chat?",
@@ -144,9 +183,11 @@ export default function ThreadsScreen() {
 							text: "Archive chat",
 							style: "destructive",
 							onPress: () => {
-								void archiveChat(connKey, options, detail.chat.id).then(() => {
-									router.dismissTo("/");
-								});
+								void archiveChat(connKey, options, normalizedChatId).then(
+									() => {
+										router.dismissTo("/");
+									},
+								);
 							},
 						},
 					],
@@ -174,8 +215,8 @@ export default function ThreadsScreen() {
 			archiveSession,
 			connKey,
 			currentSessionId,
-			detail,
 			navigateToThread,
+			normalizedChatId,
 			options,
 			threads,
 		],
@@ -211,17 +252,9 @@ export default function ThreadsScreen() {
 	);
 
 	return (
-		<View className="flex-1 bg-background">
-			<Stack.Screen
-				options={{
-					title: "Threads",
-					sheetInitialDetentIndex: threads.length >= LARGE_THREAD_COUNT ? 1 : 0,
-				}}
-			/>
-			<Stack.Toolbar placement="left">
-				<Stack.Toolbar.Button icon="xmark" onPress={() => router.back()} />
-			</Stack.Toolbar>
+		<View style={{ width: "100%", height: "100%" }}>
 			<FlatList
+				style={{ width: "100%", height: "100%" }}
 				data={rows}
 				keyExtractor={({ thread }) => thread.id}
 				contentInsetAdjustmentBehavior="automatic"
@@ -234,8 +267,12 @@ export default function ThreadsScreen() {
 							accessibilityRole="button"
 							accessibilityLabel="Create new thread"
 							onPress={openNewThread}
-							className="min-h-14 flex-row items-center gap-3 rounded-3xl border border-border bg-card px-4 active:bg-card-elevated"
-							style={{ borderCurve: "continuous" }}
+							className="min-h-14 flex-row items-center gap-3 rounded-2xl bg-card px-4 active:bg-card-elevated"
+							style={{
+								borderCurve: "continuous",
+								borderWidth: StyleSheet.hairlineWidth,
+								borderColor: colors.border,
+							}}
 						>
 							<View className="h-8 w-8 items-center justify-center rounded-xl bg-primary">
 								<Plus size={18} color={colors.primaryForeground} />
@@ -250,7 +287,14 @@ export default function ThreadsScreen() {
 							</View>
 						</Pressable>
 						{threads.length >= LARGE_THREAD_COUNT ? (
-							<View className="min-h-11 flex-row items-center gap-2 rounded-2xl border border-border bg-card px-3">
+							<View
+								className="min-h-11 flex-row items-center gap-2 rounded-2xl bg-card px-3"
+								style={{
+									borderCurve: "continuous",
+									borderWidth: StyleSheet.hairlineWidth,
+									borderColor: colors.border,
+								}}
+							>
 								<Search size={17} color={colors.secondaryFg} />
 								<TextInput
 									accessibilityLabel="Search threads"
@@ -274,23 +318,39 @@ export default function ThreadsScreen() {
 						) : null}
 					</View>
 				}
-				renderItem={({ item: { thread, title } }) => {
+				renderItem={({ item: { thread, title }, index }) => {
 					const status =
 						statuses[connectionSessionKey(connKey, thread.id)] ?? thread.status;
 					const attention =
 						(pendingBySession[connectionSessionKey(connKey, thread.id)] ?? [])
 							.length > 0;
-					const selected = thread.id === currentSessionId;
+					const selected = thread.id === activeSessionId;
 					return (
 						<Pressable
 							accessibilityRole="button"
 							accessibilityState={{ selected }}
-							accessibilityLabel={`${title}, ${threadStatusLabel(status)}`}
+							accessibilityLabel={`${title}, ${
+								selected ? "active thread" : threadStatusLabel(status)
+							}`}
 							onPress={() => {
 								lightTap();
-								navigateToThread(thread);
+								void navigateToThread(thread);
 							}}
-							className="min-h-[64px] flex-row items-center gap-3 border-b border-border px-2 py-2 active:bg-card-elevated"
+							className="min-h-[64px] flex-row items-center gap-3 px-3 py-2"
+							style={({ pressed }) => ({
+								backgroundColor:
+									pressed || selected ? colors.cardElevated : colors.card,
+								borderCurve: "continuous",
+								borderColor: colors.border,
+								borderLeftWidth: StyleSheet.hairlineWidth,
+								borderRightWidth: StyleSheet.hairlineWidth,
+								borderTopWidth: index === 0 ? StyleSheet.hairlineWidth : 0,
+								borderBottomWidth: StyleSheet.hairlineWidth,
+								borderTopLeftRadius: index === 0 ? 16 : 0,
+								borderTopRightRadius: index === 0 ? 16 : 0,
+								borderBottomLeftRadius: index === rows.length - 1 ? 16 : 0,
+								borderBottomRightRadius: index === rows.length - 1 ? 16 : 0,
+							})}
 						>
 							<View className="h-9 w-9 items-center justify-center rounded-xl bg-muted">
 								<ProviderLogo providerId={thread.providerId} size={18} />
@@ -322,8 +382,13 @@ export default function ThreadsScreen() {
 												? "font-sans text-[11px] text-warning"
 												: "font-sans text-[11px] text-muted-foreground"
 										}
+										style={selected ? { color: colors.accent } : undefined}
 									>
-										{attention ? "Attention" : threadStatusLabel(status)}
+										{selected
+											? "Active"
+											: attention
+												? "Attention"
+												: threadStatusLabel(status)}
 									</Text>
 								</View>
 							</View>
@@ -344,6 +409,36 @@ export default function ThreadsScreen() {
 					</Text>
 				}
 			/>
+			{switchingThread !== null ? (
+				<View
+					accessibilityRole="progressbar"
+					accessibilityLabel="Loading selected thread"
+					accessibilityViewIsModal
+					style={{
+						position: "absolute",
+						inset: 0,
+						alignItems: "center",
+						justifyContent: "center",
+						gap: 10,
+						backgroundColor: colors.card,
+					}}
+				>
+					<ActivityIndicator size="large" color={colors.accent} />
+					<Text className="font-sans-medium text-[16px] text-foreground">
+						Opening thread…
+					</Text>
+					<Text className="font-sans text-[13px] text-muted-foreground">
+						Loading its conversation
+					</Text>
+				</View>
+			) : null}
+			<Stack.Toolbar placement="left">
+				<Stack.Toolbar.Button
+					icon="xmark"
+					disabled={switchingSessionId !== null}
+					onPress={() => router.back()}
+				/>
+			</Stack.Toolbar>
 		</View>
 	);
 }
