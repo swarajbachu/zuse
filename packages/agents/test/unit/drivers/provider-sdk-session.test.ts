@@ -159,6 +159,7 @@ describe("bundled provider SDK sessions", () => {
 					cwd: "/tmp/workspace",
 					autoReview: true,
 					sandboxOptions: { enabled: true },
+					settingSources: ["project"],
 				}),
 			}),
 		);

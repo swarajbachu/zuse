@@ -337,8 +337,12 @@ describe("live agent smoke tests", () => {
 					const completed = events.findIndex(
 						(event) => event._tag === "Completed",
 					);
+					const started = events.findIndex((event) => event._tag === "Started");
 					expect(firstAssistant).toBeGreaterThanOrEqual(0);
 					expect(completed).toBeGreaterThan(firstAssistant);
+					expect(
+						(eventTimes[firstAssistant] ?? 0) - (eventTimes[started] ?? 0),
+					).toBeLessThan(30_000);
 					expect(
 						(eventTimes[completed] ?? 0) - (eventTimes[firstAssistant] ?? 0),
 					).toBeGreaterThan(250);

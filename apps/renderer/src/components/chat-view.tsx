@@ -837,7 +837,7 @@ function TimelineRow({
 				</div>
 			);
 		case "working":
-			return <WorkingRow messages={row.messages} />;
+			return <WorkingRow messages={row.messages} phase={row.phase} />;
 	}
 }
 
@@ -849,7 +849,13 @@ const formatElapsed = (ms: number): string => {
 	return `${min}m ${sec.toFixed(1)}s`;
 };
 
-function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
+function WorkingRow({
+	messages,
+	phase,
+}: {
+	messages: ReadonlyArray<Message>;
+	phase: "starting" | "responding";
+}) {
 	// Anchor to the most recent user message — we want the live "current turn"
 	// elapsed time beside the loader, not the session-wide total.
 	const anchorMs = useMemo(() => {
@@ -872,11 +878,18 @@ function WorkingRow({ messages }: { messages: ReadonlyArray<Message> }) {
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
 
 	return (
-		<div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground">
+		<div
+			className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground"
+			role="status"
+			aria-live="polite"
+		>
 			<Spinner className="size-3" />
-			<ShimmerText tone="lime" className="tabular-nums">
-				{formatElapsed(elapsed)}
+			<ShimmerText tone="lime">
+				{phase === "starting" ? "Starting local agent" : "Working"}
 			</ShimmerText>
+			<span aria-hidden="true" className="tabular-nums">
+				{formatElapsed(elapsed)}
+			</span>
 		</div>
 	);
 }

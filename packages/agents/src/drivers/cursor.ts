@@ -39,6 +39,7 @@ import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 
 const SDK_START_TIMEOUT_MS = 30_000;
+const SDK_SEND_TIMEOUT_MS = 30_000;
 const STORE_DIRECTORY = "zuse-jsonl";
 
 export interface CursorSessionHandle extends ProviderSessionHandle {
@@ -453,7 +454,7 @@ export const startCursorSession = (
 				store,
 				autoReview: true,
 				sandboxOptions: { enabled: true },
-				settingSources: ["project", "user", "team", "mdm", "plugins"],
+				settingSources: ["project"],
 				enableAgentRetries: true,
 			},
 			mode:
@@ -580,11 +581,18 @@ export const startCursorSession = (
 						attachmentRefs,
 						attachments,
 					);
-					const run = await agent.send(sdkMessage, {
-						model: selection,
-						mode: currentMode === "plan" ? "plan" : "agent",
-						...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
-					});
+					const run = await withTimeout(
+						agent.send(sdkMessage, {
+							model: selection,
+							mode: currentMode === "plan" ? "plan" : "agent",
+							...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+						}),
+						SDK_SEND_TIMEOUT_MS,
+						"Starting local agent run",
+						(lateRun) => {
+							void lateRun.cancel().catch(() => undefined);
+						},
+					);
 					if (closed || runGeneration !== cancellationGeneration) {
 						await run.cancel().catch(() => undefined);
 						if (!closed) {

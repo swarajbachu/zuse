@@ -41,6 +41,7 @@ export type ChatTimelineRow =
 			readonly kind: "working";
 			readonly id: string;
 			readonly messages: ReadonlyArray<Message>;
+			readonly phase: "starting" | "responding";
 	  };
 
 export { isUserMessage };
@@ -190,10 +191,15 @@ export function deriveChatTimelineRows({
 	}
 
 	if (inFlight && !awaitingPlanApproval) {
+		const latestUserIndex = normalizedMessages.findLastIndex(isUserMessage);
+		const hasProviderOutput = normalizedMessages
+			.slice(latestUserIndex + 1)
+			.some((message) => !isUserMessage(message));
 		rows.push({
 			kind: "working",
 			id: "working",
 			messages,
+			phase: hasProviderOutput ? "responding" : "starting",
 		});
 	}
 
