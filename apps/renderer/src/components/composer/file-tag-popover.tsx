@@ -1,12 +1,10 @@
 import type { EditorView } from "@codemirror/view";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Folder01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
+import { FileIcon } from "~/components/file-icon";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
-import { getFileIconUrl, getFolderIconUrl } from "~/lib/icons/material-icons";
 import { getRpcClient } from "~/lib/rpc-client";
 import { cn } from "~/lib/utils";
 
@@ -157,10 +155,6 @@ export function FileTagPopover({
 				const active = i === highlight;
 				const name = basename(hit.relPath);
 				const parent = dirname(hit.relPath);
-				const iconUrl =
-					hit.kind === "directory"
-						? getFolderIconUrl(name, false)
-						: getFileIconUrl(name);
 				return (
 					<button
 						key={hit.relPath}
@@ -174,14 +168,11 @@ export function FileTagPopover({
 							active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
 						)}
 					>
-						{iconUrl !== null ? (
-							<img src={iconUrl} alt="" className="size-3.5 shrink-0" />
-						) : (
-							<HugeiconsIcon
-								icon={Folder01Icon}
-								className="size-3.5 shrink-0 opacity-80"
-							/>
-						)}
+						<FileIcon
+							name={name}
+							kind={hit.kind}
+							className="inline-flex size-3.5 shrink-0 items-center justify-center"
+						/>
 						<span className="truncate font-medium">{name}</span>
 						{parent !== null && (
 							<span

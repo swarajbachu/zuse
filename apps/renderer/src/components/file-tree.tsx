@@ -583,7 +583,7 @@ function TreeView({
 					fn();
 				};
 			return (
-				<div className="min-w-[190px] rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md">
+				<div className={cn("min-w-[190px] p-1.5 text-sm", overlaySurface)}>
 					{isFile && (
 						<MenuButton
 							icon={PencilEdit01Icon}
@@ -776,7 +776,10 @@ function FileSearchPalette({
 			onMouseDown={onClose}
 		>
 			<div
-				className="flex max-h-[62vh] w-[min(680px,92vw)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
+				className={cn(
+					"flex max-h-[62vh] w-[min(680px,92vw)] flex-col overflow-hidden",
+					overlaySurface,
+				)}
 				onMouseDown={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center gap-2 border-b border-border/60 px-3">
