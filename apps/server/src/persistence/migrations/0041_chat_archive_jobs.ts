@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Durable resource-cleanup work that follows the logical chat archive. */
-export const Migration0040ChatArchiveJobs = Effect.gen(function* () {
+export const Migration0041ChatArchiveJobs = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
     CREATE TABLE IF NOT EXISTS chat_archive_jobs (
@@ -21,10 +21,15 @@ export const Migration0040ChatArchiveJobs = Effect.gen(function* () {
       updated_at TEXT NOT NULL
     )
   `;
-	yield* sql`
-		ALTER TABLE worktrees ADD COLUMN archive_state TEXT NOT NULL DEFAULT 'active'
-		CHECK (archive_state IN ('active', 'deleting'))
+	const worktreeColumns = yield* sql<{ readonly name: string }>`
+		PRAGMA table_info(worktrees)
 	`;
+	if (!worktreeColumns.some(({ name }) => name === "archive_state")) {
+		yield* sql`
+			ALTER TABLE worktrees ADD COLUMN archive_state TEXT NOT NULL DEFAULT 'active'
+			CHECK (archive_state IN ('active', 'deleting'))
+		`;
+	}
 	yield* sql`
 		CREATE TRIGGER IF NOT EXISTS prevent_chat_deleting_worktree_insert
 		BEFORE INSERT ON chats

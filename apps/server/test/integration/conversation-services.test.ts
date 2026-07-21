@@ -86,7 +86,7 @@ import { Migration0033ReactorEffectSteps } from "../../src/persistence/migration
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { Migration0037ProviderEventCursor } from "../../src/persistence/migrations/0037_provider_event_cursor.ts";
 import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
-import { Migration0040ChatArchiveJobs } from "../../src/persistence/migrations/0040_chat_archive_jobs.ts";
+import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -437,7 +437,7 @@ const runAllMigrations = Effect.all(
 		Migration0034ToolEventLookup,
 		Migration0037ProviderEventCursor,
 		Migration0038QueuedMessageReady,
-		Migration0040ChatArchiveJobs,
+		Migration0041ChatArchiveJobs,
 	],
 	{ discard: true },
 );
