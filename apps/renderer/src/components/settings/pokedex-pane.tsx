@@ -230,7 +230,7 @@ export function PokedexPane() {
     <section className="flex min-h-0 flex-1 flex-col gap-4 p-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-normal">Pokedex</h1>
+          <h1 className="truncate text-base font-semibold tracking-normal">Pokedex</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {stats.unlocked}/{stats.total} unlocked · {stats.points} points
           </p>

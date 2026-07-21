@@ -202,29 +202,29 @@ body,
 }
 
 /* ---------- Light theme ---------- */
-/* Same moss/lime identity as dark mode, lifted onto a quiet paper surface.
-   Primary stays chartreuse instead of becoming a generic blue/gray light UI. */
+/* Pure neutral grays on a paper-white surface; the chartreuse primary is the
+   only color in the UI. */
 :root {
-  --radius: 0.75rem;
+  --radius: 0.875rem;
   --lime: hsl(72 92% 48%);
   --brand-highlight: hsl(72 92% 48%);
   --brand-highlight-muted: hsl(74 70% 58%);
 
-  --background: hsl(76 12% 98%);
-  --foreground: hsl(72 18% 9%);
+  --background: hsl(0 0% 98%);
+  --foreground: hsl(0 0% 9%);
 
-  --bg-subtle: hsl(76 10% 95%);
-  --bg-elevated: hsl(74 10% 92%);
-  --bg-overlay: hsl(72 8% 84%);
-  --text-faint: hsl(72 6% 46%);
+  --bg-subtle: hsl(0 0% 96%);
+  --bg-elevated: hsl(0 0% 92%);
+  --bg-overlay: hsl(0 0% 84%);
+  --text-faint: hsl(0 0% 46%);
 
   /* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
      --card so the pill reads as inset against the composer card. */
-  --chip-bg: hsl(74 10% 91%);
+  --chip-bg: hsl(0 0% 91%);
 
-  --card: hsl(72 22% 99%);
+  --card: hsl(0 0% 100%);
   --card-foreground: var(--foreground);
-  --popover: hsl(72 22% 99%);
+  --popover: hsl(0 0% 100%);
   --popover-foreground: var(--foreground);
 
   --primary: var(--lime);
@@ -235,7 +235,7 @@ body,
   --accent-blue: hsl(220 76% 54%);
   --accent-amber: hsl(18 86% 52%);
   --accent-red: hsl(0 74% 56%);
-  --accent-zinc: hsl(72 4% 42%);
+  --accent-zinc: hsl(0 0% 42%);
 
   --file-icon-gray: #6c6c71;
   --file-icon-red: #d52c36;
@@ -251,38 +251,38 @@ body,
   --file-icon-pink: #d32a61;
   --file-icon-mauve: #594c5b;
 
-  --secondary: hsl(74 10% 92%);
+  --secondary: hsl(0 0% 93%);
   --secondary-foreground: var(--foreground);
-  --muted: hsl(74 10% 86%);
-  --muted-foreground: hsl(72 7% 34%);
-  --accent: hsl(73 22% 84%);
-  --accent-foreground: hsl(72 36% 11%);
+  --muted: hsl(0 0% 92%);
+  --muted-foreground: hsl(0 0% 38%);
+  --accent: hsl(0 0% 92.5%);
+  --accent-foreground: hsl(0 0% 11%);
 
   --destructive: hsl(0 74% 50%);
-  --destructive-foreground: hsl(72 22% 99%);
+  --destructive-foreground: hsl(0 0% 99%);
   --success: hsl(131 52% 42%);
-  --success-foreground: hsl(72 22% 99%);
+  --success-foreground: hsl(0 0% 99%);
   --warning: hsl(42 84% 47%);
-  --warning-foreground: hsl(72 18% 9%);
+  --warning-foreground: hsl(0 0% 9%);
   --info: hsl(220 76% 54%);
-  --info-foreground: hsl(72 22% 99%);
+  --info-foreground: hsl(0 0% 99%);
 
   --alert-error-bg: hsl(0 72% 95%);
   --alert-warning-bg: hsl(42 80% 92%);
   --alert-info-bg: hsl(220 72% 94%);
   --alert-success-bg: hsl(131 46% 92%);
 
-  --border: hsl(72 10% 84%);
-  --input: hsl(72 10% 84%);
+  --border: hsl(0 0% 88%);
+  --input: hsl(0 0% 88%);
   --ring: var(--lime);
 
-  --sidebar: hsl(76 10% 95%);
-  --sidebar-foreground: hsl(72 18% 12%);
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(0 0% 12%);
   --sidebar-primary: var(--lime);
   --sidebar-primary-foreground: hsl(72 82% 6%);
-  --sidebar-accent: hsl(74 16% 89%);
-  --sidebar-accent-foreground: hsl(72 24% 13%);
-  --sidebar-border: hsl(72 10% 82%);
+  --sidebar-accent: hsl(0 0% 91.5%);
+  --sidebar-accent-foreground: hsl(0 0% 13%);
+  --sidebar-border: hsl(0 0% 90%);
   --sidebar-ring: var(--lime);
 
   --chart-1: var(--lime);
@@ -293,15 +293,15 @@ body,
 
   /* Chat bubble + prose. Independent of `primary` so we can keep button
      primary punchy without bleaching message text. */
-  --user-bubble: hsl(74 18% 90%);
-  --user-bubble-foreground: hsl(72 28% 12%);
-  --message-text: hsl(72 14% 18%);
-  --message-heading: hsl(72 18% 9%);
-  --message-code: hsl(72 80% 28%);
-  --message-code-bg: hsl(74 18% 91%);
-  --message-pre-bg: hsl(74 10% 93%);
-  --message-quote: hsl(72 6% 40%);
-  --message-rule: hsl(72 10% 84%);
+  --user-bubble: hsl(0 0% 93.5%);
+  --user-bubble-foreground: hsl(0 0% 12%);
+  --message-text: hsl(0 0% 18%);
+  --message-heading: hsl(0 0% 9%);
+  --message-code: hsl(0 0% 24%);
+  --message-code-bg: hsl(0 0% 93%);
+  --message-pre-bg: hsl(0 0% 96%);
+  --message-quote: hsl(0 0% 40%);
+  --message-rule: hsl(0 0% 88%);
 
   --syntax-keyword: hsl(276 66% 42%);
   --syntax-string: hsl(131 48% 34%);
@@ -310,33 +310,45 @@ body,
   --syntax-type: hsl(190 68% 34%);
   --syntax-attribute: hsl(339 70% 43%);
   --syntax-tag: hsl(0 70% 45%);
+
+  /* Overlay elevation. Raw box-shadow values (consumed by .shadow-overlay*
+     and .border-glass) so they survive the light-mode --tw-shadow kill in
+     @layer base. Light leads with a 1px ring that doubles as the border. */
+  --shadow-overlay-sm: 0 0 0 1px hsl(0 0% 0% / 0.05),
+    0 2px 6px hsl(0 0% 0% / 0.08);
+  --shadow-overlay: 0 0 0 1px hsl(0 0% 0% / 0.05),
+    0 2px 4px hsl(0 0% 0% / 0.05), 0 8px 16px -4px hsl(0 0% 0% / 0.07),
+    0 20px 32px -8px hsl(0 0% 0% / 0.08);
+  --shadow-overlay-lg: 0 0 0 1px hsl(0 0% 0% / 0.05),
+    0 8px 16px -4px hsl(0 0% 0% / 0.1), 0 32px 64px -12px hsl(0 0% 0% / 0.18);
 }
 
 .dark {
-  /* Espresso palette with a very subtle moss undertone. */
+  /* Pure neutral grays; the bright lime primary is the only color. */
   --lime: hsl(72 98% 54%);
   --brand-highlight: hsl(72 98% 54%);
   --brand-highlight-muted: hsl(73 96% 72%);
 
-  --background: hsl(72 5% 6%);
-  --foreground: hsl(72 4% 92%);
+  --background: hsl(0 0% 6%);
+  --foreground: hsl(0 0% 93%);
 
-  --bg-subtle: hsl(72 4% 10%);
-  --bg-elevated: hsl(72 4% 13%);
-  --bg-overlay: hsl(72 3% 22%);
-  --text-faint: hsl(72 3% 43%);
+  --bg-subtle: hsl(0 0% 10%);
+  --bg-elevated: hsl(0 0% 13%);
+  --bg-overlay: hsl(0 0% 22%);
+  --text-faint: hsl(0 0% 43%);
 
   /* Chip surface — kept darker than --card so pills read as inset on the
-     composer surface while staying within the moss-neutral ramp. */
-  --chip-bg: hsl(72 4% 10%);
+     composer surface. */
+  --chip-bg: hsl(0 0% 10%);
 
-  --card: hsl(72 4% 13%);
+  --card: hsl(0 0% 12%);
   --card-foreground: var(--foreground);
 
-  --popover: hsl(72 4% 13%);
-  --popover-foreground: hsl(72 4% 92%);
+  /* Popover sits just below card so the glass border/shadow has something to
+     bite on. */
+  --popover: hsl(0 0% 11%);
+  --popover-foreground: hsl(0 0% 93%);
 
-  /* Bright lime primary, with subdued moss neutrals around it. */
   --primary: var(--lime);
   --primary-foreground: hsl(72 82% 5%);
 
@@ -345,7 +357,7 @@ body,
   --accent-blue: hsl(220 96% 68%);
   --accent-amber: hsl(18 96% 62%);
   --accent-red: hsl(0 84% 60%);
-  --accent-zinc: hsl(72 2% 63%);
+  --accent-zinc: hsl(0 0% 63%);
 
   --file-icon-gray: #adadb1;
   --file-icon-red: #ff6762;
@@ -361,18 +373,16 @@ body,
   --file-icon-pink: #ff678d;
   --file-icon-mauve: #79697b;
 
-  --secondary: hsl(72 4% 10%);
-  --secondary-foreground: hsl(72 4% 92%);
+  --secondary: hsl(0 0% 10%);
+  --secondary-foreground: hsl(0 0% 93%);
 
-  /* Muted + accent sit ABOVE --card/--popover (both 13%) on the moss ramp so
-     hover/selected states and muted surfaces read clearly against cards and
-     the 6% background. Previously accent == card (13%), making every dropdown
-     hover invisible. */
-  --muted: hsl(72 4% 24%);
-  --muted-foreground: hsl(72 3% 70%);
+  /* Muted + accent sit ABOVE --card/--popover so hover/selected states and
+     muted surfaces read clearly against cards and the 6% background. */
+  --muted: hsl(0 0% 20%);
+  --muted-foreground: hsl(0 0% 68%);
 
-  --accent: hsl(72 4% 27%);
-  --accent-foreground: hsl(72 4% 92%);
+  --accent: hsl(0 0% 20%);
+  --accent-foreground: hsl(0 0% 93%);
 
   --destructive: hsl(0 84% 52%);
   --destructive-foreground: hsl(0 0% 100%);
@@ -381,7 +391,7 @@ body,
   --success-foreground: hsl(130 66% 10%);
 
   --warning: hsl(360 15% 22%);
-  --warning-foreground: hsl(72 4% 92%);
+  --warning-foreground: hsl(0 0% 93%);
 
   --info: hsl(220 96% 68%);
   --info-foreground: hsl(217 45% 14%);
@@ -395,7 +405,7 @@ body,
   --input: hsl(0 0% 100% / 0.2);
   --ring: var(--lime);
 
-  --sidebar: hsl(72 4% 10%);
+  --sidebar: hsl(0 0% 10%);
   --sidebar-foreground: hsl(0 0% 100% / 0.9);
 
   --sidebar-primary: var(--lime);
@@ -418,15 +428,15 @@ body,
   --chart-4: hsl(220 96% 68%);
   --chart-5: hsl(0 84% 60%);
 
-  --user-bubble: hsl(72 4% 13%);
-  --user-bubble-foreground: hsl(72 4% 92%);
-  --message-text: hsl(72 4% 90%);
-  --message-heading: hsl(72 4% 94%);
+  --user-bubble: hsl(0 0% 13%);
+  --user-bubble-foreground: hsl(0 0% 93%);
+  --message-text: hsl(0 0% 90%);
+  --message-heading: hsl(0 0% 94%);
   --message-code: hsl(72 90% 64%);
-  --message-code-bg: hsl(72 8% 12%);
-  --message-pre-bg: hsl(72 8% 12%);
-  --message-quote: hsl(72 2% 64%);
-  --message-rule: hsl(72 3% 22%);
+  --message-code-bg: hsl(0 0% 10%);
+  --message-pre-bg: hsl(0 0% 10%);
+  --message-quote: hsl(0 0% 64%);
+  --message-rule: hsl(0 0% 22%);
 
   --syntax-keyword: #c084fc;
   --syntax-string: #86efac;
@@ -435,6 +445,13 @@ body,
   --syntax-type: #67e8f9;
   --syntax-attribute: #fda4af;
   --syntax-tag: #f87171;
+
+  /* Overlay elevation — deeper on dark since borders carry the edge. */
+  --shadow-overlay-sm: 0 4px 8px -2px hsl(0 0% 0% / 0.4);
+  --shadow-overlay: 0 6px 12px -3px hsl(0 0% 0% / 0.4),
+    0 16px 32px -8px hsl(0 0% 0% / 0.35);
+  --shadow-overlay-lg: 0 12px 24px -6px hsl(0 0% 0% / 0.5),
+    0 40px 80px -16px hsl(0 0% 0% / 0.45);
 }
 @layer base {
   html:not(.dark) *,
@@ -450,16 +467,23 @@ body,
   }
   body {
     @apply text-foreground;
-    /* Transparent so the macOS BrowserWindow `vibrancy` shows the desktop
-       behind translucent panes (sidebar). Per-pane backgrounds in app.tsx +
-       components paint where opacity is needed. */
-    background-color: transparent;
+    /* Solid app background — the macOS vibrancy look read as washed-out,
+       especially in light mode, so panes paint flat theme colors instead. */
+    background-color: var(--background);
   }
   code,
   kbd,
   samp,
   pre {
     font-family: var(--font-mono);
+  }
+
+  /* Icon weight: every 24x24 icon (hugeicons stroke set, lucide, inline
+     glyphs) renders at stroke-width 1 for a consistently light line. The
+     CSS property beats the per-path stroke-width="1.5" presentation attr. */
+  svg[viewBox="0 0 24 24"],
+  svg[viewBox="0 0 24 24"] [stroke-width] {
+    stroke-width: 1;
   }
 }
 
@@ -684,7 +708,7 @@ body,
     border: 1px solid color-mix(in oklch, var(--border) 45%, transparent);
     box-shadow: none;
     padding: 0.08em 0.34em;
-    border-radius: 0.3rem;
+    border-radius: 0.4rem;
   }
   .dark .fz-prose code {
     background-color: color-mix(
@@ -703,7 +727,7 @@ body,
       var(--background)
     );
     border: 1px solid var(--message-rule);
-    border-radius: 0.5rem;
+    border-radius: 0.75rem;
     padding: 0.85em 1em;
     margin: 0.8em 0;
     overflow-x: auto;
@@ -714,6 +738,7 @@ body,
     color: var(--message-text);
     background: transparent;
     border: 0;
+    box-shadow: none;
     padding: 0;
     font-size: inherit;
   }
@@ -861,20 +886,52 @@ body,
     background: transparent;
     border: 0;
     border-radius: 0;
+    box-shadow: none;
     padding: 0;
     font-size: inherit;
   }
+  /* Rounded tables. `border-collapse: separate` so the outer radius works;
+     cells draw only inner dividers (right + bottom), the table draws the
+     outer border, and corner cells round their own backgrounds. */
   .fz-prose table {
     width: auto;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     margin: 0.8em 0;
     font-size: 0.92em;
+    border: 1px solid var(--message-rule);
+    border-radius: 0.75rem;
   }
   .fz-prose th,
   .fz-prose td {
-    border: 1px solid var(--message-rule);
+    border-right: 1px solid var(--message-rule);
+    border-bottom: 1px solid var(--message-rule);
     padding: 0.4em 0.7em;
     text-align: left;
+  }
+  .fz-prose tr > th:last-child,
+  .fz-prose tr > td:last-child {
+    border-right: 0;
+  }
+  .fz-prose tr:last-child > th,
+  .fz-prose tr:last-child > td {
+    border-bottom: 0;
+  }
+  .fz-prose tr:first-child > th:first-child,
+  .fz-prose tr:first-child > td:first-child {
+    border-top-left-radius: calc(0.75rem - 1px);
+  }
+  .fz-prose tr:first-child > th:last-child,
+  .fz-prose tr:first-child > td:last-child {
+    border-top-right-radius: calc(0.75rem - 1px);
+  }
+  .fz-prose tr:last-child > th:first-child,
+  .fz-prose tr:last-child > td:first-child {
+    border-bottom-left-radius: calc(0.75rem - 1px);
+  }
+  .fz-prose tr:last-child > th:last-child,
+  .fz-prose tr:last-child > td:last-child {
+    border-bottom-right-radius: calc(0.75rem - 1px);
   }
   .fz-prose th {
     color: var(--message-heading);
@@ -895,16 +952,19 @@ body,
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.15rem 0.55rem 0.15rem 0.2rem;
+    padding: 0.12rem 0.5rem 0.12rem 0.18rem;
     margin: 0 0.15rem;
     border: 1px solid color-mix(in srgb, var(--border), transparent 55%);
-    border-radius: 0.375rem;
+    border-radius: 0.45rem;
     background-color: var(--chip-bg);
     box-shadow: none;
     color: var(--foreground);
     font-size: 0.85em;
     line-height: 1.1;
-    vertical-align: -0.25em;
+    /* Center the chip against the surrounding text line instead of hanging
+       below the baseline — keeps chips and typed text on one visual line. */
+    vertical-align: middle;
+    transform: translateY(-0.06em);
     user-select: none;
     white-space: nowrap;
   }
@@ -988,6 +1048,68 @@ body,
     box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent);
   }
 
+  /* Overlay elevation classes — raw box-shadow so they work in light mode
+     despite the --tw-shadow kill in @layer base. */
+  .shadow-overlay {
+    box-shadow: var(--shadow-overlay);
+  }
+  .shadow-overlay-sm {
+    box-shadow: var(--shadow-overlay-sm);
+  }
+  .shadow-overlay-lg {
+    box-shadow: var(--shadow-overlay-lg);
+  }
+
+  /* Glass surface for anchored popups (menus, popovers, selects).
+     Dark: translucent popover + blur + dual ring (inner white highlight,
+     outer black seam) + elevation, all in one box-shadow stack.
+     Light: glass reads muddy, so it degrades to an opaque white panel whose
+     edge comes from the 1px ring baked into --shadow-overlay. */
+  .bg-glass {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  .dark .bg-glass {
+    background-color: color-mix(in oklab, var(--popover) 70%, transparent);
+    backdrop-filter: blur(14px) saturate(1.1);
+  }
+  /* Composer surface: subtler glass than menus — mostly opaque so typing
+     stays legible, but timeline text scrolling underneath shows through
+     faintly. */
+  /* The Frame is the ONLY painted layer of the composer (the inner Card is
+     bg-transparent) — stacking translucent layers just re-opacifies the
+     whole thing and defeats the glass. The tint lives on a ::before overlay
+     so no bg-* utility on the element can override it (utilities layer
+     always beats components layer; pair with bg-transparent at call site). */
+  .composer-glass {
+    position: relative;
+    backdrop-filter: blur(20px) saturate(1.05);
+  }
+  .composer-glass::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    /* Below ALL children (footer buttons included) — backdrop-filter gives
+       the Frame its own stacking context, so -1 stays inside it. */
+    z-index: -1;
+    border-radius: inherit;
+    background-color: color-mix(in oklab, var(--secondary) 80%, transparent);
+  }
+  .dark .composer-glass::before {
+    background-color: color-mix(in oklab, var(--secondary) 58%, transparent);
+  }
+
+  .border-glass {
+    box-shadow: var(--shadow-overlay);
+  }
+  .dark .border-glass {
+    box-shadow:
+      inset 0 0 0 1px hsl(0 0% 100% / 0.1),
+      0 0 0 0.5px hsl(0 0% 0% / 0.8),
+      var(--shadow-overlay);
+  }
+
   /* Embodied primary button */
   .btn-lime-embodied {
     transition:
@@ -1017,9 +1139,11 @@ body,
      The bg + inset highlight + text color all derive from one var so we
      never duplicate per-tone classes. */
   .glass-tone {
-    background-color: color-mix(in oklch, var(--tone) 14%, transparent);
-    color: color-mix(in oklch, var(--tone) 64%, var(--foreground));
-    box-shadow: none;
+    background-color: color-mix(in oklch, var(--tone) 15%, transparent);
+    /* Light mode: bias toward the near-black foreground so tinted labels
+       stay crisp on pale tinted fills instead of pastel-on-pastel. */
+    color: color-mix(in oklch, var(--tone) 48%, var(--foreground));
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--tone) 22%, transparent);
     backdrop-filter: blur(12px);
   }
   .glass-tone:hover:not(:disabled) {
@@ -1114,6 +1238,10 @@ body,
   .code-block-shiki pre {
     margin: 0;
     padding: 6px 0;
+    /* CodeBlock draws its own frame; kill the .fz-prose pre card styling so
+       fenced blocks don't render as a card inside a card. */
+    border: 0;
+    border-radius: 0;
     background: transparent !important;
     font-family: var(
       --font-mono,
@@ -1124,7 +1252,6 @@ body,
     );
     font-size: 12px;
     line-height: 1.3;
-    counter-reset: line;
   }
   .code-block-shiki code {
     display: block;
@@ -1133,18 +1260,7 @@ body,
   }
   .code-block-shiki .line {
     display: block;
-    padding: 0 8px;
-  }
-  .code-block-shiki .line::before {
-    counter-increment: line;
-    content: counter(line);
-    display: inline-block;
-    width: 2em;
-    margin-right: 0.6em;
-    text-align: right;
-    color: var(--text-faint);
-    opacity: 0.58;
-    user-select: none;
+    padding: 0 10px;
   }
   /* Scrollbar polish — match xterm-viewport style. */
   .code-block-scroll::-webkit-scrollbar {
