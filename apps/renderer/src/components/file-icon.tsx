@@ -1,9 +1,13 @@
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import {
+	Folder01Icon,
+	FolderOpenIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	createFileTreeIconResolver,
 	getBuiltInSpriteSheet,
 } from "@pierre/trees";
 import { useInsertionEffect } from "react";
-import { getFolderIconUrl } from "../lib/icons/material-icons.ts";
 
 type Props = {
 	readonly name: string;
@@ -94,6 +98,54 @@ const installFileIconSprite = () => {
 export const resolveFileIcon = (name: string): ResolvedFileIcon =>
 	fileIconResolver.resolveIcon("file-tree-icon-file", name);
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Vanilla-DOM render of a hugeicons glyph (for non-React hosts like CM). */
+const svgFromHugeicon = (icon: IconSvgElement): SVGSVGElement => {
+	const svg = document.createElementNS(SVG_NS, "svg");
+	svg.setAttribute("viewBox", "0 0 24 24");
+	svg.setAttribute("fill", "currentColor");
+	svg.setAttribute("aria-hidden", "true");
+	for (const [tag, attrs] of icon) {
+		const el = document.createElementNS(SVG_NS, tag);
+		for (const [key, value] of Object.entries(attrs)) {
+			el.setAttribute(key, String(value));
+		}
+		svg.appendChild(el);
+	}
+	return svg;
+};
+
+/**
+ * Vanilla-DOM equivalent of `FileIcon` for non-React hosts (the CodeMirror
+ * chip widget). Same pierre sprite + tone for files, same hugeicons folder
+ * glyphs as the file tree for directories.
+ */
+export const buildFileIconDom = (
+	name: string,
+	kind: "file" | "directory",
+	className = "",
+): Element => {
+	installFileIconSprite();
+	if (kind === "directory") {
+		const svg = svgFromHugeicon(Folder01Icon);
+		if (className !== "") svg.setAttribute("class", className);
+		svg.style.opacity = "0.7";
+		return svg;
+	}
+	const icon = resolveFileIcon(name);
+	const tone = TOKEN_TONES[icon.token ?? ""] ?? "gray";
+	const svg = document.createElementNS(SVG_NS, "svg");
+	svg.setAttribute("viewBox", icon.viewBox ?? "0 0 16 16");
+	svg.setAttribute("aria-hidden", "true");
+	if (className !== "") svg.setAttribute("class", className);
+	svg.style.color = `var(--file-icon-${tone})`;
+	const use = document.createElementNS(SVG_NS, "use");
+	use.setAttribute("href", `#${icon.name}`);
+	svg.appendChild(use);
+	return svg;
+};
+
 /** Uses the same file-type resolver and glyph set as the structured file tree. */
 export function FileIcon({ name, kind, expanded = false, className }: Props) {
 	useInsertionEffect(installFileIconSprite, []);
@@ -101,12 +153,12 @@ export function FileIcon({ name, kind, expanded = false, className }: Props) {
 	const wrapperClass =
 		className ?? "inline-flex size-3.5 shrink-0 items-center justify-center";
 	if (kind === "directory") {
-		const url = getFolderIconUrl(name, expanded);
 		return (
 			<span className={wrapperClass} aria-hidden="true">
-				{url ? (
-					<img src={url} alt="" className="size-full" draggable={false} />
-				) : null}
+				<HugeiconsIcon
+					icon={expanded ? FolderOpenIcon : Folder01Icon}
+					className="size-full opacity-70"
+				/>
 			</span>
 		);
 	}

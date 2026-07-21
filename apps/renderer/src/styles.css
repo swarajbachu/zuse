@@ -1070,11 +1070,11 @@ body,
      stays legible, but timeline text scrolling underneath shows through
      faintly. */
   .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 86%, transparent);
-    backdrop-filter: blur(16px);
+    background-color: color-mix(in oklab, var(--secondary) 78%, transparent);
+    backdrop-filter: blur(18px);
   }
   .dark .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 76%, transparent);
+    background-color: color-mix(in oklab, var(--secondary) 60%, transparent);
   }
 
   .border-glass {

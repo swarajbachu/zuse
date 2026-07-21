@@ -25,7 +25,7 @@ import type {
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
-import { getFileIconUrl } from "~/lib/icons/material-icons";
+import { FileIcon } from "~/components/file-icon";
 import {
   orchestrationToolName,
   parseOrchestrationResult,
@@ -531,7 +531,6 @@ function UserBubble({
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
             {(attachments ?? []).map((a) => {
               const isImage = a.mimeType.startsWith("image/");
-              const iconUrl = isImage ? null : getFileIconUrl(a.originalName);
               const src = `zuse://attachments/${a.id}`;
               const className =
                 "inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
@@ -543,9 +542,13 @@ function UserBubble({
                       alt=""
                       className="size-4 rounded object-cover"
                     />
-                  ) : iconUrl !== null ? (
-                    <img src={iconUrl} alt="" className="size-4" />
-                  ) : null}
+                  ) : (
+                    <FileIcon
+                      name={a.originalName}
+                      kind="file"
+                      className="inline-flex size-4 shrink-0 items-center justify-center"
+                    />
+                  )}
                   <span className="truncate">{truncate(a.originalName)}</span>
                 </>
               );

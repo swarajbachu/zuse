@@ -13,7 +13,7 @@ import {
 	WidgetType,
 } from "@codemirror/view";
 
-import { getFileIconUrl, getFolderIconUrl } from "../icons/material-icons.ts";
+import { buildFileIconDom } from "../../components/file-icon.tsx";
 
 /**
  * One inline chip in the composer document. The chip renders as an atomic
@@ -213,22 +213,17 @@ const basename = (p: string): string => {
 
 const buildIconNode = (meta: ChipMeta): Node => {
 	if (meta.kind === "file") {
-		const url =
-			meta.entryKind === "directory"
-				? getFolderIconUrl(basename(meta.relPath), false)
-				: getFileIconUrl(basename(meta.relPath));
-		if (url !== null) {
-			const img = document.createElement("img");
-			img.src = url;
-			img.alt = "";
-			img.className = "fz-chip-iconimg";
-			return img;
-		}
+		// Same pierre sprite / hugeicons folder glyphs as the file tree.
+		return buildFileIconDom(
+			basename(meta.relPath),
+			meta.entryKind,
+			"fz-chip-iconimg",
+		);
 	}
 	if (meta.kind === "image") {
 		// Image attachment → thumbnail. Non-image attachments share the same
 		// chip kind (so the wire shape stays tidy) but render with the
-		// file-type material icon instead.
+		// file-type icon instead.
 		const isImage =
 			meta.mimeType.startsWith("image/") && meta.previewUrl !== "";
 		if (isImage) {
@@ -239,14 +234,7 @@ const buildIconNode = (meta: ChipMeta): Node => {
 			img.draggable = false;
 			return img;
 		}
-		const url = getFileIconUrl(meta.originalName);
-		if (url !== null) {
-			const img = document.createElement("img");
-			img.src = url;
-			img.alt = "";
-			img.className = "fz-chip-iconimg";
-			return img;
-		}
+		return buildFileIconDom(meta.originalName, "file", "fz-chip-iconimg");
 	}
 	// Fallback — should be unreachable.
 	return document.createElement("span");

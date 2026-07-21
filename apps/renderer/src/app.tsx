@@ -429,6 +429,13 @@ function MainShell() {
 											ref={setComposerNode}
 											className="absolute inset-x-0 bottom-0 z-30"
 										>
+											{/* Fade the timeline out beneath and just above the
+											    composer so scrolled-past text melts away instead
+											    of ending in a hard edge. */}
+											<div
+												aria-hidden
+												className="pointer-events-none absolute inset-x-0 -top-8 bottom-0 -z-10 bg-gradient-to-t from-background via-background/70 to-transparent backdrop-blur-[2px] [mask-image:linear-gradient(to_top,black_70%,transparent)]"
+											/>
 											<CliUpgradeBanner
 												providerId={selectedSession.providerId}
 												constrain={false}

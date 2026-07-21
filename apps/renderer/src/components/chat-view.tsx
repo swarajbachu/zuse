@@ -775,17 +775,20 @@ export function ChatView({
 							onDismiss={() => clearError(sessionId)}
 						/>
 					) : null}
-					<JumpToLatestPill
-						visible={showPill}
-						streaming={inFlight && showPill}
-						onClick={() => scrollToEnd(true)}
-						bottomOffset={endInset}
-					/>
+					{/* One row hugging the composer top: jump-to-latest on the
+					    left, next-unread on the right. */}
 					<div
-						className="pointer-events-none absolute inset-x-0 z-20 flex justify-end"
-						style={{ bottom: endInset + 12 }}
+						className="pointer-events-none absolute inset-x-0 z-30 flex items-center justify-between gap-2"
+						style={{ bottom: endInset + 6 }}
 					>
-						<NextUnreadButton />
+						<JumpToLatestPill
+							visible={showPill}
+							streaming={inFlight && showPill}
+							onClick={() => scrollToEnd(true)}
+						/>
+						<div className="ml-auto">
+							<NextUnreadButton />
+						</div>
 					</div>
 				</div>
 				{archiveProgress !== null ? (
