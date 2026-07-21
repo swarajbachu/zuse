@@ -3,7 +3,7 @@ import {
 	ArrowRight01Icon,
 	Tick01Icon,
 	UserCircleIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { BlurredEmail } from "~/components/blurred-email";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";

@@ -10,7 +10,7 @@ import {
 	PencilIcon,
 	SentIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	ComposerInput,
 	type QueuedMessage,

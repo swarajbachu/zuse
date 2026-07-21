@@ -47,15 +47,12 @@ export function GlassActionButton({
 	label,
 	onClick,
 	disabled,
-	dense = false,
 }: {
 	tone: GlassTone;
 	icon: React.ReactNode;
 	label: string;
 	onClick: () => void;
 	disabled?: boolean;
-	/** Compact in-row variant: smaller, borderless, no ring. */
-	dense?: boolean;
 }): React.ReactElement {
 	return (
 		<button
@@ -63,11 +60,7 @@ export function GlassActionButton({
 			onClick={onClick}
 			disabled={disabled}
 			style={toneStyle(tone)}
-			className={
-				dense
-					? "glass-tone flex h-6 items-center gap-1 rounded-md px-2 text-[10px] font-semibold tracking-tight shadow-none! transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3 [&_svg]:opacity-90"
-					: "glass-tone flex h-7 items-center gap-1.5 rounded-[10px] px-2.5 text-[11px] font-semibold tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:opacity-90"
-			}
+			className="glass-tone flex h-6.5 items-center gap-1.5 rounded-lg px-2 text-[11px] font-semibold tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:opacity-90"
 		>
 			{icon}
 			{label}

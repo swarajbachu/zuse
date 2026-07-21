@@ -8,7 +8,7 @@ import {
 	TaskDone01Icon,
 	Upload01Icon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	GLASS_TONE_VARS,
 	GLASS_TONES,

@@ -20,7 +20,7 @@ import {
 	Tick01Icon,
 	Upload01Icon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	ComposerInput,
 	type FolderId,
@@ -989,13 +989,10 @@ export function TopBarRightContent({
 export function WorkflowActions({
 	compact = false,
 	includeRun = true,
-	dense = false,
 	className = "",
 }: {
 	compact?: boolean;
 	includeRun?: boolean;
-	/** Smaller borderless buttons for inline rows (environment summary). */
-	dense?: boolean;
 	className?: string;
 }) {
 	const ctx = useActiveContext();
@@ -1035,7 +1032,6 @@ export function WorkflowActions({
 			{includeRun ? <RunButton /> : null}
 			{workflow.kind === "dirty" ? (
 				<GlassActionButton
-					dense={dense}
 					tone="amber"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
 					label="Commit & push"
@@ -1046,7 +1042,6 @@ export function WorkflowActions({
 			{workflow.kind === "ahead" && folderId !== null ? (
 				// Pushing committed changes needs no agent — do it directly.
 				<DirectActionButton
-					dense={dense}
 					tone="pink"
 					icon={<HugeiconsIcon icon={Upload01Icon} />}
 					label="Push commits"
@@ -1062,7 +1057,6 @@ export function WorkflowActions({
 			) : null}
 			{workflow.kind === "ready-for-pr" ? (
 				<GlassActionButton
-					dense={dense}
 					tone="pink"
 					icon={<HugeiconsIcon icon={GitPullRequestIcon} />}
 					label="Create PR"
@@ -1072,7 +1066,6 @@ export function WorkflowActions({
 			) : null}
 			{workflow.kind === "merged-pr" && selectedChatId !== null ? (
 				<DirectActionButton
-					dense={dense}
 					tone="zinc"
 					icon={<HugeiconsIcon icon={ArchiveArrowDownIcon} />}
 					label={
@@ -1091,7 +1084,6 @@ export function WorkflowActions({
 			) : null}
 			{workflow.kind === "open-pr" && workflow.mergeable === "conflicting" ? (
 				<GlassActionButton
-					dense={dense}
 					tone="red"
 					icon={<HugeiconsIcon icon={Alert01Icon} />}
 					label="Resolve conflicts"
@@ -1119,7 +1111,6 @@ export function WorkflowActions({
 			workflow.isDraft &&
 			folderId !== null ? (
 				<DirectActionButton
-					dense={dense}
 					tone="zinc"
 					icon={<HugeiconsIcon icon={GitMergeIcon} />}
 					label="Mark ready"
@@ -1239,7 +1230,6 @@ function DirectActionButton({
 	disabled,
 	run,
 	onSuccess,
-	dense = false,
 }: {
 	tone: GlassTone;
 	icon: ReactNode;
@@ -1248,7 +1238,6 @@ function DirectActionButton({
 	disabled?: boolean;
 	run: () => Promise<unknown>;
 	onSuccess?: () => void;
-	dense?: boolean;
 }) {
 	const [loading, setLoading] = useState(false);
 
@@ -1271,7 +1260,6 @@ function DirectActionButton({
 
 	return (
 		<GlassActionButton
-			dense={dense}
 			tone={tone}
 			icon={
 				loading ? (

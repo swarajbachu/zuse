@@ -9,7 +9,7 @@ import {
 	FolderOpenIcon,
 	PencilEdit01Icon,
 	Search01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	ContextMenuItem as FileTreeContextMenuItem,
 	ContextMenuOpenContext as FileTreeContextMenuOpenContext,

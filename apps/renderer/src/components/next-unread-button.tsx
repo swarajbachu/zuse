@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon } from "@hugeicons-pro/core-stroke-rounded";
+import { ArrowRight01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type { Chat } from "@zuse/contracts";
 import { useMemo } from "react";
 

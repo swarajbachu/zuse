@@ -5,7 +5,7 @@ import {
 	UndoIcon,
 	ZoomInAreaIcon,
 	ZoomOutAreaIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ComponentProps,
 	isValidElement,

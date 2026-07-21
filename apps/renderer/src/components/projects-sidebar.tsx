@@ -17,7 +17,7 @@ import {
 	SquareLock01Icon,
 	TaskDone01Icon,
 	UserCircleIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	Chat,
 	ChatId,

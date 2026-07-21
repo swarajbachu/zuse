@@ -2,7 +2,7 @@
 
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUpDownIcon } from "@hugeicons-pro/core-stroke-rounded";
+import { ArrowUpDownIcon } from "@hugeicons-pro/core-solid-rounded";
 import { X } from "lucide-react";
 import * as React from "react";
 import { Input } from "~/components/ui/input";

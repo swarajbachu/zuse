@@ -3,7 +3,7 @@ import {
 	Alert01Icon,
 	GitBranchIcon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";

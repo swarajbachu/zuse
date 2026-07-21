@@ -4,7 +4,7 @@ import {
 	ArrowRight01Icon,
 	BubbleChatIcon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { memo, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
@@ -179,7 +179,6 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
 				<span className="flex items-center gap-1.5">
 					<HugeiconsIcon
 						icon={Wrench01Icon}
-						strokeWidth={2}
 						aria-hidden="true"
 						className="size-3.5"
 					/>
@@ -189,7 +188,6 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
 				<span className="flex items-center gap-1.5">
 					<HugeiconsIcon
 						icon={BubbleChatIcon}
-						strokeWidth={2}
 						aria-hidden="true"
 						className="size-3.5"
 					/>
@@ -202,7 +200,6 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
 							<HugeiconsIcon
 								key={p.key}
 								icon={p.icon}
-								strokeWidth={2}
 								aria-hidden="true"
 								className="size-3.5"
 							/>

@@ -6,7 +6,7 @@ import {
 	Shield01Icon,
 	TerminalIcon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, PermissionKind, SavedDecision } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 

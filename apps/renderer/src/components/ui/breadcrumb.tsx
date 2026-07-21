@@ -6,7 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	ArrowRight01Icon,
 	MoreHorizontalIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 

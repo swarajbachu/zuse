@@ -9,7 +9,7 @@ import {
 	GitPullRequestIcon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { useMemo } from "react";
@@ -245,7 +245,6 @@ export function EnvironmentSummary() {
 				</button>
 				<WorkflowActions
 					compact
-					dense
 					includeRun={false}
 					className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
 				/>

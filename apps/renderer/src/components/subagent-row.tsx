@@ -3,7 +3,7 @@ import {
 	ArrowDown01Icon,
 	ArrowRight01Icon,
 	ClipboardIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
 

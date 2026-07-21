@@ -276,13 +276,13 @@ body,
   --input: hsl(0 0% 88%);
   --ring: var(--lime);
 
-  --sidebar: hsl(0 0% 96.5%);
+  --sidebar: hsl(0 0% 98%);
   --sidebar-foreground: hsl(0 0% 12%);
   --sidebar-primary: var(--lime);
   --sidebar-primary-foreground: hsl(72 82% 6%);
-  --sidebar-accent: hsl(0 0% 90%);
+  --sidebar-accent: hsl(0 0% 91.5%);
   --sidebar-accent-foreground: hsl(0 0% 13%);
-  --sidebar-border: hsl(0 0% 86%);
+  --sidebar-border: hsl(0 0% 90%);
   --sidebar-ring: var(--lime);
 
   --chart-1: var(--lime);

@@ -7,7 +7,7 @@ import {
 	ArrowLeft01Icon,
 	ArrowRight01Icon,
 	MoreHorizontalIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { type Button, buttonVariants } from "~/components/ui/button";
 import { cn } from "~/lib/utils";

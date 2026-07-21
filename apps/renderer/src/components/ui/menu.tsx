@@ -2,7 +2,7 @@
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon } from "@hugeicons-pro/core-stroke-rounded";
+import { ArrowRight01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 

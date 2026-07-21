@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick01Icon } from "@hugeicons-pro/core-stroke-rounded";
+import { Tick01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { MODE_META, MODES_ORDER } from "~/components/runtime-mode-meta";
 import { ModelSelect } from "~/components/settings-page";
 import { Switch } from "~/components/ui/switch";

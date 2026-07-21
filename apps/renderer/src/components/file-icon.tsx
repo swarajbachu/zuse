@@ -2,7 +2,7 @@ import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import {
 	Folder01Icon,
 	FolderOpenIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	createFileTreeIconResolver,
 	getBuiltInSpriteSheet,

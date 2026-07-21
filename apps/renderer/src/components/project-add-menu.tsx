@@ -3,7 +3,7 @@ import {
 	FileAddIcon,
 	FolderOpenIcon,
 	GlobeIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 

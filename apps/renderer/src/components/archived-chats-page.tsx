@@ -4,7 +4,7 @@ import {
 	ArchiveIcon,
 	ArrowLeft01Icon,
 	Search01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Chat, FolderId, Message, Session } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 

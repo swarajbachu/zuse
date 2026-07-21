@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckListIcon } from "@hugeicons-pro/core-stroke-rounded";
+import { CheckListIcon } from "@hugeicons-pro/core-solid-rounded";
 
 import type { SessionId } from "@zuse/contracts";
 import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Message01Icon } from "@hugeicons-pro/core-stroke-rounded";
+import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import {

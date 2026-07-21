@@ -18,7 +18,7 @@ import {
 	TestTubeIcon,
 	Tick01Icon,
 	VolumeHighIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,

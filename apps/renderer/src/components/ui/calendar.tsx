@@ -4,7 +4,7 @@ import {
 	ArrowLeft01Icon,
 	ArrowRight01Icon,
 	ArrowUpDownIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { DayPicker } from "react-day-picker";
 import { cn } from "~/lib/utils";

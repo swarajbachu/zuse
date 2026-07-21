@@ -3,7 +3,7 @@ import {
 	ArrowLeft01Icon,
 	ArrowRight01Icon,
 	ArrowUp01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	AgentItemId,
 	SessionId,
@@ -299,7 +299,7 @@ function InteractiveQuestionCard({
 							: "bg-muted text-muted-foreground cursor-not-allowed",
 					)}
 				>
-					<HugeiconsIcon icon={ArrowUp01Icon} size={16} strokeWidth={2} />
+					<HugeiconsIcon icon={ArrowUp01Icon} size={16} />
 				</button>
 			</div>
 		</div>

@@ -17,7 +17,7 @@ import {
 	TerminalIcon,
 	Tick02Icon,
 	Wrench01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ChatId,
 	isRedundantShellDescription,

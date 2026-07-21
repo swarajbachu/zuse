@@ -9,7 +9,7 @@ import {
 	PlayIcon,
 	Settings01Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,

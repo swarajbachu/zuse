@@ -14,7 +14,7 @@ import {
 	SquareIcon,
 	Tick01Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,

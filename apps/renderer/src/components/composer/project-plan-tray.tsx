@@ -3,7 +3,7 @@ import {
 	ArrowDown01Icon,
 	CheckListIcon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo, useState } from "react";
 

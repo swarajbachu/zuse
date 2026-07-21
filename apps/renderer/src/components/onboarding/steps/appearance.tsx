@@ -4,7 +4,7 @@ import {
 	Moon02Icon,
 	Sun03Icon,
 	Tick01Icon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { AppearanceMode } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";
