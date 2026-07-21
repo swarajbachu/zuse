@@ -8,10 +8,15 @@ import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
 import {
 	logConnectionDiagnostic,
 	logConnectionProblem,
 } from "./connection-diagnostics";
+import {
+	isIntentionalConnectionInterruption,
+	isRetryableClientError,
+} from "./connection-failures";
 import { ConnectionFailed } from "./errors";
 import { makeMobileWebSocket } from "./mobile-websocket";
 import { connectEnvironment } from "./relay-client";
@@ -53,6 +58,24 @@ const makeClientSession = (options: WsProtocolOptions) => {
 const prepareOptions = async (
 	options: WsProtocolOptions,
 ): Promise<WsProtocolOptions> => {
+	if (
+		options.serverPublicKey !== undefined &&
+		options.serverKeyPin !== undefined
+	) {
+		await verifyPinnedLocalServer({
+			host: options.host,
+			port: options.port,
+			publicKey: options.serverPublicKey,
+			pin: options.serverKeyPin,
+		});
+	}
+	if (
+		options.refreshAccountGrant === true &&
+		options.environmentId !== undefined
+	) {
+		const grant = await connectEnvironment(options.environmentId);
+		return { ...options, token: grant.connectToken };
+	}
 	if (options.environmentId === undefined || options.wsBaseUrl === undefined) {
 		return options;
 	}
@@ -91,7 +114,8 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 			previous.port !== next.port ||
 			previous.wsBaseUrl !== next.wsBaseUrl ||
 			previous.token !== next.token ||
-			previous.environmentId !== next.environmentId,
+			previous.environmentId !== next.environmentId ||
+			previous.routeGeneration !== next.routeGeneration,
 		maxAutomaticAttempts: 6,
 		schedule: (delayMs, fn) => {
 			const timer = setTimeout(fn, delayMs);
@@ -101,6 +125,7 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 			logConnectionDiagnostic(`supervisor.${event}`, { key, ...details });
 		},
 		isRetryableCommandError: isRetryableClientError,
+		isIgnorableFailure: isIntentionalConnectionInterruption,
 	},
 );
 
@@ -109,16 +134,6 @@ let currentOnline = true;
 const connectionEntry = (
 	options: WsProtocolOptions,
 ): ConnectionSupervisorEntry<MemoizeClient> => supervisor.get(options);
-
-function isRetryableClientError(cause: unknown): boolean {
-	return (
-		(cause instanceof ConnectionFailed && cause.message !== "offline") ||
-		(typeof cause === "object" &&
-			cause !== null &&
-			"_tag" in cause &&
-			cause._tag === "RpcClientError")
-	);
-}
 
 export const getConnectionClient = (
 	options: WsProtocolOptions,
@@ -138,6 +153,12 @@ export const reportConnectionFailure = (
 	options: WsProtocolOptions,
 	cause: unknown,
 ): void => {
+	if (
+		isIntentionalConnectionInterruption(cause) ||
+		!isRetryableClientError(cause)
+	) {
+		return;
+	}
 	logConnectionProblem("runtime.report_failure", {
 		key: runtimeKey(options),
 		reason: cause instanceof Error ? cause.message : String(cause),

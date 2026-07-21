@@ -41,6 +41,6 @@ describe("pairing client", () => {
 						}),
 				) as typeof fetch,
 			}),
-		).resolves.toBe("zt_token");
+		).resolves.toEqual({ token: "zt_token" });
 	});
 });

@@ -98,6 +98,12 @@ export interface MainLayerDeps {
 		readonly advertisedHost?: string | null;
 		readonly port?: number | null;
 		readonly pairingBootstrap?: boolean;
+		readonly icloudTrustRecordId?: string;
+		readonly icloudTrustSecret?: string;
+		readonly transportCertificatePin?: string;
+		readonly onNearbyPairingRequest?: (
+			request: import("./lan-auth/services/lan-auth-service.ts").NearbyPairingRequest,
+		) => void;
 	};
 }
 
@@ -115,6 +121,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		advertisedHost: deps.lanAuth?.advertisedHost ?? null,
 		port: deps.lanAuth?.port ?? null,
 		pairingBootstrap: deps.lanAuth?.pairingBootstrap ?? false,
+		icloudTrustRecordId: deps.lanAuth?.icloudTrustRecordId,
+		icloudTrustSecret: deps.lanAuth?.icloudTrustSecret,
+		transportCertificatePin: deps.lanAuth?.transportCertificatePin,
+		onNearbyPairingRequest: deps.lanAuth?.onNearbyPairingRequest,
 	});
 
 	// SqlClient is the shared persistence handle. The migrator runs once on

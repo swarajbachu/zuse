@@ -6,7 +6,11 @@ import {
 	createConnectionSupervisor,
 } from "../../src/supervisor.js";
 
-type Options = { readonly key: string; readonly token?: string };
+type Options = {
+	readonly key: string;
+	readonly token?: string;
+	readonly routeGeneration?: number;
+};
 type Client = { readonly id: number };
 
 const deferred = <A>() => {
@@ -28,6 +32,7 @@ const makeHarness = (input?: {
 		readonly dispose: () => Promise<void>;
 	}>;
 	isRetryableCommandError?: (cause: unknown) => boolean;
+	isIgnorableFailure?: (cause: unknown) => boolean;
 	shouldReconnectOnOptionsChange?: (
 		previous: Options,
 		next: Options,
@@ -45,6 +50,7 @@ const makeHarness = (input?: {
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		isRetryableCommandError: input?.isRetryableCommandError,
+		isIgnorableFailure: input?.isIgnorableFailure,
 		shouldReconnectOnOptionsChange: input?.shouldReconnectOnOptionsChange,
 		createClient:
 			input?.createClient ??
@@ -238,6 +244,23 @@ describe("connection supervisor", () => {
 		]);
 	});
 
+	test("does not replace a healthy client for an ignorable cancellation", async () => {
+		const harness = makeHarness({
+			isIgnorableFailure: (cause) =>
+				cause instanceof Error &&
+				cause.message === "All fibers interrupted without error",
+		});
+		const entry = harness.supervisor.get({ key: "local" });
+		await runClient(entry.getClient());
+
+		expect(
+			entry.reportFailure(new Error("All fibers interrupted without error")),
+		).toBe(false);
+		expect(entry.snapshot().status).toBe("connected");
+		expect(harness.disposed).toEqual([]);
+		expect(harness.scheduled).toEqual([]);
+	});
+
 	test("reconnects immediately when a stable connection moves endpoints", async () => {
 		const harness = makeHarness({
 			shouldReconnectOnOptionsChange: (previous, next) =>
@@ -257,6 +280,36 @@ describe("connection supervisor", () => {
 
 		expect(harness.created.map(({ token }) => token)).toEqual(["old", "new"]);
 		expect(harness.disposed).toEqual([1]);
+	});
+
+	test("a new route generation recovers an entry after retries are exhausted", async () => {
+		let available = false;
+		const harness = makeHarness({
+			maxAutomaticAttempts: 1,
+			shouldReconnectOnOptionsChange: (previous, next) =>
+				previous.routeGeneration !== next.routeGeneration,
+			createClient: async () => {
+				if (!available) throw new Error("old Wi-Fi route unavailable");
+				return { client: { id: 1 }, dispose: async () => undefined };
+			},
+		});
+		const entry = harness.supervisor.get({
+			key: "paired-device",
+			routeGeneration: 1,
+		});
+		await expect(runClient(entry.getClient())).rejects.toThrow(
+			"old Wi-Fi route unavailable",
+		);
+		expect(entry.snapshot().status).toBe("error");
+
+		available = true;
+		const moved = harness.supervisor.get({
+			key: "paired-device",
+			routeGeneration: 2,
+		});
+		await waitUntil(() => moved.snapshot().status === "connected");
+
+		expect(moved.snapshot()).toMatchObject({ status: "connected", attempt: 0 });
 	});
 
 	test("accepts only one stream failure report per connected generation", async () => {

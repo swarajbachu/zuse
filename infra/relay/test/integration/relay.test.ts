@@ -1,5 +1,12 @@
 import { Effect, Layer, Redacted } from "effect";
-import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
+import {
+	exportJWK,
+	generateKeyPair,
+	importJWK,
+	type JWK,
+	jwtVerify,
+	SignJWT,
+} from "jose";
 import { beforeEach, describe, expect, test } from "vitest";
 import * as Config from "../../src/config.ts";
 import type { RelayContext } from "../../src/handler.ts";
@@ -246,11 +253,29 @@ describe("@zuse/relay", () => {
 						method: "POST",
 						url: connectUrl,
 					}),
+					"content-type": "application/json",
 				},
+				body: JSON.stringify({
+					localPairing: {
+						serverNonce: "discovery-nonce",
+						devicePublicKey: "D".repeat(43),
+						transportCertificatePin: "T".repeat(43),
+					},
+				}),
 			}),
 		);
 		const connectBody = (await connect.json()) as { connectToken: string };
 		expect(connectBody.connectToken.split(".")).toHaveLength(3); // a JWT, not base64 stub
+		const verified = await jwtVerify(
+			connectBody.connectToken,
+			await importJWK(await exportJWK(mintKey.publicKey), "EdDSA"),
+			{ issuer: RELAY_ISSUER, audience: `zuse-env:${environmentId}` },
+		);
+		expect(verified.payload.localPairing).toEqual({
+			serverNonce: "discovery-nonce",
+			devicePublicKey: "D".repeat(43),
+			transportCertificatePin: "T".repeat(43),
+		});
 	});
 
 	test("rejects a request with no WorkOS bearer", async () => {

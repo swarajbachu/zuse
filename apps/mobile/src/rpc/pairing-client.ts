@@ -8,7 +8,12 @@ export const redeemPairingCode = async (options: {
 	deviceLabel: string;
 	timeoutMs?: number;
 	fetchImpl?: typeof fetch;
-}): Promise<string> => {
+}): Promise<{
+	readonly token: string;
+	readonly environmentId?: string;
+	readonly environmentPublicKey?: string;
+	readonly transportCertificatePin?: string;
+}> => {
 	const controller = new AbortController();
 	const timeout = setTimeout(
 		() => controller.abort(),
@@ -58,9 +63,14 @@ export const redeemPairingCode = async (options: {
 			"Could not pair with the desktop. Check that both devices are on the same Wi-Fi.",
 		);
 	}
-	const body = (await response.json()) as { token?: string };
+	const body = (await response.json()) as {
+		token?: string;
+		environmentId?: string;
+		environmentPublicKey?: string;
+		transportCertificatePin?: string;
+	};
 	if (typeof body.token !== "string" || !body.token.startsWith("zt_")) {
 		throw new Error("Pairing response did not include a bearer token");
 	}
-	return body.token;
+	return { ...body, token: body.token };
 };

@@ -59,6 +59,7 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly schedule: (delayMs: number, fn: () => void) => () => void;
 	readonly classifyError?: (cause: unknown) => "auth" | "transient";
 	readonly isRetryableCommandError?: (cause: unknown) => boolean;
+	readonly isIgnorableFailure?: (cause: unknown) => boolean;
 	/** Reconnect when one logical connection receives a new endpoint or credential. */
 	readonly shouldReconnectOnOptionsChange?: (
 		previous: Options,
@@ -158,8 +159,8 @@ class SupervisorEntryImpl<Options, Client>
 			this.deps.shouldReconnectOnOptionsChange?.(this.options, options) ===
 			true;
 		this.options = options;
-		this.diagnostic("options.updated", { reconnect });
 		if (!reconnect || this.removed) return;
+		this.diagnostic("options.updated", { reconnect: true });
 		this.clearRetry();
 		this.invalidateClient();
 		this.emit({
@@ -190,6 +191,13 @@ class SupervisorEntryImpl<Options, Client>
 
 	reportFailure(cause: unknown, expectedGeneration?: number): boolean {
 		if (this.removed) return false;
+		if (this.deps.isIgnorableFailure?.(cause) === true) {
+			this.diagnostic("failure.ignored", {
+				reason: messageOf(cause),
+				status: this.state.status,
+			});
+			return false;
+		}
 		if (expectedGeneration === undefined && this.state.status !== "connected") {
 			this.diagnostic("failure.ignored", {
 				reason: messageOf(cause),

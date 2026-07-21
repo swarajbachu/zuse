@@ -12,6 +12,7 @@ import { ChatSwitcher } from "./components/chat-switcher.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
 import { EnvironmentSummary } from "./components/environment-summary.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
+import { NearbyPairingApproval } from "./components/nearby-pairing-approval.tsx";
 import { NotchTrayBridge } from "./components/notch-tray-bridge.tsx";
 import { ProjectsSidebar } from "./components/projects-sidebar";
 import { ProviderUpdatesToast } from "./components/provider-updates-toast.tsx";
@@ -193,6 +194,7 @@ export function App() {
 		return (
 			<TooltipProvider>
 				<NotchTrayBridge />
+				<NearbyPairingApproval />
 				<AppearanceController />
 				<div className="relative flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -207,6 +209,7 @@ export function App() {
 		return (
 			<TooltipProvider>
 				<NotchTrayBridge />
+				<NearbyPairingApproval />
 				<AppearanceController />
 				<div className="flex h-dvh max-h-dvh min-h-0 w-screen overflow-hidden bg-background text-foreground">
 					<Suspense fallback={<SurfaceFallback />}>
@@ -220,6 +223,7 @@ export function App() {
 	return (
 		<TooltipProvider>
 			<NotchTrayBridge />
+			<NearbyPairingApproval />
 			<AppearanceController />
 			<MainShell />
 		</TooltipProvider>

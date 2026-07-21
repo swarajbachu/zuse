@@ -106,7 +106,9 @@ import {
 	McpSetEnabledRpc,
 } from "./mcp.ts";
 import {
+	PairingListNearbyRequestsRpc,
 	PairingListTokensRpc,
+	PairingResolveNearbyRequestRpc,
 	PairingRevokeTokenRpc,
 	PairingStartRpc,
 } from "./pairing.ts";
@@ -237,6 +239,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	PairingStartRpc,
 	PairingListTokensRpc,
 	PairingRevokeTokenRpc,
+	PairingListNearbyRequestsRpc,
+	PairingResolveNearbyRequestRpc,
 	ConnectHandshakeRpc,
 	ConnectDescribeRpc,
 	ConnectLinkProofRpc,
