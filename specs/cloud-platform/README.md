@@ -112,14 +112,18 @@ Each phase is independently shippable and useful. Scope: S/M/L/XL.
 `wss://` hosted URL; the phone works from anywhere; a push notification fires
 when an agent needs approval, finishes, or asks a question.
 
-- Activate the managed Cloudflare named tunnel per (account, environment):
-  [`infra/relay/src/managed-tunnel.ts`](../../infra/relay/src/managed-tunnel.ts) +
+- ✅ Managed Cloudflare named tunnel per (account, environment) — **PR-E landed**
+  (#266): [`infra/relay/src/managed-tunnel.ts`](../../infra/relay/src/managed-tunnel.ts) +
   [`apps/server/src/relay/managed-tunnel-runtime.ts`](../../apps/server/src/relay/managed-tunnel-runtime.ts).
-  Remaining work is configuration (`MANAGED_TUNNEL_*`, `CF_API_TOKEN`) plus
-  `cloudflared` provisioning — **PR-E** in remote-multiclient.
-- Wire APNs into the push scaffolding: [`infra/relay/src/push.ts`](../../infra/relay/src/push.ts)
-  + `apps/mobile` notifications — **PR-H**. Trigger points already exist as
-  domain events (permission requests, plan approvals, session idle).
+  Deployed relay is configured (`MANAGED_TUNNEL_*`, `CF_API_TOKEN`) and the
+  provision → link → connector loop has run end-to-end (verified 2026-07-18).
+- ✅ Push — **PR-H landed** (#272): [`infra/relay/src/push.ts`](../../infra/relay/src/push.ts)
+  delivers via Expo's push service (no relay-side APNs secrets); the server
+  publishes `approval-needed` / `question-needed` / `completed` / `error` /
+  `running` activity. Live Activities remain unimplemented.
+- Remaining to close Phase 1: an end-to-end confirmation from a phone on
+  cellular (re-link the environment, dev-client build with `EXPO_PUBLIC_*`
+  set), and the Live Activities follow-up.
 
 **Why first:** near-zero design risk; exercises the relay under real load
 before cloud machines multiply environment counts; makes the mobile app a

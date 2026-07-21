@@ -216,15 +216,21 @@ A, B-renderer, F, G, D are **five genuinely parallel tracks**. C/E/H serialize a
 | Relay-PR2 | desktop self-registration (Ed25519 link + heartbeat presence + Devices pane) | ✅ landed |
 | Relay-PR3 | mobile WorkOS sign-in + device DPoP | ✅ landed |
 | Relay-PR4 | mobile discovery UI ("Your computers" + presence + connect) | ✅ landed |
-| PR-E | managed tunnel (Cloudflare connector + relay mapping) — off-LAN reach | todo (needs Cloudflare acct) |
-| PR-H | push (`agent-activity` publish + APNs + Live Activities) | todo |
+| PR-E | managed tunnel (Cloudflare connector + relay mapping) — off-LAN reach | ✅ landed (#266) |
+| PR-H | push (`agent-activity` publish + Expo push) | ✅ landed (#272); Live Activities todo |
 | PR-I | cloud environments provisioner (deferred) | deferred |
 
 **Deploy status:** relay is **live** on Cloudflare Workers (custom-domain route, Hyperdrive →
 PlanetScale); the unauthenticated gate is verified (`GET /v1/environments` → `401 missing_bearer`).
-Remaining to fully close cloud reach: the **Cloudflare tunnel** (PR-E) for off-network access, and
-setting the mobile `EXPO_PUBLIC_*` env + a dev-client build (native crypto). Until the tunnel,
-discovery + connect work on the **same Wi-Fi** (the relay returns the environment's LAN endpoint).
+Managed tunnel provisioning is configured on the deployed relay (`MANAGED_TUNNEL_*` +
+`CF_API_TOKEN`) and the full provision → link → connector loop has run end-to-end: the relay
+minted a per-environment hostname, the desktop launched `cloudflared`, and the environment
+reported `status.linked` with an active heartbeat (verified 2026-07-18). Push rides Expo's push
+service — the relay needs no APNs secrets; devices register tokens via
+`POST /v1/mobile/devices`, and the server publishes `approval-needed` / `question-needed` /
+`completed` / `error` / `running` activity. Still open: an end-to-end confirmation from a phone
+on cellular (needs the environment re-linked plus a dev-client build with `EXPO_PUBLIC_*` set),
+and Live Activities, which were scoped out of PR-H and remain unimplemented.
 
 ---
 
