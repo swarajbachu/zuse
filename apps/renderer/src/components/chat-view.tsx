@@ -220,7 +220,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     const list = listRef.current;
     const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
     const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-    const isAtEnd = stateAtEnd ?? nodeAtEnd;
+    // Prefer the DOM reading: the list's internal state can be a frame stale
+    // while maintainVisibleContentPosition size-compensation is applying,
+    // which flickers "at end" mid-scroll and re-arms live follow (hiding the
+    // jump pill permanently). scrollTop/scrollHeight are always consistent.
+    const isAtEnd = nodeAtEnd ?? stateAtEnd;
     if (isAtEnd === false) {
       isAtEndRef.current = false;
       showJumpPillSoon();
@@ -464,7 +468,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
     const list = listRef.current;
     const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
     const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-    const isAtEnd = stateAtEnd ?? nodeAtEnd;
+    // DOM first — see showJumpPillIfScrollNodeLeftEnd for why.
+    const isAtEnd = nodeAtEnd ?? stateAtEnd;
     if (isAtEnd === undefined) return;
 
     if (
