@@ -26,7 +26,8 @@ const isNarrative = (message: Message): boolean =>
 
 const isActivity = (message: Message): boolean =>
 	message.content._tag === "thinking" ||
-	message.content._tag === "tool_use" ||
+	(message.content._tag === "tool_use" &&
+		message.content.tool !== "ExitPlanMode") ||
 	message.content._tag === "tool_result" ||
 	message.content._tag === "context_compaction" ||
 	message.content._tag === "subagent_summary";
@@ -66,7 +67,9 @@ export function TurnRow({
 		.join("\n\n");
 
 	const toolCount = turn.body.filter(
-		(message) => message.content._tag === "tool_use",
+		(message) =>
+			message.content._tag === "tool_use" &&
+			message.content.tool !== "ExitPlanMode",
 	).length;
 	const messageCount = turn.body.filter(
 		(message) =>

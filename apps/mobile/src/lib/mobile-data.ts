@@ -10,6 +10,7 @@ import { useAvailabilityStore } from "../store/availability";
 import { resetConnectionRuntimeState } from "../store/connection-runtime";
 import { useConnectionsStore } from "../store/connections";
 import { useEnvironmentsStore } from "../store/environments";
+import { resetGoalsRuntime } from "../store/goals";
 import { resetMessagesRuntime } from "../store/messages";
 import { resetOutboxRuntime } from "../store/outbox";
 import { resetPermissionsRuntime } from "../store/permissions";
@@ -24,6 +25,7 @@ const resetDownloadedMemory = async (): Promise<void> => {
 	await Promise.all([
 		resetSessionsRuntime(),
 		resetMessagesRuntime(),
+		resetGoalsRuntime(),
 		resetPermissionsRuntime(),
 	]);
 	useAvailabilityStore.setState({

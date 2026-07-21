@@ -1,46 +1,46 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy01Icon, Tick02Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Copy01Icon, Tick02Icon } from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
 
 export function CopyButton({
-  text,
-  label = "Copy",
-  className,
+	text,
+	label = "Copy",
+	className,
 }: {
-  readonly text: string;
-  readonly label?: string;
-  readonly className?: string;
+	readonly text: string;
+	readonly label?: string;
+	readonly className?: string;
 }) {
-  const [copied, setCopied] = useState(false);
+	const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!copied) return;
-    const id = window.setTimeout(() => setCopied(false), 1500);
-    return () => window.clearTimeout(id);
-  }, [copied]);
+	useEffect(() => {
+		if (!copied) return;
+		const id = window.setTimeout(() => setCopied(false), 1500);
+		return () => window.clearTimeout(id);
+	}, [copied]);
 
-  const onCopy = () => {
-    void navigator.clipboard?.writeText(text).then(() => setCopied(true));
-  };
+	const onCopy = () => {
+		void navigator.clipboard?.writeText(text).then(() => setCopied(true));
+	};
 
-  const icon = copied ? Tick02Icon : Copy01Icon;
-  const title = copied ? "Copied" : label;
+	const icon = copied ? Tick02Icon : Copy01Icon;
+	const title = copied ? "Copied" : label;
 
-  return (
-    <button
-      type="button"
-      onClick={onCopy}
-      aria-label={title}
-      title={title}
-      className={cn(
-        "inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none",
-        "hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-        className,
-      )}
-    >
-      <HugeiconsIcon icon={icon} className="size-3.5" aria-hidden="true" />
-    </button>
-  );
+	return (
+		<button
+			type="button"
+			onClick={onCopy}
+			aria-label={title}
+			title={title}
+			className={cn(
+				"inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none",
+				"hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+				className,
+			)}
+		>
+			<HugeiconsIcon icon={icon} className="size-3.5" aria-hidden="true" />
+		</button>
+	);
 }

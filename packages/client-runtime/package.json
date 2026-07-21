@@ -4,8 +4,10 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./chat-threads": "./src/chat-threads.ts",
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./connection": "./src/connection.ts",
+		"./plan-interactions": "./src/plan-interactions.ts",
 		"./session-events": "./src/session-events.ts",
 		"./timeline": "./src/timeline.ts",
 		"./supervisor": "./src/supervisor.ts",
@@ -19,6 +21,7 @@
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

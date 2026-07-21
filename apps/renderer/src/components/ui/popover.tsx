@@ -58,9 +58,8 @@ export function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
-            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-md border border-border/70 bg-popover not-dark:bg-clip-padding text-popover-foreground shadow-lg/5 outline-none transition-[width,height,scale,opacity] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-md)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-lg has-data-[slot=calendar]:before:rounded-[calc(var(--radius-lg)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/5%)]",
-            tooltipStyle &&
-              "w-fit text-balance rounded-md text-xs shadow-md/5 before:rounded-[calc(var(--radius-md)-1px)]",
+            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-2xl bg-glass border-glass text-popover-foreground outline-none transition-[width,height,scale,opacity] data-starting-style:scale-98 data-starting-style:opacity-0",
+            tooltipStyle && "w-fit text-balance rounded-lg text-xs",
             className,
           )}
           data-slot="popover-popup"
@@ -68,7 +67,7 @@ export function PopoverPopup({
         >
           <PopoverPrimitive.Viewport
             className={cn(
-              "relative size-full max-h-(--available-height) overflow-clip px-(--viewport-inline-padding) py-4 [--viewport-inline-padding:--spacing(4)] has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
+              "relative size-full max-h-(--available-height) overflow-clip rounded-2xl px-(--viewport-inline-padding) py-3 [--viewport-inline-padding:--spacing(3)] has-data-[slot=calendar]:p-2 data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
               tooltipStyle
                 ? "py-1 [--viewport-inline-padding:--spacing(2)]"
                 : "not-data-transitioning:overflow-y-auto",

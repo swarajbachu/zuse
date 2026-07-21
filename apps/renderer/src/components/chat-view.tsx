@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Message01Icon } from "@hugeicons-pro/core-bulk-rounded";
+import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import type { Message, MessageId, SessionId } from "@zuse/contracts";
 import {
@@ -78,7 +78,14 @@ function resolveTimelineIsAtEnd(
  * chat-specific follow mode: initial land at the live edge, then anchor new
  * turns near the top until the user manually navigates away.
  */
-export function ChatView({ sessionId }: { sessionId: SessionId }) {
+export function ChatView({
+	sessionId,
+	endInset = 0,
+}: {
+	sessionId: SessionId;
+	/** Height of the floating composer overlay; padded into the scroll range. */
+	endInset?: number;
+}) {
 	useLayoutEffect(() => {
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
@@ -209,7 +216,11 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 		const list = listRef.current;
 		const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
 		const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-		const isAtEnd = stateAtEnd ?? nodeAtEnd;
+		// Prefer the DOM reading: the list's internal state can be a frame stale
+		// while maintainVisibleContentPosition size-compensation is applying,
+		// which flickers "at end" mid-scroll and re-arms live follow (hiding the
+		// jump pill permanently). scrollTop/scrollHeight are always consistent.
+		const isAtEnd = nodeAtEnd ?? stateAtEnd;
 		if (isAtEnd === false) {
 			isAtEndRef.current = false;
 			showJumpPillSoon();
@@ -453,7 +464,8 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 		const list = listRef.current;
 		const stateAtEnd = resolveTimelineIsAtEnd(list?.getState());
 		const nodeAtEnd = resolveScrollableNodeIsAtEnd(list?.getScrollableNode());
-		const isAtEnd = stateAtEnd ?? nodeAtEnd;
+		// DOM first — see showJumpPillIfScrollNodeLeftEnd for why.
+		const isAtEnd = nodeAtEnd ?? stateAtEnd;
 		if (isAtEnd === undefined) return;
 
 		if (
@@ -730,7 +742,12 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 												},
 											}
 								}
-								maintainVisibleContentPosition={{ data: true, size: false }}
+								// `size: true` compensates the scroll offset when items above
+								// the viewport re-measure (estimated 96px -> real height, or
+								// async shiki/mermaid swaps). Without it, upward scrolling
+								// jitters every time an unmeasured row above settles.
+								maintainVisibleContentPosition={{ data: true, size: true }}
+								contentInsetEndAdjustment={endInset}
 								onScroll={handleScroll}
 								className="h-full min-h-0 flex-1 overflow-x-hidden outline-none [overflow-anchor:none]"
 								data-pane="chat"
@@ -747,13 +764,20 @@ export function ChatView({ sessionId }: { sessionId: SessionId }) {
 							onDismiss={() => clearError(sessionId)}
 						/>
 					) : null}
-					<JumpToLatestPill
-						visible={showPill}
-						streaming={inFlight && showPill}
-						onClick={() => scrollToEnd(true)}
-					/>
-					<div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-end">
-						<NextUnreadButton />
+					{/* One row hugging the composer top: jump-to-latest on the
+					    left, next-unread on the right. */}
+					<div
+						className="pointer-events-none absolute inset-x-0 z-30 flex items-center justify-between gap-2"
+						style={{ bottom: Math.max(0, endInset - 8) }}
+					>
+						<JumpToLatestPill
+							visible={showPill}
+							streaming={inFlight && showPill}
+							onClick={() => scrollToEnd(true)}
+						/>
+						<div className="ml-auto">
+							<NextUnreadButton />
+						</div>
 					</div>
 				</div>
 			</div>

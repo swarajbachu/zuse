@@ -11,6 +11,7 @@ export function SessionActionsMenu({
 	onNewChat,
 	onPin,
 	onRename,
+	onThreads,
 	onChanges,
 	onFiles,
 	onArchive,
@@ -19,6 +20,7 @@ export function SessionActionsMenu({
 	onNewChat: () => void;
 	onPin?: () => void;
 	onRename?: () => void;
+	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
 	onArchive: () => void;
@@ -44,6 +46,9 @@ export function SessionActionsMenu({
 						Rename
 					</Stack.Toolbar.MenuAction>
 				) : null}
+				<Stack.Toolbar.MenuAction icon="rectangle.stack" onPress={onThreads}>
+					Threads
+				</Stack.Toolbar.MenuAction>
 				<Stack.Toolbar.MenuAction
 					icon="arrow.triangle.branch"
 					onPress={onChanges}

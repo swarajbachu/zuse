@@ -119,6 +119,12 @@ interface Props {
   readonly title?: string;
   readonly maxHeight?: number;
   readonly isError?: boolean;
+  /**
+   * "framed" (default) shows the filename header bar — right for tool-result
+   * file viewers. "plain" is for markdown fences: no header, just a rounded
+   * code surface with a copy button that appears on hover.
+   */
+  readonly variant?: "framed" | "plain";
 }
 
 /**
@@ -135,6 +141,7 @@ export function CodeBlock({
   title,
   maxHeight = 420,
   isError = false,
+  variant = "framed",
 }: Props) {
   const resolvedAppearance = useResolvedAppearance();
 	const theme =
@@ -176,33 +183,38 @@ export function CodeBlock({
   }, [safeText, lang, theme]);
 
   const name = title ?? basename(filename);
-  const lineCount = safeText.length === 0 ? 0 : safeText.split("\n").length;
 
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-md border",
-        isError ? "border-alert-error-bg" : "border-border/60",
+        "group/code relative overflow-hidden border",
+        variant === "plain" ? "rounded-xl" : "rounded-lg",
+        isError ? "border-alert-error-bg" : "border-border/50",
       )}
     >
-      <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2 py-1 text-[11px] text-muted-foreground">
-        <FileIcon
-          name={name}
-          kind="file"
-          className="inline-flex size-3.5 shrink-0 items-center justify-center"
-        />
-        <span className="min-w-0 flex-1 truncate font-mono text-foreground/80">
-          {name}
-        </span>
+      {variant === "framed" ? (
+        <div className="flex items-center gap-2 border-b border-border/40 bg-muted px-2 py-1 text-[11px] text-muted-foreground">
+          <FileIcon
+            name={name}
+            kind="file"
+            className="inline-flex size-3.5 shrink-0 items-center justify-center"
+          />
+          <span className="min-w-0 flex-1 truncate font-mono text-foreground/80">
+            {name}
+          </span>
+          <CopyButton
+            text={text}
+            label={`Copy ${name}`}
+            className="size-5 rounded text-muted-foreground/60 hover:bg-muted/60"
+          />
+        </div>
+      ) : (
         <CopyButton
           text={text}
-          label={`Copy ${name}`}
-          className="size-5 rounded text-muted-foreground/60 hover:bg-muted/60"
+          label="Copy code"
+          className="absolute end-1.5 top-1.5 z-10 size-6 rounded-md bg-message-pre-bg/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100"
         />
-        <span className="tabular-nums opacity-70">
-          {lineCount} {lineCount === 1 ? "line" : "lines"}
-        </span>
-      </div>
+      )}
       <div
         ref={hostRef}
         className={cn(

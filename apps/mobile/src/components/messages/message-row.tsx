@@ -5,6 +5,7 @@ import type {
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
+import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import { router } from "expo-router";
 import {
 	AlertCircle,
@@ -51,7 +52,6 @@ export type MessageRowContext = {
 	answeredQuestionIds: ReadonlySet<string>;
 	questionsByItemId: ReadonlyMap<string, readonly UserQuestion[]>;
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
-	planMode?: boolean;
 	/** Whether the session is actively running (drives the shimmer on the last row). */
 	sessionRunning?: boolean;
 	onAnswerQuestion: (
@@ -127,14 +127,30 @@ const MessageRowContent = ({
 			return (
 				<AssistantMarkdown
 					text={content.text}
-					planMode={ctx.planMode === true}
+					planText={proposedPlanMarkdownFromContent(content)}
 					messageId={message.id}
 					context={ctx}
 				/>
 			);
 		case "thinking":
 			return <ThinkingRow content={content} shimmer={shimmerActive} />;
-		case "tool_use":
+		case "tool_use": {
+			if (content.tool === "ExitPlanMode") {
+				const plan = proposedPlanMarkdownFromContent(content);
+				return plan === null ? (
+					<ErrorRow message="The proposed plan body is unavailable." />
+				) : (
+					<PlanPreview
+						text={plan}
+						messageId={message.id}
+						itemId={content.itemId}
+						context={ctx}
+						status={planResultStatus(
+							ctx.toolResultsByItemId.get(content.itemId),
+						)}
+					/>
+				);
+			}
 			return (
 				<ToolUseRow
 					content={content}
@@ -145,6 +161,7 @@ const MessageRowContent = ({
 					workspaceRoot={ctx.workspaceRoot}
 				/>
 			);
+		}
 		case "tool_result":
 			return ctx.toolResultsByItemId.has(content.itemId) ? null : (
 				<ToolResultRow content={content} />
@@ -221,17 +238,17 @@ const UserBubble = ({
 
 const AssistantMarkdown = ({
 	text,
-	planMode,
+	planText,
 	messageId,
 	context,
 }: {
 	text: string;
-	planMode: boolean;
+	planText: string | null;
 	messageId: string;
 	context: MessageRowContext;
 }) =>
-	planMode || isLikelyPlan(text) ? (
-		<PlanPreview text={text} messageId={messageId} context={context} />
+	planText !== null ? (
+		<PlanPreview text={planText} messageId={messageId} context={context} />
 	) : (
 		<View className="px-2 py-2">
 			<Markdown>{text}</Markdown>
@@ -241,11 +258,15 @@ const AssistantMarkdown = ({
 const PlanPreview = ({
 	text,
 	messageId,
+	itemId,
 	context,
+	status,
 }: {
 	text: string;
 	messageId: string;
+	itemId?: string;
 	context: MessageRowContext;
+	status?: string | null;
 }) => {
 	const title = planTitle(text);
 	const preview = planPreview(text);
@@ -260,15 +281,16 @@ const PlanPreview = ({
 							conn: context.connectionKey,
 							sessionId: context.sessionId,
 							messageId,
+							...(itemId === undefined ? {} : { itemId }),
 						},
 					});
 				}}
-				className="rounded-2xl border border-border bg-card px-4 py-4 active:opacity-80"
+				className="rounded-3xl border border-border bg-card px-4 py-4 active:opacity-80"
 				style={{ borderCurve: "continuous" }}
 			>
 				<View className="mb-3 flex-row items-center gap-2">
 					<Text className="font-sans-medium text-[13px] text-muted-foreground">
-						Plan
+						{status ? `Plan · ${status}` : "Plan"}
 					</Text>
 					<Text className="ml-auto font-sans text-[12px] text-muted-foreground">
 						Open
@@ -921,17 +943,6 @@ function safeSummary(value: unknown): string {
 	}
 }
 
-const isLikelyPlan = (text: string): boolean => {
-	const value = text.toLowerCase();
-	return (
-		value.includes("## summary") ||
-		value.includes("## key changes") ||
-		value.includes("## test plan") ||
-		value.includes("# implementation plan") ||
-		value.includes("implementation plan")
-	);
-};
-
 const planTitle = (text: string): string => {
 	const heading = text
 		.split(/\r\n|\r|\n/)
@@ -950,3 +961,16 @@ const planPreview = (text: string): string =>
 		.filter((line) => line.length > 0)
 		.slice(1, 8)
 		.join("\n");
+
+const planResultStatus = (
+	result: ToolResultRecord | undefined,
+): string | null => {
+	if (result === undefined) return null;
+	const text = safeSummary(result.output).toLowerCase();
+	if (text.includes("approved")) return "Approved";
+	if (text.includes("feedback") || text.includes("cancel"))
+		return "Feedback sent";
+	if (text.includes("hand")) return "Handed off";
+	if (text.includes("abandon")) return "Abandoned";
+	return "Resolved";
+};

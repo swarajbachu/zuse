@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
 	Group,
 	Panel,
@@ -10,7 +10,6 @@ import {
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ChatSwitcher } from "./components/chat-switcher.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
-import { CostFooter } from "./components/cost-footer";
 import { DirectoryUnavailableBanner } from "./components/directory-unavailable-banner.tsx";
 import { EnvironmentSummary } from "./components/environment-summary.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
@@ -355,6 +354,23 @@ function MainShell() {
 	// `onCollapse` prop — we peek the imperative handle through `panelRef`.
 	const leftPanelRef = usePanelRef();
 	const rightPanelRef = usePanelRef();
+
+	// The composer floats over the timeline (glass) — measure it so the list
+	// can pad its scroll range and the last message clears the overlay.
+	const [composerNode, setComposerNode] = useState<HTMLDivElement | null>(null);
+	const [composerInset, setComposerInset] = useState(0);
+	useEffect(() => {
+		if (composerNode === null) {
+			setComposerInset(0);
+			return;
+		}
+		const ro = new ResizeObserver(() => {
+			setComposerInset(composerNode.offsetHeight);
+		});
+		ro.observe(composerNode);
+		setComposerInset(composerNode.offsetHeight);
+		return () => ro.disconnect();
+	}, [composerNode]);
 	usePanelCollapse(leftPanelRef, leftSidebarOpen);
 	usePanelCollapse(rightPanelRef, rightSidebarOpen);
 
@@ -383,7 +399,7 @@ function MainShell() {
 						if (open !== leftSidebarOpen) setLeftSidebarOpen(open);
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background/40">
+					<div className="flex h-full min-h-0 flex-col bg-background/70">
 						<TopBarLeft />
 						<div className="flex min-h-0 flex-1 flex-col">
 							<ProjectsSidebar />
@@ -413,33 +429,44 @@ function MainShell() {
 								// at the top of the timeline, with the composer pinned at the
 								// bottom (no full-screen takeover).
 								<div className="flex min-h-0 min-w-0 flex-1 px-3">
-									<div className="mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
+									<div className="relative mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
 										<Suspense fallback={<SurfaceFallback />}>
-											<ChatView sessionId={selectedSessionId} />
+											<ChatView
+												sessionId={selectedSessionId}
+												endInset={composerInset}
+											/>
 										</Suspense>
-										<CostFooter
-											sessionId={selectedSessionId}
-											constrain={false}
-										/>
-										<CliUpgradeBanner
-											providerId={selectedSession.providerId}
-											constrain={false}
-										/>
-										{directoryUnavailable ? (
-											<DirectoryUnavailableBanner />
-										) : null}
-										{selectedQueueHydrated ? (
-											<Suspense fallback={<ComposerFallback />}>
-												<ChatComposer
-													key={selectedSession.id}
-													session={selectedSession}
-													constrain={false}
-													directoryUnavailable={directoryUnavailable}
-												/>
-											</Suspense>
-										) : (
-											<ComposerFallback />
-										)}
+										<div
+											ref={setComposerNode}
+											className="absolute inset-x-0 bottom-0 z-30"
+										>
+											{/* Fade the timeline out beneath and just above the
+											    composer so scrolled-past text melts away instead
+											    of ending in a hard edge. */}
+											<div
+												aria-hidden
+												className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
+											/>
+											<CliUpgradeBanner
+												providerId={selectedSession.providerId}
+												constrain={false}
+											/>
+											{directoryUnavailable ? (
+												<DirectoryUnavailableBanner />
+											) : null}
+											{selectedQueueHydrated ? (
+												<Suspense fallback={<ComposerFallback />}>
+													<ChatComposer
+														key={selectedSession.id}
+														session={selectedSession}
+														constrain={false}
+														directoryUnavailable={directoryUnavailable}
+													/>
+												</Suspense>
+											) : (
+												<ComposerFallback />
+											)}
+										</div>
 									</div>
 									{environmentSummaryAvailable ? (
 										<div
@@ -554,7 +581,7 @@ function MainShell() {
 						if (open !== rightSidebarOpen) setRightSidebarOpen(open);
 					}}
 				>
-					<div className="flex h-full min-h-0 flex-col bg-background/20">
+					<div className="flex h-full min-h-0 flex-col bg-background">
 						<TopBarRight />
 						<div className="flex min-h-0 flex-1 flex-col">
 							{rightSidebarOpen ? (

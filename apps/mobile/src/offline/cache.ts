@@ -69,6 +69,7 @@ export type MessagesSnapshot = {
 export type QueuedMessage = {
 	clientId: string;
 	text: string;
+	asGoal?: boolean;
 	createdAt: number;
 };
 
@@ -161,11 +162,41 @@ export const writeMessagesSnapshot = (
 };
 
 export const readOutboxSnapshot = (connKey: string, sessionId: string) =>
-	readJson(outboxPath(connKey, sessionId), (u) => u as OutboxSnapshot).pipe(
+	readJson(outboxPath(connKey, sessionId), decodeOutboxSnapshot).pipe(
 		Effect.catchTag("CacheCorrupt", (error) =>
 			Effect.andThen(deletePath(error.path), Effect.succeed(null)),
 		),
 	);
+
+const decodeOutboxSnapshot = (value: unknown): OutboxSnapshot => {
+	if (typeof value !== "object" || value === null || !("items" in value))
+		return { items: [] };
+	const raw = Reflect.get(value, "items");
+	if (!Array.isArray(raw)) return { items: [] };
+	return {
+		items: raw.flatMap((item) => {
+			if (typeof item !== "object" || item === null) return [];
+			const clientId = Reflect.get(item, "clientId");
+			const text = Reflect.get(item, "text");
+			const createdAt = Reflect.get(item, "createdAt");
+			if (
+				typeof clientId !== "string" ||
+				typeof text !== "string" ||
+				typeof createdAt !== "number"
+			)
+				return [];
+			const asGoal = Reflect.get(item, "asGoal");
+			return [
+				{
+					clientId,
+					text,
+					createdAt,
+					...(typeof asGoal === "boolean" ? { asGoal } : {}),
+				},
+			];
+		}),
+	};
+};
 
 export const writeOutboxSnapshot = (
 	connKey: string,

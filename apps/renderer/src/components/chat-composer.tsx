@@ -14,7 +14,7 @@ import {
 	SquareIcon,
 	Tick01Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,
@@ -33,6 +33,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CostChip } from "~/components/cost-footer";
 import { Button } from "~/components/ui/button";
 import { Card, CardPanel } from "~/components/ui/card";
 import {
@@ -78,6 +79,7 @@ import {
 import {
 	addChipEffect,
 	allChips,
+	type ChipMeta,
 	clearChipsEffect,
 	removeImageChipEffect,
 	updateImageChipEffect,
@@ -440,6 +442,12 @@ export function ChatComposer({
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
 	const workspaceRoot = useActiveWorkspaceRoot(session.projectId);
+	const workspaceRootRef = useRef(workspaceRoot);
+	workspaceRootRef.current = workspaceRoot;
+	// Image chip metadata by attachment id, remembered across cut/paste so a
+	// pasted `[image:<id>]` token can rehydrate into its chip (thumbnail and
+	// all) even though the cut removed it from the document.
+	const knownImageChipMetaRef = useRef(new Map<string, ChipMeta>());
 	const annotationCount = useAnnotationsStore(
 		(s) => (s.bySession[sessionId] ?? []).length,
 	);
@@ -492,7 +500,16 @@ export function ChatComposer({
 				hasTextRef.current = next;
 				setHasText(next);
 			},
-			onSnapshotChange: draftWriter.schedule,
+			onSnapshotChange: (state: EditorView["state"]) => {
+				// Remember image chip metadata so a later paste of the token can
+				// rebuild the chip after a cut removed it from the doc.
+				for (const chip of allChips(state)) {
+					if (chip.meta.kind === "image") {
+						knownImageChipMetaRef.current.set(chip.meta.id, chip.meta);
+					}
+				}
+				draftWriter.schedule(state);
+			},
 			onTrigger: (t: ActiveTrigger | null) => setTrigger(t),
 			onFilesDropped: (files: ReadonlyArray<File>) =>
 				filesDroppedRef.current(files),
@@ -505,6 +522,24 @@ export function ChatComposer({
 			placeholderText:
 				"Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.",
 			callbacks,
+			resolveChipToken: (token) => {
+				if (token.startsWith("@")) {
+					const relPath = token.slice(1);
+					if (relPath.length === 0) return null;
+					const root = workspaceRootRef.current;
+					return {
+						kind: "file",
+						relPath,
+						absPath: root !== null ? `${root}/${relPath}` : relPath,
+						entryKind: relPath.endsWith("/") ? "directory" : "file",
+					};
+				}
+				if (token.startsWith("[image:") && token.endsWith("]")) {
+					const id = token.slice("[image:".length, -1);
+					return knownImageChipMetaRef.current.get(id) ?? null;
+				}
+				return null;
+			},
 		});
 		if (initialSnapshot !== null) {
 			restoreComposerChips(view, initialSnapshot.chips);
@@ -1072,11 +1107,11 @@ export function ChatComposer({
 			) : null}
 			<div
 				data-pane="composer"
-				aria-disabled={directoryUnavailable || undefined}
-				inert={directoryUnavailable || undefined}
 				className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}
 				style={showCard ? { display: "none" } : undefined}
 				aria-hidden={showCard || undefined}
+				aria-disabled={directoryUnavailable || undefined}
+				inert={directoryUnavailable || undefined}
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 					{!isDraft ? (
@@ -1086,7 +1121,7 @@ export function ChatComposer({
 							worktreeId={session.worktreeId}
 						/>
 					) : null}
-					<Frame>
+					<Frame className="composer-glass bg-transparent">
 						{headerSlot !== undefined ? (
 							<div className="mb-1 flex items-center px-1">{headerSlot}</div>
 						) : null}
@@ -1126,7 +1161,10 @@ export function ChatComposer({
 						) : null}
 						<Card
 							className={cn(
-								"min-h-30 rounded-lg transition-colors",
+								// Light: opaque white input on the gray frame for clear
+								// separation. Dark: transparent so the single glass layer
+								// shows through (a second tint would re-opacify it).
+								"min-h-30 rounded-lg bg-card transition-colors dark:bg-transparent",
 								goalSendMode
 									? "border-2 border-dashed border-amber-300/60 dark:border-amber-300/45"
 									: inPlanMode
@@ -1177,10 +1215,6 @@ export function ChatComposer({
 										/>
 									)
 								) : null}
-								{/* The embedded editor owns keyboard focus; this handler only
-								    forwards clicks on its otherwise empty host padding. */}
-								{/* biome-ignore lint/a11y/noStaticElementInteractions: the mounted editor supplies the interactive semantics */}
-								{/* biome-ignore lint/a11y/useKeyWithClickEvents: the mounted editor already handles keyboard focus */}
 								<div
 									ref={editorHostRef}
 									className="flex-1 overflow-y-auto bg-transparent text-sm leading-relaxed outline-none"
@@ -1276,6 +1310,7 @@ export function ChatComposer({
 							</div>
 							<div className="flex items-center gap-2">
 								{!isDraft ? <ContextStatusPopover session={session} /> : null}
+								{!isDraft ? <CostChip sessionId={sessionId} /> : null}
 								{!isDraft ? (
 									<SessionTimer sessionId={sessionId} inFlight={inFlight} />
 								) : null}
@@ -1936,12 +1971,7 @@ function ContextRing({ percent }: { percent: number | null }) {
 	const circumference = 2 * Math.PI * r;
 	const clamped = Math.min(Math.max(percent ?? 0, 0), 100);
 	return (
-		<svg
-			viewBox="0 0 16 16"
-			fill="none"
-			className="size-3.5 -rotate-90"
-			aria-hidden="true"
-		>
+		<svg viewBox="0 0 16 16" fill="none" className="size-3.5 -rotate-90">
 			<circle
 				cx="8"
 				cy="8"

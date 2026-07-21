@@ -5,10 +5,10 @@ import {
 	Folder01Icon,
 	GitBranchIcon,
 	GitCompareIcon,
+	GitPullRequestIcon,
 	GlobeIcon,
 	MagicWand01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
-import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
@@ -128,7 +128,7 @@ function addableKinds(
 export function RightPane({
 	directoryUnavailable = false,
 }: {
-	readonly directoryUnavailable?: boolean;
+	directoryUnavailable?: boolean;
 }) {
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("rightPane", paneRef);
@@ -207,6 +207,11 @@ export function RightPane({
 	const closePanel = useUiStore((s) => s.closePanel);
 	const setActive = useUiStore((s) => s.setActiveRightPanel);
 	const openChanges = useUiStore((s) => s.openChanges);
+	const addablePanels = addableKinds(panels).filter(
+		(kind) =>
+			!directoryUnavailable ||
+			(kind !== "files" && kind !== "terminal" && kind !== "changes"),
+	);
 
 	// Glide dock tabs when panels are opened or closed. Declared with the other
 	// hooks (above the `selected === null` early return) to satisfy hook rules.
@@ -293,11 +298,6 @@ export function RightPane({
 	const activePanel =
 		visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
 	const browserActive = activePanel?.kind === "browser";
-	const addablePanels = addableKinds(panels).filter(
-		(kind) =>
-			!directoryUnavailable ||
-			(kind !== "files" && kind !== "terminal" && kind !== "changes"),
-	);
 	const addPanelMenu = (
 		<AddPanelMenu addable={addablePanels} onAdd={addPanel} />
 	);
@@ -312,7 +312,7 @@ export function RightPane({
 			{visiblePanels.length > 0 ? (
 				<div
 					ref={dockTabsRef}
-					className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border px-1 text-xs"
+					className="flex h-9 shrink-0 items-center gap-0.5 overflow-x-auto px-1 text-xs"
 				>
 					{visiblePanels.map((panel) => (
 						<PanelTab
@@ -398,7 +398,7 @@ function PanelBody({
 		return (
 			<div
 				role="status"
-				className="grid min-h-0 flex-1 place-items-center px-5 text-center text-sm text-muted-foreground"
+				className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground"
 			>
 				This directory is unavailable.
 			</div>
@@ -608,7 +608,7 @@ function ActiveWorkspaceChip() {
 	const label = onWorktree ? (worktree?.name ?? "Worktree") : "Main checkout";
 	const sub = onWorktree ? (worktree?.branch ?? null) : null;
 	return (
-		<div className="flex shrink-0 items-center gap-1.5 border-b border-border/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+		<div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground">
 			<HugeiconsIcon icon={icon} className="size-3.5 shrink-0 opacity-70" />
 			<span className="truncate font-medium text-foreground/80">{label}</span>
 			{sub !== null ? (

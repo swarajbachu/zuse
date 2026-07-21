@@ -1,34 +1,38 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	ComputerTerminal01Icon,
 	Alert01Icon,
 	CheckListIcon,
+	ComputerTerminal01Icon,
 	GitBranchIcon,
 	GitCompareIcon,
 	GitMergeIcon,
+	GitPullRequestIcon,
 	Loading02Icon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
-import { GitPullRequestIcon } from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { useMemo } from "react";
 
+import { displayPath } from "../lib/display-path.ts";
 import { detachedSubagentGroups } from "../lib/group-messages.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { gitStatusKey, useGitStatusStore } from "../store/git-status.ts";
-import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
-import { useUiStore } from "../store/ui.ts";
-import { useSessionsStore } from "../store/sessions.ts";
 import { useMessagesStore } from "../store/messages.ts";
+import { prStateKey, usePrStateStore } from "../store/pr-state.ts";
+import { useSessionsStore } from "../store/sessions.ts";
+import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { SubagentAvatar } from "./subagent-identity.tsx";
+import { WorkflowActions } from "./top-bar.tsx";
 
 const rowClass =
 	"group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 const EMPTY_MESSAGES: ReadonlyArray<Message> = [];
 
-const latestAssistantText = (messages: ReadonlyArray<Message>): string | null => {
+const latestAssistantText = (
+	messages: ReadonlyArray<Message>,
+): string | null => {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const content = messages[index]?.content;
 		if (content?._tag !== "assistant") continue;
@@ -77,7 +81,9 @@ export function EnvironmentSummary() {
 		[isRunning, messages, session?.permissionMode, session?.providerId],
 	);
 	const subagents = useMemo(() => detachedSubagentGroups(messages), [messages]);
-	const activeSubagents = subagents.filter((group) => group.summary === null).length;
+	const activeSubagents = subagents.filter(
+		(group) => group.summary === null,
+	).length;
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -116,24 +122,55 @@ export function EnvironmentSummary() {
 			: null;
 	const prStatus = (() => {
 		if (pr === null) {
-			return { icon: Loading02Icon, label: "Loading pull request", className: "animate-spin text-muted-foreground" };
+			return {
+				icon: Loading02Icon,
+				label: "Loading pull request",
+				className: "animate-spin text-muted-foreground",
+			};
 		}
 		if (pr.state === "merged") {
-			return { icon: GitMergeIcon, label: "Pull request merged", className: "text-primary" };
+			return {
+				icon: GitMergeIcon,
+				label: "Pull request merged",
+				className: "text-primary",
+			};
 		}
 		if (pr.state === "closed") {
-			return { icon: Alert01Icon, label: "Pull request closed", className: "text-muted-foreground" };
+			return {
+				icon: Alert01Icon,
+				label: "Pull request closed",
+				className: "text-muted-foreground",
+			};
 		}
-		if (pr.state === "open" && (pr.checksFailing > 0 || pr.mergeable === "conflicting")) {
-			return { icon: Alert01Icon, label: "Pull request needs attention", className: "text-[var(--accent-red)]" };
+		if (
+			pr.state === "open" &&
+			(pr.checksFailing > 0 || pr.mergeable === "conflicting")
+		) {
+			return {
+				icon: Alert01Icon,
+				label: "Pull request needs attention",
+				className: "text-[var(--accent-red)]",
+			};
 		}
 		if (pr.state === "open" && pr.checksRunning > 0) {
-			return { icon: Loading02Icon, label: "Pull request checks running", className: "animate-spin text-[var(--accent-amber)]" };
+			return {
+				icon: Loading02Icon,
+				label: "Pull request checks running",
+				className: "animate-spin text-[var(--accent-amber)]",
+			};
 		}
 		if (pr.state === "open") {
-			return { icon: Tick02Icon, label: "Pull request open", className: "text-[var(--accent-green)]" };
+			return {
+				icon: Tick02Icon,
+				label: "Pull request open",
+				className: "text-[var(--accent-green)]",
+			};
 		}
-		return { icon: GitPullRequestIcon, label: "No pull request", className: "text-muted-foreground" };
+		return {
+			icon: GitPullRequestIcon,
+			label: "No pull request",
+			className: "text-muted-foreground",
+		};
 	})();
 	const openPullRequest = () => {
 		if (pr?.state === "none" && sessionId !== null) {
@@ -161,7 +198,7 @@ export function EnvironmentSummary() {
 				<HugeiconsIcon icon={GitCompareIcon} className="size-4 shrink-0" />
 				<span className="min-w-0 flex-1 truncate">{changesLabel}</span>
 			</button>
-			<div className={rowClass} title={ctx.rootPath}>
+			<div className={rowClass} title={displayPath(ctx.rootPath)}>
 				<HugeiconsIcon
 					icon={ComputerTerminal01Icon}
 					className="size-4 shrink-0 text-muted-foreground"
@@ -183,37 +220,45 @@ export function EnvironmentSummary() {
 					</span>
 				) : null}
 			</div>
-			<button
-				type="button"
-				className={`${rowClass} cursor-pointer hover:bg-muted/60`}
-				onClick={openPullRequest}
-			>
-				<HugeiconsIcon
-					icon={prStatus.icon}
-					className={`size-4 shrink-0 ${prStatus.className}`}
-					aria-label={prStatus.label}
-				/>
-				<span className="min-w-0 flex-1 truncate">
-					<span className="block truncate">{prLabel}</span>
-					{checksLabel !== null ? (
-						<span className="block truncate text-[11px] text-muted-foreground">
-							{checksLabel}
-						</span>
-					) : null}
-				</span>
-				{pr?.state === "none" ? (
-					<span className="shrink-0 rounded-md bg-[var(--accent-pink)] px-2 py-1 text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-						Create PR
+			{/* One row: PR status on the left, the same workflow buttons as the
+			    dock top bar (Create PR / Commit & push / Archive / …) inline on
+			    the right — status and action for the same thing share a line. */}
+			<div className={`${rowClass} justify-between`}>
+				<button
+					type="button"
+					className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md text-left outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+					onClick={openPullRequest}
+				>
+					<HugeiconsIcon
+						icon={prStatus.icon}
+						className={`size-4 shrink-0 ${prStatus.className}`}
+						aria-label={prStatus.label}
+					/>
+					<span className="min-w-0 flex-1 truncate">
+						<span className="block truncate">{prLabel}</span>
+						{checksLabel !== null ? (
+							<span className="block truncate text-[11px] text-muted-foreground">
+								{checksLabel}
+							</span>
+						) : null}
 					</span>
-				) : null}
-			</button>
+				</button>
+				<WorkflowActions
+					compact
+					includeRun={false}
+					className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+				/>
+			</div>
 			{planAvailable ? (
 				<button
 					type="button"
 					className={`${rowClass} hover:bg-muted/60`}
 					onClick={() => revealPanel("plan")}
 				>
-					<HugeiconsIcon icon={CheckListIcon} className="size-4 shrink-0 text-primary" />
+					<HugeiconsIcon
+						icon={CheckListIcon}
+						className="size-4 shrink-0 text-primary"
+					/>
 					<span className="min-w-0 flex-1 truncate">Plan</span>
 				</button>
 			) : null}

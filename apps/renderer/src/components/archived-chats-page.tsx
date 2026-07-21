@@ -1,11 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-	ArrowLeft01Icon,
-	Search01Icon,
-} from "@hugeicons-pro/core-bulk-rounded";
-import {
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
+	ArrowLeft01Icon,
+	Search01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import type {
 	Chat,
@@ -17,6 +15,7 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
+
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { cn } from "../lib/utils.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";

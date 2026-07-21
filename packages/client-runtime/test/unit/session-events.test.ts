@@ -63,6 +63,25 @@ describe("projectSessionEvent", () => {
 		});
 	});
 
+	test("decodes permission and runtime mode changes", () => {
+		expect(
+			projectSessionEvent(
+				envelope("SessionPermissionModeSet", {
+					_tag: "SessionPermissionModeSet",
+					permissionMode: "plan",
+				}),
+			),
+		).toEqual({ _tag: "permissionMode", permissionMode: "plan" });
+		expect(
+			projectSessionEvent(
+				envelope("SessionRuntimeModeSet", {
+					_tag: "SessionRuntimeModeSet",
+					runtimeMode: "full-access",
+				}),
+			),
+		).toEqual({ _tag: "runtimeMode", runtimeMode: "full-access" });
+	});
+
 	test("keeps resume cursors monotonic per consumer key", () => {
 		sessionEventCursors.delete("test:a");
 		sessionEventCursors.delete("test:b");
