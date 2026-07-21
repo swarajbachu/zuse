@@ -1113,7 +1113,7 @@ export function ChatComposer({
 							worktreeId={session.worktreeId}
 						/>
 					) : null}
-					<Frame className="composer-glass">
+					<Frame className="composer-glass bg-transparent">
 						{headerSlot !== undefined ? (
 							<div className="mb-1 flex items-center px-1">{headerSlot}</div>
 						) : null}

@@ -1071,13 +1071,23 @@ body,
      faintly. */
   /* The Frame is the ONLY painted layer of the composer (the inner Card is
      bg-transparent) — stacking translucent layers just re-opacifies the
-     whole thing and defeats the glass. */
+     whole thing and defeats the glass. The tint lives on a ::before overlay
+     so no bg-* utility on the element can override it (utilities layer
+     always beats components layer; pair with bg-transparent at call site). */
   .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 82%, transparent);
+    position: relative;
     backdrop-filter: blur(20px) saturate(1.05);
   }
-  .dark .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 68%, transparent);
+  .composer-glass::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: color-mix(in oklab, var(--secondary) 80%, transparent);
+  }
+  .dark .composer-glass::before {
+    background-color: color-mix(in oklab, var(--secondary) 58%, transparent);
   }
 
   .border-glass {

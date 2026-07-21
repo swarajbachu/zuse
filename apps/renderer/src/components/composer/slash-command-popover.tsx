@@ -2,7 +2,9 @@ import { type EditorView } from "@codemirror/view";
 import type { ProviderId, Skill } from "@zuse/contracts";
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useState } from "react";
-import { overlayPanelSurface } from "~/components/ui/overlay-surface";
+import { createPortal } from "react-dom";
+import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
+import { overlaySurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { cn } from "~/lib/utils";
 import { useSkillsStore } from "~/store/skills.ts";
@@ -150,15 +152,24 @@ export function SlashCommandPopover({
 		return () => window.removeEventListener("keydown", onKey, true);
 	}, [rows, highlight, onClose]);
 
-	if (rows.length === 0) return null;
+	const anchor = useComposerAnchor(view);
 
-	return (
+	if (rows.length === 0 || anchor === null) return null;
+
+	// Portaled to body: inside the composer the glass blur can't sample the
+	// page (nested backdrop-filter roots), so the popup escapes it.
+	return createPortal(
 		<div
 			role="listbox"
 			className={cn(
-				"absolute bottom-full left-0 right-0 z-50 mb-1 max-h-80 overflow-y-auto p-1.5",
-				overlayPanelSurface,
+				"fixed z-50 max-h-80 overflow-y-auto p-1.5",
+				overlaySurface,
 			)}
+			style={{
+				left: anchor.left,
+				bottom: anchor.bottom,
+				width: anchor.width,
+			}}
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			{rows.map((row, i) => {
@@ -192,7 +203,8 @@ export function SlashCommandPopover({
 					</button>
 				);
 			})}
-		</div>
+		</div>,
+		document.body,
 	);
 }
 

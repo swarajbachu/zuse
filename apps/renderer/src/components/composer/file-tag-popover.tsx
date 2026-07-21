@@ -2,8 +2,10 @@ import type { EditorView } from "@codemirror/view";
 import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { FileIcon } from "~/components/file-icon";
-import { overlayPanelSurface } from "~/components/ui/overlay-surface";
+import { overlaySurface } from "~/components/ui/overlay-surface";
+import { useComposerAnchor } from "~/components/composer/use-composer-anchor";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { getRpcClient } from "~/lib/rpc-client";
 import { cn } from "~/lib/utils";
@@ -136,16 +138,17 @@ export function FileTagPopover({
 	}, [hits, highlight, onClose]);
 
 	const visible = useMemo(() => hits.slice(0, 12), [hits]);
+	const anchor = useComposerAnchor(view);
 
-	if (visible.length === 0) return null;
+	if (visible.length === 0 || anchor === null) return null;
 
-	return (
+	// Portaled to body: inside the composer the glass blur can't sample the
+	// page (nested backdrop-filter roots), so the popup escapes it.
+	return createPortal(
 		<div
 			role="listbox"
-			className={cn(
-				"absolute bottom-full left-0 z-50 mb-1 w-96 overflow-hidden p-1.5",
-				overlayPanelSurface,
-			)}
+			className={cn("fixed z-50 w-96 overflow-hidden p-1.5", overlaySurface)}
+			style={{ left: anchor.left, bottom: anchor.bottom }}
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			<div className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -185,6 +188,7 @@ export function FileTagPopover({
 					</button>
 				);
 			})}
-		</div>
+		</div>,
+		document.body,
 	);
 }
