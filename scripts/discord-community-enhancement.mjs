@@ -30,6 +30,15 @@ export const ENHANCEMENT_CHANNELS = [
 	},
 ];
 
+export const ENHANCEMENT_FORUMS = [
+	{
+		categoryName: "HELP & RESOURCES",
+		name: "bug-tracker",
+		topic:
+			"Create one post per bug. Include reproduction steps, expected behavior, environment details, and screenshots when useful. Never post secrets or private customer data.",
+	},
+];
+
 const normalizeRoleName = (name) => name.trim().toLowerCase();
 
 export function createDiscordSnowflakeGenerator(now = () => Date.now()) {
@@ -127,6 +136,27 @@ export function buildEnhancementPlan({ channels, guild, roles }) {
 				type: "create-text-channel",
 				categoryName: "START HERE",
 				...channel,
+			});
+		}
+	}
+
+	for (const forum of ENHANCEMENT_FORUMS) {
+		const parent = categoryByName.get(
+			normalizeDiscordChannelName(forum.categoryName),
+		);
+		if (!parent) {
+			continue;
+		}
+		const exists = channels.some(
+			(channel) =>
+				channel.type === DISCORD_CHANNEL_TYPES.forum &&
+				channel.parent_id === parent.id &&
+				normalizeDiscordChannelName(channel.name) === forum.name,
+		);
+		if (!exists) {
+			operations.push({
+				type: "create-forum-channel",
+				...forum,
 			});
 		}
 	}

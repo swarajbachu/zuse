@@ -1,6 +1,7 @@
 export const DISCORD_CHANNEL_TYPES = {
 	text: 0,
 	category: 4,
+	forum: 15,
 };
 
 export const COMMUNITY_LAYOUT = [

@@ -7,6 +7,7 @@ import {
 	buildEnhancementPlan,
 	createDiscordSnowflakeGenerator,
 	ENHANCEMENT_CHANNELS,
+	ENHANCEMENT_FORUMS,
 	ENHANCEMENT_ROLES,
 } from "./discord-community-enhancement.mjs";
 import {
@@ -182,6 +183,13 @@ for (const name of ["resources", "bug-reports"]) {
 		type: DISCORD_CHANNEL_TYPES.text,
 	});
 }
+for (const desiredForum of ENHANCEMENT_FORUMS) {
+	assertAtMostOneInitialChannel({
+		name: desiredForum.name,
+		parentId: preflightHelp.id,
+		type: DISCORD_CHANNEL_TYPES.forum,
+	});
+}
 
 const ensureCategory = async (targetName, fallbackName) => {
 	const channels = await discord.request(`/guilds/${guildId}/channels`);
@@ -324,6 +332,37 @@ for (const desiredChannel of ENHANCEMENT_CHANNELS) {
 	enhancedChannels.set(desiredChannel.name, channel);
 }
 
+const bugForumDefinition = ENHANCEMENT_FORUMS[0];
+const channelsBeforeForum = await discord.request(
+	`/guilds/${guildId}/channels`,
+);
+let bugForum = channelsBeforeForum.find(
+	(channel) =>
+		channel.type === DISCORD_CHANNEL_TYPES.forum &&
+		channel.parent_id === preflightHelp.id &&
+		normalizeDiscordChannelName(channel.name) === bugForumDefinition.name,
+);
+if (!bugForum) {
+	bugForum = await createChannel({
+		available_tags: [
+			{ emoji_name: "🆕", moderated: false, name: "New" },
+			{ emoji_name: "🔎", moderated: false, name: "Investigating" },
+			{ emoji_name: "❓", moderated: false, name: "Needs info" },
+			{ emoji_name: "✅", moderated: true, name: "Resolved" },
+			{ emoji_name: "⛔", moderated: true, name: "Won't fix" },
+		],
+		default_auto_archive_duration: 10_080,
+		default_forum_layout: 1,
+		default_reaction_emoji: { emoji_id: null, emoji_name: "👍" },
+		default_sort_order: 0,
+		name: bugForumDefinition.name,
+		parent_id: preflightHelp.id,
+		topic: bugForumDefinition.topic,
+		type: DISCORD_CHANNEL_TYPES.forum,
+	});
+	console.log(`Created forum channel: #${bugForumDefinition.name}`);
+}
+
 const refreshedChannels = await discord.request(`/guilds/${guildId}/channels`);
 const requireUniqueChannel = ({ name, parentId, type }) => {
 	const matches = refreshedChannels.filter(
@@ -383,10 +422,16 @@ const bugReports = requireUniqueChannel({
 	parentId: helpCategory.id,
 	type: DISCORD_CHANNEL_TYPES.text,
 });
+bugForum = requireUniqueChannel({
+	name: bugForumDefinition.name,
+	parentId: helpCategory.id,
+	type: DISCORD_CHANNEL_TYPES.forum,
+});
 
 const requiredChannels = {
 	announcements,
 	bugReports,
+	bugForum,
 	communityUpdates,
 	general,
 	resources,
@@ -443,8 +488,8 @@ await discord.requestJson(`/guilds/${guildId}/welcome-screen`, "PATCH", {
 			emoji_name: "📚",
 		},
 		{
-			channel_id: bugReports.id,
-			description: "Report a bug with enough detail to reproduce it",
+			channel_id: bugForum.id,
+			description: "Open one trackable post for each bug",
 			emoji_id: null,
 			emoji_name: "🐛",
 		},
@@ -504,7 +549,7 @@ const managedOnboardingOptions = [
 		title: "Research and experiments",
 	},
 	{
-		channel_ids: [bugReports.id],
+		channel_ids: [bugForum.id],
 		description: "Find sharp edges and help make the product sturdier.",
 		emoji_animated: false,
 		emoji_id: null,
@@ -670,8 +715,7 @@ await ensurePinnedEmbed(resources, "Zuse resources guide", {
 
 await ensurePinnedEmbed(bugReports, "Zuse bug report template", {
 	color: 0xe67e22,
-	description:
-		"Start a new message with this structure. Never include passwords, API keys, tokens, or private customer data.",
+	description: `Create a post in <#${bugForum.id}> using this structure. One post per bug keeps discussion, status, and resolution together. Never include passwords, API keys, tokens, or private customer data.`,
 	fields: [
 		{
 			inline: false,

@@ -5,6 +5,7 @@ import {
 	buildEnhancementPlan,
 	createDiscordSnowflakeGenerator,
 	ENHANCEMENT_CHANNELS,
+	ENHANCEMENT_FORUMS,
 	ENHANCEMENT_ROLES,
 } from "./discord-community-enhancement.mjs";
 import { DISCORD_CHANNEL_TYPES } from "./discord-community-plan.mjs";
@@ -88,4 +89,28 @@ test("generates unique numeric Discord snowflakes within the same millisecond", 
 	assert.match(first, /^\d+$/);
 	assert.match(second, /^\d+$/);
 	assert.notEqual(first, second);
+});
+
+test("plans the bug tracker forum under Help & Resources", () => {
+	const operations = buildEnhancementPlan({
+		guild: { features: ["COMMUNITY"] },
+		roles: [],
+		channels: [
+			{
+				id: "help",
+				name: "HELP & RESOURCES",
+				type: DISCORD_CHANNEL_TYPES.category,
+			},
+		],
+	});
+
+	assert.deepEqual(
+		operations.filter((operation) => operation.type === "create-forum-channel"),
+		[
+			{
+				type: "create-forum-channel",
+				...ENHANCEMENT_FORUMS[0],
+			},
+		],
+	);
 });
