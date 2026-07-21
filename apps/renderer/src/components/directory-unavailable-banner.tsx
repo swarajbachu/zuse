@@ -1,13 +1,17 @@
-import { Alert02Icon } from "@hugeicons-pro/core-bulk-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { Alert02Icon } from "@hugeicons-pro/core-bulk-rounded";
 
 export function DirectoryUnavailableBanner({ archived = false }) {
 	return (
 		<div
 			role="status"
-			className="flex min-h-11 shrink-0 items-center gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 text-destructive text-xs"
+			className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-alert-error-bg px-3 py-2 text-foreground text-xs"
 		>
-			<HugeiconsIcon icon={Alert02Icon} className="size-4 shrink-0" />
+			<HugeiconsIcon
+				icon={Alert02Icon}
+				aria-hidden="true"
+				className="size-4 shrink-0 text-destructive"
+			/>
 			<span>
 				{archived
 					? "This directory is unavailable."

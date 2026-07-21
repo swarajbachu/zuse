@@ -72,6 +72,13 @@ const checkpointSummary = (
 	archiveRef: outcome.archiveRef,
 	branch: outcome.branch,
 });
+const isHandledGitRequirementFailure = (reason: string): boolean => {
+	const normalized = reason.trim().toLowerCase();
+	return (
+		normalized === "git is not installed" ||
+		normalized.includes("not a git repository")
+	);
+};
 
 export interface ArchiveOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -244,6 +251,42 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 				Effect.orDie,
 				Effect.map((rows) => rows[0] ?? null),
 			);
+		const normalizeHandledArchiveFailure = (row: ArchiveJobRow) =>
+			Effect.gen(function* () {
+				if (
+					row.status !== "failed" ||
+					row.error === null ||
+					!isHandledGitRequirementFailure(row.error)
+				) {
+					return row;
+				}
+				let phase = "retained-no-git";
+				if (row.worktree_id !== null) {
+					const worktree = yield* worktrees.get(
+						WorktreeId.make(row.worktree_id),
+					);
+					const directoryExists =
+						worktree !== null &&
+						(yield* fs
+							.exists(worktree.path)
+							.pipe(Effect.orElseSucceed(() => false)));
+					if (!directoryExists) phase = "directory-missing";
+				}
+				const updatedAt = new Date().toISOString();
+				yield* sql`
+					UPDATE chat_archive_jobs
+					SET status = 'completed', phase = ${phase}, error = NULL,
+					    updated_at = ${updatedAt}
+					WHERE chat_id = ${row.chat_id} AND status = 'failed'
+				`.pipe(Effect.orDie);
+				return {
+					...row,
+					status: "completed" as const,
+					phase,
+					error: null,
+					updated_at: updatedAt,
+				};
+			});
 
 		const getArchiveStatus: ConversationOperations["getArchiveStatus"] = (
 			chatId,
@@ -251,7 +294,12 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 			Effect.gen(function* () {
 				yield* lookupChat(chatId);
 				const row = yield* archiveJobRow(chatId);
-				return row === null ? null : archiveJobFromRow(row);
+				// Repair jobs written by older cleanup workers that promoted an
+				// expected no-Git condition into a terminal failure. These jobs are
+				// already logically archived and must not advertise Force archive.
+				return row === null
+					? null
+					: archiveJobFromRow(yield* normalizeHandledArchiveFailure(row));
 			});
 		const listArchiveJobs: ConversationOperations["listArchiveJobs"] = (
 			projectId,
@@ -264,9 +312,21 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
         WHERE c.project_id = ${projectId}
           AND j.status IN ('queued', 'running', 'failed')
         ORDER BY j.updated_at DESC
-      `.pipe(
+			`.pipe(
 				Effect.orDie,
-				Effect.map((rows) => rows.map(archiveJobFromRow)),
+				Effect.flatMap((rows) =>
+					Effect.forEach(rows, normalizeHandledArchiveFailure),
+				),
+				Effect.map((rows) =>
+					rows
+						.filter(
+							(row) =>
+								row.status === "queued" ||
+								row.status === "running" ||
+								row.status === "failed",
+						)
+						.map(archiveJobFromRow),
+				),
 			);
 
 		const jobMayContinue = (chatId: ChatId) =>
@@ -661,6 +721,13 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					yield* updateJob(chatId, "completed", "retained-shared");
 					return;
 				}
+				const worktreeDirectoryExists = yield* fs
+					.exists(worktree.path)
+					.pipe(Effect.orElseSucceed(() => false));
+				if (!worktreeDirectoryExists) {
+					yield* updateJob(chatId, "completed", "directory-missing");
+					return;
+				}
 				yield* ptys.closeByCwdPrefix(worktree.path).pipe(Effect.ignore);
 				const chat = yield* lookupChat(chatId);
 				const settings = yield* repositorySettings.get(chat.projectId);
@@ -704,7 +771,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
              ${row.snapshot_json}, ${new Date().toISOString()})
           ON CONFLICT(effect_id, step) DO NOTHING
         `.pipe(Effect.orDie);
-				const outcome = yield* worktrees
+				const archiveResult = yield* worktrees
 					.archive(
 						worktree.id,
 						(checkpoint) =>
@@ -726,7 +793,38 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 							),
 						() => cleanupMayRemoveWorktree(chatId, worktreeId),
 					)
-					.pipe(Effect.ensuring(releaseWorktreeRemoval(worktreeId)));
+					.pipe(
+						Effect.result,
+						Effect.ensuring(releaseWorktreeRemoval(worktreeId)),
+					);
+				if (archiveResult._tag === "Failure") {
+					const error = archiveResult.failure;
+					if (error._tag === "WorktreeNotFoundError") {
+						yield* updateJob(chatId, "completed", "directory-missing", {
+							output: cleanupOutput,
+						});
+						return;
+					}
+					if (
+						error._tag === "WorktreeCheckpointError" &&
+						isHandledGitRequirementFailure(error.reason)
+					) {
+						const directoryStillExists = yield* fs
+							.exists(worktree.path)
+							.pipe(Effect.orElseSucceed(() => false));
+						yield* updateJob(
+							chatId,
+							"completed",
+							directoryStillExists ? "retained-no-git" : "directory-missing",
+							{
+								output: cleanupOutput,
+							},
+						);
+						return;
+					}
+					return yield* Effect.fail(error);
+				}
+				const outcome = archiveResult.success;
 				if (!(yield* jobMayContinue(chatId))) return;
 				const completedSnapshot = JSON.stringify({ ...snapshot, ...outcome });
 				yield* sql`

@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 import type {
@@ -21,6 +21,7 @@ import {
 	RepositorySettings,
 	SessionId,
 	Worktree,
+	WorktreeCheckpointError,
 } from "@zuse/contracts";
 import type { SessionEvent } from "@zuse/domain/core/events";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
@@ -139,6 +140,7 @@ let archivedWorktreeIds = new Set<string>();
 let restoredWorktreeCount = 0;
 let archiveWorktreeBarrier: Promise<void> | null = null;
 let archiveWorktreeStarts = 0;
+let archiveWorktreeFailure: "git-missing" | null = null;
 
 const deferred = <A>() => {
 	let resolve!: (value: A) => void;
@@ -196,7 +198,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	clearGoal: () => Effect.void,
 });
 
-const testWorktree = Worktree.make({
+let testWorktree = Worktree.make({
 	id: TEST_WORKTREE_ID,
 	projectId: PROJECT_ID,
 	path: TEST_WORKTREE_PATH,
@@ -218,7 +220,10 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 			const worktree = Worktree.make({
 				id: `wt-created-${createdWorktreeCount}` as WorktreeId,
 				projectId,
-				path: `/tmp/project/.memo/created-${createdWorktreeCount}`,
+				path: join(
+					dirname(testWorktree.path),
+					`created-${createdWorktreeCount}`,
+				),
 				name: `created-${createdWorktreeCount}`,
 				branch: `created-${createdWorktreeCount}`,
 				baseBranch: "origin/main",
@@ -245,6 +250,12 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 	archive: (worktreeId, recordCheckpoint, allowRemoval) =>
 		Effect.gen(function* () {
 			archiveWorktreeStarts += 1;
+			if (archiveWorktreeFailure === "git-missing") {
+				return yield* new WorktreeCheckpointError({
+					worktreeId,
+					reason: "git is not installed",
+				});
+			}
 			if (archiveWorktreeBarrier !== null) {
 				yield* Effect.promise(() => archiveWorktreeBarrier as Promise<void>);
 			}
@@ -500,6 +511,11 @@ const withRuntime = async <A>(
 ): Promise<A> => {
 	const dir = mkdtempSync(join(tmpdir(), "mz-msgstore-"));
 	const dbPath = join(dir, "test.sqlite");
+	testWorktree = Worktree.make({
+		...testWorktree,
+		path: join(dir, "pikachu"),
+	});
+	mkdirSync(testWorktree.path, { recursive: true });
 	const runtime = makeRuntime(dbPath);
 	const run = <X>(
 		eff: Effect.Effect<
@@ -525,8 +541,8 @@ const withRuntime = async <A>(
             (${TEST_WORKTREE_ID}, ${PROJECT_ID}, ${testWorktree.path},
              ${testWorktree.name}, ${testWorktree.branch},
              ${testWorktree.baseBranch}, ${now}),
-            (${"wt-created-1"}, ${PROJECT_ID},
-             ${"/tmp/project/.memo/created-1"}, ${"created-1"},
+			(${"wt-created-1"}, ${PROJECT_ID},
+			 ${join(dirname(testWorktree.path), "created-1")}, ${"created-1"},
              ${"created-1"}, ${"origin/main"}, ${now})
         `;
 			}),
@@ -556,6 +572,7 @@ beforeEach(() => {
 	restoredWorktreeCount = 0;
 	archiveWorktreeBarrier = null;
 	archiveWorktreeStarts = 0;
+	archiveWorktreeFailure = null;
 });
 
 describe("ConversationServices migrations", () => {
@@ -962,6 +979,111 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("completes archive cleanup when the recorded worktree directory is missing", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			rmSync(testWorktree.path, { recursive: true, force: true });
+
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+
+			expect(result.chat.archivedAt).not.toBeNull();
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({
+					status: "completed",
+					phase: "directory-missing",
+					error: null,
+				});
+
+			// Older workers reported a missing cwd as missing Git. Reading archive
+			// jobs repairs that durable state so clients stop offering Force archive.
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+						UPDATE chat_archive_jobs
+						SET status = 'failed', phase = 'failed', error = 'git is not installed'
+						WHERE chat_id = ${created.chat.id}
+					`;
+				}),
+			);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.listArchiveJobs(PROJECT_ID),
+					),
+				),
+			).resolves.toEqual([]);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.getArchiveStatus(created.chat.id),
+					),
+				),
+			).resolves.toMatchObject({
+				status: "completed",
+				phase: "directory-missing",
+				error: null,
+			});
+		});
+	});
+
+	it("completes archive cleanup without deleting when Git is unavailable", async () => {
+		await withRuntime(async (run) => {
+			archiveWorktreeFailure = "git-missing";
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({
+					status: "completed",
+					phase: "retained-no-git",
+					error: null,
+				});
+			expect(archivedWorktreeIds.has(TEST_WORKTREE_ID)).toBe(false);
+		});
+	});
+
 	it("returns before worktree cleanup and force archive preserves the checkout", async () => {
 		await withRuntime(async (run) => {
 			const barrier = deferred<void>();
@@ -1044,12 +1166,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const barrier = deferred<void>();
 			archiveWorktreeBarrier = barrier.promise;
 			const secondWorktreeId = "wt-created-1" as WorktreeId;
+			const secondWorktreePath = join(dirname(testWorktree.path), "created-1");
+			mkdirSync(secondWorktreePath, { recursive: true });
 			createdWorktrees.set(
 				secondWorktreeId,
 				Worktree.make({
 					...testWorktree,
 					id: secondWorktreeId,
-					path: "/tmp/project/.memo/created-1",
+					path: secondWorktreePath,
 					name: "created-1",
 					branch: "created-1",
 				}),
@@ -1530,7 +1654,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			if (!created.ok) return;
 			expect(created.worktreeId).not.toBeNull();
 			expect(created.worktreeId).not.toBe(TEST_WORKTREE_ID);
-			expect(created.path).toContain("/tmp/project/.memo/created-");
+			expect(created.path).toContain("/created-");
 			expect(created.branch).toContain("created-");
 
 			const child = await run(
@@ -1643,7 +1767,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(providerStartInputs.at(-1)?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+			expect(providerStartInputs.at(-1)?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
 
@@ -1700,7 +1824,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(nextSession.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(providerStartInputs).toHaveLength(1);
-			expect(providerStartInputs[0]?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+			expect(providerStartInputs[0]?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
 
