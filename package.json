@@ -21,6 +21,8 @@
 		"schemas:generate": "node scripts/generate-settings-schemas.mjs",
 		"verify:backfill": "tsx scripts/verify-backfill.ts",
 		"diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
+		"discord:setup": "node --env-file=.env scripts/setup-discord-community.mjs",
+		"discord:setup:dry-run": "node --env-file=.env scripts/setup-discord-community.mjs --dry-run",
 		"rebuild:pty": "cd apps/desktop && electron-rebuild -f -w node-pty",
 		"dist:mac": "bun run build:desktop && cd apps/desktop && bun run dist:mac",
 		"dist:mac:unsigned": "bun run build:desktop && cd apps/desktop && bun run dist:mac:unsigned"
