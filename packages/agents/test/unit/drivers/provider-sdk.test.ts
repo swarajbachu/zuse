@@ -20,6 +20,9 @@ const state = (): CursorSdkTranslationState => ({
 const translate = (message: SDKMessage, current = state()) =>
 	translateCursorSdkMessage(message, current);
 
+const eventItemId = (event: { readonly _tag: string } | undefined) =>
+	event !== undefined && "itemId" in event ? event.itemId : undefined;
+
 describe("bundled provider SDK translation", () => {
 	it("translates initialization and streamed content", () => {
 		const current = state();
@@ -51,7 +54,9 @@ describe("bundled provider SDK translation", () => {
 				},
 				current,
 			),
-		).toEqual([]);
+		).toEqual([
+			expect.objectContaining({ _tag: "AssistantMessage", text: "Hi" }),
+		]);
 
 		expect(
 			translate(
@@ -63,7 +68,7 @@ describe("bundled provider SDK translation", () => {
 				},
 				current,
 			)[0],
-		).toMatchObject({ _tag: "AssistantMessage", text: "Hi" });
+		).toMatchObject({ _tag: "Thinking", text: "Checking" });
 
 		const statusEvents = translate(
 			{
@@ -74,11 +79,7 @@ describe("bundled provider SDK translation", () => {
 			},
 			current,
 		);
-		expect(statusEvents[0]).toMatchObject({
-			_tag: "Thinking",
-			text: "Checking",
-		});
-		expect(statusEvents[1]).toEqual({ _tag: "Status", status: "idle" });
+		expect(statusEvents).toEqual([{ _tag: "Status", status: "idle" }]);
 	});
 
 	it("translates usage", () => {
@@ -118,7 +119,14 @@ describe("bundled provider SDK translation", () => {
 			message: { role: "assistant", content: [{ type: "text", text }] },
 		});
 
-		expect(translate(thinking("The user sent a casual"), current)).toEqual([]);
+		const [firstThinking] = translate(
+			thinking("The user sent a casual"),
+			current,
+		);
+		expect(firstThinking).toMatchObject({
+			_tag: "Thinking",
+			text: "The user sent a casual",
+		});
 		expect(
 			translate(
 				{
@@ -130,32 +138,40 @@ describe("bundled provider SDK translation", () => {
 				current,
 			),
 		).toEqual([{ _tag: "Status", status: "running" }]);
-		expect(translate(thinking(" greeting."), current)).toEqual([]);
-		expect(translate(assistant("Hey — what"), current)).toEqual([
-			expect.objectContaining({
-				_tag: "Thinking",
-				text: "The user sent a casual greeting.",
-			}),
-		]);
-		expect(translate(assistant(" do you want to work on?"), current)).toEqual(
-			[],
+		const [secondThinking] = translate(thinking(" greeting."), current);
+		expect(secondThinking).toMatchObject({
+			_tag: "Thinking",
+			itemId: eventItemId(firstThinking),
+			text: "The user sent a casual greeting.",
+		});
+		const [firstAssistant] = translate(assistant("Hey — what"), current);
+		expect(firstAssistant).toMatchObject({
+			_tag: "AssistantMessage",
+			text: "Hey — what",
+		});
+		const [secondAssistant] = translate(
+			assistant(" do you want to work on?"),
+			current,
 		);
-		expect(flushCursorSdkMessages(current)).toEqual([
-			expect.objectContaining({
-				_tag: "AssistantMessage",
-				text: "Hey — what do you want to work on?",
-			}),
-		]);
+		expect(secondAssistant).toMatchObject({
+			_tag: "AssistantMessage",
+			itemId: eventItemId(firstAssistant),
+			text: "Hey — what do you want to work on?",
+		});
+		expect(flushCursorSdkMessages(current)).toEqual([]);
 
 		const tokenSplit = state();
-		expect(translate(assistant("pack"), tokenSplit)).toEqual([]);
-		expect(translate(assistant("age.json"), tokenSplit)).toEqual([]);
-		expect(flushCursorSdkMessages(tokenSplit)).toEqual([
-			expect.objectContaining({
-				_tag: "AssistantMessage",
-				text: "package.json",
-			}),
-		]);
+		const [firstToken] = translate(assistant("pack"), tokenSplit);
+		const [secondToken] = translate(assistant("age.json"), tokenSplit);
+		expect(firstToken).toMatchObject({
+			_tag: "AssistantMessage",
+			text: "pack",
+		});
+		expect(secondToken).toMatchObject({
+			_tag: "AssistantMessage",
+			itemId: eventItemId(firstToken),
+			text: "package.json",
+		});
 	});
 
 	it("deduplicates tool starts and makes blocked results actionable", () => {

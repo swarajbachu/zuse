@@ -194,6 +194,7 @@ type SmokeResult =
 	| {
 			readonly _tag: "Ran";
 			readonly events: ReadonlyArray<AgentEvent>;
+			readonly eventTimes: ReadonlyArray<number>;
 			readonly timedOut: boolean;
 	  }
 	| { readonly _tag: "Skipped"; readonly reason: string };
@@ -248,6 +249,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 			: process.env[provider.apiKeyEnv]?.trim() || null;
 
 	const events: AgentEvent[] = [];
+	const eventTimes: number[] = [];
 	try {
 		const completed = await Effect.runPromise(
 			Effect.gen(function* () {
@@ -258,6 +260,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
 					Effect.sync(() => {
 						events.push(event);
+						eventTimes.push(Date.now());
 					}),
 				).pipe(Effect.forkChild);
 
@@ -281,7 +284,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 				return sawTerminal;
 			}).pipe(Effect.provide(AttachmentServiceTest)),
 		);
-		return { _tag: "Ran", events, timedOut: !completed };
+		return { _tag: "Ran", events, eventTimes, timedOut: !completed };
 	} catch (cause) {
 		const skipReason = skippableLiveFailureReason(provider, cause);
 		if (skipReason !== null) {
@@ -312,7 +315,7 @@ describe("live agent smoke tests", () => {
 					);
 					return;
 				}
-				const { events } = result;
+				const { events, eventTimes } = result;
 
 				expect(
 					result.timedOut,
@@ -328,6 +331,17 @@ describe("live agent smoke tests", () => {
 							.map((event) => event.text)
 							.join(""),
 					).toContain("fixture-ok");
+					const firstAssistant = events.findIndex(
+						(event) => event._tag === "AssistantMessage",
+					);
+					const completed = events.findIndex(
+						(event) => event._tag === "Completed",
+					);
+					expect(firstAssistant).toBeGreaterThanOrEqual(0);
+					expect(completed).toBeGreaterThan(firstAssistant);
+					expect(
+						(eventTimes[completed] ?? 0) - (eventTimes[firstAssistant] ?? 0),
+					).toBeGreaterThan(250);
 				}
 				if (
 					provider.expectsCursor &&

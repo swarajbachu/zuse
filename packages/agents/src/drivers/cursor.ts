@@ -55,10 +55,12 @@ export interface CursorSdkTranslationState {
 	assistantBuffer: {
 		readonly itemId: AgentItemId;
 		text: string;
+		emittedText: string;
 	} | null;
 	thinkingBuffer: {
 		readonly itemId: AgentItemId;
 		text: string;
+		emittedText: string;
 	} | null;
 	model: string;
 }
@@ -150,10 +152,15 @@ const modelSelection = (model: string | undefined): ModelSelection => {
 	return { id: resolved === "default" ? "composer-2" : resolved };
 };
 
-const flushAssistant = (state: CursorSdkTranslationState): AgentEvent[] => {
+const emitAssistant = (
+	state: CursorSdkTranslationState,
+	clear: boolean,
+): AgentEvent[] => {
 	const pending = state.assistantBuffer;
 	if (pending === null) return [];
-	state.assistantBuffer = null;
+	if (clear) state.assistantBuffer = null;
+	if (pending.text === pending.emittedText) return [];
+	pending.emittedText = pending.text;
 	return [
 		{
 			_tag: "AssistantMessage",
@@ -163,10 +170,15 @@ const flushAssistant = (state: CursorSdkTranslationState): AgentEvent[] => {
 	];
 };
 
-const flushThinking = (state: CursorSdkTranslationState): AgentEvent[] => {
+const emitThinking = (
+	state: CursorSdkTranslationState,
+	clear: boolean,
+): AgentEvent[] => {
 	const pending = state.thinkingBuffer;
 	if (pending === null) return [];
-	state.thinkingBuffer = null;
+	if (clear) state.thinkingBuffer = null;
+	if (pending.text === pending.emittedText) return [];
+	pending.emittedText = pending.text;
 	return [
 		{
 			_tag: "Thinking",
@@ -176,6 +188,12 @@ const flushThinking = (state: CursorSdkTranslationState): AgentEvent[] => {
 		},
 	];
 };
+
+const flushAssistant = (state: CursorSdkTranslationState): AgentEvent[] =>
+	emitAssistant(state, true);
+
+const flushThinking = (state: CursorSdkTranslationState): AgentEvent[] =>
+	emitThinking(state, true);
 
 /** Drain buffered SDK deltas at a run boundary. */
 export const flushCursorSdkMessages = (
@@ -206,6 +224,7 @@ export const translateCursorSdkMessage = (
 							`${message.run_id}:assistant:${++state.messageSequence}`,
 						),
 						text: "",
+						emittedText: "",
 					};
 					state.assistantBuffer.text = appendStreamText(
 						state.assistantBuffer.text,
@@ -224,6 +243,7 @@ export const translateCursorSdkMessage = (
 					input: normalizeCursorToolInput(tool, block.input),
 				});
 			}
+			translated.push(...emitAssistant(state, false));
 			return translated;
 		}
 		case "tool_call": {
@@ -260,11 +280,13 @@ export const translateCursorSdkMessage = (
 					`${message.run_id}:thinking:${++state.thinkingSequence}`,
 				),
 				text: "",
+				emittedText: "",
 			};
 			state.thinkingBuffer.text = appendStreamText(
 				state.thinkingBuffer.text,
 				message.text,
 			);
+			events.push(...emitThinking(state, false));
 			return events;
 		}
 		case "status": {

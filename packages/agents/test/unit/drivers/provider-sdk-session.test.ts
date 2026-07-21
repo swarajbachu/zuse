@@ -59,6 +59,14 @@ const input: StartSessionInput = {
 
 const sessionId = "session-1" as AgentSessionId;
 
+const deferred = <T>() => {
+	let resolve!: (value: T | PromiseLike<T>) => void;
+	const promise = new Promise<T>((next) => {
+		resolve = next;
+	});
+	return { promise, resolve };
+};
+
 const makeRun = (messages: SDKMessage[]): Run =>
 	({
 		id: "run-1",
@@ -173,6 +181,61 @@ describe("bundled provider SDK sessions", () => {
 		expect(
 			events.filter((event) => event._tag === "AssistantMessage"),
 		).toHaveLength(2);
+	});
+
+	it("publishes assistant progress before the SDK run finishes", async () => {
+		const fake = makeAgent();
+		const firstChunkYielded = deferred<void>();
+		const releaseCompletion = deferred<void>();
+		const run = {
+			...makeRun([]),
+			async *stream() {
+				yield {
+					type: "assistant",
+					agent_id: "agent-1",
+					run_id: "run-1",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "Working on it" }],
+					},
+				} satisfies SDKMessage;
+				firstChunkYielded.resolve();
+				await releaseCompletion.promise;
+			},
+		} satisfies Run;
+		fake.send.mockResolvedValue(run);
+		sdk.create.mockResolvedValue(fake.agent);
+		const events: AgentEvent[] = [];
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const handle = yield* startCursorSession(
+					input,
+					"/tmp/workspace",
+					"managed-key",
+					sessionId,
+				);
+				const fiber = yield* Stream.runForEach(handle.events, (event) =>
+					Effect.sync(() => events.push(event)),
+				).pipe(Effect.forkChild);
+				yield* handle.send("make progress visible");
+				yield* Effect.promise(() => firstChunkYielded.promise);
+				yield* Effect.sleep("10 millis");
+
+				expect(
+					events.some(
+						(event) =>
+							event._tag === "AssistantMessage" &&
+							event.text === "Working on it",
+					),
+				).toBe(true);
+
+				releaseCompletion.resolve();
+				yield* Effect.sleep("10 millis");
+				yield* handle.close();
+				yield* Fiber.join(fiber);
+			}).pipe(Effect.provide(AttachmentsTest)),
+		);
 	});
 
 	it("replaces a stale resumed agent and publishes the new cursor", async () => {
