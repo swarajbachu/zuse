@@ -546,6 +546,27 @@ export const LanAuthServiceLive = Layer.effect(
 				next.set(requestId, { request, status });
 				return next;
 			});
+			if (status.state === "pending") {
+				yield* Effect.sync(() => {
+					console.info("[zuse:pairing] server.request.pending", {
+						requestId: request.requestId,
+						deviceIdentifier: request.deviceIdentifier,
+						presentationConfigured: config.onNearbyPairingRequest !== undefined,
+					});
+					try {
+						config.onNearbyPairingRequest?.(request);
+						console.info("[zuse:pairing] server.request.dispatched", {
+							requestId: request.requestId,
+						});
+					} catch (cause) {
+						console.error("[zuse:pairing] server.request.dispatch_failed", {
+							requestId: request.requestId,
+							cause,
+						});
+						// Presentation must never invalidate a valid pairing request.
+					}
+				});
+			}
 			return request;
 		});
 		const requestNearbyPairing = (

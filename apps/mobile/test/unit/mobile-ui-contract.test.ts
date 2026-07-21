@@ -128,6 +128,36 @@ describe("mobile UI contracts", () => {
 		expect(scanner).toContain("style={StyleSheet.absoluteFill}");
 	});
 
+	test("makes native nearby discovery the primary pairing path", () => {
+		const home = appFile("index.tsx");
+		const nearby = appFile("connect/nearby.tsx");
+		const nativeModule = readFileSync(
+			`${process.cwd()}/modules/local-connectivity/ios/ZuseLocalConnectivityModule.swift`,
+			"utf8",
+		);
+		const nativeInfo = readFileSync(
+			`${process.cwd()}/ios/ZuseMobile/Info.plist`,
+			"utf8",
+		);
+		expect(home).toContain('onPress={() => router.push("/connect/nearby")}');
+		expect(home).toContain("Find nearby Mac");
+		expect(nearby).toContain("<ScrollView");
+		expect(nearby).toContain("useHeaderHeight");
+		expect(nearby).toContain('contentInsetAdjustmentBehavior="never"');
+		expect(nearby).toContain("alwaysBounceVertical={false}");
+		expect(nearby).toContain("minHeight: windowHeight");
+		expect(nearby).not.toContain("flexGrow: 1");
+		expect(nearby).toContain("onLocalDiscoveryStateChanged");
+		expect(nativeModule).toContain('"onDiscoveryStateChanged"');
+		expect(nativeModule).toContain(".bonjourWithTXTRecord(");
+		expect(nativeModule).toContain(
+			"private var sessions: [UUID: ProxySession]",
+		);
+		expect(nativeModule).not.toContain("guard localConnection == nil");
+		expect(nativeInfo).toContain("<key>NSBonjourServices</key>");
+		expect(nativeInfo).toContain("<string>_zuse._tcp</string>");
+	});
+
 	test("floats the composer over the feed and centers the jump control", () => {
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
 		expect(thread).toContain("useHeaderHeight");
@@ -167,6 +197,8 @@ describe("mobile UI contracts", () => {
 			"orderedChatSessions(allConnectionSessions, normalizedChatId)",
 		);
 		expect(threads).toContain("normalizedChatId,");
+		expect(threads).toContain("router.replace({");
+		expect(threads).not.toContain("requestAnimationFrame(() =>");
 		expect(threads).toContain('style={{ width: "100%", height: "100%" }}');
 		expect(threads).not.toContain("sheetContentHeight");
 		expect(threads).not.toContain('className="flex-1 bg-background"');
@@ -317,9 +349,16 @@ describe("mobile UI contracts", () => {
 		const home = appFile("index.tsx");
 		const sessions = appFile("c/[conn]/index.tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const recoveryBanner = readFileSync(
+			`${process.cwd()}/src/components/connection-recovery-banner.tsx`,
+			"utf8",
+		);
 		for (const source of [home, sessions, thread]) {
 			expect(source).toContain("<ConnectionRecoveryBanner");
 		}
+		expect(recoveryBanner).toContain('className="h-9');
+		expect(recoveryBanner).toContain("hitSlop={4}");
+		expect(recoveryBanner).not.toContain("min-h-11");
 		const scanner = appFile("connect/scan.tsx");
 		expect(scanner).toContain("Try again");
 	});

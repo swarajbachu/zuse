@@ -3,6 +3,7 @@ import {
 	EnvironmentDescriptor,
 	EnvironmentEndpoint,
 	MemoizeRpcs,
+	NearbyPairingRequest,
 	PairingError,
 	PairingStartResult,
 	WIRE_PROTOCOL_VERSION,
@@ -59,7 +60,8 @@ const PairingListNearbyRequests = MemoizeRpcs.toLayerHandler(
 	() =>
 		Effect.gen(function* () {
 			const auth = yield* LanAuthService;
-			return yield* auth.listNearbyPairingRequests();
+			const requests = yield* auth.listNearbyPairingRequests();
+			return requests.map((request) => NearbyPairingRequest.make(request));
 		}).pipe(Effect.mapError(toPairingError)),
 );
 

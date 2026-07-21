@@ -164,6 +164,8 @@ private final class NearbyListener {
 
   func start() {
     retryWork?.cancel()
+    listener?.cancel()
+    listener = nil
     let parameters = NWParameters.tcp
     parameters.includePeerToPeer = true
     parameters.allowLocalEndpointReuse = true
@@ -223,8 +225,6 @@ private final class NearbyListener {
   }
 
   func refreshInterfaces() {
-    listener?.cancel()
-    listener = nil
     start()
   }
 

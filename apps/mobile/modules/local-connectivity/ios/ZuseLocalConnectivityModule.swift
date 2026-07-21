@@ -37,12 +37,84 @@ private final class ContinuationGate: @unchecked Sendable {
   }
 }
 
+private final class ProxySession {
+  let id = UUID()
+  private let local: NWConnection
+  private let remote: NWConnection
+  private let onClose: (UUID) -> Void
+  private var closed = false
+
+  init(local: NWConnection, remote: NWConnection, onClose: @escaping (UUID) -> Void) {
+    self.local = local
+    self.remote = remote
+    self.onClose = onClose
+  }
+
+  func start() {
+    local.start(queue: connectivityQueue)
+    remote.stateUpdateHandler = { [weak self] state in
+      guard let self else { return }
+      switch state {
+      case .ready:
+        self.pump(from: self.local, to: self.remote)
+        self.pump(from: self.remote, to: self.local)
+      case .failed(let error):
+        print("[zuse:nearby-native] proxy.remote.failed \(error.localizedDescription)")
+        self.close()
+      case .cancelled:
+        self.close()
+      default:
+        break
+      }
+    }
+    remote.start(queue: connectivityQueue)
+  }
+
+  func stop() {
+    close()
+  }
+
+  private func pump(from source: NWConnection, to destination: NWConnection) {
+    source.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
+      [weak self] data, _, complete, error in
+      guard let self else { return }
+      if let data, !data.isEmpty {
+        destination.send(content: data, completion: .contentProcessed { sendError in
+          if sendError != nil {
+            self.close()
+          } else if complete {
+            destination.send(content: nil, isComplete: true, completion: .contentProcessed { _ in
+              self.close()
+            })
+          } else {
+            self.pump(from: source, to: destination)
+          }
+        })
+      } else if complete || error != nil {
+        destination.send(content: nil, isComplete: true, completion: .contentProcessed { _ in
+          self.close()
+        })
+      } else {
+        self.pump(from: source, to: destination)
+      }
+    }
+  }
+
+  private func close() {
+    guard !closed else { return }
+    closed = true
+    local.cancel()
+    remote.cancel()
+    onClose(id)
+  }
+}
+
 private final class ByteProxy {
   let id = UUID().uuidString
   private let service: NearbyServiceRecord
   private var listener: NWListener?
-  private var localConnection: NWConnection?
-  private var remoteConnection: NWConnection?
+  private let sessionsLock = NSLock()
+  private var sessions: [UUID: ProxySession] = [:]
 
   init(service: NearbyServiceRecord) {
     self.service = service
@@ -82,23 +154,15 @@ private final class ByteProxy {
   }
 
   func cancel() {
-    closeSession()
     listener?.cancel()
-  }
-
-  private func closeSession() {
-    localConnection?.cancel()
-    remoteConnection?.cancel()
-    localConnection = nil
-    remoteConnection = nil
+    sessionsLock.lock()
+    let activeSessions = Array(sessions.values)
+    sessions.removeAll()
+    sessionsLock.unlock()
+    activeSessions.forEach { $0.stop() }
   }
 
   private func accept(_ local: NWConnection) {
-    guard localConnection == nil else {
-      local.cancel()
-      return
-    }
-    localConnection = local
     let endpoint = NWEndpoint.service(
       name: service.name,
       type: service.type,
@@ -127,46 +191,16 @@ private final class ByteProxy {
     let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
     parameters.includePeerToPeer = true
     let remote = NWConnection(to: endpoint, using: parameters)
-    remoteConnection = remote
-    local.start(queue: connectivityQueue)
-    remote.stateUpdateHandler = { [weak self] state in
-      switch state {
-      case .ready:
-        self?.pump(from: local, to: remote)
-        self?.pump(from: remote, to: local)
-      case .failed, .cancelled:
-        self?.closeSession()
-      default:
-        break
-      }
-    }
-    remote.start(queue: connectivityQueue)
-  }
-
-  private func pump(from source: NWConnection, to destination: NWConnection) {
-    source.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
-      [weak self] data, _, complete, error in
+    let session = ProxySession(local: local, remote: remote) { [weak self] id in
       guard let self else { return }
-      if let data, !data.isEmpty {
-        destination.send(content: data, completion: .contentProcessed { sendError in
-          if sendError != nil {
-            self.closeSession()
-          } else if complete {
-            destination.send(content: nil, isComplete: true, completion: .contentProcessed { _ in
-              self.closeSession()
-            })
-          } else {
-            self.pump(from: source, to: destination)
-          }
-        })
-      } else if complete || error != nil {
-        destination.send(content: nil, isComplete: true, completion: .contentProcessed { _ in
-          self.closeSession()
-        })
-      } else {
-        self.pump(from: source, to: destination)
-      }
+      self.sessionsLock.lock()
+      self.sessions.removeValue(forKey: id)
+      self.sessionsLock.unlock()
     }
+    sessionsLock.lock()
+    sessions[session.id] = session
+    sessionsLock.unlock()
+    session.start()
   }
 }
 
@@ -181,7 +215,7 @@ public final class ZuseLocalConnectivityModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("ZuseLocalConnectivity")
-    Events("onServicesChanged", "onPathChanged")
+    Events("onServicesChanged", "onPathChanged", "onDiscoveryStateChanged")
 
     AsyncFunction("startDiscovery") { () -> Void in
       self.startDiscovery()
@@ -218,6 +252,10 @@ public final class ZuseLocalConnectivityModule: Module {
         .replacingOccurrences(of: "=", with: "")
     }
 
+    AsyncFunction("hasTrustRecord") { (recordId: String) -> Bool in
+      self.readTrustRecord(recordId: recordId) != nil
+    }
+
     OnAppEntersForeground {
       self.startDiscovery()
     }
@@ -234,10 +272,11 @@ public final class ZuseLocalConnectivityModule: Module {
   private func startDiscovery() {
     guard browser == nil else { return }
     browserRetryWork?.cancel()
+    sendEvent("onDiscoveryStateChanged", ["state": "starting"])
     let parameters = NWParameters.tcp
     parameters.includePeerToPeer = true
     let browser = NWBrowser(
-      for: .bonjour(type: serviceType, domain: nil),
+      for: .bonjourWithTXTRecord(type: serviceType, domain: nil),
       using: parameters
     )
     browser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -267,26 +306,48 @@ public final class ZuseLocalConnectivityModule: Module {
           }
         }
         guard let tlsCertificatePin, tlsCertificatePin.count == 43 else { return nil }
-        return [
+        var service: [String: Any] = [
           "id": "\(name)|\(type)|\(domain)|\(interface?.name ?? "")|\(generation)",
           "name": name,
           "type": type,
           "domain": domain,
-          "interfaceName": interface?.name as Any,
-          "trustRecordId": trustRecordId as Any,
           "tlsCertificatePin": tlsCertificatePin,
         ]
+        if let interfaceName = interface?.name {
+          service["interfaceName"] = interfaceName
+        }
+        if let trustRecordId {
+          service["trustRecordId"] = trustRecordId
+        }
+        return service
       }
       self.sendEvent("onServicesChanged", ["services": services])
+      self.sendEvent("onDiscoveryStateChanged", [
+        "state": "ready",
+        "rawResultCount": results.count,
+        "serviceCount": services.count,
+      ])
     }
     browser.stateUpdateHandler = { [weak self] state in
       switch state {
       case .ready:
         self?.browserRetryAttempt = 0
-      case .failed:
+        self?.sendEvent("onDiscoveryStateChanged", ["state": "ready"])
+      case .waiting(let error):
+        self?.sendEvent("onDiscoveryStateChanged", [
+          "state": "waiting",
+          "reason": String(describing: error),
+        ])
+      case .failed(let error):
+        self?.sendEvent("onDiscoveryStateChanged", [
+          "state": "failed",
+          "reason": String(describing: error),
+        ])
         self?.browser?.cancel()
         self?.browser = nil
         self?.scheduleBrowserRestart()
+      case .cancelled:
+        self?.sendEvent("onDiscoveryStateChanged", ["state": "stopped"])
       default:
         break
       }

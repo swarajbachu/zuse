@@ -22,6 +22,7 @@ import {
 	clipboard,
 	dialog,
 	ipcMain,
+	Notification,
 	nativeTheme,
 	net,
 	protocol,
@@ -236,7 +237,9 @@ const handleAuthCallback = (url: string): void => {
 
 const focusMainWindow = (): void => {
 	if (mainWindow === null) return;
+	if (!mainWindow.isVisible()) mainWindow.show();
 	if (mainWindow.isMinimized()) mainWindow.restore();
+	app.focus({ steal: true });
 	mainWindow.focus();
 };
 
@@ -1747,6 +1750,94 @@ async function createMainWindow() {
 					icloudTrustRecordId: localTrust?.recordId,
 					icloudTrustSecret: localTrust?.secret,
 					transportCertificatePin: nearbyTls?.pin,
+					onNearbyPairingRequest: (request) => {
+						const requestFields = {
+							requestId: request.requestId,
+							deviceIdentifier: request.deviceIdentifier,
+						};
+						const rendererAvailable =
+							mainWindow !== null &&
+							!mainWindow.isDestroyed() &&
+							!mainWindow.webContents.isDestroyed();
+						appendRemoteConnectionLog("pairing.nearby.request_received", {
+							...requestFields,
+							rendererAvailable,
+						});
+						console.info("[zuse:pairing] desktop.request.received", {
+							...requestFields,
+							rendererAvailable,
+						});
+
+						try {
+							focusMainWindow();
+							console.info(
+								"[zuse:pairing] desktop.window.focused",
+								requestFields,
+							);
+						} catch (cause) {
+							appendRemoteConnectionLog("pairing.nearby.window_focus_failed", {
+								...requestFields,
+								cause,
+							});
+							console.error(
+								"[zuse:pairing] desktop.window.focus_failed",
+								cause,
+							);
+						}
+
+						if (Notification.isSupported()) {
+							try {
+								const notification = new Notification({
+									title: "Phone wants to connect",
+									body: `${request.deviceLabel} · Device ${request.deviceIdentifier}`,
+								});
+								notification.on("click", focusMainWindow);
+								notification.show();
+								console.info(
+									"[zuse:pairing] desktop.notification.shown",
+									requestFields,
+								);
+							} catch (cause) {
+								appendRemoteConnectionLog(
+									"pairing.nearby.notification_failed",
+									{ ...requestFields, cause },
+								);
+								console.error(
+									"[zuse:pairing] desktop.notification.failed",
+									cause,
+								);
+							}
+						} else {
+							console.info(
+								"[zuse:pairing] desktop.notification.unsupported",
+								requestFields,
+							);
+						}
+
+						if (!rendererAvailable || mainWindow === null) {
+							console.error(
+								"[zuse:pairing] desktop.renderer.unavailable",
+								requestFields,
+							);
+							return;
+						}
+						try {
+							mainWindow.webContents.send("pairing:nearby-request", request);
+							console.info(
+								"[zuse:pairing] desktop.renderer.sent",
+								requestFields,
+							);
+						} catch (cause) {
+							appendRemoteConnectionLog("pairing.nearby.renderer_send_failed", {
+								...requestFields,
+								cause,
+							});
+							console.error(
+								"[zuse:pairing] desktop.renderer.send_failed",
+								cause,
+							);
+						}
+					},
 				},
 			}),
 		).pipe(

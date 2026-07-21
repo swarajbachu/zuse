@@ -10,11 +10,15 @@ import {
 	startLocalDiscovery,
 	stopLocalDiscovery,
 } from "../../modules/local-connectivity";
+import {
+	hasCurrentLocalRoute,
+	openVerifiedLocalRoute,
+} from "../lib/local-route";
 import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
 import { useConnectionsStore } from "./connections";
 
 type ActiveRoute = {
-	readonly serviceId: string;
+	readonly routeId: string;
 	readonly proxy: LocalProxy;
 };
 
@@ -72,49 +76,52 @@ export function useLocalConnectivityRuntime(): void {
 											candidate.name === connection.nearbyServiceName,
 									);
 						const current = activeRoutes.current.get(connection.key);
-						if (
-							candidates.some((service) => current?.serviceId === service.id)
-						) {
+						if (hasCurrentLocalRoute(current?.routeId, candidates)) {
 							continue;
 						}
 						let selected:
 							| { readonly service: NearbyService; readonly proxy: LocalProxy }
 							| undefined;
 						for (const service of candidates) {
-							let proxy: LocalProxy;
 							try {
-								proxy = await openLocalProxy({
+								const serverPublicKey = connection.serverPublicKey;
+								const serverKeyPin = connection.serverKeyPin;
+								const securedService = {
 									...service,
 									tlsCertificatePin:
 										connection.transportCertificatePin ??
 										service.tlsCertificatePin,
-								});
-							} catch {
-								continue;
-							}
-							try {
-								if (
-									connection.serverPublicKey !== undefined &&
-									connection.serverKeyPin !== undefined
-								) {
-									await verifyPinnedLocalServer({
-										host: proxy.host,
-										port: proxy.port,
-										publicKey: connection.serverPublicKey,
-										pin: connection.serverKeyPin,
-									});
-								}
+								};
+								const proxy =
+									serverPublicKey !== undefined && serverKeyPin !== undefined
+										? await openVerifiedLocalRoute({
+												service: securedService,
+												open: openLocalProxy,
+												close: (candidate) => closeLocalProxy(candidate.id),
+												verify: (candidate) =>
+													verifyPinnedLocalServer({
+														host: candidate.host,
+														port: candidate.port,
+														publicKey: serverPublicKey,
+														pin: serverKeyPin,
+													}),
+											})
+										: await openLocalProxy(securedService);
 								selected = { service, proxy };
 								break;
-							} catch {
-								await closeLocalProxy(proxy.id);
-							}
+							} catch {}
 						}
 						if (selected === undefined) continue;
 						const { service, proxy } = selected;
 						activeRoutes.current.set(connection.key, {
-							serviceId: service.id,
+							routeId: service.routeId,
 							proxy,
+						});
+						console.info("[zuse:nearby] route.replaced", {
+							connectionKey: connection.key,
+							previousRouteId: current?.routeId ?? null,
+							nextRouteId: service.routeId,
+							proxyPort: proxy.port,
 						});
 						await useConnectionsStore.getState().updateDiscoveredRoute({
 							key: connection.key,

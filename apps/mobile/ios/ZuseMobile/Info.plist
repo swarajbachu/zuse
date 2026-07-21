@@ -47,6 +47,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan pairing codes for local Zuse environments.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_zuse._tcp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to a local Zuse server on your network.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

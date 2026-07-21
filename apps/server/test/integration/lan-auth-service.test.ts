@@ -11,6 +11,7 @@ import { resolveAuthPolicy } from "../../src/lan-auth/policy.ts";
 import {
 	LanAuthConfig,
 	LanAuthService,
+	type NearbyPairingRequest,
 } from "../../src/lan-auth/services/lan-auth-service.ts";
 import { Migration0021AuthTokens } from "../../src/persistence/migrations/0021_auth_tokens.ts";
 import { Migration0024RemoteConnectState } from "../../src/persistence/migrations/0024_remote_connect_state.ts";
@@ -27,6 +28,7 @@ const makeRuntime = (
 		readonly secret: string;
 		readonly transportCertificatePin?: string;
 	} | null = null,
+	onNearbyPairingRequest?: (request: NearbyPairingRequest) => void,
 ) => {
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
 	const Migrated = Layer.effectDiscard(
@@ -48,6 +50,7 @@ const makeRuntime = (
 		icloudTrustRecordId: trust?.recordId,
 		icloudTrustSecret: trust?.secret,
 		transportCertificatePin: trust?.transportCertificatePin,
+		onNearbyPairingRequest,
 	});
 	const TestLayer = LanAuthServiceLive.pipe(
 		Layer.provideMerge(Migrated),
@@ -74,8 +77,9 @@ const withRuntime = async <A>(
 		readonly secret: string;
 		readonly transportCertificatePin?: string;
 	} | null = null,
+	onNearbyPairingRequest?: (request: NearbyPairingRequest) => void,
 ): Promise<A> => {
-	const runtime = makeRuntime(trust);
+	const runtime = makeRuntime(trust, onNearbyPairingRequest);
 	const run = <X>(
 		effect: Effect.Effect<X, unknown, LanAuthService | SqlClient.SqlClient>,
 	): Promise<X> =>
@@ -211,48 +215,56 @@ describe("LanAuthService", () => {
 	});
 
 	it("binds one nearby approval to the requesting phone identity", async () => {
-		await withRuntime(async (run) => {
-			const result = await run(
-				Effect.gen(function* () {
-					const auth = yield* LanAuthService;
-					const challenge = yield* auth.createNearbyPairingChallenge();
-					const request = yield* auth.requestNearbyPairing({
+		const presented: NearbyPairingRequest[] = [];
+		await withRuntime(
+			async (run) => {
+				const result = await run(
+					Effect.gen(function* () {
+						const auth = yield* LanAuthService;
+						const challenge = yield* auth.createNearbyPairingChallenge();
+						const request = yield* auth.requestNearbyPairing({
+							deviceId: "mobile_nearby_1",
+							deviceLabel: "Swaraj's iPhone",
+							deviceModel: "iPhone",
+							devicePublicKey: nearbyPublicKey(),
+							ephemeralPublicKey: nearbyPublicKey(),
+							clientNonce: "client-nonce",
+							serverNonce: challenge.serverNonce,
+						});
+						const pending = yield* auth.listNearbyPairingRequests();
+						const resolution = yield* auth.resolveNearbyPairingRequest({
+							requestId: request.requestId,
+							decision: "allow",
+						});
+						const status = yield* auth.nearbyPairingStatus(request.requestId);
+						const tokens = yield* auth.listTokens();
+						const verified = tokens.some(
+							(token) =>
+								token.deviceId === "mobile_nearby_1" &&
+								token.revokedAt === undefined,
+						);
+						return { request, pending, resolution, status, verified };
+					}),
+				);
+
+				expect(result.pending).toMatchObject([
+					{
 						deviceId: "mobile_nearby_1",
 						deviceLabel: "Swaraj's iPhone",
-						deviceModel: "iPhone",
-						devicePublicKey: nearbyPublicKey(),
-						ephemeralPublicKey: nearbyPublicKey(),
-						clientNonce: "client-nonce",
-						serverNonce: challenge.serverNonce,
-					});
-					const pending = yield* auth.listNearbyPairingRequests();
-					const resolution = yield* auth.resolveNearbyPairingRequest({
-						requestId: request.requestId,
-						decision: "allow",
-					});
-					const status = yield* auth.nearbyPairingStatus(request.requestId);
-					const tokens = yield* auth.listTokens();
-					const verified = tokens.some(
-						(token) =>
-							token.deviceId === "mobile_nearby_1" &&
-							token.revokedAt === undefined,
-					);
-					return { request, pending, resolution, status, verified };
-				}),
-			);
-
-			expect(result.pending).toMatchObject([
-				{
-					deviceId: "mobile_nearby_1",
-					deviceLabel: "Swaraj's iPhone",
-					deviceIdentifier: expect.stringMatching(/^[A-Z0-9]{4}$/),
-					safetyPhrase: expect.stringMatching(/^\w+-\w+-\w+$/),
-				},
-			]);
-			expect(result.resolution).toBe("approved");
-			expect(result.status).toMatchObject({ state: "approved" });
-			expect(result.verified).toBe(true);
-		});
+						deviceIdentifier: expect.stringMatching(/^[A-Z0-9]{4}$/),
+						safetyPhrase: expect.stringMatching(/^\w+-\w+-\w+$/),
+					},
+				]);
+				expect(result.resolution).toBe("approved");
+				expect(result.status).toMatchObject({ state: "approved" });
+				expect(result.verified).toBe(true);
+			},
+			null,
+			(request) => presented.push(request),
+		);
+		expect(presented).toMatchObject([
+			{ deviceLabel: "Swaraj's iPhone", deviceIdentifier: expect.any(String) },
+		]);
 	});
 
 	it("denies a nearby request without issuing a credential", async () => {

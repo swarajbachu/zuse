@@ -161,12 +161,9 @@ export default function ThreadsScreen() {
 	);
 
 	const openNewThread = useCallback(() => {
-		router.back();
-		requestAnimationFrame(() => {
-			router.push({
-				pathname: "/new-chat",
-				params: { conn: connKey, chatId: normalizedChatId },
-			});
+		router.replace({
+			pathname: "/new-chat",
+			params: { conn: connKey, chatId: normalizedChatId },
 		});
 	}, [connKey, normalizedChatId]);
 
