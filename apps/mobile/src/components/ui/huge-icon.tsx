@@ -8,5 +8,5 @@ type HugeIconProps = {
 };
 
 export const HugeIcon = ({ icon, size = 16, color }: HugeIconProps) => (
-	<HugeiconsIcon icon={icon} size={size} color={color} />
+	<HugeiconsIcon icon={icon} size={size} color={color} strokeWidth={1} />
 );
