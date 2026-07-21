@@ -2,7 +2,7 @@ import { type EditorView } from "@codemirror/view";
 import type { ProviderId, Skill } from "@zuse/contracts";
 import fuzzysort from "fuzzysort";
 import { useEffect, useMemo, useState } from "react";
-import { overlaySurface } from "~/components/ui/overlay-surface";
+import { overlayPanelSurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { cn } from "~/lib/utils";
 import { useSkillsStore } from "~/store/skills.ts";
@@ -157,7 +157,7 @@ export function SlashCommandPopover({
 			role="listbox"
 			className={cn(
 				"absolute bottom-full left-0 right-0 z-50 mb-1 max-h-80 overflow-y-auto p-1.5",
-				overlaySurface,
+				overlayPanelSurface,
 			)}
 			onMouseDown={(e) => e.preventDefault()}
 		>

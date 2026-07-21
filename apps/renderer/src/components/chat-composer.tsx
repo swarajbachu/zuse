@@ -1153,7 +1153,7 @@ export function ChatComposer({
 						) : null}
 						<Card
 							className={cn(
-								"min-h-30 rounded-lg bg-card/55 transition-colors",
+								"min-h-30 rounded-lg bg-transparent transition-colors",
 								goalSendMode
 									? "border-2 border-dashed border-amber-300/60 dark:border-amber-300/45"
 									: inPlanMode

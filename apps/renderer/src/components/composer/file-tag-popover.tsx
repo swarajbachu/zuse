@@ -3,7 +3,7 @@ import type { FolderId, WorktreeId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
 import { FileIcon } from "~/components/file-icon";
-import { overlaySurface } from "~/components/ui/overlay-surface";
+import { overlayPanelSurface } from "~/components/ui/overlay-surface";
 import { type ActiveTrigger, replaceWithChip } from "~/lib/codemirror/composer";
 import { getRpcClient } from "~/lib/rpc-client";
 import { cn } from "~/lib/utils";
@@ -144,7 +144,7 @@ export function FileTagPopover({
 			role="listbox"
 			className={cn(
 				"absolute bottom-full left-0 z-50 mb-1 w-96 overflow-hidden p-1.5",
-				overlaySurface,
+				overlayPanelSurface,
 			)}
 			onMouseDown={(e) => e.preventDefault()}
 		>

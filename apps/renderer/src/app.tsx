@@ -434,7 +434,7 @@ function MainShell() {
 											    of ending in a hard edge. */}
 											<div
 												aria-hidden
-												className="pointer-events-none absolute inset-x-0 -top-8 bottom-0 -z-10 bg-gradient-to-t from-background via-background/70 to-transparent backdrop-blur-[2px] [mask-image:linear-gradient(to_top,black_70%,transparent)]"
+												className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
 											/>
 											<CliUpgradeBanner
 												providerId={selectedSession.providerId}

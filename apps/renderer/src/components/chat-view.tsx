@@ -779,7 +779,7 @@ export function ChatView({
 					    left, next-unread on the right. */}
 					<div
 						className="pointer-events-none absolute inset-x-0 z-30 flex items-center justify-between gap-2"
-						style={{ bottom: endInset + 6 }}
+						style={{ bottom: Math.max(0, endInset - 8) }}
 					>
 						<JumpToLatestPill
 							visible={showPill}

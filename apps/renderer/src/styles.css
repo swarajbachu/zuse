@@ -1069,12 +1069,15 @@ body,
   /* Composer surface: subtler glass than menus — mostly opaque so typing
      stays legible, but timeline text scrolling underneath shows through
      faintly. */
+  /* The Frame is the ONLY painted layer of the composer (the inner Card is
+     bg-transparent) — stacking translucent layers just re-opacifies the
+     whole thing and defeats the glass. */
   .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 78%, transparent);
-    backdrop-filter: blur(18px);
+    background-color: color-mix(in oklab, var(--secondary) 82%, transparent);
+    backdrop-filter: blur(20px) saturate(1.05);
   }
   .dark .composer-glass {
-    background-color: color-mix(in oklab, var(--secondary) 60%, transparent);
+    background-color: color-mix(in oklab, var(--secondary) 68%, transparent);
   }
 
   .border-glass {
