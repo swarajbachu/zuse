@@ -18,6 +18,8 @@ import {
 } from "../lib/chat-list-anchor.ts";
 import {
 	type ChatTimelineRow,
+	type ChatWorkingPhase,
+	chatWorkingPhaseLabel,
 	deriveChatTimelineRows,
 	resolveLatestUserMessageId,
 	rowAnchorMessageId,
@@ -854,7 +856,7 @@ function WorkingRow({
 	phase,
 }: {
 	messages: ReadonlyArray<Message>;
-	phase: "starting" | "responding";
+	phase: ChatWorkingPhase;
 }) {
 	// Anchor to the most recent user message — we want the live "current turn"
 	// elapsed time beside the loader, not the session-wide total.
@@ -884,9 +886,7 @@ function WorkingRow({
 			aria-live="polite"
 		>
 			<Spinner className="size-3" />
-			<ShimmerText tone="lime">
-				{phase === "starting" ? "Starting local agent" : "Working"}
-			</ShimmerText>
+			<ShimmerText tone="lime">{chatWorkingPhaseLabel(phase)}</ShimmerText>
 			<span aria-hidden="true" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</span>
