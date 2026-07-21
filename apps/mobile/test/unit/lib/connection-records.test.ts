@@ -4,6 +4,7 @@ import {
 	availableConnections,
 	connectionStorageKey,
 	decodeConnectionRecords,
+	replaceDiscoveredRoute,
 } from "../../../src/lib/connection-records";
 
 describe("connection record persistence", () => {
@@ -125,5 +126,40 @@ describe("connection record persistence", () => {
 		expect(availableConnections(records, true)).toMatchObject([
 			{ key: "paired:env-1", source: "paired" },
 		]);
+	});
+
+	test("replaces a paired Mac route without changing its identity", () => {
+		const [paired] = decodeConnectionRecords([
+			{
+				key: "paired:env-1",
+				environmentId: "env-1",
+				host: "192.168.1.20",
+				port: 8787,
+				token: "zt_phone",
+				serverKeyPin: "sha256/mac-key",
+				routeGeneration: 3,
+				label: "Desk Mac",
+				updatedAt: 1,
+				source: "paired",
+			},
+		]);
+		if (paired === undefined) throw new Error("paired record missing");
+
+		const replaced = replaceDiscoveredRoute(paired, {
+			host: "10.0.0.44",
+			port: 8790,
+			pathType: "apple-peer",
+		});
+
+		expect(replaced).toMatchObject({
+			key: "paired:env-1",
+			environmentId: "env-1",
+			token: "zt_phone",
+			serverKeyPin: "sha256/mac-key",
+			host: "10.0.0.44",
+			port: 8790,
+			pathType: "apple-peer",
+			routeGeneration: 4,
+		});
 	});
 });

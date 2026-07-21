@@ -32,8 +32,9 @@ export function ConnectionRecoveryBanner({
 					<Pressable
 						accessibilityRole="button"
 						accessibilityLabel="Scan a new pairing code"
+						hitSlop={4}
 						onPress={onPairAgain}
-						className="min-h-11 flex-row items-center gap-1.5 rounded-xl px-3 active:bg-danger/10"
+						className="h-9 flex-row items-center gap-1.5 rounded-lg px-2.5 active:bg-danger/10"
 						style={{ borderCurve: "continuous" }}
 					>
 						<QrCode size={15} color={colors.secondaryFg} />
@@ -45,11 +46,12 @@ export function ConnectionRecoveryBanner({
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel="Retry connection"
+					hitSlop={4}
 					onPress={onRetry}
-					className="min-h-11 flex-row items-center gap-1.5 rounded-xl bg-primary px-3 active:opacity-70"
+					className="h-9 flex-row items-center gap-1.5 rounded-lg bg-primary px-2.5 active:opacity-70"
 					style={{ borderCurve: "continuous" }}
 				>
-					<RefreshCw size={15} color={colors.primaryForeground} />
+					<RefreshCw size={14} color={colors.primaryForeground} />
 					<Text className="font-sans-medium text-[13px] text-primary-foreground">
 						Retry
 					</Text>

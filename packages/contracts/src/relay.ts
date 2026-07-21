@@ -138,6 +138,14 @@ export class RelayConnectGrant extends Schema.Class<RelayConnectGrant>(
 	expiresAt: Schema.Number,
 }) {}
 
+export class RelayLocalPairingBinding extends Schema.Class<RelayLocalPairingBinding>(
+	"RelayLocalPairingBinding",
+)({
+	serverNonce: Schema.String,
+	devicePublicKey: Schema.String,
+	transportCertificatePin: Schema.String,
+}) {}
+
 // --- device registration (mobile, DPoP) --------------------------------------
 
 export class RelayDeviceRegistration extends Schema.Class<RelayDeviceRegistration>(

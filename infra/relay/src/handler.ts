@@ -422,6 +422,46 @@ const route = (
 			) {
 				return yield* Effect.fail(notFound());
 			}
+			let localPairing:
+				| {
+						readonly serverNonce: string;
+						readonly devicePublicKey: string;
+						readonly transportCertificatePin: string;
+				  }
+				| undefined;
+			if (request.headers.get("content-type")?.includes("application/json")) {
+				const body = yield* readJson<{
+					readonly localPairing?: {
+						readonly serverNonce?: unknown;
+						readonly devicePublicKey?: unknown;
+						readonly transportCertificatePin?: unknown;
+					};
+				}>(request);
+				if (body.localPairing !== undefined) {
+					const { serverNonce, devicePublicKey, transportCertificatePin } =
+						body.localPairing;
+					if (
+						typeof serverNonce !== "string" ||
+						serverNonce.length < 8 ||
+						serverNonce.length > 128 ||
+						typeof devicePublicKey !== "string" ||
+						devicePublicKey.length !== 43 ||
+						!/^[A-Za-z0-9_-]+$/u.test(devicePublicKey) ||
+						typeof transportCertificatePin !== "string" ||
+						transportCertificatePin.length !== 43 ||
+						!/^[A-Za-z0-9_-]+$/u.test(transportCertificatePin)
+					) {
+						return yield* Effect.fail(
+							badRequest("invalid_local_pairing_binding"),
+						);
+					}
+					localPairing = {
+						serverNonce,
+						devicePublicKey,
+						transportCertificatePin,
+					};
+				}
+			}
 			const connectToken = yield* signConnectToken({
 				mintPrivateJwk: yield* parseJwk(Redacted.value(config.mintPrivateKey)),
 				issuer: config.relayIssuer,
@@ -430,6 +470,7 @@ const route = (
 				thumbprint: principal.thumbprint,
 				ttlMs: config.connectTokenTtlMs,
 				nowMs,
+				localPairing,
 			});
 			return json({
 				endpoint: publicEndpoint(environment),

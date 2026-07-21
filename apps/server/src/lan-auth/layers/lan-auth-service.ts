@@ -1,11 +1,21 @@
-import { createHash, randomBytes } from "node:crypto";
+import {
+	createCipheriv,
+	createHash,
+	createHmac,
+	createPublicKey,
+	diffieHellman,
+	generateKeyPairSync,
+	hkdfSync,
+	randomBytes,
+	timingSafeEqual,
+} from "node:crypto";
 import { networkInterfaces } from "node:os";
 import {
 	type AuthTokenId,
 	AuthTokenSummary,
 	type EnvironmentId,
 } from "@zuse/contracts";
-import { Clock, Effect, Layer, Ref } from "effect";
+import { Clock, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { importJWK, type JWK, jwtVerify } from "jose";
 import {
@@ -20,6 +30,42 @@ import {
 } from "../services/lan-auth-service.ts";
 
 const PAIRING_TTL_MS = 5 * 60 * 1000;
+const NEARBY_PAIRING_TTL_MS = 2 * 60 * 1000;
+
+const SAFETY_WORDS = [
+	"amber",
+	"apple",
+	"birch",
+	"blue",
+	"cedar",
+	"cloud",
+	"coral",
+	"dawn",
+	"ember",
+	"fern",
+	"field",
+	"gold",
+	"harbor",
+	"indigo",
+	"jade",
+	"kite",
+	"lake",
+	"leaf",
+	"lunar",
+	"maple",
+	"mint",
+	"ocean",
+	"pearl",
+	"pine",
+	"river",
+	"rose",
+	"silver",
+	"sky",
+	"stone",
+	"sun",
+	"violet",
+	"willow",
+] as const;
 
 interface TokenRow {
 	readonly id: string;
@@ -44,6 +90,21 @@ interface PairingCodeState {
 	readonly expiresAtMs: number;
 }
 
+interface NearbyPairingState {
+	readonly request: import("../services/lan-auth-service.ts").NearbyPairingRequest;
+	readonly status:
+		| { readonly state: "pending" }
+		| { readonly state: "denied" }
+		| {
+				readonly state: "approved";
+				readonly credential: {
+					readonly ephemeralPublicKey: string;
+					readonly nonce: string;
+					readonly ciphertext: string;
+				};
+		  };
+}
+
 interface RelayConfigAuthRow {
 	readonly environment_id: string;
 	readonly relay_issuer: string;
@@ -55,6 +116,71 @@ const randomBase64Url = (bytes: number): Effect.Effect<string> =>
 
 const tokenHash = (token: string): Effect.Effect<string> =>
 	Effect.sync(() => createHash("sha256").update(token).digest("hex"));
+
+const nearbyFingerprint = (value: string): Uint8Array =>
+	createHash("sha256").update(value).digest();
+
+const deviceIdentifier = (publicKey: string): string =>
+	Buffer.from(nearbyFingerprint(publicKey).slice(0, 2))
+		.toString("hex")
+		.toUpperCase();
+
+const deviceCryptographicId = (publicKey: string): string =>
+	Buffer.from(nearbyFingerprint(publicKey)).toString("hex");
+
+const validateDevicePublicKey = (publicKey: string): void => {
+	const recipient = createPublicKey({
+		key: { kty: "OKP", crv: "X25519", x: publicKey },
+		format: "jwk",
+	});
+	const ephemeral = generateKeyPairSync("x25519");
+	diffieHellman({ privateKey: ephemeral.privateKey, publicKey: recipient });
+};
+
+const safetyPhrase = (transcript: string): string => {
+	const digest = nearbyFingerprint(transcript);
+	return [digest[0] ?? 0, digest[1] ?? 0, digest[2] ?? 0]
+		.map((value) => SAFETY_WORDS[value % SAFETY_WORDS.length])
+		.join("-");
+};
+
+const encryptedCredential = (
+	devicePublicKey: string,
+	payload: { readonly token: string; readonly environmentId: EnvironmentId },
+) => {
+	const recipient = createPublicKey({
+		key: { kty: "OKP", crv: "X25519", x: devicePublicKey },
+		format: "jwk",
+	});
+	const ephemeral = generateKeyPairSync("x25519");
+	const shared = diffieHellman({
+		privateKey: ephemeral.privateKey,
+		publicKey: recipient,
+	});
+	const key = Buffer.from(
+		hkdfSync(
+			"sha256",
+			shared,
+			Buffer.alloc(0),
+			"zuse-nearby-credential-v1",
+			32,
+		),
+	);
+	const nonce = randomBytes(12);
+	const cipher = createCipheriv("aes-256-gcm", key, nonce);
+	const ciphertext = Buffer.concat([
+		cipher.update(JSON.stringify(payload), "utf8"),
+		cipher.final(),
+		cipher.getAuthTag(),
+	]);
+	const publicJwk = ephemeral.publicKey.export({ format: "jwk" });
+	if (publicJwk.x === undefined) throw new Error("x25519_public_key_missing");
+	return {
+		ephemeralPublicKey: publicJwk.x,
+		nonce: nonce.toString("base64url"),
+		ciphertext: ciphertext.toString("base64url"),
+	};
+};
 
 const nowIso = Effect.map(Clock.currentTimeMillis, (ms) =>
 	new Date(ms).toISOString(),
@@ -93,6 +219,13 @@ export const LanAuthServiceLive = Layer.effect(
 		const sql = yield* SqlClient.SqlClient;
 		const config = yield* LanAuthConfig;
 		const pairingCodes = yield* Ref.make(new Map<string, PairingCodeState>());
+		const nearbyPairings = yield* Ref.make(
+			new Map<string, NearbyPairingState>(),
+		);
+		const nearbyRequestTimes = yield* Ref.make(new Map<string, number>());
+		const nearbyGlobalRequestTimes = yield* Ref.make<ReadonlyArray<number>>([]);
+		const nearbyAdmission = yield* Semaphore.make(1);
+		const nearbyChallenges = yield* Ref.make(new Map<string, number>());
 
 		const mintToken = (label?: string, deviceId?: string) =>
 			Effect.gen(function* () {
@@ -179,6 +312,372 @@ export const LanAuthServiceLive = Layer.effect(
         `;
 				return { envId, ...keypair } as const;
 			}).pipe(Effect.mapError(toLanAuthError));
+
+		const createNearbyPairingChallenge = Effect.fn(
+			"LanAuthService.createNearbyPairingChallenge",
+		)(function* () {
+			const serverNonce = yield* randomBase64Url(18);
+			const now = yield* Clock.currentTimeMillis;
+			const keys = yield* environmentKeys();
+			yield* Ref.update(nearbyChallenges, (items) => {
+				const next = new Map(
+					[...items].filter(([, expiresAt]) => expiresAt > now),
+				);
+				next.set(serverNonce, now + 30_000);
+				return next;
+			});
+			return {
+				serverNonce,
+				environmentPublicKey: keys.publicJwk,
+				environmentId: keys.envId,
+				transportCertificatePin: config.transportCertificatePin,
+				expiresAt: new Date(now + 30_000),
+			} as const;
+		});
+
+		const requestNearbyPairingUnlocked = Effect.fn(
+			"LanAuthService.requestNearbyPairing",
+		)(function* (input: {
+			readonly deviceId: string;
+			readonly deviceLabel: string;
+			readonly deviceModel?: string;
+			readonly devicePublicKey: string;
+			readonly ephemeralPublicKey: string;
+			readonly clientNonce: string;
+			readonly icloudTrustRecordId?: string;
+			readonly icloudTrustProof?: string;
+			readonly serverNonce: string;
+			readonly accountAssertion?: string;
+		}) {
+			yield* Effect.try({
+				try: () => validateDevicePublicKey(input.devicePublicKey),
+				catch: () => new LanAuthError({ reason: "nearby_public_key_invalid" }),
+			});
+			yield* Effect.try({
+				try: () => validateDevicePublicKey(input.ephemeralPublicKey),
+				catch: () => new LanAuthError({ reason: "nearby_public_key_invalid" }),
+			});
+			const cryptographicId = deviceCryptographicId(input.devicePublicKey);
+			const blocked = yield* sql<{ readonly cryptographic_id: string }>`
+				SELECT cryptographic_id
+				FROM blocked_nearby_devices
+				WHERE cryptographic_id = ${cryptographicId}
+				LIMIT 1
+			`;
+			if (blocked.length > 0) {
+				return yield* new LanAuthError({ reason: "nearby_device_blocked" });
+			}
+			const now = yield* Clock.currentTimeMillis;
+			const challengeValid = yield* Ref.modify(nearbyChallenges, (items) => {
+				const expiresAt = items.get(input.serverNonce);
+				const next = new Map(items);
+				next.delete(input.serverNonce);
+				return [expiresAt !== undefined && expiresAt > now, next];
+			});
+			if (!challengeValid) {
+				return yield* new LanAuthError({ reason: "nearby_challenge_invalid" });
+			}
+			const current = yield* Ref.get(nearbyPairings);
+			const active = [...current.values()].find(
+				(entry) =>
+					entry.status.state === "pending" &&
+					entry.request.expiresAt.getTime() > now,
+			);
+			if (active !== undefined) {
+				if (active.request.devicePublicKey === input.devicePublicKey)
+					return active.request;
+				return yield* new LanAuthError({ reason: "nearby_request_busy" });
+			}
+			const previousRequestAt = (yield* Ref.get(nearbyRequestTimes)).get(
+				cryptographicId,
+			);
+			if (previousRequestAt !== undefined && now - previousRequestAt < 3_000) {
+				return yield* new LanAuthError({
+					reason: "nearby_request_rate_limited",
+				});
+			}
+			const globallyAccepted = yield* Ref.modify(
+				nearbyGlobalRequestTimes,
+				(times) => {
+					const recent = times.filter((time) => now - time < 60_000);
+					return recent.length >= 8
+						? [false, recent]
+						: [true, [...recent, now]];
+				},
+			);
+			if (!globallyAccepted) {
+				return yield* new LanAuthError({
+					reason: "nearby_request_rate_limited",
+				});
+			}
+			yield* Ref.update(nearbyRequestTimes, (times) =>
+				new Map(times).set(cryptographicId, now),
+			);
+
+			const requestId = `pair_${yield* randomBase64Url(18)}`;
+			const serverNonce = input.serverNonce;
+			const keys = yield* environmentKeys();
+			const transcript = [
+				"zuse-nearby-v1",
+				input.deviceId,
+				input.devicePublicKey,
+				input.ephemeralPublicKey,
+				input.clientNonce,
+				serverNonce,
+				keys.publicJwk,
+				...(config.transportCertificatePin === undefined
+					? []
+					: [config.transportCertificatePin]),
+			].join("|");
+			const request = {
+				requestId,
+				deviceId: input.deviceId,
+				deviceLabel: input.deviceLabel,
+				...(input.deviceModel === undefined
+					? {}
+					: { deviceModel: input.deviceModel }),
+				deviceIdentifier: deviceIdentifier(input.devicePublicKey),
+				devicePublicKey: input.devicePublicKey,
+				ephemeralPublicKey: input.ephemeralPublicKey,
+				clientNonce: input.clientNonce,
+				serverNonce,
+				safetyPhrase: safetyPhrase(transcript),
+				createdAt: new Date(now),
+				expiresAt: new Date(now + NEARBY_PAIRING_TTL_MS),
+			} as const;
+			let status: NearbyPairingState["status"] = { state: "pending" };
+			if (input.accountAssertion !== undefined) {
+				const accountAssertion = input.accountAssertion;
+				const relayRows = yield* sql<RelayConfigAuthRow>`
+					SELECT environment_id, relay_issuer, relay_mint_public_key
+					FROM relay_config
+					LIMIT 1
+				`;
+				const relay = relayRows[0];
+				const relayMintPublicKey = relay?.relay_mint_public_key;
+				const accountVerified =
+					relay === undefined || relayMintPublicKey == null
+						? false
+						: yield* Effect.tryPromise({
+								try: async () => {
+									const key = await importJWK(
+										JSON.parse(relayMintPublicKey) as JWK,
+										"EdDSA",
+									);
+									const verified = await jwtVerify(accountAssertion, key, {
+										issuer: relay.relay_issuer,
+										audience: `zuse-env:${relay.environment_id}`,
+										typ: "connect+jwt",
+									});
+									const binding = verified.payload.localPairing as
+										| {
+												readonly serverNonce?: unknown;
+												readonly devicePublicKey?: unknown;
+												readonly transportCertificatePin?: unknown;
+										  }
+										| undefined;
+									return (
+										verified.payload.environmentId === keys.envId &&
+										binding?.serverNonce === serverNonce &&
+										binding.devicePublicKey === input.devicePublicKey &&
+										binding.transportCertificatePin ===
+											config.transportCertificatePin
+									);
+								},
+								catch: () => false,
+							}).pipe(Effect.catch(() => Effect.succeed(false)));
+				if (accountVerified) {
+					const minted = yield* mintToken(input.deviceLabel, input.deviceId);
+					status = {
+						state: "approved",
+						credential: encryptedCredential(input.devicePublicKey, {
+							token: minted.token,
+							environmentId: keys.envId,
+						}),
+					};
+				}
+			}
+			if (
+				status.state === "pending" &&
+				config.icloudTrustRecordId !== undefined &&
+				config.icloudTrustSecret !== undefined &&
+				input.icloudTrustRecordId === config.icloudTrustRecordId &&
+				input.icloudTrustProof !== undefined
+			) {
+				const challenge = [
+					"zuse-icloud-v1",
+					input.icloudTrustRecordId,
+					input.deviceId,
+					input.devicePublicKey,
+					input.clientNonce,
+					serverNonce,
+					keys.publicJwk,
+					...(config.transportCertificatePin === undefined
+						? []
+						: [config.transportCertificatePin]),
+				].join("|");
+				const expected = createHmac(
+					"sha256",
+					Buffer.from(config.icloudTrustSecret, "base64url"),
+				)
+					.update(challenge)
+					.digest();
+				const supplied = Buffer.from(input.icloudTrustProof, "base64url");
+				if (
+					supplied.length === expected.length &&
+					timingSafeEqual(supplied, expected)
+				) {
+					const minted = yield* mintToken(input.deviceLabel, input.deviceId);
+					status = {
+						state: "approved",
+						credential: encryptedCredential(input.devicePublicKey, {
+							token: minted.token,
+							environmentId: keys.envId,
+						}),
+					};
+				}
+			}
+			yield* Ref.update(nearbyPairings, (items) => {
+				const next = new Map(
+					[...items].filter(
+						([, entry]) => entry.request.expiresAt.getTime() > now,
+					),
+				);
+				next.set(requestId, { request, status });
+				return next;
+			});
+			if (status.state === "pending") {
+				yield* Effect.sync(() => {
+					console.info("[zuse:pairing] server.request.pending", {
+						requestId: request.requestId,
+						deviceIdentifier: request.deviceIdentifier,
+						presentationConfigured: config.onNearbyPairingRequest !== undefined,
+					});
+					try {
+						config.onNearbyPairingRequest?.(request);
+						console.info("[zuse:pairing] server.request.dispatched", {
+							requestId: request.requestId,
+						});
+					} catch (cause) {
+						console.error("[zuse:pairing] server.request.dispatch_failed", {
+							requestId: request.requestId,
+							cause,
+						});
+						// Presentation must never invalidate a valid pairing request.
+					}
+				});
+			}
+			return request;
+		});
+		const requestNearbyPairing = (
+			input: Parameters<typeof requestNearbyPairingUnlocked>[0],
+		) =>
+			nearbyAdmission
+				.withPermits(1)(requestNearbyPairingUnlocked(input))
+				.pipe(
+					Effect.mapError((error) =>
+						error instanceof LanAuthError ? error : toLanAuthError(error),
+					),
+				);
+
+		const listNearbyPairingRequests = Effect.fn(
+			"LanAuthService.listNearbyPairingRequests",
+		)(function* () {
+			const now = yield* Clock.currentTimeMillis;
+			const pairings = yield* Ref.get(nearbyPairings);
+			return [...pairings.values()]
+				.filter(
+					(entry) =>
+						entry.status.state === "pending" &&
+						entry.request.expiresAt.getTime() > now,
+				)
+				.map((entry) => entry.request);
+		});
+
+		const resolveNearbyPairingRequestUnlocked = Effect.fn(
+			"LanAuthService.resolveNearbyPairingRequest",
+		)(function* (input: {
+			readonly requestId: string;
+			readonly decision: "allow" | "deny" | "block";
+		}) {
+			const pairings = yield* Ref.get(nearbyPairings);
+			const entry = pairings.get(input.requestId);
+			const now = yield* Clock.currentTimeMillis;
+			if (
+				entry === undefined ||
+				entry.status.state !== "pending" ||
+				entry.request.expiresAt.getTime() <= now
+			) {
+				return yield* new LanAuthError({ reason: "nearby_request_expired" });
+			}
+			if (input.decision !== "allow") {
+				if (input.decision === "block") {
+					const cryptographicId = deviceCryptographicId(
+						entry.request.devicePublicKey,
+					);
+					const createdAt = yield* nowIso;
+					yield* sql`
+						INSERT INTO blocked_nearby_devices (cryptographic_id, created_at)
+						VALUES (${cryptographicId}, ${createdAt})
+						ON CONFLICT(cryptographic_id) DO NOTHING
+					`;
+				}
+				yield* Ref.update(nearbyPairings, (items) => {
+					const next = new Map(items);
+					next.set(input.requestId, {
+						...entry,
+						status: { state: "denied" },
+					});
+					return next;
+				});
+				return "denied" as const;
+			}
+
+			const minted = yield* mintToken(
+				entry.request.deviceLabel,
+				entry.request.deviceId,
+			);
+			const envId = yield* environmentId();
+			yield* Ref.update(nearbyPairings, (items) => {
+				const next = new Map(items);
+				next.set(input.requestId, {
+					...entry,
+					status: {
+						state: "approved",
+						credential: encryptedCredential(entry.request.devicePublicKey, {
+							token: minted.token,
+							environmentId: envId,
+						}),
+					},
+				});
+				return next;
+			});
+			return "approved" as const;
+		});
+		const resolveNearbyPairingRequest = (
+			input: Parameters<typeof resolveNearbyPairingRequestUnlocked>[0],
+		) =>
+			resolveNearbyPairingRequestUnlocked(input).pipe(
+				Effect.mapError((error) =>
+					error instanceof LanAuthError ? error : toLanAuthError(error),
+				),
+			);
+
+		const nearbyPairingStatus = Effect.fn("LanAuthService.nearbyPairingStatus")(
+			function* (requestId: string) {
+				const pairings = yield* Ref.get(nearbyPairings);
+				const entry = pairings.get(requestId);
+				if (entry === undefined) return { state: "expired" } as const;
+				const now = yield* Clock.currentTimeMillis;
+				if (
+					entry.status.state === "pending" &&
+					entry.request.expiresAt.getTime() <= now
+				) {
+					return { state: "expired" } as const;
+				}
+				return entry.status;
+			},
+		);
 
 		const makePairingUrls = (code: string) =>
 			Effect.gen(function* () {
@@ -325,9 +824,19 @@ export const LanAuthServiceLive = Layer.effect(
 						device?.label ?? "Paired phone",
 						device?.id,
 					);
-					const envId = yield* environmentId();
-					return { token: minted.token, environmentId: envId } as const;
+					const keys = yield* environmentKeys();
+					return {
+						token: minted.token,
+						environmentId: keys.envId,
+						environmentPublicKey: keys.publicJwk,
+						transportCertificatePin: config.transportCertificatePin,
+					} as const;
 				}),
+			requestNearbyPairing,
+			createNearbyPairingChallenge,
+			listNearbyPairingRequests,
+			resolveNearbyPairingRequest,
+			nearbyPairingStatus,
 			environmentId,
 			environmentKeys,
 			linkProof: (input) =>

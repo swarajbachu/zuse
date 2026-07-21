@@ -8,6 +8,7 @@ import {
 	Pin,
 	Plus,
 	QrCode,
+	Radio,
 	Search,
 	Settings,
 	X,
@@ -396,9 +397,9 @@ export default function HomeScreen() {
 						reachableConnections.length === 0 &&
 						!loading ? (
 							<View className="mt-8 gap-3 px-4">
-								<Button onPress={() => router.push("/connect/scan")}>
-									<QrCode size={18} color={colors.primaryForeground} />
-									Pair with desktop
+								<Button onPress={() => router.push("/connect/nearby")}>
+									<Radio size={18} color={colors.primaryForeground} />
+									Find nearby Mac
 								</Button>
 								<Button
 									variant="secondary"

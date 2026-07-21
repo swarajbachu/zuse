@@ -1,4 +1,9 @@
-import { execFile, spawn } from "node:child_process";
+import {
+	type ChildProcessWithoutNullStreams,
+	execFile,
+	spawn,
+} from "node:child_process";
+import { createHash, randomUUID, X509Certificate } from "node:crypto";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
@@ -17,6 +22,7 @@ import {
 	clipboard,
 	dialog,
 	ipcMain,
+	Notification,
 	nativeTheme,
 	net,
 	protocol,
@@ -25,6 +31,7 @@ import {
 	webContents as webContentsModule,
 } from "electron";
 import fixPath from "fix-path";
+import selfsigned from "selfsigned";
 
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
@@ -230,7 +237,9 @@ const handleAuthCallback = (url: string): void => {
 
 const focusMainWindow = (): void => {
 	if (mainWindow === null) return;
+	if (!mainWindow.isVisible()) mainWindow.show();
 	if (mainWindow.isMinimized()) mainWindow.restore();
+	app.focus({ steal: true });
 	mainWindow.focus();
 };
 
@@ -355,6 +364,10 @@ ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
 let mainWindow: BrowserWindow | null = null;
 let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
+let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
+let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let localConnectivityRestartAttempt = 0;
+let localConnectivityStopping = false;
 
 const rendererDistDir = (): string =>
 	app.isPackaged
@@ -401,6 +414,182 @@ const appendRemoteConnectionLog = (
 			),
 		}),
 	);
+};
+
+const localConnectivityHelperPath = (): string =>
+	app.isPackaged
+		? Path.join(
+				process.resourcesPath,
+				"app",
+				"local-connectivity",
+				"zuse-local-connectivity",
+			)
+		: Path.join(
+				app.getAppPath(),
+				"native",
+				"local-connectivity",
+				"bin",
+				"zuse-local-connectivity",
+			);
+
+type LocalTrustRecord = {
+	readonly recordId: string;
+	readonly secret: string;
+};
+
+const ensureLocalTrustRecord = async (
+	userData: string,
+): Promise<LocalTrustRecord | null> => {
+	if (process.platform !== "darwin") return null;
+	const executable = localConnectivityHelperPath();
+	if (!fsSync.existsSync(executable)) return null;
+	const metadataPath = Path.join(userData, "local-connectivity-trust.json");
+	let recordId: string;
+	try {
+		const metadata = JSON.parse(await fs.readFile(metadataPath, "utf8")) as {
+			recordId?: unknown;
+		};
+		recordId =
+			typeof metadata.recordId === "string" && metadata.recordId.length <= 128
+				? metadata.recordId
+				: randomUUID();
+	} catch {
+		recordId = randomUUID();
+	}
+	try {
+		await fs.mkdir(Path.dirname(metadataPath), { recursive: true });
+		await fs.writeFile(metadataPath, JSON.stringify({ recordId }), {
+			mode: 0o600,
+		});
+		const { stdout } = await execFileAsync(executable, [
+			"--ensure-trust",
+			recordId,
+		]);
+		const result = JSON.parse(stdout) as {
+			recordId?: unknown;
+			secret?: unknown;
+		};
+		if (
+			result.recordId !== recordId ||
+			typeof result.secret !== "string" ||
+			!/^[A-Za-z0-9_-]{43}$/.test(result.secret)
+		) {
+			return null;
+		}
+		return { recordId, secret: result.secret };
+	} catch (cause) {
+		appendRemoteConnectionLog("local.trust.unavailable", {
+			reason: cause instanceof Error ? cause.message : String(cause),
+		});
+		return null;
+	}
+};
+
+const startLocalConnectivityHelper = (
+	targetPort: number,
+	serviceName: string,
+	trustRecordId?: string,
+	tlsCertificatePin?: string,
+): void => {
+	if (process.platform !== "darwin" || localConnectivityHelper !== null) return;
+	const executable = localConnectivityHelperPath();
+	if (!fsSync.existsSync(executable)) {
+		appendRemoteConnectionLog("local.helper.unavailable", { executable });
+		return;
+	}
+	const child = spawn(
+		executable,
+		[
+			String(targetPort),
+			serviceName,
+			trustRecordId ?? "-",
+			...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
+		],
+		{
+			stdio: ["pipe", "pipe", "pipe"],
+		},
+	);
+	localConnectivityHelper = child;
+	child.stdout.setEncoding("utf8");
+	child.stderr.setEncoding("utf8");
+	child.stdout.on("data", (chunk: string) => {
+		for (const line of chunk.trim().split("\n")) {
+			if (line.includes('"event":"listener.ready"')) {
+				localConnectivityRestartAttempt = 0;
+			}
+			if (line.length > 0)
+				appendRemoteConnectionLog("local.helper.event", { line });
+		}
+	});
+	child.stderr.on("data", (chunk: string) => {
+		appendRemoteConnectionLog("local.helper.stderr", { message: chunk.trim() });
+	});
+	child.once("exit", (code, signal) => {
+		if (localConnectivityHelper === child) localConnectivityHelper = null;
+		appendRemoteConnectionLog("local.helper.exit", { code, signal });
+		if (localConnectivityStopping) return;
+		localConnectivityRestartAttempt += 1;
+		const delayMs = Math.min(
+			16_000,
+			1_000 * 2 ** Math.max(0, localConnectivityRestartAttempt - 1),
+		);
+		localConnectivityRestartTimer = setTimeout(() => {
+			localConnectivityRestartTimer = null;
+			startLocalConnectivityHelper(
+				targetPort,
+				serviceName,
+				trustRecordId,
+				tlsCertificatePin,
+			);
+		}, delayMs);
+	});
+	child.once("error", (cause) => {
+		appendRemoteConnectionLog("local.helper.spawn_failed", { cause });
+	});
+};
+
+type NearbyTlsIdentity = {
+	readonly key: string;
+	readonly cert: string;
+	readonly pin: string;
+};
+
+const ensureNearbyTlsIdentity = async (
+	userData: string,
+): Promise<NearbyTlsIdentity> => {
+	const directory = Path.join(userData, "local-connectivity");
+	const keyPath = Path.join(directory, "nearby-key.pem");
+	const certPath = Path.join(directory, "nearby-cert.pem");
+	let key: string;
+	let cert: string;
+	try {
+		[key, cert] = await Promise.all([
+			fs.readFile(keyPath, "utf8"),
+			fs.readFile(certPath, "utf8"),
+		]);
+	} catch {
+		const generated = await selfsigned.generate(
+			[{ name: "commonName", value: "Zuse Nearby" }],
+			{
+				notAfterDate: new Date(Date.now() + 10 * 365 * 24 * 60 * 60 * 1000),
+				keySize: 2048,
+				algorithm: "sha256",
+			},
+		);
+		key = generated.private;
+		cert = generated.cert;
+		await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+		await Promise.all([
+			fs.writeFile(keyPath, key, { mode: 0o600 }),
+			fs.writeFile(certPath, cert, { mode: 0o600 }),
+		]);
+	}
+	const raw = new X509Certificate(cert).raw;
+	return {
+		key,
+		cert,
+		pin: createHash("sha256").update(raw).digest("base64url"),
+	};
 };
 
 type OpenTargetDefinition = {
@@ -760,6 +949,14 @@ async function createMainWindow() {
 		});
 	}
 	const isMac = process.platform === "darwin";
+	const localTrust =
+		networkAccess.mode === "network-accessible"
+			? await ensureLocalTrustRecord(userData)
+			: null;
+	const nearbyTls =
+		networkAccess.mode === "network-accessible" && process.platform === "darwin"
+			? await ensureNearbyTlsIdentity(userData)
+			: null;
 	mainWindow = new BrowserWindow({
 		width: 1280,
 		height: 800,
@@ -1508,6 +1705,22 @@ async function createMainWindow() {
 		host: networkAccess.bindHost,
 		onDiagnostic: appendRemoteConnectionLog,
 	});
+	const nearbyWsProtocol =
+		nearbyTls === null
+			? null
+			: wsServerProtocolLayer({
+					port: 0,
+					host: "127.0.0.1",
+					tls: { key: nearbyTls.key, cert: nearbyTls.cert },
+					onDiagnostic: appendRemoteConnectionLog,
+					onListening: ({ port }) =>
+						startLocalConnectivityHelper(
+							port,
+							systemHostname,
+							localTrust?.recordId,
+							nearbyTls.pin,
+						),
+				});
 	appendRemoteConnectionLog("desktop.runtime.start", {
 		relayWsPort,
 		userData: app.getPath("userData"),
@@ -1524,13 +1737,107 @@ async function createMainWindow() {
 				userData,
 				folderPicker,
 				serverProtocol,
-				additionalServerProtocols: [relayWsProtocol],
+				additionalServerProtocols: [
+					relayWsProtocol,
+					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
+				],
 				authShell,
 				lanAuth: {
 					policy: "protected",
 					advertisedHost: networkAccess.advertisedHost,
 					port: relayWsPort,
 					pairingBootstrap: false,
+					icloudTrustRecordId: localTrust?.recordId,
+					icloudTrustSecret: localTrust?.secret,
+					transportCertificatePin: nearbyTls?.pin,
+					onNearbyPairingRequest: (request) => {
+						const requestFields = {
+							requestId: request.requestId,
+							deviceIdentifier: request.deviceIdentifier,
+						};
+						const rendererAvailable =
+							mainWindow !== null &&
+							!mainWindow.isDestroyed() &&
+							!mainWindow.webContents.isDestroyed();
+						appendRemoteConnectionLog("pairing.nearby.request_received", {
+							...requestFields,
+							rendererAvailable,
+						});
+						console.info("[zuse:pairing] desktop.request.received", {
+							...requestFields,
+							rendererAvailable,
+						});
+
+						try {
+							focusMainWindow();
+							console.info(
+								"[zuse:pairing] desktop.window.focused",
+								requestFields,
+							);
+						} catch (cause) {
+							appendRemoteConnectionLog("pairing.nearby.window_focus_failed", {
+								...requestFields,
+								cause,
+							});
+							console.error(
+								"[zuse:pairing] desktop.window.focus_failed",
+								cause,
+							);
+						}
+
+						if (Notification.isSupported()) {
+							try {
+								const notification = new Notification({
+									title: "Phone wants to connect",
+									body: `${request.deviceLabel} · Device ${request.deviceIdentifier}`,
+								});
+								notification.on("click", focusMainWindow);
+								notification.show();
+								console.info(
+									"[zuse:pairing] desktop.notification.shown",
+									requestFields,
+								);
+							} catch (cause) {
+								appendRemoteConnectionLog(
+									"pairing.nearby.notification_failed",
+									{ ...requestFields, cause },
+								);
+								console.error(
+									"[zuse:pairing] desktop.notification.failed",
+									cause,
+								);
+							}
+						} else {
+							console.info(
+								"[zuse:pairing] desktop.notification.unsupported",
+								requestFields,
+							);
+						}
+
+						if (!rendererAvailable || mainWindow === null) {
+							console.error(
+								"[zuse:pairing] desktop.renderer.unavailable",
+								requestFields,
+							);
+							return;
+						}
+						try {
+							mainWindow.webContents.send("pairing:nearby-request", request);
+							console.info(
+								"[zuse:pairing] desktop.renderer.sent",
+								requestFields,
+							);
+						} catch (cause) {
+							appendRemoteConnectionLog("pairing.nearby.renderer_send_failed", {
+								...requestFields,
+								cause,
+							});
+							console.error(
+								"[zuse:pairing] desktop.renderer.send_failed",
+								cause,
+							);
+						}
+					},
 				},
 			}),
 		).pipe(
@@ -1547,7 +1854,6 @@ async function createMainWindow() {
 			),
 		),
 	);
-
 	// Persist renderer console output so UI-side races can be diagnosed from
 	// disk after the fact. In dev we also mirror it into the terminal.
 	mainWindow.webContents.on(
@@ -2061,6 +2367,13 @@ app.on("before-quit", (event) => {
 // fires after an un-prevented `before-quit`, so a cancelled quit leaves the
 // tray untouched.
 app.on("will-quit", () => {
+	localConnectivityStopping = true;
+	if (localConnectivityRestartTimer !== null) {
+		clearTimeout(localConnectivityRestartTimer);
+		localConnectivityRestartTimer = null;
+	}
+	localConnectivityHelper?.kill("SIGTERM");
+	localConnectivityHelper = null;
 	notchTray?.destroy();
 	notchTray = null;
 });

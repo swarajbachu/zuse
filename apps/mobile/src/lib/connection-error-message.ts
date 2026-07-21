@@ -45,5 +45,8 @@ export const connectionErrorMessage = (cause: unknown): string => {
 	) {
 		return "Could not reach this computer. Check that it is online and retry.";
 	}
+	if (text.includes("SocketCloseError")) {
+		return "The connection to this computer ended. Reconnecting may fix it.";
+	}
 	return text;
 };

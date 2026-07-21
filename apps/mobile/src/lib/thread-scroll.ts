@@ -47,6 +47,18 @@ export const transcriptBottomInset = (
 	Math.max(0, keyboardOverlap) +
 	Math.max(0, spacing);
 
+export const latestTurnTopOffset = (
+	turnContentY: number,
+	headerHeight: number,
+	spacing = 12,
+): number =>
+	Math.max(
+		0,
+		Math.max(0, turnContentY) -
+			Math.max(0, headerHeight) -
+			Math.max(0, spacing),
+	);
+
 /**
  * Reserve only the unused part of the latest-turn viewport. As the response
  * grows, this space shrinks by the same amount, so the turn remains anchored

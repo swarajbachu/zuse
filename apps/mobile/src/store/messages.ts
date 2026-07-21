@@ -143,12 +143,10 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 		const run = async () => {
 			try {
 				const client = await Effect.runPromise(getConnectionClient(options));
-				const listed = await Effect.runPromise(
-					client["messages.list"]({ sessionId }),
-				);
-				const listedQueue = await Effect.runPromise(
-					client["messages.queue.list"]({ sessionId }),
-				);
+				const [listed, listedQueue] = await Promise.all([
+					Effect.runPromise(client["messages.list"]({ sessionId })),
+					Effect.runPromise(client["messages.queue.list"]({ sessionId })),
+				]);
 				if (hydrationGeneration.get(liveKey) !== generation) return;
 				set((state) => ({
 					queueBySession: {

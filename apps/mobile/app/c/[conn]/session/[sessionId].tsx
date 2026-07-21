@@ -73,12 +73,13 @@ import { connectionSessionKey } from "~/lib/session-key";
 import { selectSessionMessages } from "~/lib/session-messages";
 import {
 	latestTurnAnchorSpace,
+	latestTurnTopOffset,
 	nextThreadScrollMode,
-	shouldFollowTranscript,
 	shouldShowLatestAction,
 	type ThreadScrollMode,
 	transcriptBottomInset,
 } from "~/lib/thread-scroll";
+import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
 	readThreadViewState,
 	writeThreadViewState,
@@ -121,19 +122,21 @@ function ThreadScreen() {
 	const insets = useSafeAreaInsets();
 	const headerHeight = useHeaderHeight();
 	const { theme } = useUniwind();
-	const { conn, sessionId } = useLocalSearchParams<{
+	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
+		openAtLatest?: string;
 	}>();
 	const connKey = normalizeConnParam(conn);
 	const normalizedSessionId = normalizeConnParam(sessionId) as SessionId;
+	const restoreThreadPosition = shouldRestoreThreadPosition(openAtLatest);
 	const listRef = useRef<FlatList>(null);
-	const didInitialScroll = useRef(false);
-	const initialScrollQuietUntil = useRef(0);
 	const scrollModeRef = useRef<ThreadScrollMode>("initial");
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
 	const pendingRestoreOffsetRef = useRef<number | null>(null);
+	const pendingLatestTurnAnchorRef = useRef(!restoreThreadPosition);
+	const latestTurnContentYRef = useRef<number | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const [showJumpButton, setShowJumpButton] = useState(false);
@@ -202,7 +205,7 @@ function ThreadScreen() {
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const latestTurnId = turns.at(-1)?.id ?? null;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
-	const chatId = detail?.chat?.id ?? null;
+	const chatId = detail?.session.chatId ?? null;
 	const allConnectionSessions = useMemo(
 		() => bundles.flatMap((bundle) => bundle.sessions),
 		[bundles],
@@ -272,10 +275,18 @@ function ThreadScreen() {
 
 	useEffect(() => {
 		if (chatId === null || options === null) return;
+		if (detail?.chat?.activeSessionId === normalizedSessionId) return;
 		void setActiveSession(connKey, options, chatId, normalizedSessionId).catch(
 			() => {},
 		);
-	}, [chatId, connKey, normalizedSessionId, options, setActiveSession]);
+	}, [
+		chatId,
+		connKey,
+		detail?.chat?.activeSessionId,
+		normalizedSessionId,
+		options,
+		setActiveSession,
+	]);
 
 	useEffect(() => {
 		void connectionSnapshot?.generation;
@@ -513,14 +524,14 @@ function ThreadScreen() {
 	);
 
 	useEffect(() => {
-		const saved = readThreadViewState(stateKey);
-		didInitialScroll.current = false;
-		initialScrollQuietUntil.current = Date.now() + 500;
+		const saved = restoreThreadPosition ? readThreadViewState(stateKey) : null;
 		scrollModeRef.current = saved?.mode ?? "initial";
 		distanceFromBottomRef.current = saved?.distanceFromBottom ?? 0;
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
 		pendingRestoreOffsetRef.current =
 			saved?.mode === "detached" ? saved.offsetY : null;
+		pendingLatestTurnAnchorRef.current = saved?.mode !== "detached";
+		latestTurnContentYRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		setHasUnseenContent(false);
@@ -535,7 +546,7 @@ function ThreadScreen() {
 				distanceFromBottom: distanceFromBottomRef.current,
 			});
 		};
-	}, [stateKey]);
+	}, [restoreThreadPosition, stateKey]);
 
 	useEffect(() => {
 		void latestTurnId;
@@ -598,21 +609,22 @@ function ThreadScreen() {
 		jumpOpacity.value = withTiming(showJumpButton ? 1 : 0, { duration: 160 });
 	}, [showJumpButton, jumpOpacity]);
 
-	const scrollToLatest = useCallback(() => {
-		if (messages.length === 0) return;
-		if (!shouldFollowTranscript(scrollModeRef.current)) return;
-		const animated =
-			didInitialScroll.current && Date.now() > initialScrollQuietUntil.current;
-		didInitialScroll.current = true;
-		requestAnimationFrame(() => {
-			listRef.current?.scrollToEnd({ animated });
-			if (scrollModeRef.current === "initial") {
-				scrollModeRef.current = nextThreadScrollMode("initial", {
-					type: "initial-positioned",
-				});
-			}
-		});
-	}, [messages.length]);
+	const scrollToLatestTurn = useCallback(
+		(animated: boolean) => {
+			const turnContentY = latestTurnContentYRef.current;
+			if (messages.length === 0 || turnContentY === null) return false;
+			pendingLatestTurnAnchorRef.current = false;
+			scrollModeRef.current = nextThreadScrollMode("initial", {
+				type: "initial-positioned",
+			});
+			listRef.current?.scrollToOffset({
+				offset: latestTurnTopOffset(turnContentY, headerHeight),
+				animated,
+			});
+			return true;
+		},
+		[headerHeight, messages.length],
+	);
 	const restoreDetachedPosition = useCallback(() => {
 		const offset = pendingRestoreOffsetRef.current;
 		if (offset === null || messages.length === 0) return false;
@@ -669,14 +681,11 @@ function ThreadScreen() {
 		setShowJumpButton(false);
 	};
 
-	const jumpToBottom = () => {
-		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-			type: "jumped-to-latest",
-		});
+	const jumpToLatest = () => {
+		if (!scrollToLatestTurn(true)) return;
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		listRef.current?.scrollToEnd({ animated: true });
 	};
 	const onMessageSubmitted = () => {
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
@@ -686,18 +695,10 @@ function ThreadScreen() {
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		setLatestTurnHeight(0);
-		requestAnimationFrame(scrollToLatest);
+		latestTurnContentYRef.current = null;
+		pendingLatestTurnAnchorRef.current = true;
 	};
-	const onComposerFocusChange = (focused: boolean) => {
-		if (focused && shouldFollowTranscript(scrollModeRef.current)) {
-			requestAnimationFrame(scrollToLatest);
-		}
-	};
-	useEffect(() => {
-		if (keyboardOverlap > 0 && shouldFollowTranscript(scrollModeRef.current)) {
-			scrollToLatest();
-		}
-	}, [keyboardOverlap, scrollToLatest]);
+	const onComposerFocusChange = (_focused: boolean) => undefined;
 
 	const jumpStyle = useAnimatedStyle(() => ({ opacity: jumpOpacity.value }));
 	const onBottomAccessoryLayout = (event: LayoutChangeEvent) => {
@@ -919,21 +920,23 @@ function ThreadScreen() {
 							onPress={openThreads}
 						/>
 					),
+					headerRight: () => (
+						<SessionActionsMenu
+							isPinned={isPinned}
+							onNewChat={() => router.push("/new-chat")}
+							onPin={
+								currentPinKey === null
+									? undefined
+									: () => void togglePinnedChat(currentPinKey)
+							}
+							onRename={chatId === null ? undefined : onRename}
+							onThreads={openThreads}
+							onChanges={openChanges}
+							onFiles={openFiles}
+							onArchive={onArchive}
+						/>
+					),
 				}}
-			/>
-			<SessionActionsMenu
-				isPinned={isPinned}
-				onNewChat={() => router.push("/new-chat")}
-				onPin={
-					currentPinKey === null
-						? undefined
-						: () => void togglePinnedChat(currentPinKey)
-				}
-				onRename={chatId === null ? undefined : onRename}
-				onThreads={openThreads}
-				onChanges={openChanges}
-				onFiles={openFiles}
-				onArchive={onArchive}
 			/>
 			{hydrated && options === null ? (
 				<View className="px-4 py-3">
@@ -952,10 +955,16 @@ function ThreadScreen() {
 						onLayout={
 							index === turns.length - 1
 								? (event) => {
+										latestTurnContentYRef.current = event.nativeEvent.layout.y;
 										const nextHeight = event.nativeEvent.layout.height;
 										setLatestTurnHeight((current) =>
 											Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 										);
+										if (pendingLatestTurnAnchorRef.current) {
+											requestAnimationFrame(
+												() => void scrollToLatestTurn(false),
+											);
+										}
 									}
 								: undefined
 						}
@@ -1018,14 +1027,24 @@ function ThreadScreen() {
 				scrollEventThrottle={32}
 				maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
 				onContentSizeChange={() => {
-					if (!restoreDetachedPosition()) scrollToLatest();
+					if (
+						!restoreDetachedPosition() &&
+						pendingLatestTurnAnchorRef.current
+					) {
+						requestAnimationFrame(() => void scrollToLatestTurn(false));
+					}
 				}}
 				onLayout={(event) => {
 					const nextHeight = event.nativeEvent.layout.height;
 					setListViewportHeight((current) =>
 						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 					);
-					if (!restoreDetachedPosition()) scrollToLatest();
+					if (
+						!restoreDetachedPosition() &&
+						pendingLatestTurnAnchorRef.current
+					) {
+						requestAnimationFrame(() => void scrollToLatestTurn(false));
+					}
 				}}
 			/>
 			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
@@ -1051,7 +1070,7 @@ function ThreadScreen() {
 									: "Jump to latest"
 							}
 							accessibilityHint="Resumes following the live response"
-							onPress={jumpToBottom}
+							onPress={jumpToLatest}
 						>
 							<GlassSurface
 								style={{

@@ -23,4 +23,13 @@ describe("iOS native menu compatibility", () => {
 		expect(modelSheet).toContain("seedColor={colors.fg}");
 		expect(modelSheet).toContain("padding({ trailing: 6 })");
 	});
+
+	test("session actions use the native anchored header menu", () => {
+		const sessionActions = source("session-actions-menu.ios.tsx");
+		expect(sessionActions).toContain("<Host");
+		expect(sessionActions).toContain("<Menu");
+		expect(sessionActions).toContain("<NativeButton");
+		expect(sessionActions).not.toContain("ActionSheetIOS");
+		expect(sessionActions).not.toContain("Stack.Toolbar.Menu");
+	});
 });

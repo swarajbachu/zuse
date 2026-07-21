@@ -11,6 +11,14 @@ export type WsProtocolOptions = {
 	readonly port: number;
 	readonly token?: string | null;
 	readonly wsBaseUrl?: string | null;
+	/** Changes whenever discovery replaces the disposable local route. */
+	readonly routeGeneration?: number;
+	readonly pathType?: "lan" | "apple-peer";
+	/** Pinned Ed25519 identity used to authenticate a rediscovered local route. */
+	readonly serverPublicKey?: string;
+	readonly serverKeyPin?: string;
+	/** Refresh a short-lived same-account grant while keeping the local route. */
+	readonly refreshAccountGrant?: boolean;
 };
 
 export type WsProtocolLayerOptions = {

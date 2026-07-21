@@ -174,8 +174,27 @@ export const getEnvironmentStatus = async (
 
 export const connectEnvironment = async (
 	environmentId: string,
+	localPairing?: {
+		readonly serverNonce: string;
+		readonly devicePublicKey: string;
+		readonly transportCertificatePin: string;
+	},
 ): Promise<RelayConnectGrant> => {
-	const response = await dpopFetch(RelayPaths.connect(environmentId), "POST");
+	const token = await ensureAccessToken();
+	const target = url(RelayPaths.connect(environmentId));
+	const response = await fetch(target, {
+		method: "POST",
+		headers: {
+			authorization: `DPoP ${token}`,
+			dpop: await signDpopProof({ method: "POST", url: target }),
+			...(localPairing === undefined
+				? {}
+				: { "content-type": "application/json" }),
+		},
+		...(localPairing === undefined
+			? {}
+			: { body: JSON.stringify({ localPairing }) }),
+	});
 	if (!response.ok) {
 		const error = await relayError(response, "relay_connect");
 		logConnectionProblem("relay.connect.fail", {
