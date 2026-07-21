@@ -8,7 +8,7 @@ import {
 	GitPullRequestIcon,
 	GlobeIcon,
 	MagicWand01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";

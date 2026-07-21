@@ -7,7 +7,7 @@ import {
 	PlugSocketIcon,
 	RefreshIcon,
 	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import type {
 	FolderId,
 	McpServerDescriptor,

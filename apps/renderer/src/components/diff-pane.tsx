@@ -5,7 +5,7 @@ import {
 	MinusSignIcon,
 	Tick02Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import type { GitStatus, GitStatusEntry } from "@pierre/trees";
 import {
 	FileTree as StructuredFileTree,

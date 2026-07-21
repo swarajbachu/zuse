@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CircleArrowUp01Icon } from "@hugeicons-pro/core-solid-rounded";
+import { CircleArrowUp01Icon } from "@hugeicons-pro/core-stroke-rounded";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";

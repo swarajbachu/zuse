@@ -155,8 +155,7 @@
         "@fontsource-variable/geist-mono": "^5.2.7",
         "@fontsource-variable/inter": "^5.2.8",
         "@formkit/auto-animate": "^0.9.0",
-        "@hugeicons-pro/core-bulk-rounded": "^4.2.1",
-        "@hugeicons-pro/core-solid-rounded": "^4.2.1",
+        "@hugeicons-pro/core-stroke-rounded": "^4.2.1",
         "@hugeicons/react": "^1.1.7",
         "@legendapp/list": "3.2.0",
         "@lezer/highlight": "^1.2.0",
@@ -1041,6 +1040,8 @@
     "@hugeicons-pro/core-bulk-rounded": ["@hugeicons-pro/core-bulk-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-bulk-rounded/-/core-bulk-rounded-4.2.1.tgz", {}, "sha512-NaV2xmHovYsuGlb+JpGitUYZ10pN+z6YJo9RD1nh7Gu3oxFD4PYIFvOZ2e1zq+0Eo0IfLGArrPIyLltfXG5ESA=="],
 
     "@hugeicons-pro/core-solid-rounded": ["@hugeicons-pro/core-solid-rounded@4.2.1", "https://npm.hugeicons.com/@hugeicons-pro/core-solid-rounded/-/core-solid-rounded-4.2.1.tgz", {}, "sha512-rODm75eQ4TH7DpGxngWKFCulMwr8BI+QaJ9ykngRsc3NWbbOnVq0M50LbmYVItNXG2meWxo9uRanmsF7YaYjGg=="],
+
+    "@hugeicons-pro/core-stroke-rounded": ["@hugeicons-pro/core-stroke-rounded@4.2.2", "https://npm.hugeicons.com/@hugeicons-pro/core-stroke-rounded/-/core-stroke-rounded-4.2.2.tgz", {}, "sha512-+TruczzkMDuo1PVTAQWNOkjzPhOkTE/mGsk3OU1kwGnm66c+pgSrLpSRpp0OWmKaHCDCnKfdufFroK7+gs8oWQ=="],
 
     "@hugeicons/react": ["@hugeicons/react@1.1.7", "", { "peerDependencies": { "react": ">=16.0.0" } }, "sha512-0q1gekPJvNtIsfqi6alVdKfqsLz0PGiZWOzxJDxOd55UpFwcgohBFU4CwTcJ7kg4hO3kwXuzxrn/JEj280GX3g=="],
 

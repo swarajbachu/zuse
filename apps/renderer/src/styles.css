@@ -297,7 +297,7 @@ body,
   --user-bubble-foreground: hsl(0 0% 12%);
   --message-text: hsl(0 0% 18%);
   --message-heading: hsl(0 0% 9%);
-  --message-code: hsl(72 80% 28%);
+  --message-code: hsl(0 0% 24%);
   --message-code-bg: hsl(0 0% 93%);
   --message-pre-bg: hsl(0 0% 96%);
   --message-quote: hsl(0 0% 40%);
@@ -467,16 +467,23 @@ body,
   }
   body {
     @apply text-foreground;
-    /* Transparent so the macOS BrowserWindow `vibrancy` shows the desktop
-       behind translucent panes (sidebar). Per-pane backgrounds in app.tsx +
-       components paint where opacity is needed. */
-    background-color: transparent;
+    /* Solid app background — the macOS vibrancy look read as washed-out,
+       especially in light mode, so panes paint flat theme colors instead. */
+    background-color: var(--background);
   }
   code,
   kbd,
   samp,
   pre {
     font-family: var(--font-mono);
+  }
+
+  /* Icon weight: every 24x24 icon (hugeicons stroke set, lucide, inline
+     glyphs) renders at stroke-width 1 for a consistently light line. The
+     CSS property beats the per-path stroke-width="1.5" presentation attr. */
+  svg[viewBox="0 0 24 24"],
+  svg[viewBox="0 0 24 24"] [stroke-width] {
+    stroke-width: 1;
   }
 }
 

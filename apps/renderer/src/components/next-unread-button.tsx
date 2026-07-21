@@ -1,8 +1,7 @@
-import { ArrowRight01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo } from "react";
-
+import { ArrowRight01Icon } from "@hugeicons-pro/core-stroke-rounded";
 import type { Chat } from "@zuse/contracts";
+import { useMemo } from "react";
 
 import { isChatUnread, useChatsStore } from "../store/chats.ts";
 import { Button } from "./ui/button";
@@ -16,38 +15,38 @@ import { Button } from "./ui/button";
  * unread.
  */
 export function NextUnreadButton() {
-  const chatsByProject = useChatsStore((s) => s.chatsByProject);
-  const selectedChatId = useChatsStore((s) => s.selectedChatId);
-  const selectChat = useChatsStore((s) => s.select);
+	const chatsByProject = useChatsStore((s) => s.chatsByProject);
+	const selectedChatId = useChatsStore((s) => s.selectedChatId);
+	const selectChat = useChatsStore((s) => s.select);
 
-  const nextUnread = useMemo(() => {
-    let best: Chat | null = null;
-    let bestTs = -1;
-    for (const list of Object.values(chatsByProject)) {
-      for (const chat of list) {
-        if (!isChatUnread(chat, selectedChatId)) continue;
-        const ts = chat.lastMessageAt?.getTime() ?? 0;
-        if (ts > bestTs) {
-          best = chat;
-          bestTs = ts;
-        }
-      }
-    }
-    return best;
-  }, [chatsByProject, selectedChatId]);
+	const nextUnread = useMemo(() => {
+		let best: Chat | null = null;
+		let bestTs = -1;
+		for (const list of Object.values(chatsByProject)) {
+			for (const chat of list) {
+				if (!isChatUnread(chat, selectedChatId)) continue;
+				const ts = chat.lastMessageAt?.getTime() ?? 0;
+				if (ts > bestTs) {
+					best = chat;
+					bestTs = ts;
+				}
+			}
+		}
+		return best;
+	}, [chatsByProject, selectedChatId]);
 
-  if (nextUnread === null) return null;
+	if (nextUnread === null) return null;
 
-  return (
-    <Button
-      variant="outline"
-      size="xs"
-      className="pointer-events-auto text-muted-foreground"
-      onClick={() => selectChat(nextUnread.id)}
-      title="Jump to the next chat with unread activity"
-    >
-      Next
-      <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
-    </Button>
-  );
+	return (
+		<Button
+			variant="outline"
+			size="xs"
+			className="pointer-events-auto text-muted-foreground"
+			onClick={() => selectChat(nextUnread.id)}
+			title="Jump to the next chat with unread activity"
+		>
+			Next
+			<HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
+		</Button>
+	);
 }

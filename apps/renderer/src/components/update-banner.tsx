@@ -2,7 +2,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Alert01Icon,
 	CircleArrowUp01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import type { UpdateStatus } from "@zuse/contracts";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";

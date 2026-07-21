@@ -14,7 +14,7 @@ import {
 	SquareIcon,
 	Tick01Icon,
 	Upload01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,
@@ -1153,7 +1153,10 @@ export function ChatComposer({
 						) : null}
 						<Card
 							className={cn(
-								"min-h-30 rounded-lg bg-transparent transition-colors",
+								// Light: opaque white input on the gray frame for clear
+								// separation. Dark: transparent so the single glass layer
+								// shows through (a second tint would re-opacify it).
+								"min-h-30 rounded-lg bg-card transition-colors dark:bg-transparent",
 								goalSendMode
 									? "border-2 border-dashed border-amber-300/60 dark:border-amber-300/45"
 									: inPlanMode

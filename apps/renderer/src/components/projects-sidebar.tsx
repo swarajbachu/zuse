@@ -17,7 +17,7 @@ import {
 	SquareLock01Icon,
 	TaskDone01Icon,
 	UserCircleIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+} from "@hugeicons-pro/core-stroke-rounded";
 import type {
 	Chat,
 	ChatId,
@@ -422,7 +422,7 @@ export function ProjectsSidebar() {
 			ref={paneRef}
 			data-pane="sidebar"
 			tabIndex={-1}
-			className="flex h-full min-h-0 w-full flex-col text-sidebar-foreground outline-none backdrop-blur-3xl"
+			className="flex h-full min-h-0 w-full flex-col bg-sidebar text-sidebar-foreground outline-none"
 		>
 			<SidebarActions />
 			<div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
@@ -1156,7 +1156,7 @@ function ChatRow({ chat }: { chat: Chat }) {
 						!isSelected &&
 							!isArchived &&
 							isUnread &&
-							"font-bold text-white hover:bg-sidebar-accent/40",
+							"font-semibold text-sidebar-foreground hover:bg-sidebar-accent/40",
 					)}
 					title={chat.title}
 				>
