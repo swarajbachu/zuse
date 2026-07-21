@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	type CursorSdkTranslationState,
+	flushCursorSdkMessages,
 	normalizeCursorMcpServers,
 	translateCursorSdkMessage,
 } from "../../../src/drivers/cursor.ts";
@@ -11,6 +12,8 @@ const state = (): CursorSdkTranslationState => ({
 	seenToolCalls: new Set(),
 	messageSequence: 0,
 	thinkingSequence: 0,
+	assistantBuffer: null,
+	thinkingBuffer: null,
 	model: "composer-2",
 });
 
@@ -19,44 +22,63 @@ const translate = (message: SDKMessage, current = state()) =>
 
 describe("bundled provider SDK translation", () => {
 	it("translates initialization and streamed content", () => {
+		const current = state();
 		expect(
-			translate({
-				type: "system",
-				agent_id: "agent-1",
-				run_id: "run-1",
-				tools: ["read", "write"],
-			}),
+			translate(
+				{
+					type: "system",
+					agent_id: "agent-1",
+					run_id: "run-1",
+					tools: ["read", "write"],
+				},
+				current,
+			),
 		).toEqual([
 			{ _tag: "Auth", sdkConfigured: true },
 			{ _tag: "Capabilities", capabilities: ["read", "write"] },
 		]);
 
 		expect(
-			translate({
-				type: "assistant",
-				agent_id: "agent-1",
-				run_id: "run-1",
-				message: { role: "assistant", content: [{ type: "text", text: "Hi" }] },
-			})[0],
+			translate(
+				{
+					type: "assistant",
+					agent_id: "agent-1",
+					run_id: "run-1",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "Hi" }],
+					},
+				},
+				current,
+			),
+		).toEqual([]);
+
+		expect(
+			translate(
+				{
+					type: "thinking",
+					agent_id: "agent-1",
+					run_id: "run-1",
+					text: "Checking",
+				},
+				current,
+			)[0],
 		).toMatchObject({ _tag: "AssistantMessage", text: "Hi" });
 
-		expect(
-			translate({
-				type: "thinking",
-				agent_id: "agent-1",
-				run_id: "run-1",
-				text: "Checking",
-			})[0],
-		).toMatchObject({ _tag: "Thinking", text: "Checking" });
-
-		expect(
-			translate({
+		const statusEvents = translate(
+			{
 				type: "status",
 				agent_id: "agent-1",
 				run_id: "run-1",
-				status: "RUNNING",
-			}),
-		).toEqual([{ _tag: "Status", status: "running" }]);
+				status: "FINISHED",
+			},
+			current,
+		);
+		expect(statusEvents[0]).toMatchObject({
+			_tag: "Thinking",
+			text: "Checking",
+		});
+		expect(statusEvents[1]).toEqual({ _tag: "Status", status: "idle" });
 	});
 
 	it("translates usage", () => {
@@ -79,6 +101,61 @@ describe("bundled provider SDK translation", () => {
 			outputTokens: 5,
 			model: "composer-2",
 		});
+	});
+
+	it("coalesces adjacent thinking and assistant deltas into logical messages", () => {
+		const current = state();
+		const thinking = (text: string): SDKMessage => ({
+			type: "thinking",
+			agent_id: "agent-1",
+			run_id: "run-1",
+			text,
+		});
+		const assistant = (text: string): SDKMessage => ({
+			type: "assistant",
+			agent_id: "agent-1",
+			run_id: "run-1",
+			message: { role: "assistant", content: [{ type: "text", text }] },
+		});
+
+		expect(translate(thinking("The user sent a casual"), current)).toEqual([]);
+		expect(
+			translate(
+				{
+					type: "status",
+					agent_id: "agent-1",
+					run_id: "run-1",
+					status: "RUNNING",
+				},
+				current,
+			),
+		).toEqual([{ _tag: "Status", status: "running" }]);
+		expect(translate(thinking(" greeting."), current)).toEqual([]);
+		expect(translate(assistant("Hey — what"), current)).toEqual([
+			expect.objectContaining({
+				_tag: "Thinking",
+				text: "The user sent a casual greeting.",
+			}),
+		]);
+		expect(translate(assistant(" do you want to work on?"), current)).toEqual(
+			[],
+		);
+		expect(flushCursorSdkMessages(current)).toEqual([
+			expect.objectContaining({
+				_tag: "AssistantMessage",
+				text: "Hey — what do you want to work on?",
+			}),
+		]);
+
+		const tokenSplit = state();
+		expect(translate(assistant("pack"), tokenSplit)).toEqual([]);
+		expect(translate(assistant("age.json"), tokenSplit)).toEqual([]);
+		expect(flushCursorSdkMessages(tokenSplit)).toEqual([
+			expect.objectContaining({
+				_tag: "AssistantMessage",
+				text: "package.json",
+			}),
+		]);
 	});
 
 	it("deduplicates tool starts and makes blocked results actionable", () => {
@@ -105,12 +182,63 @@ describe("bundled provider SDK translation", () => {
 		);
 
 		const ordinaryError = translate(
-			{ ...start, call_id: "call-2", status: "error", result: "Process timed out" },
+			{
+				...start,
+				call_id: "call-2",
+				status: "error",
+				result: "Process timed out",
+			},
 			current,
 		).find((event) => event._tag === "ToolResult");
 		expect(
 			ordinaryError?._tag === "ToolResult" ? ordinaryError.output : "",
 		).toBe("Process timed out");
+	});
+
+	it("normalizes SDK file reads into the shared file-read contract", () => {
+		const current = state();
+		const start: SDKMessage = {
+			type: "tool_call",
+			agent_id: "agent-1",
+			run_id: "run-1",
+			call_id: "read-1",
+			name: "read_file",
+			status: "running",
+			args: { path: "/workspace/package.json" },
+		};
+
+		expect(translate(start, current)).toEqual([
+			{
+				_tag: "ToolUse",
+				itemId: "read-1",
+				tool: "Read",
+				input: { file_path: "/workspace/package.json" },
+			},
+		]);
+		expect(
+			translate(
+				{
+					...start,
+					status: "completed",
+					result: {
+						status: "success",
+						value: {
+							content: '{\n  "name": "zuse"\n}',
+							totalLines: 3,
+							fileSize: 24,
+						},
+					},
+				},
+				current,
+			),
+		).toEqual([
+			{
+				_tag: "ToolResult",
+				itemId: "read-1",
+				output: '{\n  "name": "zuse"\n}',
+				isError: false,
+			},
+		]);
 	});
 
 	it("normalizes stdio and remote MCP configurations", () => {

@@ -33,6 +33,8 @@ import {
 	type AttachmentServiceShape,
 } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
+import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
+import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 
@@ -50,6 +52,14 @@ export interface CursorSdkTranslationState {
 	readonly seenToolCalls: Set<string>;
 	messageSequence: number;
 	thinkingSequence: number;
+	assistantBuffer: {
+		readonly itemId: AgentItemId;
+		text: string;
+	} | null;
+	thinkingBuffer: {
+		readonly itemId: AgentItemId;
+		text: string;
+	} | null;
 	model: string;
 }
 
@@ -78,6 +88,20 @@ const formatToolResult = (result: unknown): string => {
 	if (typeof result === "string") return result;
 	if (result === undefined) return "";
 	return JSON.stringify(result);
+};
+
+const normalizeCursorToolInput = (tool: string, input: unknown): unknown => {
+	if (tool !== "Read" || !isRecord(input)) return input;
+	const path = input.file_path ?? input.filePath ?? input.path;
+	if (typeof path !== "string") return input;
+	const { filePath: _filePath, path: _path, ...rest } = input;
+	return { ...rest, file_path: path };
+};
+
+const normalizeCursorToolResult = (tool: string, result: unknown): unknown => {
+	if (tool !== "Read" || !isRecord(result)) return result;
+	const value = isRecord(result.value) ? result.value : result;
+	return typeof value.content === "string" ? value.content : result;
 };
 
 const isAutoReviewDenial = (result: unknown): boolean =>
@@ -126,6 +150,41 @@ const modelSelection = (model: string | undefined): ModelSelection => {
 	return { id: resolved === "default" ? "composer-2" : resolved };
 };
 
+const flushAssistant = (state: CursorSdkTranslationState): AgentEvent[] => {
+	const pending = state.assistantBuffer;
+	if (pending === null) return [];
+	state.assistantBuffer = null;
+	return [
+		{
+			_tag: "AssistantMessage",
+			itemId: pending.itemId,
+			text: pending.text,
+		},
+	];
+};
+
+const flushThinking = (state: CursorSdkTranslationState): AgentEvent[] => {
+	const pending = state.thinkingBuffer;
+	if (pending === null) return [];
+	state.thinkingBuffer = null;
+	return [
+		{
+			_tag: "Thinking",
+			itemId: pending.itemId,
+			text: pending.text,
+			redacted: false,
+		},
+	];
+};
+
+/** Drain buffered SDK deltas at a run boundary. */
+export const flushCursorSdkMessages = (
+	state: CursorSdkTranslationState,
+): ReadonlyArray<AgentEvent> => [
+	...flushThinking(state),
+	...flushAssistant(state),
+];
+
 /** Translate one SDK stream message into the provider-neutral event contract. */
 export const translateCursorSdkMessage = (
 	message: SDKMessage,
@@ -134,42 +193,49 @@ export const translateCursorSdkMessage = (
 	switch (message.type) {
 		case "system":
 			return [
+				...flushCursorSdkMessages(state),
 				{ _tag: "Auth", sdkConfigured: true },
 				{ _tag: "Capabilities", capabilities: message.tools ?? [] },
 			];
 		case "assistant": {
-			const translated: AgentEvent[] = [];
+			const translated: AgentEvent[] = [...flushThinking(state)];
 			for (const block of message.message.content) {
 				if (block.type === "text") {
-					translated.push({
-						_tag: "AssistantMessage" as const,
+					state.assistantBuffer ??= {
 						itemId: itemId(
 							`${message.run_id}:assistant:${++state.messageSequence}`,
 						),
-						text: block.text,
-					});
+						text: "",
+					};
+					state.assistantBuffer.text = appendStreamText(
+						state.assistantBuffer.text,
+						block.text,
+					);
 					continue;
 				}
+				translated.push(...flushAssistant(state));
 				if (state.seenToolCalls.has(block.id)) continue;
 				state.seenToolCalls.add(block.id);
+				const tool = normalizeNativeToolName(block.name);
 				translated.push({
 					_tag: "ToolUse" as const,
 					itemId: itemId(block.id),
-					tool: block.name,
-					input: block.input,
+					tool,
+					input: normalizeCursorToolInput(tool, block.input),
 				});
 			}
 			return translated;
 		}
 		case "tool_call": {
-			const events: AgentEvent[] = [];
+			const events: AgentEvent[] = [...flushCursorSdkMessages(state)];
+			const tool = normalizeNativeToolName(message.name);
 			if (!state.seenToolCalls.has(message.call_id)) {
 				state.seenToolCalls.add(message.call_id);
 				events.push({
 					_tag: "ToolUse",
 					itemId: itemId(message.call_id),
-					tool: message.name,
-					input: message.args ?? {},
+					tool,
+					input: normalizeCursorToolInput(tool, message.args ?? {}),
 				});
 			}
 			if (message.status !== "running") {
@@ -179,25 +245,33 @@ export const translateCursorSdkMessage = (
 					output:
 						message.status === "error" && isAutoReviewDenial(message.result)
 							? blockedToolOutput(message.result)
-							: formatToolResult(message.result),
+							: formatToolResult(
+									normalizeCursorToolResult(tool, message.result),
+								),
 					isError: message.status === "error",
 				});
 			}
 			return events;
 		}
-		case "thinking":
+		case "thinking": {
+			const events = flushAssistant(state);
+			state.thinkingBuffer ??= {
+				itemId: itemId(
+					`${message.run_id}:thinking:${++state.thinkingSequence}`,
+				),
+				text: "",
+			};
+			state.thinkingBuffer.text = appendStreamText(
+				state.thinkingBuffer.text,
+				message.text,
+			);
+			return events;
+		}
+		case "status": {
+			const terminal =
+				message.status !== "CREATING" && message.status !== "RUNNING";
 			return [
-				{
-					_tag: "Thinking",
-					itemId: itemId(
-						`${message.run_id}:thinking:${++state.thinkingSequence}`,
-					),
-					text: message.text,
-					redacted: false,
-				},
-			];
-		case "status":
-			return [
+				...(terminal ? flushCursorSdkMessages(state) : []),
 				{
 					_tag: "Status",
 					status:
@@ -210,8 +284,10 @@ export const translateCursorSdkMessage = (
 									: "idle",
 				},
 			];
+		}
 		case "usage":
 			return [
+				...flushCursorSdkMessages(state),
 				{
 					_tag: "UsageDelta",
 					inputTokens: message.usage.inputTokens,
@@ -223,6 +299,7 @@ export const translateCursorSdkMessage = (
 			];
 		case "request":
 			return [
+				...flushCursorSdkMessages(state),
 				{
 					_tag: "ProviderNotificationMetadata",
 					promptId: message.request_id,
@@ -448,6 +525,8 @@ export const startCursorSession = (
 			seenToolCalls: new Set(),
 			messageSequence: 0,
 			thinkingSequence: 0,
+			assistantBuffer: null,
+			thinkingBuffer: null,
 			model: selection.id,
 		};
 
@@ -505,6 +584,9 @@ export const startCursorSession = (
 							Queue.offerUnsafe(events, event);
 						}
 					}
+					for (const event of flushCursorSdkMessages(translationState)) {
+						Queue.offerUnsafe(events, event);
+					}
 					const result = await run.wait();
 					activeRun = null;
 					if (interrupted || result.status === "cancelled") {
@@ -530,6 +612,9 @@ export const startCursorSession = (
 				.catch((cause) => {
 					activeRun = null;
 					if (closed) return;
+					for (const event of flushCursorSdkMessages(translationState)) {
+						Queue.offerUnsafe(events, event);
+					}
 					if (interrupted) {
 						Queue.offerUnsafe(events, { _tag: "Interrupted" });
 						Queue.offerUnsafe(events, {
