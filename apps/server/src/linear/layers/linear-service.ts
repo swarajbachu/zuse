@@ -765,6 +765,7 @@ export const LinearServiceLive = Layer.effect(
 			}) {
 				const cwd = yield* resolveSessionCwd(
 					sql,
+					fs,
 					input.sessionId,
 					input.rootPath,
 				);

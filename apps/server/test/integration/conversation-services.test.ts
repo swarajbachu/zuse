@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 import type {
@@ -21,6 +21,7 @@ import {
 	RepositorySettings,
 	SessionId,
 	Worktree,
+	WorktreeCheckpointError,
 } from "@zuse/contracts";
 import type { SessionEvent } from "@zuse/domain/core/events";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
@@ -86,6 +87,7 @@ import { Migration0033ReactorEffectSteps } from "../../src/persistence/migration
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { Migration0037ProviderEventCursor } from "../../src/persistence/migrations/0037_provider_event_cursor.ts";
 import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
+import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -136,6 +138,9 @@ let createdWorktreeCount = 0;
 let createdWorktrees = new Map<string, Worktree>();
 let archivedWorktreeIds = new Set<string>();
 let restoredWorktreeCount = 0;
+let archiveWorktreeBarrier: Promise<void> | null = null;
+let archiveWorktreeStarts = 0;
+let archiveWorktreeFailure: "git-missing" | null = null;
 
 const deferred = <A>() => {
 	let resolve!: (value: A) => void;
@@ -176,8 +181,8 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				failProviderSend
 					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					: Effect.sync(() => {
-			providerSentTexts.push(text);
-		}),
+							providerSentTexts.push(text);
+						}),
 			),
 		),
 	interrupt: () => Effect.void,
@@ -193,7 +198,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	clearGoal: () => Effect.void,
 });
 
-const testWorktree = Worktree.make({
+let testWorktree = Worktree.make({
 	id: TEST_WORKTREE_ID,
 	projectId: PROJECT_ID,
 	path: TEST_WORKTREE_PATH,
@@ -215,7 +220,10 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 			const worktree = Worktree.make({
 				id: `wt-created-${createdWorktreeCount}` as WorktreeId,
 				projectId,
-				path: `/tmp/project/.memo/created-${createdWorktreeCount}`,
+				path: join(
+					dirname(testWorktree.path),
+					`created-${createdWorktreeCount}`,
+				),
 				name: `created-${createdWorktreeCount}`,
 				branch: `created-${createdWorktreeCount}`,
 				baseBranch: "origin/main",
@@ -239,24 +247,37 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 					: (createdWorktrees.get(worktreeId as string) ?? null),
 		),
 	updateBranch: () => Effect.void,
-	archive: (worktreeId, recordCheckpoint) => {
-		const outcome = {
-			archiveCommit: "checkpoint-sha",
-			checkpointCreated: false,
-			archiveRef: null,
-			archivedContextPath: null,
-			branch: worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
-		};
-		const markRemoved = Effect.sync(() => {
-			archivedWorktreeIds.add(worktreeId as string);
-		});
-		return recordCheckpoint === undefined
-			? markRemoved.pipe(Effect.as(outcome))
-			: recordCheckpoint(outcome).pipe(
-					Effect.andThen(markRemoved),
-					Effect.as(outcome),
-				);
-	},
+	archive: (worktreeId, recordCheckpoint, allowRemoval) =>
+		Effect.gen(function* () {
+			archiveWorktreeStarts += 1;
+			if (archiveWorktreeFailure === "git-missing") {
+				return yield* new WorktreeCheckpointError({
+					worktreeId,
+					reason: "git is not installed",
+				});
+			}
+			if (archiveWorktreeBarrier !== null) {
+				yield* Effect.promise(() => archiveWorktreeBarrier as Promise<void>);
+			}
+			const outcome = {
+				archiveCommit: "checkpoint-sha",
+				checkpointCreated: false,
+				archiveRef: null,
+				archivedContextPath: null,
+				branch:
+					worktreeId === TEST_WORKTREE_ID ? testWorktree.branch : "fixture",
+			};
+			const markRemoved = Effect.gen(function* () {
+				if (allowRemoval !== undefined && !(yield* allowRemoval())) return;
+				archivedWorktreeIds.add(worktreeId as string);
+			});
+			return yield* recordCheckpoint === undefined
+				? markRemoved.pipe(Effect.as(outcome))
+				: recordCheckpoint(outcome).pipe(
+						Effect.andThen(markRemoved),
+						Effect.as(outcome),
+					);
+		}),
 	finishArchiveRemoval: () => Effect.void,
 	remove: () => Effect.void,
 	rerunSetup: () => Effect.die("not used"),
@@ -427,6 +448,7 @@ const runAllMigrations = Effect.all(
 		Migration0034ToolEventLookup,
 		Migration0037ProviderEventCursor,
 		Migration0038QueuedMessageReady,
+		Migration0041ChatArchiveJobs,
 	],
 	{ discard: true },
 );
@@ -462,6 +484,7 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 		Layer.provideMerge(DomainLive),
 		Layer.provide(ChatDomainLive),
 		Layer.provide(SessionQueriesLive),
+		Layer.provide(NodeServices.layer),
 		// provideMerge (not provide) so SqlClient stays in the runtime context —
 		// the test seeds the `projects` row through it directly.
 		Layer.provideMerge(Migrated),
@@ -488,6 +511,11 @@ const withRuntime = async <A>(
 ): Promise<A> => {
 	const dir = mkdtempSync(join(tmpdir(), "mz-msgstore-"));
 	const dbPath = join(dir, "test.sqlite");
+	testWorktree = Worktree.make({
+		...testWorktree,
+		path: join(dir, "pikachu"),
+	});
+	mkdirSync(testWorktree.path, { recursive: true });
 	const runtime = makeRuntime(dbPath);
 	const run = <X>(
 		eff: Effect.Effect<
@@ -504,7 +532,7 @@ const withRuntime = async <A>(
 				const now = new Date().toISOString();
 				yield* sql`
           INSERT INTO projects (id, path, name, created_at, updated_at)
-          VALUES (${PROJECT_ID}, ${"/tmp/project"}, ${"Test"}, ${now}, ${now})
+          VALUES (${PROJECT_ID}, ${dir}, ${"Test"}, ${now}, ${now})
         `;
 				yield* sql`
           INSERT INTO worktrees
@@ -513,8 +541,8 @@ const withRuntime = async <A>(
             (${TEST_WORKTREE_ID}, ${PROJECT_ID}, ${testWorktree.path},
              ${testWorktree.name}, ${testWorktree.branch},
              ${testWorktree.baseBranch}, ${now}),
-            (${"wt-created-1"}, ${PROJECT_ID},
-             ${"/tmp/project/.memo/created-1"}, ${"created-1"},
+			(${"wt-created-1"}, ${PROJECT_ID},
+			 ${join(dirname(testWorktree.path), "created-1")}, ${"created-1"},
              ${"created-1"}, ${"origin/main"}, ${now})
         `;
 			}),
@@ -542,6 +570,9 @@ beforeEach(() => {
 	createdWorktrees = new Map();
 	archivedWorktreeIds = new Set();
 	restoredWorktreeCount = 0;
+	archiveWorktreeBarrier = null;
+	archiveWorktreeStarts = 0;
+	archiveWorktreeFailure = null;
 });
 
 describe("ConversationServices migrations", () => {
@@ -714,6 +745,18 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			await expect
+				.poll(async () =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getSession(initialSession.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "idle" });
+			// Let the provider event pump finish its idle transition before creating
+			// the synthetic durable turn this test is specifically exercising.
+			await new Promise<void>((resolve) => setImmediate(resolve));
 			await run(
 				Effect.gen(function* () {
 					const domain = yield* SessionDomain;
@@ -863,6 +906,17 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					service.archiveChat(created.chat.id),
 				),
 			);
+			expect(result.checkpoint).toBeNull();
+			expect(result.job?.status).toBe("queued");
+			await expect
+				.poll(async () =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "completed", phase: "completed" });
 			const evidence = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -889,12 +943,6 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			expect(result.chat.archivedAt).not.toBeNull();
-			expect(result.checkpoint).toEqual({
-				archiveCommit: "checkpoint-sha",
-				checkpointCreated: false,
-				archiveRef: null,
-				branch: "pikachu",
-			});
 			expect(evidence.events.map(({ type }) => type)).toEqual([
 				"ChatArchiveRequested",
 				"ChatArchived",
@@ -906,6 +954,320 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				status: "completed",
 				detail_json: expect.stringContaining("checkpoint-sha"),
 			});
+		});
+	});
+
+	it("archives a chat without a worktree without scheduling Git cleanup", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+			expect(result.chat.archivedAt).not.toBeNull();
+			expect(result.job?.status).toBe("completed");
+			expect(archiveWorktreeStarts).toBe(0);
+		});
+	});
+
+	it("completes archive cleanup when the recorded worktree directory is missing", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			rmSync(testWorktree.path, { recursive: true, force: true });
+
+			const result = await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+
+			expect(result.chat.archivedAt).not.toBeNull();
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({
+					status: "completed",
+					phase: "directory-missing",
+					error: null,
+				});
+
+			// Older workers reported a missing cwd as missing Git. Reading archive
+			// jobs repairs that durable state so clients stop offering Force archive.
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`
+						UPDATE chat_archive_jobs
+						SET status = 'failed', phase = 'failed', error = 'git is not installed'
+						WHERE chat_id = ${created.chat.id}
+					`;
+				}),
+			);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.listArchiveJobs(PROJECT_ID),
+					),
+				),
+			).resolves.toEqual([]);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.getArchiveStatus(created.chat.id),
+					),
+				),
+			).resolves.toMatchObject({
+				status: "completed",
+				phase: "directory-missing",
+				error: null,
+			});
+		});
+	});
+
+	it("completes archive cleanup without deleting when Git is unavailable", async () => {
+		await withRuntime(async (run) => {
+			archiveWorktreeFailure = "git-missing";
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({
+					status: "completed",
+					phase: "retained-no-git",
+					error: null,
+				});
+			expect(archivedWorktreeIds.has(TEST_WORKTREE_ID)).toBe(false);
+		});
+	});
+
+	it("returns before worktree cleanup and force archive preserves the checkout", async () => {
+		await withRuntime(async (run) => {
+			const barrier = deferred<void>();
+			archiveWorktreeBarrier = barrier.promise;
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			const accepted = await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+			expect(accepted.chat.archivedAt).not.toBeNull();
+			expect(accepted.job?.status).toBe("queued");
+			await expect.poll(() => archiveWorktreeStarts).toBe(1);
+			const forcePromise = run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id, true),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(created.chat.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "cancelled", phase: "force-requested" });
+			expect(archivedWorktreeIds.has(TEST_WORKTREE_ID)).toBe(false);
+			barrier.resolve();
+			const forced = await forcePromise;
+			expect(forced.job?.status).toBe("forced");
+			expect(archivedWorktreeIds.has(TEST_WORKTREE_ID)).toBe(false);
+		});
+	});
+
+	it("restores a checkpointed checkout before completing a late force request", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						worktreeId: TEST_WORKTREE_ID,
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id),
+				),
+			);
+			await expect
+				.poll(() => archivedWorktreeIds.has(TEST_WORKTREE_ID))
+				.toBe(true);
+
+			const forced = await run(
+				Effect.flatMap(store, (service) =>
+					service.archiveChat(created.chat.id, true),
+				),
+			);
+
+			expect(forced.job?.status).toBe("forced");
+			expect(archivedWorktreeIds.has(TEST_WORKTREE_ID)).toBe(false);
+			expect(restoredWorktreeCount).toBe(1);
+		});
+	});
+
+	it("runs cleanup for multiple chats concurrently", async () => {
+		await withRuntime(async (run) => {
+			const barrier = deferred<void>();
+			archiveWorktreeBarrier = barrier.promise;
+			const secondWorktreeId = "wt-created-1" as WorktreeId;
+			const secondWorktreePath = join(dirname(testWorktree.path), "created-1");
+			mkdirSync(secondWorktreePath, { recursive: true });
+			createdWorktrees.set(
+				secondWorktreeId,
+				Worktree.make({
+					...testWorktree,
+					id: secondWorktreeId,
+					path: secondWorktreePath,
+					name: "created-1",
+					branch: "created-1",
+				}),
+			);
+			const makeChat = (worktreeId: WorktreeId) =>
+				run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							worktreeId,
+						}),
+					),
+				);
+			const first = await makeChat(TEST_WORKTREE_ID);
+			const second = await makeChat(secondWorktreeId);
+			const accepted = await Promise.all([
+				run(
+					Effect.flatMap(store, (service) =>
+						service.archiveChat(first.chat.id),
+					),
+				),
+				run(
+					Effect.flatMap(store, (service) =>
+						service.archiveChat(second.chat.id),
+					),
+				),
+			]);
+			expect(accepted.map((result) => result.job?.status)).toEqual([
+				"queued",
+				"queued",
+			]);
+			const snapshotIds = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const rows = yield* sql<{ readonly snapshot_json: string }>`
+						SELECT snapshot_json FROM chat_archive_jobs ORDER BY chat_id
+					`;
+					return rows.map(
+						(row) => (JSON.parse(row.snapshot_json) as { id: string }).id,
+					);
+				}),
+			);
+			expect(new Set(snapshotIds)).toEqual(
+				new Set([TEST_WORKTREE_ID, secondWorktreeId]),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			expect(archiveWorktreeStarts).toBe(2);
+			barrier.resolve();
+		});
+	});
+
+	it("retains a shared worktree until every referencing chat is archived", async () => {
+		await withRuntime(async (run) => {
+			const makeSharedChat = () =>
+				run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							worktreeId: TEST_WORKTREE_ID,
+						}),
+					),
+				);
+			const first = await makeSharedChat();
+			const second = await makeSharedChat();
+
+			await run(
+				Effect.flatMap(store, (service) => service.archiveChat(first.chat.id)),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(first.chat.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "completed", phase: "retained-shared" });
+			expect(archiveWorktreeStarts).toBe(0);
+
+			const removalBarrier = deferred<void>();
+			archiveWorktreeBarrier = removalBarrier.promise;
+			await run(
+				Effect.flatMap(store, (service) => service.archiveChat(second.chat.id)),
+			);
+			await expect.poll(() => archiveWorktreeStarts).toBe(1);
+			await expect(makeSharedChat()).rejects.toThrow();
+			removalBarrier.resolve();
+			await expect
+				.poll(() => archivedWorktreeIds.has(TEST_WORKTREE_ID))
+				.toBe(true);
 		});
 	});
 
@@ -940,6 +1302,15 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					service.archiveChat(archived.chat.id),
 				),
 			);
+			await expect
+				.poll(async () =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getArchiveStatus(archived.chat.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "completed" });
 			// Worktree deletion clears the SQL foreign key, but the session event
 			// state still remembers the original id. This projection drift is the
 			// production failure mode that previously routed restore into main.
@@ -1283,7 +1654,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			if (!created.ok) return;
 			expect(created.worktreeId).not.toBeNull();
 			expect(created.worktreeId).not.toBe(TEST_WORKTREE_ID);
-			expect(created.path).toContain("/tmp/project/.memo/created-");
+			expect(created.path).toContain("/created-");
 			expect(created.branch).toContain("created-");
 
 			const child = await run(
@@ -1396,7 +1767,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(result.chat.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(result.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(providerStartInputs.at(-1)?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+			expect(providerStartInputs.at(-1)?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
 
@@ -1453,7 +1824,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(nextSession.worktreeId).toBe(TEST_WORKTREE_ID);
 			expect(providerStartInputs).toHaveLength(1);
-			expect(providerStartInputs[0]?.cwdOverride).toBe(TEST_WORKTREE_PATH);
+			expect(providerStartInputs[0]?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
 
@@ -2089,11 +2460,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			await run(
 				Effect.flatMap(store, (service) =>
-					service.updateQueuedMessage(
-						initialSession.id,
-						held.id,
-						held.input,
-					),
+					service.updateQueuedMessage(initialSession.id, held.id, held.input),
 				),
 			);
 			await expect.poll(() => providerSentTexts).toEqual(["finalize me"]);
@@ -2644,7 +3011,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					const now = new Date().toISOString();
 					yield* sql`
 						INSERT INTO projects (id, path, name, created_at, updated_at)
-						VALUES (${PROJECT_ID}, ${"/tmp/project"}, ${"Test"}, ${now}, ${now})
+						VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})
 					`;
 				}),
 			);
@@ -2689,24 +3056,28 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
 				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
 			try {
-				const queue = await runRestarted(
+				const messages = await runRestarted(
 					Effect.flatMap(store, (service) =>
-						service.listQueuedMessages(initialSession.id).pipe(
-							Effect.flatMap((state) =>
-								state.items.length === 0
-									? Effect.succeed(state)
-									: Effect.fail("queue not flushed" as const),
+						service.listMessages(initialSession.id).pipe(
+							Effect.flatMap((items) =>
+								items.some(
+									(item) =>
+										item.content._tag === "user" &&
+										item.content.text === "recover this queue",
+								)
+									? Effect.succeed(items)
+									: Effect.fail("message not flushed" as const),
 							),
 							Effect.retry({ schedule: Schedule.recurs(100) }),
 						),
 					),
 				);
-				expect(queue.items).toEqual([]);
-				const messages = await runRestarted(
+				const queue = await runRestarted(
 					Effect.flatMap(store, (service) =>
-						service.listMessages(initialSession.id),
+						service.listQueuedMessages(initialSession.id),
 					),
 				);
+				expect(queue.items).toEqual([]);
 				expect(messages.at(-1)?.content).toMatchObject({
 					_tag: "user",
 					text: "recover this queue",

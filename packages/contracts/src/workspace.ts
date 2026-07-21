@@ -1,29 +1,29 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
-import { FsFolderNotFoundError } from "./fs.ts";
+import { DirectoryUnavailableError, FsFolderNotFoundError } from "./fs.ts";
 import { FolderId, WorktreeId } from "./ids.ts";
 
 export class Folder extends Schema.Class<Folder>("Folder")({
-  id: FolderId,
-  path: Schema.String,
-  name: Schema.String,
-  addedAt: Schema.DateFromString,
+	id: FolderId,
+	path: Schema.String,
+	name: Schema.String,
+	addedAt: Schema.DateFromString,
 }) {}
 
 export class WorkspaceDuplicatePathError extends Schema.TaggedErrorClass<WorkspaceDuplicatePathError>()(
-  "WorkspaceDuplicatePathError",
-  { path: Schema.String },
+	"WorkspaceDuplicatePathError",
+	{ path: Schema.String },
 ) {}
 
 export class WorkspaceNotFoundError extends Schema.TaggedErrorClass<WorkspaceNotFoundError>()(
-  "WorkspaceNotFoundError",
-  { folderId: FolderId },
+	"WorkspaceNotFoundError",
+	{ folderId: FolderId },
 ) {}
 
 export class WorkspaceInvalidPathError extends Schema.TaggedErrorClass<WorkspaceInvalidPathError>()(
-  "WorkspaceInvalidPathError",
-  { path: Schema.String, reason: Schema.String },
+	"WorkspaceInvalidPathError",
+	{ path: Schema.String, reason: Schema.String },
 ) {}
 
 /**
@@ -33,8 +33,8 @@ export class WorkspaceInvalidPathError extends Schema.TaggedErrorClass<Workspace
  * inline under the URL field.
  */
 export class WorkspaceCloneFailedError extends Schema.TaggedErrorClass<WorkspaceCloneFailedError>()(
-  "WorkspaceCloneFailedError",
-  { url: Schema.String, reason: Schema.String },
+	"WorkspaceCloneFailedError",
+	{ url: Schema.String, reason: Schema.String },
 ) {}
 
 /**
@@ -43,12 +43,18 @@ export class WorkspaceCloneFailedError extends Schema.TaggedErrorClass<Workspace
  * at the right corrective action. `reason` is trimmed stderr.
  */
 export class WorkspaceCreateFailedError extends Schema.TaggedErrorClass<WorkspaceCreateFailedError>()(
-  "WorkspaceCreateFailedError",
-  {
-    name: Schema.String,
-    step: Schema.Literals(["mkdir", "git-init", "template", "install", "gh-create"]),
-    reason: Schema.String,
-  },
+	"WorkspaceCreateFailedError",
+	{
+		name: Schema.String,
+		step: Schema.Literals([
+			"mkdir",
+			"git-init",
+			"template",
+			"install",
+			"gh-create",
+		]),
+		reason: Schema.String,
+	},
 ) {}
 
 /**
@@ -58,53 +64,57 @@ export class WorkspaceCreateFailedError extends Schema.TaggedErrorClass<Workspac
  * gh-CLI-friendly fallback.
  */
 export class GithubRepoSummary extends Schema.Class<GithubRepoSummary>(
-  "GithubRepoSummary",
+	"GithubRepoSummary",
 )({
-  nameWithOwner: Schema.String,
-  description: Schema.NullOr(Schema.String),
-  sshUrl: Schema.String,
-  httpsUrl: Schema.String,
-  isPrivate: Schema.Boolean,
-  updatedAt: Schema.DateFromString,
+	nameWithOwner: Schema.String,
+	description: Schema.NullOr(Schema.String),
+	sshUrl: Schema.String,
+	httpsUrl: Schema.String,
+	isPrivate: Schema.Boolean,
+	updatedAt: Schema.DateFromString,
 }) {}
 
 /**
  * Identifier for the "Quick start" template grid. Adding a card later is
  * a one-line change here + a new branch in `project-scaffold-live.ts`.
  */
-export const ProjectTemplate = Schema.Literals(["empty", "nextjs", "turborepo"]);
+export const ProjectTemplate = Schema.Literals([
+	"empty",
+	"nextjs",
+	"turborepo",
+]);
 export type ProjectTemplate = typeof ProjectTemplate.Type;
 
 export const WorkspaceAddRpc = Rpc.make("workspace.add", {
-  payload: Schema.Struct({ path: Schema.String }),
-  success: Folder,
-  error: Schema.Union([WorkspaceDuplicatePathError, WorkspaceInvalidPathError]),
+	payload: Schema.Struct({ path: Schema.String }),
+	success: Folder,
+	error: Schema.Union([WorkspaceDuplicatePathError, WorkspaceInvalidPathError]),
 });
 
 export const WorkspaceListRpc = Rpc.make("workspace.list", {
-  payload: Schema.Struct({}),
-  success: Schema.Array(Folder),
+	payload: Schema.Struct({}),
+	success: Schema.Array(Folder),
 });
 
 export const WorkspaceRemoveRpc = Rpc.make("workspace.remove", {
-  payload: Schema.Struct({ folderId: FolderId }),
-  success: Schema.Void,
-  error: WorkspaceNotFoundError,
+	payload: Schema.Struct({ folderId: FolderId }),
+	success: Schema.Void,
+	error: WorkspaceNotFoundError,
 });
 
 export const WorkspacePickFolderRpc = Rpc.make("workspace.pickFolder", {
-  payload: Schema.Struct({}),
-  success: Schema.NullOr(Schema.String),
+	payload: Schema.Struct({}),
+	success: Schema.NullOr(Schema.String),
 });
 
 export const WorkspaceGetSelectedRpc = Rpc.make("workspace.getSelected", {
-  payload: Schema.Struct({}),
-  success: Schema.NullOr(FolderId),
+	payload: Schema.Struct({}),
+	success: Schema.NullOr(FolderId),
 });
 
 export const WorkspaceSetSelectedRpc = Rpc.make("workspace.setSelected", {
-  payload: Schema.Struct({ folderId: Schema.NullOr(FolderId) }),
-  success: Schema.Void,
+	payload: Schema.Struct({ folderId: Schema.NullOr(FolderId) }),
+	success: Schema.Void,
 });
 
 /**
@@ -119,16 +129,16 @@ export const WorkspaceSetSelectedRpc = Rpc.make("workspace.setSelected", {
  * the server: `~/Developer` if it exists, else home).
  */
 export const WorkspaceCloneRepoRpc = Rpc.make("workspace.cloneRepo", {
-  payload: Schema.Struct({
-    url: Schema.String,
-    parent: Schema.String,
-  }),
-  success: Folder,
-  error: Schema.Union([
-    WorkspaceCloneFailedError,
-    WorkspaceInvalidPathError,
-    WorkspaceDuplicatePathError,
-  ]),
+	payload: Schema.Struct({
+		url: Schema.String,
+		parent: Schema.String,
+	}),
+	success: Folder,
+	error: Schema.Union([
+		WorkspaceCloneFailedError,
+		WorkspaceInvalidPathError,
+		WorkspaceDuplicatePathError,
+	]),
 });
 
 /**
@@ -141,18 +151,18 @@ export const WorkspaceCloneRepoRpc = Rpc.make("workspace.cloneRepo", {
  * checkbox when `gh` is authenticated — see `workspace.ghAuthStatus`.
  */
 export const WorkspaceCreateProjectRpc = Rpc.make("workspace.createProject", {
-  payload: Schema.Struct({
-    name: Schema.String,
-    parent: Schema.String,
-    template: ProjectTemplate,
-    alsoCreateGithubRepo: Schema.optional(Schema.Boolean),
-  }),
-  success: Folder,
-  error: Schema.Union([
-    WorkspaceCreateFailedError,
-    WorkspaceInvalidPathError,
-    WorkspaceDuplicatePathError,
-  ]),
+	payload: Schema.Struct({
+		name: Schema.String,
+		parent: Schema.String,
+		template: ProjectTemplate,
+		alsoCreateGithubRepo: Schema.optional(Schema.Boolean),
+	}),
+	success: Folder,
+	error: Schema.Union([
+		WorkspaceCreateFailedError,
+		WorkspaceInvalidPathError,
+		WorkspaceDuplicatePathError,
+	]),
 });
 
 /**
@@ -162,11 +172,11 @@ export const WorkspaceCreateProjectRpc = Rpc.make("workspace.createProject", {
  * shows a one-line `gh auth login` hint instead.
  */
 export const WorkspaceListGithubReposRpc = Rpc.make(
-  "workspace.listGithubRepos",
-  {
-    payload: Schema.Struct({ limit: Schema.optional(Schema.Number) }),
-    success: Schema.Array(GithubRepoSummary),
-  },
+	"workspace.listGithubRepos",
+	{
+		payload: Schema.Struct({ limit: Schema.optional(Schema.Number) }),
+		success: Schema.Array(GithubRepoSummary),
+	},
 );
 
 /**
@@ -176,8 +186,8 @@ export const WorkspaceListGithubReposRpc = Rpc.make(
  * dialog never needs to distinguish.
  */
 export const WorkspaceGhAuthStatusRpc = Rpc.make("workspace.ghAuthStatus", {
-  payload: Schema.Struct({}),
-  success: Schema.Struct({ authenticated: Schema.Boolean }),
+	payload: Schema.Struct({}),
+	success: Schema.Struct({ authenticated: Schema.Boolean }),
 });
 
 /**
@@ -192,18 +202,18 @@ export const WorkspaceGhAuthStatusRpc = Rpc.make("workspace.ghAuthStatus", {
  * silently if the worktree doesn't belong to `projectId`.
  */
 export const WorkspaceSearchFilesRpc = Rpc.make("workspace.searchFiles", {
-  payload: Schema.Struct({
-    projectId: FolderId,
-    query: Schema.String,
-    limit: Schema.optional(Schema.Number),
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Array(
-    Schema.Struct({
-      relPath: Schema.String,
-      absPath: Schema.String,
-      kind: Schema.Literals(["file", "directory"]),
-    }),
-  ),
-  error: FsFolderNotFoundError,
+	payload: Schema.Struct({
+		projectId: FolderId,
+		query: Schema.String,
+		limit: Schema.optional(Schema.Number),
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Array(
+		Schema.Struct({
+			relPath: Schema.String,
+			absPath: Schema.String,
+			kind: Schema.Literals(["file", "directory"]),
+		}),
+	),
+	error: Schema.Union([FsFolderNotFoundError, DirectoryUnavailableError]),
 });

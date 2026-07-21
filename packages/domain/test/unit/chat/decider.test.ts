@@ -88,10 +88,11 @@ describe("chat decider", () => {
 		const request: ChatCommand = {
 			_tag: "RequestArchiveChat",
 			requestedAt: 20,
+			force: false,
 		};
 		const requested = Result.getOrThrow(decideChat(state, request));
 		expect(requested).toEqual([
-			{ _tag: "ChatArchiveRequested", requestedAt: 20 },
+			{ _tag: "ChatArchiveRequested", requestedAt: 20, force: false },
 		]);
 		state = evolveChats(state, requested);
 		expect(Result.getOrThrow(decideChat(state, request))).toEqual([]);

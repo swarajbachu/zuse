@@ -19,6 +19,7 @@ export type AutoNameCommand = { readonly _tag: "AutoNameChat" };
 
 export type ChatArchiveCommand = {
 	readonly _tag: "ArchiveChatWorktree";
+	readonly force: boolean;
 };
 
 export type ChatDeleteCommand = { readonly _tag: "DeleteChatResources" };
@@ -98,6 +99,7 @@ export const chatArchiveReactorDefinition: ReactorDefinition<
 							streamId: record.streamId,
 							command: {
 								_tag: "ArchiveChatWorktree",
+								force: record.event.force ?? false,
 							},
 						},
 					]

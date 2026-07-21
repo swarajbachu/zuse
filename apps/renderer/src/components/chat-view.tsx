@@ -30,11 +30,6 @@ import {
 	shouldRestoreAnchorScrollOffset,
 	type TimelineScrollMode,
 } from "../lib/timeline-scroll-anchoring.ts";
-import {
-	type ChatArchiveProgressPhase,
-	chatArchiveProgressLabel,
-	useChatsStore,
-} from "../store/chats.ts";
 import { teardownLiveStreams, useMessagesStore } from "../store/messages.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { usePermissionsStore } from "../store/permissions.ts";
@@ -147,12 +142,6 @@ export function ChatView({
 	const externalResume = session !== null && session.resumeStrategy !== "none";
 	const setupActive =
 		worktreeSetupActive || (!externalResume && session?.status === "booting");
-	const archiveProgress = useChatsStore((s) =>
-		session?.chatId === undefined
-			? null
-			: (s.archiveProgressByChat[session.chatId] ?? null),
-	);
-
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -791,9 +780,6 @@ export function ChatView({
 						</div>
 					</div>
 				</div>
-				{archiveProgress !== null ? (
-					<ArchiveProgressOverlay phase={archiveProgress} />
-				) : null}
 			</div>
 			{forkMenu.menu}
 		</FileChipProvider>
@@ -853,27 +839,6 @@ function TimelineRow({
 		case "working":
 			return <WorkingRow messages={row.messages} />;
 	}
-}
-
-function ArchiveProgressOverlay({
-	phase,
-}: {
-	phase: ChatArchiveProgressPhase;
-}) {
-	const label = chatArchiveProgressLabel(phase);
-	const detail = "Saving the chat and checkpointing its worktree.";
-
-	return (
-		<div className="absolute inset-0 z-30 flex items-center justify-center bg-background/72 px-6 backdrop-blur-sm">
-			<div className="flex w-full max-w-sm items-center gap-3 rounded-lg border border-border/70 bg-popover px-4 py-3 text-popover-foreground shadow-lg/10">
-				<Spinner className="size-5 shrink-0" />
-				<div className="min-w-0">
-					<div className="font-medium text-sm">{label}</div>
-					<div className="mt-1 text-muted-foreground text-xs">{detail}</div>
-				</div>
-			</div>
-		</div>
-	);
 }
 
 const formatElapsed = (ms: number): string => {

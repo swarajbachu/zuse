@@ -1,5 +1,5 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import { FolderId, WorktreeId } from "./ids.ts";
 
@@ -10,105 +10,123 @@ import { FolderId, WorktreeId } from "./ids.ts";
  * when the user expands a directory.
  */
 export class FsEntry extends Schema.Class<FsEntry>("FsEntry")({
-  name: Schema.String,
-  path: Schema.String,
-  kind: Schema.Literals(["file", "directory"]),
+	name: Schema.String,
+	path: Schema.String,
+	kind: Schema.Literals(["file", "directory"]),
 }) {}
 
 export class FsFolderNotFoundError extends Schema.TaggedErrorClass<FsFolderNotFoundError>()(
-  "FsFolderNotFoundError",
-  { folderId: FolderId },
+	"FsFolderNotFoundError",
+	{ folderId: FolderId },
+) {}
+
+export class DirectoryUnavailableError extends Schema.TaggedErrorClass<DirectoryUnavailableError>()(
+	"DirectoryUnavailableError",
+	{
+		folderId: FolderId,
+		worktreeId: Schema.NullOr(WorktreeId),
+		reason: Schema.Literals(["project-missing", "worktree-missing"]),
+	},
 ) {}
 
 export class FsPathOutsideError extends Schema.TaggedErrorClass<FsPathOutsideError>()(
-  "FsPathOutsideError",
-  { folderId: FolderId, path: Schema.String },
+	"FsPathOutsideError",
+	{ folderId: FolderId, path: Schema.String },
 ) {}
 
 export class FsReadError extends Schema.TaggedErrorClass<FsReadError>()(
-  "FsReadError",
-  { folderId: FolderId, path: Schema.String, reason: Schema.String },
+	"FsReadError",
+	{ folderId: FolderId, path: Schema.String, reason: Schema.String },
 ) {}
 
 export class FsAlreadyExistsError extends Schema.TaggedErrorClass<FsAlreadyExistsError>()(
-  "FsAlreadyExistsError",
-  { folderId: FolderId, path: Schema.String },
+	"FsAlreadyExistsError",
+	{ folderId: FolderId, path: Schema.String },
 ) {}
 
 export class FsTooLargeError extends Schema.TaggedErrorClass<FsTooLargeError>()(
-  "FsTooLargeError",
-  { folderId: FolderId, path: Schema.String, size: Schema.Number, limit: Schema.Number },
+	"FsTooLargeError",
+	{
+		folderId: FolderId,
+		path: Schema.String,
+		size: Schema.Number,
+		limit: Schema.Number,
+	},
 ) {}
 
 export class FsConflictError extends Schema.TaggedErrorClass<FsConflictError>()(
-  "FsConflictError",
-  {
-    folderId: FolderId,
-    path: Schema.String,
-    expectedMtime: Schema.String,
-    actualMtime: Schema.String,
-  },
+	"FsConflictError",
+	{
+		folderId: FolderId,
+		path: Schema.String,
+		expectedMtime: Schema.String,
+		actualMtime: Schema.String,
+	},
 ) {}
 
 // External-file errors mirror the in-folder ones but key off an absolute
 // `path` instead of a `folderId` — the `fs.*ExternalFile` RPCs operate
 // outside any project folder, so there's no folder id to carry.
 export class FsExternalReadError extends Schema.TaggedErrorClass<FsExternalReadError>()(
-  "FsExternalReadError",
-  { path: Schema.String, reason: Schema.String },
+	"FsExternalReadError",
+	{ path: Schema.String, reason: Schema.String },
 ) {}
 
 export class FsExternalTooLargeError extends Schema.TaggedErrorClass<FsExternalTooLargeError>()(
-  "FsExternalTooLargeError",
-  { path: Schema.String, size: Schema.Number, limit: Schema.Number },
+	"FsExternalTooLargeError",
+	{ path: Schema.String, size: Schema.Number, limit: Schema.Number },
 ) {}
 
 export class FsExternalConflictError extends Schema.TaggedErrorClass<FsExternalConflictError>()(
-  "FsExternalConflictError",
-  {
-    path: Schema.String,
-    expectedMtime: Schema.String,
-    actualMtime: Schema.String,
-  },
+	"FsExternalConflictError",
+	{
+		path: Schema.String,
+		expectedMtime: Schema.String,
+		actualMtime: Schema.String,
+	},
 ) {}
 
 const FsErrors = Schema.Union([
-  FsFolderNotFoundError,
-  FsPathOutsideError,
-  FsReadError,
+	FsFolderNotFoundError,
+	DirectoryUnavailableError,
+	FsPathOutsideError,
+	FsReadError,
 ]);
 
 const FsReadExternalFileErrors = Schema.Union([
-  FsExternalReadError,
-  FsExternalTooLargeError,
+	FsExternalReadError,
+	FsExternalTooLargeError,
 ]);
 
 const FsWriteExternalFileErrors = Schema.Union([
-  FsExternalReadError,
-  FsExternalTooLargeError,
-  FsExternalConflictError,
+	FsExternalReadError,
+	FsExternalTooLargeError,
+	FsExternalConflictError,
 ]);
 
 const FsReadFileErrors = Schema.Union([
-  FsFolderNotFoundError,
-  FsPathOutsideError,
-  FsReadError,
-  FsTooLargeError,
+	FsFolderNotFoundError,
+	DirectoryUnavailableError,
+	FsPathOutsideError,
+	FsReadError,
+	FsTooLargeError,
 ]);
 
 const FsWriteFileErrors = Schema.Union([
-  FsFolderNotFoundError,
-  FsPathOutsideError,
-  FsReadError,
-  FsConflictError,
-  FsTooLargeError,
+	FsFolderNotFoundError,
+	DirectoryUnavailableError,
+	FsPathOutsideError,
+	FsReadError,
+	FsConflictError,
+	FsTooLargeError,
 ]);
 
 const FsCreateErrors = Schema.Union([
-  FsFolderNotFoundError,
-  FsPathOutsideError,
-  FsReadError,
-  FsAlreadyExistsError,
+	FsFolderNotFoundError,
+	DirectoryUnavailableError,
+	FsPathOutsideError,
+	FsReadError,
+	FsAlreadyExistsError,
 ]);
 
 /**
@@ -118,18 +136,18 @@ const FsCreateErrors = Schema.Union([
  * `node_modules`; everything else is returned, sorted dirs-first then by name.
  */
 export const FsTreeRpc = Rpc.make("fs.tree", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.optional(Schema.String),
-    /**
-     * When set, list inside the worktree's path instead of the project's
-     * main checkout. The worktree must belong to `folderId`; otherwise the
-     * server falls back to the main checkout silently.
-     */
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Array(FsEntry),
-  error: FsErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.optional(Schema.String),
+		/**
+		 * When set, list inside the worktree's path instead of the project's
+		 * main checkout. The worktree must belong to `folderId`; otherwise the
+		 * server falls back to the main checkout silently.
+		 */
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Array(FsEntry),
+	error: FsErrors,
 });
 
 /**
@@ -138,15 +156,15 @@ export const FsTreeRpc = Rpc.make("fs.tree", {
  * renderer can refresh only the open tree branches affected by disk changes.
  */
 export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({
-    paths: Schema.Array(Schema.String),
-  }),
-  error: FsErrors,
-  stream: true,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({
+		paths: Schema.Array(Schema.String),
+	}),
+	error: FsErrors,
+	stream: true,
 });
 
 /**
@@ -156,17 +174,17 @@ export const FsWatchTreeRpc = Rpc.make("fs.watchTree", {
  * `kind: "binary"` so supported formats can be previewed without another read.
  */
 export const FsFileContent = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("text"),
-    content: Schema.String,
-    mtime: Schema.String,
-    size: Schema.Number,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("binary"),
-    bytes: Schema.Uint8ArrayFromBase64,
-    size: Schema.Number,
-  }),
+	Schema.Struct({
+		kind: Schema.Literal("text"),
+		content: Schema.String,
+		mtime: Schema.String,
+		size: Schema.Number,
+	}),
+	Schema.Struct({
+		kind: Schema.Literal("binary"),
+		bytes: Schema.Uint8ArrayFromBase64,
+		size: Schema.Number,
+	}),
 ]);
 
 /**
@@ -177,13 +195,13 @@ export const FsFileContent = Schema.Union([
  * server can reject writes when the file changed on disk underneath us.
  */
 export const FsReadFileRpc = Rpc.make("fs.readFile", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: FsFileContent,
-  error: FsReadFileErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: FsFileContent,
+	error: FsReadFileErrors,
 });
 
 /**
@@ -194,17 +212,17 @@ export const FsReadFileRpc = Rpc.make("fs.readFile", {
  * toast. Same 5 MB cap applies to incoming content.
  */
 export const FsWriteFileRpc = Rpc.make("fs.writeFile", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.String,
-    content: Schema.String,
-    expectedMtime: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({
-    mtime: Schema.String,
-  }),
-  error: FsWriteFileErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.String,
+		content: Schema.String,
+		expectedMtime: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({
+		mtime: Schema.String,
+	}),
+	error: FsWriteFileErrors,
 });
 
 /**
@@ -212,13 +230,13 @@ export const FsWriteFileRpc = Rpc.make("fs.writeFile", {
  * already exists; parent directories must already exist.
  */
 export const FsCreateFileRpc = Rpc.make("fs.createFile", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({}),
-  error: FsCreateErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({}),
+	error: FsCreateErrors,
 });
 
 /**
@@ -226,13 +244,13 @@ export const FsCreateFileRpc = Rpc.make("fs.createFile", {
  * target already exists; parent directories must already exist.
  */
 export const FsCreateDirectoryRpc = Rpc.make("fs.createDirectory", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({}),
-  error: FsCreateErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({}),
+	error: FsCreateErrors,
 });
 
 /**
@@ -241,13 +259,13 @@ export const FsCreateDirectoryRpc = Rpc.make("fs.createDirectory", {
  * other local fs RPC.
  */
 export const FsRemoveRpc = Rpc.make("fs.remove", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    path: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({}),
-  error: FsErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		path: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({}),
+	error: FsErrors,
 });
 
 /**
@@ -259,15 +277,15 @@ export const FsRemoveRpc = Rpc.make("fs.remove", {
  * cap is hit, `truncated` is `true` and the list stops early.
  */
 export const FsListPathsRpc = Rpc.make("fs.listPaths", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({
-    paths: Schema.Array(Schema.String),
-    truncated: Schema.Boolean,
-  }),
-  error: FsErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({
+		paths: Schema.Array(Schema.String),
+		truncated: Schema.Boolean,
+	}),
+	error: FsErrors,
 });
 
 /**
@@ -276,14 +294,14 @@ export const FsListPathsRpc = Rpc.make("fs.listPaths", {
  * and validated for containment; fails if the destination already exists.
  */
 export const FsMoveRpc = Rpc.make("fs.move", {
-  payload: Schema.Struct({
-    folderId: FolderId,
-    fromPath: Schema.String,
-    toPath: Schema.String,
-    worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-  }),
-  success: Schema.Struct({}),
-  error: FsCreateErrors,
+	payload: Schema.Struct({
+		folderId: FolderId,
+		fromPath: Schema.String,
+		toPath: Schema.String,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.Struct({}),
+	error: FsCreateErrors,
 });
 
 /**
@@ -294,11 +312,11 @@ export const FsMoveRpc = Rpc.make("fs.move", {
  * the user explicitly opened.
  */
 export const FsReadExternalFileRpc = Rpc.make("fs.readExternalFile", {
-  payload: Schema.Struct({
-    path: Schema.String,
-  }),
-  success: FsFileContent,
-  error: FsReadExternalFileErrors,
+	payload: Schema.Struct({
+		path: Schema.String,
+	}),
+	success: FsFileContent,
+	error: FsReadExternalFileErrors,
 });
 
 /**
@@ -307,13 +325,13 @@ export const FsReadExternalFileRpc = Rpc.make("fs.readExternalFile", {
  * files outside the workspace.
  */
 export const FsWriteExternalFileRpc = Rpc.make("fs.writeExternalFile", {
-  payload: Schema.Struct({
-    path: Schema.String,
-    content: Schema.String,
-    expectedMtime: Schema.String,
-  }),
-  success: Schema.Struct({
-    mtime: Schema.String,
-  }),
-  error: FsWriteExternalFileErrors,
+	payload: Schema.Struct({
+		path: Schema.String,
+		content: Schema.String,
+		expectedMtime: Schema.String,
+	}),
+	success: Schema.Struct({
+		mtime: Schema.String,
+	}),
+	error: FsWriteExternalFileErrors,
 });

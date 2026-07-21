@@ -5,13 +5,23 @@ import {
 	ArrowLeft01Icon,
 	Search01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { Chat, FolderId, Message, Session } from "@zuse/contracts";
+import type {
+	Chat,
+	ChatArchiveJob,
+	ChatDirectoryStatus,
+	FolderId,
+	Message,
+	Session,
+} from "@zuse/contracts";
+import { Effect } from "effect";
 import { useEffect, useMemo, useState } from "react";
 
+import { getRpcClient } from "../lib/rpc-client.ts";
 import { cn } from "../lib/utils.ts";
 import { useArchivePreviewStore } from "../store/archive-preview.ts";
 import { useChatsStore } from "../store/chats.ts";
 import { ArchivedChatTimeline } from "./archived-chat-timeline.tsx";
+import { DirectoryUnavailableBanner } from "./directory-unavailable-banner.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
@@ -42,6 +52,9 @@ export function ArchivedChatsPage({
 			: (state.chatsByProject[projectId] ?? EMPTY_CHATS),
 	);
 	const [query, setQuery] = useState("");
+	const [archiveJob, setArchiveJob] = useState<ChatArchiveJob | null>(null);
+	const [directoryStatus, setDirectoryStatus] =
+		useState<ChatDirectoryStatus | null>(null);
 	const selectedChatId = useArchivePreviewStore((state) =>
 		projectId === null
 			? null
@@ -113,12 +126,55 @@ export function ArchivedChatsPage({
 	const openChat = useArchivePreviewStore((state) => state.openChat);
 	const selectSession = useArchivePreviewStore((state) => state.selectSession);
 	const unarchive = useChatsStore((state) => state.unarchive);
+	const forceArchive = useChatsStore((state) => state.archive);
 
 	useEffect(() => {
 		if (projectId !== null) void loadProject(projectId);
 	}, [loadProject, projectId]);
 
 	useEffect(() => setQuery(""), [projectId]);
+
+	useEffect(() => {
+		if (selectedChatId === null) {
+			setArchiveJob(null);
+			setDirectoryStatus(null);
+			return;
+		}
+		setArchiveJob(null);
+		setDirectoryStatus(null);
+		let cancelled = false;
+		let timer: number | null = null;
+		const refresh = async () => {
+			try {
+				const client = await getRpcClient();
+				const [job, status] = await Promise.all([
+					Effect.runPromise(
+						client["chat.archiveStatus"]({ chatId: selectedChatId }),
+					),
+					Effect.runPromise(
+						client["chat.directoryStatus"]({ chatId: selectedChatId }),
+					),
+				]);
+				if (!cancelled) {
+					setArchiveJob(job);
+					setDirectoryStatus(status);
+				}
+			} catch {
+				// The preview remains readable while the connection recovers.
+			} finally {
+				if (!cancelled) timer = window.setTimeout(poll, 2_000);
+			}
+		};
+		const poll = () => {
+			if (document.visibilityState === "visible") void refresh();
+			else if (!cancelled) timer = window.setTimeout(poll, 2_000);
+		};
+		void refresh();
+		return () => {
+			cancelled = true;
+			if (timer !== null) window.clearTimeout(timer);
+		};
+	}, [selectedChatId]);
 
 	if (projectId === null) {
 		return <CenteredState text="Select a project to view archived chats." />;
@@ -233,6 +289,11 @@ export function ArchivedChatsPage({
 					</p>
 				</div>
 			</header>
+			{directoryStatus?._tag === "unavailable" ? (
+				<div className="shrink-0 px-4 pt-3">
+					<DirectoryUnavailableBanner archived />
+				</div>
+			) : null}
 
 			{preview !== undefined && sessions.length > 0 ? (
 				<nav
@@ -313,7 +374,21 @@ export function ArchivedChatsPage({
 								{restoreError}
 							</p>
 						) : null}
+						{archiveJob?.status === "failed" ? (
+							<p className="mt-0.5 truncate text-[11px] text-destructive">
+								{archiveJob.error ?? "Worktree cleanup failed."}
+							</p>
+						) : null}
 					</div>
+					{archiveJob?.status === "failed" ? (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => void forceArchive(selectedChat.id, true)}
+						>
+							Force archive
+						</Button>
+					) : null}
 					<Button
 						variant="settings"
 						size="sm"

@@ -178,10 +178,12 @@ export function ChatComposer({
 	composerDraftKey,
 	headerSlot,
 	constrain = true,
+	directoryUnavailable = false,
 }: {
 	session: Session;
 	composerDraftKey?: string;
 	constrain?: boolean;
+	directoryUnavailable?: boolean;
 	/**
 	 * Optional content rendered as a header row inside the composer frame, above
 	 * the editor. Used by the new-chat landing to host the "Create from…" picker
@@ -464,7 +466,9 @@ export function ChatComposer({
 	// Stacked annotations are a valid message on their own, so they enable Send
 	// even with an empty text box.
 	const canSend =
-		uploadingAttachmentCount === 0 && (hasText || annotationCount > 0);
+		!directoryUnavailable &&
+		uploadingAttachmentCount === 0 &&
+		(hasText || annotationCount > 0);
 
 	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
 	// live chat composers by session id, and the landing keys them by project id,
@@ -714,6 +718,7 @@ export function ChatComposer({
 	 * upload resolves. Files beyond the per-turn cap are dropped with a warning.
 	 */
 	const attachFiles = (files: readonly File[]): void => {
+		if (directoryUnavailable) return;
 		const view = editorViewRef.current;
 		if (view === null || files.length === 0) return;
 
@@ -926,6 +931,7 @@ export function ChatComposer({
 	};
 
 	const submit = (): boolean => {
+		if (directoryUnavailable) return false;
 		// Don't submit while a popover is open — Enter belongs to the popover.
 		if (trigger !== null || modelPickerOpen) return false;
 		if (uploadingAttachmentCount > 0) return false;
@@ -1104,6 +1110,8 @@ export function ChatComposer({
 				className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}
 				style={showCard ? { display: "none" } : undefined}
 				aria-hidden={showCard || undefined}
+				aria-disabled={directoryUnavailable || undefined}
+				inert={directoryUnavailable || undefined}
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 					{!isDraft ? (

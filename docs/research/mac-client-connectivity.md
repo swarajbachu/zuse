@@ -1,7 +1,7 @@
 # Faster client-to-Mac connectivity
 
-**Status:** local-connectivity implementation landed; remote-path research deferred  
-**Date:** 2026-07-21  
+**Status:** local-connectivity implementation landed; remote-path research deferred
+**Date:** 2026-07-21
 **Scope:** interactive client connections to a Mac, on the same network and
 across the public Internet
 

@@ -47,13 +47,14 @@ describe("conversation reactor definitions", () => {
 				event: {
 					_tag: "ChatArchiveRequested",
 					requestedAt: 2,
+					force: false,
 				},
 			}),
 		);
 		expect(commands).toEqual([
 			{
 				streamId: "chat-1",
-				command: { _tag: "ArchiveChatWorktree" },
+				command: { _tag: "ArchiveChatWorktree", force: false },
 			},
 		]);
 	});

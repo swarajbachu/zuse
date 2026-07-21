@@ -10,6 +10,7 @@ import {
 import { ChatLanding } from "./components/chat-landing.tsx";
 import { ChatSwitcher } from "./components/chat-switcher.tsx";
 import { CliUpgradeBanner } from "./components/cli-upgrade-banner.tsx";
+import { DirectoryUnavailableBanner } from "./components/directory-unavailable-banner.tsx";
 import { EnvironmentSummary } from "./components/environment-summary.tsx";
 import { closeActiveChatTab, MainTabs } from "./components/main-tabs.tsx";
 import { NearbyPairingApproval } from "./components/nearby-pairing-approval.tsx";
@@ -23,6 +24,7 @@ import {
 import { TopBarLeft, TopBarMain, TopBarRight } from "./components/top-bar.tsx";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { UpdateBanner } from "./components/update-banner.tsx";
+import { useChatDirectoryStatus } from "./hooks/use-chat-directory-status.ts";
 import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMediaQuery } from "./hooks/use-media-query.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
@@ -35,6 +37,7 @@ import { usePermissionsStore } from "./store/permissions.ts";
 import { useQueueHydrationStore } from "./store/queue-hydration.ts";
 import { getSessionById, useSessionsStore } from "./store/sessions.ts";
 import { useSettingsStore } from "./store/settings.ts";
+import { useTerminalsStore } from "./store/terminals.ts";
 import { useUiStore } from "./store/ui.ts";
 import { useWorkspaceStore } from "./store/workspace.ts";
 import { useWorktreesStore } from "./store/worktrees.ts";
@@ -249,6 +252,14 @@ function MainShell() {
 			? false
 			: state.hydratedBySession[selectedSessionId] === true,
 	);
+	const directoryStatus = useChatDirectoryStatus(
+		selectedSession?.chatId ?? null,
+	);
+	const directoryUnavailable = directoryStatus?._tag === "unavailable";
+	useEffect(() => {
+		if (!directoryUnavailable || selectedSession?.chatId === undefined) return;
+		useTerminalsStore.getState().disposeChat(selectedSession.chatId);
+	}, [directoryUnavailable, selectedSession?.chatId]);
 	const selectedFolder = selectedFolderId
 		? (folders.find((f) => f.id === selectedFolderId) ?? null)
 		: null;
@@ -444,12 +455,16 @@ function MainShell() {
 												providerId={selectedSession.providerId}
 												constrain={false}
 											/>
+											{directoryUnavailable ? (
+												<DirectoryUnavailableBanner />
+											) : null}
 											{selectedQueueHydrated ? (
 												<Suspense fallback={<ComposerFallback />}>
 													<ChatComposer
 														key={selectedSession.id}
 														session={selectedSession}
 														constrain={false}
+														directoryUnavailable={directoryUnavailable}
 													/>
 												</Suspense>
 											) : (
@@ -524,7 +539,11 @@ function MainShell() {
 								className="flex min-h-0 flex-1 flex-col"
 							>
 								<Suspense fallback={<SurfaceFallback />}>
-									<FileEditor />
+									{directoryUnavailable ? (
+										<DirectoryUnavailableSurface label="Files are unavailable because this directory was deleted." />
+									) : (
+										<FileEditor />
+									)}
 								</Suspense>
 							</div>
 						)}
@@ -534,7 +553,11 @@ function MainShell() {
 								className="flex min-h-0 flex-1 flex-col"
 							>
 								<Suspense fallback={<SurfaceFallback />}>
-									<ChangesReview />
+									{directoryUnavailable ? (
+										<DirectoryUnavailableSurface label="Changes are unavailable because this directory was deleted." />
+									) : (
+										<ChangesReview />
+									)}
 								</Suspense>
 							</div>
 						) : null}
@@ -567,7 +590,7 @@ function MainShell() {
 						<div className="flex min-h-0 flex-1 flex-col">
 							{rightSidebarOpen ? (
 								<Suspense fallback={<SurfaceFallback />}>
-									<RightPane />
+									<RightPane directoryUnavailable={directoryUnavailable} />
 								</Suspense>
 							) : null}
 						</div>
@@ -577,6 +600,17 @@ function MainShell() {
 			<SidebarPeekTrigger />
 			<SidebarPeekOverlay />
 			<ChatSwitcher />
+		</div>
+	);
+}
+
+function DirectoryUnavailableSurface({ label }: { readonly label: string }) {
+	return (
+		<div
+			role="status"
+			className="grid min-h-0 flex-1 place-items-center px-6 text-center text-sm text-muted-foreground"
+		>
+			{label}
 		</div>
 	);
 }

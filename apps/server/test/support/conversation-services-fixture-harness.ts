@@ -66,6 +66,7 @@ import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrat
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
+import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -139,6 +140,7 @@ const runAllMigrations = Effect.all(
 		Migration0033ReactorEffectSteps,
 		Migration0034ToolEventLookup,
 		Migration0039AuthTokenDevices,
+		Migration0041ChatArchiveJobs,
 	],
 	{ discard: true },
 );
@@ -343,6 +345,7 @@ const makeRuntime = (
 		Layer.provide(DomainLive),
 		Layer.provide(ChatDomainLive),
 		Layer.provide(SessionQueriesLive),
+		Layer.provide(NodeServices.layer),
 		Layer.provideMerge(Migrated),
 	);
 	const TestLayer = TestConversationLive.pipe(

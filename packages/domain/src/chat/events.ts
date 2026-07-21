@@ -28,6 +28,7 @@ export const ChatEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("ChatArchiveRequested", {
 		requestedAt: Schema.Number,
+		force: Schema.optional(Schema.Boolean),
 	}),
 	Schema.TaggedStruct("ChatArchived", {
 		archivedAt: Schema.Number,

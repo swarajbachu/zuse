@@ -1,6 +1,7 @@
 import {
 	type AttachmentRef,
 	type ComposerAnnotation,
+	DirectoryUnavailableError,
 	type FileRef,
 	type MessageContent,
 	type MessageId,
@@ -12,7 +13,7 @@ import {
 	type SkillRef,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
-import { Effect, type Scope } from "effect";
+import { Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
@@ -30,6 +31,7 @@ import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
 
 export interface MessageOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
+	readonly fs: FileSystem.FileSystem;
 	readonly provider: ProviderServiceShape;
 	readonly goalState: ConversationGoalState;
 	readonly lookupSession: ConversationOperations["getSession"];
@@ -92,6 +94,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 	function* (options: MessageOperationsOptions) {
 		const {
 			sql,
+			fs,
 			provider,
 			goalState,
 			lookupSession,
@@ -151,9 +154,52 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			asGoal?: boolean,
 			clientMessageId?: MessageId,
 			origin?: MessageOrigin,
-		): Effect.Effect<boolean, SessionNotFoundError> =>
+		): Effect.Effect<
+			boolean,
+			SessionNotFoundError | DirectoryUnavailableError
+		> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
+				const directoryRows = yield* sql<{
+					readonly project_id: string;
+					readonly project_path: string | null;
+					readonly worktree_id: string | null;
+					readonly worktree_path: string | null;
+					readonly archived_worktree_json: string | null;
+				}>`
+          SELECT c.project_id, p.path AS project_path, c.worktree_id,
+                 w.path AS worktree_path, c.archived_worktree_json
+          FROM chats c
+          LEFT JOIN projects p ON p.id = c.project_id
+          LEFT JOIN worktrees w ON w.id = c.worktree_id
+          WHERE c.id = ${session.chatId}
+          LIMIT 1
+        `.pipe(Effect.orDie);
+				const directory = directoryRows[0];
+				if (directory !== undefined) {
+					const expectsWorktree =
+						directory.worktree_id !== null ||
+						directory.archived_worktree_json !== null;
+					const path = expectsWorktree
+						? directory.worktree_path
+						: directory.project_path;
+					const available =
+						path !== null &&
+						(yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false)));
+					if (!available) {
+						yield* closeProvider(sessionId).pipe(Effect.ignore);
+						yield* interruptProviderFiber(sessionId).pipe(Effect.ignore);
+						return yield* Effect.fail(
+							new DirectoryUnavailableError({
+								folderId: session.projectId,
+								worktreeId: session.worktreeId,
+								reason: expectsWorktree
+									? "worktree-missing"
+									: "project-missing",
+							}),
+						);
+					}
+				}
 				if (asGoal !== true && isGoalCapableProvider(session.providerId)) {
 					const goal = goalState.current(sessionId);
 					const trimmed = text.trim();

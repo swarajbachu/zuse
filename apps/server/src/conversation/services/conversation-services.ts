@@ -4,17 +4,20 @@ import type {
 	AttachmentRef,
 	Chat,
 	ChatAlreadyStartedError,
+	ChatArchiveJob,
 	ChatArchivePreview,
 	ChatArchiveResult,
 	ChatArchiveScriptError,
 	ChatArchiveTimeoutError,
 	ChatArchiveWorktreeError,
+	ChatDirectoryStatus,
 	ChatId,
 	ChatNotArchivedError,
 	ChatNotFoundError,
 	ChatUnarchiveResult,
 	ComposerAnnotation,
 	ComposerInput,
+	DirectoryUnavailableError,
 	FileRef,
 	FolderId,
 	ForkDestination,
@@ -405,6 +408,7 @@ export interface ConversationOperations {
 
 	readonly archiveChat: (
 		chatId: ChatId,
+		force?: boolean,
 	) => Effect.Effect<
 		ChatArchiveResult,
 		| ChatNotFoundError
@@ -412,6 +416,17 @@ export interface ConversationOperations {
 		| ChatArchiveTimeoutError
 		| ChatArchiveWorktreeError
 	>;
+
+	readonly getArchiveStatus: (
+		chatId: ChatId,
+	) => Effect.Effect<ChatArchiveJob | null, ChatNotFoundError>;
+	readonly listArchiveJobs: (
+		projectId: FolderId,
+	) => Effect.Effect<ReadonlyArray<ChatArchiveJob>>;
+
+	readonly getChatDirectoryStatus: (
+		chatId: ChatId,
+	) => Effect.Effect<ChatDirectoryStatus, ChatNotFoundError>;
 
 	readonly unarchiveChat: (
 		chatId: ChatId,
@@ -468,7 +483,7 @@ export interface ConversationOperations {
 		asGoal?: boolean,
 		clientMessageId?: MessageId,
 		origin?: MessageOrigin,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
 
 	readonly interruptSession: (
 		sessionId: SessionId,
@@ -558,6 +573,9 @@ export type ChatServiceShape = Pick<
 	| "setChatWorktree"
 	| "setChatActiveSession"
 	| "archiveChat"
+	| "getArchiveStatus"
+	| "listArchiveJobs"
+	| "getChatDirectoryStatus"
 	| "unarchiveChat"
 	| "deleteChat"
 >;

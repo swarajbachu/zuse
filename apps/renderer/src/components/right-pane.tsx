@@ -125,7 +125,11 @@ function addableKinds(
  * (`hidden` toggling) so switching tabs preserves terminal scrollback,
  * file-tree expansion, the browser webview, and any in-flight PR fetch.
  */
-export function RightPane() {
+export function RightPane({
+	directoryUnavailable = false,
+}: {
+	directoryUnavailable?: boolean;
+}) {
 	const paneRef = useRef<HTMLElement>(null);
 	useRegisterPane("rightPane", paneRef);
 	const ctx = useActiveContext();
@@ -203,6 +207,11 @@ export function RightPane() {
 	const closePanel = useUiStore((s) => s.closePanel);
 	const setActive = useUiStore((s) => s.setActiveRightPanel);
 	const openChanges = useUiStore((s) => s.openChanges);
+	const addablePanels = addableKinds(panels).filter(
+		(kind) =>
+			!directoryUnavailable ||
+			(kind !== "files" && kind !== "terminal" && kind !== "changes"),
+	);
 
 	// Glide dock tabs when panels are opened or closed. Declared with the other
 	// hooks (above the `selected === null` early return) to satisfy hook rules.
@@ -290,7 +299,7 @@ export function RightPane() {
 		visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
 	const browserActive = activePanel?.kind === "browser";
 	const addPanelMenu = (
-		<AddPanelMenu addable={addableKinds(panels)} onAdd={addPanel} />
+		<AddPanelMenu addable={addablePanels} onAdd={addPanel} />
 	);
 
 	return (
@@ -326,7 +335,7 @@ export function RightPane() {
 				{visiblePanels.length === 0 ? (
 					<PanelLauncher
 						actions={addPanelMenu}
-						addable={addableKinds(panels)}
+						addable={addablePanels}
 						onAdd={addPanel}
 					/>
 				) : null}
@@ -345,6 +354,7 @@ export function RightPane() {
 								worktreeId={worktreeId}
 								sessionId={sessionId}
 								planMarkdown={planMarkdown}
+								directoryUnavailable={directoryUnavailable}
 							/>
 						</div>
 					))}
@@ -370,13 +380,30 @@ function PanelBody({
 	worktreeId,
 	sessionId,
 	planMarkdown,
+	directoryUnavailable,
 }: {
 	panel: PanelInstance;
 	folderId: FolderId;
 	worktreeId: WorktreeId | null;
 	sessionId: import("@zuse/contracts").SessionId | null;
 	planMarkdown: string | null;
+	directoryUnavailable: boolean;
 }) {
+	if (
+		directoryUnavailable &&
+		(panel.kind === "files" ||
+			panel.kind === "terminal" ||
+			panel.kind === "changes")
+	) {
+		return (
+			<div
+				role="status"
+				className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground"
+			>
+				This directory is unavailable.
+			</div>
+		);
+	}
 	switch (panel.kind) {
 		case "files":
 			return (
