@@ -92,12 +92,12 @@ const migrateModelOptions = (fromId: string, toId: string): void => {
 	const moves: Array<[string, string]> = [];
 	for (let i = 0; i < window.sessionStorage.length; i++) {
 		const key = window.sessionStorage.key(i);
-		if (key !== null && key.startsWith(prefix)) {
+		if (key?.startsWith(prefix)) {
 			moves.push([
 				key,
 				`zuse.modelOptions.${toId}.${key.slice(prefix.length)}`,
 			]);
-		} else if (key !== null && key.startsWith(legacyPrefix)) {
+		} else if (key?.startsWith(legacyPrefix)) {
 			moves.push([
 				key,
 				`zuse.modelOptions.${toId}.${key.slice(legacyPrefix.length)}`,
@@ -548,7 +548,24 @@ export function ChatLanding() {
 				startupInput,
 			},
 		);
-		const worktreeId = await worktreePromise;
+		let worktreeId: WorktreeId | null;
+		try {
+			worktreeId = await worktreePromise;
+		} catch (error) {
+			// `create` observes the same rejected promise and rolls its optimistic
+			// chat/session back. Await that cleanup before restoring the landing.
+			await createPromise;
+			setSubmitError(
+				error instanceof Error
+					? error.message
+					: "Couldn't create an isolated worktree.",
+			);
+			setPendingPrompt(null);
+			setPendingWorktreeId(null);
+			setPendingProviderId(null);
+			setSubmitting(false);
+			return;
+		}
 		setPendingWorktreeId(worktreeId);
 		const result = await createPromise;
 		if (result === null) {

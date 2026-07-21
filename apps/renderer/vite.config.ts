@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, searchForWorkspaceRoot } from "vite";
+import { searchForWorkspaceRoot } from "vite";
+import { defineConfig } from "vitest/config";
 
 const port = Number(process.env.PORT ?? 5733);
 const host = process.env.HOST?.trim() || "localhost";
@@ -34,6 +35,16 @@ export default defineConfig({
 		alias: {
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
+		// React hook dispatchers are identity-sensitive. Keep every workspace and
+		// linked-package import on the same physical runtime.
+		dedupe: ["react", "react-dom"],
+	},
+	// These React adapters sit behind lazy renderer routes. Without an explicit
+	// include Vite can discover them after Electron has already loaded the app,
+	// invalidate the optimized dependency graph, and leave old/new hash
+	// generations alive together until reload (an invalid-hook-call crash).
+	optimizeDeps: {
+		include: ["@legendapp/list/react", "@pierre/trees/react"],
 	},
 	server: {
 		host,
