@@ -132,6 +132,7 @@ setMessagesRpcCommandDispatcherForTest(async (commandId, operation) => {
 describe("messages store queue actions", () => {
 	afterEach(async () => {
 		await teardownLiveStreams();
+		vi.unstubAllGlobals();
 	});
 
 	beforeEach(() => {
@@ -276,6 +277,38 @@ describe("messages store queue actions", () => {
 					},
 				}),
 			]);
+	});
+
+	it("flushes live transcript messages when animation frames are stalled", async () => {
+		vi.stubGlobal(
+			"requestAnimationFrame",
+			vi.fn(() => 1),
+		);
+		vi.stubGlobal("cancelAnimationFrame", vi.fn());
+		let publishEvent: ((event: SessionDomainEventEnvelope) => void) | undefined;
+		rpcClientFactory = () =>
+			({
+				"session.events": () =>
+					Stream.callback<SessionDomainEventEnvelope>((queue) =>
+						Effect.sync(() => {
+							publishEvent = (event) => Queue.offerUnsafe(queue, event);
+						}),
+					),
+				"messages.queue.stream": () => Stream.empty,
+			}) as unknown as Awaited<
+				ReturnType<typeof import("../../src/lib/rpc-client.ts").getRpcClient>
+			>;
+
+		await useMessagesStore.getState().hydrate(sessionId);
+		await expect.poll(() => publishEvent).toBeDefined();
+		publishEvent?.(
+			externalMessageEvent(1, "message-stalled-frame", "visible live"),
+		);
+
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(useMessagesStore.getState().messagesBySession[sessionId]).toEqual([
+			expect.objectContaining({ id: "message-stalled-frame" }),
+		]);
 	});
 
 	it("resubscribes the active transcript after its connection generation changes", async () => {

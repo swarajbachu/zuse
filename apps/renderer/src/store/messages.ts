@@ -511,9 +511,21 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			let pendingStreamMessages: Message[] = [];
 			let streamCommitScheduled = false;
 			let streamCommitFrame: number | null = null;
+			let streamCommitTimer: ReturnType<typeof globalThis.setTimeout> | null =
+				null;
 			const flushPendingMessages = (): void => {
+				if (
+					streamCommitFrame !== null &&
+					typeof globalThis.cancelAnimationFrame === "function"
+				) {
+					globalThis.cancelAnimationFrame(streamCommitFrame);
+				}
+				if (streamCommitTimer !== null) {
+					globalThis.clearTimeout(streamCommitTimer);
+				}
 				streamCommitScheduled = false;
 				streamCommitFrame = null;
+				streamCommitTimer = null;
 				const pending = pendingStreamMessages;
 				pendingStreamMessages = [];
 				if (pending.length === 0 || liveSessionId !== sessionId) return;
@@ -594,14 +606,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 					streamCommitFrame = globalThis.requestAnimationFrame(
 						flushPendingMessages,
 					);
+					// Electron may throttle frames even while the durable event stream stays
+					// open. Bound transcript latency so messages never wait for a reload.
+					streamCommitTimer = globalThis.setTimeout(flushPendingMessages, 50);
 				} else {
 					queueMicrotask(flushPendingMessages);
 				}
 			};
 			const resetOnStreamEnd = Effect.sync(() => {
-				if (streamCommitFrame !== null) {
-					globalThis.cancelAnimationFrame(streamCommitFrame);
-				}
 				flushPendingMessages();
         if (liveSessionId !== sessionId) return;
         useMessagesStore.setState((state) => {
