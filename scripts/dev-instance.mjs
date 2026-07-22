@@ -84,9 +84,23 @@ const instanceResources = (repoRoot, instance) => {
 	};
 };
 
+const defaultInstanceResources = (repoRoot) => ({
+	instanceRoot: undefined,
+	userDataDir: undefined,
+	packDir: resolve(
+		repoRoot,
+		"apps",
+		"desktop",
+		".dev-instances",
+		"default",
+		"dist-electron",
+	),
+});
+
 export const initialDevInstance = ({ argv, env, repoRoot }) => {
 	const parsed = parseDevArguments(argv);
 	const requestedInstance = parsed.instance ?? env.ZUSE_DEV_INSTANCE;
+	const explicitUserDataDir = env.ZUSE_USER_DATA_DIR?.trim();
 	const explicitOffset = env.ZUSE_PORT_OFFSET;
 	const offset =
 		explicitOffset !== undefined
@@ -114,6 +128,10 @@ export const initialDevInstance = ({ argv, env, repoRoot }) => {
 	const instance = validateInstance(
 		requestedInstance ?? `port-${rendererPort}`,
 	);
+	const useExistingDevProfile =
+		requestedInstance === undefined &&
+		rendererPort === RENDERER_BASE_PORT &&
+		websocketPort === WEBSOCKET_BASE_PORT;
 	return {
 		instance,
 		automaticInstance: requestedInstance === undefined,
@@ -123,7 +141,13 @@ export const initialDevInstance = ({ argv, env, repoRoot }) => {
 		websocketPort,
 		rendererExplicit,
 		websocketExplicit,
-		...instanceResources(repoRoot, instance),
+		...(useExistingDevProfile
+			? defaultInstanceResources(repoRoot)
+			: instanceResources(repoRoot, instance)),
+		...(explicitUserDataDir
+			? { userDataDir: resolve(explicitUserDataDir) }
+			: {}),
+		userDataExplicit: Boolean(explicitUserDataDir),
 	};
 };
 
@@ -160,6 +184,9 @@ export const withScannedPorts = async (
 								`${initial.instance}-p${rendererPort}`,
 							)
 						: {}),
+					...(initial.userDataExplicit
+						? { userDataDir: initial.userDataDir }
+						: {}),
 					rendererPort,
 					websocketPort,
 					releaseReservation,
@@ -168,7 +195,13 @@ export const withScannedPorts = async (
 			const instance = validateInstance(`port-${rendererPort}`);
 			return {
 				...initial,
-				...instanceResources(initial.repoRoot, instance),
+				...(rendererPort === RENDERER_BASE_PORT &&
+				websocketPort === WEBSOCKET_BASE_PORT
+					? defaultInstanceResources(initial.repoRoot)
+					: instanceResources(initial.repoRoot, instance)),
+				...(initial.userDataExplicit
+					? { userDataDir: initial.userDataDir }
+					: {}),
 				instance,
 				rendererPort,
 				websocketPort,
@@ -277,6 +310,8 @@ export const devInstanceDiagnostics = (instance, host = "localhost") => ({
 	rendererPort: instance.rendererPort,
 	websocketPort: instance.websocketPort,
 	rendererUrl: `http://${host}:${instance.rendererPort}`,
-	dataDirectory: instance.userDataDir,
+	dataDirectory:
+		instance.userDataDir ??
+		"Electron default (existing Zuse Alpha (Dev) profile)",
 	packDirectory: instance.packDir,
 });

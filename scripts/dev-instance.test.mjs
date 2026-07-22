@@ -36,6 +36,22 @@ test("named instances produce deterministic isolated resources", () => {
 	assert.match(first.packDir, /review\/dist-electron$/u);
 });
 
+test("the first unnamed instance preserves the existing development profile", () => {
+	const instance = initialDevInstance({
+		argv: [],
+		env: {},
+		repoRoot: "/workspace",
+	});
+	assert.equal(instance.rendererPort, 5733);
+	assert.equal(instance.websocketPort, 8788);
+	assert.equal(instance.userDataDir, undefined);
+	assert.match(instance.packDir, /default\/dist-electron$/u);
+	assert.equal(
+		devInstanceDiagnostics(instance).dataDirectory,
+		"Electron default (existing Zuse Alpha (Dev) profile)",
+	);
+});
+
 test("explicit offsets and ports remain authoritative", () => {
 	const offset = initialDevInstance({
 		argv: ["--instance", "offset"],
@@ -52,6 +68,13 @@ test("explicit offsets and ports remain authoritative", () => {
 	});
 	assert.equal(explicit.rendererPort, 6200);
 	assert.equal(explicit.websocketPort, 9200);
+
+	const explicitData = initialDevInstance({
+		argv: [],
+		env: { ZUSE_USER_DATA_DIR: "/existing/dev-profile" },
+		repoRoot: "/workspace",
+	});
+	assert.equal(explicitData.userDataDir, "/existing/dev-profile");
 });
 
 test("scans paired ports forward and fails occupied explicit overrides", async () => {

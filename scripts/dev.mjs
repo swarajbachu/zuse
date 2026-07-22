@@ -82,7 +82,7 @@ async function shutdown(code) {
 const sharedEnv = {
 	ZUSE_DEV_INSTANCE: instance.instance,
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),
-	ZUSE_USER_DATA_DIR: instance.userDataDir,
+	...(instance.userDataDir ? { ZUSE_USER_DATA_DIR: instance.userDataDir } : {}),
 	ZUSE_DESKTOP_OUT_DIR: instance.packDir,
 	ZUSE_DESKTOP_DIR: resolve(repoRoot, "apps", "desktop"),
 	ZUSE_RENDERER_DIST_DIR: resolve(repoRoot, "apps", "renderer", "dist"),
