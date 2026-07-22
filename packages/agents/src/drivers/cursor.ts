@@ -538,6 +538,10 @@ export const prewarmCursor = (
 			throw err;
 		},
 	);
+	// Provider startup intentionally does not await the warm slot. Observe the
+	// rejection here as well so process shutdown cannot turn a killed warm child
+	// into an unhandled rejection; consumers still receive the original promise.
+	void prewarmSlot.catch(() => undefined);
 };
 
 /**
