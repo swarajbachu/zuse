@@ -1,7 +1,7 @@
 import { Rpc } from "effect/unstable/rpc";
 import { Schema } from "effect";
 
-import { SessionId } from "./session.ts";
+import { AgentSessionId } from "./ids.ts";
 
 /**
  * In-app agent browser bridge.
@@ -167,7 +167,7 @@ export class BrowserCommandRequest extends Schema.Class<BrowserCommandRequest>(
   "BrowserCommandRequest",
 )({
   id: Schema.String,
-  sessionId: SessionId,
+  sessionId: AgentSessionId,
   command: BrowserCommand,
 }) {}
 

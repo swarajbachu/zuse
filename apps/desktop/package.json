@@ -20,7 +20,7 @@
 		"dev": "bun run --parallel dev:bundle dev:electron",
 		"dev:bundle": "tsdown --watch",
 		"dev:electron": "node scripts/dev-electron.mjs",
-		"build": "tsdown",
+		"build": "tsdown && node scripts/main-bundle-startup-smoke.mjs",
 		"check-types": "tsc --noEmit",
 		"test": "vitest run test && node scripts/sqlite-runtime-smoke.mjs",
 		"test:unit": "vitest run test/unit",

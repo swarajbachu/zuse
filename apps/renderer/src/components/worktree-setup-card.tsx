@@ -5,6 +5,7 @@ import {
 	Tick01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
+import { shouldShowSetupCard } from "../lib/setup-card-visibility.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
@@ -83,14 +84,15 @@ export function WorktreeSetupCard() {
 	const providerBooting = session?.status === "booting";
 	const providerErrored = session?.status === "error";
 
-	// Visible while there's worktree/setup work left, OR while the provider CLI
-	// is still booting (covers a worktree-less "new tab in this chat" too).
-	// Once the provider errors we stop occupying the screen with a fake
-	// "Starting…" spinner — the ErrorBubble below carries the failure + the
-	// inline "Sign in" CTA — so a worktree-less errored session hides the card.
-	const visible =
-		!externalResume &&
-		((hasWorktree && !setupDone) || providerBooting === true);
+	// This card belongs to chat/worktree creation. A provider still boots for
+	// every additional session, but that must not replay chat setup UI after the
+	// shared worktree is ready.
+	const visible = shouldShowSetupCard({
+		externalResume,
+		hasWorktree,
+		setupDone,
+		providerBooting: providerBooting === true,
+	});
 	if (!visible) return null;
 
 	const providerLabel: string =

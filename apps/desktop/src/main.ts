@@ -33,6 +33,14 @@ import {
 import fixPath from "fix-path";
 import selfsigned from "selfsigned";
 
+// Build verification runs the generated CommonJS bundle under Node to ensure
+// its static import graph initializes without temporal-dead-zone failures.
+// Exit before touching Electron APIs; production and normal development never
+// set this flag.
+if (process.env.ZUSE_MAIN_BUNDLE_SMOKE === "1") {
+	process.exit(0);
+}
+
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
 // driver runs `which claude` to locate the user's Claude Code install — that
