@@ -181,6 +181,13 @@ export interface BrowserDialogState {
 
 export interface BrowserCookieImportStatus {
 	readonly supported: boolean;
+	readonly selectedProfileId?: string;
+	readonly availableProfiles: ReadonlyArray<{
+		readonly id: string;
+		readonly source: string;
+		readonly profile: string;
+		readonly isDefault: boolean;
+	}>;
 	readonly source?: string;
 	readonly profile?: string;
 	readonly lastImportTime?: string;
@@ -252,7 +259,9 @@ export interface BrowserBridge {
 		readonly createdAt: string;
 	}>;
 	readonly getCookieImportStatus?: () => Promise<BrowserCookieImportStatus>;
-	readonly importCookies?: () => Promise<BrowserCookieImportStatus>;
+	readonly importCookies?: (
+		profileId?: string,
+	) => Promise<BrowserCookieImportStatus>;
 	readonly clearImportedCookies?: () => Promise<BrowserCookieImportStatus>;
 	readonly clearBrowsingData?: () => Promise<BrowserCookieImportStatus>;
 	readonly getNativeCredentialCapability?: () => Promise<{

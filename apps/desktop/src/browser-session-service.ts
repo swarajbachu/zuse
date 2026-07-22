@@ -23,14 +23,24 @@ type ImportedCookieIdentity = {
 type ImportState = {
 	version: 1;
 	migratedExistingSession: boolean;
+	selectedProfileId?: string;
 	lastImportTime?: string;
 	source?: string;
 	profile?: string;
 	identities: ImportedCookieIdentity[];
 };
 
+export interface BrowserCookieImportProfile {
+	readonly id: string;
+	readonly source: string;
+	readonly profile: string;
+	readonly isDefault: boolean;
+}
+
 export interface BrowserCookieImportStatus {
 	readonly supported: boolean;
+	readonly selectedProfileId?: string;
+	readonly availableProfiles: ReadonlyArray<BrowserCookieImportProfile>;
 	readonly source?: string;
 	readonly profile?: string;
 	readonly lastImportTime?: string;
@@ -51,6 +61,9 @@ const readState = async (userData: string): Promise<ImportState> => {
 		return {
 			version: 1,
 			migratedExistingSession: parsed.migratedExistingSession === true,
+			...(typeof parsed.selectedProfileId === "string"
+				? { selectedProfileId: parsed.selectedProfileId }
+				: {}),
 			...(typeof parsed.lastImportTime === "string"
 				? { lastImportTime: parsed.lastImportTime }
 				: {}),
@@ -176,11 +189,9 @@ const findApplication = async (bundleId: string): Promise<string | null> => {
 const normalized = (value: string) =>
 	value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-const findProfileRoot = async (sourceName: string): Promise<string | null> => {
+const findProfileRoots = async (): Promise<ReadonlyArray<string>> => {
 	const support = Path.join(homedir(), "Library", "Application Support");
-	const wanted = normalized(sourceName);
-	if (wanted.length === 0) return null;
-	const found: Array<{ path: string; score: number }> = [];
+	const found: string[] = [];
 	const walk = async (directory: string, depth: number): Promise<void> => {
 		if (depth > 2) return;
 		let entries: Array<{
@@ -196,11 +207,7 @@ const findProfileRoot = async (sourceName: string): Promise<string | null> => {
 		if (
 			entries.some((entry) => entry.isFile() && entry.name === "Local State")
 		) {
-			const base = normalized(Path.basename(directory));
-			found.push({
-				path: directory,
-				score: wanted.includes(base) || base.includes(wanted) ? 10 : 1,
-			});
+			found.push(directory);
 			return;
 		}
 		await Promise.all(
@@ -210,18 +217,183 @@ const findProfileRoot = async (sourceName: string): Promise<string | null> => {
 		);
 	};
 	await walk(support, 0);
-	const best = found.sort((a, b) => b.score - a.score)[0];
+	return found.sort();
+};
+
+const findProfileRoot = async (sourceName: string): Promise<string | null> => {
+	const wanted = normalized(sourceName);
+	if (wanted.length === 0) return null;
+	const scored = (await findProfileRoots()).map((path) => {
+		const base = normalized(Path.basename(path));
+		return {
+			path,
+			score: wanted.includes(base) || base.includes(wanted) ? 10 : 1,
+		};
+	});
+	const best = scored.sort((a, b) => b.score - a.score)[0];
 	return best?.score === 10 ? best.path : null;
 };
 
 type DetectedProfile = {
+	id: string;
 	source: string;
 	profile: string;
+	profileDirectory: string;
 	root: string;
 	cookieDb: string;
 };
 
-const detectProfile = async (): Promise<DetectedProfile | null> => {
+const sourceNameForRoot = (root: string): string => {
+	const rootName = Path.basename(root);
+	return (
+		rootName === "User Data" ? Path.basename(Path.dirname(root)) : rootName
+	)
+		.replaceAll("-", " ")
+		.trim();
+};
+
+const installedBrowserSources = async (
+	sources: ReadonlySet<string>,
+): Promise<ReadonlySet<string>> => {
+	const applications: Array<{ name: string; path: string }> = [];
+	for (const directory of [
+		"/Applications",
+		Path.join(homedir(), "Applications"),
+	]) {
+		try {
+			for (const entry of await fs.readdir(directory, {
+				withFileTypes: true,
+			})) {
+				if (!entry.isDirectory() || !entry.name.endsWith(".app")) continue;
+				const name = Path.basename(entry.name, ".app");
+				const normalizedName = normalized(name);
+				if (
+					![...sources].some((source) => {
+						const normalizedSource = normalized(source);
+						return (
+							normalizedName.includes(normalizedSource) ||
+							normalizedSource.includes(normalizedName)
+						);
+					})
+				)
+					continue;
+				applications.push({ name, path: Path.join(directory, entry.name) });
+			}
+		} catch {
+			// An optional application directory may not exist or be readable.
+		}
+	}
+	const browserNames = new Set<string>();
+	await Promise.all(
+		applications.map(async (application) => {
+			try {
+				const { stdout } = await execFileAsync("plutil", [
+					"-extract",
+					"CFBundleURLTypes",
+					"json",
+					"-o",
+					"-",
+					Path.join(application.path, "Contents", "Info.plist"),
+				]);
+				const urlTypes = JSON.parse(stdout) as Array<{
+					CFBundleURLSchemes?: unknown;
+				}>;
+				const handlesWebUrls = urlTypes.some(
+					(type) =>
+						Array.isArray(type.CFBundleURLSchemes) &&
+						type.CFBundleURLSchemes.some(
+							(scheme) => scheme === "http" || scheme === "https",
+						),
+				);
+				if (handlesWebUrls) browserNames.add(normalized(application.name));
+			} catch {
+				// Applications without declared web URL schemes are not browsers.
+			}
+		}),
+	);
+	return new Set(
+		[...sources].filter((source) => {
+			const normalizedSource = normalized(source);
+			return [...browserNames].some(
+				(name) =>
+					name.includes(normalizedSource) || normalizedSource.includes(name),
+			);
+		}),
+	);
+};
+
+const profileId = (root: string, profile: string): string =>
+	createHash("sha256").update(`${root}\0${profile}`).digest("hex").slice(0, 20);
+
+const findCookieDb = async (
+	root: string,
+	profile: string,
+): Promise<string | null> => {
+	for (const candidate of [
+		Path.join(root, profile, "Network", "Cookies"),
+		Path.join(root, profile, "Cookies"),
+	]) {
+		try {
+			await fs.access(candidate);
+			return candidate;
+		} catch {
+			// Try the next Chromium cookie database layout.
+		}
+	}
+	return null;
+};
+
+const profilesForRoot = async (
+	root: string,
+	source = sourceNameForRoot(root),
+): Promise<DetectedProfile[]> => {
+	let localState: {
+		profile?: {
+			last_used?: unknown;
+			info_cache?: Record<string, unknown>;
+		};
+	};
+	try {
+		localState = JSON.parse(
+			await fs.readFile(Path.join(root, "Local State"), "utf8"),
+		) as typeof localState;
+	} catch {
+		return [];
+	}
+	const lastUsed =
+		typeof localState.profile?.last_used === "string"
+			? localState.profile.last_used
+			: "Default";
+	const names = [
+		lastUsed,
+		...Object.keys(localState.profile?.info_cache ?? {}).filter(
+			(name) => name !== lastUsed,
+		),
+	];
+	const profiles: DetectedProfile[] = [];
+	for (const profileDirectory of names) {
+		const cookieDb = await findCookieDb(root, profileDirectory);
+		if (cookieDb === null) continue;
+		const metadata = localState.profile?.info_cache?.[profileDirectory] as
+			| { name?: unknown }
+			| undefined;
+		const profile =
+			typeof metadata?.name === "string" && metadata.name.trim().length > 0
+				? metadata.name.trim()
+				: profileDirectory;
+		profiles.push({
+			id: profileId(root, profileDirectory),
+			source,
+			profile,
+			profileDirectory,
+			root,
+			cookieDb,
+		});
+	}
+	return profiles;
+};
+
+const detectDefaultProfile = async (): Promise<DetectedProfile | null> => {
 	const bundleId = await defaultHandlerBundle();
 	if (bundleId === null) return null;
 	const application = await findApplication(bundleId);
@@ -229,36 +401,39 @@ const detectProfile = async (): Promise<DetectedProfile | null> => {
 		application === null ? bundleId : Path.basename(application, ".app");
 	const root = await findProfileRoot(sourceHint);
 	if (root === null) return null;
-	const rootName = Path.basename(root);
-	const source =
-		application === null
-			? (rootName === "User Data"
-					? Path.basename(Path.dirname(root))
-					: rootName
-				).replaceAll("-", " ")
-			: sourceHint;
-	let profile = "Default";
-	try {
-		const localState = JSON.parse(
-			await fs.readFile(Path.join(root, "Local State"), "utf8"),
-		) as { profile?: { last_used?: unknown } };
-		if (typeof localState.profile?.last_used === "string")
-			profile = localState.profile.last_used;
-	} catch {
-		// Default is the conventional first profile.
-	}
-	for (const candidate of [
-		Path.join(root, profile, "Network", "Cookies"),
-		Path.join(root, profile, "Cookies"),
-	]) {
-		try {
-			await fs.access(candidate);
-			return { source, profile, root, cookieDb: candidate };
-		} catch {
-			// Try the next layout.
-		}
-	}
-	return null;
+	const source = application === null ? sourceNameForRoot(root) : sourceHint;
+	return (await profilesForRoot(root, source))[0] ?? null;
+};
+
+const detectProfiles = async (): Promise<{
+	defaultProfile: DetectedProfile | null;
+	profiles: DetectedProfile[];
+}> => {
+	const [defaultProfile, roots] = await Promise.all([
+		detectDefaultProfile(),
+		findProfileRoots(),
+	]);
+	const allDiscovered = (
+		await Promise.all(roots.map((root) => profilesForRoot(root)))
+	)
+		.flat()
+		.filter((profile) => profile.source.length > 0);
+	const installedSources = await installedBrowserSources(
+		new Set(allDiscovered.map((profile) => profile.source)),
+	);
+	const discovered = allDiscovered.filter((profile) =>
+		installedSources.has(profile.source),
+	);
+	const byId = new Map(discovered.map((profile) => [profile.id, profile]));
+	if (defaultProfile !== null) byId.set(defaultProfile.id, defaultProfile);
+	const profiles = [...byId.values()].sort((a, b) => {
+		if (a.id === defaultProfile?.id) return -1;
+		if (b.id === defaultProfile?.id) return 1;
+		return `${a.source}\0${a.profile}`.localeCompare(
+			`${b.source}\0${b.profile}`,
+		);
+	});
+	return { defaultProfile, profiles };
 };
 
 const decryptCookie = (
@@ -316,6 +491,14 @@ const readSafeStoragePassword = async (
 	return null;
 };
 
+const readCookieRows = (db: DatabaseSync): Array<Record<string, unknown>> => {
+	const statement = db.prepare(
+		"SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies",
+	);
+	statement.setReadBigInts(true);
+	return statement.all() as Array<Record<string, unknown>>;
+};
+
 const removeImportedIdentity = async (
 	target: Session,
 	identity: ImportedCookieIdentity,
@@ -340,12 +523,27 @@ export const getBrowserCookieImportStatus = async (
 	userData: string,
 ): Promise<BrowserCookieImportStatus> => {
 	const state = await readState(userData);
-	const detected = await detectProfile();
+	const { defaultProfile, profiles } = await detectProfiles();
+	const detected =
+		profiles.find((profile) => profile.id === state.selectedProfileId) ??
+		defaultProfile ??
+		profiles[0] ??
+		null;
 	return {
-		supported: detected !== null,
+		supported: profiles.length > 0,
+		availableProfiles: profiles.map((profile) => ({
+			id: profile.id,
+			source: profile.source,
+			profile: profile.profile,
+			isDefault: profile.id === defaultProfile?.id,
+		})),
 		...(detected === null
 			? {}
-			: { source: detected.source, profile: detected.profile }),
+			: {
+					selectedProfileId: detected.id,
+					source: detected.source,
+					profile: detected.profile,
+				}),
 		...(state.lastImportTime === undefined
 			? {}
 			: { lastImportTime: state.lastImportTime }),
@@ -370,8 +568,13 @@ export const getBrowserCookieImportStatus = async (
 export const importDefaultBrowserCookies = async (
 	userData: string,
 	target: Session,
+	selectedProfileId?: string,
 ): Promise<BrowserCookieImportStatus> => {
-	const detected = await detectProfile();
+	const { defaultProfile, profiles } = await detectProfiles();
+	const detected =
+		(selectedProfileId === undefined
+			? defaultProfile
+			: profiles.find((profile) => profile.id === selectedProfileId)) ?? null;
 	if (detected === null)
 		throw new Error(
 			"The default browser cookie profile is unavailable or unsupported.",
@@ -400,11 +603,7 @@ export const importDefaultBrowserCookies = async (
 		const db = new DatabaseSync(snapshot, { readOnly: true });
 		let rows: Array<Record<string, unknown>>;
 		try {
-			rows = db
-				.prepare(
-					"SELECT host_key, name, value, encrypted_value, path, expires_utc, is_secure, is_httponly, samesite FROM cookies",
-				)
-				.all() as Array<Record<string, unknown>>;
+			rows = readCookieRows(db);
 		} finally {
 			db.close();
 		}
@@ -469,6 +668,7 @@ export const importDefaultBrowserCookies = async (
 		const state = await readState(userData);
 		await writeState(userData, {
 			...state,
+			selectedProfileId: detected.id,
 			lastImportTime: new Date().toISOString(),
 			source: detected.source,
 			profile: detected.profile,
@@ -491,6 +691,9 @@ export const clearImportedBrowserCookies = async (
 	await writeState(userData, {
 		version: 1,
 		migratedExistingSession: state.migratedExistingSession,
+		...(state.selectedProfileId === undefined
+			? {}
+			: { selectedProfileId: state.selectedProfileId }),
 		identities: [],
 	});
 	return getBrowserCookieImportStatus(userData);
@@ -501,5 +704,6 @@ export const BROWSER_PARTITION = PARTITION;
 export const browserCookieImportInternals = {
 	decryptCookie,
 	parseDefaultHandlerBundle,
+	readCookieRows,
 	safeStorageServiceCandidates,
 };

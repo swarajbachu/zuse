@@ -159,8 +159,11 @@ const bridge = {
 			}>,
 		getCookieImportStatus: () =>
 			ipcRenderer.invoke("browser:getCookieImportStatus") as Promise<unknown>,
-		importCookies: () =>
-			ipcRenderer.invoke("browser:importCookies") as Promise<unknown>,
+		importCookies: (profileId?: string) =>
+			ipcRenderer.invoke(
+				"browser:importCookies",
+				profileId,
+			) as Promise<unknown>,
 		clearImportedCookies: () =>
 			ipcRenderer.invoke("browser:clearImportedCookies") as Promise<unknown>,
 		clearBrowsingData: () =>

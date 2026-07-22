@@ -1649,10 +1649,11 @@ async function createMainWindow() {
 		return getBrowserCookieImportStatus(app.getPath("userData"));
 	});
 
-	ipcMain.handle("browser:importCookies", async () =>
+	ipcMain.handle("browser:importCookies", async (_event, profileId: unknown) =>
 		importDefaultBrowserCookies(
 			app.getPath("userData"),
 			session.fromPartition(BROWSER_PARTITION),
+			typeof profileId === "string" ? profileId : undefined,
 		),
 	);
 

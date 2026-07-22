@@ -417,6 +417,7 @@ export function BrowserPane() {
 	]);
 	const displayedCookieStatus: BrowserCookieImportStatus = cookieStatus ?? {
 		supported: false,
+		availableProfiles: [],
 		importedDomainCount: 0,
 		importedCookieCount: 0,
 		importedDomains: [],
@@ -537,10 +538,10 @@ export function BrowserPane() {
 		};
 	}, []);
 
-	const runCookieImport = async () => {
+	const runCookieImport = async (profileId?: string) => {
 		setCookieImportBusy(true);
 		try {
-			const status = await window.zuse?.browser?.importCookies?.();
+			const status = await window.zuse?.browser?.importCookies?.(profileId);
 			if (status === undefined)
 				throw new Error("Browser session import is unavailable in this build.");
 			cookieStatusRef.current = status;

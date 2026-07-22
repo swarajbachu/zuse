@@ -7,7 +7,7 @@ import {
 	ShieldCheck,
 	Trash2,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
@@ -36,6 +36,13 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 } from "./ui/menu.tsx";
+import {
+	Select,
+	SelectItem,
+	SelectPopup,
+	SelectTrigger,
+	SelectValue,
+} from "./ui/select.tsx";
 
 type NativeCredentialCapability = {
 	readonly supported: boolean;
@@ -56,7 +63,7 @@ export function BrowserSettingsMenu({
 	credentialCapability: NativeCredentialCapability | null;
 	busy: boolean;
 	domainGrantCount: number;
-	onImport: () => Promise<void>;
+	onImport: (profileId?: string) => Promise<void>;
 	onClearImported: () => Promise<void>;
 	onClearBrowsingData: () => Promise<void>;
 	onRevokeTaskAccess: () => void;
@@ -65,8 +72,25 @@ export function BrowserSettingsMenu({
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [clearOpen, setClearOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [selectedProfileId, setSelectedProfileId] = useState<
+		string | undefined
+	>(status.selectedProfileId ?? status.availableProfiles[0]?.id);
+	const selectedProfile =
+		status.availableProfiles.find(
+			(profile) => profile.id === selectedProfileId,
+		) ?? status.availableProfiles[0];
+	useEffect(() => {
+		setSelectedProfileId((current) =>
+			status.availableProfiles.some((profile) => profile.id === current)
+				? current
+				: (status.selectedProfileId ?? status.availableProfiles[0]?.id),
+		);
+	}, [status.availableProfiles, status.selectedProfileId]);
 	const openImport = () => {
 		setError(null);
+		setSelectedProfileId(
+			status.selectedProfileId ?? status.availableProfiles[0]?.id,
+		);
 		setSettingsOpen(false);
 		setImportOpen(true);
 	};
@@ -136,20 +160,49 @@ export function BrowserSettingsMenu({
 					<DialogPanel className="space-y-3 px-4 pb-4 pt-0" scrollFade={false}>
 						<div className="grid grid-cols-[4rem_1fr] items-center gap-2 text-xs">
 							<span className="text-muted-foreground">Browser</span>
-							<div className="min-w-0 rounded-md bg-muted/70 px-2.5 py-1.5">
-								<span className="font-medium text-foreground">
-									{status.source ?? "Not detected"}
-								</span>
-								<span className="ml-2 text-muted-foreground">
-									{status.profile ?? "No profile"}
-								</span>
-							</div>
+							<Select
+								value={selectedProfileId}
+								onValueChange={(value) =>
+									setSelectedProfileId(
+										typeof value === "string" ? value : undefined,
+									)
+								}
+							>
+								<SelectTrigger
+									size="sm"
+									className="min-w-0 bg-muted/70 shadow-none"
+									aria-label="Browser profile"
+								>
+									<SelectValue>
+										{selectedProfile === undefined
+											? "No supported profile found"
+											: `${selectedProfile.source} · ${selectedProfile.profile}`}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectPopup>
+									{status.availableProfiles.map((profile) => (
+										<SelectItem key={profile.id} value={profile.id}>
+											<span className="truncate">
+												{profile.source} · {profile.profile}
+												{profile.isDefault ? " (Default)" : ""}
+											</span>
+										</SelectItem>
+									))}
+								</SelectPopup>
+							</Select>
 						</div>
 						<p className="text-[11px] text-muted-foreground">
-							{status.source
-								? `Close ${status.source} completely before importing.`
+							{selectedProfile
+								? `Close ${selectedProfile.source} completely before importing.`
 								: (status.message ?? "No supported browser profile was found.")}
 						</p>
+						{selectedProfile ? (
+							<p className="rounded-md bg-muted/45 px-2.5 py-2 text-[11px] text-muted-foreground">
+								macOS may ask Zuse—or Electron in development—to access{" "}
+								{selectedProfile.source} Safe Storage. This unlocks cookie
+								decryption only; passwords are never imported.
+							</p>
+						) : null}
 						<div className="divide-y divide-border/60 rounded-lg bg-muted/45 px-3">
 							<ImportDataRow
 								icon={<Cookie className="size-3.5" />}
@@ -178,8 +231,13 @@ export function BrowserSettingsMenu({
 						<Button
 							size="xs"
 							loading={busy}
-							disabled={!status.supported}
-							onClick={() => void run(onImport, () => setImportOpen(false))}
+							disabled={!status.supported || selectedProfileId === undefined}
+							onClick={() =>
+								void run(
+									() => onImport(selectedProfileId),
+									() => setImportOpen(false),
+								)
+							}
 						>
 							Import sessions
 						</Button>
