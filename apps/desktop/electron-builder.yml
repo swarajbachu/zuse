@@ -55,6 +55,8 @@ extraResources:
     filter: ["**/*"]
   - from: native/local-connectivity/bin/zuse-local-connectivity
     to: app/local-connectivity/zuse-local-connectivity
+  - from: native/browser-credentials/bin/zuse-browser-credentials
+    to: app/browser-credentials/zuse-browser-credentials
 
 # Native bindings can't load from inside an asar; they need to live as
 # real files on disk. electron-builder writes these to app.asar.unpacked/

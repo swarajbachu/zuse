@@ -8,6 +8,9 @@ import {
 	type BrowserAnnotationStroke,
 	type BrowserCommandRequest,
 	BrowserCommandResult,
+	type BrowserOverlayShape,
+	type BrowserTarget,
+	type BrowserViewportMode,
 	type SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
@@ -35,17 +38,23 @@ import {
 } from "react";
 
 import type {
+	BrowserCookieImportStatus,
 	BrowserInputAction,
 	CdpCommandOutcome,
 	LocalServerSummary,
 	NetworkQueryResult,
 } from "../lib/bridge.ts";
+import {
+	type BrowserRecordingArtifact,
+	BrowserRecordingController,
+} from "../lib/browser-recording.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useAnnotationsStore } from "../store/annotations.ts";
 import { useAttachmentsStore } from "../store/attachments.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
+import { BrowserSettingsMenu } from "./browser-settings-menu.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
 
 /**
@@ -64,6 +73,41 @@ const CURSOR_GLIDE_MS = 350;
  * this long plus a small buffer before letting the next command run.
  */
 const SMOOTH_SCROLL_MS = 700;
+
+type BrowserViewportSetting = {
+	mode: BrowserViewportMode;
+	width: number;
+	height: number;
+	orientation: "portrait" | "landscape";
+	lockAspectRatio: boolean;
+};
+
+const VIEWPORT_PRESETS: Record<
+	Exclude<BrowserViewportMode, "fill" | "custom">,
+	{ width: number; height: number }
+> = {
+	phone: { width: 390, height: 844 },
+	tablet: { width: 768, height: 1024 },
+	laptop: { width: 1366, height: 768 },
+	desktop: { width: 1440, height: 900 },
+};
+
+const DEFAULT_VIEWPORT: BrowserViewportSetting = {
+	mode: "fill",
+	width: 1440,
+	height: 900,
+	orientation: "landscape",
+	lockAspectRatio: false,
+};
+
+type BrowserActionEvent = {
+	id: string;
+	command: string;
+	state: "running" | "succeeded" | "failed" | "interrupted";
+	startedAt: string;
+	finishedAt?: string;
+	error?: string;
+};
 
 type AnnotationTool = "select" | "region" | "draw" | "erase";
 
@@ -149,15 +193,106 @@ const pathFromPoints = (
 		.join(" ");
 };
 
-const nativeImageToFile = async (
-	image: NativeImageLike,
-	name: string,
-): Promise<File> => {
-	const png = image.toPNG();
-	const source = png instanceof Uint8Array ? png : new Uint8Array(png);
-	const bytes = new Uint8Array(source.length);
-	bytes.set(source);
+const drawRecordingDecorations = (
+	context: CanvasRenderingContext2D,
+	width: number,
+	height: number,
+	bounds: DOMRect,
+	shapes: ReadonlyArray<BrowserOverlayShape>,
+	cursor: AgentCursorIntent | null,
+) => {
+	const scaleX = width / Math.max(1, bounds.width);
+	const scaleY = height / Math.max(1, bounds.height);
+	context.save();
+	context.scale(scaleX, scaleY);
+	context.lineWidth = 3;
+	context.lineCap = "round";
+	context.lineJoin = "round";
+	for (const shape of shapes) {
+		context.strokeStyle = shape.color ?? "rgb(37 99 235)";
+		context.fillStyle = shape.color ?? "rgb(37 99 235)";
+		if (shape._tag === "Rectangle" || shape._tag === "Highlight") {
+			if (shape._tag === "Highlight") {
+				context.globalAlpha = 0.22;
+				context.fillRect(shape.x, shape.y, shape.width, shape.height);
+				context.globalAlpha = 1;
+			} else context.strokeRect(shape.x, shape.y, shape.width, shape.height);
+		}
+		if (shape._tag === "Arrow") {
+			context.beginPath();
+			context.moveTo(shape.fromX, shape.fromY);
+			context.lineTo(shape.toX, shape.toY);
+			context.stroke();
+		}
+		if (shape._tag === "Label") {
+			context.font = "600 12px system-ui";
+			context.fillText(shape.text, shape.x, shape.y);
+		}
+		if (shape._tag === "Freehand" && shape.points.length > 1) {
+			const first = shape.points[0];
+			if (first === undefined) continue;
+			context.beginPath();
+			context.moveTo(first.x, first.y);
+			for (const point of shape.points.slice(1))
+				context.lineTo(point.x, point.y);
+			context.stroke();
+		}
+	}
+	if (cursor !== null) {
+		context.fillStyle = "white";
+		context.strokeStyle = "rgb(15 23 42)";
+		context.lineWidth = 2;
+		context.beginPath();
+		context.moveTo(cursor.x, cursor.y);
+		context.lineTo(cursor.x + 4, cursor.y + 17);
+		context.lineTo(cursor.x + 8, cursor.y + 12);
+		context.lineTo(cursor.x + 14, cursor.y + 13);
+		context.closePath();
+		context.fill();
+		context.stroke();
+	}
+	context.restore();
+};
+
+const pngBase64ToFile = (base64: string, name: string): File => {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let index = 0; index < binary.length; index += 1)
+		bytes[index] = binary.charCodeAt(index);
 	return new File([bytes], name, { type: "image/png" });
+};
+
+const compositeBrowserImage = async (
+	dataUrl: string,
+	bounds: DOMRect,
+	shapes: ReadonlyArray<BrowserOverlayShape>,
+	cursor: AgentCursorIntent | null,
+): Promise<string> => {
+	if (shapes.length === 0 && cursor === null)
+		return dataUrl.replace(/^data:image\/png;base64,/, "");
+	const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+		const element = new Image();
+		element.onload = () => resolve(element);
+		element.onerror = () =>
+			reject(new Error("Could not composite the browser screenshot."));
+		element.src = dataUrl;
+	});
+	const canvas = document.createElement("canvas");
+	canvas.width = image.naturalWidth;
+	canvas.height = image.naturalHeight;
+	const context = canvas.getContext("2d", { alpha: false });
+	if (context === null)
+		throw new Error("Screenshot compositing is unavailable.");
+	context.drawImage(image, 0, 0);
+	drawRecordingDecorations(
+		context,
+		canvas.width,
+		canvas.height,
+		bounds,
+		shapes,
+		cursor,
+	);
+	return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 };
 
 /**
@@ -188,11 +323,57 @@ export function BrowserPane() {
 	// (Click/Type/Hover/Press fall back to the previous synthetic behaviour so
 	// we never silently no-op if the bridge somehow doesn't load).
 	const webContentsIdRef = useRef<number | null>(null);
+	const recordingRef = useRef(new BrowserRecordingController());
+	const actionTimelineRef = useRef<BrowserActionEvent[]>([]);
+	const agentOverlaysRef = useRef<BrowserOverlayShape[]>([]);
+	const cookieStatusRef = useRef<BrowserCookieImportStatus | null>(null);
+	const domainGrantsRef = useRef(new Set<string>());
 	const [url, setUrl] = useState<string>("");
 	const [inputValue, setInputValue] = useState<string>("");
 	const [canGoBack, setCanGoBack] = useState(false);
 	const [canGoForward, setCanGoForward] = useState(false);
 	const [isLoading, setIsLoading] = useState(false);
+	const [recordingState, setRecordingState] = useState<
+		"idle" | "starting" | "recording" | "stopping"
+	>("idle");
+	const [lastRecording, setLastRecording] =
+		useState<BrowserRecordingArtifact | null>(null);
+	const [agentOverlays, setAgentOverlays] = useState<BrowserOverlayShape[]>([]);
+	const [cookieStatus, setCookieStatus] =
+		useState<BrowserCookieImportStatus | null>(null);
+	const [cookieImportBusy, setCookieImportBusy] = useState(false);
+	const [nativeCredentialCapability, setNativeCredentialCapability] = useState<{
+		supported: boolean;
+		reason?: string;
+	} | null>(null);
+	const [passwordFieldOrigin, setPasswordFieldOrigin] = useState<string | null>(
+		null,
+	);
+	const [nativeCredentialBusy, setNativeCredentialBusy] = useState(false);
+	const [nativeCredentialError, setNativeCredentialError] = useState<
+		string | null
+	>(null);
+	const [domainGrantVersion, setDomainGrantVersion] = useState(0);
+	const [domainAccessRequest, setDomainAccessRequest] = useState<{
+		domain: string;
+		sessionId: string;
+		resolve: (allowed: boolean) => void;
+	} | null>(null);
+	const [viewport, setViewport] = useState<BrowserViewportSetting>(() => {
+		try {
+			const raw = localStorage.getItem("zuse.browser.viewport.v1");
+			return raw === null
+				? DEFAULT_VIEWPORT
+				: {
+						...DEFAULT_VIEWPORT,
+						...(JSON.parse(raw) as Partial<BrowserViewportSetting>),
+					};
+		} catch {
+			return DEFAULT_VIEWPORT;
+		}
+	});
+	const viewportRef = useRef(viewport);
+	const loadingRef = useRef(isLoading);
 	// Bumped each time the agent takes a screenshot — drives the shutter flash.
 	const [shutterNonce, setShutterNonce] = useState(0);
 	// The current "intent" for the agent cursor overlay. Bumped on every
@@ -203,6 +384,7 @@ export function BrowserPane() {
 		null,
 	);
 	const cursorNonceRef = useRef(0);
+	const cursorIntentRef = useRef<AgentCursorIntent | null>(null);
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const addBrowserAnnotation = useAnnotationsStore((s) => s.addBrowser);
 	const uploadAttachment = useAttachmentsStore((s) => s.uploadOne);
@@ -233,6 +415,229 @@ export function BrowserPane() {
 		...regions.map((region) => region.rect),
 		...strokes.map((stroke) => stroke.bounds),
 	]);
+	const displayedCookieStatus: BrowserCookieImportStatus = cookieStatus ?? {
+		supported: false,
+		importedDomainCount: 0,
+		importedCookieCount: 0,
+		importedDomains: [],
+		message: "Browser session import is initializing.",
+	};
+
+	useEffect(() => {
+		viewportRef.current = viewport;
+		localStorage.setItem("zuse.browser.viewport.v1", JSON.stringify(viewport));
+	}, [viewport]);
+	useEffect(() => {
+		loadingRef.current = isLoading;
+	}, [isLoading]);
+
+	useEffect(() => {
+		let cancelled = false;
+		void window.zuse?.browser
+			?.getNativeCredentialCapability?.()
+			.then((capability) => {
+				if (!cancelled) setNativeCredentialCapability(capability);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		if (!hasLoadedPage) {
+			setPasswordFieldOrigin(null);
+			return;
+		}
+		let cancelled = false;
+		const inspectFocus = async () => {
+			const wv = webviewRef.current as WebviewElement | null;
+			if (wv === null) return;
+			try {
+				const focused = (await wv.executeJavaScript(
+					`(() => { const active = document.activeElement; return active instanceof HTMLInputElement && active.type === 'password' ? location.origin : null; })()`,
+				)) as unknown;
+				if (!cancelled)
+					setPasswordFieldOrigin(typeof focused === "string" ? focused : null);
+			} catch {
+				if (!cancelled) setPasswordFieldOrigin(null);
+			}
+		};
+		void inspectFocus();
+		const interval = window.setInterval(() => void inspectFocus(), 500);
+		return () => {
+			cancelled = true;
+			window.clearInterval(interval);
+		};
+	}, [hasLoadedPage]);
+	useEffect(() => {
+		cursorIntentRef.current = cursorIntent;
+	}, [cursorIntent]);
+
+	useEffect(
+		() => () => {
+			if (recordingRef.current.state !== "idle")
+				void recordingRef.current.stop().catch(() => {});
+		},
+		[],
+	);
+
+	useEffect(() => {
+		const subscribe = window.zuse?.browser?.onScreencastInterrupted;
+		if (subscribe === undefined) return;
+		return subscribe((webContentsId) => {
+			if (
+				webContentsIdRef.current !== webContentsId ||
+				recordingRef.current.state === "idle"
+			)
+				return;
+			setRecordingState("stopping");
+			void recordingRef.current
+				.stop()
+				.then((artifact) => setLastRecording(artifact))
+				.finally(() => setRecordingState("idle"));
+		});
+	}, []);
+
+	useEffect(() => {
+		const element = webviewRef.current;
+		if (element === null || typeof ResizeObserver === "undefined") return;
+		const observer = new ResizeObserver((entries) => {
+			const box = entries[0]?.contentRect;
+			if (
+				box === undefined ||
+				(box.width > 0 && box.height > 0) ||
+				recordingRef.current.state === "idle"
+			)
+				return;
+			setRecordingState("stopping");
+			void recordingRef.current
+				.stop()
+				.then((artifact) => {
+					setLastRecording(artifact);
+					setRecordingState("idle");
+				})
+				.catch(() => setRecordingState("idle"));
+		});
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
+		let cancelled = false;
+		void window.zuse?.browser
+			?.getCookieImportStatus?.()
+			.then((status) => {
+				if (cancelled) return;
+				cookieStatusRef.current = status;
+				setCookieStatus(status);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	const runCookieImport = async () => {
+		setCookieImportBusy(true);
+		try {
+			const status = await window.zuse?.browser?.importCookies?.();
+			if (status === undefined)
+				throw new Error("Browser session import is unavailable in this build.");
+			cookieStatusRef.current = status;
+			setCookieStatus(status);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(message);
+		} finally {
+			setCookieImportBusy(false);
+		}
+	};
+
+	const clearImportedCookies = async () => {
+		setCookieImportBusy(true);
+		try {
+			const status = await window.zuse?.browser?.clearImportedCookies?.();
+			if (status === undefined)
+				throw new Error(
+					"Imported-session controls are unavailable in this build.",
+				);
+			cookieStatusRef.current = status;
+			setCookieStatus(status);
+			domainGrantsRef.current.clear();
+			setDomainGrantVersion(0);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(message);
+		} finally {
+			setCookieImportBusy(false);
+		}
+	};
+
+	const clearBrowsingData = async () => {
+		setCookieImportBusy(true);
+		try {
+			const status = await window.zuse?.browser?.clearBrowsingData?.();
+			if (status === undefined)
+				throw new Error("Clearing browser data is unavailable in this build.");
+			cookieStatusRef.current = status;
+			setCookieStatus(status);
+			domainGrantsRef.current.clear();
+			setDomainGrantVersion(0);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new Error(message);
+		} finally {
+			setCookieImportBusy(false);
+		}
+	};
+
+	const requestAgentDomainAccess = async (
+		req: BrowserCommandRequest,
+		wv: WebviewElement | null,
+		resolvedCandidate?: string,
+	): Promise<boolean> => {
+		let status = cookieStatusRef.current;
+		if (status === null) {
+			const loadStatus = window.zuse?.browser?.getCookieImportStatus;
+			if (loadStatus === undefined) return false;
+			try {
+				status = await loadStatus();
+				cookieStatusRef.current = status;
+				setCookieStatus(status);
+			} catch {
+				return false;
+			}
+		}
+		if (status.importedDomains.length === 0) return true;
+		let candidate =
+			resolvedCandidate ?? (wv === null ? "" : safeCall(() => wv.getURL(), ""));
+		if (resolvedCandidate === undefined && req.command._tag === "Navigate") {
+			candidate =
+				req.command.environmentPort !== undefined &&
+				req.command.url.startsWith("/")
+					? `${req.command.environmentProtocol ?? "http"}://localhost:${req.command.environmentPort}${req.command.url}`
+					: req.command.url;
+		}
+		let host: string;
+		try {
+			host = new URL(resolveUrl(candidate) ?? candidate).hostname;
+		} catch {
+			return true;
+		}
+		const importedDomain = status.importedDomains.find(
+			(domain) => host === domain || host.endsWith(`.${domain}`),
+		);
+		if (importedDomain === undefined) return true;
+		const key = `${req.sessionId}:${importedDomain}`;
+		if (domainGrantsRef.current.has(key)) return true;
+		return new Promise<boolean>((resolve) =>
+			setDomainAccessRequest({
+				domain: importedDomain,
+				sessionId: String(req.sessionId),
+				resolve,
+			}),
+		);
+	};
 
 	useEffect(() => {
 		let cancelled = false;
@@ -388,27 +793,132 @@ export function BrowserPane() {
 			// works (it returns an empty image for a `display:none` element).
 			useUiStore.getState().revealPanel("browser");
 			const wv = webviewRef.current as WebviewElement | null;
-			const result = await runBrowserCommand(req, wv, {
+			const accessAllowed = await requestAgentDomainAccess(req, wv);
+			if (!accessAllowed) {
+				const result = BrowserCommandResult.make({
+					id: req.id,
+					ok: false,
+					error:
+						"Access to this imported authenticated domain was denied for the current task.",
+				});
+				try {
+					const client = await getRpcClient();
+					await Effect.runPromise(client["browser.respond"]({ result }));
+				} catch {}
+				return;
+			}
+			const action: BrowserActionEvent = {
+				id: req.id,
+				command: req.command._tag,
+				state: "running",
+				startedAt: new Date().toISOString(),
+			};
+			actionTimelineRef.current = [
+				...actionTimelineRef.current.slice(-98),
+				action,
+			];
+			let result = await runBrowserCommand(req, wv, {
 				setUrl,
 				setInputValue,
 				flashShutter: () => setShutterNonce((n) => n + 1),
 				readConsole: () => consoleBufferRef.current.join("\n"),
 				moveCursor: (x, y, opts) => {
 					cursorNonceRef.current += 1;
-					setCursorIntent({
+					const intent = {
 						nonce: cursorNonceRef.current,
 						x,
 						y,
 						click: opts?.click === true,
 						pressed: opts?.pressed === true,
-					});
+					};
+					cursorIntentRef.current = intent;
+					setCursorIntent(intent);
 				},
 				getWebContentsId: () => webContentsIdRef.current,
 				getRefStore: () => refStoreRef.current,
 				setRefStore: (store) => {
 					refStoreRef.current = store;
 				},
+				getLoading: () => loadingRef.current,
+				getViewport: () => viewportRef.current,
+				setViewport: (next) => {
+					viewportRef.current = next;
+					setViewport(next);
+				},
+				getRecordingState: () => recordingRef.current.state,
+				startRecording: async () => {
+					if (wv === null)
+						throw new Error("The browser surface is unavailable.");
+					setRecordingState("starting");
+					await recordingRef.current.start({
+						capturePage: () => wv.capturePage(),
+						getBoundingClientRect: () => wv.getBoundingClientRect(),
+						subscribeFrames: async (handler) => {
+							const bridge = window.zuse?.browser;
+							const id = webContentsIdRef.current;
+							if (
+								id === null ||
+								bridge?.startScreencast === undefined ||
+								bridge.stopScreencast === undefined ||
+								bridge.onScreencastFrame === undefined
+							)
+								throw new Error("CDP screencast is unavailable.");
+							const unsubscribe = bridge.onScreencastFrame((frame) => {
+								if (frame.webContentsId === id)
+									handler(`data:image/jpeg;base64,${frame.data}`);
+							});
+							if (!(await bridge.startScreencast(id))) {
+								unsubscribe();
+								throw new Error("CDP screencast could not start.");
+							}
+							return async () => {
+								unsubscribe();
+								await bridge.stopScreencast?.(id);
+							};
+						},
+						drawDecorations: (context, width, height) =>
+							drawRecordingDecorations(
+								context,
+								width,
+								height,
+								wv.getBoundingClientRect(),
+								agentOverlaysRef.current,
+								cursorIntentRef.current,
+							),
+					});
+					setRecordingState("recording");
+				},
+				stopRecording: async () => {
+					setRecordingState("stopping");
+					const artifact = await recordingRef.current.stop();
+					setRecordingState("idle");
+					setLastRecording(artifact);
+					return artifact;
+				},
+				getTimeline: () => actionTimelineRef.current,
+				getOverlays: () => agentOverlaysRef.current,
+				getCursor: () => cursorIntentRef.current,
+				setOverlays: (next) => {
+					agentOverlaysRef.current = next;
+					setAgentOverlays(next);
+				},
 			});
+			if (
+				result.ok &&
+				req.command._tag === "Navigate" &&
+				result.url !== undefined &&
+				!(await requestAgentDomainAccess(req, wv, result.url))
+			) {
+				result = BrowserCommandResult.make({
+					id: req.id,
+					ok: false,
+					error:
+						"The navigation redirected to an imported authenticated domain that was not approved for this task.",
+				});
+			}
+			action.state = result.ok ? "succeeded" : "failed";
+			action.finishedAt = new Date().toISOString();
+			if (!result.ok) action.error = result.error;
 			try {
 				const client = await getRpcClient();
 				await Effect.runPromise(client["browser.respond"]({ result }));
@@ -468,6 +978,111 @@ export function BrowserPane() {
 			else wv.reload();
 		} catch {
 			// ignore
+		}
+	};
+
+	const changeViewportMode = (mode: BrowserViewportMode) => {
+		setViewport((current) => {
+			if (mode === "fill" || mode === "custom") return { ...current, mode };
+			const preset = VIEWPORT_PRESETS[mode];
+			const portrait = current.orientation === "portrait";
+			return {
+				...current,
+				mode,
+				width: portrait
+					? Math.min(preset.width, preset.height)
+					: Math.max(preset.width, preset.height),
+				height: portrait
+					? Math.max(preset.width, preset.height)
+					: Math.min(preset.width, preset.height),
+			};
+		});
+	};
+
+	const updateViewportDimension = (
+		axis: "width" | "height",
+		rawValue: number,
+	) => {
+		if (!Number.isFinite(rawValue)) return;
+		setViewport((current) => {
+			const widthLimit = (value: number) =>
+				Math.max(240, Math.min(2560, value));
+			const heightLimit = (value: number) =>
+				Math.max(240, Math.min(1600, value));
+			if (axis === "width") {
+				const width = widthLimit(Math.round(rawValue));
+				return {
+					...current,
+					mode: "custom",
+					width,
+					height: current.lockAspectRatio
+						? heightLimit(Math.round(width / (current.width / current.height)))
+						: current.height,
+				};
+			}
+			const height = heightLimit(Math.round(rawValue));
+			return {
+				...current,
+				mode: "custom",
+				height,
+				width: current.lockAspectRatio
+					? widthLimit(Math.round(height * (current.width / current.height)))
+					: current.width,
+			};
+		});
+	};
+
+	const beginViewportResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+		event.preventDefault();
+		const startX = event.clientX;
+		const startY = event.clientY;
+		const initial = viewportRef.current;
+		const onMove = (moveEvent: PointerEvent) => {
+			const width = initial.width + moveEvent.clientX - startX;
+			const height = initial.height + moveEvent.clientY - startY;
+			if (initial.lockAspectRatio) {
+				updateViewportDimension("width", width);
+			} else {
+				setViewport((current) => ({
+					...current,
+					mode: "custom",
+					width: Math.max(240, Math.min(2560, Math.round(width))),
+					height: Math.max(240, Math.min(1600, Math.round(height))),
+				}));
+			}
+		};
+		const onUp = () => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onUp);
+		};
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onUp, { once: true });
+	};
+
+	const fillNativeCredential = async (submit = false) => {
+		const wv = webviewRef.current as WebviewElement | null;
+		const bridge = window.zuse?.browser;
+		if (
+			wv === null ||
+			passwordFieldOrigin === null ||
+			bridge?.fillNativeCredential === undefined
+		)
+			return { ok: false, error: "The password field is no longer available." };
+		setNativeCredentialBusy(true);
+		setNativeCredentialError(null);
+		try {
+			const result = await bridge.fillNativeCredential(
+				wv.getWebContentsId(),
+				passwordFieldOrigin,
+				submit,
+			);
+			if (!result.ok)
+				setNativeCredentialError(
+					result.error ?? "The password could not be filled.",
+				);
+			return result;
+		} finally {
+			setNativeCredentialBusy(false);
 		}
 	};
 
@@ -668,9 +1283,41 @@ export function BrowserPane() {
 		}
 		setAttachingAnnotation(true);
 		try {
+			const pagePosition = (await wv
+				.executeJavaScript(
+					`(() => ({ scrollX, scrollY, deviceScaleFactor: devicePixelRatio || 1 }))()`,
+				)
+				.catch(() => ({ scrollX: 0, scrollY: 0, deviceScaleFactor: 1 }))) as {
+				scrollX: number;
+				scrollY: number;
+				deviceScaleFactor: number;
+			};
 			const image = await wv.capturePage();
-			const file = await nativeImageToFile(
-				image,
+			const humanShapes: BrowserOverlayShape[] = [
+				...pickedElements.map((element) => ({
+					_tag: "Rectangle" as const,
+					id: element.id,
+					...element.rect,
+				})),
+				...regions.map((region) => ({
+					_tag: "Rectangle" as const,
+					id: region.id,
+					...region.rect,
+				})),
+				...strokes.map((stroke) => ({
+					_tag: "Freehand" as const,
+					id: stroke.id,
+					points: [...stroke.points],
+				})),
+			];
+			const base64 = await compositeBrowserImage(
+				image.toDataURL(),
+				wv.getBoundingClientRect(),
+				[...agentOverlays, ...humanShapes],
+				null,
+			);
+			const file = pngBase64ToFile(
+				base64,
 				`browser-annotation-${Date.now()}.png`,
 			);
 			const screenshotAttachment = await uploadAttachment(
@@ -684,6 +1331,21 @@ export function BrowserPane() {
 				elements: pickedElements.map(({ id: _id, ...element }) => element),
 				regions,
 				strokes,
+				overlays: agentOverlays,
+				viewport: {
+					mode: viewport.mode,
+					width:
+						viewport.mode === "fill"
+							? Math.round(wv.getBoundingClientRect().width)
+							: viewport.width,
+					height:
+						viewport.mode === "fill"
+							? Math.round(wv.getBoundingClientRect().height)
+							: viewport.height,
+					scrollX: pagePosition.scrollX,
+					scrollY: pagePosition.scrollY,
+					deviceScaleFactor: pagePosition.deviceScaleFactor,
+				},
 				screenshotAttachment,
 			});
 			resetAnnotationDraft();
@@ -742,6 +1404,96 @@ export function BrowserPane() {
 					spellCheck={false}
 					className="flex-1 rounded bg-transparent px-2 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:bg-muted/40"
 				/>
+				<select
+					value={viewport.mode}
+					onChange={(event) =>
+						changeViewportMode(event.target.value as BrowserViewportMode)
+					}
+					aria-label="Browser viewport"
+					className="h-8 rounded-md border border-border/70 bg-background px-2 text-[11px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+				>
+					<option value="fill">Fill</option>
+					<option value="phone">Phone</option>
+					<option value="tablet">Tablet</option>
+					<option value="laptop">Laptop</option>
+					<option value="desktop">Desktop</option>
+					<option value="custom">Custom</option>
+				</select>
+				{viewport.mode === "custom" ? (
+					<div className="flex h-8 items-center rounded-md border border-border/70 bg-background">
+						<input
+							type="number"
+							min={240}
+							max={2560}
+							value={viewport.width}
+							onChange={(event) =>
+								updateViewportDimension("width", event.target.valueAsNumber)
+							}
+							aria-label="Viewport width"
+							className="h-full w-14 bg-transparent px-1 text-center text-[11px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+						/>
+						<span className="text-[10px] text-muted-foreground">×</span>
+						<input
+							type="number"
+							min={240}
+							max={1600}
+							value={viewport.height}
+							onChange={(event) =>
+								updateViewportDimension("height", event.target.valueAsNumber)
+							}
+							aria-label="Viewport height"
+							className="h-full w-14 bg-transparent px-1 text-center text-[11px] tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+						/>
+						<button
+							type="button"
+							aria-pressed={viewport.lockAspectRatio}
+							aria-label="Lock viewport aspect ratio"
+							onClick={() =>
+								setViewport((current) => ({
+									...current,
+									lockAspectRatio: !current.lockAspectRatio,
+								}))
+							}
+							className={`h-full px-2 text-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${viewport.lockAspectRatio ? "text-primary" : "text-muted-foreground"}`}
+						>
+							Ratio
+						</button>
+					</div>
+				) : null}
+				{viewport.mode !== "fill" ? (
+					<button
+						type="button"
+						onClick={() =>
+							setViewport((current) => ({
+								...current,
+								width: current.height,
+								height: current.width,
+								orientation:
+									current.orientation === "portrait" ? "landscape" : "portrait",
+							}))
+						}
+						className="h-8 rounded-md px-2 text-[11px] tabular-nums text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+						aria-label="Rotate browser viewport"
+					>
+						{viewport.width}×{viewport.height}
+					</button>
+				) : null}
+				{recordingState !== "idle" ? (
+					<span
+						className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-red-600"
+						aria-live="polite"
+					>
+						<span className="size-2 rounded-full bg-red-500" />
+						{recordingState === "recording" ? "Recording" : recordingState}
+					</span>
+				) : lastRecording !== null ? (
+					<span
+						className="max-w-24 truncate text-[10px] text-muted-foreground"
+						title={lastRecording.id}
+					>
+						Saved
+					</span>
+				) : null}
 				<ToolbarButton
 					onClick={() => {
 						if (!hasLoadedPage) return;
@@ -766,60 +1518,384 @@ export function BrowserPane() {
 				>
 					<Camera className="size-3.5" strokeWidth={1.8} />
 				</ToolbarButton>
+				<BrowserSettingsMenu
+					status={displayedCookieStatus}
+					credentialCapability={nativeCredentialCapability}
+					busy={cookieImportBusy}
+					domainGrantCount={domainGrantVersion}
+					onImport={runCookieImport}
+					onClearImported={clearImportedCookies}
+					onClearBrowsingData={clearBrowsingData}
+					onRevokeTaskAccess={() => {
+						domainGrantsRef.current.clear();
+						setDomainGrantVersion(0);
+					}}
+				/>
 			</form>
-			<div className="relative min-h-0 flex-1">
+			{passwordFieldOrigin !== null ? (
+				<section
+					className="flex min-h-8 shrink-0 items-center gap-2 border-b border-border/70 bg-card/80 px-3 py-1 text-xs"
+					aria-label="Password autofill"
+				>
+					<div className="min-w-0 flex-1">
+						<p className="font-medium text-foreground">
+							Password field detected
+						</p>
+						<p className="truncate text-muted-foreground">
+							{nativeCredentialError ??
+								nativeCredentialCapability?.reason ??
+								`Use the system password picker for ${passwordFieldOrigin}.`}
+						</p>
+					</div>
+					<button
+						type="button"
+						disabled={
+							nativeCredentialBusy ||
+							nativeCredentialCapability?.supported !== true
+						}
+						className="h-8 rounded-md bg-primary px-2.5 font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+						onClick={() => void fillNativeCredential()}
+					>
+						{nativeCredentialBusy
+							? "Opening Passwords…"
+							: "Fill from Passwords"}
+					</button>
+				</section>
+			) : null}
+			{domainAccessRequest !== null ? (
+				<section
+					className="shrink-0 border-b border-border/70 bg-card/80 px-3 py-2 text-xs"
+					aria-label="Browser session access"
+				>
+					<div className="flex flex-wrap items-center gap-2">
+						<div className="min-w-0 flex-1">
+							<p className="font-medium text-foreground">
+								Allow this task to use the signed-in session for{" "}
+								{domainAccessRequest.domain}?
+							</p>
+							<p className="mt-0.5 text-muted-foreground">
+								The grant stays in memory and applies only to this task and
+								domain.
+							</p>
+						</div>
+						<button
+							type="button"
+							className="h-8 rounded-md border border-border px-2.5 font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+							onClick={() => {
+								domainAccessRequest.resolve(false);
+								setDomainAccessRequest(null);
+							}}
+						>
+							Deny
+						</button>
+						<button
+							type="button"
+							className="h-8 rounded-md bg-primary px-2.5 font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+							onClick={() => {
+								domainGrantsRef.current.add(
+									`${domainAccessRequest.sessionId}:${domainAccessRequest.domain}`,
+								);
+								setDomainGrantVersion((value) => value + 1);
+								domainAccessRequest.resolve(true);
+								setDomainAccessRequest(null);
+							}}
+						>
+							Allow for task
+						</button>
+					</div>
+				</section>
+			) : null}
+			<div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/20">
 				{!hasLoadedPage ? (
 					<BrowserEmptyState servers={localServers} onOpen={navigate} />
 				) : null}
-				<webview
-					ref={webviewRef as unknown as React.RefObject<HTMLElement>}
-					// src is intentionally NOT bound to `url` state. All navigation is
-					// imperative (loadURL); if src tracked state, every navigation would
-					// fire twice — once from loadURL, once from React re-setting the
-					// attribute — and the loads abort each other (ERR_ABORTED -3, agent
-					// navigations intermittently reporting about:blank).
-					src="about:blank"
-					{...({ allowpopups: "true" } as Record<string, string>)}
+				<div
+					className="relative shrink-0 overflow-hidden bg-background shadow-sm"
 					style={{
-						display: !hasLoadedPage ? "none" : "flex",
-						width: "100%",
-						height: "100%",
+						width: viewport.mode === "fill" ? "100%" : `${viewport.width}px`,
+						height: viewport.mode === "fill" ? "100%" : `${viewport.height}px`,
 					}}
-				/>
-				{annotating && hasLoadedPage ? (
-					<BrowserAnnotationOverlay
-						tool={annotationTool}
-						setTool={setAnnotationTool}
-						hoverPick={hoverPick}
-						elements={pickedElements}
-						regions={regions}
-						strokes={strokes}
-						dragRect={dragRect}
-						activeStroke={activeStroke}
-						bounds={annotationBounds}
-						comment={annotationComment}
-						setComment={setAnnotationComment}
-						canAttach={
-							selectedSessionId !== null &&
-							hasAnnotationTargets &&
-							annotationComment.trim().length > 0
-						}
-						attaching={attachingAnnotation}
-						onAttach={() => void attachBrowserAnnotation()}
-						onCancel={() => {
-							resetAnnotationDraft();
-							setAnnotating(false);
+				>
+					<webview
+						ref={webviewRef as unknown as React.RefObject<HTMLElement>}
+						// src is intentionally NOT bound to `url` state. All navigation is
+						// imperative (loadURL); if src tracked state, every navigation would
+						// fire twice — once from loadURL, once from React re-setting the
+						// attribute — and the loads abort each other (ERR_ABORTED -3, agent
+						// navigations intermittently reporting about:blank).
+						src="about:blank"
+						{...({
+							allowpopups: "true",
+							partition: "persist:zuse-browser",
+						} as Record<string, string>)}
+						style={{
+							display: !hasLoadedPage ? "none" : "flex",
+							width: "100%",
+							height: "100%",
 						}}
-						onPointerDown={handleAnnotationPointerDown}
-						onPointerMove={handleAnnotationPointerMove}
-						onPointerUp={handleAnnotationPointerUp}
 					/>
-				) : null}
-				<AgentCursor intent={cursorIntent} visible={hasLoadedPage} />
-				<BrowserShutter nonce={shutterNonce} />
+					<BrowserAgentOverlay shapes={agentOverlays} />
+					{viewport.mode !== "fill" ? (
+						<button
+							type="button"
+							onPointerDown={beginViewportResize}
+							aria-label="Resize browser viewport"
+							className="absolute bottom-0 right-0 z-30 size-8 cursor-nwse-resize touch-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 after:absolute after:bottom-1 after:right-1 after:size-3 after:border-b-2 after:border-r-2 after:border-muted-foreground/60"
+						/>
+					) : null}
+					{annotating && hasLoadedPage ? (
+						<BrowserAnnotationOverlay
+							tool={annotationTool}
+							setTool={setAnnotationTool}
+							hoverPick={hoverPick}
+							elements={pickedElements}
+							regions={regions}
+							strokes={strokes}
+							dragRect={dragRect}
+							activeStroke={activeStroke}
+							bounds={annotationBounds}
+							comment={annotationComment}
+							setComment={setAnnotationComment}
+							canAttach={
+								selectedSessionId !== null &&
+								hasAnnotationTargets &&
+								annotationComment.trim().length > 0
+							}
+							attaching={attachingAnnotation}
+							onAttach={() => void attachBrowserAnnotation()}
+							onCancel={() => {
+								resetAnnotationDraft();
+								setAnnotating(false);
+							}}
+							onPointerDown={handleAnnotationPointerDown}
+							onPointerMove={handleAnnotationPointerMove}
+							onPointerUp={handleAnnotationPointerUp}
+						/>
+					) : null}
+					<AgentCursor intent={cursorIntent} visible={hasLoadedPage} />
+					<BrowserShutter nonce={shutterNonce} />
+				</div>
 			</div>
 		</div>
 	);
+}
+
+async function loadUntilEvent(
+	wv: WebviewElement,
+	url: string,
+	eventName: "dom-ready" | "did-stop-loading",
+): Promise<void> {
+	await new Promise<void>((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			cleanup();
+			reject(new Error(`Timed out waiting for ${eventName}.`));
+		}, 25_000);
+		const done = () => {
+			cleanup();
+			resolve();
+		};
+		const cleanup = () => {
+			clearTimeout(timeout);
+			wv.removeEventListener(eventName, done);
+		};
+		wv.addEventListener(eventName, done, { once: true });
+		try {
+			void wv.loadURL(url).catch((error) => {
+				cleanup();
+				reject(error);
+			});
+		} catch (error) {
+			cleanup();
+			reject(error);
+		}
+	});
+}
+
+async function buildDiagnosticPayload(
+	wv: WebviewElement,
+	hooks: {
+		readConsole: () => string;
+		getWebContentsId: () => number | null;
+		getViewport: () => BrowserViewportSetting;
+		getLoading: () => boolean;
+		getTimeline: () => ReadonlyArray<BrowserActionEvent>;
+		getRecordingState: () => string;
+	},
+	accessibilityTree: string,
+	requestedScreenshot?: "viewport" | "full-page",
+): Promise<Record<string, unknown>> {
+	const visibleTextRaw = await wv
+		.executeJavaScript(
+			`(() => (document.body?.innerText || document.body?.textContent || '').replace(/\n{3,}/g, '\n\n').trim().slice(0, 50000))()`,
+		)
+		.catch(() => "");
+	const wcId = hooks.getWebContentsId();
+	const network =
+		wcId === null
+			? []
+			: await window.zuse?.browser
+					?.getNetwork?.(wcId, {})
+					.then((value) =>
+						value !== null && "requests" in value
+							? value.requests.slice(-200)
+							: [],
+					)
+					.catch(() => []);
+	let payload: Record<string, unknown> = {
+		url: safeCall(() => wv.getURL(), ""),
+		title: safeCall(() => wv.getTitle(), ""),
+		loading: hooks.getLoading(),
+		viewport: hooks.getViewport(),
+		visibleText: typeof visibleTextRaw === "string" ? visibleTextRaw : "",
+		accessibilityTree,
+		console: hooks.readConsole().split("\n").slice(-100),
+		network,
+		actions: hooks.getTimeline().slice(-100),
+		recording: hooks.getRecordingState(),
+		...(requestedScreenshot === undefined
+			? {}
+			: {
+					screenshot: {
+						requested: requestedScreenshot,
+						availableVia: "browser_screenshot",
+					},
+				}),
+	};
+	const structuredBytes = () =>
+		new TextEncoder().encode(JSON.stringify(payload)).byteLength;
+	for (
+		let attempt = 0;
+		attempt < 10 && structuredBytes() > 256 * 1024;
+		attempt++
+	) {
+		payload.truncated = true;
+		payload.visibleText = String(payload.visibleText).slice(
+			0,
+			Math.max(1_000, Math.floor(String(payload.visibleText).length / 2)),
+		);
+		payload.accessibilityTree = String(payload.accessibilityTree).slice(
+			0,
+			Math.max(2_000, Math.floor(String(payload.accessibilityTree).length / 2)),
+		);
+		for (const key of ["console", "network", "actions"] as const) {
+			const entries = payload[key];
+			if (Array.isArray(entries) && entries.length > 5)
+				payload[key] = entries.slice(
+					-Math.max(5, Math.floor(entries.length / 2)),
+				);
+		}
+	}
+	if (structuredBytes() > 256 * 1024) {
+		payload = {
+			url: payload.url,
+			title: payload.title,
+			loading: payload.loading,
+			viewport: payload.viewport,
+			recording: payload.recording,
+			truncated: true,
+			error: "Diagnostic details exceeded the structured-output limit.",
+		};
+	}
+	return payload;
+}
+
+type ResolvedBrowserTarget =
+	| { ok: true; cx: number; cy: number; label: string; selector?: string }
+	| { ok: false; error: string };
+
+async function resolveBrowserTarget(
+	wv: WebviewElement,
+	webContentsId: number | null,
+	store: RefStore,
+	target: BrowserTarget,
+): Promise<ResolvedBrowserTarget> {
+	if (target._tag === "Point") {
+		const bounds = wv.getBoundingClientRect();
+		if (
+			target.x < 0 ||
+			target.y < 0 ||
+			target.x > bounds.width ||
+			target.y > bounds.height
+		) {
+			return { ok: false, error: "Target coordinate is outside the viewport." };
+		}
+		return {
+			ok: true,
+			cx: target.x,
+			cy: target.y,
+			label: `point (${target.x}, ${target.y})`,
+		};
+	}
+	if (target._tag === "Ref") {
+		if (!isValidRef(target.ref))
+			return { ok: false, error: "Invalid snapshot ref." };
+		const resolved = await resolveRefTarget(
+			wv,
+			webContentsId,
+			store,
+			target.ref,
+		);
+		return resolved === null
+			? { ok: false, error: "Snapshot ref is stale — take a new snapshot." }
+			: { ok: true, ...resolved };
+	}
+	const raw = await wv.executeJavaScript(`(() => {
+		const spec = ${JSON.stringify(target)};
+		const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity) !== 0; };
+		const roleOf = (el) => el.getAttribute('role') || ({ A:'link', BUTTON:'button', INPUT: el.type === 'checkbox' ? 'checkbox' : el.type === 'radio' ? 'radio' : 'textbox', TEXTAREA:'textbox', SELECT:'combobox' }[el.tagName] || '');
+		const nameOf = (el) => (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder') || el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+		let matches = [];
+		if (spec._tag === 'Css') { try { matches = Array.from(document.querySelectorAll(spec.selector)); } catch { return { error:'Invalid CSS selector.' }; } }
+		if (spec._tag === 'Text') matches = Array.from(document.querySelectorAll('body *')).filter((el) => { const value = nameOf(el); return spec.exact ? value === spec.text : value.includes(spec.text); });
+		if (spec._tag === 'Role') matches = Array.from(document.querySelectorAll('body *')).filter((el) => { if (roleOf(el).toLowerCase() !== spec.role.toLowerCase()) return false; if (!spec.name) return true; const value = nameOf(el); return spec.exact ? value === spec.name : value.toLowerCase().includes(spec.name.toLowerCase()); });
+		matches = matches.filter(visible);
+		if (matches.length === 0) return { error:'Target was not found or is not visible.' };
+		if (matches.length > 1) return { error:'Target is ambiguous: ' + matches.length + ' visible elements match.' };
+		const el = matches[0];
+		if (el.matches(':disabled,[aria-disabled="true"]')) return { error:'Target is disabled.' };
+		el.scrollIntoView({ block:'center', inline:'center' });
+		const r = el.getBoundingClientRect();
+		const selector = el.id ? '#' + CSS.escape(el.id) : el.tagName.toLowerCase() + (el.getAttribute('name') ? '[name="' + CSS.escape(el.getAttribute('name')) + '"]' : '');
+		return { cx:r.left+r.width/2, cy:r.top+r.height/2, label:nameOf(el).slice(0,80) || el.tagName.toLowerCase(), selector };
+	})()`);
+	if (raw === null || typeof raw !== "object")
+		return { ok: false, error: "The page did not resolve the target." };
+	const value = raw as {
+		error?: string;
+		cx?: number;
+		cy?: number;
+		label?: string;
+		selector?: string;
+	};
+	if (value.error !== undefined) return { ok: false, error: value.error };
+	if (typeof value.cx !== "number" || typeof value.cy !== "number")
+		return { ok: false, error: "Target geometry is unavailable." };
+	return {
+		ok: true,
+		cx: value.cx,
+		cy: value.cy,
+		label: value.label ?? "element",
+		...(value.selector !== undefined ? { selector: value.selector } : {}),
+	};
+}
+
+async function inspectBrowserTarget(
+	wv: WebviewElement,
+	_target: BrowserTarget,
+	resolved: Extract<ResolvedBrowserTarget, { ok: true }>,
+): Promise<unknown> {
+	return wv.executeJavaScript(`(() => {
+		const el = document.elementFromPoint(${JSON.stringify(resolved.cx)}, ${JSON.stringify(resolved.cy)});
+		if (!el) return null;
+		const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+		return {
+			tagName: el.tagName.toLowerCase(), selector: ${JSON.stringify(resolved.selector ?? null)},
+			attributes: Object.fromEntries(Array.from(el.attributes).slice(0,100).map((a) => [a.name, a.value.slice(0,1000)])),
+			accessible: { role: el.getAttribute('role'), name: el.getAttribute('aria-label') || el.innerText?.trim().slice(0,200) || null, disabled: el.matches(':disabled,[aria-disabled="true"]') },
+			box: { x:r.x, y:r.y, width:r.width, height:r.height, pageX:r.x+scrollX, pageY:r.y+scrollY },
+			styles: { display:s.display, visibility:s.visibility, opacity:s.opacity, position:s.position, zIndex:s.zIndex, color:s.color, backgroundColor:s.backgroundColor, font:s.font }
+		};
+	})()`);
 }
 
 /**
@@ -854,6 +1930,16 @@ async function runBrowserCommand(
 		getRefStore: () => RefStore;
 		/** Replace the ref store after a fresh snapshot. */
 		setRefStore: (store: RefStore) => void;
+		getLoading: () => boolean;
+		getViewport: () => BrowserViewportSetting;
+		setViewport: (setting: BrowserViewportSetting) => void;
+		getRecordingState: () => "idle" | "starting" | "recording" | "stopping";
+		startRecording: () => Promise<void>;
+		stopRecording: () => Promise<BrowserRecordingArtifact>;
+		getTimeline: () => ReadonlyArray<BrowserActionEvent>;
+		getOverlays: () => ReadonlyArray<BrowserOverlayShape>;
+		getCursor: () => AgentCursorIntent | null;
+		setOverlays: (shapes: BrowserOverlayShape[]) => void;
 	},
 ): Promise<BrowserCommandResult> {
 	const fail = (error: string) =>
@@ -864,12 +1950,85 @@ async function runBrowserCommand(
 	const command = req.command;
 	try {
 		switch (command._tag) {
+			case "Status": {
+				const viewport = hooks.getViewport();
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: {
+						available: true,
+						url: safeCall(() => wv.getURL(), ""),
+						title: safeCall(() => wv.getTitle(), ""),
+						loading: hooks.getLoading(),
+						visible:
+							wv.getBoundingClientRect().width > 0 &&
+							wv.getBoundingClientRect().height > 0,
+						viewport,
+						recording: hooks.getRecordingState(),
+						domainAccess: "manual-or-approved",
+						capabilities: {
+							cdp: hooks.getWebContentsId() !== null,
+							accessibility: hooks.getWebContentsId() !== null,
+							network: window.zuse?.browser?.getNetwork !== undefined,
+							inspection: true,
+							evaluation: true,
+							recording: window.zuse?.browser?.saveRecording !== undefined,
+							overlays: true,
+						},
+					},
+				});
+			}
+			case "Resize": {
+				const current = hooks.getViewport();
+				const preset =
+					command.mode === "fill" || command.mode === "custom"
+						? null
+						: VIEWPORT_PRESETS[command.mode];
+				let width = Math.round(command.width ?? preset?.width ?? current.width);
+				let height = Math.round(
+					command.height ?? preset?.height ?? current.height,
+				);
+				width = Math.min(3840, Math.max(240, width));
+				height = Math.min(2160, Math.max(240, height));
+				const orientation = command.orientation ?? current.orientation;
+				if (
+					(orientation === "portrait" && width > height) ||
+					(orientation === "landscape" && height > width)
+				) {
+					[width, height] = [height, width];
+				}
+				const next: BrowserViewportSetting = {
+					mode: command.mode,
+					width,
+					height,
+					orientation,
+					lockAspectRatio: command.lockAspectRatio ?? current.lockAspectRatio,
+				};
+				hooks.setViewport(next);
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: next,
+					detail: `Viewport set to ${command.mode}${command.mode === "fill" ? "" : ` (${width}×${height})`}.`,
+				});
+			}
 			case "Navigate": {
-				const resolved = resolveUrl(command.url);
+				const environmentUrl =
+					command.environmentPort !== undefined && command.url.startsWith("/")
+						? `${command.environmentProtocol ?? "http"}://localhost:${command.environmentPort}${command.url}`
+						: command.url;
+				const resolved = resolveUrl(environmentUrl);
 				if (resolved === null) return fail(`Invalid URL: ${command.url}`);
 				hooks.setUrl(resolved);
 				hooks.setInputValue(resolved);
-				await loadAndWait(wv, resolved);
+				if (command.readiness === "immediate") {
+					void wv.loadURL(resolved).catch(() => {});
+					await delay(0);
+				} else if (command.readiness === "dom-ready") {
+					await loadUntilEvent(wv, resolved, "dom-ready");
+				} else {
+					await loadAndWait(wv, resolved);
+				}
 				return BrowserCommandResult.make({
 					id: req.id,
 					ok: true,
@@ -914,9 +2073,12 @@ async function runBrowserCommand(
 						"Screenshot came back empty — the page may still be loading.",
 					);
 				}
-				const base64 = image
-					.toDataURL()
-					.replace(/^data:image\/png;base64,/, "");
+				const base64 = await compositeBrowserImage(
+					image.toDataURL(),
+					wv.getBoundingClientRect(),
+					hooks.getOverlays(),
+					hooks.getCursor(),
+				);
 				hooks.flashShutter();
 				return BrowserCommandResult.make({
 					id: req.id,
@@ -936,33 +2098,52 @@ async function runBrowserCommand(
 					const built = await buildA11ySnapshot(wcId);
 					if (built !== null) {
 						hooks.setRefStore({ mode: "cdp", map: built.map });
+						const payload = await buildDiagnosticPayload(
+							wv,
+							hooks,
+							built.text,
+							command.screenshot,
+						);
 						return BrowserCommandResult.make({
 							id: req.id,
 							ok: true,
 							url: safeCall(() => wv.getURL(), ""),
 							title: safeCall(() => wv.getTitle(), ""),
 							snapshot: built.text,
+							payload,
 						});
 					}
 				}
 				const raw = await wv.executeJavaScript(SNAPSHOT_JS);
 				hooks.setRefStore({ mode: "dom", map: new Map() });
+				const snapshot =
+					typeof raw === "string" ? raw : JSON.stringify(raw ?? []);
 				return BrowserCommandResult.make({
 					id: req.id,
 					ok: true,
 					url: safeCall(() => wv.getURL(), ""),
 					title: safeCall(() => wv.getTitle(), ""),
-					snapshot: typeof raw === "string" ? raw : JSON.stringify(raw ?? []),
+					snapshot,
+					payload: await buildDiagnosticPayload(
+						wv,
+						hooks,
+						snapshot,
+						command.screenshot,
+					),
 				});
 			}
 			case "Click": {
-				if (!isValidRef(command.ref)) return fail("Invalid element ref.");
 				const wcId = hooks.getWebContentsId();
 				const store = hooks.getRefStore();
-				const target = await resolveRefTarget(wv, wcId, store, command.ref);
-				if (target === null) {
-					return fail("No element with that ref — re-snapshot the page first.");
-				}
+				const spec =
+					command.target ??
+					(command.ref !== undefined
+						? { _tag: "Ref" as const, ref: command.ref }
+						: null);
+				if (spec === null)
+					return fail("Click requires a browser target or snapshot ref.");
+				const target = await resolveBrowserTarget(wv, wcId, store, spec);
+				if (!target.ok) return fail(target.error);
 				// Without CDP attached (preload bridge missing, attach failed) we
 				// can't deliver real input. Fall back to the synthetic click so the
 				// agent still makes progress — the cursor animation still runs so
@@ -973,14 +2154,13 @@ async function runBrowserCommand(
 					(await dispatchClickViaCdp(wcId, target.cx, target.cy));
 				if (!delivered) {
 					if (wcId === null) await delay(CURSOR_GLIDE_MS + 20);
-					const res = await callOnRefElement(
-						wv,
-						wcId,
-						store,
-						command.ref,
-						CLICK_FN,
-						[],
-					);
+					const res =
+						spec._tag === "Ref"
+							? await callOnRefElement(wv, wcId, store, spec.ref, CLICK_FN, [])
+							: await runJsObject(
+									wv,
+									`(() => { const el = document.elementFromPoint(${target.cx}, ${target.cy}); if (!el) return JSON.stringify({ok:false,error:'Target is no longer visible.'}); el.click(); return JSON.stringify({ok:true}); })()`,
+								);
 					if (res === null || !res.ok) {
 						return fail(
 							res?.error ??
@@ -995,14 +2175,18 @@ async function runBrowserCommand(
 				});
 			}
 			case "Type": {
-				if (!isValidRef(command.ref)) return fail("Invalid element ref.");
 				const submit = command.submit === true;
 				const wcId = hooks.getWebContentsId();
 				const store = hooks.getRefStore();
-				const target = await resolveRefTarget(wv, wcId, store, command.ref);
-				if (target === null) {
-					return fail("No element with that ref — re-snapshot first.");
-				}
+				const spec =
+					command.target ??
+					(command.ref !== undefined
+						? { _tag: "Ref" as const, ref: command.ref }
+						: null);
+				if (spec === null)
+					return fail("Type requires a browser target or snapshot ref.");
+				const target = await resolveBrowserTarget(wv, wcId, store, spec);
+				if (!target.ok) return fail(target.error);
 				// Glide the cursor to the field with a click pulse — visually frames
 				// the field activation. Real focus happens via CDP click (or .focus()
 				// when CDP isn't available) so the input shows its native focus ring.
@@ -1016,22 +2200,29 @@ async function runBrowserCommand(
 				// input. Switching to CDP's `Input.insertText` here would regress on
 				// common SPA login forms; the real click above already gave the
 				// field a true focus event.
-				const res = await callOnRefElement(
-					wv,
-					wcId,
-					store,
-					command.ref,
-					FILL_FIELD_FN,
-					[command.text],
-				);
+				const res =
+					spec._tag === "Ref"
+						? await callOnRefElement(wv, wcId, store, spec.ref, FILL_FIELD_FN, [
+								command.text,
+							])
+						: await runJsObject(
+								wv,
+								`(() => { const el = document.elementFromPoint(${target.cx}, ${target.cy}); if (!el) return JSON.stringify({ok:false,error:'Target is no longer visible.'}); return JSON.stringify((${FILL_FIELD_FN}).call(el, ${JSON.stringify(command.text)})); })()`,
+							);
 				if (submit) {
 					if (wcId !== null) {
 						await dispatchKeyTap(wcId, "Enter");
 					} else {
-						await callOnRefElement(wv, wcId, store, command.ref, ENTER_FN, []);
+						if (spec._tag === "Ref")
+							await callOnRefElement(wv, wcId, store, spec.ref, ENTER_FN, []);
+						else
+							await runJsObject(
+								wv,
+								`(() => JSON.stringify((${ENTER_FN}).call(document.elementFromPoint(${target.cx}, ${target.cy}))))()`,
+							);
 					}
 				}
-				return resultFromJs(req.id, res, `Typed into ${command.ref}.`);
+				return resultFromJs(req.id, res, `Typed into ${target.label}.`);
 			}
 			case "Wait": {
 				// Bounded below the bridge's 30s deadline so a hopeless wait comes
@@ -1064,6 +2255,62 @@ async function runBrowserCommand(
 					ok: true,
 					detail: `Waited ${ms}ms.`,
 				});
+			}
+			case "WaitFor": {
+				const timeoutMs = Math.min(
+					Math.max(command.timeoutMs ?? 10_000, 100),
+					25_000,
+				);
+				const started = Date.now();
+				let lastError = "conditions were not met";
+				while (Date.now() - started < timeoutMs) {
+					const failures: string[] = [];
+					if (
+						command.ms !== undefined &&
+						Date.now() - started < Math.max(0, command.ms)
+					)
+						failures.push("delay");
+					if (
+						command.urlIncludes !== undefined &&
+						!safeCall(() => wv.getURL(), "").includes(command.urlIncludes)
+					)
+						failures.push("URL");
+					if (command.loadingComplete === true && hooks.getLoading())
+						failures.push("loading");
+					if (command.selector !== undefined || command.text !== undefined) {
+						const state = await wv.executeJavaScript(
+							`(() => { const selector = ${JSON.stringify(command.selector ?? null)}; const text = ${JSON.stringify(command.text ?? null)}; const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; }; return { selector: selector === null || Array.from(document.querySelectorAll(selector)).some(visible), text: text === null || (document.body?.innerText || '').includes(text) }; })()`,
+						);
+						const value = state as { selector?: boolean; text?: boolean };
+						if (value.selector !== true) failures.push("selector");
+						if (value.text !== true) failures.push("text");
+					}
+					if (command.target !== undefined) {
+						const target = await resolveBrowserTarget(
+							wv,
+							hooks.getWebContentsId(),
+							hooks.getRefStore(),
+							command.target,
+						);
+						if (!target.ok) failures.push(`target (${target.error})`);
+					}
+					if (failures.length === 0) {
+						return BrowserCommandResult.make({
+							id: req.id,
+							ok: true,
+							payload: {
+								elapsedMs: Date.now() - started,
+								conditions: "all-passed",
+							},
+							detail: "All browser wait conditions passed.",
+						});
+					}
+					lastError = failures.join(", ");
+					await delay(150);
+				}
+				return fail(
+					`Timed out after ${timeoutMs}ms waiting for: ${lastError}.`,
+				);
 			}
 			case "Scroll": {
 				if (typeof command.ref === "string" && command.ref.length > 0) {
@@ -1313,7 +2560,10 @@ async function runBrowserCommand(
 					await delay(120);
 				}
 				if (command.submit === true) {
-					const lastRef = command.fields[command.fields.length - 1]!.ref;
+					const lastField = command.fields.at(-1);
+					if (lastField === undefined)
+						return fail("At least one field is required before submitting.");
+					const lastRef = lastField.ref;
 					if (wcId !== null) {
 						await dispatchKeyTap(wcId, "Enter");
 					} else {
@@ -1424,6 +2674,44 @@ async function runBrowserCommand(
 				});
 			}
 			case "Login": {
+				const activeOrigin = safeCall(() => new URL(wv.getURL()).origin, "");
+				let requestedOrigin: string;
+				try {
+					requestedOrigin = new URL(command.origin).origin;
+				} catch {
+					return fail("Login origin must be an absolute http(s) origin.");
+				}
+				if (requestedOrigin !== activeOrigin) {
+					return fail(
+						`Login origin does not match the active page (${activeOrigin || "no page"}).`,
+					);
+				}
+				const nativeBridge = window.zuse?.browser;
+				const nativeCapability =
+					await nativeBridge?.getNativeCredentialCapability?.();
+				const nativeWebContentsId = hooks.getWebContentsId();
+				if (
+					nativeCapability?.supported === true &&
+					nativeWebContentsId !== null &&
+					nativeBridge?.fillNativeCredential !== undefined
+				) {
+					const nativeResult = await nativeBridge.fillNativeCredential(
+						nativeWebContentsId,
+						activeOrigin,
+						true,
+					);
+					if (nativeResult.ok) {
+						return BrowserCommandResult.make({
+							id: req.id,
+							ok: true,
+							detail: `Filled the system credential for ${activeOrigin} and submitted the login form.`,
+						});
+					}
+					return fail(
+						nativeResult.error ??
+							"The system password picker was cancelled or unavailable.",
+					);
+				}
 				// Pull the dummy secret out-of-band (renderer-only RPC) and inject it
 				// straight into the page. The password never returns to the agent —
 				// only the ok/detail below, which omit it.
@@ -1433,7 +2721,7 @@ async function runBrowserCommand(
 				);
 				if (secret === null) {
 					return fail(
-						`No saved credential for ${command.origin}. Add a dummy login in Settings → Browser.`,
+						`No system or saved test credential is available for ${command.origin}. Sign in manually or add a test login in Settings → Browser.`,
 					);
 				}
 				const res = await runJsObject(
@@ -1441,6 +2729,91 @@ async function runBrowserCommand(
 					`(() => { const U = ${JSON.stringify(secret.username)}; const P = ${JSON.stringify(secret.password)}; const pw = document.querySelector('input[type="password"]'); if (!pw) return JSON.stringify({ ok:false, error:'No password field on this page — navigate to the login form first.' }); let user = document.querySelector('input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[id*="user" i], input[id*="email" i]'); if (!user) { user = Array.from(document.querySelectorAll('input')).find((i) => /^(text|email|)$/.test(i.type)) || null; } const setVal = (el, v) => { const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); }; if (user) setVal(user, U); setVal(pw, P); const form = pw.form; if (form && typeof form.requestSubmit === 'function') { try { form.requestSubmit(); return JSON.stringify({ ok:true, detail:'Filled and submitted the login form.' }); } catch (e) {} } pw.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, which:13, bubbles:true })); return JSON.stringify({ ok:true, detail:'Filled the saved credentials and pressed Enter.' }); })()`,
 				);
 				return resultFromJs(req.id, res, "Submitted the saved login.");
+			}
+			case "Inspect": {
+				const target = await resolveBrowserTarget(
+					wv,
+					hooks.getWebContentsId(),
+					hooks.getRefStore(),
+					command.target,
+				);
+				if (!target.ok) return fail(target.error);
+				const inspection = await inspectBrowserTarget(
+					wv,
+					command.target,
+					target,
+				);
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: inspection,
+					detail: `Inspected ${target.label}.`,
+				});
+			}
+			case "Evaluate": {
+				if (command.expression.length > 64 * 1024)
+					return fail("JavaScript expression exceeds 64 KiB.");
+				const value = await wv.executeJavaScript(
+					`(async () => { const value = ${command.awaitPromise === true ? "await " : ""}(${command.expression}); return value === undefined ? null : value; })()`,
+				);
+				let encoded: string;
+				try {
+					encoded = JSON.stringify(value);
+				} catch {
+					return fail("Evaluation result is not JSON serializable.");
+				}
+				if (encoded.length > 64 * 1024)
+					return fail("Evaluation result exceeds 64 KiB.");
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: { value },
+					detail: "Evaluation completed.",
+				});
+			}
+			case "RecordingStart": {
+				await hooks.startRecording();
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: { state: "recording", startedAt: new Date().toISOString() },
+					detail: "Browser recording started.",
+				});
+			}
+			case "RecordingStop": {
+				const artifact = await hooks.stopRecording();
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: artifact,
+					detail: "Browser recording saved.",
+				});
+			}
+			case "Overlay": {
+				const previous = [...hooks.getOverlays()];
+				let next = previous;
+				if (command.action === "clear") next = [];
+				if (command.action === "remove" && command.id !== undefined)
+					next = previous.filter((shape) => shape.id !== command.id);
+				if (command.action === "add") {
+					if (command.shape === undefined)
+						return fail("Overlay add requires a shape.");
+					const addedShape = command.shape;
+					next = [
+						...previous.filter((shape) => shape.id !== addedShape.id),
+						addedShape,
+					];
+				}
+				if (command.action === "undo") next = previous.slice(0, -1);
+				if (command.action === "redo")
+					return fail("Nothing to redo in this browser session.");
+				hooks.setOverlays(next);
+				return BrowserCommandResult.make({
+					id: req.id,
+					ok: true,
+					payload: { count: next.length, shapes: next },
+					detail: `Browser overlay now has ${next.length} mark(s).`,
+				});
 			}
 		}
 	} catch (err) {
@@ -1509,8 +2882,18 @@ async function resolveRefTarget(
 		if (!Array.isArray(quads) || quads.length === 0) return null;
 		const q = quads[0] as number[];
 		if (!Array.isArray(q) || q.length < 8) return null;
-		const cx = (q[0]! + q[2]! + q[4]! + q[6]!) / 4;
-		const cy = (q[1]! + q[3]! + q[5]! + q[7]!) / 4;
+		const [
+			x0 = Number.NaN,
+			y0 = Number.NaN,
+			x1 = Number.NaN,
+			y1 = Number.NaN,
+			x2 = Number.NaN,
+			y2 = Number.NaN,
+			x3 = Number.NaN,
+			y3 = Number.NaN,
+		] = q;
+		const cx = (x0 + x1 + x2 + x3) / 4;
+		const cy = (y0 + y1 + y2 + y3) / 4;
 		if (!Number.isFinite(cx) || !Number.isFinite(cy)) return null;
 		return { cx, cy, label: entry.label };
 	}
@@ -1877,7 +3260,8 @@ async function buildA11ySnapshot(webContentsId: number): Promise<{
 	}
 	const root =
 		(nodes as AxNode[]).find((n) => n.parentId === undefined) ??
-		(nodes as AxNode[])[0]!;
+		(nodes as AxNode[])[0];
+	if (root === undefined) return null;
 
 	const map = new Map<string, { backendNodeId: number; label: string }>();
 	const lines: string[] = [];
@@ -1929,11 +3313,11 @@ async function buildA11ySnapshot(webContentsId: number): Promise<{
 					parts.push(lrole);
 					if (name.length > 0) parts.push(` "${name}"`);
 				}
-				if (interactive) {
+				if (interactive && typeof node.backendDOMNodeId === "number") {
 					refCounter += 1;
 					const ref = `e${refCounter}`;
 					map.set(ref, {
-						backendNodeId: node.backendDOMNodeId!,
+						backendNodeId: node.backendDOMNodeId,
 						label: name.length > 0 ? name : lrole,
 					});
 					parts.push(` [ref=${ref}]`);
@@ -2097,6 +3481,110 @@ function loadAndWait(wv: WebviewElement, url: string): Promise<void> {
 	});
 }
 
+function BrowserAgentOverlay({
+	shapes,
+}: {
+	shapes: ReadonlyArray<BrowserOverlayShape>;
+}) {
+	if (shapes.length === 0) return null;
+	return (
+		<svg
+			className="pointer-events-none absolute inset-0 z-[15] h-full w-full overflow-visible"
+			aria-hidden="true"
+		>
+			<defs>
+				<marker
+					id="browser-agent-arrow"
+					markerWidth="8"
+					markerHeight="8"
+					refX="7"
+					refY="4"
+					orient="auto"
+				>
+					<path d="M0,0 L8,4 L0,8 Z" fill="context-stroke" />
+				</marker>
+			</defs>
+			{shapes.map((shape) => {
+				const color = shape.color ?? "rgb(37 99 235)";
+				switch (shape._tag) {
+					case "Rectangle":
+						return (
+							<rect
+								key={shape.id}
+								x={shape.x}
+								y={shape.y}
+								width={shape.width}
+								height={shape.height}
+								fill="none"
+								stroke={color}
+								strokeWidth={3}
+								rx={4}
+							/>
+						);
+					case "Highlight":
+						return (
+							<rect
+								key={shape.id}
+								x={shape.x}
+								y={shape.y}
+								width={shape.width}
+								height={shape.height}
+								fill={color}
+								fillOpacity={0.22}
+								stroke={color}
+								strokeWidth={1}
+								rx={3}
+							/>
+						);
+					case "Arrow":
+						return (
+							<line
+								key={shape.id}
+								x1={shape.fromX}
+								y1={shape.fromY}
+								x2={shape.toX}
+								y2={shape.toY}
+								stroke={color}
+								strokeWidth={3}
+								strokeLinecap="round"
+								markerEnd="url(#browser-agent-arrow)"
+							/>
+						);
+					case "Label":
+						return (
+							<g key={shape.id} transform={`translate(${shape.x} ${shape.y})`}>
+								<rect
+									x={0}
+									y={-22}
+									width={Math.max(44, shape.text.length * 7 + 16)}
+									height={28}
+									rx={6}
+									fill={color}
+								/>
+								<text x={8} y={-4} fill="white" fontSize={12} fontWeight={600}>
+									{shape.text}
+								</text>
+							</g>
+						);
+					case "Freehand":
+						return (
+							<path
+								key={shape.id}
+								d={pathFromPoints(shape.points)}
+								fill="none"
+								stroke={color}
+								strokeWidth={3}
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							/>
+						);
+				}
+				return null;
+			})}
+		</svg>
+	);
+}
+
 function BrowserEmptyState({
 	servers,
 	onOpen,
@@ -2257,7 +3745,10 @@ function BrowserAnnotationOverlay({
 				<AnnotationRect rect={dragRect} label="region" subtle />
 			) : null}
 
-			<svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+			<svg
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+			>
 				{strokes.map((stroke) => (
 					<path
 						key={stroke.id}
@@ -2306,7 +3797,6 @@ function BrowserAnnotationOverlay({
 						placeholder="Describe the change..."
 						rows={1}
 						className="min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground"
-						autoFocus
 					/>
 					<button
 						type="button"

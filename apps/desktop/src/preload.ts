@@ -92,6 +92,35 @@ const bridge = {
 				method,
 				params ?? {},
 			) as Promise<{ ok: boolean; result?: unknown; error?: string }>,
+		startScreencast: (webContentsId: number) =>
+			ipcRenderer.invoke(
+				"browser:startScreencast",
+				webContentsId,
+			) as Promise<boolean>,
+		stopScreencast: (webContentsId: number) =>
+			ipcRenderer.invoke(
+				"browser:stopScreencast",
+				webContentsId,
+			) as Promise<boolean>,
+		onScreencastFrame: (
+			handler: (frame: { webContentsId: number; data: string }) => void,
+		) => {
+			const wrapped = (
+				_event: IpcRendererEvent,
+				frame: { webContentsId: number; data: string },
+			) => {
+				handler(frame);
+				ipcRenderer.send("browser:ackScreencastFrame", frame.webContentsId);
+			};
+			ipcRenderer.on("browser:screencastFrame", wrapped);
+			return () => ipcRenderer.off("browser:screencastFrame", wrapped);
+		},
+		onScreencastInterrupted: (handler: (webContentsId: number) => void) => {
+			const wrapped = (_event: IpcRendererEvent, webContentsId: number) =>
+				handler(webContentsId);
+			ipcRenderer.on("browser:screencastInterrupted", wrapped);
+			return () => ipcRenderer.off("browser:screencastInterrupted", wrapped);
+		},
 		/** Network requests captured since the last load (buffered in main). */
 		getNetwork: (webContentsId: number, query?: unknown) =>
 			ipcRenderer.invoke(
@@ -115,6 +144,43 @@ const bridge = {
 			ipcRenderer.invoke("browser:listLocalServers") as Promise<
 				ReadonlyArray<{ name: string; port: number }>
 			>,
+		saveRecording: (bytes: Uint8Array, mimeType: string, durationMs: number) =>
+			ipcRenderer.invoke(
+				"browser:saveRecording",
+				bytes,
+				mimeType,
+				durationMs,
+			) as Promise<{
+				id: string;
+				type: string;
+				size: number;
+				durationMs: number;
+				createdAt: string;
+			}>,
+		getCookieImportStatus: () =>
+			ipcRenderer.invoke("browser:getCookieImportStatus") as Promise<unknown>,
+		importCookies: () =>
+			ipcRenderer.invoke("browser:importCookies") as Promise<unknown>,
+		clearImportedCookies: () =>
+			ipcRenderer.invoke("browser:clearImportedCookies") as Promise<unknown>,
+		clearBrowsingData: () =>
+			ipcRenderer.invoke("browser:clearBrowsingData") as Promise<unknown>,
+		getNativeCredentialCapability: () =>
+			ipcRenderer.invoke("browser:getNativeCredentialCapability") as Promise<{
+				supported: boolean;
+				reason?: string;
+			}>,
+		fillNativeCredential: (
+			webContentsId: number,
+			origin: string,
+			submit = false,
+		) =>
+			ipcRenderer.invoke(
+				"browser:fillNativeCredential",
+				webContentsId,
+				origin,
+				submit,
+			) as Promise<{ ok: boolean; error?: string }>,
 	},
 	notch: {
 		setItems: (items: unknown) => {
