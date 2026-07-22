@@ -58,6 +58,7 @@ import { useAvailabilityStore } from "~/store/availability";
 import { composerDraft, useComposerDraftsStore } from "~/store/composer-drafts";
 import {
 	addOptimisticMessage,
+	currentSessionTurnId,
 	removeOptimisticMessage,
 	useMobileMessagesStore,
 } from "~/store/messages";
@@ -286,7 +287,11 @@ export const Composer = ({
 		if (!showInterrupt) return;
 		setBusy(true);
 		try {
-			await Effect.runPromise(interruptSession({ connection, sessionId }));
+			const turnId = currentSessionTurnId(connKey, sessionId);
+			if (turnId === undefined) return;
+			await Effect.runPromise(
+				interruptSession({ connection, sessionId, turnId }),
+			);
 		} finally {
 			setBusy(false);
 		}

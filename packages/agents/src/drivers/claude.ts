@@ -248,9 +248,8 @@ class UserInputChannel implements AsyncIterable<SDKUserMessage> {
 	}
 }
 
-const userMessageOf = (
+export const makeClaudeUserMessage = (
 	text: string,
-	sessionId: string,
 	attachmentBlocks: ReadonlyArray<UserContentBlock> = [],
 ): SDKUserMessage => ({
 	type: "user",
@@ -259,7 +258,6 @@ const userMessageOf = (
 		content: [...attachmentBlocks, { type: "text", text }],
 	},
 	parent_tool_use_id: null,
-	session_id: sessionId,
 });
 
 let itemCounter = 0;
@@ -1532,7 +1530,7 @@ export const startClaudeSession = (
 			);
 
 		if (input.initialPrompt !== undefined && input.initialPrompt.length > 0) {
-			inputChannel.push(userMessageOf(input.initialPrompt, sessionId));
+			inputChannel.push(makeClaudeUserMessage(input.initialPrompt));
 		}
 
 		// Pass `process.env` through, but scrub any "we are inside another
@@ -1990,7 +1988,7 @@ export const startClaudeSession = (
 						)}`,
 					);
 					inputChannel.push(
-						userMessageOf(promptText, sessionId, attachmentBlocks),
+						makeClaudeUserMessage(promptText, attachmentBlocks),
 					);
 				}),
 			interrupt: () =>

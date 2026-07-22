@@ -10,10 +10,13 @@ import type {
   GoalCapableSessionHandle,
   ProviderSessionHandle,
 } from "@zuse/agents/kernel/driver";
+import {
+	makeTurnScopedSessionHandle,
+	type TurnScopedProviderSessionHandle,
+} from "@zuse/agents/kernel/turn-protocol";
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import {
   type AgentAvailability,
-  type AgentEvent,
   type AgentSessionId,
   AgentSessionNotFoundError,
   AgentSessionStartError,
@@ -21,6 +24,7 @@ import {
   type FolderId,
   type PermissionDecision,
   type PermissionKind,
+	type ProviderEventEnvelope,
   type ProviderId,
   type ThreadGoalSetInput,
 } from "@zuse/contracts";
@@ -44,7 +48,7 @@ import { ProviderService } from "../services/provider-service.ts";
  * own their own scope so `close()` is the canonical teardown — there is no
  * autocleanup tied to the renderer subscription.
  */
-type SessionHandle = ProviderSessionHandle;
+type SessionHandle = TurnScopedProviderSessionHandle;
 
 /**
  * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
@@ -213,7 +217,7 @@ export const ProviderServiceLive = Layer.effect(
             .get(input.providerId)
             .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
           const sessionId = input.sessionId ?? nextSessionId();
-          let handle: SessionHandle;
+					let providerHandle: ProviderSessionHandle;
           if (input.providerId === "gemini") {
             // Same story as Grok: hand the driver the user's installed
             // `gemini` binary. Surface a clean install message rather than
@@ -248,7 +252,7 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            handle = yield* startGeminiSession(
+						providerHandle = yield* startGeminiSession(
               driverInput,
               cwd,
               apiKey,
@@ -284,7 +288,7 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            handle = yield* startGrokSession(
+						providerHandle = yield* startGrokSession(
               driverInput,
               cwd,
               apiKey,
@@ -325,7 +329,7 @@ export const ProviderServiceLive = Layer.effect(
             // live in opencode's own auth.json (written via
             // `agent.opencodeSetProviderAuth`), so no key is threaded here.
             const opencodeSettings = yield* configStore.getSettings();
-            handle = yield* startOpencodeSession(
+						providerHandle = yield* startOpencodeSession(
               driverInput,
               cwd,
               opencodeSettings.opencodeCustomProviders,
@@ -356,7 +360,7 @@ export const ProviderServiceLive = Layer.effect(
                 }),
               );
             }
-            handle = yield* startCursorSession(
+						providerHandle = yield* startCursorSession(
               driverInput,
               cwd,
               apiKey,
@@ -399,7 +403,7 @@ export const ProviderServiceLive = Layer.effect(
 
             const userMcpServers = yield* mcp.resolveForClaudeSession(cwd);
 
-            handle = yield* startClaudeSession(
+						providerHandle = yield* startClaudeSession(
               driverInput,
               cwd,
               apiKey,
@@ -461,7 +465,7 @@ export const ProviderServiceLive = Layer.effect(
             // first turn into a clean upgrade message — so the user sees
             // either the banner before sending or the friendly error after,
             // never the cryptic SDK trace.
-            handle = yield* startCodexSession(
+						providerHandle = yield* startCodexSession(
               driverInput,
               cwd,
               apiKey,
@@ -479,6 +483,10 @@ export const ProviderServiceLive = Layer.effect(
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
           }
+					const handle = yield* makeTurnScopedSessionHandle(
+						providerHandle,
+						input.initialTurnId,
+					);
           yield* Ref.update(sessions, (map) => {
             const next = new Map(map);
             next.set(sessionId, { providerId: input.providerId, handle });
@@ -486,12 +494,14 @@ export const ProviderServiceLive = Layer.effect(
           });
           return { sessionId };
         }),
-      send: (sessionId, text, attachments, fileRefs, skillRefs) =>
+			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
+				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+					handle.send(turnId, text, attachments, fileRefs, skillRefs),
+				),
+			interrupt: (sessionId, turnId) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
-          handle.send(text, attachments, fileRefs, skillRefs),
+					handle.interrupt(turnId),
         ),
-      interrupt: (sessionId) =>
-        Effect.flatMap(lookup(sessionId), ({ handle }) => handle.interrupt()),
       close: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
           handle.close().pipe(
@@ -507,7 +517,7 @@ export const ProviderServiceLive = Layer.effect(
       events: (sessionId) =>
         Stream.unwrap(
           Effect.map(lookup(sessionId), ({ handle }) => handle.events),
-        ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
+				) as Stream.Stream<ProviderEventEnvelope, AgentSessionNotFoundError>,
 			acknowledgeProviderEventCursor: (sessionId, cursor) =>
 				Effect.flatMap(
 					lookup(sessionId),
@@ -547,19 +557,19 @@ export const ProviderServiceLive = Layer.effect(
       getGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"
-            ? (handle as GoalCapableHandle).getGoal()
+						? (handle as unknown as GoalCapableHandle).getGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       setGoal: (sessionId, goal: ThreadGoalSetInput) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"
-            ? (handle as GoalCapableHandle).setGoal(goal)
+						? (handle as unknown as GoalCapableHandle).setGoal(goal)
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
       clearGoal: (sessionId) =>
         Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"
-            ? (handle as GoalCapableHandle).clearGoal()
+						? (handle as unknown as GoalCapableHandle).clearGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),
         ),
     };

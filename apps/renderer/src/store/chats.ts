@@ -29,7 +29,12 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 import { batchAtomUpdates } from "../state/registry.tsx";
 import { useArchivePreviewStore } from "./archive-preview.ts";
 import { registerChatCommands } from "./chat-commands.ts";
-import { useMessagesStore } from "./messages.ts";
+import {
+	acknowledgeTimelineSessionCreated,
+	deferTimelineUntilSessionCreated,
+	discardTimelineSessionCreation,
+	useMessagesStore,
+} from "./messages.ts";
 import { useSessionsStore } from "./sessions.ts";
 import { useTerminalsStore } from "./terminals.ts";
 import { useUiStore } from "./ui.ts";
@@ -398,6 +403,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		const previousChatId = get().selectedChatByProject[projectId] ?? null;
 		const previousSessionId =
 			useSessionsStore.getState().selectedSessionByProject[projectId] ?? null;
+		deferTimelineUntilSessionCreated(initialSessionId);
 		markRendererInteraction(initialSessionId, "click");
 		const now = new Date();
 		const title = opts?.title?.trim() || "New chat";
@@ -552,12 +558,14 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					},
 				};
 			});
+			acknowledgeTimelineSessionCreated(initialSession.id);
 			return {
 				chatId: chat.id,
 				initialSessionId: initialSession.id,
 				startupQueueId,
 			};
 		} catch (err) {
+			discardTimelineSessionCreation(initialSessionId);
 			batchAtomUpdates(() => {
 				if (startupQueueId !== null) {
 					useMessagesStore

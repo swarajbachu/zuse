@@ -169,6 +169,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 		case "AssistantMessage":
 			return {
 				_tag: "assistant",
+				itemId: event.itemId,
 				text: event.text,
 				isPlan: event.isPlan,
 				parentItemId: event.parentItemId,
