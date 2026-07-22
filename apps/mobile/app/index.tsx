@@ -75,7 +75,6 @@ export default function HomeScreen() {
 		hydrated: authHydrated,
 		busy,
 		error: authError,
-		hydrate: hydrateAuth,
 		signIn,
 	} = useAuthStore();
 	const {
@@ -112,10 +111,6 @@ export default function HomeScreen() {
 		() => availableConnections(connections, account !== null),
 		[account, connections],
 	);
-
-	useEffect(() => {
-		if (!authHydrated) void hydrateAuth();
-	}, [authHydrated, hydrateAuth]);
 
 	useEffect(() => {
 		if (!connectionsHydrated) void hydrateConnections();

@@ -17,16 +17,11 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Uniwind, useUniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
-import {
-	noteMobileInteraction,
-	setMobileAnalyticsAccount,
-	trackMobileScreen,
-} from "~/lib/analytics";
+import { useMobileAnalytics } from "~/hooks/use-mobile-analytics";
+import { noteMobileInteraction } from "~/lib/analytics";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
-import { useAnalyticsStore } from "~/store/analytics";
-import { useAuthStore } from "~/store/auth";
 import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime";
 import { colors } from "~/theme";
 
@@ -38,55 +33,13 @@ Uniwind.setTheme("system");
 export default function RootLayout() {
 	useLocalConnectivityRuntime();
 	const pathname = usePathname();
-	const account = useAuthStore((state) => state.account);
-	const authHydrated = useAuthStore((state) => state.hydrated);
-	const hydrateAuth = useAuthStore((state) => state.hydrate);
-	const hydrateAnalytics = useAnalyticsStore((state) => state.hydrate);
+	useMobileAnalytics(pathname);
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
 		GeistMono_400Regular,
 	});
 	const incomingUrl = Linking.useURL();
-
-	useEffect(() => {
-		if (!authHydrated) void hydrateAuth();
-	}, [authHydrated, hydrateAuth]);
-
-	useEffect(() => {
-		if (authHydrated) void hydrateAnalytics();
-	}, [authHydrated, hydrateAnalytics]);
-
-	useEffect(() => {
-		if (authHydrated) void setMobileAnalyticsAccount(account?.id ?? null);
-	}, [account?.id, authHydrated]);
-
-	useEffect(() => {
-		const screen = pathname.startsWith("/c/")
-			? pathname.includes("/review")
-				? "review"
-				: pathname.includes("/files") || pathname.includes("/file")
-					? "files"
-					: pathname.includes("/tool/")
-						? "tool details"
-						: pathname.includes("/session/")
-							? "session"
-							: pathname.includes("/chat/")
-								? "chat threads"
-								: "sessions"
-			: pathname === "/"
-				? "chats"
-				: ({
-						"/settings": "settings",
-						"/new-chat": "new chat",
-						"/connect/nearby": "nearby connection",
-						"/connect/manual": "manual connection",
-						"/connect/scan": "connection scanner",
-						"/connect/pair": "connection pairing",
-						"/plan-viewer": "plan viewer",
-					}[pathname] ?? "other");
-		trackMobileScreen(screen);
-	}, [pathname]);
 
 	useEffect(() => {
 		installCrashReporting();
