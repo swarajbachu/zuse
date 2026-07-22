@@ -67,12 +67,12 @@ function DiagnosticsSection({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<section className="overflow-hidden rounded-xl border border-border/50 bg-card/70 shadow-xs">
-			<header className="flex min-h-14 items-center justify-between gap-4 border-b border-border/45 px-4 py-3">
+		<section className="overflow-hidden rounded-lg border border-border/60 bg-muted/30">
+			<header className="flex min-h-11 items-center justify-between gap-4 border-b border-border/40 px-4 py-2.5">
 				<div className="min-w-0">
-					<h2 className="font-semibold text-sm text-foreground">{title}</h2>
+					<h2 className="font-medium text-[12px] text-foreground">{title}</h2>
 					{description && (
-						<p className="mt-0.5 text-muted-foreground text-xs">
+						<p className="mt-0.5 truncate text-[10px] text-muted-foreground leading-4">
 							{description}
 						</p>
 					)}
@@ -95,12 +95,12 @@ function Stat({
 }) {
 	return (
 		<div className="min-w-0 px-4 py-3">
-			<p className="truncate font-medium text-[10px] text-muted-foreground uppercase tracking-[0.1em]">
+			<p className="truncate font-medium text-[9px] text-muted-foreground uppercase tracking-[0.12em]">
 				{label}
 			</p>
 			<p
 				className={cn(
-					"mt-1 truncate font-mono font-semibold text-lg tabular-nums",
+					"mt-1 truncate font-mono font-medium text-base tabular-nums",
 					tone === "danger" && "text-destructive",
 					tone === "warning" && "text-warning",
 				)}
@@ -113,8 +113,80 @@ function Stat({
 
 function Empty({ children }: { children: React.ReactNode }) {
 	return (
-		<div className="px-4 py-6 text-center text-muted-foreground text-xs">
+		<div className="px-4 py-6 text-center text-[11px] text-muted-foreground">
 			{children}
+		</div>
+	);
+}
+
+function ResourceChart({
+	label,
+	value,
+	peak,
+	values,
+	formatValue,
+	lineClassName,
+}: {
+	readonly label: string;
+	readonly value: number;
+	readonly peak: number;
+	readonly values: ReadonlyArray<number>;
+	readonly formatValue: (value: number) => string;
+	readonly lineClassName: string;
+}) {
+	const width = 320;
+	const height = 92;
+	const ceiling = Math.max(1, peak);
+	const chartValues =
+		values.length === 0
+			? [0, 0]
+			: values.length === 1
+				? [values[0] ?? 0, values[0] ?? 0]
+				: values;
+	const points = chartValues.map((sample, index, all) => {
+		const x = (index / Math.max(1, all.length - 1)) * width;
+		const y = height - Math.min(1, sample / ceiling) * (height - 8) - 4;
+		return `${x.toFixed(1)},${y.toFixed(1)}`;
+	});
+	const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
+
+	return (
+		<div className="overflow-hidden rounded-lg border border-border/50 bg-background/35">
+			<div className="flex items-start justify-between gap-3 px-3 pt-3">
+				<div>
+					<p className="font-medium text-[10px] text-muted-foreground">
+						{label}
+					</p>
+					<p className="mt-0.5 font-mono text-sm tabular-nums">
+						{formatValue(value)}
+					</p>
+				</div>
+				<p className="pt-0.5 text-[9px] text-muted-foreground">
+					Peak{" "}
+					<span className="font-mono tabular-nums">{formatValue(peak)}</span>
+				</p>
+			</div>
+			<svg
+				viewBox={`0 0 ${width} ${height}`}
+				preserveAspectRatio="none"
+				className="mt-2 block h-24 w-full"
+				role="img"
+				aria-label={`${label}: ${formatValue(value)}, peak ${formatValue(peak)}`}
+			>
+				<line x1="0" x2={width} y1="31" y2="31" className="stroke-border/35" />
+				<line x1="0" x2={width} y1="61" y2="61" className="stroke-border/35" />
+				<polygon
+					points={areaPoints}
+					className={cn(lineClassName, "opacity-10")}
+				/>
+				<polyline
+					points={points.join(" ")}
+					fill="none"
+					vectorEffect="non-scaling-stroke"
+					strokeWidth="1.5"
+					className={lineClassName}
+				/>
+			</svg>
 		</div>
 	);
 }
@@ -318,6 +390,7 @@ export function DiagnosticsPane() {
 	};
 
 	const maxCpu = Math.max(1, ...samples.map((sample) => sample.cpu));
+	const maxMemory = Math.max(1, ...samples.map((sample) => sample.memory));
 	const statusTone =
 		overview?.status === "failing"
 			? "text-destructive"
@@ -326,32 +399,33 @@ export function DiagnosticsPane() {
 				: "text-success";
 
 	return (
-		<div className="flex min-w-0 flex-col gap-4 pb-12">
-			<div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/45 bg-background/92 px-4 py-3 shadow-sm backdrop-blur-xl">
+		<div className="flex min-w-0 flex-col gap-3 pb-12 text-[11px]">
+			<div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-background/92 px-3 py-2.5 shadow-sm backdrop-blur-xl">
 				<div className="flex min-w-0 items-center gap-3">
 					<div
 						className={cn(
-							"flex size-9 items-center justify-center rounded-lg bg-muted",
+							"flex size-8 items-center justify-center rounded-md border border-border/45 bg-muted/50",
 							statusTone,
 						)}
 					>
-						<Activity className="size-4" />
+						<Activity className="size-3.5" />
 					</div>
 					<div>
-						<p className="font-semibold text-sm capitalize">
+						<p className="font-medium text-[12px] capitalize">
 							{overview?.status ?? (loading ? "Checking" : "Unavailable")}
 						</p>
-						<p className="font-mono text-[11px] text-muted-foreground tabular-nums">
+						<p className="font-mono text-[10px] text-muted-foreground tabular-nums">
 							{overview
 								? `Run ${overview.runId} · ${overview.unseenCount} unseen`
 								: "Loading diagnostics…"}
 						</p>
 					</div>
 				</div>
-				<div className="flex flex-wrap items-center gap-2">
+				<div className="flex flex-wrap items-center gap-1.5">
 					<Button
 						size="sm"
 						variant="settings"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						onClick={() => setLive((value) => !value)}
 					>
 						{live ? <Pause /> : <Play />}
@@ -360,6 +434,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						aria-label="Refresh diagnostics"
 						onClick={() => void refresh()}
 					>
@@ -369,6 +444,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
@@ -380,6 +456,7 @@ export function DiagnosticsPane() {
 					</Button>
 					<Button
 						size="sm"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						loading={exporting}
 						onClick={() => void exportBundle()}
 					>
@@ -392,7 +469,7 @@ export function DiagnosticsPane() {
 			{error && (
 				<div
 					role="alert"
-					className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive text-xs"
+					className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-[11px] text-destructive"
 				>
 					<AlertTriangle className="mt-0.5 size-4 shrink-0" />
 					<span>{error}</span>
@@ -433,7 +510,7 @@ export function DiagnosticsPane() {
 				action={<Server className="size-4 text-muted-foreground" />}
 			>
 				<div className="overflow-x-auto">
-					<table className="w-full min-w-[780px] text-left text-xs">
+					<table className="w-full min-w-[780px] text-left text-[11px]">
 						<thead className="border-b border-border/45 text-[10px] text-muted-foreground uppercase tracking-wider">
 							<tr>
 								<th className="px-4 py-2">Process</th>
@@ -506,15 +583,15 @@ export function DiagnosticsPane() {
 				title="Resource history"
 				description="Five-second CPU and memory samples retained while this page is open."
 				action={
-					<div className="flex gap-1">
+					<div className="flex rounded-md border border-border/45 bg-background/40 p-0.5">
 						{RANGE_OPTIONS.map((option) => (
 							<button
 								type="button"
 								key={option.label}
 								className={cn(
-									"h-7 rounded-md px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+									"h-6 min-w-8 rounded-[5px] px-1.5 font-mono text-[9px] tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 									rangeMs === option.milliseconds
-										? "bg-muted text-foreground"
+										? "bg-muted text-foreground shadow-xs"
 										: "text-muted-foreground hover:bg-muted/60",
 								)}
 								onClick={() => setRangeMs(option.milliseconds)}
@@ -525,29 +602,23 @@ export function DiagnosticsPane() {
 					</div>
 				}
 			>
-				<div className="grid grid-cols-2 divide-x divide-border/45">
-					<Stat
-						label="Current CPU"
-						value={`${(processes?.totalCpuPercent ?? 0).toFixed(1)}%`}
+				<div className="grid gap-3 p-3 md:grid-cols-2">
+					<ResourceChart
+						label="CPU usage"
+						value={processes?.totalCpuPercent ?? 0}
+						peak={maxCpu}
+						values={samples.map((sample) => sample.cpu)}
+						formatValue={(value) => `${value.toFixed(1)}%`}
+						lineClassName="fill-foreground stroke-foreground"
 					/>
-					<Stat
-						label="Current memory"
-						value={formatBytes(processes?.totalRssBytes ?? 0)}
+					<ResourceChart
+						label="Memory usage"
+						value={processes?.totalRssBytes ?? 0}
+						peak={maxMemory}
+						values={samples.map((sample) => sample.memory)}
+						formatValue={formatBytes}
+						lineClassName="fill-warning stroke-warning"
 					/>
-				</div>
-				<div
-					className="flex h-32 items-end gap-1 border-t border-border/45 p-4"
-					role="img"
-					aria-label="Recent process CPU usage"
-				>
-					{samples.map((sample) => (
-						<div
-							key={sample.at}
-							className="min-w-1 flex-1 rounded-t-sm bg-foreground/55"
-							style={{ height: `${Math.max(3, (sample.cpu / maxCpu) * 100)}%` }}
-							title={`${sample.cpu.toFixed(1)}% CPU · ${formatBytes(sample.memory)}`}
-						/>
-					))}
 				</div>
 			</DiagnosticsSection>
 
@@ -589,7 +660,7 @@ export function DiagnosticsPane() {
 									aria-label="Search diagnostics"
 									value={search}
 									onChange={(event) => setSearch(event.target.value)}
-									className="h-8 w-48 rounded-lg border border-border/50 bg-background pl-7 pr-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+									className="h-7 w-44 rounded-md border border-border/50 bg-background pl-7 pr-2 text-[11px] outline-none focus:ring-2 focus:ring-ring"
 									placeholder="Search errors"
 								/>
 							</div>
@@ -599,7 +670,7 @@ export function DiagnosticsPane() {
 								onChange={(event) =>
 									setSeverity(event.target.value as DiagnosticSeverity | "all")
 								}
-								className="h-8 rounded-lg border border-border/50 bg-background px-2 text-xs"
+								className="h-7 rounded-md border border-border/50 bg-background px-2 text-[11px]"
 							>
 								<option value="all">All levels</option>
 								<option value="fatal">Fatal</option>
@@ -611,7 +682,7 @@ export function DiagnosticsPane() {
 					}
 				>
 					<div className="border-b border-border/45 px-4 py-2">
-						<label className="flex max-w-sm items-center gap-2 text-muted-foreground text-xs">
+						<label className="flex max-w-sm items-center gap-2 text-[11px] text-muted-foreground">
 							<span>Source</span>
 							<input
 								aria-label="Filter diagnostic source"
@@ -623,7 +694,7 @@ export function DiagnosticsPane() {
 						</label>
 					</div>
 					<div className="max-h-[520px] overflow-auto">
-						<table className="w-full min-w-[640px] text-left text-xs">
+						<table className="w-full min-w-[640px] text-left text-[11px]">
 							<thead className="sticky top-0 border-b border-border/45 bg-card">
 								<tr>
 									<th className="px-4 py-2">Level</th>
@@ -667,7 +738,7 @@ export function DiagnosticsPane() {
 							<Empty>No incidents match these filters.</Empty>
 						)}
 						{nextEventCursor && (
-							<div className="flex items-center justify-between border-t border-border/45 px-4 py-3 text-muted-foreground text-xs">
+							<div className="flex items-center justify-between border-t border-border/45 px-4 py-3 text-[11px] text-muted-foreground">
 								<span>
 									{formatCount.format(events.length)} of{" "}
 									{formatCount.format(eventTotal)}
@@ -675,6 +746,7 @@ export function DiagnosticsPane() {
 								<Button
 									size="sm"
 									variant="settings"
+									className="h-7 px-2.5 text-[11px]"
 									onClick={() => void loadMoreEvents()}
 								>
 									Load more
@@ -684,7 +756,7 @@ export function DiagnosticsPane() {
 					</div>
 				</DiagnosticsSection>
 				<aside
-					className="self-start rounded-xl border border-border/50 bg-card/70 p-4 shadow-xs xl:sticky xl:top-20"
+					className="self-start rounded-lg border border-border/60 bg-muted/30 p-4 xl:sticky xl:top-20"
 					aria-label="Incident details"
 				>
 					{selected ? (
@@ -692,7 +764,7 @@ export function DiagnosticsPane() {
 							<div className="flex items-start justify-between gap-3">
 								<div>
 									<SeverityPill severity={selected.severity} />
-									<h3 className="mt-2 font-semibold text-sm">
+									<h3 className="mt-2 font-medium text-[12px]">
 										{selected.message}
 									</h3>
 								</div>
@@ -707,7 +779,7 @@ export function DiagnosticsPane() {
 									<Copy />
 								</Button>
 							</div>
-							<dl className="grid grid-cols-[90px_1fr] gap-2 text-xs">
+							<dl className="grid grid-cols-[90px_1fr] gap-2 text-[11px]">
 								<dt className="text-muted-foreground">Diagnostic ID</dt>
 								<dd className="break-all font-mono">{selected.id}</dd>
 								<dt className="text-muted-foreground">Source</dt>
@@ -729,6 +801,7 @@ export function DiagnosticsPane() {
 							<Button
 								size="sm"
 								variant="settings"
+								className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 								onClick={() =>
 									void navigator.clipboard.writeText(
 										`${selected.id}\n${selected.message}\n${selected.detail ?? ""}`,
@@ -742,8 +815,8 @@ export function DiagnosticsPane() {
 					) : (
 						<div className="flex min-h-48 flex-col items-center justify-center text-center">
 							<ShieldCheck className="size-6 text-muted-foreground" />
-							<p className="mt-2 font-medium text-sm">Select an incident</p>
-							<p className="mt-1 max-w-52 text-muted-foreground text-xs">
+							<p className="mt-2 font-medium text-[12px]">Select an incident</p>
+							<p className="mt-1 max-w-52 text-[11px] text-muted-foreground">
 								Inspect its sanitized details, correlation IDs, and recovery
 								state.
 							</p>
@@ -761,7 +834,7 @@ export function DiagnosticsPane() {
 						{overview.commonFailures.map((group) => (
 							<div
 								key={group.fingerprint}
-								className="grid grid-cols-[1fr_auto] gap-4 px-4 py-3 text-xs"
+								className="grid grid-cols-[1fr_auto] gap-4 px-4 py-3 text-[11px]"
 							>
 								<div>
 									<p className="font-medium">{group.message}</p>
@@ -794,7 +867,7 @@ export function DiagnosticsPane() {
 						{overview.slowestOperations.map((item) => (
 							<div
 								key={item.id}
-								className="grid grid-cols-[1fr_auto] gap-4 px-4 py-3 text-xs"
+								className="grid grid-cols-[1fr_auto] gap-4 px-4 py-3 text-[11px]"
 							>
 								<div>
 									<p className="font-medium">{item.message}</p>
@@ -831,7 +904,7 @@ export function DiagnosticsPane() {
 								type="button"
 								key={item.id}
 								onClick={() => setSelected(item)}
-								className="grid w-full grid-cols-[70px_160px_1fr_auto] gap-3 px-4 py-3 text-left text-xs hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+								className="grid w-full grid-cols-[70px_160px_1fr_auto] gap-3 px-4 py-3 text-left text-[11px] hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
 							>
 								<SeverityPill severity={item.severity} />
 								<span className="truncate font-mono text-muted-foreground">
@@ -855,7 +928,7 @@ export function DiagnosticsPane() {
 						{overview.topOperations.map((item) => (
 							<div
 								key={item.name}
-								className="grid grid-cols-[1fr_repeat(4,90px)] gap-3 px-4 py-3 text-xs"
+								className="grid grid-cols-[1fr_repeat(4,90px)] gap-3 px-4 py-3 text-[11px]"
 							>
 								<span className="font-medium">{item.name}</span>
 								<span className="text-right font-mono tabular-nums">
@@ -885,21 +958,21 @@ export function DiagnosticsPane() {
 				description="Diagnostics stay on this device unless you explicitly export them."
 			>
 				<div className="grid gap-3 p-4 md:grid-cols-3">
-					<div className="rounded-lg bg-muted/35 p-3">
-						<p className="font-medium text-xs">Retention</p>
-						<p className="mt-1 text-muted-foreground text-xs">
+					<div className="rounded-lg border border-border/50 bg-background/35 p-3">
+						<p className="font-medium text-[11px]">Retention</p>
+						<p className="mt-1 text-[10px] text-muted-foreground">
 							7 days · 250 MB maximum
 						</p>
 					</div>
-					<div className="rounded-lg bg-muted/35 p-3">
-						<p className="font-medium text-xs">Verbose capture</p>
-						<p className="mt-1 text-muted-foreground text-xs">
+					<div className="rounded-lg border border-border/50 bg-background/35 p-3">
+						<p className="font-medium text-[11px]">Verbose capture</p>
+						<p className="mt-1 text-[10px] text-muted-foreground">
 							Off · secrets and conversation content excluded
 						</p>
 					</div>
-					<div className="rounded-lg bg-muted/35 p-3">
-						<p className="font-medium text-xs">Remote export</p>
-						<p className="mt-1 text-muted-foreground text-xs">
+					<div className="rounded-lg border border-border/50 bg-background/35 p-3">
+						<p className="font-medium text-[11px]">Remote export</p>
+						<p className="mt-1 text-[10px] text-muted-foreground">
 							Disabled · local-first
 						</p>
 					</div>
@@ -907,6 +980,7 @@ export function DiagnosticsPane() {
 				<div className="flex flex-wrap gap-2 border-t border-border/45 p-4">
 					<Button
 						size="sm"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						onClick={() => void exportBundle()}
 						loading={exporting}
 					>
@@ -916,6 +990,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
+						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
