@@ -49,6 +49,9 @@ jobs:
           # time (apps/desktop/.env is gitignored, so CI must supply it here).
           # Not sensitive — a repo variable would also work.
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
+          # Analytics keys are injected at build time and never committed.
+          ZUSE_POSTHOG_KEY: ${{ secrets.ZUSE_POSTHOG_KEY }}
+          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
         run: bun run build
 
       - name: Package + sign + notarize + publish
