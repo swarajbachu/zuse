@@ -1,13 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import AlertCircleIcon from "@hugeicons-pro/core-solid-rounded/AlertCircleIcon";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import DashboardSpeedIcon from "@hugeicons-pro/core-solid-rounded/DashboardSpeed01Icon";
-import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
-import PlayIcon from "@hugeicons-pro/core-solid-rounded/PlayIcon";
-import Settings01Icon from "@hugeicons-pro/core-solid-rounded/Settings01Icon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	AlertCircleIcon,
+	ArrowDown01Icon,
+	ArrowRight01Icon,
+	Copy01Icon,
+	DashboardSpeedIcon,
+	Loading02Icon,
+	PlayIcon,
+	Settings01Icon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,

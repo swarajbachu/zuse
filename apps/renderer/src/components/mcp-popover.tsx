@@ -1,11 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Alert02Icon from "@hugeicons-pro/core-solid-rounded/Alert02Icon";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import Key01Icon from "@hugeicons-pro/core-solid-rounded/Key01Icon";
-import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
-import PlugSocketIcon from "@hugeicons-pro/core-solid-rounded/PlugSocketIcon";
-import RefreshIcon from "@hugeicons-pro/core-solid-rounded/RefreshIcon";
-import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
+import {
+	Alert02Icon,
+	ArrowDown01Icon,
+	Key01Icon,
+	Loading02Icon,
+	PlugSocketIcon,
+	RefreshIcon,
+	Tick02Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	FolderId,
 	McpServerDescriptor,

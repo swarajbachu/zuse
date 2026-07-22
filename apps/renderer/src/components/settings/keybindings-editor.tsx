@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
-import MoreHorizontalIcon from "@hugeicons-pro/core-solid-rounded/MoreHorizontalIcon";
-import PencilIcon from "@hugeicons-pro/core-solid-rounded/PencilIcon";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
-import UndoIcon from "@hugeicons-pro/core-solid-rounded/UndoIcon";
+import {
+	Alert01Icon,
+	MoreHorizontalIcon,
+	PencilIcon,
+	Search01Icon,
+	UndoIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type Command,
 	type KeybindingRule,

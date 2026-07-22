@@ -1,10 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import AlertCircleIcon from "@hugeicons-pro/core-solid-rounded/AlertCircleIcon";
-import CircleArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/CircleArrowUp01Icon";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import LinkSquare01Icon from "@hugeicons-pro/core-solid-rounded/LinkSquare01Icon";
-import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	AlertCircleIcon,
+	CircleArrowUp01Icon,
+	Copy01Icon,
+	LinkSquare01Icon,
+	Loading02Icon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type AgentAvailability,
 	MODELS_BY_PROVIDER,

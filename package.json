@@ -8,7 +8,6 @@
 		"dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
 		"dev:desktop": "node scripts/dev.mjs",
 		"test:dev-runner": "node --test scripts/dev-instance.test.mjs",
-		"test:icon-imports": "node --test scripts/icon-imports.test.mjs",
 		"kill-port": "node scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"format": "biome format --write .",

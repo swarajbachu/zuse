@@ -3,9 +3,11 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import MoreHorizontalIcon from "@hugeicons-pro/core-solid-rounded/MoreHorizontalIcon";
+import {
+	ArrowLeft01Icon,
+	ArrowRight01Icon,
+	MoreHorizontalIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { type Button, buttonVariants } from "~/components/ui/button";
 import { cn } from "~/lib/utils";

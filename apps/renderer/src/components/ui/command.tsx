@@ -2,7 +2,7 @@
 
 import { Dialog as CommandDialogPrimitive } from "@base-ui/react/dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
+import { Search01Icon } from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import {
 	Autocomplete,

@@ -2,11 +2,13 @@
 
 import { Toast } from "@base-ui/react/toast";
 import { HugeiconsIcon } from "@hugeicons/react";
-import Alert02Icon from "@hugeicons-pro/core-solid-rounded/Alert02Icon";
-import AlertCircleIcon from "@hugeicons-pro/core-solid-rounded/AlertCircleIcon";
-import CheckmarkCircle02Icon from "@hugeicons-pro/core-solid-rounded/CheckmarkCircle02Icon";
-import InformationCircleIcon from "@hugeicons-pro/core-solid-rounded/InformationCircleIcon";
-import Loading03Icon from "@hugeicons-pro/core-solid-rounded/Loading03Icon";
+import {
+	Alert02Icon,
+	AlertCircleIcon,
+	CheckmarkCircle02Icon,
+	InformationCircleIcon,
+	Loading03Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type React from "react";
 import { buttonVariants } from "~/components/ui/button";
 import { cn } from "~/lib/utils";

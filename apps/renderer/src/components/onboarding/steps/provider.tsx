@@ -1,8 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import LinkSquare01Icon from "@hugeicons-pro/core-solid-rounded/LinkSquare01Icon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
-import ViewIcon from "@hugeicons-pro/core-solid-rounded/ViewIcon";
-import ViewOffIcon from "@hugeicons-pro/core-solid-rounded/ViewOffIcon";
+import {
+	LinkSquare01Icon,
+	Tick01Icon,
+	ViewIcon,
+	ViewOffIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { useState } from "react";
 

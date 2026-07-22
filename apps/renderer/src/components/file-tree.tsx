@@ -1,13 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import BubbleChatIcon from "@hugeicons-pro/core-solid-rounded/BubbleChatIcon";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import FileAddIcon from "@hugeicons-pro/core-solid-rounded/FileAddIcon";
-import FolderAddIcon from "@hugeicons-pro/core-solid-rounded/FolderAddIcon";
-import FolderOpenIcon from "@hugeicons-pro/core-solid-rounded/FolderOpenIcon";
-import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
+import {
+	ArrowRight01Icon,
+	BubbleChatIcon,
+	Copy01Icon,
+	Delete02Icon,
+	FileAddIcon,
+	FolderAddIcon,
+	FolderOpenIcon,
+	PencilEdit01Icon,
+	Search01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	ContextMenuItem as FileTreeContextMenuItem,
 	ContextMenuOpenContext as FileTreeContextMenuOpenContext,

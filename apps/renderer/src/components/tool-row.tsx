@@ -1,21 +1,23 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import Brain01Icon from "@hugeicons-pro/core-solid-rounded/Brain01Icon";
-import BrowserIcon from "@hugeicons-pro/core-solid-rounded/BrowserIcon";
-import BubbleChatIcon from "@hugeicons-pro/core-solid-rounded/BubbleChatIcon";
-import Camera01Icon from "@hugeicons-pro/core-solid-rounded/Camera01Icon";
-import CheckListIcon from "@hugeicons-pro/core-solid-rounded/CheckListIcon";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import File01Icon from "@hugeicons-pro/core-solid-rounded/File01Icon";
-import Folder01Icon from "@hugeicons-pro/core-solid-rounded/Folder01Icon";
-import GlobeIcon from "@hugeicons-pro/core-solid-rounded/GlobeIcon";
-import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
-import Robot01Icon from "@hugeicons-pro/core-solid-rounded/Robot01Icon";
-import SearchIcon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
-import TerminalIcon from "@hugeicons-pro/core-solid-rounded/TerminalIcon";
-import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
-import Wrench01Icon from "@hugeicons-pro/core-solid-rounded/Wrench01Icon";
+import {
+	ArrowDown01Icon,
+	ArrowRight01Icon,
+	Brain01Icon,
+	BrowserIcon,
+	BubbleChatIcon,
+	Camera01Icon,
+	CheckListIcon,
+	Copy01Icon,
+	File01Icon,
+	Folder01Icon,
+	GlobeIcon,
+	PencilEdit01Icon,
+	Robot01Icon,
+	SearchIcon,
+	TerminalIcon,
+	Tick02Icon,
+	Wrench01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ChatId,
 	isRedundantShellDescription,

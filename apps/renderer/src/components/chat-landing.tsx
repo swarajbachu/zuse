@@ -1,8 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import Folder01Icon from "@hugeicons-pro/core-solid-rounded/Folder01Icon";
-import FolderAddIcon from "@hugeicons-pro/core-solid-rounded/FolderAddIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	ArrowDown01Icon,
+	Folder01Icon,
+	FolderAddIcon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ChatId,
 	ComposerInput,

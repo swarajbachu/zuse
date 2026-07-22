@@ -1,22 +1,24 @@
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
-import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
-import ConnectIcon from "@hugeicons-pro/core-solid-rounded/ConnectIcon";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import DocumentAttachmentIcon from "@hugeicons-pro/core-solid-rounded/DocumentAttachmentIcon";
-import Folder01Icon from "@hugeicons-pro/core-solid-rounded/Folder01Icon";
-import InformationCircleIcon from "@hugeicons-pro/core-solid-rounded/InformationCircleIcon";
-import KeyboardIcon from "@hugeicons-pro/core-solid-rounded/KeyboardIcon";
-import PackageIcon from "@hugeicons-pro/core-solid-rounded/PackageIcon";
-import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
-import PlugSocketIcon from "@hugeicons-pro/core-solid-rounded/PlugSocketIcon";
-import Settings01Icon from "@hugeicons-pro/core-solid-rounded/Settings01Icon";
-import SmartPhone01Icon from "@hugeicons-pro/core-solid-rounded/SmartPhone01Icon";
-import TaskDone01Icon from "@hugeicons-pro/core-solid-rounded/TaskDone01Icon";
-import TestTubeIcon from "@hugeicons-pro/core-solid-rounded/TestTubeIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
-import VolumeHighIcon from "@hugeicons-pro/core-solid-rounded/VolumeHighIcon";
+import {
+	Alert01Icon,
+	ArrowLeft01Icon,
+	ConnectIcon,
+	Delete02Icon,
+	DocumentAttachmentIcon,
+	Folder01Icon,
+	InformationCircleIcon,
+	KeyboardIcon,
+	PackageIcon,
+	PencilEdit01Icon,
+	PlugSocketIcon,
+	Settings01Icon,
+	SmartPhone01Icon,
+	TaskDone01Icon,
+	TestTubeIcon,
+	Tick01Icon,
+	VolumeHighIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type AppearanceMode,
 	type BranchNamingStyle,

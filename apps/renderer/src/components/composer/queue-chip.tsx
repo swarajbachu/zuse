@@ -1,14 +1,16 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import ArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/ArrowUp01Icon";
-import Chat01Icon from "@hugeicons-pro/core-solid-rounded/Chat01Icon";
-import CornerDownRightIcon from "@hugeicons-pro/core-solid-rounded/CornerDownRightIcon";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import DragDropVerticalIcon from "@hugeicons-pro/core-solid-rounded/DragDropVerticalIcon";
-import MoreHorizontalIcon from "@hugeicons-pro/core-solid-rounded/MoreHorizontalIcon";
-import PencilIcon from "@hugeicons-pro/core-solid-rounded/PencilIcon";
-import SentIcon from "@hugeicons-pro/core-solid-rounded/SentIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	ArrowDown01Icon,
+	ArrowUp01Icon,
+	Chat01Icon,
+	CornerDownRightIcon,
+	Delete02Icon,
+	DragDropVerticalIcon,
+	MoreHorizontalIcon,
+	PencilIcon,
+	SentIcon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	ComposerInput,
 	type QueuedMessage,

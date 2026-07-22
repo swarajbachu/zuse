@@ -1,10 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ActivitySparkIcon from "@hugeicons-pro/core-solid-rounded/ActivitySparkIcon";
-import AiDnaIcon from "@hugeicons-pro/core-solid-rounded/AiDnaIcon";
-import ArtificialIntelligence08Icon from "@hugeicons-pro/core-solid-rounded/ArtificialIntelligence08Icon";
-import Atom02Icon from "@hugeicons-pro/core-solid-rounded/Atom02Icon";
-import Flower2Icon from "@hugeicons-pro/core-solid-rounded/Flower2Icon";
-import GeometricShapes02Icon from "@hugeicons-pro/core-solid-rounded/GeometricShapes02Icon";
+import {
+	ActivitySparkIcon,
+	AiDnaIcon,
+	ArtificialIntelligence08Icon,
+	Atom02Icon,
+	Flower2Icon,
+	GeometricShapes02Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 
 const ICONS = [
 	Atom02Icon,

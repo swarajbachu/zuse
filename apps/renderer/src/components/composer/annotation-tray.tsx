@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import BubbleChatIcon from "@hugeicons-pro/core-solid-rounded/BubbleChatIcon";
-import CursorMagicSelection01Icon from "@hugeicons-pro/core-solid-rounded/CursorMagicSelection01Icon";
-import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	ArrowDown01Icon,
+	BubbleChatIcon,
+	CursorMagicSelection01Icon,
+	PencilEdit01Icon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	BrowserAnnotation,
 	CodeAnnotation,

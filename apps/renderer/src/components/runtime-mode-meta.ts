@@ -1,8 +1,10 @@
 import type { IconSvgElement } from "@hugeicons/react";
-import LockIcon from "@hugeicons-pro/core-solid-rounded/LockIcon";
-import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
-import SquareUnlock01Icon from "@hugeicons-pro/core-solid-rounded/SquareUnlock01Icon";
-import TerminalIcon from "@hugeicons-pro/core-solid-rounded/TerminalIcon";
+import {
+	LockIcon,
+	PencilEdit01Icon,
+	SquareUnlock01Icon,
+	TerminalIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 
 import type { RuntimeMode } from "@zuse/contracts";
 

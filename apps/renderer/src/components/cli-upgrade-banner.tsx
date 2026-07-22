@@ -1,8 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import CircleArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/CircleArrowUp01Icon";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import LinkSquare01Icon from "@hugeicons-pro/core-solid-rounded/LinkSquare01Icon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	CircleArrowUp01Icon,
+	Copy01Icon,
+	LinkSquare01Icon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { ProviderId } from "@zuse/contracts";
 import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";

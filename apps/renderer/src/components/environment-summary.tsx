@@ -1,13 +1,15 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
-import CheckListIcon from "@hugeicons-pro/core-solid-rounded/CheckListIcon";
-import ComputerTerminal01Icon from "@hugeicons-pro/core-solid-rounded/ComputerTerminal01Icon";
-import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
-import GitCompareIcon from "@hugeicons-pro/core-solid-rounded/GitCompareIcon";
-import GitMergeIcon from "@hugeicons-pro/core-solid-rounded/GitMergeIcon";
-import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
-import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
-import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
+import {
+	Alert01Icon,
+	CheckListIcon,
+	ComputerTerminal01Icon,
+	GitBranchIcon,
+	GitCompareIcon,
+	GitMergeIcon,
+	GitPullRequestIcon,
+	Loading02Icon,
+	Tick02Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { useMemo } from "react";

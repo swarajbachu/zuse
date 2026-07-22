@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Maximize02Icon from "@hugeicons-pro/core-solid-rounded/Maximize02Icon";
-import MoveIcon from "@hugeicons-pro/core-solid-rounded/MoveIcon";
-import UndoIcon from "@hugeicons-pro/core-solid-rounded/UndoIcon";
-import ZoomInAreaIcon from "@hugeicons-pro/core-solid-rounded/ZoomInAreaIcon";
-import ZoomOutAreaIcon from "@hugeicons-pro/core-solid-rounded/ZoomOutAreaIcon";
+import {
+	Maximize02Icon,
+	MoveIcon,
+	UndoIcon,
+	ZoomInAreaIcon,
+	ZoomOutAreaIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type ComponentProps,
 	isValidElement,

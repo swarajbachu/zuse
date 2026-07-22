@@ -1,6 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import BubbleChatIcon from "@hugeicons-pro/core-solid-rounded/BubbleChatIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import { BubbleChatIcon, Tick01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 

@@ -1,12 +1,14 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import CheckListIcon from "@hugeicons-pro/core-solid-rounded/CheckListIcon";
-import ComputerTerminal01Icon from "@hugeicons-pro/core-solid-rounded/ComputerTerminal01Icon";
-import Folder01Icon from "@hugeicons-pro/core-solid-rounded/Folder01Icon";
-import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
-import GitCompareIcon from "@hugeicons-pro/core-solid-rounded/GitCompareIcon";
-import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
-import GlobeIcon from "@hugeicons-pro/core-solid-rounded/GlobeIcon";
-import MagicWand01Icon from "@hugeicons-pro/core-solid-rounded/MagicWand01Icon";
+import {
+	CheckListIcon,
+	ComputerTerminal01Icon,
+	Folder01Icon,
+	GitBranchIcon,
+	GitCompareIcon,
+	GitPullRequestIcon,
+	GlobeIcon,
+	MagicWand01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";

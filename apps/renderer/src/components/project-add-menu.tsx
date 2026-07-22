@@ -1,7 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import FileAddIcon from "@hugeicons-pro/core-solid-rounded/FileAddIcon";
-import FolderOpenIcon from "@hugeicons-pro/core-solid-rounded/FolderOpenIcon";
-import GlobeIcon from "@hugeicons-pro/core-solid-rounded/GlobeIcon";
+import {
+	FileAddIcon,
+	FolderOpenIcon,
+	GlobeIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 

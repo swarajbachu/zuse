@@ -1,18 +1,20 @@
 import type { EditorView } from "@codemirror/view";
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import AttachmentIcon from "@hugeicons-pro/core-solid-rounded/AttachmentIcon";
-import DashboardSpeedIcon from "@hugeicons-pro/core-solid-rounded/DashboardSpeed01Icon";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import FlashIcon from "@hugeicons-pro/core-solid-rounded/FlashIcon";
-import InformationCircleIcon from "@hugeicons-pro/core-solid-rounded/InformationCircleIcon";
-import MapsIcon from "@hugeicons-pro/core-solid-rounded/MapsIcon";
-import PencilIcon from "@hugeicons-pro/core-solid-rounded/PencilIcon";
-import PlayIcon from "@hugeicons-pro/core-solid-rounded/PlayIcon";
-import SentIcon from "@hugeicons-pro/core-solid-rounded/SentIcon";
-import SquareIcon from "@hugeicons-pro/core-solid-rounded/SquareIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
-import Upload01Icon from "@hugeicons-pro/core-solid-rounded/Upload01Icon";
+import {
+	ArrowDown01Icon,
+	AttachmentIcon,
+	DashboardSpeedIcon,
+	Delete02Icon,
+	FlashIcon,
+	InformationCircleIcon,
+	MapsIcon,
+	PencilIcon,
+	PlayIcon,
+	SentIcon,
+	SquareIcon,
+	Tick01Icon,
+	Upload01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import {
 	type BooleanOptionDescriptor,
 	type BrowserAnnotation,

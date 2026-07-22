@@ -1,5 +1,4 @@
-import ArrowUpIcon from "@hugeicons-pro/core-solid-rounded/ArrowUp01Icon";
-import CloudOffIcon from "@hugeicons-pro/core-solid-rounded/CloudOffIcon";
+import { ArrowUpIcon, CloudOffIcon } from "@hugeicons-pro/core-solid-rounded";
 import {
 	orderedChatSessions,
 	resolveActiveChatSession,

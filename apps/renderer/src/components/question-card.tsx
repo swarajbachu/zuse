@@ -1,7 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import ArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/ArrowUp01Icon";
+import {
+	ArrowLeft01Icon,
+	ArrowRight01Icon,
+	ArrowUp01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	AgentItemId,
 	SessionId,

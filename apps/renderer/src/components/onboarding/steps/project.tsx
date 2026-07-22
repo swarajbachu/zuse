@@ -1,7 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Folder01Icon from "@hugeicons-pro/core-solid-rounded/Folder01Icon";
-import FolderAddIcon from "@hugeicons-pro/core-solid-rounded/FolderAddIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	Folder01Icon,
+	FolderAddIcon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";

@@ -1,8 +1,10 @@
 "use client";
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import ArrowUpDownIcon from "@hugeicons-pro/core-solid-rounded/ArrowUpDownIcon";
+import {
+	ArrowLeft01Icon,
+	ArrowRight01Icon,
+	ArrowUpDownIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type * as React from "react";
 import { DayPicker } from "react-day-picker";
 import { cn } from "~/lib/utils";

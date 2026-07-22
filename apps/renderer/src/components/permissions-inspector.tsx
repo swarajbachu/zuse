@@ -1,10 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import GlobeIcon from "@hugeicons-pro/core-solid-rounded/GlobeIcon";
-import PencilIcon from "@hugeicons-pro/core-solid-rounded/PencilIcon";
-import Shield01Icon from "@hugeicons-pro/core-solid-rounded/Shield01Icon";
-import TerminalIcon from "@hugeicons-pro/core-solid-rounded/TerminalIcon";
-import Wrench01Icon from "@hugeicons-pro/core-solid-rounded/Wrench01Icon";
+import {
+	Delete02Icon,
+	GlobeIcon,
+	PencilIcon,
+	Shield01Icon,
+	TerminalIcon,
+	Wrench01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { FolderId, PermissionKind, SavedDecision } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 

@@ -1,6 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
-import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
+import { Copy01Icon, Tick02Icon } from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";

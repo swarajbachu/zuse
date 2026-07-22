@@ -1,8 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
-import BubbleChatIcon from "@hugeicons-pro/core-solid-rounded/BubbleChatIcon";
-import Wrench01Icon from "@hugeicons-pro/core-solid-rounded/Wrench01Icon";
+import {
+	ArrowDown01Icon,
+	ArrowRight01Icon,
+	BubbleChatIcon,
+	Wrench01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { Message } from "@zuse/contracts";
 import { memo, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";

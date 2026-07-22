@@ -1,15 +1,17 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Add01Icon from "@hugeicons-pro/core-solid-rounded/Add01Icon";
-import ArrowUpRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowUpRight01Icon";
-import Cancel01Icon from "@hugeicons-pro/core-solid-rounded/Cancel01Icon";
-import CheckmarkCircle02Icon from "@hugeicons-pro/core-solid-rounded/CheckmarkCircle02Icon";
-import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
-import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
-import PlugSocketIcon from "@hugeicons-pro/core-solid-rounded/PlugSocketIcon";
-import RefreshIcon from "@hugeicons-pro/core-solid-rounded/RefreshIcon";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
-import ViewIcon from "@hugeicons-pro/core-solid-rounded/ViewIcon";
-import ViewOffIcon from "@hugeicons-pro/core-solid-rounded/ViewOffIcon";
+import {
+	Add01Icon,
+	ArrowUpRight01Icon,
+	Cancel01Icon,
+	CheckmarkCircle02Icon,
+	Delete02Icon,
+	Loading02Icon,
+	PlugSocketIcon,
+	RefreshIcon,
+	Search01Icon,
+	ViewIcon,
+	ViewOffIcon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type { OpencodeInventoryProvider } from "@zuse/contracts";
 import { Effect } from "effect";
 import { useEffect, useMemo, useRef, useState } from "react";

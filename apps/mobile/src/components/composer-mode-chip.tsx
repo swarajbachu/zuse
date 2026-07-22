@@ -1,4 +1,4 @@
-import Task01Icon from "@hugeicons-pro/core-solid-rounded/Task01Icon";
+import { Task01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { X } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 

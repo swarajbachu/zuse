@@ -1,8 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArchiveArrowUpIcon from "@hugeicons-pro/core-solid-rounded/ArchiveArrowUpIcon";
-import ArchiveIcon from "@hugeicons-pro/core-solid-rounded/ArchiveIcon";
-import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
+import {
+	ArchiveArrowUpIcon,
+	ArchiveIcon,
+	ArrowLeft01Icon,
+	Search01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	Chat,
 	ChatArchiveJob,

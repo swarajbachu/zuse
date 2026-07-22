@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import Loading03Icon from "@hugeicons-pro/core-solid-rounded/Loading03Icon";
+import { Loading03Icon } from "@hugeicons-pro/core-solid-rounded";
 import type React from "react";
 import { cn } from "~/lib/utils";
 

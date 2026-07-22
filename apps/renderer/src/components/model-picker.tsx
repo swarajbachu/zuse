@@ -1,9 +1,11 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
-import ArrowUpRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowUpRight01Icon";
-import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
-import StarIcon from "@hugeicons-pro/core-solid-rounded/StarIcon";
-import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import {
+	ArrowDown01Icon,
+	ArrowUpRight01Icon,
+	Search01Icon,
+	StarIcon,
+	Tick01Icon,
+} from "@hugeicons-pro/core-solid-rounded";
 import type {
 	AgentAvailability,
 	ChatId,
