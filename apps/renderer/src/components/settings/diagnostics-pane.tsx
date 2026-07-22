@@ -26,6 +26,8 @@ import { flushRendererDiagnostics } from "../../lib/diagnostics-recorder.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import { cn } from "../../lib/utils.ts";
 import { Button } from "../ui/button.tsx";
+import { Card } from "../ui/card.tsx";
+import { Frame, FrameHeader } from "../ui/frame.tsx";
 
 const RANGE_OPTIONS = [
 	{ label: "15m", milliseconds: 15 * 60_000 },
@@ -67,20 +69,22 @@ function DiagnosticsSection({
 	readonly children: React.ReactNode;
 }) {
 	return (
-		<section className="overflow-hidden rounded-lg border border-border/60 bg-muted/30">
-			<header className="flex min-h-11 items-center justify-between gap-4 border-b border-border/40 px-4 py-2.5">
+		<Frame role="region" aria-label={title}>
+			<FrameHeader className="flex w-full flex-row items-center justify-between gap-3 px-2 py-1.5">
 				<div className="min-w-0">
-					<h2 className="font-medium text-[12px] text-foreground">{title}</h2>
+					<h2 className="truncate font-medium text-[12px] text-foreground">
+						{title}
+					</h2>
 					{description && (
-						<p className="mt-0.5 truncate text-[10px] text-muted-foreground leading-4">
+						<p className="truncate text-[9px] text-muted-foreground leading-3.5">
 							{description}
 						</p>
 					)}
 				</div>
-				{action}
-			</header>
-			{children}
-		</section>
+				{action && <div className="shrink-0">{action}</div>}
+			</FrameHeader>
+			<Card className="overflow-hidden">{children}</Card>
+		</Frame>
 	);
 }
 
@@ -151,7 +155,7 @@ function ResourceChart({
 	const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
 
 	return (
-		<div className="overflow-hidden rounded-lg border border-border/50 bg-background/35">
+		<Card className="overflow-hidden bg-background/35">
 			<div className="flex items-start justify-between gap-3 px-3 pt-3">
 				<div>
 					<p className="font-medium text-[10px] text-muted-foreground">
@@ -187,7 +191,7 @@ function ResourceChart({
 					className={lineClassName}
 				/>
 			</svg>
-		</div>
+		</Card>
 	);
 }
 
@@ -425,7 +429,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						onClick={() => setLive((value) => !value)}
 					>
 						{live ? <Pause /> : <Play />}
@@ -434,7 +438,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						aria-label="Refresh diagnostics"
 						onClick={() => void refresh()}
 					>
@@ -444,7 +448,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
@@ -456,7 +460,7 @@ export function DiagnosticsPane() {
 					</Button>
 					<Button
 						size="sm"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						loading={exporting}
 						onClick={() => void exportBundle()}
 					>
@@ -552,6 +556,7 @@ export function DiagnosticsPane() {
 											<Button
 												size="xs"
 												variant="ghost"
+												className="text-[10px]"
 												disabled={item.pid === processes.serverPid}
 												onClick={() =>
 													void signalProcess(item.pid, "interrupt")
@@ -562,6 +567,7 @@ export function DiagnosticsPane() {
 											<Button
 												size="xs"
 												variant="destructive-outline"
+												className="text-[10px]"
 												disabled={item.pid === processes.serverPid}
 												onClick={() => void signalProcess(item.pid, "kill")}
 											>
@@ -746,7 +752,7 @@ export function DiagnosticsPane() {
 								<Button
 									size="sm"
 									variant="settings"
-									className="h-7 px-2.5 text-[11px]"
+									className="h-7 px-2.5 text-[10px]"
 									onClick={() => void loadMoreEvents()}
 								>
 									Load more
@@ -801,7 +807,7 @@ export function DiagnosticsPane() {
 							<Button
 								size="sm"
 								variant="settings"
-								className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+								className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 								onClick={() =>
 									void navigator.clipboard.writeText(
 										`${selected.id}\n${selected.message}\n${selected.detail ?? ""}`,
@@ -980,7 +986,7 @@ export function DiagnosticsPane() {
 				<div className="flex flex-wrap gap-2 border-t border-border/45 p-4">
 					<Button
 						size="sm"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						onClick={() => void exportBundle()}
 						loading={exporting}
 					>
@@ -990,7 +996,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[11px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
