@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { router, Stack } from "expo-router";
 import {
 	BarChart3,
@@ -29,14 +30,34 @@ import { successTap } from "~/lib/haptics";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
-import { useAnalyticsStore } from "~/store/analytics";
-import { useAuthStore } from "~/store/auth";
+import { analyticsEnabledAtom, setAnalyticsEnabled } from "~/store/analytics";
+import {
+	authAccountAtom,
+	authBusyAtom,
+	authErrorAtom,
+	authHydratedAtom,
+	deleteAccount,
+	hydrateAuth,
+	resetApp,
+	signIn,
+	signOut,
+} from "~/store/auth";
 import {
 	connectionStatusLabel,
-	useConnectionRuntimeStore,
+	snapshotsByConnectionAtom,
 } from "~/store/connection-runtime";
-import { useConnectionsStore } from "~/store/connections";
-import { useEnvironmentsStore } from "~/store/environments";
+import {
+	connectionsAtom,
+	connectionsHydratedAtom,
+	hydrateConnections,
+} from "~/store/connections";
+import {
+	connectToEnvironment,
+	environmentsAtom,
+	environmentsErrorAtom,
+	environmentsLoadingAtom,
+	refreshEnvironments,
+} from "~/store/environments";
 
 const formatBytes = (bytes: number | null): string => {
 	if (bytes === null) return "Calculating…";
@@ -46,45 +67,33 @@ const formatBytes = (bytes: number | null): string => {
 };
 
 export default function SettingsScreen() {
-	const analyticsEnabled = useAnalyticsStore((state) => state.enabled);
-	const setAnalyticsEnabled = useAnalyticsStore((state) => state.setEnabled);
-	const {
-		account,
-		hydrated,
-		busy,
-		error: authError,
-		hydrate,
-		signIn,
-		signOut,
-		resetApp,
-		deleteAccount,
-	} = useAuthStore();
-	const {
-		connections,
-		hydrated: connectionsHydrated,
-		hydrate: hydrateConnections,
-	} = useConnectionsStore();
-	const { environments, loading, error, refresh, connect } =
-		useEnvironmentsStore();
-	const snapshots = useConnectionRuntimeStore(
-		(state) => state.snapshotsByConnection,
-	);
+	const analyticsEnabled = useAtomValue(analyticsEnabledAtom);
+	const account = useAtomValue(authAccountAtom);
+	const hydrated = useAtomValue(authHydratedAtom);
+	const busy = useAtomValue(authBusyAtom);
+	const authError = useAtomValue(authErrorAtom);
+	const connections = useAtomValue(connectionsAtom);
+	const connectionsHydrated = useAtomValue(connectionsHydratedAtom);
+	const environments = useAtomValue(environmentsAtom);
+	const loading = useAtomValue(environmentsLoadingAtom);
+	const error = useAtomValue(environmentsErrorAtom);
+	const snapshots = useAtomValue(snapshotsByConnectionAtom);
 	const [connecting, setConnecting] = useState<string | null>(null);
 	const [notificationsBusy, setNotificationsBusy] = useState(false);
 	const [storageBusy, setStorageBusy] = useState(false);
 	const [cacheBytes, setCacheBytes] = useState<number | null>(null);
 
 	useEffect(() => {
-		if (!hydrated) void hydrate();
-	}, [hydrate, hydrated]);
+		if (!hydrated) void hydrateAuth();
+	}, [hydrated]);
 
 	useEffect(() => {
 		if (!connectionsHydrated) void hydrateConnections();
-	}, [connectionsHydrated, hydrateConnections]);
+	}, [connectionsHydrated]);
 
 	useEffect(() => {
-		if (account !== null) void refresh();
-	}, [account, refresh]);
+		if (account !== null) void refreshEnvironments();
+	}, [account]);
 
 	useEffect(() => {
 		void downloadedCacheSize()
@@ -104,7 +113,7 @@ export default function SettingsScreen() {
 			connection_kind: "remote",
 		});
 		try {
-			await connect(environmentId);
+			await connectToEnvironment(environmentId);
 			captureMobileAnalytics("connection established", {
 				connection_kind: "remote",
 				duration_ms: Date.now() - startedAt,

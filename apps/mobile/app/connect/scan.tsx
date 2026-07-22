@@ -17,7 +17,7 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { successTap } from "~/lib/haptics";
 import { pairWithDesktop } from "~/lib/pairing";
-import { useConnectionsStore } from "~/store/connections";
+import { addConnection } from "~/store/connections";
 import { colors } from "~/theme";
 
 export default function ScanScreen() {
@@ -25,7 +25,6 @@ export default function ScanScreen() {
 	const [permission, requestPermission] = useCameraPermissions();
 	const [scanned, setScanned] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const add = useConnectionsStore((state) => state.add);
 
 	if (permission === null) {
 		return (
@@ -72,7 +71,7 @@ export default function ScanScreen() {
 								setScanned(true);
 								setError(null);
 								try {
-									await pairWithDesktop(data, add);
+									await pairWithDesktop(data, addConnection);
 									successTap();
 									returnToInbox(router);
 								} catch (cause) {

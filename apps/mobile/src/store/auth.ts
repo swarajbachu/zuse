@@ -1,4 +1,5 @@
-import { create } from "zustand";
+import { Atom } from "effect/unstable/reactivity";
+
 import {
 	currentAccount,
 	type WorkosAccount,
@@ -10,18 +11,16 @@ import {
 	deleteAccount as deleteRelayAccount,
 	resetRelayAccessToken,
 } from "../rpc/relay-client.ts";
+import { appAtomRegistry, batchAtomUpdates } from "./registry.tsx";
 
-type AuthState = {
-	hydrated: boolean;
-	account: WorkosAccount | null;
-	busy: boolean;
-	error: string | null;
-	hydrate: () => Promise<void>;
-	signIn: () => Promise<void>;
-	signOut: () => Promise<void>;
-	resetApp: () => Promise<void>;
-	deleteAccount: () => Promise<void>;
-};
+export const authHydratedAtom = Atom.make(false).pipe(Atom.keepAlive);
+export const authAccountAtom = Atom.make<WorkosAccount | null>(null).pipe(
+	Atom.keepAlive,
+);
+export const authBusyAtom = Atom.make(false).pipe(Atom.keepAlive);
+export const authErrorAtom = Atom.make<string | null>(null).pipe(
+	Atom.keepAlive,
+);
 
 const message = (cause: unknown): string => {
 	const text = cause instanceof Error ? cause.message : String(cause);
@@ -33,56 +32,86 @@ const message = (cause: unknown): string => {
 	return text;
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
-	hydrated: false,
-	account: null,
-	busy: false,
-	error: null,
-	hydrate: async () => {
-		const account = await currentAccount();
-		set({ account, hydrated: true });
-	},
-	signIn: async () => {
-		set({ busy: true, error: null });
-		try {
-			const account = await workosSignIn();
-			set({ account, busy: false });
-		} catch (cause) {
-			set({ busy: false, error: message(cause) });
-		}
-	},
-	signOut: async () => {
-		await workosSignOut();
-		resetRelayAccessToken();
-		set({ account: null });
-	},
-	resetApp: async () => {
-		set({ busy: true, error: null });
-		try {
-			await resetLocalMobileData();
-			set({ account: null, busy: false, error: null });
-		} catch (cause) {
-			set({ busy: false, error: message(cause) });
-			throw cause;
-		}
-	},
-	deleteAccount: async () => {
-		set({ busy: true, error: null });
-		try {
-			await deleteRelayAccount();
-		} catch (cause) {
-			set({ busy: false, error: message(cause) });
-			throw cause;
-		}
-		try {
-			await resetLocalMobileData();
-			set({ account: null, busy: false, error: null });
-		} catch (cause) {
-			set({
-				account: null,
-				busy: false,
-				error: `Account deleted. ${message(cause)}`,
-			});
-		}
-	},
-}));
+export const hydrateAuth = async (): Promise<void> => {
+	const account = await currentAccount();
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authAccountAtom, account);
+		appAtomRegistry.set(authHydratedAtom, true);
+	});
+};
+
+export const signIn = async (): Promise<void> => {
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authBusyAtom, true);
+		appAtomRegistry.set(authErrorAtom, null);
+	});
+	try {
+		const account = await workosSignIn();
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authAccountAtom, account);
+			appAtomRegistry.set(authBusyAtom, false);
+		});
+	} catch (cause) {
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, message(cause));
+		});
+	}
+};
+
+export const signOut = async (): Promise<void> => {
+	await workosSignOut();
+	resetRelayAccessToken();
+	appAtomRegistry.set(authAccountAtom, null);
+};
+
+export const resetApp = async (): Promise<void> => {
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authBusyAtom, true);
+		appAtomRegistry.set(authErrorAtom, null);
+	});
+	try {
+		await resetLocalMobileData();
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authAccountAtom, null);
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, null);
+		});
+	} catch (cause) {
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, message(cause));
+		});
+		throw cause;
+	}
+};
+
+export const deleteAccount = async (): Promise<void> => {
+	batchAtomUpdates(() => {
+		appAtomRegistry.set(authBusyAtom, true);
+		appAtomRegistry.set(authErrorAtom, null);
+	});
+	try {
+		await deleteRelayAccount();
+	} catch (cause) {
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, message(cause));
+		});
+		throw cause;
+	}
+	try {
+		await resetLocalMobileData();
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authAccountAtom, null);
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, null);
+		});
+	} catch (cause) {
+		batchAtomUpdates(() => {
+			appAtomRegistry.set(authAccountAtom, null);
+			appAtomRegistry.set(authBusyAtom, false);
+			appAtomRegistry.set(authErrorAtom, `Account deleted. ${message(cause)}`);
+		});
+	}
+};

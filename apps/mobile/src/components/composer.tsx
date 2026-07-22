@@ -3,12 +3,9 @@ import {
 	CloudOffIcon,
 	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
+import { useAtomValue } from "@effect/atom-react";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
-import {
-	groupTimelineTurns,
-	summarizeTurnActivity,
-} from "@zuse/client-runtime/timeline";
 import {
 	Message,
 	type MessageContent,
@@ -28,7 +25,6 @@ import {
 	Keyboard,
 	Pressable,
 	Text,
-	TextInput,
 	View,
 } from "react-native";
 import {
@@ -38,12 +34,13 @@ import {
 	uploadComposerAttachment,
 } from "~/lib/composer-attachments";
 import {
+	type ComposerActivity,
+	composerExpanded,
 	isInterruptVisible,
 	nextModelChangeActions,
 } from "~/lib/composer-state";
 import { availableProviderIds } from "~/lib/model-options";
 import { connectionSessionKey } from "~/lib/session-key";
-import { selectSessionMessages } from "~/lib/session-messages";
 import {
 	flushServerQueue,
 	interruptSession,
@@ -54,20 +51,33 @@ import {
 	setSessionProvider,
 } from "~/rpc/actions";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
-import { useAvailabilityStore } from "~/store/availability";
-import { composerDraft, useComposerDraftsStore } from "~/store/composer-drafts";
+import {
+	connectionAvailabilityAtom,
+	hydrateAvailability,
+} from "~/store/availability";
+import {
+	clearComposerDraft,
+	composerDraft,
+	setComposerDraft,
+} from "~/store/composer-drafts";
 import {
 	addOptimisticMessage,
 	currentSessionTurnId,
 	removeOptimisticMessage,
-	useMobileMessagesStore,
 } from "~/store/messages";
-import { useOutboxStore } from "~/store/outbox";
-import { useSessionsStore } from "~/store/sessions";
+import { enqueueOutboxMessage } from "~/store/outbox";
+import {
+	setPermissionMode as setPermissionModeOptimistic,
+	setRuntimeMode as setRuntimeModeOptimistic,
+} from "~/store/sessions";
 import { colors } from "~/theme";
 import { ComposerActionSlot } from "./composer-action-slot";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
+import {
+	ComposerTextInput,
+	type ComposerTextInputHandle,
+} from "./composer-text-input";
 import { ComposerInputFrame } from "./composer-input-frame";
 import { ComposerModeChip } from "./composer-mode-chip";
 import { ComposerPlusMenu } from "./composer-plus-menu";
@@ -90,6 +100,7 @@ export const Composer = ({
 	onRetryConnection,
 	onFocusChange,
 	onMessageSubmitted,
+	currentActivity = null,
 	bottomInset = 0,
 }: {
 	connKey: string;
@@ -103,11 +114,16 @@ export const Composer = ({
 	onRetryConnection?: () => void;
 	onFocusChange?: (focused: boolean) => void;
 	onMessageSubmitted?: () => void;
+	/** Latest-turn activity summary, computed once by the thread screen. */
+	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
 }) => {
 	const stateKey = connectionSessionKey(connKey, sessionId);
-	const initialDraft = useRef(composerDraft(stateKey)).current;
-	const [text, setText] = useState(initialDraft.text);
+	// Lazy state (not a ref): reading a ref during render violates the React
+	// Compiler's rules; the initializer runs once per mount (keyed by stateKey).
+	const [initialDraft] = useState(() => composerDraft(stateKey));
+	const inputRef = useRef<ComposerTextInputHandle>(null);
+	const [hasText, setHasText] = useState(initialDraft.text.trim().length > 0);
 	const [busy, setBusy] = useState(false);
 	const [focused, setFocused] = useState(false);
 	const [modelSheetOpen, setModelSheetOpen] = useState(false);
@@ -120,48 +136,28 @@ export const Composer = ({
 	// the bar auto-expands (e.g. opening a running session) so the keyboard
 	// doesn't pop unexpectedly.
 	const shouldAutoFocus = useRef(false);
-	const setDraft = useComposerDraftsStore((state) => state.setDraft);
-	const clearDraft = useComposerDraftsStore((state) => state.clearDraft);
+	// Text persists on blur/unmount (inside ComposerTextInput); attachments and
+	// goal mode change rarely, so persisting them eagerly is cheap.
 	useEffect(() => {
-		setDraft(stateKey, { text, attachments, goalMode });
-	}, [attachments, goalMode, setDraft, stateKey, text]);
-
-	const enqueue = useOutboxStore((state) => state.enqueue);
-	const setPermissionModeOptimistic = useSessionsStore(
-		(state) => state.setPermissionMode,
-	);
-	const setRuntimeModeOptimistic = useSessionsStore(
-		(state) => state.setRuntimeMode,
-	);
-	const messages = useMobileMessagesStore((state) =>
-		selectSessionMessages(state.messagesBySession, stateKey),
-	);
-	const currentActivity = useMemo(() => {
-		const turn = groupTimelineTurns(messages).at(-1);
-		if (turn === undefined) return null;
-		const summary = summarizeTurnActivity(turn.body);
-		const firstAgentTool = turn.body.find((message) => {
-			const content = message.content;
-			return (
-				content._tag === "tool_use" && /task|agent|spawn/i.test(content.tool)
-			);
+		setComposerDraft(stateKey, {
+			text: inputRef.current?.getText() ?? "",
+			attachments,
+			goalMode,
 		});
-		return {
-			...summary,
-			agentItemId:
-				firstAgentTool?.content._tag === "tool_use"
-					? firstAgentTool.content.itemId
-					: null,
-		};
-	}, [messages]);
+	}, [attachments, goalMode, stateKey]);
+	const persistDraftText = (text: string) => {
+		if (text.length === 0 && attachments.length === 0 && !goalMode) {
+			clearComposerDraft(stateKey);
+			return;
+		}
+		setComposerDraft(stateKey, { text, attachments, goalMode });
+	};
 
-	const hydrateAvailability = useAvailabilityStore((state) => state.hydrate);
-	const availability = useAvailabilityStore(
-		(state) => state.availabilityByConnection[connKey],
-	);
+
+	const availability = useAtomValue(connectionAvailabilityAtom(connKey));
 	useEffect(() => {
 		void hydrateAvailability(connKey, connection);
-	}, [connKey, connection, hydrateAvailability]);
+	}, [connKey, connection]);
 	const availableProviders = useMemo(
 		() => availableProviderIds(availability),
 		[availability],
@@ -171,7 +167,7 @@ export const Composer = ({
 			?.find((entry) => entry.providerId === session?.providerId)
 			?.capabilities?.includes("goalMode") === true;
 
-	const canSend = (text.trim().length > 0 || attachments.length > 0) && !busy;
+	const canSend = (hasText || attachments.length > 0) && !busy;
 	const showInterrupt = isInterruptVisible(status);
 	const modelValue: ModelModeValue | null =
 		session === null
@@ -185,17 +181,19 @@ export const Composer = ({
 	const planMode = modelValue?.permissionMode === "plan";
 	// Modes remain visible in both layouts, but only editor activity expands the
 	// composer. A running agent remains interruptible from the compact control.
-	const expanded =
-		focused ||
-		text.trim().length > 0 ||
-		attachments.length > 0 ||
-		modelSheetOpen;
+	const expanded = composerExpanded({
+		focused,
+		hasText,
+		hasAttachments: attachments.length > 0,
+		sheetOpen: modelSheetOpen,
+	});
 
 	const agentCount = currentActivity?.agents ?? 0;
 	const hasPills = !online || agentCount > 0;
 	const finishSuccessfulSubmission = () => {
-		clearDraft(stateKey);
-		setText("");
+		clearComposerDraft(stateKey);
+		inputRef.current?.clear();
+		setHasText(false);
 		setAttachments([]);
 		setGoalMode(false);
 		setFocused(false);
@@ -205,14 +203,15 @@ export const Composer = ({
 
 	const submit = async () => {
 		if (!canSend) return;
-		const value = text.trim();
+		const value = (inputRef.current?.getText() ?? "").trim();
+		if (value.length === 0 && attachments.length === 0) return;
 		if (!online) {
 			if (attachments.length > 0) {
 				setComposerError("Attachments require an active connection.");
 				return;
 			}
 			onMessageSubmitted?.();
-			await enqueue(connKey, sessionId, value, goalMode);
+			await enqueueOutboxMessage(connKey, sessionId, value, goalMode);
 			finishSuccessfulSubmission();
 			return;
 		}
@@ -427,23 +426,14 @@ export const Composer = ({
 						/>
 						<ComposerInputFrame
 							input={
-								<TextInput
-									// Focus on mount only when the user opened the bar by tapping the
-									// collapsed pill — avoids popping the keyboard on auto-expand.
-									ref={(node) => {
-										if (node && shouldAutoFocus.current) {
-											shouldAutoFocus.current = false;
-											node.focus();
-										}
-									}}
-									className="max-h-36 min-h-11 px-1 py-2 font-sans text-[17px] leading-6 text-foreground"
-									multiline
+								<ComposerTextInput
+									ref={inputRef}
+									initialText={initialDraft.text}
 									placeholder={
 										online ? "Ask Zuse" : "Offline · message will queue"
 									}
-									placeholderTextColor={colors.tertiaryFg}
-									value={text}
-									onChangeText={setText}
+									autoFocusOnMountRef={shouldAutoFocus}
+									onHasTextChange={setHasText}
 									onFocus={() => {
 										setFocused(true);
 										onFocusChange?.(true);
@@ -452,6 +442,7 @@ export const Composer = ({
 										setFocused(false);
 										onFocusChange?.(false);
 									}}
+									onPersist={persistDraftText}
 								/>
 							}
 							leadingAction={

@@ -1,23 +1,26 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	clearComposerDraft,
 	composerDraft,
-	useComposerDraftsStore,
+	composerDraftAtom,
+	draftsBySessionAtom,
+	setComposerDraft,
 } from "../../../src/store/composer-drafts";
+import { appAtomRegistry } from "../../../src/store/registry";
 
 describe("session-keyed composer drafts", () => {
 	beforeEach(() => {
-		useComposerDraftsStore.setState({ draftsBySession: {} });
+		appAtomRegistry.set(draftsBySessionAtom, {});
 	});
 
 	it("keeps drafts independent while switching threads", () => {
-		const { setDraft } = useComposerDraftsStore.getState();
-		setDraft("connection:planning", {
+		setComposerDraft("connection:planning", {
 			text: "Investigate first",
 			attachments: [],
 			goalMode: false,
 		});
-		setDraft("connection:build", {
+		setComposerDraft("connection:build", {
 			text: "Ship the fix",
 			attachments: [],
 			goalMode: true,
@@ -31,12 +34,38 @@ describe("session-keyed composer drafts", () => {
 	});
 
 	it("clears only the submitted thread", () => {
-		const state = useComposerDraftsStore.getState();
-		state.setDraft("one", { text: "one", attachments: [], goalMode: false });
-		state.setDraft("two", { text: "two", attachments: [], goalMode: false });
-		state.clearDraft("one");
+		setComposerDraft("one", { text: "one", attachments: [], goalMode: false });
+		setComposerDraft("two", { text: "two", attachments: [], goalMode: false });
+		clearComposerDraft("one");
 
 		expect(composerDraft("one").text).toBe("");
 		expect(composerDraft("two").text).toBe("two");
+	});
+
+	it("only notifies subscribers of the session that changed", () => {
+		const onPlanning = vi.fn();
+		// immediate: true builds the node so the dependency edge to the base
+		// record exists — mirroring how the React hooks read atoms on mount.
+		const unsubscribe = appAtomRegistry.subscribe(
+			composerDraftAtom("connection:planning"),
+			onPlanning,
+			{ immediate: true },
+		);
+		expect(onPlanning).toHaveBeenCalledTimes(1);
+
+		setComposerDraft("connection:build", {
+			text: "Unrelated",
+			attachments: [],
+			goalMode: false,
+		});
+		expect(onPlanning).toHaveBeenCalledTimes(1);
+
+		setComposerDraft("connection:planning", {
+			text: "Relevant",
+			attachments: [],
+			goalMode: false,
+		});
+		expect(onPlanning).toHaveBeenCalledTimes(2);
+		unsubscribe();
 	});
 });

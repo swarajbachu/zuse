@@ -1,24 +1,24 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 
 import { setMobileAnalyticsAccount, trackMobileScreen } from "~/lib/analytics";
 import { mobileAnalyticsScreen } from "~/lib/mobile-analytics-screen";
-import { useAnalyticsStore } from "~/store/analytics";
-import { useAuthStore } from "~/store/auth";
+import { analyticsHydratedAtom, hydrateAnalytics } from "~/store/analytics";
+import { authAccountAtom, authHydratedAtom, hydrateAuth } from "~/store/auth";
 
 export const useMobileAnalytics = (pathname: string): void => {
-	const accountId = useAuthStore((state) => state.account?.id ?? null);
-	const authHydrated = useAuthStore((state) => state.hydrated);
-	const hydrateAuth = useAuthStore((state) => state.hydrate);
-	const analyticsHydrated = useAnalyticsStore((state) => state.hydrated);
-	const hydrateAnalytics = useAnalyticsStore((state) => state.hydrate);
+	const account = useAtomValue(authAccountAtom);
+	const accountId = account?.id ?? null;
+	const authHydrated = useAtomValue(authHydratedAtom);
+	const analyticsHydrated = useAtomValue(analyticsHydratedAtom);
 
 	useEffect(() => {
 		if (!authHydrated) void hydrateAuth();
-	}, [authHydrated, hydrateAuth]);
+	}, [authHydrated]);
 
 	useEffect(() => {
 		if (authHydrated && !analyticsHydrated) void hydrateAnalytics();
-	}, [analyticsHydrated, authHydrated, hydrateAnalytics]);
+	}, [analyticsHydrated, authHydrated]);
 
 	useEffect(() => {
 		if (analyticsHydrated) void setMobileAnalyticsAccount(accountId);

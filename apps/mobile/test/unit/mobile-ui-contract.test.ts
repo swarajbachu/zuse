@@ -280,7 +280,7 @@ describe("mobile UI contracts", () => {
 		expect(review).toContain('"arrow.up.left.and.arrow.down.right"');
 		expect(review).not.toContain("translucentNativeHeaderOptions");
 		expect(review).toContain("collapsable={false}");
-		expect(review).toContain("selectConnectionBundles");
+		expect(review).toContain("connectionBundlesAtom");
 		expect(review).not.toContain("bundlesByConnection[connKey] ?? []");
 		expect(tool).toContain("<ReviewDiffList");
 		expect(tool).toContain("<Stack.Screen.Title>");

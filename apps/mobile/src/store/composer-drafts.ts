@@ -1,6 +1,8 @@
-import { create } from "zustand";
+import { Atom } from "effect/unstable/reactivity";
 
 import type { LocalComposerAttachment } from "~/lib/composer-attachments";
+
+import { appAtomRegistry } from "./registry";
 
 export type ComposerDraft = {
 	text: string;
@@ -14,26 +16,30 @@ const EMPTY_DRAFT: ComposerDraft = {
 	goalMode: false,
 };
 
-type ComposerDraftsState = {
-	draftsBySession: Readonly<Record<string, ComposerDraft>>;
-	setDraft: (key: string, draft: ComposerDraft) => void;
-	clearDraft: (key: string) => void;
-};
+export const draftsBySessionAtom = Atom.make<
+	Readonly<Record<string, ComposerDraft>>
+>({}).pipe(Atom.keepAlive);
+
+/** Per-session draft; notifies only when this session's draft changes. */
+export const composerDraftAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(draftsBySessionAtom)[key] ?? EMPTY_DRAFT),
+);
 
 export const composerDraft = (key: string): ComposerDraft =>
-	useComposerDraftsStore.getState().draftsBySession[key] ?? EMPTY_DRAFT;
+	appAtomRegistry.get(draftsBySessionAtom)[key] ?? EMPTY_DRAFT;
 
-export const useComposerDraftsStore = create<ComposerDraftsState>((set) => ({
-	draftsBySession: {},
-	setDraft: (key, draft) =>
-		set((state) => ({
-			draftsBySession: { ...state.draftsBySession, [key]: draft },
-		})),
-	clearDraft: (key) =>
-		set((state) => {
-			if (!(key in state.draftsBySession)) return state;
-			const next = { ...state.draftsBySession };
-			delete next[key];
-			return { draftsBySession: next };
-		}),
-}));
+export const setComposerDraft = (key: string, draft: ComposerDraft): void => {
+	appAtomRegistry.update(draftsBySessionAtom, (drafts) => ({
+		...drafts,
+		[key]: draft,
+	}));
+};
+
+export const clearComposerDraft = (key: string): void => {
+	appAtomRegistry.update(draftsBySessionAtom, (drafts) => {
+		if (!(key in drafts)) return drafts;
+		const next = { ...drafts };
+		delete next[key];
+		return next;
+	});
+};

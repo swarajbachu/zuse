@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { orderedChatSessions } from "@zuse/client-runtime/chat-threads";
 import {
 	findPendingPlanInteraction,
@@ -59,7 +60,7 @@ import { ThreadHeaderTitle } from "~/components/thread-header-title";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
-import { isFreshChat } from "~/lib/composer-state";
+import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import {
 	normalizeConnParam,
@@ -68,9 +69,7 @@ import {
 import { captureMobileError } from "~/lib/crash-reporting";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
-import { selectConnectionBundles } from "~/lib/session-bundles";
 import { connectionSessionKey } from "~/lib/session-key";
-import { selectSessionMessages } from "~/lib/session-messages";
 import {
 	latestTurnAnchorSpace,
 	latestTurnTopOffset,
@@ -90,25 +89,70 @@ import {
 	respondToPlan,
 	sendMessage,
 } from "~/rpc/actions";
-import { useConnectionRuntimeStore } from "~/store/connection-runtime";
-import { useConnectionsStore } from "~/store/connections";
-import { useGoalsStore } from "~/store/goals";
-import { useMobileMessagesStore } from "~/store/messages";
-import { useOutboxStore } from "~/store/outbox";
-import { usePermissionsStore } from "~/store/permissions";
-import { pinnedChatKey, usePinnedChatsStore } from "~/store/pinned-chats";
-import { selectSessionChat, useSessionsStore } from "~/store/sessions";
+import {
+	connectionSnapshotAtom,
+	retryConnection,
+	watchConnection,
+} from "~/store/connection-runtime";
+import {
+	connectionsAtom,
+	connectionsHydratedAtom,
+	hydrateConnections,
+} from "~/store/connections";
+import {
+	clearGoal,
+	hydrateGoal,
+	releaseGoal,
+	sessionGoalAtom,
+	setGoal,
+} from "~/store/goals";
+import {
+	deleteQueuedMessage,
+	hydrateMessages,
+	releaseMessages,
+	reorderQueuedMessages,
+	resumeQueue,
+	sendQueuedMessageNow,
+	sessionMessagesAtom,
+	sessionMessagesErrorAtom,
+	sessionQueueAtom,
+	sessionQueuePausedAtom,
+	updateQueuedMessage,
+} from "~/store/messages";
+import {
+	cancelOutboxMessage,
+	flushOutbox,
+	hydrateOutbox,
+	queuedMessagesAtom,
+	updateOutboxMessage,
+} from "~/store/outbox";
+import {
+	decidePermission,
+	hydratePermissionConnection,
+	pendingPermissionsAtom,
+	reconcilePermissions,
+} from "~/store/permissions";
+import {
+	hydratePinnedChats,
+	isPinnedAtom,
+	pinnedChatKey,
+	pinnedChatsHydratedAtom,
+	togglePinnedChat,
+} from "~/store/pinned-chats";
+import {
+	archiveChat,
+	archiveSession,
+	connectionBundlesAtom,
+	createSession,
+	markChatRead,
+	renameChat,
+	selectSessionChat,
+	setActiveSession,
+	setPermissionMode,
+	statusBySessionAtom,
+} from "~/store/sessions";
 import { colors } from "~/theme";
 
-const EMPTY_PENDING: ReturnType<
-	typeof usePermissionsStore.getState
->["pendingBySession"][string] = [];
-const EMPTY_QUEUED: ReturnType<
-	typeof useOutboxStore.getState
->["queuedBySession"][string] = [];
-const EMPTY_SERVER_QUEUE: ReturnType<
-	typeof useMobileMessagesStore.getState
->["queueBySession"][string] = [];
 
 export default function ThreadScreenRoute() {
 	return (
@@ -149,60 +193,24 @@ function ThreadScreen() {
 		Math.max(insets.bottom, 12) + 64,
 	);
 	const jumpOpacity = useSharedValue(0);
-	const {
-		connections,
-		hydrated,
-		hydrate: hydrateConnections,
-	} = useConnectionsStore();
+	const connections = useAtomValue(connectionsAtom);
+	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const options = useMemo(
 		() => optionsForConnection(connKey, connections),
 		[connKey, connections],
 	);
 	const stateKey = connectionSessionKey(connKey, normalizedSessionId);
-	const watchConnection = useConnectionRuntimeStore((state) => state.watch);
-	const retryConnection = useConnectionRuntimeStore((state) => state.retry);
-	const connectionSnapshot = useConnectionRuntimeStore(
-		(state) => state.snapshotsByConnection[connKey],
-	);
-	const bundles = useSessionsStore((state) =>
-		selectConnectionBundles(state.bundlesByConnection, connKey),
-	);
-	const archiveChat = useSessionsStore((state) => state.archiveChat);
-	const archiveSession = useSessionsStore((state) => state.archiveSession);
-	const renameChatAction = useSessionsStore((state) => state.renameChat);
-	const markChatRead = useSessionsStore((state) => state.markChatRead);
-	const createSession = useSessionsStore((state) => state.createSession);
-	const rawMessages = useMobileMessagesStore((state) =>
-		selectSessionMessages(state.messagesBySession, stateKey),
-	);
-	const errorBySession = useMobileMessagesStore(
-		(state) => state.errorBySession,
-	);
-	const serverQueued = useMobileMessagesStore(
-		(state) => state.queueBySession[stateKey] ?? EMPTY_SERVER_QUEUE,
-	);
-	const deleteServerQueued = useMobileMessagesStore(
-		(state) => state.deleteQueued,
-	);
-	const updateServerQueued = useMobileMessagesStore(
-		(state) => state.updateQueued,
-	);
-	const reorderServerQueued = useMobileMessagesStore(
-		(state) => state.reorderQueued,
-	);
-	const sendServerQueuedNow = useMobileMessagesStore(
-		(state) => state.sendQueuedNow,
-	);
-	const resumeServerQueue = useMobileMessagesStore(
-		(state) => state.resumeQueue,
-	);
-	const serverQueuePaused = useMobileMessagesStore(
-		(state) => state.queuePausedBySession[stateKey] === true,
-	);
-	const hydrate = useMobileMessagesStore((state) => state.hydrate);
-	const releaseMessages = useMobileMessagesStore((state) => state.release);
+	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
+	const bundles = useAtomValue(connectionBundlesAtom(connKey));
+	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
+	const messagesError = useAtomValue(sessionMessagesErrorAtom(stateKey));
+	const serverQueued = useAtomValue(sessionQueueAtom(stateKey));
+	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
+	// Computed here (not in the composer) so keystrokes never touch it and the
+	// composer needs no subscription to the message store.
+	const composerActivity = summarizeComposerActivity(turns.at(-1));
 	const latestTurnId = turns.at(-1)?.id ?? null;
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const chatId = detail?.session.chatId ?? null;
@@ -210,72 +218,59 @@ function ThreadScreen() {
 		() => bundles.flatMap((bundle) => bundle.sessions),
 		[bundles],
 	);
-	const chatThreads = useMemo(
-		() =>
-			chatId === null
-				? detail === null
-					? []
-					: [detail.session]
-				: orderedChatSessions(allConnectionSessions, chatId),
-		[allConnectionSessions, chatId, detail],
-	);
-	const threadIds = useMemo(
-		() => chatThreads.map((thread) => thread.id),
-		[chatThreads],
-	);
+	// Plain derivations (not useMemo): several inputs flow into module-level
+	// atom actions, which the React Compiler treats as possibly mutating — it
+	// refuses to preserve manual memoization on them but auto-memoizes fine.
+	const chatThreads =
+		chatId === null
+			? detail === null
+				? []
+				: [detail.session]
+			: orderedChatSessions(allConnectionSessions, chatId);
+	const threadIds = chatThreads.map((thread) => thread.id);
 	const currentThreadIndex = chatThreads.findIndex(
 		(thread) => thread.id === normalizedSessionId,
 	);
-	const statusBySession = useSessionsStore((state) => state.statusBySession);
+	const statusBySession = useAtomValue(statusBySessionAtom);
 	const runningThreadCount = chatThreads.filter((thread) => {
 		const status = statusBySession[connectionSessionKey(connKey, thread.id)];
 		return (status ?? thread.status) === "running";
 	}).length;
 	const title = detail?.chat?.title ?? detail?.session.title ?? "Thread";
-	const setActiveSession = useSessionsStore((state) => state.setActiveSession);
 	const sessionStatus = statusBySession[stateKey] ?? detail?.session.status;
 	const fresh = isFreshChat(messages);
 	const sessionRunning = sessionStatus === "running";
 
-	const hydratePermissionConnection = usePermissionsStore(
-		(state) => state.hydrateConnection,
-	);
-	const reconcilePermissions = usePermissionsStore((state) => state.reconcile);
-	const decidePermission = usePermissionsStore((state) => state.decide);
-	const pending = usePermissionsStore(
-		(state) => state.pendingBySession[stateKey] ?? EMPTY_PENDING,
-	);
-	const hydrateOutbox = useOutboxStore((state) => state.hydrate);
-	const flushOutbox = useOutboxStore((state) => state.flush);
-	const cancelLocalQueued = useOutboxStore((state) => state.cancel);
-	const updateLocalQueued = useOutboxStore((state) => state.update);
-	const localQueued = useOutboxStore(
-		(state) => state.queuedBySession[stateKey] ?? EMPTY_QUEUED,
-	);
+	const pending = useAtomValue(pendingPermissionsAtom(stateKey));
+	const localQueued = useAtomValue(queuedMessagesAtom(stateKey));
 	const queuedCount = localQueued.length;
 	const unackedLocalQueued = localQueued.filter(
 		(item) =>
 			!serverQueued.some((serverItem) => serverItem.id === item.clientId),
 	);
-	const hydrateGoal = useGoalsStore((state) => state.hydrate);
-	const releaseGoal = useGoalsStore((state) => state.release);
-	const goal = useGoalsStore((state) => state.goalBySession[stateKey] ?? null);
-	const setGoal = useGoalsStore((state) => state.setGoal);
-	const clearGoal = useGoalsStore((state) => state.clearGoal);
+	const goal = useAtomValue(sessionGoalAtom(stateKey));
 	const [screenOpenedAt] = useState(() => Date.now());
 
 	useEffect(() => {
 		if (!hydrated) void hydrateConnections();
-	}, [hydrateConnections, hydrated]);
+	}, [hydrated]);
 
 	useEffect(() => {
 		if (connKey.length === 0 || options === null) return;
 		return watchConnection(connKey, options);
-	}, [connKey, options, watchConnection]);
+	}, [connKey, options]);
 
+	// One attempt per (chat, session) pair: if the RPC fails (or the chat
+	// stream echoes a stale active thread back), re-running would optimistic-
+	// patch → roll back → re-run forever — the "maximum update depth exceeded"
+	// crash when opening a freshly created thread.
+	const activationAttemptRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (chatId === null || options === null) return;
 		if (detail?.chat?.activeSessionId === normalizedSessionId) return;
+		const attemptKey = `${chatId}:${normalizedSessionId}`;
+		if (activationAttemptRef.current === attemptKey) return;
+		activationAttemptRef.current = attemptKey;
 		void setActiveSession(connKey, options, chatId, normalizedSessionId).catch(
 			() => {},
 		);
@@ -285,13 +280,12 @@ function ThreadScreen() {
 		detail?.chat?.activeSessionId,
 		normalizedSessionId,
 		options,
-		setActiveSession,
 	]);
 
 	useEffect(() => {
 		void connectionSnapshot?.generation;
 		if (normalizedSessionId.length > 0 && options !== null) {
-			void hydrate(connKey, options, normalizedSessionId);
+			void hydrateMessages(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
@@ -303,26 +297,15 @@ function ThreadScreen() {
 	}, [
 		connKey,
 		connectionSnapshot?.generation,
-		hydrate,
-		hydrateOutbox,
-		hydrateGoal,
 		normalizedSessionId,
 		options,
-		releaseGoal,
-		releaseMessages,
 	]);
 
 	useEffect(() => {
 		void connectionSnapshot?.generation;
 		if (options === null || threadIds.length === 0) return;
 		void hydratePermissionConnection(connKey, options, threadIds);
-	}, [
-		connKey,
-		connectionSnapshot?.generation,
-		hydratePermissionConnection,
-		options,
-		threadIds,
-	]);
+	}, [connKey, connectionSnapshot?.generation, options, threadIds]);
 
 	useEffect(() => {
 		if (options === null || (!sessionRunning && pending.length === 0)) return;
@@ -330,26 +313,13 @@ function ThreadScreen() {
 			void reconcilePermissions(connKey, options, normalizedSessionId);
 		const timer = setInterval(poll, pending.length > 0 ? 5_000 : 15_000);
 		return () => clearInterval(timer);
-	}, [
-		connKey,
-		normalizedSessionId,
-		options,
-		pending.length,
-		reconcilePermissions,
-		sessionRunning,
-	]);
+	}, [connKey, normalizedSessionId, options, pending.length, sessionRunning]);
 
 	useEffect(() => {
 		if (options === null) return;
 		void sessionStatus;
 		void reconcilePermissions(connKey, options, normalizedSessionId);
-	}, [
-		connKey,
-		normalizedSessionId,
-		options,
-		reconcilePermissions,
-		sessionStatus,
-	]);
+	}, [connKey, normalizedSessionId, options, sessionStatus]);
 
 	useEffect(() => {
 		if (options === null) return;
@@ -358,26 +328,23 @@ function ThreadScreen() {
 				void reconcilePermissions(connKey, options, normalizedSessionId);
 		});
 		return () => subscription.remove();
-	}, [connKey, normalizedSessionId, options, reconcilePermissions]);
+	}, [connKey, normalizedSessionId, options]);
 
-	const pinnedHydrated = usePinnedChatsStore((state) => state.hydrated);
-	const pinnedKeys = usePinnedChatsStore((state) => state.keys);
-	const hydratePinnedChats = usePinnedChatsStore((state) => state.hydrate);
-	const togglePinnedChat = usePinnedChatsStore((state) => state.toggle);
+	const pinnedHydrated = useAtomValue(pinnedChatsHydratedAtom);
 	const currentPinKey =
 		chatId === null ? null : pinnedChatKey(connKey, String(chatId));
-	const isPinned = currentPinKey !== null && pinnedKeys.includes(currentPinKey);
+	const isPinned = useAtomValue(isPinnedAtom(currentPinKey ?? ""));
 	useEffect(() => {
 		if (!pinnedHydrated) void hydratePinnedChats();
-	}, [hydratePinnedChats, pinnedHydrated]);
+	}, [pinnedHydrated]);
 	// Mark the chat read on open/focus (and when the chat resolves after a
 	// hydrate) so the inbox unread styling clears. Idempotent server-side.
 	useEffect(() => {
 		if (chatId === null || options === null) return;
 		void markChatRead(connKey, options, chatId);
-	}, [chatId, connKey, options, markChatRead]);
+	}, [chatId, connKey, options]);
 
-	const error = errorBySession[stateKey];
+	const error = messagesError;
 	const transportOnline = connectionSnapshot?.status === "connected";
 	const connectionProblem =
 		connectionSnapshot?.status === "blockedAuth" ||
@@ -409,14 +376,7 @@ function ThreadScreen() {
 			cancelled = true;
 			clearInterval(timer);
 		};
-	}, [
-		connKey,
-		flushOutbox,
-		normalizedSessionId,
-		transportOnline,
-		options,
-		queuedCount,
-	]);
+	}, [connKey, normalizedSessionId, transportOnline, options, queuedCount]);
 
 	// Cross-reference question rows so answered prompts collapse and the answer
 	// row can resolve selected option labels.
@@ -483,45 +443,31 @@ function ThreadScreen() {
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 
-	const onAnswerQuestion = useCallback<MessageRowContext["onAnswerQuestion"]>(
-		(itemId, answers) =>
-			options === null
-				? Promise.resolve()
-				: Effect.runPromise(
-						answerQuestion({
-							connection: options,
-							sessionId: normalizedSessionId,
-							itemId,
-							answers,
-						}),
-					),
-		[normalizedSessionId, options],
-	);
+	const onAnswerQuestion: MessageRowContext["onAnswerQuestion"] = (
+		itemId,
+		answers,
+	) =>
+		options === null
+			? Promise.resolve()
+			: Effect.runPromise(
+					answerQuestion({
+						connection: options,
+						sessionId: normalizedSessionId,
+						itemId,
+						answers,
+					}),
+				);
 
-	const ctx = useMemo<MessageRowContext>(
-		() => ({
-			connectionKey: connKey,
-			sessionId: normalizedSessionId,
-			workspaceRoot: detail?.project.path,
-			answeredQuestionIds,
-			connKey,
-			questionsByItemId,
-			toolResultsByItemId,
-			sessionRunning: sessionStatus === "running",
-			onAnswerQuestion,
-			normalizedSessionId,
-		}),
-		[
-			answeredQuestionIds,
-			detail?.project.path,
-			onAnswerQuestion,
-			questionsByItemId,
-			sessionStatus,
-			toolResultsByItemId,
-			connKey,
-			normalizedSessionId,
-		],
-	);
+	const ctx: MessageRowContext = {
+		connectionKey: connKey,
+		sessionId: normalizedSessionId,
+		workspaceRoot: detail?.project.path,
+		answeredQuestionIds,
+		questionsByItemId,
+		toolResultsByItemId,
+		sessionRunning: sessionStatus === "running",
+		onAnswerQuestion,
+	};
 
 	useEffect(() => {
 		const saved = restoreThreadPosition ? readThreadViewState(stateKey) : null;
@@ -722,7 +668,7 @@ function ThreadScreen() {
 				});
 	const transcriptFooterHeight = effectiveBottomInset + anchorSpace;
 
-	const onRename = useCallback(() => {
+	const onRename = () => {
 		if (chatId === null || options === null) return;
 		Alert.prompt(
 			"Rename chat",
@@ -730,30 +676,30 @@ function ThreadScreen() {
 			(value) => {
 				const next = value?.trim() ?? "";
 				if (next.length === 0) return;
-				void renameChatAction(connKey, options, chatId, next);
+				void renameChat(connKey, options, chatId, next);
 			},
 			"plain-text",
 			title,
 		);
-	}, [chatId, connKey, options, renameChatAction, title]);
+	};
 
-	const onArchive = useCallback(() => {
+	const onArchive = () => {
 		if (chatId === null || options === null) return;
 		void archiveChat(connKey, options, chatId).then(() => router.back());
-	}, [archiveChat, chatId, connKey, options]);
-	const openChanges = useCallback(() => {
+	};
+	const openChanges = () => {
 		router.push({
 			pathname: "/c/[conn]/session/[sessionId]/review",
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
-	}, [connKey, normalizedSessionId]);
-	const openFiles = useCallback(() => {
+	};
+	const openFiles = () => {
 		router.push({
 			pathname: "/c/[conn]/session/[sessionId]/files",
 			params: { conn: connKey, sessionId: normalizedSessionId },
 		});
-	}, [connKey, normalizedSessionId]);
-	const openThreads = useCallback(() => {
+	};
+	const openThreads = () => {
 		if (chatId === null) return;
 		router.push({
 			pathname: "/c/[conn]/chat/[chatId]/threads",
@@ -763,7 +709,7 @@ function ThreadScreen() {
 				sessionId: normalizedSessionId,
 			},
 		});
-	}, [chatId, connKey, normalizedSessionId]);
+	};
 
 	const renderPermissionAccessory = (requests: readonly PermissionRequest[]) =>
 		options === null ? null : (
@@ -862,14 +808,12 @@ function ThreadScreen() {
 			});
 			try {
 				if (pendingPlanInteraction.kind === "emulated") {
-					await useSessionsStore
-						.getState()
-						.setPermissionMode(
-							connKey,
-							options,
-							normalizedSessionId,
-							"default",
-						);
+					await setPermissionMode(
+						connKey,
+						options,
+						normalizedSessionId,
+						"default",
+					);
 				} else {
 					await resolvePlanInteraction("abandoned");
 				}
@@ -885,15 +829,11 @@ function ThreadScreen() {
 		}
 		if (action === "abandon") {
 			await resolvePlanInteraction("abandoned");
-			await useSessionsStore
-				.getState()
-				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			await setPermissionMode(connKey, options, normalizedSessionId, "default");
 			return;
 		}
 		if (pendingPlanInteraction.kind === "emulated") {
-			await useSessionsStore
-				.getState()
-				.setPermissionMode(connKey, options, normalizedSessionId, "default");
+			await setPermissionMode(connKey, options, normalizedSessionId, "default");
 			await Effect.runPromise(
 				sendMessage({
 					connection: options,
@@ -1183,10 +1123,10 @@ function ThreadScreen() {
 									clearGoal(connKey, options, normalizedSessionId)
 								}
 								onDeleteQueue={(id) =>
-									deleteServerQueued(connKey, options, normalizedSessionId, id)
+									deleteQueuedMessage(connKey, options, normalizedSessionId, id)
 								}
 								onUpdateQueue={(item, text) =>
-									updateServerQueued(
+									updateQueuedMessage(
 										connKey,
 										options,
 										normalizedSessionId,
@@ -1195,7 +1135,7 @@ function ThreadScreen() {
 									)
 								}
 								onSendQueue={(id) =>
-									sendServerQueuedNow(connKey, options, normalizedSessionId, id)
+									sendQueuedMessageNow(connKey, options, normalizedSessionId, id)
 								}
 								onMoveQueue={(id, direction) => {
 									const ids = serverQueued.map((item) => item.id);
@@ -1206,7 +1146,7 @@ function ThreadScreen() {
 									const next = [...ids];
 									const [moved] = next.splice(from, 1);
 									if (moved !== undefined) next.splice(to, 0, moved);
-									return reorderServerQueued(
+									return reorderQueuedMessages(
 										connKey,
 										options,
 										normalizedSessionId,
@@ -1214,13 +1154,13 @@ function ThreadScreen() {
 									);
 								}}
 								onResumeQueue={() =>
-									resumeServerQueue(connKey, options, normalizedSessionId)
+									resumeQueue(connKey, options, normalizedSessionId)
 								}
 								onDeleteLocalQueue={(id) =>
-									cancelLocalQueued(connKey, normalizedSessionId, id)
+									cancelOutboxMessage(connKey, normalizedSessionId, id)
 								}
 								onUpdateLocalQueue={(id, text) =>
-									updateLocalQueued(connKey, normalizedSessionId, id, text)
+									updateOutboxMessage(connKey, normalizedSessionId, id, text)
 								}
 							/>
 							{detail !== null && sessionStatus !== "running" ? (
@@ -1253,6 +1193,7 @@ function ThreadScreen() {
 								onRetryConnection={() => retryConnection(connKey, options)}
 								onFocusChange={onComposerFocusChange}
 								onMessageSubmitted={onMessageSubmitted}
+								currentActivity={composerActivity}
 								bottomInset={insets.bottom}
 							/>
 						</View>

@@ -23,6 +23,7 @@ import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
 import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime";
+import { AppAtomProvider } from "~/store/registry";
 import { colors } from "~/theme";
 
 // The app follows the device appearance. Reset any development-session theme
@@ -30,10 +31,19 @@ import { colors } from "~/theme";
 // utility styles while native navigation is already light.
 Uniwind.setTheme("system");
 
-export default function RootLayout() {
+/**
+ * Runs the connectivity runtime inside AppAtomProvider — a component's own
+ * hooks execute outside the providers it renders, so the hook cannot live
+ * directly in RootLayout once it reads atoms.
+ */
+function ConnectivityRuntimeBridge() {
 	useLocalConnectivityRuntime();
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
+	return null;
+}
+
+export default function RootLayout() {
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
@@ -60,11 +70,13 @@ export default function RootLayout() {
 	}
 
 	return (
-		<GestureHandlerRootView
-			style={{ flex: 1 }}
-			onTouchStart={noteMobileInteraction}
-		>
-			<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+		<AppAtomProvider>
+			<GestureHandlerRootView
+				style={{ flex: 1 }}
+				onTouchStart={noteMobileInteraction}
+			>
+				<ConnectivityRuntimeBridge />
+				<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
 				<StatusBar style="auto" />
 				<Stack
 					screenOptions={{
@@ -217,8 +229,9 @@ export default function RootLayout() {
 						options={{ title: "Smoke", headerLargeTitle: false }}
 					/>
 				</Stack>
-				<CrashReportOverlay />
-			</ThemeProvider>
-		</GestureHandlerRootView>
+					<CrashReportOverlay />
+				</ThemeProvider>
+			</GestureHandlerRootView>
+		</AppAtomProvider>
 	);
 }
