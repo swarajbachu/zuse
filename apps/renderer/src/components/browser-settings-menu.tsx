@@ -4,12 +4,12 @@ import {
 	EllipsisVertical,
 	KeyRound,
 	Settings,
-	ShieldCheck,
 	Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
+import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -36,40 +36,20 @@ import {
 	MenuSeparator,
 	MenuTrigger,
 } from "./ui/menu.tsx";
-import {
-	Select,
-	SelectItem,
-	SelectPopup,
-	SelectTrigger,
-	SelectValue,
-} from "./ui/select.tsx";
-
-type NativeCredentialCapability = {
-	readonly supported: boolean;
-	readonly reason?: string;
-};
-
 export function BrowserSettingsMenu({
 	status,
-	credentialCapability,
 	busy,
-	domainGrantCount,
 	onImport,
-	onClearImported,
 	onClearBrowsingData,
-	onRevokeTaskAccess,
+	onOpenSettings,
 }: {
 	status: BrowserCookieImportStatus;
-	credentialCapability: NativeCredentialCapability | null;
 	busy: boolean;
-	domainGrantCount: number;
 	onImport: (profileId?: string) => Promise<void>;
-	onClearImported: () => Promise<void>;
 	onClearBrowsingData: () => Promise<void>;
-	onRevokeTaskAccess: () => void;
+	onOpenSettings: () => void;
 }) {
 	const [importOpen, setImportOpen] = useState(false);
-	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [clearOpen, setClearOpen] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selectedProfileId, setSelectedProfileId] = useState<
@@ -91,12 +71,11 @@ export function BrowserSettingsMenu({
 		setSelectedProfileId(
 			status.selectedProfileId ?? status.availableProfiles[0]?.id,
 		);
-		setSettingsOpen(false);
 		setImportOpen(true);
 	};
 	const openSettings = () => {
 		setError(null);
-		setSettingsOpen(true);
+		onOpenSettings();
 	};
 	const openClear = () => {
 		setError(null);
@@ -160,36 +139,12 @@ export function BrowserSettingsMenu({
 					<DialogPanel className="space-y-3 px-4 pb-4 pt-0" scrollFade={false}>
 						<div className="grid grid-cols-[4rem_1fr] items-center gap-2 text-xs">
 							<span className="text-muted-foreground">Browser</span>
-							<Select
+							<BrowserProfileSelect
+								profiles={status.availableProfiles}
 								value={selectedProfileId}
-								onValueChange={(value) =>
-									setSelectedProfileId(
-										typeof value === "string" ? value : undefined,
-									)
-								}
-							>
-								<SelectTrigger
-									size="sm"
-									className="min-w-0 bg-muted/70 shadow-none"
-									aria-label="Browser profile"
-								>
-									<SelectValue>
-										{selectedProfile === undefined
-											? "No supported profile found"
-											: `${selectedProfile.source} · ${selectedProfile.profile}`}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectPopup>
-									{status.availableProfiles.map((profile) => (
-										<SelectItem key={profile.id} value={profile.id}>
-											<span className="truncate">
-												{profile.source} · {profile.profile}
-												{profile.isDefault ? " (Default)" : ""}
-											</span>
-										</SelectItem>
-									))}
-								</SelectPopup>
-							</Select>
+								onValueChange={setSelectedProfileId}
+								className="min-w-0 bg-muted/70 shadow-none"
+							/>
 						</div>
 						<p className="text-[11px] text-muted-foreground">
 							{selectedProfile
@@ -240,88 +195,6 @@ export function BrowserSettingsMenu({
 							}
 						>
 							Import sessions
-						</Button>
-					</DialogFooter>
-				</DialogPopup>
-			</Dialog>
-
-			<Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
-				<DialogPopup className="max-w-lg rounded-xl">
-					<DialogHeader className="gap-1 px-4 pb-3 pt-4">
-						<DialogTitle className="text-lg">Browser settings</DialogTitle>
-						<DialogDescription className="text-xs">
-							Sessions, password filling, and agent access.
-						</DialogDescription>
-					</DialogHeader>
-					<DialogPanel className="space-y-4 px-4 pb-4 pt-0" scrollFade={false}>
-						<SettingsGroup title="Imported session">
-							<SettingsRow
-								label="Source"
-								detail={`${status.source ?? "Not detected"} · ${status.profile ?? "No profile"}`}
-								action={
-									<Button size="xs" variant="settings" onClick={openImport}>
-										Import…
-									</Button>
-								}
-							/>
-							<SettingsRow
-								label="Session data"
-								detail={`${status.importedCookieCount} cookies across ${status.importedDomainCount} domains${status.lastImportTime ? ` · ${new Date(status.lastImportTime).toLocaleString()}` : ""}`}
-								action={
-									<Button
-										size="xs"
-										variant="settings"
-										disabled={status.importedCookieCount === 0 || busy}
-										onClick={() => void run(onClearImported)}
-									>
-										Clear
-									</Button>
-								}
-							/>
-						</SettingsGroup>
-
-						<SettingsGroup title="Passwords and autofill">
-							<SettingsRow
-								label="System Passwords"
-								detail={
-									credentialCapability?.supported
-										? "Requested for the active website with system confirmation"
-										: (credentialCapability?.reason ??
-											"Checking system capability…")
-								}
-								action={
-									<ShieldCheck className="size-4 text-muted-foreground" />
-								}
-							/>
-						</SettingsGroup>
-
-						<SettingsGroup title="Agent access">
-							<SettingsRow
-								label="Authenticated domains"
-								detail={`${domainGrantCount} task grant${domainGrantCount === 1 ? "" : "s"} active`}
-								action={
-									<Button
-										size="xs"
-										variant="settings"
-										disabled={domainGrantCount === 0}
-										onClick={onRevokeTaskAccess}
-									>
-										Revoke
-									</Button>
-								}
-							/>
-						</SettingsGroup>
-						{error ? (
-							<p className="text-[11px] text-destructive-foreground">{error}</p>
-						) : null}
-					</DialogPanel>
-					<DialogFooter className="px-4 py-2">
-						<Button
-							size="xs"
-							variant="ghost"
-							onClick={() => setSettingsOpen(false)}
-						>
-							Done
 						</Button>
 					</DialogFooter>
 				</DialogPopup>
@@ -387,50 +260,6 @@ function ImportDataRow({
 					Per site
 				</span>
 			)}
-		</div>
-	);
-}
-
-function SettingsGroup({
-	title,
-	children,
-}: {
-	title: string;
-	children: ReactNode;
-}) {
-	return (
-		<section>
-			<h3 className="mb-1.5 text-[11px] font-medium text-muted-foreground">
-				{title}
-			</h3>
-			<div className="divide-y divide-border/60 rounded-lg bg-muted/45 px-3">
-				{children}
-			</div>
-		</section>
-	);
-}
-
-function SettingsRow({
-	label,
-	detail,
-	action,
-}: {
-	label: string;
-	detail: string;
-	action: ReactNode;
-}) {
-	return (
-		<div className="flex min-h-12 items-center gap-3 py-2">
-			<div className="min-w-0 flex-1">
-				<p className="text-xs font-medium text-foreground">{label}</p>
-				<p
-					className="truncate text-[11px] text-muted-foreground"
-					title={detail}
-				>
-					{detail}
-				</p>
-			</div>
-			{action}
 		</div>
 	);
 }

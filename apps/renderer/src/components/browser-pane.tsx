@@ -254,6 +254,14 @@ const drawRecordingDecorations = (
 	context.restore();
 };
 
+const browserContentBounds = (element: HTMLElement): DOMRect =>
+	new DOMRect(
+		0,
+		0,
+		Math.max(1, element.clientWidth),
+		Math.max(1, element.clientHeight),
+	);
+
 const pngBase64ToFile = (base64: string, name: string): File => {
 	const binary = atob(base64);
 	const bytes = new Uint8Array(binary.length);
@@ -353,7 +361,6 @@ export function BrowserPane() {
 	const [nativeCredentialError, setNativeCredentialError] = useState<
 		string | null
 	>(null);
-	const [domainGrantVersion, setDomainGrantVersion] = useState(0);
 	const [domainAccessRequest, setDomainAccessRequest] = useState<{
 		domain: string;
 		sessionId: string;
@@ -371,6 +378,11 @@ export function BrowserPane() {
 		} catch {
 			return DEFAULT_VIEWPORT;
 		}
+	});
+	const viewportStageRef = useRef<HTMLDivElement | null>(null);
+	const [viewportStageSize, setViewportStageSize] = useState({
+		width: 0,
+		height: 0,
 	});
 	const viewportRef = useRef(viewport);
 	const loadingRef = useRef(isLoading);
@@ -408,6 +420,16 @@ export function BrowserPane() {
 	const [localServers, setLocalServers] =
 		useState<ReadonlyArray<LocalServerSummary>>(fallbackLocalServers);
 	const hasLoadedPage = url !== "" && url !== "about:blank";
+	const viewportPreviewScale =
+		viewport.mode === "fill" ||
+		viewportStageSize.width === 0 ||
+		viewportStageSize.height === 0
+			? 1
+			: Math.min(
+					1,
+					Math.max(1, viewportStageSize.width - 24) / viewport.width,
+					Math.max(1, viewportStageSize.height - 24) / viewport.height,
+				);
 	const hasAnnotationTargets =
 		pickedElements.length > 0 || regions.length > 0 || strokes.length > 0;
 	const annotationBounds = unionRects([
@@ -428,6 +450,27 @@ export function BrowserPane() {
 		viewportRef.current = viewport;
 		localStorage.setItem("zuse.browser.viewport.v1", JSON.stringify(viewport));
 	}, [viewport]);
+	useEffect(() => {
+		const stage = viewportStageRef.current;
+		if (stage === null || typeof ResizeObserver === "undefined") return;
+		const update = (width: number, height: number) =>
+			setViewportStageSize((current) =>
+				current.width === width && current.height === height
+					? current
+					: { width, height },
+			);
+		const initial = stage.getBoundingClientRect();
+		update(Math.round(initial.width), Math.round(initial.height));
+		const observer = new ResizeObserver(([entry]) => {
+			if (entry === undefined) return;
+			update(
+				Math.round(entry.contentRect.width),
+				Math.round(entry.contentRect.height),
+			);
+		});
+		observer.observe(stage);
+		return () => observer.disconnect();
+	}, []);
 	useEffect(() => {
 		loadingRef.current = isLoading;
 	}, [isLoading]);
@@ -555,26 +598,6 @@ export function BrowserPane() {
 		}
 	};
 
-	const clearImportedCookies = async () => {
-		setCookieImportBusy(true);
-		try {
-			const status = await window.zuse?.browser?.clearImportedCookies?.();
-			if (status === undefined)
-				throw new Error(
-					"Imported-session controls are unavailable in this build.",
-				);
-			cookieStatusRef.current = status;
-			setCookieStatus(status);
-			domainGrantsRef.current.clear();
-			setDomainGrantVersion(0);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			throw new Error(message);
-		} finally {
-			setCookieImportBusy(false);
-		}
-	};
-
 	const clearBrowsingData = async () => {
 		setCookieImportBusy(true);
 		try {
@@ -584,7 +607,6 @@ export function BrowserPane() {
 			cookieStatusRef.current = status;
 			setCookieStatus(status);
 			domainGrantsRef.current.clear();
-			setDomainGrantVersion(0);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(message);
@@ -854,7 +876,7 @@ export function BrowserPane() {
 					setRecordingState("starting");
 					await recordingRef.current.start({
 						capturePage: () => wv.capturePage(),
-						getBoundingClientRect: () => wv.getBoundingClientRect(),
+						getBoundingClientRect: () => browserContentBounds(wv),
 						subscribeFrames: async (handler) => {
 							const bridge = window.zuse?.browser;
 							const id = webContentsIdRef.current;
@@ -883,7 +905,7 @@ export function BrowserPane() {
 								context,
 								width,
 								height,
-								wv.getBoundingClientRect(),
+								browserContentBounds(wv),
 								agentOverlaysRef.current,
 								cursorIntentRef.current,
 							),
@@ -1040,8 +1062,10 @@ export function BrowserPane() {
 		const startY = event.clientY;
 		const initial = viewportRef.current;
 		const onMove = (moveEvent: PointerEvent) => {
-			const width = initial.width + moveEvent.clientX - startX;
-			const height = initial.height + moveEvent.clientY - startY;
+			const width =
+				initial.width + (moveEvent.clientX - startX) / viewportPreviewScale;
+			const height =
+				initial.height + (moveEvent.clientY - startY) / viewportPreviewScale;
 			if (initial.lockAspectRatio) {
 				updateViewportDimension("width", width);
 			} else {
@@ -1104,8 +1128,12 @@ export function BrowserPane() {
 	): BrowserAnnotationPoint => {
 		const rect = event.currentTarget.getBoundingClientRect();
 		return {
-			x: event.clientX - rect.left,
-			y: event.clientY - rect.top,
+			x:
+				(event.clientX - rect.left) *
+				(event.currentTarget.clientWidth / Math.max(1, rect.width)),
+			y:
+				(event.clientY - rect.top) *
+				(event.currentTarget.clientHeight / Math.max(1, rect.height)),
 		};
 	};
 
@@ -1314,7 +1342,7 @@ export function BrowserPane() {
 			];
 			const base64 = await compositeBrowserImage(
 				image.toDataURL(),
-				wv.getBoundingClientRect(),
+				browserContentBounds(wv),
 				[...agentOverlays, ...humanShapes],
 				null,
 			);
@@ -1522,15 +1550,13 @@ export function BrowserPane() {
 				</ToolbarButton>
 				<BrowserSettingsMenu
 					status={displayedCookieStatus}
-					credentialCapability={nativeCredentialCapability}
 					busy={cookieImportBusy}
-					domainGrantCount={domainGrantVersion}
 					onImport={runCookieImport}
-					onClearImported={clearImportedCookies}
 					onClearBrowsingData={clearBrowsingData}
-					onRevokeTaskAccess={() => {
-						domainGrantsRef.current.clear();
-						setDomainGrantVersion(0);
+					onOpenSettings={() => {
+						const ui = useUiStore.getState();
+						ui.setSettingsSection({ kind: "browser" });
+						ui.setView("settings");
 					}}
 				/>
 			</form>
@@ -1597,7 +1623,6 @@ export function BrowserPane() {
 								domainGrantsRef.current.add(
 									`${domainAccessRequest.sessionId}:${domainAccessRequest.domain}`,
 								);
-								setDomainGrantVersion((value) => value + 1);
 								domainAccessRequest.resolve(true);
 								setDomainAccessRequest(null);
 							}}
@@ -1607,75 +1632,97 @@ export function BrowserPane() {
 					</div>
 				</section>
 			) : null}
-			<div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/20">
+			<div
+				ref={viewportStageRef}
+				className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-muted/20"
+			>
 				{!hasLoadedPage ? (
 					<BrowserEmptyState servers={localServers} onOpen={navigate} />
 				) : null}
 				<div
-					className="relative shrink-0 overflow-hidden bg-background shadow-sm"
+					className="relative shrink-0"
 					style={{
-						width: viewport.mode === "fill" ? "100%" : `${viewport.width}px`,
-						height: viewport.mode === "fill" ? "100%" : `${viewport.height}px`,
+						width:
+							viewport.mode === "fill"
+								? "100%"
+								: `${viewport.width * viewportPreviewScale}px`,
+						height:
+							viewport.mode === "fill"
+								? "100%"
+								: `${viewport.height * viewportPreviewScale}px`,
 					}}
 				>
-					<webview
-						ref={webviewRef as unknown as React.RefObject<HTMLElement>}
-						// src is intentionally NOT bound to `url` state. All navigation is
-						// imperative (loadURL); if src tracked state, every navigation would
-						// fire twice — once from loadURL, once from React re-setting the
-						// attribute — and the loads abort each other (ERR_ABORTED -3, agent
-						// navigations intermittently reporting about:blank).
-						src="about:blank"
-						{...({
-							allowpopups: "true",
-							partition: "persist:zuse-browser",
-						} as Record<string, string>)}
+					<div
+						className="relative origin-top-left overflow-hidden bg-background shadow-sm"
 						style={{
-							display: !hasLoadedPage ? "none" : "flex",
-							width: "100%",
-							height: "100%",
+							width: viewport.mode === "fill" ? "100%" : `${viewport.width}px`,
+							height:
+								viewport.mode === "fill" ? "100%" : `${viewport.height}px`,
+							transform:
+								viewport.mode === "fill"
+									? undefined
+									: `scale(${viewportPreviewScale})`,
 						}}
-					/>
-					<BrowserAgentOverlay shapes={agentOverlays} />
-					{viewport.mode !== "fill" ? (
-						<button
-							type="button"
-							onPointerDown={beginViewportResize}
-							aria-label="Resize browser viewport"
-							className="absolute bottom-0 right-0 z-30 size-8 cursor-nwse-resize touch-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 after:absolute after:bottom-1 after:right-1 after:size-3 after:border-b-2 after:border-r-2 after:border-muted-foreground/60"
-						/>
-					) : null}
-					{annotating && hasLoadedPage ? (
-						<BrowserAnnotationOverlay
-							tool={annotationTool}
-							setTool={setAnnotationTool}
-							hoverPick={hoverPick}
-							elements={pickedElements}
-							regions={regions}
-							strokes={strokes}
-							dragRect={dragRect}
-							activeStroke={activeStroke}
-							bounds={annotationBounds}
-							comment={annotationComment}
-							setComment={setAnnotationComment}
-							canAttach={
-								selectedSessionId !== null &&
-								hasAnnotationTargets &&
-								annotationComment.trim().length > 0
-							}
-							attaching={attachingAnnotation}
-							onAttach={() => void attachBrowserAnnotation()}
-							onCancel={() => {
-								resetAnnotationDraft();
-								setAnnotating(false);
+					>
+						<webview
+							ref={webviewRef as unknown as React.RefObject<HTMLElement>}
+							// src is intentionally NOT bound to `url` state. All navigation is
+							// imperative (loadURL); if src tracked state, every navigation would
+							// fire twice — once from loadURL, once from React re-setting the
+							// attribute — and the loads abort each other (ERR_ABORTED -3, agent
+							// navigations intermittently reporting about:blank).
+							src="about:blank"
+							{...({
+								allowpopups: "true",
+								partition: "persist:zuse-browser",
+							} as Record<string, string>)}
+							style={{
+								display: !hasLoadedPage ? "none" : "flex",
+								width: "100%",
+								height: "100%",
 							}}
-							onPointerDown={handleAnnotationPointerDown}
-							onPointerMove={handleAnnotationPointerMove}
-							onPointerUp={handleAnnotationPointerUp}
 						/>
-					) : null}
-					<AgentCursor intent={cursorIntent} visible={hasLoadedPage} />
-					<BrowserShutter nonce={shutterNonce} />
+						<BrowserAgentOverlay shapes={agentOverlays} />
+						{viewport.mode !== "fill" ? (
+							<button
+								type="button"
+								onPointerDown={beginViewportResize}
+								aria-label="Resize browser viewport"
+								className="absolute bottom-0 right-0 z-30 size-8 cursor-nwse-resize touch-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 after:absolute after:bottom-1 after:right-1 after:size-3 after:border-b-2 after:border-r-2 after:border-muted-foreground/60"
+							/>
+						) : null}
+						{annotating && hasLoadedPage ? (
+							<BrowserAnnotationOverlay
+								tool={annotationTool}
+								setTool={setAnnotationTool}
+								hoverPick={hoverPick}
+								elements={pickedElements}
+								regions={regions}
+								strokes={strokes}
+								dragRect={dragRect}
+								activeStroke={activeStroke}
+								bounds={annotationBounds}
+								comment={annotationComment}
+								setComment={setAnnotationComment}
+								canAttach={
+									selectedSessionId !== null &&
+									hasAnnotationTargets &&
+									annotationComment.trim().length > 0
+								}
+								attaching={attachingAnnotation}
+								onAttach={() => void attachBrowserAnnotation()}
+								onCancel={() => {
+									resetAnnotationDraft();
+									setAnnotating(false);
+								}}
+								onPointerDown={handleAnnotationPointerDown}
+								onPointerMove={handleAnnotationPointerMove}
+								onPointerUp={handleAnnotationPointerUp}
+							/>
+						) : null}
+						<AgentCursor intent={cursorIntent} visible={hasLoadedPage} />
+						<BrowserShutter nonce={shutterNonce} />
+					</div>
 				</div>
 			</div>
 		</div>
@@ -1812,7 +1859,7 @@ async function resolveBrowserTarget(
 	target: BrowserTarget,
 ): Promise<ResolvedBrowserTarget> {
 	if (target._tag === "Point") {
-		const bounds = wv.getBoundingClientRect();
+		const bounds = browserContentBounds(wv);
 		if (
 			target.x < 0 ||
 			target.y < 0 ||
@@ -2077,7 +2124,7 @@ async function runBrowserCommand(
 				}
 				const base64 = await compositeBrowserImage(
 					image.toDataURL(),
-					wv.getBoundingClientRect(),
+					browserContentBounds(wv),
 					hooks.getOverlays(),
 					hooks.getCursor(),
 				);
