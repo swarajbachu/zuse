@@ -233,6 +233,27 @@ describe("session decider", () => {
 		).toEqual([]);
 	});
 
+	test("treats an interrupt repeated after exact-turn settlement as a no-op", () => {
+		const settled = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "interrupted",
+				settledAt: 3,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(settled, {
+					_tag: "RequestTurnInterrupt",
+					turnId: "turn-1",
+					requestedAt: 4,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	test("rejects stale interrupt and terminal commands", () => {
 		const running = evolveAll(created(), [
 			{ _tag: "TurnStarted", turnId: "turn-2", startedAt: 2 },

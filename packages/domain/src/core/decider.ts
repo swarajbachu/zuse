@@ -221,6 +221,7 @@ export const decide = (
 		}
 		case "RequestTurnInterrupt":
 			if (state.currentTurnId !== command.turnId) {
+				if (state.settledTurnIds.has(command.turnId)) return success([]);
 				return Result.fail(
 					new TurnConflict({
 						expectedTurnId: command.turnId,

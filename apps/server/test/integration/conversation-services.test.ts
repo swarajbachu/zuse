@@ -3202,12 +3202,17 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 
+			const interruptedTurnId = requireProviderTurnId(initialSession.id);
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.interruptSession(
-						initialSession.id,
-						requireProviderTurnId(initialSession.id),
-					),
+					s.interruptSession(initialSession.id, interruptedTurnId),
+				),
+			);
+			// A rapid second click can arrive after the first request has already
+			// settled the exact turn. It must remain an idempotent success.
+			await run(
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(initialSession.id, interruptedTurnId),
 				),
 			);
 			await run(
