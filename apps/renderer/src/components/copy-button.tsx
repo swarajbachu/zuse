@@ -3,6 +3,7 @@ import { Copy01Icon, Tick02Icon } from "@hugeicons-pro/core-solid-rounded";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 export function CopyButton({
 	text,
@@ -29,18 +30,28 @@ export function CopyButton({
 	const title = copied ? "Copied" : label;
 
 	return (
-		<button
-			type="button"
-			onClick={onCopy}
-			aria-label={title}
-			title={title}
-			className={cn(
-				"inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none",
-				"hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-				className,
-			)}
-		>
-			<HugeiconsIcon icon={icon} className="size-3.5" aria-hidden="true" />
-		</button>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={onCopy}
+						aria-label={title}
+						className={cn(
+							"inline-grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground/70 outline-none",
+							"hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+							className,
+						)}
+					>
+						<HugeiconsIcon
+							icon={icon}
+							className="size-3.5"
+							aria-hidden="true"
+						/>
+					</button>
+				}
+			/>
+			<TooltipPopup>{title}</TooltipPopup>
+		</Tooltip>
 	);
 }

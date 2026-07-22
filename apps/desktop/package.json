@@ -20,7 +20,7 @@
 		"dev": "bun run --parallel dev:bundle dev:electron",
 		"dev:bundle": "vp pack --watch",
 		"dev:electron": "node scripts/dev-electron.mjs",
-		"build": "vp pack",
+		"build": "vp pack && node scripts/main-bundle-startup-smoke.mjs",
 		"check-types": "tsc --noEmit",
 		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs",
 		"test:unit": "vp test run test/unit",

@@ -44,6 +44,7 @@ import {
 import { useProvidersStore } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
+import { AssistantMessageActions } from "./assistant-message-actions.tsx";
 import { useChatLookups } from "./chat-lookups.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
@@ -177,6 +178,8 @@ function MessageRowImpl({
 				<AssistantBubble
 					text={message.content.text}
 					createdAt={message.createdAt}
+					messageId={message.id}
+					sessionId={readOnly ? undefined : sessionId}
 				/>
 			);
 		case "thinking":
@@ -420,12 +423,6 @@ const stripChipTokens = (
 	return out.replace(/[ \t]{2,}/g, " ").trim();
 };
 
-const formatMessageTime = (date: Date): string =>
-	date.toLocaleTimeString([], {
-		hour: "numeric",
-		minute: "2-digit",
-	});
-
 function UserBubble({
 	text,
 	attachments,
@@ -620,24 +617,25 @@ function UserBubble({
 function AssistantBubble({
 	text,
 	createdAt,
+	messageId,
+	sessionId,
 }: {
 	text: string;
 	createdAt?: Date;
+	messageId: Message["id"];
+	sessionId?: SessionId;
 }) {
 	return (
-		<div className="px-4 py-2">
+		<div className="group/assistant px-4 py-2">
 			<div className="max-w-full">
 				<MarkdownBody>{text}</MarkdownBody>
-				<div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-					{createdAt !== undefined ? (
-						<span className="tabular-nums">{formatMessageTime(createdAt)}</span>
-					) : null}
-					<CopyButton
-						text={text}
-						label="Copy message"
-						className="size-5 rounded opacity-70 hover:opacity-100"
-					/>
-				</div>
+				<AssistantMessageActions
+					text={text}
+					createdAt={createdAt}
+					messageId={messageId}
+					sessionId={sessionId}
+					className="mt-1"
+				/>
 			</div>
 		</div>
 	);

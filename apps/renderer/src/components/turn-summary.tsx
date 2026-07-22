@@ -5,12 +5,12 @@ import {
 	BubbleChatIcon,
 	Wrench01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import type { Message } from "@zuse/contracts";
+import type { Message, SessionId } from "@zuse/contracts";
 import { memo, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import { groupMessages } from "../lib/group-messages.ts";
 
-import { CopyButton } from "./copy-button.tsx";
+import { AssistantMessageActions } from "./assistant-message-actions.tsx";
 import { FileBadge } from "./file-badge.tsx";
 import {
 	diffStats,
@@ -86,7 +86,13 @@ const MAX_FILE_CHIPS = 4;
  * shows below; the footer carries elapsed time and file edit stats. No
  * outer card — sections sit flat in the timeline like every other row.
  */
-function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
+function TurnSummaryImpl({
+	body,
+	sessionId,
+}: {
+	body: ReadonlyArray<Message>;
+	sessionId?: SessionId;
+}) {
 	const [expanded, setExpanded] = useState(false);
 	const [filesExpanded, setFilesExpanded] = useState(false);
 
@@ -235,9 +241,16 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
 
 			{finalAssistant !== null &&
 			finalAssistant.content._tag === "assistant" ? (
-				<div className="px-4 py-2">
+				<div className="group/assistant px-4 py-2">
 					<div className="max-w-full">
 						<MarkdownBody>{finalAssistant.content.text}</MarkdownBody>
+						<AssistantMessageActions
+							text={finalAssistant.content.text}
+							createdAt={finalAssistant.createdAt}
+							messageId={finalAssistant.id}
+							sessionId={sessionId}
+							className="mt-1"
+						/>
 					</div>
 				</div>
 			) : null}
@@ -249,14 +262,6 @@ function TurnSummaryImpl({ body }: { body: ReadonlyArray<Message> }) {
 				)}
 			>
 				<span className="tabular-nums">{formatElapsed(duration)}</span>
-				{finalAssistant !== null &&
-				finalAssistant.content._tag === "assistant" ? (
-					<CopyButton
-						text={finalAssistant.content.text}
-						label="Copy message"
-						className="size-5 rounded opacity-70 hover:opacity-100"
-					/>
-				) : null}
 				{visibleFileStats.map((f) => (
 					<FileBadge
 						key={f.path}

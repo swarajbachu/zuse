@@ -1,9 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Message01Icon } from "@hugeicons-pro/core-solid-rounded";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import type { Message, MessageId, SessionId } from "@zuse/contracts";
+import type { Message, SessionId } from "@zuse/contracts";
 import {
-	type MouseEvent,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -38,7 +37,6 @@ import { useSkillsStore } from "../store/skills.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
-import { useForkMenu } from "./fork-menu.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { ErrorBubble, MessageRow } from "./message-row.tsx";
 import { NextUnreadButton } from "./next-unread-button.tsx";
@@ -89,7 +87,6 @@ export function ChatView({
 	useLayoutEffect(() => {
 		markRendererInteraction(sessionId, "first-react-commit");
 	}, [sessionId]);
-	const forkMenu = useForkMenu();
 	const messages = useMessagesStore(
 		(s) => s.messagesBySession[sessionId] ?? EMPTY_MESSAGES,
 	);
@@ -121,9 +118,9 @@ export function ChatView({
 		return getSessionById(sessionId);
 	});
 
-	// While this session's worktree is still being set up — or the provider
-	// CLI is still booting — the inline setup card carries the "what's
-	// happening" message, so suppress the empty "New chat" placeholder under it.
+	// Suppress the empty placeholder only while chat-level worktree setup is
+	// active. Additional sessions boot their own provider in the background but
+	// must not replay the chat setup surface.
 	const worktreeId = session?.worktreeId ?? null;
 	const worktreeSetupActive = useWorktreesStore((s) => {
 		if (worktreeId === null) return false;
@@ -139,9 +136,7 @@ export function ChatView({
 		}
 		return false;
 	});
-	const externalResume = session !== null && session.resumeStrategy !== "none";
-	const setupActive =
-		worktreeSetupActive || (!externalResume && session?.status === "booting");
+	const setupActive = worktreeSetupActive;
 	const rows = useMemo(
 		() =>
 			deriveChatTimelineRows({
@@ -675,9 +670,9 @@ export function ChatView({
 
 	const renderTimelineRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
-			<TimelineRow row={item} sessionId={sessionId} onFork={forkMenu.openAt} />
+			<TimelineRow row={item} sessionId={sessionId} />
 		),
-		[forkMenu.openAt, sessionId],
+		[sessionId],
 	);
 
 	return (
@@ -781,7 +776,6 @@ export function ChatView({
 					</div>
 				</div>
 			</div>
-			{forkMenu.menu}
 		</FileChipProvider>
 	);
 }
@@ -789,32 +783,13 @@ export function ChatView({
 function TimelineRow({
 	row,
 	sessionId,
-	onFork,
 }: {
 	row: ChatTimelineRow;
 	sessionId: SessionId;
-	onFork: (
-		event: MouseEvent,
-		sourceSessionId: SessionId,
-		fromMessageId: MessageId,
-	) => void;
 }) {
 	switch (row.kind) {
 		case "message":
-			return (
-				// biome-ignore lint/a11y/noStaticElementInteractions: context menu is an optional secondary action.
-				<div
-					onContextMenu={
-						row.message.content._tag === "user" ||
-						row.message.content._tag === "user_rich" ||
-						row.message.content._tag === "assistant"
-							? (event) => onFork(event, sessionId, row.message.id)
-							: undefined
-					}
-				>
-					<MessageRow message={row.message} sessionId={sessionId} />
-				</div>
-			);
+			return <MessageRow message={row.message} sessionId={sessionId} />;
 		case "subagent":
 			return (
 				<div>
@@ -833,7 +808,7 @@ function TimelineRow({
 		case "turn-summary":
 			return (
 				<div>
-					<TurnSummary body={row.body} />
+					<TurnSummary body={row.body} sessionId={sessionId} />
 				</div>
 			);
 		case "working":
