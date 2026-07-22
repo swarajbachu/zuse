@@ -183,6 +183,7 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 							label={session.title}
 							title={tooltip}
 							providerId={session.providerId}
+							booting={session.status === "booting"}
 							running={runningBySession[session.id] === true}
 							awaitingPermission={awaitingPermission.has(session.id)}
 							awaitingPlanApproval={
@@ -331,6 +332,7 @@ function ChatTabButton({
 	label,
 	title,
 	providerId,
+	booting,
 	running,
 	awaitingPermission,
 	awaitingPlanApproval,
@@ -341,6 +343,7 @@ function ChatTabButton({
 	label: string;
 	title?: string;
 	providerId: ProviderId;
+	booting: boolean;
 	running: boolean;
 	awaitingPermission: boolean;
 	awaitingPlanApproval: boolean;
@@ -375,7 +378,7 @@ function ChatTabButton({
 					>
 						<HugeiconsIcon icon={SquareLock01Icon} className="size-3.5" />
 					</span>
-				) : running ? (
+				) : booting || running ? (
 					<span className="inline-flex size-3.5 shrink-0 items-center justify-center text-foreground">
 						<Spinner className="size-3.5" />
 					</span>
@@ -385,7 +388,12 @@ function ChatTabButton({
 						className="size-3.5 shrink-0 text-foreground"
 					/>
 				)}
-				<span className="truncate leading-none">{label}</span>
+				<span
+					className="truncate leading-none"
+					aria-live={booting ? "polite" : undefined}
+				>
+					{booting ? "Starting agent…" : label}
+				</span>
 			</button>
 			<button
 				type="button"

@@ -15,6 +15,7 @@ import {
 	CHAT_LIST_ANCHOR_OFFSET,
 	resolveChatListAnchoredEndSpace,
 } from "../lib/chat-list-anchor.ts";
+import { resolveChatErrorBottom } from "../lib/chat-overlay-position.ts";
 import {
 	type ChatTimelineRow,
 	deriveChatTimelineRows,
@@ -495,7 +496,7 @@ export function ChatView({
 		// epoch so any in-flight hydrate bails. The next hydrate re-subscribes;
 		// `messagesBySession` is preserved, so there's no empty-state flash.
 		return () => {
-			void teardownLiveStreams();
+			void teardownLiveStreams(sessionId);
 		};
 	}, [sessionId, hydrate, hydrateSkills]);
 
@@ -753,11 +754,18 @@ export function ChatView({
 						</ChatLookupsProvider>
 					)}
 					{error !== null ? (
-						<ErrorBubble
-							error={error}
-							sessionId={sessionId}
-							onDismiss={() => clearError(sessionId)}
-						/>
+						<div
+							className="pointer-events-none absolute inset-x-0 z-20"
+							style={{ bottom: resolveChatErrorBottom(endInset) }}
+						>
+							<div className="pointer-events-auto">
+								<ErrorBubble
+									error={error}
+									sessionId={sessionId}
+									onDismiss={() => clearError(sessionId)}
+								/>
+							</div>
+						</div>
 					) : null}
 					{/* One row hugging the composer top: jump-to-latest on the
 					    left, next-unread on the right. */}

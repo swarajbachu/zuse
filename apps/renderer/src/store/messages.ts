@@ -1,15 +1,12 @@
+import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
 import {
-	projectSessionEvent,
-	sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
-import {
+	AgentTurnId,
   ComposerInput,
   Message,
   type MessageContent,
 	MessageId,
   type ProviderId,
 	QueuedMessage,
-	Session,
   type SessionId,
 	type SessionStatus,
   type ThreadGoal,
@@ -29,8 +26,6 @@ import {
 } from "../lib/rpc-client.ts";
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
-import { usePrDetailsStore } from "./pr-details.ts";
-import { usePrStateStore } from "./pr-state.ts";
 import {
 	markQueueHydrated,
 	subscribeSessionAcknowledged,
@@ -247,194 +242,99 @@ type MessagesState = {
   readonly retry: (sessionId: SessionId) => Promise<void>;
 };
 
-let liveFiber: Fiber.Fiber<unknown, unknown> | null = null;
-let queueFiber: Fiber.Fiber<unknown, unknown> | null = null;
-let goalFiber: Fiber.Fiber<unknown, unknown> | null = null;
-let liveSessionId: SessionId | null = null;
-let liveConnectionSessionId: SessionId | null = null;
+const timelineFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
+const timelineTokens = new Map<SessionId, object>();
+const timelineRegistry = new SessionTimelineRegistry();
+const retainedTimelineSessions = new Set<SessionId>();
+const pendingTimelineSessionCreations = new Set<SessionId>();
+const timelineEvictionTimers = new Map<SessionId, ReturnType<typeof setTimeout>>();
+const goalFibers = new Map<SessionId, Fiber.Fiber<unknown, unknown>>();
 let liveConnectionGeneration: number | null = null;
 let unsubscribeLiveConnection: (() => void) | null = null;
-// Monotonic token guarding `hydrate` against re-entrancy. `hydrate` mutates the
-// module-global fibers + `liveSessionId` across two `await` points, so two
-// overlapping calls (rapid tab switches, or React's mount→cleanup→mount) used
-// to interleave and leave `liveFiber`/`liveSessionId` pointing at a session
-// other than the one on screen — the active session then had no live stream, so
-// freshly-sent / streamed messages never landed until a re-open re-ran the
-// backfill. Each call captures the epoch on entry and bails after every await
-// once a newer call (or `teardownLiveStreams`) has superseded it, so only the
-// latest (rendered) session ever installs fibers.
-let hydrateEpoch = 0;
 // Message ids we minted optimistically in `send()`. When the server echoes the
 // same row back over the live stream (same id, because the renderer passes the
 // id as `clientMessageId`), we replace the optimistic row in place with the
 // canonical server message instead of skipping it, so server-side fixups
 // (stripped `pending-` attachments, server `createdAt`) win.
 const optimisticIds = new Set<MessageId>();
-// Highest durable event-log `sequence` seen per session.
-// Passed back as `sinceSequence` on resubscribe so the server replays only
-// the delta — gap-free reconnect without a full-history backfill. In-memory
-// only: a reload starts from 0 and gets the full replay, which is correct.
-const eventCursorKey = (sessionId: SessionId): string =>
-  `renderer:active-session:${sessionId}`;
-const handoffRunningSessions = new Set<SessionId>();
-const lastStatusBySession = new Map<SessionId, SessionStatus>();
-const statusWaiters = new Map<
-  SessionId,
-  Set<(status: SessionStatus) => void>
->();
-const handoffReleaseTimers = new Map<
-  SessionId,
-  ReturnType<typeof globalThis.setTimeout>
->();
-
 const stopLiveConnectionSubscription = (): void => {
 	unsubscribeLiveConnection?.();
 	unsubscribeLiveConnection = null;
-	liveConnectionSessionId = null;
 	liveConnectionGeneration = null;
 };
 
-const ensureLiveConnectionSubscription = (sessionId: SessionId): void => {
-	if (
-		liveConnectionSessionId === sessionId &&
-		unsubscribeLiveConnection !== null
-	) {
-		return;
-	}
-	stopLiveConnectionSubscription();
-	liveConnectionSessionId = sessionId;
+const ensureLiveConnectionSubscription = (): void => {
+	if (unsubscribeLiveConnection !== null) return;
 	unsubscribeLiveConnection = subscribeRendererRpcConnection((snapshot) => {
-		if (
-			liveConnectionSessionId !== sessionId ||
-			snapshot.status !== "connected"
-		) {
-			return;
-		}
+		if (snapshot.status !== "connected") return;
 		if (liveConnectionGeneration === null) {
 			liveConnectionGeneration = snapshot.generation;
 			return;
 		}
 		if (liveConnectionGeneration === snapshot.generation) return;
 		liveConnectionGeneration = snapshot.generation;
-		void useMessagesStore.getState().hydrate(sessionId);
+		const sessions = [...retainedTimelineSessions];
+		for (const [sessionId, fiber] of timelineFibers) {
+			timelineFibers.delete(sessionId);
+			timelineTokens.delete(sessionId);
+			void Effect.runPromise(Fiber.interrupt(fiber));
+		}
+		for (const sessionId of sessions) void useMessagesStore.getState().hydrate(sessionId);
 	});
 };
 
-const reportActiveStreamFailure = (
-	sessionId: SessionId,
-	cause: unknown,
-): void => {
-	if (liveConnectionSessionId !== sessionId) return;
+const reportActiveStreamFailure = (cause: unknown): void => {
 	const generation = liveConnectionGeneration;
 	if (generation === null) return;
 	reportRendererRpcStreamFailure(generation, cause);
 };
 
-const stopLiveFiber = async () => {
-  // Clear the live marker FIRST, before any interrupt yields the event loop.
-  // The status fiber's `resetOnStreamEnd` + stale-status-event handler both
-  // guard on `liveSessionId === sessionId`. If a yield happens while this
-  // still points at the outgoing session — e.g. the awaited `goalFiber`
-  // interrupt below, which only exists for Codex/Grok — those handlers drain
-  // and wrongly clobber `runningBySession[sessionId]` to false, dropping the
-  // sidebar spinner for a backgrounded-but-still-running Codex/Grok chat the
-  // moment you switch away. Claude has no `goalFiber` and so never yielded
-  // here before this assignment, which is why the bug was Codex/Grok-only.
-  liveSessionId = null;
-  const tasks: Array<Promise<unknown>> = [];
-  if (liveFiber !== null) {
-    tasks.push(Effect.runPromise(Fiber.interrupt(liveFiber)));
-    liveFiber = null;
-  }
-  if (queueFiber !== null) {
-    tasks.push(Effect.runPromise(Fiber.interrupt(queueFiber)));
-    queueFiber = null;
-  }
-  if (goalFiber !== null) {
-    await Effect.runPromise(Fiber.interrupt(goalFiber));
-    goalFiber = null;
-  }
-  await Promise.all(tasks);
-  // We intentionally do NOT clear the prior session's `runningBySession`
-  // entry here. The sidebar-root `useSessionRunningSubscriptions` hook
-  // keeps a persistent subscription per session, so the flag remains the
-  // live truth even after switching away. Wiping it would make the
-  // previous session's busy indicator disappear in the sidebar until
-  // the next transition event.
+export const deferTimelineUntilSessionCreated = (sessionId: SessionId): void => {
+	pendingTimelineSessionCreations.add(sessionId);
 };
 
-/**
- * Tear down the single live message stream — called from the `ChatView`
- * effect cleanup on unmount / session change. Bumps `hydrateEpoch` first so a
- * `hydrate` still awaiting its RPC client can't resume and fork orphaned
- * fibers after the view is gone, then interrupts the live fibers.
- */
-export const teardownLiveStreams = async (): Promise<void> => {
-  hydrateEpoch++;
+export const acknowledgeTimelineSessionCreated = (
+	sessionId: SessionId,
+): void => {
+	pendingTimelineSessionCreations.delete(sessionId);
+	if (retainedTimelineSessions.has(sessionId) && !timelineFibers.has(sessionId)) {
+		void useMessagesStore.getState().hydrate(sessionId);
+	}
+};
+
+export const discardTimelineSessionCreation = (sessionId: SessionId): void => {
+	pendingTimelineSessionCreations.delete(sessionId);
+};
+
+export const teardownLiveStreams = async (sessionId?: SessionId): Promise<void> => {
+	if (sessionId !== undefined) {
+		retainedTimelineSessions.delete(sessionId);
+		const previous = timelineEvictionTimers.get(sessionId);
+		if (previous !== undefined) clearTimeout(previous);
+		if (timelineRegistry.state(sessionId).projection?.currentTurn != null) return;
+		timelineEvictionTimers.set(sessionId, setTimeout(() => {
+			timelineEvictionTimers.delete(sessionId);
+			if (retainedTimelineSessions.has(sessionId)) return;
+			const fiber = timelineFibers.get(sessionId);
+			if (fiber !== undefined) void Effect.runPromise(Fiber.interrupt(fiber));
+			timelineFibers.delete(sessionId);
+			timelineTokens.delete(sessionId);
+			timelineRegistry.delete(sessionId);
+		}, 5 * 60_000));
+		return;
+	}
 	stopLiveConnectionSubscription();
-  await stopLiveFiber();
+	for (const timer of timelineEvictionTimers.values()) clearTimeout(timer);
+	timelineEvictionTimers.clear();
+	retainedTimelineSessions.clear();
+	pendingTimelineSessionCreations.clear();
+	const fibers = [...timelineFibers.values(), ...goalFibers.values()];
+	timelineFibers.clear();
+	timelineTokens.clear();
+	goalFibers.clear();
+	timelineRegistry.shutdown();
+	await Promise.all(fibers.map((fiber) => Effect.runPromise(Fiber.interrupt(fiber))));
 };
-
-/**
- * Resolve when `runningBySession[sessionId]` becomes false (or stays false),
- * or when `timeoutMs` elapses. Used by steer to wait for the SDK's
- * post-interrupt cleanup before issuing the next send.
- */
-const publishObservedStatus = (sessionId: SessionId, status: SessionStatus) => {
-  lastStatusBySession.set(sessionId, status);
-  const waiters = statusWaiters.get(sessionId);
-  if (waiters === undefined) return;
-  for (const waiter of waiters) waiter(status);
-};
-
-const holdRunningUntilNextTurn = (sessionId: SessionId) => {
-  handoffRunningSessions.add(sessionId);
-  const existingTimer = handoffReleaseTimers.get(sessionId);
-  if (existingTimer !== undefined) globalThis.clearTimeout(existingTimer);
-  const timer = globalThis.setTimeout(() => {
-    handoffReleaseTimers.delete(sessionId);
-    if (
-      handoffRunningSessions.has(sessionId) &&
-      lastStatusBySession.get(sessionId) !== "running"
-    ) {
-      handoffRunningSessions.delete(sessionId);
-      useMessagesStore.setState((s) => ({
-        runningBySession: { ...s.runningBySession, [sessionId]: false },
-      }));
-    }
-  }, 5_000);
-  handoffReleaseTimers.set(sessionId, timer);
-  useMessagesStore.setState((s) => ({
-    runningBySession: { ...s.runningBySession, [sessionId]: true },
-  }));
-};
-
-const waitUntilIdle = (
-  sessionId: SessionId,
-  timeoutMs: number,
-): Promise<void> =>
-  new Promise((resolve) => {
-    if (lastStatusBySession.get(sessionId) !== "running") {
-      resolve();
-      return;
-    }
-    const waiters = statusWaiters.get(sessionId) ?? new Set();
-    statusWaiters.set(sessionId, waiters);
-    const timeout = globalThis.setTimeout(() => {
-      waiters.delete(onStatus);
-      if (waiters.size === 0) statusWaiters.delete(sessionId);
-      resolve();
-    }, timeoutMs);
-    const onStatus = (status: SessionStatus) => {
-      if (status !== "running") {
-        globalThis.clearTimeout(timeout);
-        waiters.delete(onStatus);
-        if (waiters.size === 0) statusWaiters.delete(sessionId);
-        resolve();
-      }
-    };
-    waiters.add(onStatus);
-  });
 
 export const useMessagesStore = create<MessagesState>((set, get) => ({
   messagesBySession: {},
@@ -444,19 +344,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   queuePausedBySession: {},
   goalBySession: {},
   hydrate: async (sessionId) => {
-		ensureLiveConnectionSubscription(sessionId);
-    if (
-      liveSessionId === sessionId &&
-      liveFiber !== null &&
-      (get().messagesBySession[sessionId]?.length ?? 0) > 0
-    ) {
-      return;
-    }
-    const myEpoch = ++hydrateEpoch;
-    await stopLiveFiber();
-    // A newer hydrate (or a teardown) started while we were tearing down — let
-    // it win rather than installing fibers for a session no longer on screen.
-    if (myEpoch !== hydrateEpoch) return;
+		retainedTimelineSessions.add(sessionId);
+		const eviction = timelineEvictionTimers.get(sessionId);
+		if (eviction !== undefined) clearTimeout(eviction);
+		timelineEvictionTimers.delete(sessionId);
+		if (pendingTimelineSessionCreations.has(sessionId)) return;
+		ensureLiveConnectionSubscription();
+		if (timelineFibers.has(sessionId)) return;
     set((s) => ({
       // Preserve any pre-seeded messages (e.g. the initial user message
       // that `chats.create` stuffed in optimistically) so the chat view
@@ -471,186 +365,82 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     }));
     try {
       const client = await getMessagesRpcClient();
-      // Superseded while awaiting the client — don't install stale fibers.
-      if (myEpoch !== hydrateEpoch) return;
-      // Set the live target + fork the fibers together (winner-only,
-      // synchronously) so `liveSessionId` and the forked subscriptions can
-      // never disagree. The `resetOnStreamEnd` / status guards below read
-      // `liveSessionId`, so it must be correct before the fibers run.
-      liveSessionId = sessionId;
+			if (
+				!retainedTimelineSessions.has(sessionId) ||
+				timelineFibers.has(sessionId)
+			) {
+				return;
+			}
       // Resume from the recorded cursor only while the store still holds the
       // rows the cursor accounts for; otherwise (first visit, page reload)
       // stream the full history. Pre-seeded optimistic rows never record a
       // cursor, so a fresh chat still gets its full replay + echo id-swap.
-      const sinceSequence =
-        (get().messagesBySession[sessionId]?.length ?? 0) > 0
-          ? sessionEventCursors.get(eventCursorKey(sessionId))
-          : undefined;
-			const observeStatusEvent = (status: SessionStatus): void => {
-        if (liveSessionId !== sessionId) return;
-        const wasRunning = get().runningBySession[sessionId] === true;
-        get().observeSessionStatus(sessionId, status);
-        if (!wasRunning || status === "running") return;
-        const sessions = useSessionsStore.getState().sessionsByProject;
-        for (const list of Object.values(sessions)) {
-          const session = list.find((candidate) => candidate.id === sessionId);
-          if (session !== undefined) {
-            void usePrStateStore
-              .getState()
-              .refresh(session.projectId, session.worktreeId);
-            void usePrDetailsStore
-              .getState()
-              .refresh(session.projectId, session.worktreeId);
-            break;
-          }
-        }
-        if (status === "idle" || status === "closed") {
-          get().flushQueue(sessionId);
-        }
-			};
-			let pendingStreamMessages: Message[] = [];
-			let streamCommitScheduled = false;
-			let streamCommitFrame: number | null = null;
-			const flushPendingMessages = (): void => {
-				streamCommitScheduled = false;
-				streamCommitFrame = null;
-				const pending = pendingStreamMessages;
-				pendingStreamMessages = [];
-				if (pending.length === 0 || liveSessionId !== sessionId) return;
-				if ((get().messagesBySession[sessionId]?.length ?? 0) === 0) {
-					markRendererInteraction(sessionId, "first-transcript-message");
+			const retainedTimeline = timelineRegistry.state(sessionId);
+			const afterVersion =
+				retainedTimeline.projection === null
+					? undefined
+					: retainedTimeline.appliedVersion;
+			const publishTimelineState = (): void => {
+				const timeline = timelineRegistry.state(sessionId);
+				const projection = timeline.projection;
+				if (projection === null) return;
+				const durableIds = new Set(projection.messages.map((row) => row.id));
+				for (const id of optimisticIds) {
+					if (durableIds.has(id)) optimisticIds.delete(id);
 				}
-				let exitedPlanMode = false;
-				set((state) => {
-					const current = state.messagesBySession[sessionId] ?? [];
-					let next = current;
-					let ids: Set<string> | null = null;
-					for (const message of pending) {
-						if (optimisticIds.has(message.id)) {
-							optimisticIds.delete(message.id);
-							next = next.map((row) =>
-								row.id === message.id ? message : row,
+				const optimistic = (get().messagesBySession[sessionId] ?? []).filter(
+					(row) => optimisticIds.has(row.id) && !durableIds.has(row.id),
 							);
-							continue;
-						}
-						ids ??= new Set(next.map((row) => row.id));
-						if (ids.has(message.id)) continue;
-						const content = message.content;
 						if (
-							content._tag === "tool_result" &&
-							content.isError === false &&
-							next.some(
-								(row) =>
-									row.content._tag === "tool_use" &&
-									row.content.itemId === content.itemId &&
-									row.content.tool === "ExitPlanMode",
-							)
+					projection.messages.length > 0 &&
+					(get().messagesBySession[sessionId]?.length ?? 0) === 0
 						) {
-							exitedPlanMode = true;
-						}
-						ids.add(message.id);
-						next = [...next, message];
+					markRendererInteraction(sessionId, "first-transcript-message");
 					}
-					if (next === current) return state;
-					return {
+				set((state) => ({
 						messagesBySession: {
 							...state.messagesBySession,
-							[sessionId]: next,
+						[sessionId]: [...projection.messages, ...optimistic],
 						},
-					};
-				});
-				if (exitedPlanMode) {
-					useSessionsStore.setState((sessionsState) => {
-						let changed = false;
-						const updated = Object.fromEntries(
-							Object.entries(sessionsState.sessionsByProject).map(
-								([projectId, sessions]) => [
-									projectId,
-									sessions.map((session) => {
-										if (
-											session.id !== sessionId ||
-											session.permissionMode !== "plan"
-										) {
-											return session;
-										}
-										changed = true;
-										return Session.make({
-											...session,
-											permissionMode: "default",
-										});
-									}),
-								],
-							),
-						);
-						return changed ? { sessionsByProject: updated } : sessionsState;
-					});
-				}
-			};
-			const enqueueStreamMessage = (message: Message): void => {
-				pendingStreamMessages.push(message);
-				if (streamCommitScheduled) return;
-				streamCommitScheduled = true;
-				if (typeof globalThis.requestAnimationFrame === "function") {
-					streamCommitFrame = globalThis.requestAnimationFrame(
-						flushPendingMessages,
-					);
-				} else {
-					queueMicrotask(flushPendingMessages);
-				}
-			};
-			const resetOnStreamEnd = Effect.sync(() => {
-				if (streamCommitFrame !== null) {
-					globalThis.cancelAnimationFrame(streamCommitFrame);
-				}
-				flushPendingMessages();
-        if (liveSessionId !== sessionId) return;
-        useMessagesStore.setState((state) => {
-          if (
-            state.runningBySession[sessionId] !== true ||
-            handoffRunningSessions.has(sessionId)
-          ) {
-            return state;
-          }
-          return {
             runningBySession: {
               ...state.runningBySession,
-              [sessionId]: false,
+						[sessionId]: projection.currentTurn !== null,
+					},
+					queueBySession: {
+						...state.queueBySession,
+						[sessionId]: projection.queue.items,
             },
+					queuePausedBySession: {
+						...state.queuePausedBySession,
+						[sessionId]: projection.queue.paused,
+					},
+				}));
+				markQueueHydrated(sessionId);
+				get().observeSessionStatus(sessionId, projection.status);
           };
-        });
-      });
+			const streamToken = {};
       const messageProgram = Stream.runForEach(
         client["session.events"]({
           sessionId,
-          afterSequence: sinceSequence,
+					afterVersion,
+					hasProjection: retainedTimeline.projection !== null,
         }),
-        (envelope) =>
+				(frame) =>
           Effect.sync(() => {
-            const { sequence } = envelope;
-            // Advance the cursor on EVERY envelope — including optimistic
-            // echoes — before any dedup branch, so a reconnect can never
-            // pass a cursor below an already-delivered row.
-            sessionEventCursors.set(eventCursorKey(sessionId), sequence);
-            const projected = projectSessionEvent(envelope);
-            if (projected._tag === "status") {
-              observeStatusEvent(projected.status);
-              return;
-            }
-				if (projected._tag !== "message") return;
-				enqueueStreamMessage(projected.message);
+						timelineRegistry.accept(sessionId, frame);
+						publishTimelineState();
           }),
       ).pipe(
 				Effect.andThen(
 					Effect.sync(() => {
 						reportActiveStreamFailure(
-							sessionId,
 							new Error("active transcript stream completed unexpectedly"),
 						);
 					}),
 				),
         Effect.catch((err) =>
           Effect.sync(() => {
-							reportActiveStreamFailure(sessionId, err);
+						reportActiveStreamFailure(err);
             console.error("[messages] message stream errored", err);
             set((s) => ({
               errorBySession: {
@@ -664,41 +454,22 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           }),
         ),
         Effect.ensuring(
-          Effect.andThen(
-            resetOnStreamEnd,
             Effect.sync(() => {
-              if (liveSessionId === sessionId) liveFiber = null;
-            }),
-          ),
-        ),
-      );
-      liveFiber = Effect.runFork(messageProgram);
-      queueFiber = Effect.runFork(
-        Stream.runForEach(
-          client["messages.queue.stream"]({ sessionId }),
-          (state) =>
-            Effect.sync(() => {
-							const previous = get().queueBySession[sessionId] ?? [];
-							if (previous.length > state.items.length) {
-								markRendererInteraction(sessionId, "queue-claimed");
+						if (timelineTokens.get(sessionId) === streamToken) {
+							timelineTokens.delete(sessionId);
+							timelineFibers.delete(sessionId);
 							}
-              set((s) => ({
-                queueBySession: {
-                  ...s.queueBySession,
-                  [sessionId]: state.items,
-                },
-                queuePausedBySession: {
-                  ...s.queuePausedBySession,
-                  [sessionId]: state.paused,
-                },
-              }));
-							markQueueHydrated(sessionId);
             }),
         ),
       );
+			const timelineFiber = Effect.runFork(messageProgram);
+			timelineTokens.set(sessionId, streamToken);
+			timelineFibers.set(sessionId, timelineFiber);
       const goalProvider = lookupSessionProvider(sessionId);
       if (goalProvider === "codex" || goalProvider === "grok") {
-        goalFiber = Effect.runFork(
+				goalFibers.set(
+					sessionId,
+					Effect.runFork(
           Stream.runForEach(
             client["session.goal.stream"]({
               sessionId,
@@ -718,6 +489,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
                 }));
               }),
           ),
+					),
         );
       }
     } catch (err) {
@@ -880,8 +652,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   },
   interrupt: async (sessionId) => {
     try {
+			const turnId =
+				timelineRegistry.state(sessionId).projection?.currentTurn?.turnId;
+			if (turnId === undefined) return;
       const client = await getMessagesRpcClient();
-      await Effect.runPromise(client["messages.interrupt"]({ sessionId }));
+			await Effect.runPromise(
+				client["messages.interrupt"]({ sessionId, turnId }),
+			);
     } catch (err) {
       set((s) => ({
         errorBySession: {
@@ -1065,13 +842,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     queueFlushTails.set(sessionId, current);
     void current
       .catch((err) => {
-        handoffRunningSessions.delete(sessionId);
         set((s) => ({
           errorBySession: {
             ...s.errorBySession,
             [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
           },
-          runningBySession: { ...s.runningBySession, [sessionId]: false },
         }));
       })
       .finally(() => {
@@ -1082,9 +857,6 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   },
   resumeQueue: async (sessionId) => {
     try {
-      if ((get().queueBySession[sessionId] ?? []).length > 0) {
-        holdRunningUntilNextTurn(sessionId);
-      }
       set((s) => ({
         queuePausedBySession: {
           ...s.queuePausedBySession,
@@ -1094,13 +866,11 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const client = await getMessagesRpcClient();
       await Effect.runPromise(client["messages.queue.resume"]({ sessionId }));
     } catch (err) {
-      handoffRunningSessions.delete(sessionId);
       set((s) => ({
         errorBySession: {
           ...s.errorBySession,
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
-        runningBySession: { ...s.runningBySession, [sessionId]: false },
       }));
     }
   },
@@ -1143,30 +913,31 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         ),
       },
     }));
-    // Steer: interrupt the running turn, then wait for the SDK's post-interrupt
-    // cleanup to land (mirrored by `runningBySession[sessionId] === false`)
-    // before sending. Subscribing to the status mirror is race-free; the prior
-    // 250ms sleep tripped over slow tool_result drains. A 4 s upper bound keeps
-    // a stuck driver from hanging the queue forever.
     try {
-      const wasRunning = get().runningBySession[sessionId] === true;
-      if (wasRunning) {
-        holdRunningUntilNextTurn(sessionId);
-        await get().interrupt(sessionId);
-        await waitUntilIdle(sessionId, 4_000);
-      }
       const client = await getMessagesRpcClient();
+			const currentTurn =
+				timelineRegistry.state(sessionId).projection?.currentTurn;
+			if (currentTurn === null || currentTurn === undefined) {
       await Effect.runPromise(
         client["messages.queue.sendNow"]({ sessionId, queueId }),
       );
+			} else {
+				await Effect.runPromise(
+					client["messages.steer"]({
+						sessionId,
+						expectedTurnId: currentTurn.turnId,
+						queueId,
+						successorTurnId: AgentTurnId.make(`turn_${crypto.randomUUID()}`),
+						commandId: `steer:${sessionId}:${queueId}:${crypto.randomUUID()}`,
+					}),
+				);
+			}
     } catch (err) {
-      handoffRunningSessions.delete(sessionId);
       set((s) => ({
         errorBySession: {
           ...s.errorBySession,
           [sessionId]: classifyError(err, lookupSessionProvider(sessionId)),
         },
-        runningBySession: { ...s.runningBySession, [sessionId]: false },
       }));
     }
   },
@@ -1180,18 +951,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 			if (status === "idle" || status === "running") {
 				markRendererInteraction(sessionId, "provider-ready");
 			}
-			publishObservedStatus(sessionId, status);
 			const isRunning = status === "running";
-			if (isRunning) {
-				handoffRunningSessions.delete(sessionId);
-				const timer = handoffReleaseTimers.get(sessionId);
-				if (timer !== undefined) {
-					globalThis.clearTimeout(timer);
-					handoffReleaseTimers.delete(sessionId);
-				}
-			}
-			running[sessionId] =
-				isRunning || handoffRunningSessions.has(sessionId);
+			running[sessionId] = isRunning;
 		}
 		set({ runningBySession: running });
 	},

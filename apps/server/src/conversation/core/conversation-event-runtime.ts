@@ -1,11 +1,11 @@
 /** Owns provider-event subscriptions and durable turn settlement. */
 import type {
-	AgentEvent,
+	AgentTurnId,
 	MessageContent,
 	PermissionMode,
+	ProviderEventEnvelope,
 	ProviderId,
 	ResumeStrategy,
-	Session,
 	SessionId,
 	ThreadGoal,
 } from "@zuse/contracts";
@@ -30,14 +30,13 @@ type RelayActivity =
 
 export interface ConversationEventRuntimeOptions {
 	readonly scope: Scope.Scope;
-	readonly events: (sessionId: SessionId) => Stream.Stream<AgentEvent, unknown>;
-	readonly providerId: (sessionId: SessionId) => Effect.Effect<ProviderId>;
-	readonly setStatus: (
+	readonly events: (
 		sessionId: SessionId,
-		status: Session["status"],
-	) => Effect.Effect<void>;
+	) => Stream.Stream<ProviderEventEnvelope, unknown>;
+	readonly providerId: (sessionId: SessionId) => Effect.Effect<ProviderId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
+		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 	) => Effect.Effect<void>;
 	readonly setResume: (
@@ -69,7 +68,9 @@ export interface ConversationEventRuntimeOptions {
 	) => Effect.Effect<boolean>;
 	readonly persist: (
 		sessionId: SessionId,
+		turnId: AgentTurnId,
 		content: MessageContent,
+		providerItemIdentity?: string,
 	) => Effect.Effect<void>;
 }
 
@@ -148,40 +149,31 @@ export const makeConversationEventRuntime = Effect.fn(
 				const fiber = yield* Effect.forkIn(
 					Deferred.await(ready).pipe(
 						Effect.andThen(
-							Stream.runForEach(options.events(sessionId), (event) =>
+							Stream.runForEach(options.events(sessionId), (envelope) =>
 								Effect.gen(function* () {
+									const event = envelope.event;
 									if (event._tag === "ProviderNotificationMetadata") {
 										pendingProviderEventCursor = event.eventId;
 										return;
 									}
 									if (event._tag === "Status") {
-										if (
-											event.status === "running" ||
-											event.status === "closed" ||
-											event.status === "error" ||
-											event.status === "idle"
-										) {
-											yield* options.setStatus(sessionId, event.status);
-											if (event.status === "running") {
-												yield* options.publishRelayActivity(
-													sessionId,
-													"running",
-												);
-											}
+										if (event.status === "running") {
+											yield* options.publishRelayActivity(sessionId, "running");
 										}
 										return;
 									}
 									if (event._tag === "Completed") {
+										if (envelope.scope !== "turn") return;
 										const outcome =
 											event.reason === "interrupted"
 												? "interrupted"
 												: event.reason === "error"
 													? "error"
 													: "completed";
-										yield* options.settleTurn(sessionId, outcome);
-										yield* options.setStatus(
+										yield* options.settleTurn(
 											sessionId,
-											event.reason === "error" ? "error" : "closed",
+											envelope.turnId,
+											outcome,
 										);
 										yield* options.publishRelayActivity(
 											sessionId,
@@ -221,6 +213,7 @@ export const makeConversationEventRuntime = Effect.fn(
 									) {
 										return;
 									}
+									if (envelope.scope !== "turn") return;
 									if (event._tag === "PermissionRequest") {
 										yield* options.publishRelayActivity(
 											sessionId,
@@ -241,26 +234,19 @@ export const makeConversationEventRuntime = Effect.fn(
 									) {
 										return;
 									}
-									yield* options.persist(sessionId, content);
+									yield* options.persist(
+										sessionId,
+										envelope.turnId,
+										content,
+										"itemId" in event && typeof event.itemId === "string"
+											? `${event._tag}:${event.itemId}`
+											: undefined,
+									);
 									if (event._tag === "Error") {
-										yield* options.settleTurn(sessionId, "error");
 										yield* options.publishRelayActivity(sessionId, "error");
-										yield* options.setStatus(sessionId, "error");
-									}
-									if (event._tag === "Interrupted") {
-										yield* options.settleTurn(sessionId, "interrupted");
-										yield* options.setStatus(sessionId, "idle");
 									}
 								}),
 							),
-						),
-						// A provider queue may close normally without emitting Completed or
-						// Interrupted. Settlement is an idempotent durable command, so finalize
-						// every exit path instead of only failures.
-						Effect.ensuring(
-							options
-								.settleTurn(sessionId, "error")
-								.pipe(Effect.catchCause(() => Effect.void)),
 						),
 						Effect.catchCause((cause) =>
 							Effect.gen(function* () {

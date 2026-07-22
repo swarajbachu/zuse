@@ -11,10 +11,24 @@ export const SettlementOutcome = Schema.Literals([
 ]);
 export type SettlementOutcome = typeof SettlementOutcome.Type;
 
+export const TurnPhase = Schema.Literals([
+	"running",
+	"interrupt-requested",
+	"interrupt-acknowledged",
+]);
+export type TurnPhase = typeof TurnPhase.Type;
+
 export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("CreateSession", {
 		...SessionCreatedFields,
 		providerStartJson: Schema.optional(Schema.String),
+	}),
+	Schema.TaggedStruct("CreateSessionWithInitialTurn", {
+		...SessionCreatedFields,
+		providerStartJson: Schema.String,
+		turnId: Schema.String,
+		messageId: Schema.String,
+		messageContentJson: Schema.String,
 	}),
 	Schema.TaggedStruct("SetTitle", {
 		title: Schema.String,
@@ -61,14 +75,64 @@ export const SessionCommand = Schema.Union([
 		turnId: Schema.String,
 		startedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("SubmitTurn", {
+		turnId: Schema.String,
+		messageId: Schema.String,
+		role: Schema.String,
+		kind: Schema.String,
+		contentJson: Schema.String,
+		parentItemId: Schema.NullOr(Schema.String),
+		providerInputJson: Schema.String,
+		createdAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("SettleTurn", {
 		turnId: Schema.String,
 		outcome: SettlementOutcome,
 		settledAt: Schema.Number,
 	}),
-	Schema.TaggedStruct("SettleActiveTurn", {
-		outcome: SettlementOutcome,
-		settledAt: Schema.Number,
+	Schema.TaggedStruct("RequestTurnInterrupt", {
+		turnId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("AcknowledgeTurnInterrupt", {
+		turnId: Schema.String,
+		acknowledgedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("FailTurnInterrupt", {
+		turnId: Schema.String,
+		reason: Schema.String,
+		failedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("EnqueueTurn", {
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		position: Schema.Number,
+		createdAt: Schema.Number,
+		ready: Schema.Boolean,
+	}),
+	Schema.TaggedStruct("UpdateQueuedTurn", {
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		updatedAt: Schema.Number,
+		ready: Schema.Boolean,
+	}),
+	Schema.TaggedStruct("ClaimQueuedTurn", {
+		queueId: Schema.String,
+		claimedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("RemoveQueuedTurn", {
+		queueId: Schema.String,
+		removedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ReorderQueuedTurns", {
+		queueIds: Schema.Array(Schema.String),
+		reorderedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SteerQueuedTurn", {
+		expectedTurnId: Schema.String,
+		queueId: Schema.String,
+		successorTurnId: Schema.String,
+		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("PersistMessage", {
 		messageId: Schema.String,

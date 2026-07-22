@@ -698,6 +698,25 @@ export const AgentEvent = Schema.Union([
 ]);
 export type AgentEvent = typeof AgentEvent.Type;
 
+/**
+ * Application-owned correlation envelope for provider runtime events.
+ * Provider-native identifiers remain adapter metadata; every event that can
+ * mutate a turn projection carries the exact application turn id supplied to
+ * `send`/`interrupt`.
+ */
+export const ProviderEventEnvelope = Schema.Union([
+	Schema.Struct({
+		scope: Schema.Literal("session"),
+		event: AgentEvent,
+	}),
+	Schema.Struct({
+		scope: Schema.Literal("turn"),
+		turnId: AgentTurnId,
+		event: AgentEvent,
+	}),
+]);
+export type ProviderEventEnvelope = typeof ProviderEventEnvelope.Type;
+
 // ---------------------------------------------------------------------------
 // RPC inputs
 // ---------------------------------------------------------------------------
@@ -728,6 +747,8 @@ export const StartSessionInput = Schema.Struct({
   providerId: ProviderId,
   mode: SessionMode,
   initialPrompt: Schema.optional(Schema.String),
+	/** Exact application turn correlated with `initialPrompt`. */
+	initialTurnId: Schema.optional(AgentTurnId),
   /**
    * Internal Zuse-provided workspace context. The renderer does not set this;
    * ProviderService fills it after resolving the project/worktree cwd so

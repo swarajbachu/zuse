@@ -9,7 +9,7 @@ import type {
 	StartSessionInput,
 	WorktreeId,
 } from "@zuse/contracts";
-import { RepositorySettings, Worktree } from "@zuse/contracts";
+import { AgentTurnId, RepositorySettings, Worktree } from "@zuse/contracts";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
@@ -65,6 +65,7 @@ import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031
 import { Migration0032ReactorEffectReceipts } from "../../src/persistence/migrations/0032_reactor_effect_receipts.ts";
 import { Migration0033ReactorEffectSteps } from "../../src/persistence/migrations/0033_reactor_effect_steps.ts";
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
+import { Migration0038QueuedMessageReady } from "../../src/persistence/migrations/0038_queued_message_ready.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
@@ -139,6 +140,7 @@ const runAllMigrations = Effect.all(
 		Migration0032ReactorEffectReceipts,
 		Migration0033ReactorEffectSteps,
 		Migration0034ToolEventLookup,
+		Migration0038QueuedMessageReady,
 		Migration0039AuthTokenDevices,
 		Migration0041ChatArchiveJobs,
 	],
@@ -174,7 +176,14 @@ const makeRuntime = (
 		send: () => Effect.void,
 		interrupt: () => Effect.void,
 		close: () => Effect.void,
-		events: () => Stream.fromIterable(scriptedEvents),
+		events: () =>
+			Stream.fromIterable(
+				scriptedEvents.map((event) => ({
+					scope: "turn" as const,
+					turnId: AgentTurnId.make("fixture-turn"),
+					event,
+				})),
+			),
 		setCredential: () => Effect.void,
 		setPermissionMode: () => Effect.void,
 		answerQuestion: () => Effect.void,
@@ -388,9 +397,16 @@ export const assertEventsAcceptedByConversationServices = async (
 			),
 		);
 
-		const expectedRenderableCount = events.filter((event) =>
-			renderableTags.has(event._tag),
-		).length;
+		const expectedRenderableCount = new Set(
+			events.flatMap((event, index) => {
+				if (!renderableTags.has(event._tag)) return [];
+				return [
+					"itemId" in event && typeof event.itemId === "string"
+						? `${event._tag}:${event.itemId}`
+						: `${event._tag}:${index}`,
+				];
+			}),
+		).size;
 
 		const waitForReplay = Effect.gen(function* () {
 			const store = yield* TestConversation;

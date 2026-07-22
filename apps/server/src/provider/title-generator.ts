@@ -1,13 +1,13 @@
-import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 import * as os from "node:os";
-
 import {
   AgentSessionId,
+	AgentTurnId,
   type BranchNamingStyle,
   type FolderId,
   type ProviderId,
   type RuntimeMode,
 } from "@zuse/contracts";
+import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 
 import { ProviderService } from "./services/provider-service.ts";
 
@@ -60,7 +60,10 @@ export const shouldDeferAutoName = (
 
 /** Render user/assistant turns into the throwaway title prompt body. */
 export const buildConversationText = (
-  turns: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly text: string }>,
+	turns: ReadonlyArray<{
+		readonly role: "user" | "assistant";
+		readonly text: string;
+	}>,
 ): string =>
   turns
     .map((turn) => {
@@ -213,6 +216,7 @@ export const TitleGeneratorLive = Layer.effect(
       Effect.gen(function* () {
         const fallback = fallbackTitle(input.conversationText);
         const sid = AgentSessionId.make(`title-${crypto.randomUUID()}`);
+				const turnId = AgentTurnId.make(`title-turn-${crypto.randomUUID()}`);
         const prompt = `${PROMPT_PREFIX}${input.conversationText.slice(0, 4000)}`;
 
         const text = yield* Effect.gen(function* () {
@@ -223,6 +227,7 @@ export const TitleGeneratorLive = Layer.effect(
               mode: "sdk",
               sessionId: sid,
               initialPrompt: prompt,
+							initialTurnId: turnId,
               model: input.model,
               cwdOverride: scratchCwd,
               permissionMode: "default",
@@ -233,10 +238,11 @@ export const TitleGeneratorLive = Layer.effect(
           // First non-empty assistant chunk is the title; we don't need the
           // rest of the turn.
           const head = yield* provider.events(sid).pipe(
-            Stream.filterMap((event) =>
-              event._tag === "AssistantMessage" &&
-              event.text.trim().length > 0
-                ? Result.succeed(event.text)
+						Stream.filterMap((envelope) =>
+							envelope.scope === "turn" &&
+							envelope.event._tag === "AssistantMessage" &&
+							envelope.event.text.trim().length > 0
+								? Result.succeed(envelope.event.text)
                 : Result.fail(undefined),
             ),
             Stream.take(1),
