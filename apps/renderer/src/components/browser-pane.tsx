@@ -546,6 +546,7 @@ export function BrowserPane() {
 				throw new Error("Browser session import is unavailable in this build.");
 			cookieStatusRef.current = status;
 			setCookieStatus(status);
+			(webviewRef.current as WebviewElement | null)?.reload();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			throw new Error(message);
