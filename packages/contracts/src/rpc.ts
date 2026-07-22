@@ -35,7 +35,14 @@ import {
 	RelayUnlinkRpc,
 } from "./connect.ts";
 import { ContextSaveTextRpc } from "./context.ts";
-import { DiagnosticsExportRpc } from "./diagnostics.ts";
+import {
+	DiagnosticsEventsRpc,
+	DiagnosticsExportRpc,
+	DiagnosticsIngestRpc,
+	DiagnosticsOverviewRpc,
+	DiagnosticsProcessesRpc,
+	DiagnosticsSignalRpc,
+} from "./diagnostics.ts";
 import {
 	ExternalThreadsContinueRpc,
 	ExternalThreadsListRpc,
@@ -413,6 +420,11 @@ export const MemoizeRpcs = RpcGroup.make(
 	UsageLimitsRpc,
 	UsageLimitsHistoryRpc,
 	DiagnosticsExportRpc,
+	DiagnosticsOverviewRpc,
+	DiagnosticsEventsRpc,
+	DiagnosticsProcessesRpc,
+	DiagnosticsSignalRpc,
+	DiagnosticsIngestRpc,
 	KeybindingsGetRpc,
 	KeybindingsReplaceRpc,
 	KeybindingsStreamRpc,

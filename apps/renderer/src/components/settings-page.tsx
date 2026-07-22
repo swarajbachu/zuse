@@ -49,12 +49,6 @@ import {
 	playCompletionSound,
 	prepareCompletionSound,
 } from "../lib/completion-sounds.ts";
-import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
-import { recordUiAction } from "../lib/diagnostics-recorder.ts";
-import {
-	openExternal as openExternalUrl,
-	rendererPlatformCapabilities,
-} from "../lib/platform-capabilities.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useProvidersStore } from "../store/providers.ts";
@@ -68,6 +62,7 @@ import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
+import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
 import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx";
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
@@ -153,10 +148,10 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		section: { kind: "shortcuts" },
 	},
 	{
-		id: "advanced",
-		label: "Advanced",
+		id: "diagnostics",
+		label: "Diagnostics",
 		Icon: DocumentAttachmentIcon,
-		section: { kind: "advanced" },
+		section: { kind: "diagnostics" },
 	},
 	// Dev-only visual playground (accent swatches + workflow chip/button
 	// showcase). Filtered out of production bundles below.
@@ -208,7 +203,11 @@ export function SettingsPage() {
 					<div
 						className={cn(
 							"mx-auto flex w-full flex-col gap-10",
-							section.kind === "pokedex" ? "max-w-5xl" : "max-w-2xl",
+							section.kind === "diagnostics"
+								? "max-w-6xl"
+								: section.kind === "pokedex"
+									? "max-w-5xl"
+									: "max-w-2xl",
 						)}
 					>
 						<SectionTitle section={section} folders={folders} />
@@ -368,11 +367,11 @@ function SectionTitle({
 				subtitle: "Unlocked Pokémon from all worktrees.",
 			};
 		}
-		if (section.kind === "advanced") {
+		if (section.kind === "diagnostics") {
 			return {
-				title: "Advanced",
+				title: "Diagnostics",
 				subtitle:
-					"Browser test logins and diagnostics — settings you rarely need.",
+					"Inspect failures, traces, processes, resources, and local support bundles.",
 			};
 		}
 		if (section.kind === "shortcuts") {
@@ -436,205 +435,10 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "devices") return <DevicesPane />;
 	if (section.kind === "browser") return <BrowserSettingsPagePane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
-	if (section.kind === "advanced") return <AdvancedPane />;
+	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
 	if (section.kind === "developer") return <DeveloperPane />;
 	return <RepositorySettings projectId={section.projectId} />;
-}
-
-const DIAGNOSTICS_ISSUE_URL =
-	"https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
-
-function openExternal(url: string): void {
-	void openExternalUrl(url);
-}
-
-function revealPath(path: string): void {
-	const bridge = window.zuse ?? window.memoize;
-	void bridge?.app?.revealPath?.(path);
-}
-
-async function copyDiagnosticsJson(path: string): Promise<boolean> {
-	const bridge = window.zuse ?? window.memoize;
-	return (await bridge?.app?.copyFileContents?.(path)) ?? false;
-}
-
-function DiagnosticsPane() {
-	const capabilities = rendererPlatformCapabilities();
-	const [isExporting, setIsExporting] = useState(false);
-	const [lastExport, setLastExport] = useState<{
-		diagnosticId: string;
-		bundlePath: string;
-		summary: string;
-		jsonCopied: boolean;
-		included: ReadonlyArray<string>;
-	} | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const [copied, setCopied] = useState<"summary" | "json" | null>(null);
-
-	const markCopied = (kind: "summary" | "json") => {
-		setCopied(kind);
-		window.setTimeout(() => {
-			setCopied((current) => (current === kind ? null : current));
-		}, 1400);
-	};
-
-	const copyText = async (text: string) => {
-		await navigator.clipboard?.writeText(text);
-		markCopied("summary");
-	};
-
-	const copyJson = async (path: string) => {
-		const ok = await copyDiagnosticsJson(path);
-		if (ok) markCopied("json");
-		setLastExport((current) =>
-			current && current.bundlePath === path
-				? { ...current, jsonCopied: ok }
-				: current,
-		);
-	};
-
-	const exportDiagnostics = async () => {
-		setIsExporting(true);
-		setError(null);
-		try {
-			const client = await getRpcClient();
-			recordUiAction("diagnostics.export.started");
-			const clientContext = await collectDiagnosticsClientContext();
-			const result = await Effect.runPromise(
-				client["diagnostics.export"]({ clientContext }),
-			);
-			const jsonCopied = await copyDiagnosticsJson(result.bundlePath);
-			if (jsonCopied) markCopied("json");
-			recordUiAction("diagnostics.export.completed", result.diagnosticId);
-			setLastExport({
-				diagnosticId: result.diagnosticId,
-				bundlePath: result.bundlePath,
-				summary: result.summary,
-				jsonCopied,
-				included: result.included,
-			});
-			revealPath(result.bundlePath);
-		} catch (cause) {
-			setError(
-				cause instanceof Error
-					? cause.message
-					: "Could not export diagnostics bundle.",
-			);
-		} finally {
-			setIsExporting(false);
-		}
-	};
-
-	return (
-		<div className="flex flex-col gap-4">
-			<SettingsGroup
-				title="Bug report diagnostics"
-				description={
-					capabilities.revealInFileManager
-						? "Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
-						: "Creates a redacted diagnostics JSON file on the server. Use the desktop app to reveal that server-side file."
-				}
-			>
-				<SettingsRow
-					title="Export diagnostics JSON"
-					description={
-						capabilities.revealInFileManager
-							? "Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
-							: "Exports a redacted JSON file on the connected server."
-					}
-					action={
-						<Button
-							size="sm"
-							onClick={() => void exportDiagnostics()}
-							disabled={isExporting}
-						>
-							<HugeiconsIcon
-								icon={DocumentAttachmentIcon}
-								className="size-3.5"
-							/>
-							{isExporting ? "Exporting..." : "Export diagnostics"}
-						</Button>
-					}
-				/>
-				{lastExport && (
-					<SettingsRow
-						title={`Last export: ${lastExport.diagnosticId}`}
-						description={
-							lastExport.jsonCopied
-								? "Diagnostics JSON copied. Attach the revealed JSON file to the GitHub issue."
-								: "Diagnostics exported. Attach the revealed JSON file to the GitHub issue."
-						}
-					>
-						<div className="flex flex-wrap gap-2">
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => openExternal(DIAGNOSTICS_ISSUE_URL)}
-							>
-								Open GitHub issue
-							</Button>
-							{capabilities.copyServerFile && (
-								<Button
-									variant="settings"
-									size="sm"
-									onClick={() => void copyJson(lastExport.bundlePath)}
-								>
-									{copied === "json" ? "Copied" : "Copy diagnostics JSON"}
-								</Button>
-							)}
-							{capabilities.revealInFileManager && (
-								<Button
-									variant="settings"
-									size="sm"
-									onClick={() => revealPath(lastExport.bundlePath)}
-								>
-									Reveal diagnostics file
-								</Button>
-							)}
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => void copyText(lastExport.summary)}
-							>
-								{copied === "summary" ? "Copied" : "Copy summary"}
-							</Button>
-						</div>
-						<p className="mt-3 text-xs text-muted-foreground">
-							File: {lastExport.bundlePath}
-						</p>
-						<div className="mt-3 rounded-lg border border-border/40 bg-background/60 p-3">
-							<div className="mb-2 text-xs font-medium text-muted-foreground">
-								Bundle contents
-							</div>
-							<div className="flex flex-wrap gap-1.5">
-								{lastExport.included.map((item) => (
-									<span
-										key={item}
-										className="rounded bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground"
-									>
-										{item}
-									</span>
-								))}
-							</div>
-						</div>
-					</SettingsRow>
-				)}
-				{error && (
-					<SettingsRow
-						icon={Alert01Icon}
-						title="Export failed"
-						description={error}
-					/>
-				)}
-			</SettingsGroup>
-
-			<SettingsFrame
-				title="Reporting from GitHub?"
-				description="Open a bug report, follow the template, export diagnostics from Help -> Export Diagnostics for Bug Report, then attach the JSON file before submitting."
-			/>
-		</div>
-	);
 }
 
 const EMPTY_BROWSER_IMPORT_STATUS: BrowserCookieImportStatus = {
@@ -1487,17 +1291,6 @@ function GeneralPane() {
 			</SettingsGroup>
 			<WorkspacePane />
 			<NotchSettingsPane />
-		</div>
-	);
-}
-
-/**
- * Rarely-needed diagnostic settings kept out of the primary rail flow.
- */
-function AdvancedPane() {
-	return (
-		<div className="flex flex-col gap-4">
-			<DiagnosticsPane />
 		</div>
 	);
 }
