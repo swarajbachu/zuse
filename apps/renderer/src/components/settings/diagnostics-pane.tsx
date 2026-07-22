@@ -429,7 +429,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						onClick={() => setLive((value) => !value)}
 					>
 						{live ? <Pause /> : <Play />}
@@ -438,7 +438,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						aria-label="Refresh diagnostics"
 						onClick={() => void refresh()}
 					>
@@ -448,7 +448,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
@@ -460,7 +460,7 @@ export function DiagnosticsPane() {
 					</Button>
 					<Button
 						size="sm"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						loading={exporting}
 						onClick={() => void exportBundle()}
 					>
@@ -556,7 +556,7 @@ export function DiagnosticsPane() {
 											<Button
 												size="xs"
 												variant="ghost"
-												className="text-[10px]"
+												className="!text-[10px]"
 												disabled={item.pid === processes.serverPid}
 												onClick={() =>
 													void signalProcess(item.pid, "interrupt")
@@ -567,7 +567,7 @@ export function DiagnosticsPane() {
 											<Button
 												size="xs"
 												variant="destructive-outline"
-												className="text-[10px]"
+												className="!text-[10px]"
 												disabled={item.pid === processes.serverPid}
 												onClick={() => void signalProcess(item.pid, "kill")}
 											>
@@ -752,7 +752,7 @@ export function DiagnosticsPane() {
 								<Button
 									size="sm"
 									variant="settings"
-									className="h-7 px-2.5 text-[10px]"
+									className="h-7 px-2.5 !text-[10px]"
 									onClick={() => void loadMoreEvents()}
 								>
 									Load more
@@ -807,7 +807,7 @@ export function DiagnosticsPane() {
 							<Button
 								size="sm"
 								variant="settings"
-								className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+								className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 								onClick={() =>
 									void navigator.clipboard.writeText(
 										`${selected.id}\n${selected.message}\n${selected.detail ?? ""}`,
@@ -986,7 +986,7 @@ export function DiagnosticsPane() {
 				<div className="flex flex-wrap gap-2 border-t border-border/45 p-4">
 					<Button
 						size="sm"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						onClick={() => void exportBundle()}
 						loading={exporting}
 					>
@@ -996,7 +996,7 @@ export function DiagnosticsPane() {
 					<Button
 						size="sm"
 						variant="settings"
-						className="h-7 gap-1.5 px-2.5 text-[10px] [&_svg]:size-3.5"
+						className="h-7 gap-1.5 px-2.5 !text-[10px] [&_svg]:size-3.5"
 						onClick={() =>
 							void (
 								window.zuse ?? window.memoize
