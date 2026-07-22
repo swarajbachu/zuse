@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+	createBrowserSessionConnection,
 	exchangeBrowserPairing,
 	readAndClearPairingFragment,
 	requestBrowserWebSocketUrl,
@@ -11,6 +12,42 @@ afterEach(() => {
 });
 
 describe("browser sessions", () => {
+	it("exchanges a single-use pairing credential once for concurrent callers", async () => {
+		let resolveExchange:
+			| ((status: { authenticated: boolean; authRequired: boolean }) => void)
+			| undefined;
+		const exchange = new Promise<{
+			authenticated: boolean;
+			authRequired: boolean;
+		}>((resolve) => {
+			resolveExchange = resolve;
+		});
+		const readPairing = vi.fn(() => "zp_single_use");
+		const exchangePairing = vi.fn(() => exchange);
+		const getSession = vi.fn(async () => ({
+			authenticated: true,
+			authRequired: true,
+		}));
+		const connection = createBrowserSessionConnection({
+			readPairing,
+			exchangePairing,
+			getSession,
+		});
+
+		const first = connection.connect();
+		const second = connection.connect();
+		expect(second).toBe(first);
+		expect(readPairing).toHaveBeenCalledTimes(1);
+		expect(exchangePairing).toHaveBeenCalledTimes(1);
+
+		resolveExchange?.({ authenticated: true, authRequired: true });
+		await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+		await expect(connection.connect()).resolves.toMatchObject({
+			authenticated: true,
+		});
+		expect(getSession).toHaveBeenCalledTimes(1);
+	});
+
 	it("reads the pairing credential and immediately removes the fragment", () => {
 		const replaceState = vi.fn();
 		const credential = readAndClearPairingFragment(

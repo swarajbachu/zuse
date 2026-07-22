@@ -9,9 +9,7 @@ import {
 
 import {
 	BrowserSessionError,
-	exchangeBrowserPairing,
-	getBrowserSession,
-	readAndClearPairingFragment,
+	createBrowserSessionConnection,
 } from "../lib/browser-session.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import {
@@ -26,6 +24,7 @@ type AccessState =
 			readonly status: "error";
 			readonly title: string;
 			readonly description: string;
+			readonly retryable: boolean;
 	  };
 
 const errorCopy = (
@@ -36,14 +35,16 @@ const errorCopy = (
 			return {
 				title: "This pairing link expired",
 				description:
-					"Create a fresh browser link from the Devices pane in the desktop app.",
+					"In the desktop app, open Settings → Devices and create a fresh web link.",
+				retryable: false,
 			};
 		}
 		if (cause.status === 401) {
 			return {
 				title: "Pair this browser",
 				description:
-					"Open a new browser link from the Devices pane to authorize this browser.",
+					"In the desktop app, open Settings → Devices → Create web link. Open that one-time link to authorize this browser.",
+				retryable: false,
 			};
 		}
 		if (cause.status === 426) {
@@ -51,6 +52,7 @@ const errorCopy = (
 				title: "Zuse versions do not match",
 				description:
 					"Update the server and reload this page before reconnecting.",
+				retryable: false,
 			};
 		}
 	}
@@ -59,6 +61,7 @@ const errorCopy = (
 		description: navigator.onLine
 			? "Check that the environment is running, then try again."
 			: "Reconnect to the network and retry when you are ready.",
+		retryable: true,
 	};
 };
 
@@ -94,7 +97,7 @@ function AccessCard({
 						? "Authentication and connection recovery happen automatically."
 						: state.description}
 				</p>
-				{!loading && (
+				{!loading && state.retryable && (
 					<button
 						className="mt-5 inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 font-medium text-primary-foreground text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 						onClick={retry}
@@ -149,20 +152,19 @@ export function BrowserAccessGate({
 			? { status: "ready" }
 			: { status: "loading" },
 	);
-	const pairingRef = useRef<string | null>(null);
+	const connectionRef = useRef<ReturnType<
+		typeof createBrowserSessionConnection
+	> | null>(null);
+	connectionRef.current ??= createBrowserSessionConnection();
 
 	const connect = useCallback(async () => {
 		setState({ status: "loading" });
 		try {
-			pairingRef.current ??= readAndClearPairingFragment();
-			const session =
-				pairingRef.current === null
-					? await getBrowserSession()
-					: await exchangeBrowserPairing(pairingRef.current);
+			const session = await connectionRef.current?.connect();
+			if (session === undefined) throw new Error("browser_session_unavailable");
 			if (!session.authenticated) {
 				throw new BrowserSessionError(401, "unauthorized");
 			}
-			pairingRef.current = null;
 			setState({ status: "ready" });
 		} catch (cause) {
 			setState({ status: "error", ...errorCopy(cause) });

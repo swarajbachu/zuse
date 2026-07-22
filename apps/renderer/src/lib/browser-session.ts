@@ -59,6 +59,57 @@ export const exchangeBrowserPairing = (
 		body: JSON.stringify({ credential }),
 	});
 
+type BrowserSessionConnectionDependencies = {
+	readonly readPairing: () => string | null;
+	readonly getSession: () => Promise<BrowserSessionStatus>;
+	readonly exchangePairing: (
+		credential: string,
+	) => Promise<BrowserSessionStatus>;
+};
+
+/**
+ * Coordinates browser authentication across concurrent React callers.
+ * Development Strict Mode intentionally runs effects twice, while pairing
+ * credentials are intentionally single-use. Keeping the exchange single-flight
+ * prevents a second effect from consuming the same credential and overwriting
+ * a successful connection with an invalid-code response.
+ */
+export const createBrowserSessionConnection = (
+	dependencies: BrowserSessionConnectionDependencies = {
+		readPairing: readAndClearPairingFragment,
+		getSession: getBrowserSession,
+		exchangePairing: exchangeBrowserPairing,
+	},
+): { readonly connect: () => Promise<BrowserSessionStatus> } => {
+	let pairingRead = false;
+	let pairing: string | null = null;
+	let inFlight: Promise<BrowserSessionStatus> | null = null;
+
+	const connect = (): Promise<BrowserSessionStatus> => {
+		if (inFlight !== null) return inFlight;
+		if (!pairingRead) {
+			pairing = dependencies.readPairing();
+			pairingRead = true;
+		}
+
+		const attempt =
+			pairing === null
+				? dependencies.getSession()
+				: dependencies.exchangePairing(pairing);
+		inFlight = attempt;
+		const clearAttempt = () => {
+			if (inFlight === attempt) inFlight = null;
+		};
+		void attempt.then((session) => {
+			if (session.authenticated) pairing = null;
+			clearAttempt();
+		}, clearAttempt);
+		return attempt;
+	};
+
+	return { connect };
+};
+
 export const logoutBrowserSession = (): Promise<BrowserSessionStatus> =>
 	jsonRequest<BrowserSessionStatus>("/auth/logout", { method: "POST" });
 
