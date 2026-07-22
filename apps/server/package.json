@@ -23,6 +23,7 @@
 	},
 	"scripts": {
 		"serve": "tsx src/bin.ts",
+		"build:bundle": "vp pack && tsc -p tsconfig.build.json",
 		"build": "bun run --filter renderer build && vp pack && tsc -p tsconfig.build.json && node scripts/copy-client.mjs",
 		"check-types": "tsc --noEmit",
 		"test": "vp test run test/unit test/integration",

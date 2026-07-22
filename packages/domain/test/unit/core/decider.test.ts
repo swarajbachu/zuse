@@ -254,6 +254,37 @@ describe("session decider", () => {
 		).toEqual([]);
 	});
 
+	test("treats late interrupt outcomes after exact-turn settlement as no-ops", () => {
+		const settled = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "turn-1", startedAt: 2 },
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "completed",
+				settledAt: 3,
+			},
+		]);
+		expect(
+			Result.getOrThrow(
+				decide(settled, {
+					_tag: "AcknowledgeTurnInterrupt",
+					turnId: "turn-1",
+					acknowledgedAt: 4,
+				}),
+			),
+		).toEqual([]);
+		expect(
+			Result.getOrThrow(
+				decide(settled, {
+					_tag: "FailTurnInterrupt",
+					turnId: "turn-1",
+					reason: "provider already completed",
+					failedAt: 4,
+				}),
+			),
+		).toEqual([]);
+	});
+
 	test("rejects stale interrupt and terminal commands", () => {
 		const running = evolveAll(created(), [
 			{ _tag: "TurnStarted", turnId: "turn-2", startedAt: 2 },
