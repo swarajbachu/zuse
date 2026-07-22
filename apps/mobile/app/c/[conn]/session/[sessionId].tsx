@@ -86,7 +86,9 @@ import {
 } from "~/lib/thread-view-state";
 import {
 	answerQuestion,
+	getWorktree,
 	makeTextInput,
+	renameWorktreeBranch,
 	respondToPlan,
 	sendMessage,
 } from "~/rpc/actions";
@@ -170,6 +172,7 @@ function ThreadScreen() {
 	const archiveChat = useSessionsStore((state) => state.archiveChat);
 	const archiveSession = useSessionsStore((state) => state.archiveSession);
 	const renameChatAction = useSessionsStore((state) => state.renameChat);
+	const renameSessionAction = useSessionsStore((state) => state.renameSession);
 	const markChatRead = useSessionsStore((state) => state.markChatRead);
 	const createSession = useSessionsStore((state) => state.createSession);
 	const rawMessages = useMobileMessagesStore((state) =>
@@ -722,7 +725,7 @@ function ThreadScreen() {
 				});
 	const transcriptFooterHeight = effectiveBottomInset + anchorSpace;
 
-	const onRename = useCallback(() => {
+	const onRenameChat = useCallback(() => {
 		if (chatId === null || options === null) return;
 		Alert.prompt(
 			"Rename chat",
@@ -730,12 +733,77 @@ function ThreadScreen() {
 			(value) => {
 				const next = value?.trim() ?? "";
 				if (next.length === 0) return;
-				void renameChatAction(connKey, options, chatId, next);
+				void renameChatAction(connKey, options, chatId, next).catch((cause) =>
+					Alert.alert("Could not rename chat", connectionErrorMessage(cause)),
+				);
 			},
 			"plain-text",
 			title,
 		);
 	}, [chatId, connKey, options, renameChatAction, title]);
+	const onRenameSession = useCallback(() => {
+		if (detail === null || options === null) return;
+		Alert.prompt(
+			"Rename session",
+			undefined,
+			(value) => {
+				const next = value?.trim() ?? "";
+				if (next.length === 0) return;
+				void renameSessionAction(
+					connKey,
+					options,
+					detail.session.id,
+					next,
+				).catch((cause) =>
+					Alert.alert(
+						"Could not rename session",
+						connectionErrorMessage(cause),
+					),
+				);
+			},
+			"plain-text",
+			detail.session.title,
+		);
+	}, [connKey, detail, options, renameSessionAction]);
+	const onRenameBranch = useCallback(() => {
+		const worktreeId = detail?.session.worktreeId;
+		if (worktreeId == null || options === null) return;
+		void Effect.runPromise(getWorktree({ connection: options, worktreeId }))
+			.then((worktree) => {
+				if (worktree === null) {
+					Alert.alert(
+						"Could not rename branch",
+						"The worktree no longer exists.",
+					);
+					return;
+				}
+				Alert.prompt(
+					"Rename branch",
+					undefined,
+					(value) => {
+						const next = value?.trim() ?? "";
+						if (next.length === 0 || next === worktree.branch) return;
+						void Effect.runPromise(
+							renameWorktreeBranch({
+								connection: options,
+								worktreeId,
+								name: next,
+							}),
+						).catch((cause) =>
+							Alert.alert(
+								"Could not rename branch",
+								connectionErrorMessage(cause),
+							),
+						);
+					},
+					"plain-text",
+					worktree.branch,
+				);
+			})
+			.catch((cause) =>
+				Alert.alert("Could not rename branch", connectionErrorMessage(cause)),
+			);
+	}, [detail?.session.worktreeId, options]);
 
 	const onArchive = useCallback(() => {
 		if (chatId === null || options === null) return;
@@ -929,7 +997,11 @@ function ThreadScreen() {
 									? undefined
 									: () => void togglePinnedChat(currentPinKey)
 							}
-							onRename={chatId === null ? undefined : onRename}
+							onRenameChat={chatId === null ? undefined : onRenameChat}
+							onRenameSession={detail === null ? undefined : onRenameSession}
+							onRenameBranch={
+								detail?.session.worktreeId == null ? undefined : onRenameBranch
+							}
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}

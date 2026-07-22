@@ -1,11 +1,11 @@
-import { Rpc } from "effect/unstable/rpc";
 import { Schema, Struct } from "effect";
+import { Rpc } from "effect/unstable/rpc";
 
 import {
-  AgentDefinition,
-  OpencodeCustomProvider,
-  ProviderId,
-  RuntimeMode,
+	AgentDefinition,
+	OpencodeCustomProvider,
+	ProviderId,
+	RuntimeMode,
 } from "./agent.ts";
 import { AutonomyLevel } from "./autonomy.ts";
 import { GitMergeMethod } from "./git.ts";
@@ -17,18 +17,18 @@ import { GitMergeMethod } from "./git.ts";
  * up automatically — only fields they've explicitly customised stick.
  */
 export const SubagentPresetState = Schema.Struct({
-  enabled: Schema.Boolean,
-  overrides: AgentDefinition.mapFields(Struct.map(Schema.optional)),
+	enabled: Schema.Boolean,
+	overrides: AgentDefinition.mapFields(Struct.map(Schema.optional)),
 });
 export type SubagentPresetState = typeof SubagentPresetState.Type;
 
 export const CompletionSoundPreset = Schema.Literals([
-  "chime",
-  "soft",
-  "pop",
-  "bell",
-  "rise",
-  "bloom",
+	"chime",
+	"soft",
+	"pop",
+	"bell",
+	"rise",
+	"bloom",
 ]);
 export type CompletionSoundPreset = typeof CompletionSoundPreset.Type;
 
@@ -36,8 +36,8 @@ export const AppearanceMode = Schema.Literals(["system", "light", "dark"]);
 export type AppearanceMode = typeof AppearanceMode.Type;
 
 /**
- * How the auto-namer (PR: "auto-name chat + branch after first message")
- * shapes a worktree's git branch once it has an LLM-derived title slug.
+ * How the auto-namer shapes a fresh worktree's branch after the first
+ * successful agent turn.
  *   - `username-slug` → `<git-user>/<slug>` (e.g. `swarajbachu/dark-mode`)
  *   - `slug`          → `<slug>`            (e.g. `dark-mode`)
  *   - `feat-slug`     → `feat/<slug>`       (e.g. `feat/dark-mode`)
@@ -45,16 +45,16 @@ export type AppearanceMode = typeof AppearanceMode.Type;
  * Default is `username-slug`, mirroring the convention most teams use.
  */
 export const BranchNamingStyle = Schema.Literals([
-  "username-slug",
-  "slug",
-  "feat-slug",
-  "custom",
+	"username-slug",
+	"slug",
+	"feat-slug",
+	"custom",
 ]);
 export type BranchNamingStyle = typeof BranchNamingStyle.Type;
 
 export const MergePrefs = Schema.Struct({
-  method: GitMergeMethod,
-  deleteBranch: Schema.Boolean,
+	method: GitMergeMethod,
+	deleteBranch: Schema.Boolean,
 });
 export type MergePrefs = typeof MergePrefs.Type;
 
@@ -68,89 +68,89 @@ export type MergePrefs = typeof MergePrefs.Type;
  * after this PR copies the values across (see `apps/desktop/src/config-store.ts`).
  */
 export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
-  schemaVersion: Schema.Literal(1),
-  defaultProviderId: ProviderId,
-  defaultModelByProvider: Schema.Record(ProviderId, Schema.String),
-  defaultRuntimeMode: RuntimeMode,
-  defaultAutoCreateWorktree: Schema.Boolean,
-  /**
-   * Legacy autonomy level for new sessions. Current runtimes expose the
-   * built-in orchestration tools by default and route mutating calls through
-   * the normal permission system; see {@link AutonomyLevel}.
-   */
-  defaultAutonomyLevel: AutonomyLevel,
-  onboardingCompleted: Schema.Boolean,
-  appearanceMode: AppearanceMode,
-  completionSoundEnabled: Schema.Boolean,
-  completionSoundPreset: CompletionSoundPreset,
-  /**
-   * Per-provider on/off toggle from the Providers settings card. Defaults
-   * to `true` for every provider; flipping it to `false` filters the
-   * provider from the new-session picker without uninstalling its CLI.
-   */
-  providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
-  /**
-   * Per-model visibility toggles from provider settings. Missing entries are
-   * filled from each model's catalog `defaultVisible` flag by config-store.
-   */
-  modelEnabledByProvider: Schema.Record(
-    ProviderId,
-    Schema.Record(Schema.String, Schema.Boolean),
-  ),
-  /**
-   * OpenCode is a meta-harness fronting ~150 model providers. These four
-   * fields drive the in-app OpenCode provider manager. They are keyed by
-   * opencode's own *sub-provider* id (e.g. `"openai"`, `"openrouter"`, or a
-   * custom slug) — a free-form string, unlike the six-member {@link ProviderId}
-   * the maps above use. Credentials are NOT stored here; API keys live in
-   * opencode's `auth.json` (written via `agent.opencodeSetProviderAuth`).
-   *
-   * Which connected sub-providers appear in the model picker. Missing entry ⇒
-   * visible (a newly connected provider shows by default).
-   */
-  opencodeProviderVisible: Schema.Record(Schema.String, Schema.Boolean),
-  /** Per-sub-provider model visibility. Missing entry ⇒ visible. */
-  opencodeModelVisibleByProvider: Schema.Record(
-    Schema.String,
-    Schema.Record(Schema.String, Schema.Boolean),
-  ),
-  /**
-   * User-defined OpenAI-compatible providers (no secrets — the API key lives
-   * in opencode's `auth.json`). Injected into every `opencode serve` we spawn
-   * via `OPENCODE_CONFIG_CONTENT` so both inventory and sessions see them.
-   */
-  opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
-  /**
-   * User MCP servers switched off globally, by descriptor key
-   * (`claude:<name>` / `codex:<name>` — see `McpServerDescriptor.key`).
-   * Server *definitions* never live here; the user's native Claude/Codex
-   * config files are the source of truth and this stores only overrides.
-   */
-  mcpDisabledServers: Schema.Array(Schema.String),
-  subagents: Schema.Struct({
-    enableForNewSessions: Schema.Boolean,
-    presets: Schema.Record(Schema.String, SubagentPresetState),
-  }),
-  /**
-   * Branch-name shape the auto-namer uses when it renames a new chat's
-   * worktree branch from the first message. See {@link BranchNamingStyle}.
-   */
-  branchNamingStyle: BranchNamingStyle,
-  /**
-   * User-defined prefix used only when `branchNamingStyle === "custom"`,
-   * slash-joined before the slug (e.g. prefix `wip` → `wip/dark-mode`).
-   * Empty falls back to a bare slug.
-   */
-  branchNamingPrefix: Schema.String,
-  mergePrefs: MergePrefs,
-  /**
-   * macOS-only notch tray. The main process only shows it on likely notched
-   * MacBook built-in displays; unsupported hardware keeps the preference but
-   * renders nothing.
-   */
-  notchTrayEnabled: Schema.Boolean,
-  /** Keep the notch tray expanded instead of only expanding on hover. */
-  notchTrayPinned: Schema.Boolean,
+	schemaVersion: Schema.Literal(1),
+	defaultProviderId: ProviderId,
+	defaultModelByProvider: Schema.Record(ProviderId, Schema.String),
+	defaultRuntimeMode: RuntimeMode,
+	defaultAutoCreateWorktree: Schema.Boolean,
+	/**
+	 * Legacy autonomy level for new sessions. Current runtimes expose the
+	 * built-in orchestration tools by default and route mutating calls through
+	 * the normal permission system; see {@link AutonomyLevel}.
+	 */
+	defaultAutonomyLevel: AutonomyLevel,
+	onboardingCompleted: Schema.Boolean,
+	appearanceMode: AppearanceMode,
+	completionSoundEnabled: Schema.Boolean,
+	completionSoundPreset: CompletionSoundPreset,
+	/**
+	 * Per-provider on/off toggle from the Providers settings card. Defaults
+	 * to `true` for every provider; flipping it to `false` filters the
+	 * provider from the new-session picker without uninstalling its CLI.
+	 */
+	providerEnabled: Schema.Record(ProviderId, Schema.Boolean),
+	/**
+	 * Per-model visibility toggles from provider settings. Missing entries are
+	 * filled from each model's catalog `defaultVisible` flag by config-store.
+	 */
+	modelEnabledByProvider: Schema.Record(
+		ProviderId,
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	/**
+	 * OpenCode is a meta-harness fronting ~150 model providers. These four
+	 * fields drive the in-app OpenCode provider manager. They are keyed by
+	 * opencode's own *sub-provider* id (e.g. `"openai"`, `"openrouter"`, or a
+	 * custom slug) — a free-form string, unlike the six-member {@link ProviderId}
+	 * the maps above use. Credentials are NOT stored here; API keys live in
+	 * opencode's `auth.json` (written via `agent.opencodeSetProviderAuth`).
+	 *
+	 * Which connected sub-providers appear in the model picker. Missing entry ⇒
+	 * visible (a newly connected provider shows by default).
+	 */
+	opencodeProviderVisible: Schema.Record(Schema.String, Schema.Boolean),
+	/** Per-sub-provider model visibility. Missing entry ⇒ visible. */
+	opencodeModelVisibleByProvider: Schema.Record(
+		Schema.String,
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	/**
+	 * User-defined OpenAI-compatible providers (no secrets — the API key lives
+	 * in opencode's `auth.json`). Injected into every `opencode serve` we spawn
+	 * via `OPENCODE_CONFIG_CONTENT` so both inventory and sessions see them.
+	 */
+	opencodeCustomProviders: Schema.Array(OpencodeCustomProvider),
+	/**
+	 * User MCP servers switched off globally, by descriptor key
+	 * (`claude:<name>` / `codex:<name>` — see `McpServerDescriptor.key`).
+	 * Server *definitions* never live here; the user's native Claude/Codex
+	 * config files are the source of truth and this stores only overrides.
+	 */
+	mcpDisabledServers: Schema.Array(Schema.String),
+	subagents: Schema.Struct({
+		enableForNewSessions: Schema.Boolean,
+		presets: Schema.Record(Schema.String, SubagentPresetState),
+	}),
+	/**
+	 * Branch-name shape used for the semantic branch fragment generated after
+	 * the first successful agent turn. See {@link BranchNamingStyle}.
+	 */
+	branchNamingStyle: BranchNamingStyle,
+	/**
+	 * User-defined prefix used only when `branchNamingStyle === "custom"`,
+	 * slash-joined before the slug (e.g. prefix `wip` → `wip/dark-mode`).
+	 * Empty falls back to a bare slug.
+	 */
+	branchNamingPrefix: Schema.String,
+	mergePrefs: MergePrefs,
+	/**
+	 * macOS-only notch tray. The main process only shows it on likely notched
+	 * MacBook built-in displays; unsupported hardware keeps the preference but
+	 * renders nothing.
+	 */
+	notchTrayEnabled: Schema.Boolean,
+	/** Keep the notch tray expanded instead of only expanding on hover. */
+	notchTrayPinned: Schema.Boolean,
 }) {}
 
 /**
@@ -160,57 +160,52 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
  * `subagents` payload rather than a deep merge.
  */
 export const SettingsPatch = Schema.Struct({
-  defaultProviderId: Schema.optional(ProviderId),
-  defaultModelByProvider: Schema.optional(
-    Schema.Record(ProviderId, Schema.String),
-  ),
-  defaultRuntimeMode: Schema.optional(RuntimeMode),
-  defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
-  defaultAutonomyLevel: Schema.optional(AutonomyLevel),
-  onboardingCompleted: Schema.optional(Schema.Boolean),
-  appearanceMode: Schema.optional(AppearanceMode),
-  completionSoundEnabled: Schema.optional(Schema.Boolean),
-  completionSoundPreset: Schema.optional(CompletionSoundPreset),
-  providerEnabled: Schema.optional(
-    Schema.Record(ProviderId, Schema.Boolean),
-  ),
-  modelEnabledByProvider: Schema.optional(
-    Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
-  ),
-  opencodeProviderVisible: Schema.optional(
-    Schema.Record(Schema.String, Schema.Boolean),
-  ),
-  opencodeModelVisibleByProvider: Schema.optional(
-    Schema.Record(
-      Schema.String,
-      Schema.Record(Schema.String, Schema.Boolean),
-    ),
-  ),
-  opencodeCustomProviders: Schema.optional(
-    Schema.Array(OpencodeCustomProvider),
-  ),
-  mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
-  subagents: Schema.optional(
-    Schema.Struct({
-      enableForNewSessions: Schema.Boolean,
-      presets: Schema.Record(Schema.String, SubagentPresetState),
-    }),
-  ),
-  branchNamingStyle: Schema.optional(BranchNamingStyle),
-  branchNamingPrefix: Schema.optional(Schema.String),
-  mergePrefs: Schema.optional(MergePrefs),
-  notchTrayEnabled: Schema.optional(Schema.Boolean),
-  notchTrayPinned: Schema.optional(Schema.Boolean),
+	defaultProviderId: Schema.optional(ProviderId),
+	defaultModelByProvider: Schema.optional(
+		Schema.Record(ProviderId, Schema.String),
+	),
+	defaultRuntimeMode: Schema.optional(RuntimeMode),
+	defaultAutoCreateWorktree: Schema.optional(Schema.Boolean),
+	defaultAutonomyLevel: Schema.optional(AutonomyLevel),
+	onboardingCompleted: Schema.optional(Schema.Boolean),
+	appearanceMode: Schema.optional(AppearanceMode),
+	completionSoundEnabled: Schema.optional(Schema.Boolean),
+	completionSoundPreset: Schema.optional(CompletionSoundPreset),
+	providerEnabled: Schema.optional(Schema.Record(ProviderId, Schema.Boolean)),
+	modelEnabledByProvider: Schema.optional(
+		Schema.Record(ProviderId, Schema.Record(Schema.String, Schema.Boolean)),
+	),
+	opencodeProviderVisible: Schema.optional(
+		Schema.Record(Schema.String, Schema.Boolean),
+	),
+	opencodeModelVisibleByProvider: Schema.optional(
+		Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Boolean)),
+	),
+	opencodeCustomProviders: Schema.optional(
+		Schema.Array(OpencodeCustomProvider),
+	),
+	mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
+	subagents: Schema.optional(
+		Schema.Struct({
+			enableForNewSessions: Schema.Boolean,
+			presets: Schema.Record(Schema.String, SubagentPresetState),
+		}),
+	),
+	branchNamingStyle: Schema.optional(BranchNamingStyle),
+	branchNamingPrefix: Schema.optional(Schema.String),
+	mergePrefs: Schema.optional(MergePrefs),
+	notchTrayEnabled: Schema.optional(Schema.Boolean),
+	notchTrayPinned: Schema.optional(Schema.Boolean),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
 export const SettingsGetRpc = Rpc.make("settings.get", {
-  success: SettingsFile,
+	success: SettingsFile,
 });
 
 export const SettingsUpdateRpc = Rpc.make("settings.update", {
-  payload: Schema.Struct({ patch: SettingsPatch }),
-  success: SettingsFile,
+	payload: Schema.Struct({ patch: SettingsPatch }),
+	success: SettingsFile,
 });
 
 /**
@@ -219,8 +214,8 @@ export const SettingsUpdateRpc = Rpc.make("settings.update", {
  * picked up by the file watcher).
  */
 export const SettingsStreamRpc = Rpc.make("settings.stream", {
-  success: SettingsFile,
-  stream: true,
+	success: SettingsFile,
+	stream: true,
 });
 
 /**
@@ -235,12 +230,12 @@ export const SettingsStreamRpc = Rpc.make("settings.stream", {
  *   - `subagentsRaw`: the old `memoize.subagents` blob (zustand persist envelope)
  */
 export const SettingsMigrateLocalStorageRpc = Rpc.make(
-  "settings.migrateLocalStorage",
-  {
-    payload: Schema.Struct({
-      settingsV1Raw: Schema.optional(Schema.String),
-      subagentsRaw: Schema.optional(Schema.String),
-    }),
-    success: SettingsFile,
-  },
+	"settings.migrateLocalStorage",
+	{
+		payload: Schema.Struct({
+			settingsV1Raw: Schema.optional(Schema.String),
+			subagentsRaw: Schema.optional(Schema.String),
+		}),
+		success: SettingsFile,
+	},
 );

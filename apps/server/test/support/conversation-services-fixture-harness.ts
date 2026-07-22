@@ -67,6 +67,7 @@ import { Migration0033ReactorEffectSteps } from "../../src/persistence/migration
 import { Migration0034ToolEventLookup } from "../../src/persistence/migrations/0034_tool_event_lookup.ts";
 import { Migration0039AuthTokenDevices } from "../../src/persistence/migrations/0039_auth_token_devices.ts";
 import { Migration0041ChatArchiveJobs } from "../../src/persistence/migrations/0041_chat_archive_jobs.ts";
+import { Migration0042NameProvenance } from "../../src/persistence/migrations/0042_name_provenance.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -141,6 +142,7 @@ const runAllMigrations = Effect.all(
 		Migration0034ToolEventLookup,
 		Migration0039AuthTokenDevices,
 		Migration0041ChatArchiveJobs,
+		Migration0042NameProvenance,
 	],
 	{ discard: true },
 );
@@ -190,7 +192,7 @@ const makeRuntime = (
 			Effect.succeed(
 				worktreeId === FIXTURE_WORKTREE_ID ? makeTestWorktree() : null,
 			),
-		updateBranch: () => Effect.void,
+		renameBranch: () => Effect.die("not used"),
 		archive: (_worktreeId, recordCheckpoint) => {
 			const outcome = {
 				archiveCommit: "checkpoint-sha",
@@ -300,6 +302,7 @@ const makeRuntime = (
 
 	const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 		generate: () => Effect.die("not used"),
+		generateBranch: () => Effect.die("not used"),
 	});
 
 	const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {

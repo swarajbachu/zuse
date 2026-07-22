@@ -11,6 +11,8 @@ import * as Path from "node:path";
 import {
 	type FolderId,
 	Worktree,
+	WorktreeBranchRenameError,
+	type WorktreeBranchRenameReason,
 	WorktreeCheckpointError,
 	WorktreeCreateError,
 	WorktreeId,
@@ -57,6 +59,7 @@ interface WorktreeRow {
 	readonly path: string;
 	readonly name: string;
 	readonly branch: string;
+	readonly branch_provenance: "pending" | "automatic" | "manual";
 	readonly base_branch: string;
 	readonly created_at: string;
 	readonly setup_status: string;
@@ -89,6 +92,7 @@ const rowToWorktree = (
 		path: row.path,
 		name: row.name,
 		branch: row.branch,
+		branchProvenance: row.branch_provenance,
 		baseBranch: row.base_branch,
 		createdAt: new Date(row.created_at),
 		setupStatus: isSetupStatus(row.setup_status) ? row.setup_status : "pending",
@@ -405,7 +409,7 @@ export const WorktreeServiceLive = Layer.effect(
 		const list: WorktreeService["Service"]["list"] = (projectId) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<WorktreeRow>`
-          SELECT id, project_id, path, name, branch, base_branch, created_at,
+		  SELECT id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
                  setup_status, setup_output, setup_started_at, setup_finished_at,
                  pokemon_number
           FROM worktrees
@@ -418,7 +422,7 @@ export const WorktreeServiceLive = Layer.effect(
 		const get: WorktreeService["Service"]["get"] = (worktreeId) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<WorktreeRow>`
-          SELECT id, project_id, path, name, branch, base_branch, created_at,
+		  SELECT id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
                  setup_status, setup_output, setup_started_at, setup_finished_at,
                  pokemon_number
           FROM worktrees
@@ -431,13 +435,174 @@ export const WorktreeServiceLive = Layer.effect(
 					: rowToWorktree(row, decoration.pokemonSummary);
 			});
 
-		const updateBranch: WorktreeService["Service"]["updateBranch"] = (
-			worktreeId,
-			branch,
-		) =>
+		const updateBranch = (
+			worktreeId: WorktreeId,
+			branch: string,
+			provenance: "automatic" | "manual" = "manual",
+		): Effect.Effect<void> =>
 			sql`
-        UPDATE worktrees SET branch = ${branch} WHERE id = ${worktreeId}
-      `.pipe(Effect.asVoid, Effect.orDie);
+				UPDATE worktrees
+				SET branch = ${branch}, branch_provenance = ${provenance}
+				WHERE id = ${worktreeId}
+			`.pipe(Effect.asVoid, Effect.orDie);
+
+		const renameBranch: WorktreeService["Service"]["renameBranch"] = Effect.fn(
+			"WorktreeService.renameBranch",
+		)(function* (worktreeId, requestedName, provenance) {
+			const rows = yield* sql<WorktreeRow>`
+				SELECT id, project_id, path, name, branch, branch_provenance,
+				       base_branch, created_at, setup_status, setup_output,
+				       setup_started_at, setup_finished_at, pokemon_number
+				FROM worktrees WHERE id = ${worktreeId} LIMIT 1
+			`.pipe(Effect.orDie);
+			const row = rows[0];
+			if (row === undefined) {
+				return yield* new WorktreeNotFoundError({ worktreeId });
+			}
+			if (provenance === "automatic" && row.branch_provenance !== "pending") {
+				return rowToWorktree(row, decoration.pokemonSummary);
+			}
+
+			const fail = (reason: WorktreeBranchRenameReason, message: string) =>
+				new WorktreeBranchRenameError({ worktreeId, reason, message });
+			const requested = requestedName.trim();
+			if (requested.length === 0) {
+				return yield* fail("invalid", "Branch name cannot be empty.");
+			}
+			const current = (yield* runGit(row.path, [
+				"branch",
+				"--show-current",
+			]).pipe(
+				Effect.mapError((message) => fail("git-failed", message)),
+			)).trim();
+			if (current.length === 0) {
+				return yield* fail("detached", "Cannot rename a detached HEAD.");
+			}
+			if (current !== row.branch) {
+				yield* updateBranch(worktreeId, current, "manual");
+				return yield* fail(
+					"mismatch",
+					`The branch changed outside the app to ${current}. It was reconciled; reopen rename to continue.`,
+				);
+			}
+			if (current === requested) {
+				yield* sql`
+					UPDATE worktrees
+					SET branch_provenance = ${provenance}
+					WHERE id = ${worktreeId}
+					  AND branch = ${current}
+					  AND (${provenance} = 'manual' OR branch_provenance = 'pending')
+				`.pipe(Effect.mapError((error) => fail("git-failed", String(error))));
+				return (
+					(yield* get(worktreeId)) ??
+					rowToWorktree(row, decoration.pokemonSummary)
+				);
+			}
+
+			yield* runGit(row.path, ["check-ref-format", "--branch", requested]).pipe(
+				Effect.mapError((message) => fail("invalid", message)),
+			);
+			const upstream = (yield* runGit(row.path, [
+				"rev-parse",
+				"--abbrev-ref",
+				"--symbolic-full-name",
+				"@{upstream}",
+			]).pipe(Effect.catch(() => Effect.succeed("")))).trim();
+			const remoteBranches = (yield* runGit(row.path, [
+				"branch",
+				"--remotes",
+				"--list",
+				`*/${current}`,
+			]).pipe(Effect.catch(() => Effect.succeed("")))).trim();
+			const hasPullRequest = yield* runGh(row.path, [
+				"pr",
+				"view",
+				"--json",
+				"number",
+			]).pipe(
+				Effect.map(() => true),
+				Effect.catch(() => Effect.succeed(false)),
+			);
+			if (upstream.length > 0 || remoteBranches.length > 0 || hasPullRequest) {
+				return yield* fail(
+					"published",
+					"Published branches cannot be renamed. The remote branch and pull request were left unchanged.",
+				);
+			}
+
+			const branchExists = (name: string) =>
+				runGit(row.path, [
+					"show-ref",
+					"--verify",
+					"--quiet",
+					`refs/heads/${name}`,
+				]).pipe(
+					Effect.map(() => true),
+					Effect.catch(() => Effect.succeed(false)),
+				);
+			let target = requested;
+			if (yield* branchExists(target)) {
+				if (provenance === "manual") {
+					return yield* fail("conflict", `Branch ${target} already exists.`);
+				}
+				let suffix = 2;
+				while (yield* branchExists(`${requested}-${suffix}`)) suffix += 1;
+				target = `${requested}-${suffix}`;
+			}
+
+			yield* runGit(row.path, ["branch", "-m", current, target]).pipe(
+				Effect.mapError((message) => fail("git-failed", message)),
+			);
+			const persisted = yield* sql<{ readonly id: string }>`
+				UPDATE worktrees
+				SET branch = ${target}, branch_provenance = ${provenance}
+				WHERE id = ${worktreeId}
+				  AND branch = ${current}
+				  AND (${provenance} = 'manual' OR branch_provenance = 'pending')
+				RETURNING id
+			`.pipe(Effect.result);
+			if (persisted._tag === "Failure" || persisted.success.length === 0) {
+				const rollback = yield* runGit(row.path, [
+					"branch",
+					"-m",
+					target,
+					current,
+				]).pipe(Effect.result);
+				if (rollback._tag === "Failure") {
+					return yield* fail(
+						"rollback-failed",
+						`Branch renamed to ${target}, but persistence and rollback failed.`,
+					);
+				}
+				if (persisted._tag === "Success") {
+					return yield* fail(
+						"mismatch",
+						"The worktree changed while the branch was being renamed. The Git rename was rolled back.",
+					);
+				}
+				return yield* fail(
+					"git-failed",
+					"The branch rename could not be persisted and was rolled back.",
+				);
+			}
+			const renamed = yield* get(worktreeId);
+			if (renamed === null) {
+				const rollback = yield* runGit(row.path, [
+					"branch",
+					"-m",
+					target,
+					current,
+				]).pipe(Effect.result);
+				if (rollback._tag === "Failure") {
+					return yield* fail(
+						"rollback-failed",
+						`Branch renamed to ${target}, but the worktree disappeared and rollback failed.`,
+					);
+				}
+				return yield* new WorktreeNotFoundError({ worktreeId });
+			}
+			return renamed;
+		});
 
 		const create: WorktreeService["Service"]["create"] = (projectId, source) =>
 			Effect.gen(function* () {
@@ -765,10 +930,10 @@ export const WorktreeServiceLive = Layer.effect(
 					const nowIso = now.toISOString();
 					yield* sql`
             INSERT INTO worktrees
-              (id, project_id, path, name, branch, base_branch, created_at,
+              (id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
                setup_status, setup_output, pokemon_number)
             VALUES
-              (${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${baseBranch}, ${nowIso},
+              (${id}, ${projectId}, ${target}, ${name}, ${checkedOutBranch}, ${source === undefined ? "pending" : "manual"}, ${baseBranch}, ${nowIso},
                'pending', '', ${pokemonNumber})
           `.pipe(Effect.orDie);
 					yield* pokemonAssignment.record(pokemonNumber, id);
@@ -1301,12 +1466,12 @@ export const WorktreeServiceLive = Layer.effect(
 
 				const createdAtIso = snapshot.createdAt.toISOString();
 				const inserted = yield* sql`
-          INSERT INTO worktrees
-            (id, project_id, path, name, branch, base_branch, created_at,
+		  INSERT INTO worktrees
+		    (id, project_id, path, name, branch, branch_provenance, base_branch, created_at,
              setup_status, setup_output)
           VALUES
             (${snapshot.id}, ${snapshot.projectId}, ${snapshot.path},
-             ${snapshot.name}, ${snapshot.branch}, ${snapshot.baseBranch},
+		     ${snapshot.name}, ${snapshot.branch}, 'manual', ${snapshot.baseBranch},
 			     ${createdAtIso}, 'pending', '')
         `.pipe(Effect.result);
 				if (inserted._tag === "Failure") {
@@ -1616,7 +1781,7 @@ export const WorktreeServiceLive = Layer.effect(
 			create,
 			list,
 			get,
-			updateBranch,
+			renameBranch,
 			archive,
 			finishArchiveRemoval,
 			remove,

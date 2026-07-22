@@ -26,6 +26,7 @@ import {
 	MessageId,
 	WorktreeId,
 } from "./ids.ts";
+import { NameProvenanceField } from "./naming.ts";
 import { Worktree } from "./worktree.ts";
 
 export {
@@ -98,6 +99,7 @@ export class Session extends Schema.Class<Session>("Session")({
 	id: SessionId,
 	projectId: FolderId,
 	title: Schema.String,
+	titleProvenance: NameProvenanceField,
 	providerId: ProviderId,
 	model: Schema.String,
 	status: SessionStatus,
@@ -593,7 +595,7 @@ export const SessionSetWorktreeRpc = Rpc.make("session.setWorktree", {
 
 export const SessionRenameRpc = Rpc.make("session.rename", {
 	payload: Schema.Struct({ sessionId: SessionId, title: Schema.String }),
-	success: Schema.Void,
+	success: Session,
 	error: SessionNotFoundError,
 });
 
@@ -698,6 +700,7 @@ export class Chat extends Schema.Class<Chat>("Chat")({
 	projectId: FolderId,
 	worktreeId: Schema.NullOr(WorktreeId),
 	title: Schema.String,
+	titleProvenance: NameProvenanceField,
 	activeSessionId: Schema.NullOr(SessionId),
 	/**
 	 * Lineage. When an agent spawns this chat via the orchestration
@@ -899,7 +902,7 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 
 export const ChatRenameRpc = Rpc.make("chat.rename", {
 	payload: Schema.Struct({ chatId: ChatId, title: Schema.String }),
-	success: Schema.Void,
+	success: Chat,
 	error: ChatNotFoundError,
 });
 

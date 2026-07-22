@@ -13,7 +13,9 @@ export function SessionActionsMenu({
 	isPinned,
 	onNewChat,
 	onPin,
-	onRename,
+	onRenameChat,
+	onRenameSession,
+	onRenameBranch,
 	onThreads,
 	onChanges,
 	onFiles,
@@ -22,7 +24,9 @@ export function SessionActionsMenu({
 	isPinned: boolean;
 	onNewChat: () => void;
 	onPin?: () => void;
-	onRename?: () => void;
+	onRenameChat?: () => void;
+	onRenameSession?: () => void;
+	onRenameBranch?: () => void;
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
@@ -67,11 +71,25 @@ export function SessionActionsMenu({
 							onPress={onPin}
 						/>
 					) : null}
-					{onRename !== undefined ? (
+					{onRenameChat !== undefined ? (
 						<NativeButton
-							label="Rename"
+							label="Rename chat"
 							systemImage={sf("pencil")}
-							onPress={onRename}
+							onPress={onRenameChat}
+						/>
+					) : null}
+					{onRenameSession !== undefined ? (
+						<NativeButton
+							label="Rename session"
+							systemImage={sf("rectangle.and.pencil.and.ellipsis")}
+							onPress={onRenameSession}
+						/>
+					) : null}
+					{onRenameBranch !== undefined ? (
+						<NativeButton
+							label="Rename branch"
+							systemImage={sf("arrow.triangle.branch")}
+							onPress={onRenameBranch}
 						/>
 					) : null}
 					<NativeButton

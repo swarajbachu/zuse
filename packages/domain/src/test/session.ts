@@ -10,6 +10,7 @@ export const sessionCreation = {
 	chatId: "chat-1",
 	projectId: "project-1",
 	title: "Session",
+	titleProvenance: "pending",
 	providerId: "provider-1",
 	model: "model-1",
 	status: "idle",

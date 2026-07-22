@@ -1,9 +1,4 @@
-import {
-	type Chat,
-	type ChatId,
-	type MessageContent,
-	SessionId,
-} from "@zuse/contracts";
+import type { Chat, ChatId, MessageContent, SessionId } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { GitServiceShape } from "@zuse/git/git-service";
@@ -16,10 +11,80 @@ import type { TitleGeneratorShape } from "../../provider/title-generator.ts";
 import {
 	buildConversationText,
 	formatBranchName,
-	shouldDeferAutoName,
 } from "../../provider/title-generator.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { textFromMessageContent } from "./conversation-input.ts";
+
+export interface QualifiedNamingTurn {
+	readonly userText: string;
+	readonly assistantText: string;
+	readonly conversationText: string;
+}
+
+export interface NamingMessageRow {
+	readonly role: string;
+	readonly kind: string;
+	readonly content_json: string;
+}
+
+export const qualifyNamingMessages = (
+	status: string | undefined,
+	rows: ReadonlyArray<NamingMessageRow>,
+): QualifiedNamingTurn | null => {
+	if (status !== "idle") return null;
+	if (rows.some((row) => row.kind === "error" || row.kind === "interrupted")) {
+		return null;
+	}
+
+	const userTexts: string[] = [];
+	const assistantTexts: string[] = [];
+	for (const row of rows) {
+		try {
+			const content = JSON.parse(row.content_json) as MessageContent;
+			const text = textFromMessageContent(content)?.trim() ?? "";
+			if (text.length === 0) continue;
+			if (row.role === "user") userTexts.push(text);
+			if (
+				row.role === "assistant" &&
+				content._tag === "assistant" &&
+				content.isPlan !== true
+			) {
+				assistantTexts.push(text);
+			}
+		} catch {
+			return null;
+		}
+	}
+	if (userTexts.length === 0 || assistantTexts.length === 0) return null;
+	return {
+		userText: userTexts.join("\n\n"),
+		assistantText: assistantTexts.join("\n\n"),
+		conversationText: buildConversationText([
+			{ role: "user", text: userTexts.join("\n\n") },
+			{ role: "assistant", text: assistantTexts.join("\n\n") },
+		]),
+	};
+};
+
+/** Only completed turns with substantive, non-plan assistant output may name. */
+export const qualifyTurnForNaming = Effect.fn("qualifyTurnForNaming")(
+	function* (
+		sql: SqlClient.SqlClient,
+		sessionId: SessionId,
+		turnId: string,
+	): Effect.fn.Return<QualifiedNamingTurn | null> {
+		const sessions = yield* sql<{ readonly status: string }>`
+			SELECT status FROM sessions WHERE id = ${sessionId} LIMIT 1
+		`.pipe(Effect.orDie);
+		const rows = yield* sql<NamingMessageRow>`
+			SELECT role, kind, content_json
+			FROM messages
+			WHERE session_id = ${sessionId} AND turn_id = ${turnId}
+			ORDER BY created_at ASC
+		`.pipe(Effect.orDie);
+		return qualifyNamingMessages(sessions[0]?.status, rows);
+	},
+);
 
 export interface AutoNameOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -59,6 +124,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 		chatId: ChatId,
 		title: string,
 		commandId: string,
+		titleProvenance: "automatic" | "manual" = "manual",
 	) =>
 		Effect.gen(function* () {
 			yield* lookupChat(chatId);
@@ -67,6 +133,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				{
 					_tag: "RenameChat",
 					title,
+					titleProvenance,
 					updatedAt: yield* currentTimestamp,
 				},
 				commandId,
@@ -75,6 +142,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 			// `chat.streamChanges` so the sidebar updates without a refetch.
 			const updated = yield* lookupChat(chatId);
 			yield* broadcastChat(updated);
+			return updated;
 		});
 
 	const renameChat: ConversationOperations["renameChat"] = (chatId, title) =>
@@ -90,119 +158,87 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 			return yield* lookupChat(chatId);
 		});
 
-	/**
-	 * LLM auto-name: summarize recent user/assistant turns into a short title
-	 * and rename the chat (always) plus the worktree git branch (when the chat
-	 * has its own worktree). Runs on a background fiber so the agent turn is
-	 * never delayed; swallows every failure so a flaky title call can't wedge
-	 * the session.
-	 */
-	const collectAutoNameContext = (
-		chatId: ChatId,
-	): Effect.Effect<{
-		readonly userTexts: string[];
-		readonly assistantTexts: string[];
-		readonly conversationText: string;
-	}> =>
-		Effect.gen(function* () {
-			const rows = yield* sql<{
-				readonly role: string;
-				readonly content_json: string;
-			}>`
-          SELECT m.role, m.content_json
-          FROM messages m
-          INNER JOIN sessions s ON s.id = m.session_id
-          WHERE s.chat_id = ${chatId}
-            AND m.role IN ('user', 'assistant')
-          ORDER BY m.created_at ASC
-          LIMIT 24
-        `.pipe(Effect.orDie);
-			const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
-			const userTexts: string[] = [];
-			const assistantTexts: string[] = [];
-			for (const row of rows) {
-				try {
-					const content = JSON.parse(row.content_json) as MessageContent;
-					const text = textFromMessageContent(content);
-					if (text === null || text.trim().length === 0) continue;
-					if (row.role === "user") {
-						userTexts.push(text);
-						turns.push({ role: "user", text });
-					} else if (row.role === "assistant") {
-						assistantTexts.push(text);
-						turns.push({ role: "assistant", text });
-					}
-				} catch {
-					// Skip malformed rows — title gen can still fall back.
-				}
-			}
-			return {
-				userTexts,
-				assistantTexts,
-				conversationText: buildConversationText(turns),
-			};
-		});
-
 	const autoNameChat = (
 		chatId: ChatId,
 		sessionId: SessionId,
+		turnId: string,
 		commandId: string,
 	): Effect.Effect<void> =>
 		Effect.gen(function* () {
 			if (yield* reactorEffects.isCompleted(commandId)) return;
-			const chat = yield* lookupChat(chatId).pipe(
+			const qualified = yield* qualifyTurnForNaming(sql, sessionId, turnId);
+			if (qualified === null) {
+				yield* reactorEffects.complete(commandId);
+				return;
+			}
+			let chat = yield* lookupChat(chatId).pipe(
 				Effect.catch(() => Effect.succeed(null)),
 			);
 			if (chat === null) return;
-
-			const context = yield* collectAutoNameContext(chatId);
-			if (shouldDeferAutoName(context.userTexts, context.assistantTexts)) {
-				return;
-			}
-
-			const session = yield* lookupSession(sessionId).pipe(
+			let session = yield* lookupSession(sessionId).pipe(
 				Effect.catch(() => Effect.succeed(null)),
 			);
 			if (session === null) return;
-			const title = yield* titleGen.generate({
-				folderId: chat.projectId,
-				providerId: session.providerId,
-				model: session.model,
-				conversationText: context.conversationText,
-			});
-			if (title.length === 0 || title === "New chat") return;
-
-			// Title first — cheap, and the user sees the sidebar update even if
-			// the branch rename below is skipped or fails.
-			yield* renameChatWithCommandId(chatId, title, commandId);
-			const memberSessions = yield* sql<{ readonly id: string }>`
-          SELECT id FROM sessions WHERE chat_id = ${chatId}
-        `.pipe(Effect.orDie);
-			yield* Effect.forEach(
-				memberSessions,
-				({ id }) =>
-					Effect.gen(function* () {
+			const initialRows = yield* sql<{ readonly id: string }>`
+				SELECT id FROM sessions
+				WHERE chat_id = ${chatId}
+				ORDER BY created_at ASC
+				LIMIT 1
+			`.pipe(Effect.orDie);
+			const isInitialSession = initialRows[0]?.id === sessionId;
+			if (
+				session.titleProvenance === "pending" ||
+				(isInitialSession && chat.titleProvenance === "pending")
+			) {
+				const title = yield* titleGen.generate({
+					folderId: chat.projectId,
+					providerId: session.providerId,
+					model: session.model,
+					conversationText: qualified.conversationText,
+					fallbackText: qualified.userText,
+				});
+				if (title.length > 0 && title !== "New chat") {
+					if ((yield* qualifyTurnForNaming(sql, sessionId, turnId)) === null) {
+						yield* reactorEffects.complete(commandId);
+						return;
+					}
+					session = yield* lookupSession(sessionId);
+					if (session.titleProvenance === "pending") {
 						yield* sessionDomain.dispatch({
-							commandId: `${commandId}:session:${id}`,
-							streamId: SessionId.make(id),
+							commandId: `${commandId}:session`,
+							streamId: sessionId,
 							command: {
 								_tag: "SetTitle",
 								title,
+								titleProvenance: "automatic",
 								updatedAt: yield* currentTimestamp,
 							},
 						});
-					}).pipe(Effect.ignore),
-				{ discard: true },
-			);
+					}
+					chat = yield* lookupChat(chatId);
+					if (
+						isInitialSession &&
+						chat.titleProvenance === "pending" &&
+						(yield* qualifyTurnForNaming(sql, sessionId, turnId)) !== null
+					) {
+						yield* renameChatWithCommandId(
+							chatId,
+							title,
+							`${commandId}:chat`,
+							"automatic",
+						);
+					}
+				}
+			}
 
 			const markComplete = reactorEffects.complete(commandId);
-			if (chat.worktreeId === null) {
+			if (!isInitialSession || chat.worktreeId === null) {
 				yield* markComplete;
 				return;
 			}
 			const worktreeId = chat.worktreeId;
 			const wt = yield* worktrees.get(worktreeId);
-			if (wt === null) {
+			if (wt === null || wt.branchProvenance !== "pending") {
 				yield* markComplete;
 				return;
 			}
@@ -211,18 +247,27 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 			const username = yield* git
 				.getUserName(chat.projectId)
 				.pipe(Effect.catch(() => Effect.succeed("")));
+			const branchFragment = yield* titleGen.generateBranch({
+				folderId: chat.projectId,
+				providerId: session.providerId,
+				model: session.model,
+				userText: qualified.userText,
+			});
+			if ((yield* qualifyTurnForNaming(sql, sessionId, turnId)) === null) {
+				yield* markComplete;
+				return;
+			}
 			const branch = formatBranchName(
-				title,
+				branchFragment,
 				username,
 				settings.branchNamingStyle,
 				settings.branchNamingPrefix,
 			);
 			// Rename the git branch, then mirror it onto the worktree row so the
 			// DB and git agree. updateBranch only runs if the rename succeeded.
-			yield* git.renameBranch(chat.projectId, branch, worktreeId).pipe(
-				Effect.flatMap(() => worktrees.updateBranch(worktreeId, branch)),
-				Effect.catch(() => Effect.void),
-			);
+			yield* worktrees
+				.renameBranch(worktreeId, branch, "automatic")
+				.pipe(Effect.catch(() => Effect.void));
 
 			yield* markComplete;
 		}).pipe(Effect.catchCause(() => Effect.void));

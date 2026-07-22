@@ -251,20 +251,6 @@ const applyChatChange = (
 	if (inserted || activeSessionMissing) {
 		void useSessionsStore.getState().hydrate(projectId);
 	}
-	// Mirror the server-side auto-namer onto member session tabs.
-	useSessionsStore.setState((s) => {
-		const sessions = s.sessionsByProject[projectId];
-		if (sessions === undefined) return s;
-		if (!sessions.some((row) => row.chatId === chat.id)) return s;
-		return {
-			sessionsByProject: {
-				...s.sessionsByProject,
-				[projectId]: sessions.map((row) =>
-					row.chatId === chat.id ? { ...row, title: chat.title } : row,
-				),
-			},
-		};
-	});
 };
 
 const runChatChangeStream = Effect.fn("ChatsStore.runChatChangeStream")(
@@ -408,6 +394,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			projectId,
 			worktreeId: optimisticWorktreeId,
 			title,
+			titleProvenance: opts?.title?.trim() ? "manual" : "pending",
 			activeSessionId: initialSessionId,
 			originSessionId: null,
 			archivedAt: null,
@@ -420,6 +407,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			id: initialSessionId,
 			projectId,
 			title,
+			titleProvenance: opts?.title?.trim() ? "manual" : "pending",
 			providerId,
 			model,
 			status: "booting",
@@ -604,7 +592,9 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		set({ error: null });
 		try {
 			const client = await getRpcClient();
-			await Effect.runPromise(client["chat.rename"]({ chatId, title }));
+			const renamed = await Effect.runPromise(
+				client["chat.rename"]({ chatId, title }),
+			);
 			set((s) => {
 				const projectId = findChatProject(s.chatsByProject, chatId);
 				if (projectId === null) return {};
@@ -612,18 +602,13 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				return {
 					chatsByProject: {
 						...s.chatsByProject,
-						[projectId]: chats.map((c) =>
-							c.id === chatId
-								? Object.assign(Object.create(Object.getPrototypeOf(c)), c, {
-										title,
-									})
-								: c,
-						),
+						[projectId]: chats.map((c) => (c.id === chatId ? renamed : c)),
 					},
 				};
 			});
 		} catch (err) {
 			set({ error: formatError(err) });
+			throw err;
 		}
 	},
 	setWorktree: async (chatId, worktreeId) => {

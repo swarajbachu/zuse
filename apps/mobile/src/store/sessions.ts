@@ -209,9 +209,19 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			},
 		}));
 		try {
-			await Effect.runPromise(
+			const renamed = await Effect.runPromise(
 				renameChatRpc({ connection: options, chatId, title: trimmed }),
 			);
+			set((state) => ({
+				bundlesByConnection: {
+					...state.bundlesByConnection,
+					[connKey]: patchChatFields(
+						state.bundlesByConnection[connKey] ?? [],
+						chatId,
+						{ title: renamed.title },
+					),
+				},
+			}));
 		} catch (cause) {
 			set((state) => ({
 				bundlesByConnection: {
@@ -223,6 +233,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					[connKey]: cause instanceof Error ? cause.message : String(cause),
 				},
 			}));
+			throw cause;
 		}
 	},
 	renameSession: async (connKey, options, sessionId, title) => {
@@ -244,9 +255,18 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}));
 		try {
 			const client = await Effect.runPromise(getConnectionClient(options));
-			await Effect.runPromise(
+			const renamed = await Effect.runPromise(
 				client["session.rename"]({ sessionId, title: trimmed }),
 			);
+			set((state) => ({
+				bundlesByConnection: {
+					...state.bundlesByConnection,
+					[connKey]: patchSession(
+						state.bundlesByConnection[connKey] ?? [],
+						renamed,
+					),
+				},
+			}));
 		} catch (cause) {
 			reportConnectionFailure(options, cause);
 			if (previous !== null) {

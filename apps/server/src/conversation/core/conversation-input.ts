@@ -5,20 +5,6 @@ import type {
 	ComposerAnnotation,
 	MessageContent,
 } from "@zuse/contracts";
-import { isTrivialUserMessage } from "../../provider/title-generator.ts";
-
-const titleFromInitial = (prompt: string | undefined): string => {
-	if (prompt === undefined) return "New chat";
-	const firstLine = prompt.trim().split("\n")[0] ?? "";
-	const truncated = firstLine.slice(0, 60).trim();
-	return truncated.length > 0 ? truncated : "New chat";
-};
-
-/** Provisional sidebar title before the LLM auto-namer runs. */
-export const deriveProvisionalTitle = (prompt: string | undefined): string => {
-	if (prompt === undefined || isTrivialUserMessage(prompt)) return "New chat";
-	return titleFromInitial(prompt);
-};
 
 export const textFromMessageContent = (
 	content: MessageContent,
@@ -49,8 +35,11 @@ const serializeCodeAnnotations = (
 		const side =
 			annotation.diffSide === undefined ? "" : ` (${annotation.diffSide} side)`;
 		const previous =
-			annotation.oldPath === undefined ? "" : `, previously ${annotation.oldPath}`;
-		const base = annotation.baseRef === undefined ? "" : `, base ${annotation.baseRef}`;
+			annotation.oldPath === undefined
+				? ""
+				: `, previously ${annotation.oldPath}`;
+		const base =
+			annotation.baseRef === undefined ? "" : `, base ${annotation.baseRef}`;
 		return `${index + 1}. ${annotation.relPath}:${range}${side}${previous}${base} — ${annotation.comment}`;
 	});
 	return ["Code annotations:", ...lines].join("\n");

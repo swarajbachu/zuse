@@ -32,6 +32,7 @@ interface SessionRow {
 	readonly chat_id: string;
 	readonly project_id: string;
 	readonly title: string;
+	readonly title_provenance: "pending" | "automatic" | "manual";
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly provider_id: string;
 	readonly model: string;
@@ -65,6 +66,7 @@ export type SqlSessionReadRecord = SessionReadRecord & {
 	readonly providerEventCursor: string | null;
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly title: string;
+	readonly titleProvenance: "pending" | "automatic" | "manual";
 	readonly providerId: string;
 	readonly model: string;
 	readonly resumeStrategy: string;
@@ -95,6 +97,7 @@ const sessionRecord = Effect.fn("SqlSessionQueries.sessionRecord")(function* (
 		chatId: row.chat_id,
 		projectId: row.project_id,
 		title: row.title,
+		titleProvenance: row.title_provenance,
 		status: row.status,
 		providerId: row.provider_id,
 		model: row.model,

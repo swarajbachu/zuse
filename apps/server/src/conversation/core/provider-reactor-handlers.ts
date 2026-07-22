@@ -52,6 +52,7 @@ export interface ProviderReactorHandlersOptions {
 	readonly autoNameChat: (
 		chatId: Parameters<ConversationOperations["renameChat"]>[0],
 		sessionId: SessionId,
+		turnId: string,
 		commandId: string,
 	) => Effect.Effect<void>;
 }
@@ -157,7 +158,12 @@ export const makeProviderReactorHandlers = (
 		Effect.gen(function* () {
 			const sessionId = SessionId.make(input.streamId);
 			const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
-			yield* autoNameChat(session.chatId, sessionId, input.commandId);
+			yield* autoNameChat(
+				session.chatId,
+				sessionId,
+				input.command.turnId,
+				input.commandId,
+			);
 		});
 
 	return { handleProviderStart, handleProviderStop, handleAutoName };

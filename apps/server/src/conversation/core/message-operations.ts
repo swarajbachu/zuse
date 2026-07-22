@@ -20,7 +20,6 @@ import type { ConversationOperations } from "../services/conversation-services.t
 import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
 import type { ConversationGoalState } from "./conversation-goal-state.ts";
 import {
-	deriveProvisionalTitle,
 	formatProviderFailure,
 	looksLikeAuthFailure,
 	serializeAnnotations,
@@ -59,7 +58,6 @@ export interface MessageOperationsOptions {
 		sessionId: SessionId,
 		persisted: PersistedMessage,
 	) => Effect.Effect<void>;
-	readonly lookupChat: ConversationOperations["getChat"];
 	readonly setGoal: ConversationOperations["setGoal"];
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
@@ -79,8 +77,6 @@ export interface MessageOperationsOptions {
 	readonly interruptProviderFiber: (
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
-	readonly renameSession: ConversationOperations["renameSession"];
-	readonly renameChat: ConversationOperations["renameChat"];
 }
 
 export interface MessageOperations {
@@ -102,7 +98,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			setStatus,
 			persistMessage,
 			ndjsonAppend,
-			lookupChat,
 			setGoal,
 			dispatchSessionCommand,
 			beginTurn,
@@ -111,8 +106,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			recoverStatus,
 			closeProvider,
 			interruptProviderFiber,
-			renameSession,
-			renameChat,
 		} = options;
 		const restartProviderSession = (
 			session: Session,
@@ -272,22 +265,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
             VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignore);
-				}
-				const chat = yield* lookupChat(session.chatId).pipe(
-					Effect.mapError(() => new SessionNotFoundError({ sessionId })),
-				);
-				// Provisional title: update chat + session immediately for real tasks
-				// so the sidebar/tab never sit on "New chat" while the LLM pass runs.
-				const provisional = deriveProvisionalTitle(text);
-				if (provisional !== "New chat") {
-					if (session.title === "New chat") {
-						yield* renameSession(sessionId, provisional);
-					}
-					if (chat.title === "New chat") {
-						yield* renameChat(session.chatId, provisional).pipe(
-							Effect.mapError(() => new SessionNotFoundError({ sessionId })),
-						);
-					}
 				}
 				if (asGoal === true) {
 					const objective = text.trim();

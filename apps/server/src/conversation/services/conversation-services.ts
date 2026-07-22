@@ -196,7 +196,7 @@ export interface ConversationOperations {
 	readonly renameSession: (
 		sessionId: SessionId,
 		title: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<Session, SessionNotFoundError>;
 
 	readonly setModel: (
 		sessionId: SessionId,
@@ -368,7 +368,7 @@ export interface ConversationOperations {
 	readonly renameChat: (
 		chatId: ChatId,
 		title: string,
-	) => Effect.Effect<void, ChatNotFoundError>;
+	) => Effect.Effect<Chat, ChatNotFoundError>;
 
 	/**
 	 * Mark a chat read by stamping `last_read_at` to "now". Returns the

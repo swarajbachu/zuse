@@ -13,6 +13,7 @@ export const SessionEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("SessionTitleSet", {
 		title: Schema.String,
+		titleProvenance: SessionConfigurationFields.titleProvenance,
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SessionModelSet", {
