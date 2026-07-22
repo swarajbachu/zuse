@@ -1,4 +1,6 @@
 import {
+	AgentTurnId,
+	ComposerInput,
 	type MessageContent,
 	type Session,
 	SessionId,
@@ -15,6 +17,7 @@ import type { OpenProviderSessionOptions } from "./provider-session-runtime.ts";
 
 const ProviderStartRequest = Schema.Struct({
 	initialPrompt: Schema.NullOr(Schema.String),
+	initialTurnId: Schema.optional(Schema.NullOr(AgentTurnId)),
 	modelOptionsJson: Schema.NullOr(Schema.String),
 	enableSubagents: Schema.Boolean,
 	forkFromResume: Schema.Boolean,
@@ -26,6 +29,9 @@ const decodeProviderStartRequest = Schema.decodeUnknownEffect(
 );
 const decodeProviderModelOptions = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(Schema.Record(Schema.String, Schema.String)),
+);
+const decodeProviderTurnInput = Schema.decodeUnknownEffect(
+	Schema.fromJsonString(ComposerInput),
 );
 
 export interface ProviderReactorHandlersOptions {
@@ -47,6 +53,11 @@ export interface ProviderReactorHandlersOptions {
 		sessionId: SessionId,
 		status: "error",
 	) => Effect.Effect<void>;
+	readonly settleTurnFromReactor: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		outcome: "completed" | "interrupted" | "error",
+	) => Effect.Effect<void>;
 	readonly provider: ProviderServiceShape;
 	readonly sessionDomain: SessionDomainApi;
 	readonly autoNameChat: (
@@ -66,6 +77,7 @@ export const makeProviderReactorHandlers = (
 		persistMessage,
 		ndjsonAppend,
 		setStatus,
+		settleTurnFromReactor,
 		provider,
 		sessionDomain,
 		autoNameChat,
@@ -106,6 +118,7 @@ export const makeProviderReactorHandlers = (
 						);
 			const start = openProviderSession(session, {
 				initialPrompt: request.initialPrompt ?? undefined,
+				initialTurnId: request.initialTurnId ?? undefined,
 				modelOptions,
 				enableSubagents: request.enableSubagents,
 				forkFromResume: request.forkFromResume,
@@ -123,7 +136,25 @@ export const makeProviderReactorHandlers = (
 								message: error.reason,
 							});
 							yield* ndjsonAppend(sessionId, persistedError);
-							yield* setStatus(sessionId, "error");
+							if (
+								request.initialTurnId !== null &&
+								request.initialTurnId !== undefined
+							) {
+								yield* sessionDomain
+									.dispatch({
+										commandId: `${reactorInput.commandId}:initial-turn-failed`,
+										streamId: sessionId,
+										command: {
+											_tag: "SettleTurn",
+											turnId: request.initialTurnId,
+											outcome: "error",
+											settledAt: Date.now(),
+										},
+									})
+									.pipe(Effect.orDie);
+							} else {
+								yield* setStatus(sessionId, "error");
+							}
 						}),
 					),
 				);
@@ -153,6 +184,156 @@ export const makeProviderReactorHandlers = (
 			yield* reactorEffects.complete(reactorInput.commandId);
 		});
 
+	const handleProviderTurn: ConversationReactorHandlers["providerTurn"] = (
+		reactorInput,
+	) =>
+		Effect.gen(function* () {
+			if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
+			const sessionId = SessionId.make(reactorInput.streamId);
+			const input = yield* decodeProviderTurnInput(
+				reactorInput.command.providerInputJson,
+			).pipe(Effect.orDie);
+			const sent = yield* provider
+				.send(
+					sessionId,
+					AgentTurnId.make(reactorInput.command.turnId),
+					input.text,
+					input.attachments,
+					input.fileRefs,
+					input.skillRefs,
+				)
+				.pipe(Effect.exit);
+			if (sent._tag === "Failure") {
+				const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
+				const restarted = yield* openProviderSession(session, {
+					sendAfterOpen: {
+						turnId: AgentTurnId.make(reactorInput.command.turnId),
+						text: input.text,
+						attachments: input.attachments,
+						fileRefs: input.fileRefs,
+						skillRefs: input.skillRefs,
+					},
+				}).pipe(Effect.exit);
+				if (restarted._tag === "Success") {
+					yield* reactorEffects.complete(reactorInput.commandId);
+					return;
+				}
+				yield* sessionDomain
+					.dispatch({
+						commandId: `${reactorInput.commandId}:failed`,
+						streamId: sessionId,
+						command: {
+							_tag: "SettleTurn",
+							turnId: reactorInput.command.turnId,
+							outcome: "error",
+							settledAt: Date.now(),
+						},
+					})
+					.pipe(Effect.orDie);
+				return yield* Effect.die(
+					new Error("Provider turn could not be started after durable intent"),
+				);
+			}
+			yield* reactorEffects.complete(reactorInput.commandId);
+		});
+
+	const handleProviderInterrupt: ConversationReactorHandlers["providerInterrupt"] =
+		(reactorInput) =>
+			Effect.gen(function* () {
+				if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
+				const sessionId = SessionId.make(reactorInput.streamId);
+				const turnId = AgentTurnId.make(reactorInput.command.turnId);
+				const interrupted = yield* provider
+					.interrupt(sessionId, turnId)
+					.pipe(Effect.timeout("5 seconds"), Effect.exit);
+				if (interrupted._tag === "Success") {
+					yield* sessionDomain
+						.dispatch({
+							commandId: `${reactorInput.commandId}:acknowledged`,
+							streamId: sessionId,
+							command: {
+								_tag: "AcknowledgeTurnInterrupt",
+								turnId,
+								acknowledgedAt: Date.now(),
+							},
+						})
+						.pipe(Effect.orDie);
+					yield* settleTurnFromReactor(sessionId, turnId, "interrupted");
+					yield* reactorEffects.complete(reactorInput.commandId);
+					return;
+				}
+				yield* sessionDomain
+					.dispatch({
+						commandId: `${reactorInput.commandId}:failed`,
+						streamId: sessionId,
+						command: {
+							_tag: "FailTurnInterrupt",
+							turnId,
+							reason: "Provider did not acknowledge cancellation",
+							failedAt: Date.now(),
+						},
+					})
+					.pipe(Effect.orDie);
+				yield* sessionDomain
+					.dispatch({
+						commandId: `${reactorInput.commandId}:settled`,
+						streamId: sessionId,
+						command: {
+							_tag: "SettleTurn",
+							turnId,
+							outcome: "interrupted",
+							settledAt: Date.now(),
+						},
+					})
+					.pipe(Effect.orDie);
+				yield* provider.close(sessionId).pipe(Effect.ignore);
+				yield* reactorEffects.complete(reactorInput.commandId);
+			});
+
+	const handleScheduledSuccessor: ConversationReactorHandlers["scheduledSuccessor"] =
+		(reactorInput) =>
+			Effect.gen(function* () {
+				if (yield* reactorEffects.isCompleted(reactorInput.commandId)) return;
+				const sessionId = SessionId.make(reactorInput.streamId);
+				const input = yield* decodeProviderTurnInput(
+					reactorInput.command.inputJson,
+				).pipe(Effect.orDie);
+				const hasRich =
+					input.attachments.length > 0 ||
+					input.fileRefs.length > 0 ||
+					input.skillRefs.length > 0 ||
+					(input.annotations?.length ?? 0) > 0;
+				const content = hasRich
+					? {
+							_tag: "user_rich" as const,
+							text: input.text,
+							attachments: input.attachments,
+							fileRefs: input.fileRefs,
+							skillRefs: input.skillRefs,
+							annotations: input.annotations ?? [],
+							goal: false,
+						}
+					: { _tag: "user" as const, text: input.text, goal: false };
+				yield* sessionDomain
+					.dispatch({
+						commandId: `${reactorInput.commandId}:submit`,
+						streamId: sessionId,
+						command: {
+							_tag: "SubmitTurn",
+							turnId: reactorInput.command.turnId,
+							messageId: `queued_${reactorInput.command.queueId}`,
+							role: "user",
+							kind: content._tag,
+							contentJson: JSON.stringify(content),
+							parentItemId: null,
+							providerInputJson: reactorInput.command.inputJson,
+							createdAt: Date.now(),
+						},
+					})
+					.pipe(Effect.orDie);
+				yield* reactorEffects.complete(reactorInput.commandId);
+			});
+
 	const handleAutoName: ConversationReactorHandlers["autoName"] = (input) =>
 		Effect.gen(function* () {
 			const sessionId = SessionId.make(input.streamId);
@@ -160,5 +341,12 @@ export const makeProviderReactorHandlers = (
 			yield* autoNameChat(session.chatId, sessionId, input.commandId);
 		});
 
-	return { handleProviderStart, handleProviderStop, handleAutoName };
+	return {
+		handleProviderStart,
+		handleProviderStop,
+		handleProviderTurn,
+		handleProviderInterrupt,
+		handleScheduledSuccessor,
+		handleAutoName,
+	};
 };

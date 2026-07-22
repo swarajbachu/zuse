@@ -23,10 +23,16 @@ import {
 	type ChatDeleteCommand,
 	chatArchiveReactorDefinition,
 	chatDeleteReactorDefinition,
+	type ProviderInterruptCommand,
 	type ProviderStartCommand,
 	type ProviderStopCommand,
+	type ProviderTurnCommand,
+	providerInterruptReactorDefinition,
 	providerStartReactorDefinition,
 	providerStopReactorDefinition,
+	providerTurnReactorDefinition,
+	type ScheduledSuccessorCommand,
+	scheduledSuccessorReactorDefinition,
 } from "@zuse/domain/reactors/conversation";
 import { Effect, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -43,6 +49,15 @@ export interface ConversationReactorHandlers {
 	) => Effect.Effect<void, SessionStartError>;
 	readonly providerStop: (
 		input: ReactorDispatchInput<ProviderStopCommand>,
+	) => Effect.Effect<void>;
+	readonly providerTurn: (
+		input: ReactorDispatchInput<ProviderTurnCommand>,
+	) => Effect.Effect<void>;
+	readonly providerInterrupt: (
+		input: ReactorDispatchInput<ProviderInterruptCommand>,
+	) => Effect.Effect<void>;
+	readonly scheduledSuccessor: (
+		input: ReactorDispatchInput<ScheduledSuccessorCommand>,
 	) => Effect.Effect<void>;
 	readonly autoName: (
 		input: ReactorDispatchInput<AutoNameCommand>,
@@ -105,6 +120,29 @@ export const makeConversationReactorRuntime = Effect.fn(
 		ProviderStopCommand,
 		SqlConsumerStorageError
 	>(sessionStorage, handlers.providerStop, providerStopReactorDefinition);
+	const providerTurn = new ReactorRunner<
+		StoredEvent,
+		ProviderTurnCommand,
+		SqlConsumerStorageError
+	>(sessionStorage, handlers.providerTurn, providerTurnReactorDefinition);
+	const providerInterrupt = new ReactorRunner<
+		StoredEvent,
+		ProviderInterruptCommand,
+		SqlConsumerStorageError
+	>(
+		sessionStorage,
+		handlers.providerInterrupt,
+		providerInterruptReactorDefinition,
+	);
+	const scheduledSuccessor = new ReactorRunner<
+		StoredEvent,
+		ScheduledSuccessorCommand,
+		SqlConsumerStorageError
+	>(
+		sessionStorage,
+		handlers.scheduledSuccessor,
+		scheduledSuccessorReactorDefinition,
+	);
 	const autoName = new ReactorRunner<
 		StoredEvent,
 		AutoNameCommand,
@@ -139,7 +177,14 @@ export const makeConversationReactorRuntime = Effect.fn(
 		providerStop.catchUp().pipe(Effect.asVoid, Effect.orDie),
 	);
 	const runSession = yield* serialize(
-		autoName.catchUp().pipe(Effect.asVoid, Effect.orDie),
+		Effect.gen(function* () {
+			yield* providerInterrupt.catchUp().pipe(Effect.orDie);
+			// Cancellation settlement makes an interrupt-then-send successor
+			// eligible, so claim it before delivering provider-turn effects.
+			yield* scheduledSuccessor.catchUp().pipe(Effect.orDie);
+			yield* providerTurn.catchUp().pipe(Effect.orDie);
+			yield* autoName.catchUp().pipe(Effect.orDie);
+		}),
 	);
 	const runChatArchive = yield* serialize(
 		chatArchive.catchUp().pipe(

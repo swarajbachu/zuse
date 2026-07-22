@@ -14,6 +14,7 @@ import type {
 import {
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
+	AgentTurnId,
 	ChatId,
 	ComposerInput,
 	defaultModelFor,
@@ -127,6 +128,16 @@ let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 let providerSentTexts: string[] = [];
 let providerSendAttempts = 0;
+const providerTurnIds = new Map<
+	AgentSessionId,
+	ReturnType<typeof AgentTurnId.make>
+>();
+const requireProviderTurnId = (sessionId: SessionId): AgentTurnId => {
+	const turnId = providerTurnIds.get(sessionId as AgentSessionId);
+	if (turnId === undefined)
+		throw new Error(`Missing provider turn for ${sessionId}`);
+	return turnId;
+};
 let providerStartOrchestrationTools: Array<
 	OrchestrationSessionTools | null | undefined
 > = [];
@@ -160,6 +171,9 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			providerStartInputs.push(input);
 			providerStartCursors.push(resumeCursor ?? null);
 			providerStartOrchestrationTools.push(orchestrationTools);
+			if (input.sessionId !== undefined && input.initialTurnId !== undefined) {
+				providerTurnIds.set(input.sessionId, input.initialTurnId);
+			}
 			if (providerStartBarrier !== null) {
 				yield* Effect.promise(() => providerStartBarrier as Promise<void>);
 			}
@@ -173,9 +187,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
 		}),
-	send: (sessionId, text) =>
+	send: (sessionId, turnId, text) =>
 		Effect.sync(() => {
 			providerSendAttempts += 1;
+			providerTurnIds.set(sessionId, turnId);
 		}).pipe(
 			Effect.andThen(
 				failProviderSend
@@ -187,7 +202,17 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 		),
 	interrupt: () => Effect.void,
 	close: () => Effect.void,
-	events: () => Stream.fromIterable(scriptedEvents),
+	events: (sessionId) =>
+		Stream.suspend(() =>
+			Stream.fromIterable(
+				scriptedEvents.map((event) => ({
+					scope: "turn" as const,
+					turnId:
+						providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
+					event,
+				})),
+			),
+		),
 	setCredential: () => Effect.void,
 	setPermissionMode: () => Effect.void,
 	answerQuestion: () => Effect.void,
@@ -560,6 +585,7 @@ beforeEach(() => {
 	providerStartInputs = [];
 	providerStartCursors = [];
 	providerSentTexts = [];
+	providerTurnIds.clear();
 	providerSendAttempts = 0;
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
@@ -695,46 +721,32 @@ describe("ConversationServices migrations", () => {
 });
 
 describe("ConversationServices — chat & session lifecycle", () => {
-	it("releases session caches when synchronous provider startup fails", async () => {
+	it("acknowledges creation before provider startup failure becomes durable", async () => {
 		await withRuntime(async (run) => {
 			failProviderStart = true;
-			const exit = await run(
+			const created = await run(
 				Effect.flatMap(store, (service) =>
 					service.createChat({
 						projectId: PROJECT_ID,
 						providerId: "claude",
 						model: "claude-opus-4-8",
 					}),
-				).pipe(Effect.result),
+				),
 			);
-			expect(exit._tag).toBe("Failure");
-
-			const cached = await run(
-				Effect.gen(function* () {
-					const sql = yield* SqlClient.SqlClient;
-					const state = yield* ConversationState;
-					const rows = yield* sql<{ readonly stream_id: string }>`
-						SELECT stream_id FROM events
-						WHERE stream_kind = 'session' AND type = 'SessionCreated'
-						LIMIT 1
-					`;
-					const sessionId = SessionId.make(rows[0]?.stream_id ?? "missing");
-					return {
-						projectId: state.projectId(sessionId),
-						agents: state.agents(sessionId),
-						activeTurn: state.activeTurn(sessionId),
-					};
-				}),
-			);
-			expect(cached).toEqual({
-				projectId: undefined,
-				agents: undefined,
-				activeTurn: undefined,
-			});
+			expect(created.initialSession.status).toBe("booting");
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.getSession(created.initialSession.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "error" });
 		});
 	});
 
-	it("reuses the durable active turn after the process cache is empty", async () => {
+	it("rejects a new send while a durable exact turn is active", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
 				Effect.flatMap(store, (service) =>
@@ -774,11 +786,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				}),
 			);
 
-			await run(
+			const send = await run(
 				Effect.flatMap(store, (service) =>
-					service.sendMessage(initialSession.id, "resume safely"),
+					Effect.exit(
+						service.sendMessage(initialSession.id, "must not overlap"),
+					),
 				),
 			);
+			expect(send._tag).toBe("Failure");
 			const evidence = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -795,9 +810,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				}),
 			);
 			expect(evidence.turns[0]?.count).toBe(1);
-			expect(
-				JSON.parse(evidence.messages[0]?.payload_json ?? "null"),
-			).toMatchObject({ turnId: "turn-durable" });
+			expect(evidence.messages).toEqual([]);
 		});
 	});
 
@@ -812,6 +825,20 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
+			await expect
+				.poll(() =>
+					run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							return yield* sql<{ readonly effect_id: string }>`
+								SELECT effect_id FROM reactor_effect_receipts
+								WHERE effect_id LIKE 'reactor:provider-start:%'
+							`;
+						}),
+					),
+				)
+				.toHaveLength(1);
 			const evidence = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -1496,14 +1523,41 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(result.chat.projectId).toBe(PROJECT_ID);
 			expect(result.initialSession.providerId).toBe("claude");
 			expect(result.initialSession.chatId).toBe(result.chat.id);
-			// hasInitial → session boots straight into "running".
-			expect(result.initialSession.status).toBe("running");
+			// The durable receipt precedes provider startup.
+			expect(result.initialSession.status).toBe("booting");
 			expect(result.initialMessage?.role).toBe("user");
 			expect(result.initialMessage?.content).toMatchObject({
 				_tag: "user",
 				text: "fix the bug",
 			});
 			expect(providerStartInputs.at(-1)?.cwdOverride).toBeUndefined();
+		});
+	});
+
+	it("createChat acknowledges the durable initial turn before provider startup completes", async () => {
+		await withRuntime(async (run) => {
+			const providerGate = deferred<void>();
+			providerStartBarrier = providerGate.promise;
+			const creation = run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "start after acknowledgement",
+					}),
+				),
+			);
+			const result = await Promise.race([
+				creation.then(() => "acknowledged" as const),
+				new Promise<"blocked">((resolve) =>
+					setTimeout(() => resolve("blocked"), 100),
+				),
+			]);
+			providerGate.resolve();
+			await creation;
+
+			expect(result).toBe("acknowledged");
 		});
 	});
 
@@ -1565,9 +1619,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					providerId: "claude",
 				},
 			});
-			expect(providerStartInputs.at(-1)?.initialPrompt).toBe(
-				"do the spawned task",
-			);
+			await expect
+				.poll(
+					() =>
+						providerStartInputs.find(
+							(input) => input.sessionId === result.child.initialSession.id,
+						)?.initialPrompt,
+				)
+				.toBe("do the spawned task");
 		});
 	});
 
@@ -1666,8 +1725,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(child.model).toBe(defaultModelFor("codex"));
 			expect(child.worktreeId).toBe(created.worktreeId as WorktreeId);
 			expect(parent.initialSession.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
-			expect(providerStartInputs.at(-1)?.model).toBe(defaultModelFor("codex"));
+			await expect
+				.poll(() =>
+					providerStartInputs.find(
+						(input) => input.sessionId === (created.sessionId as SessionId),
+					),
+				)
+				.toMatchObject({
+					providerId: "codex",
+					model: defaultModelFor("codex"),
+				});
 			const replayed = await run(
 				Effect.flatMap(store, (s) =>
 					s.streamChatChanges(PROJECT_ID).pipe(
@@ -1810,6 +1877,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
 			providerStartInputs = [];
 
 			const nextSession = await run(
@@ -1823,7 +1891,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			expect(nextSession.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(providerStartInputs).toHaveLength(1);
+			await expect.poll(() => providerStartInputs.length).toBe(1);
 			expect(providerStartInputs[0]?.cwdOverride).toBe(testWorktree.path);
 		});
 	});
@@ -2305,6 +2373,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						projectId: PROJECT_ID,
 						providerId: "claude",
 						model: "claude-opus-4-8",
+						initialPrompt: "keep the session running",
 					}),
 				),
 			);
@@ -2998,7 +3067,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("flushes a durable queue when restart recovery clears stale running state", async () => {
+	it("keeps queued work durable when restart cannot correlate a stale running status", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-queue-restart-"));
 		const dbPath = join(directory, "test.sqlite");
 		const first = makeRuntime(dbPath);
@@ -3024,19 +3093,28 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			await runFirst(
-				Effect.flatMap(store, (service) =>
-					service.addQueuedMessage(
-						initialSession.id,
-						new ComposerInput({
-							text: "recover this queue",
-							attachments: [],
-							fileRefs: [],
-							skillRefs: [],
+			await expect
+				.poll(() =>
+					runFirst(
+						Effect.flatMap(store, (service) =>
+							service.getSession(initialSession.id),
+						),
+					),
+				)
+				.toMatchObject({ status: "idle" });
+			await expect
+				.poll(() =>
+					runFirst(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							return yield* sql<{ readonly effect_id: string }>`
+								SELECT effect_id FROM reactor_effect_receipts
+								WHERE effect_id LIKE 'reactor:provider-start:%'
+							`;
 						}),
 					),
-				),
-			);
+				)
+				.toHaveLength(1);
 			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
 					domain.dispatch({
@@ -3050,6 +3128,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.addQueuedMessage(
+						initialSession.id,
+						new ComposerInput({
+							text: "recover this queue",
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+						}),
+					),
+				),
+			);
 			await first.dispose();
 
 			const restarted = makeRuntime(dbPath, false);
@@ -3058,18 +3149,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			try {
 				const messages = await runRestarted(
 					Effect.flatMap(store, (service) =>
-						service.listMessages(initialSession.id).pipe(
-							Effect.flatMap((items) =>
-								items.some(
-									(item) =>
-										item.content._tag === "user" &&
-										item.content.text === "recover this queue",
-								)
-									? Effect.succeed(items)
-									: Effect.fail("message not flushed" as const),
-							),
-							Effect.retry({ schedule: Schedule.recurs(100) }),
-						),
+						service.listMessages(initialSession.id),
 					),
 				);
 				const queue = await runRestarted(
@@ -3077,11 +3157,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						service.listQueuedMessages(initialSession.id),
 					),
 				);
-				expect(queue.items).toEqual([]);
-				expect(messages.at(-1)?.content).toMatchObject({
-					_tag: "user",
-					text: "recover this queue",
-				});
+				expect(queue.items.map((item) => item.input.text)).toEqual([
+					"recover this queue",
+				]);
+				expect(messages).toEqual([]);
+				const recovered = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.getSession(initialSession.id),
+					),
+				);
+				expect(recovered.status).toBe("error");
 			} finally {
 				await restarted.dispose();
 			}
@@ -3118,7 +3203,12 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			await run(
-				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						initialSession.id,
+						requireProviderTurnId(initialSession.id),
+					),
+				),
 			);
 			await run(
 				Effect.flatMap(store, (s) => s.flushQueuedMessages(initialSession.id)),
@@ -3129,10 +3219,34 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			expect(queue.paused).toBe(true);
 			expect(queue.items.map((item) => item.input.text)).toEqual(["resume me"]);
+			const interruptEvents = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					return yield* sql<{ readonly type: string }>`
+						SELECT type FROM events
+						WHERE stream_id = ${initialSession.id}
+							AND type IN (
+								'TurnInterruptRequested',
+								'TurnInterruptAcknowledged',
+								'TurnSettled'
+							)
+						ORDER BY stream_version
+					`;
+				}),
+			);
+			expect(interruptEvents.map((event) => event.type)).toEqual([
+				"TurnInterruptRequested",
+				"TurnInterruptAcknowledged",
+				"TurnSettled",
+			]);
+			const interruptedSession = await run(
+				Effect.flatMap(store, (s) => s.getSession(initialSession.id)),
+			);
+			expect(interruptedSession.status).toBe("idle");
 		});
 	});
 
-	it("resumeQueuedMessages clears pause and sends the head queued item", async () => {
+	it("resume sends one queued turn after the exact interrupted turn settles", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
 				Effect.flatMap(store, (s) =>
@@ -3169,18 +3283,22 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 			await run(
-				Effect.flatMap(store, (s) => s.interruptSession(initialSession.id)),
+				Effect.flatMap(store, (s) =>
+					s.interruptSession(
+						initialSession.id,
+						requireProviderTurnId(initialSession.id),
+					),
+				),
 			);
 
 			await run(
 				Effect.flatMap(store, (s) => s.resumeQueuedMessages(initialSession.id)),
 			);
-
-			const queue = await run(
+			const afterResume = await run(
 				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
 			);
-			expect(queue.paused).toBe(false);
-			expect(queue.items.map((item) => item.input.text)).toEqual([
+			expect(afterResume.paused).toBe(false);
+			expect(afterResume.items.map((item) => item.input.text)).toEqual([
 				"queued two",
 			]);
 			const messages = await run(
@@ -3484,6 +3602,30 @@ describe("ConversationServices cursor streaming", () => {
 		record.event.contentJson === undefined
 			? undefined
 			: (JSON.parse(record.event.contentJson) as { text?: string }).text;
+	const sendAndSettle = async (
+		run: Parameters<Parameters<typeof withRuntime>[0]>[0],
+		sessionId: SessionId,
+		text: string,
+	) => {
+		await run(
+			Effect.flatMap(store, (service) => service.sendMessage(sessionId, text)),
+		);
+		const turnId = requireProviderTurnId(sessionId);
+		await run(
+			Effect.flatMap(SessionDomain, (domain) =>
+				domain.dispatch({
+					commandId: `test:settle:${sessionId}:${text}`,
+					streamId: sessionId,
+					command: {
+						_tag: "SettleTurn",
+						turnId,
+						outcome: "completed",
+						settledAt: Date.now(),
+					},
+				}),
+			),
+		);
+	};
 
 	it("resumes from sinceSequence with zero gaps or duplicates", async () => {
 		await withRuntime(async (run) => {
@@ -3498,7 +3640,7 @@ describe("ConversationServices cursor streaming", () => {
 			);
 			const id = initialSession.id;
 			for (const text of ["m1", "m2", "m3"]) {
-				await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+				await sendAndSettle(run, id, text);
 			}
 
 			// First subscription: full replay of the three persisted rows.
@@ -3510,11 +3652,11 @@ describe("ConversationServices cursor streaming", () => {
 			expect(first.map(userText)).toEqual(["m1", "m2", "m3"]);
 			const sequences = first.map((e) => e.sequence);
 			expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
-			const cursor = sequences.at(-1)!;
+			const cursor = sequences.at(-1) ?? 0;
 
 			// "Network drop": the first stream is gone; more rows land meanwhile.
 			for (const text of ["m4", "m5"]) {
-				await run(Effect.flatMap(store, (s) => s.sendMessage(id, text)));
+				await sendAndSettle(run, id, text);
 			}
 
 			// Resubscribe with the recorded cursor — exactly the delta, in order.
@@ -3544,7 +3686,7 @@ describe("ConversationServices cursor streaming", () => {
 				),
 			);
 			const id = initialSession.id;
-			await run(Effect.flatMap(store, (s) => s.sendMessage(id, "m1")));
+			await sendAndSettle(run, id, "m1");
 
 			// Subscribe past m1, then persist m2/m3 while the stream is live —
 			// they must arrive via the tail, once each, in sequence order.
@@ -3556,6 +3698,17 @@ describe("ConversationServices cursor streaming", () => {
 						Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
 					);
 					yield* s.sendMessage(id, "m2");
+					const m2Turn = requireProviderTurnId(id);
+					yield* domain.dispatch({
+						commandId: "test:settle:m2",
+						streamId: id,
+						command: {
+							_tag: "SettleTurn",
+							turnId: m2Turn,
+							outcome: "completed",
+							settledAt: Date.now(),
+						},
+					});
 					yield* s.sendMessage(id, "m3");
 					return yield* Fiber.await(fiber).pipe(Effect.flatten);
 				}),
@@ -3577,9 +3730,9 @@ describe("ConversationServices cursor streaming", () => {
 			const a = (await run(makeSession)).initialSession.id;
 			const b = (await run(makeSession)).initialSession.id;
 
-			await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a1")));
-			await run(Effect.flatMap(store, (s) => s.sendMessage(b, "b1")));
-			await run(Effect.flatMap(store, (s) => s.sendMessage(a, "a2")));
+			await sendAndSettle(run, a, "a1");
+			await sendAndSettle(run, b, "b1");
+			await sendAndSettle(run, a, "a2");
 
 			const forA = await run(
 				Effect.flatMap(SessionDomain, (domain) =>

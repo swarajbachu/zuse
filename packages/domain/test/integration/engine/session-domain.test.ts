@@ -12,6 +12,44 @@ const run = <A, E>(program: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 	);
 
 describe("SessionDomain", () => {
+	test("rolls back events and receipts when projection fails", async () => {
+		const result = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					CREATE TRIGGER fail_session_projection
+					BEFORE INSERT ON sessions
+					BEGIN
+						SELECT RAISE(ABORT, 'projection failed');
+					END
+				`;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed("event-rollback"),
+				);
+				yield* domain
+					.dispatch({
+						commandId: "command-rollback",
+						streamId: "session-1",
+						command: createSessionCommand,
+					})
+					.pipe(Effect.flip);
+				const events = yield* sql<{ readonly count: number }>`
+					SELECT COUNT(*) AS count FROM events
+				`;
+				const receipts = yield* sql<{ readonly count: number }>`
+					SELECT COUNT(*) AS count FROM command_receipts
+				`;
+				return {
+					events: events[0]?.count ?? -1,
+					receipts: receipts[0]?.count ?? -1,
+				};
+			}),
+		);
+
+		expect(result).toEqual({ events: 0, receipts: 0 });
+	});
+
 	test("dispatches, projects, and replays a durable receipt", async () => {
 		const result = await run(
 			Effect.gen(function* () {
@@ -196,5 +234,90 @@ describe("SessionDomain", () => {
 			_tag: "Some",
 			value: "running",
 		});
+	});
+
+	test("attaches live delivery before snapshot and emits a versioned barrier", async () => {
+		const frames = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				let nextEventId = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`event-${++nextEventId}`),
+				);
+				yield* domain.dispatch({
+					commandId: "command-create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				const collecting = yield* domain
+					.synchronizedEvents({
+						streamId: "session-1",
+						hasProjection: false,
+					})
+					.pipe(
+						Stream.take(3),
+						Stream.runCollect,
+						Effect.forkChild({ startImmediately: true }),
+					);
+				yield* Effect.yieldNow;
+				yield* domain.dispatch({
+					commandId: "command-title",
+					streamId: "session-1",
+					command: { _tag: "SetTitle", title: "Renamed", updatedAt: 2 },
+				});
+				return [...(yield* Fiber.join(collecting))];
+			}),
+		);
+
+		expect(frames[0]).toMatchObject({ kind: "snapshot", throughVersion: 1 });
+		expect(frames[1]).toEqual({ kind: "synchronized", throughVersion: 1 });
+		expect(frames[2]).toMatchObject({
+			kind: "event",
+			record: { streamVersion: 2 },
+		});
+	});
+
+	test("replays only the retained session version prefix", async () => {
+		const frames = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`
+					INSERT INTO chats (id, updated_at)
+					VALUES ('chat-1', '1970-01-01T00:00:00.000Z')
+				`;
+				let nextEventId = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`event-${++nextEventId}`),
+				);
+				yield* domain.dispatch({
+					commandId: "command-create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					commandId: "command-title",
+					streamId: "session-1",
+					command: { _tag: "SetTitle", title: "Renamed", updatedAt: 2 },
+				});
+				return yield* domain
+					.synchronizedEvents({
+						streamId: "session-1",
+						afterVersion: 1,
+						hasProjection: true,
+					})
+					.pipe(Stream.take(2), Stream.runCollect);
+			}),
+		);
+
+		expect([...frames]).toMatchObject([
+			{ kind: "event", record: { streamVersion: 2 } },
+			{ kind: "synchronized", throughVersion: 2 },
+		]);
 	});
 });

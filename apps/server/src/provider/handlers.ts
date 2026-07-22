@@ -8,14 +8,18 @@ import {
 	CredentialStoreError,
 	MemoizeRpcs,
 	type ProviderId,
-	SessionDomainEventEnvelope,
 	type SessionId,
 	type SessionSummaryChange,
+	type SessionTimelineFrame,
 } from "@zuse/contracts";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { Effect, Layer, Result, Stream } from "effect";
 import type { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
+import {
+	timelineEventFromDomain,
+	timelineSnapshotFromEvents,
+} from "../conversation/core/conversation-timeline-projection.ts";
 import {
 	ChatService,
 	MessageService,
@@ -564,27 +568,44 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterSequence }) =>
+	({ sessionId, afterVersion, hasProjection }) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
 				yield* sessions.getSession(sessionId);
 				const domain = yield* SessionDomain;
-				return domain.events({ streamId: sessionId, afterSequence }).pipe(
-					Stream.map((record) =>
-						SessionDomainEventEnvelope.make({
-							sequence: record.sequence,
-							eventId: record.eventId,
-							correlationId: record.correlationId,
-							causationEventId: record.causationEventId,
-							sessionId,
-							streamVersion: record.streamVersion,
-							type: record.event._tag,
-							payloadJson: JSON.stringify(record.event),
+				return domain
+					.synchronizedEvents({
+						streamId: sessionId,
+						afterVersion,
+						hasProjection,
+					})
+					.pipe(
+						Stream.map((frame): SessionTimelineFrame => {
+							if (frame.kind === "snapshot") {
+								return {
+									kind: "snapshot",
+									sessionId,
+									throughVersion: frame.throughVersion,
+									projection: timelineSnapshotFromEvents(
+										sessionId,
+										frame.events,
+									),
+								};
+							}
+							if (frame.kind === "synchronized") {
+								return { ...frame, sessionId };
+							}
+							return {
+								kind: "event",
+								sessionId,
+								streamVersion: frame.record.streamVersion,
+								eventId: frame.record.eventId,
+								event: timelineEventFromDomain(sessionId, frame.record.event),
+							};
 						}),
-					),
-					Stream.orDie,
-				);
+						Stream.orDie,
+					);
 			}),
 		),
 );
@@ -647,22 +668,16 @@ const MessagesSend = MemoizeRpcs.toLayerHandler(
 
 const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 	"messages.interrupt",
-	({ sessionId }) =>
-		Effect.flatMap(MessageService, (svc) => svc.interruptSession(sessionId)),
+	({ sessionId, turnId }) =>
+		Effect.flatMap(MessageService, (svc) =>
+			svc.interruptSession(sessionId, turnId),
+		),
 );
 
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 	"messages.queue.list",
 	({ sessionId }) =>
 		Effect.flatMap(QueueService, (svc) => svc.listQueuedMessages(sessionId)),
-);
-
-const MessagesQueueStream = MemoizeRpcs.toLayerHandler(
-	"messages.queue.stream",
-	({ sessionId }) =>
-		Stream.unwrap(
-			Effect.map(QueueService, (svc) => svc.streamQueuedMessages(sessionId)),
-		),
 );
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
@@ -694,6 +709,20 @@ const MessagesQueueSendNow = MemoizeRpcs.toLayerHandler(
 	({ sessionId, queueId }) =>
 		Effect.flatMap(QueueService, (svc) =>
 			svc.sendQueuedMessageNow(sessionId, queueId),
+		),
+);
+
+const MessagesSteer = MemoizeRpcs.toLayerHandler(
+	"messages.steer",
+	({ sessionId, expectedTurnId, queueId, successorTurnId, commandId }) =>
+		Effect.flatMap(QueueService, (svc) =>
+			svc.steerQueuedTurn(
+				sessionId,
+				expectedTurnId,
+				queueId,
+				successorTurnId,
+				commandId,
+			),
 		),
 );
 
@@ -860,11 +889,11 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	MessagesSend,
 	MessagesInterrupt,
 	MessagesQueueList,
-	MessagesQueueStream,
 	MessagesQueueAdd,
 	MessagesQueueUpdate,
 	MessagesQueueDelete,
 	MessagesQueueSendNow,
+	MessagesSteer,
 	MessagesQueueReorder,
 	MessagesQueueFlush,
 	MessagesQueueResume,

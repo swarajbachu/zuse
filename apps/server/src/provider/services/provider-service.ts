@@ -2,7 +2,6 @@ import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestrati
 
 import type {
   AgentAvailability,
-  AgentEvent,
   AgentItemId,
   AgentSessionId,
   AgentSessionNotFoundError,
@@ -12,6 +11,7 @@ import type {
   FileRef,
   PermissionMode,
 	PlanApprovalOutcome,
+	ProviderEventEnvelope,
   ProviderId,
   ProviderNotAvailableError,
   RuntimeMode,
@@ -60,6 +60,7 @@ export interface ProviderServiceShape {
 
   readonly send: (
     sessionId: AgentSessionId,
+		turnId: AgentTurnId,
     text: string,
     attachments?: ReadonlyArray<AttachmentRef>,
     fileRefs?: ReadonlyArray<FileRef>,
@@ -68,7 +69,7 @@ export interface ProviderServiceShape {
 
   readonly interrupt: (
     sessionId: AgentSessionId,
-    turnId?: AgentTurnId,
+		turnId: AgentTurnId,
   ) => Effect.Effect<void, AgentSessionNotFoundError>;
 
   readonly close: (
@@ -77,7 +78,7 @@ export interface ProviderServiceShape {
 
   readonly events: (
     sessionId: AgentSessionId,
-  ) => Stream.Stream<AgentEvent, AgentSessionNotFoundError>;
+	) => Stream.Stream<ProviderEventEnvelope, AgentSessionNotFoundError>;
 
 	readonly acknowledgeProviderEventCursor?: (
 		sessionId: AgentSessionId,
