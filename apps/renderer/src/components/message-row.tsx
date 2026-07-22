@@ -1,15 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	AlertCircleIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
-	Copy01Icon,
-	DashboardSpeedIcon,
-	Loading02Icon,
-	PlayIcon,
-	Settings01Icon,
-	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import AlertCircleIcon from "@hugeicons-pro/core-solid-rounded/AlertCircleIcon";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
+import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
+import DashboardSpeedIcon from "@hugeicons-pro/core-solid-rounded/DashboardSpeed01Icon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import PlayIcon from "@hugeicons-pro/core-solid-rounded/PlayIcon";
+import Settings01Icon from "@hugeicons-pro/core-solid-rounded/Settings01Icon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
 import type {
 	AttachmentRef,
 	BrowserAnnotation,
@@ -31,6 +29,7 @@ import {
 	parseOrchestrationResult,
 } from "~/lib/orchestration-tools";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
+import { attachmentUrl } from "~/lib/platform-capabilities";
 import { openExternal, useProviderLogin } from "~/lib/use-provider-login";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
@@ -531,7 +530,7 @@ function UserBubble({
 					<div className="mb-1.5 flex flex-wrap items-center gap-1.5">
 						{(attachments ?? []).map((a) => {
 							const isImage = a.mimeType.startsWith("image/");
-							const src = `zuse://attachments/${a.id}`;
+							const src = attachmentUrl(a.id);
 							const className =
 								"inline-flex items-center gap-1.5 rounded-md border border-border/45 bg-[var(--chip-bg)] px-1.5 py-0.5 text-[11px] text-foreground/90 hover:bg-[color-mix(in_oklch,var(--chip-bg)_80%,var(--foreground)_4%)] hover:text-foreground dark:shadow-[inset_0_1px_0_color-mix(in_oklch,white_4%,transparent),0_1px_2px_color-mix(in_oklch,black_22%,transparent)]";
 							const inner = (

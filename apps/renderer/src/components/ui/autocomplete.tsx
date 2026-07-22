@@ -2,7 +2,7 @@
 
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUpDownIcon } from "@hugeicons-pro/core-solid-rounded";
+import ArrowUpDownIcon from "@hugeicons-pro/core-solid-rounded/ArrowUpDownIcon";
 import { X } from "lucide-react";
 import type React from "react";
 import { Input } from "~/components/ui/input";

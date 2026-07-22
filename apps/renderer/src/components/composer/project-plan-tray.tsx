@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowDown01Icon,
-	CheckListIcon,
-	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import CheckListIcon from "@hugeicons-pro/core-solid-rounded/CheckListIcon";
+import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo, useState } from "react";
 

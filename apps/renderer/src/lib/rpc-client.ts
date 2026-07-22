@@ -17,6 +17,7 @@ import {
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 import type { RpcBridge } from "./bridge.ts";
+import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
@@ -41,7 +42,8 @@ function resolveWebSocketUrl(): string {
 	const env = (
 		import.meta as { readonly env?: Record<string, string | undefined> }
 	).env;
-	return env?.VITE_ZUSE_WS_URL?.trim() || `ws://${location.host}/rpc`;
+	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+	return env?.VITE_ZUSE_WS_URL?.trim() || `${protocol}//${location.host}/rpc`;
 }
 
 export function resolveRendererRpcTransportForTest(): {
@@ -80,7 +82,10 @@ const supervisor = createConnectionSupervisor<
 						Layer.provide(RpcSerialization.layerJson),
 					)
 				: wsClientProtocolLayer(
-						withWireProtocolVersion(options.wsUrl, WIRE_PROTOCOL_VERSION),
+						withWireProtocolVersion(
+							await requestBrowserWebSocketUrl(),
+							WIRE_PROTOCOL_VERSION,
+						),
 					);
 		return makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 			protocolVersion: WIRE_PROTOCOL_VERSION,
@@ -130,6 +135,9 @@ export const reportRendererRpcStreamFailure = (
 export const subscribeRendererRpcConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
 ): (() => void) => getRendererEntry().subscribe(listener);
+
+export const retryRendererRpcConnection = (): void =>
+	getRendererEntry().retryNow();
 
 export const dispatchRetryableRpcCommand = <A>(
 	commandId: string,

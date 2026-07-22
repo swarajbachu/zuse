@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowRight01Icon,
-	Tick01Icon,
-	UserCircleIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import UserCircleIcon from "@hugeicons-pro/core-solid-rounded/UserCircleIcon";
 import { BlurredEmail } from "~/components/blurred-email";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";

@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { GitBranchIcon, GitForkIcon } from "@hugeicons-pro/core-solid-rounded";
+import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
+import GitForkIcon from "@hugeicons-pro/core-solid-rounded/GitForkIcon";
 import type { MessageId, SessionId } from "@zuse/contracts";
 import { useCallback, useState } from "react";
 

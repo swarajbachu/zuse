@@ -1,8 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert01Icon,
-	CircleArrowUp01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
+import CircleArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/CircleArrowUp01Icon";
 import type { UpdateStatus } from "@zuse/contracts";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";

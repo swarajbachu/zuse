@@ -4,11 +4,9 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowDown01Icon,
-	ArrowUp01Icon,
-	ArrowUpDownIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import ArrowUp01Icon from "@hugeicons-pro/core-solid-rounded/ArrowUp01Icon";
+import ArrowUpDownIcon from "@hugeicons-pro/core-solid-rounded/ArrowUpDownIcon";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 import { cn } from "~/lib/utils";

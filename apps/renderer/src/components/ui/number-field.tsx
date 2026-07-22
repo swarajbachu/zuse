@@ -2,7 +2,7 @@
 
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { MinusSignIcon } from "@hugeicons-pro/core-solid-rounded";
+import MinusSignIcon from "@hugeicons-pro/core-solid-rounded/MinusSignIcon";
 import { Plus } from "lucide-react";
 import * as React from "react";
 import { Label } from "~/components/ui/label";

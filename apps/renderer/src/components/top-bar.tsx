@@ -1,26 +1,24 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert01Icon,
-	ArchiveArrowDownIcon,
-	ArrowDown01Icon,
-	Copy01Icon,
-	GitBranchIcon,
-	GitMergeIcon,
-	GitPullRequestIcon,
-	LinkSquare01Icon,
-	Loading02Icon,
-	MagicWand01Icon,
-	Menu01Icon,
-	PanelLeftCloseIcon,
-	PanelLeftOpenIcon,
-	PanelRightCloseIcon,
-	PanelRightOpenIcon,
-	PencilEdit01Icon,
-	PlayIcon,
-	Tick01Icon,
-	Upload01Icon,
-	Wrench01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
+import ArchiveArrowDownIcon from "@hugeicons-pro/core-solid-rounded/ArchiveArrowDownIcon";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import Copy01Icon from "@hugeicons-pro/core-solid-rounded/Copy01Icon";
+import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
+import GitMergeIcon from "@hugeicons-pro/core-solid-rounded/GitMergeIcon";
+import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
+import LinkSquare01Icon from "@hugeicons-pro/core-solid-rounded/LinkSquare01Icon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import MagicWand01Icon from "@hugeicons-pro/core-solid-rounded/MagicWand01Icon";
+import Menu01Icon from "@hugeicons-pro/core-solid-rounded/Menu01Icon";
+import PanelLeftCloseIcon from "@hugeicons-pro/core-solid-rounded/PanelLeftCloseIcon";
+import PanelLeftOpenIcon from "@hugeicons-pro/core-solid-rounded/PanelLeftOpenIcon";
+import PanelRightCloseIcon from "@hugeicons-pro/core-solid-rounded/PanelRightCloseIcon";
+import PanelRightOpenIcon from "@hugeicons-pro/core-solid-rounded/PanelRightOpenIcon";
+import PencilEdit01Icon from "@hugeicons-pro/core-solid-rounded/PencilEdit01Icon";
+import PlayIcon from "@hugeicons-pro/core-solid-rounded/PlayIcon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
+import Upload01Icon from "@hugeicons-pro/core-solid-rounded/Upload01Icon";
+import Wrench01Icon from "@hugeicons-pro/core-solid-rounded/Wrench01Icon";
 import {
 	ComposerInput,
 	type FolderId,
@@ -38,6 +36,7 @@ import {
 	useState,
 } from "react";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
@@ -635,6 +634,7 @@ function RenameBranchDialog({
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
+	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
 	const [loading, setLoading] = useState(false);
 	const availableTargets = useMemo(
@@ -674,6 +674,10 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 		if (rootPath === null) return;
 		await window.zuse?.app?.copyPath?.(rootPath);
 	};
+
+	if (!capabilities.openInEditor && !capabilities.revealInFileManager) {
+		return null;
+	}
 
 	return (
 		<Menu>

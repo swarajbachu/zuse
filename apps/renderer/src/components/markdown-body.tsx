@@ -1,11 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Maximize02Icon,
-	MoveIcon,
-	UndoIcon,
-	ZoomInAreaIcon,
-	ZoomOutAreaIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Maximize02Icon from "@hugeicons-pro/core-solid-rounded/Maximize02Icon";
+import MoveIcon from "@hugeicons-pro/core-solid-rounded/MoveIcon";
+import UndoIcon from "@hugeicons-pro/core-solid-rounded/UndoIcon";
+import ZoomInAreaIcon from "@hugeicons-pro/core-solid-rounded/ZoomInAreaIcon";
+import ZoomOutAreaIcon from "@hugeicons-pro/core-solid-rounded/ZoomOutAreaIcon";
 import {
 	type ComponentProps,
 	isValidElement,
@@ -21,6 +19,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
+import { openExternal } from "~/lib/platform-capabilities";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -106,7 +105,7 @@ function MarkdownLink({
 				<MenuItem
 					onClick={() => {
 						if (/^https?:\/\//i.test(href)) {
-							window.zuse?.app?.openExternal(href);
+							void openExternal(href);
 						}
 					}}
 				>
@@ -529,7 +528,7 @@ export function MarkdownBody({
 								if (typeof href !== "string") return;
 								if (/^https?:\/\//i.test(href)) {
 									e.preventDefault();
-									window.zuse?.app?.openExternal(href);
+									void openExternal(href);
 									return;
 								}
 								const localPath = localFilePathFromHref(href);

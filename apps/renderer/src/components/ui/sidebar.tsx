@@ -3,7 +3,7 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PanelLeftIcon } from "@hugeicons-pro/core-solid-rounded";
+import PanelLeftIcon from "@hugeicons-pro/core-solid-rounded/PanelLeftIcon";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { Button } from "~/components/ui/button";

@@ -3,10 +3,8 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowRight01Icon,
-	MoreHorizontalIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
+import MoreHorizontalIcon from "@hugeicons-pro/core-solid-rounded/MoreHorizontalIcon";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons-pro/core-solid-rounded";
+import ArrowLeft01Icon from "@hugeicons-pro/core-solid-rounded/ArrowLeft01Icon";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMemo } from "react";
 

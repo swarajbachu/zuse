@@ -1,23 +1,21 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import {
-	Analytics01Icon,
-	ArchiveArrowDownIcon,
-	ArchiveArrowUpIcon,
-	ArchiveIcon,
-	ArrowDown01Icon,
-	ArrowRight01Icon,
-	Delete02Icon,
-	Edit01Icon,
-	FolderAddIcon,
-	HelpCircleIcon,
-	Login03Icon,
-	Logout01Icon,
-	PencilIcon,
-	Settings01Icon,
-	SquareLock01Icon,
-	TaskDone01Icon,
-	UserCircleIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Analytics01Icon from "@hugeicons-pro/core-solid-rounded/Analytics01Icon";
+import ArchiveArrowDownIcon from "@hugeicons-pro/core-solid-rounded/ArchiveArrowDownIcon";
+import ArchiveArrowUpIcon from "@hugeicons-pro/core-solid-rounded/ArchiveArrowUpIcon";
+import ArchiveIcon from "@hugeicons-pro/core-solid-rounded/ArchiveIcon";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
+import Delete02Icon from "@hugeicons-pro/core-solid-rounded/Delete02Icon";
+import Edit01Icon from "@hugeicons-pro/core-solid-rounded/Edit01Icon";
+import FolderAddIcon from "@hugeicons-pro/core-solid-rounded/FolderAddIcon";
+import HelpCircleIcon from "@hugeicons-pro/core-solid-rounded/HelpCircleIcon";
+import Login03Icon from "@hugeicons-pro/core-solid-rounded/Login03Icon";
+import Logout01Icon from "@hugeicons-pro/core-solid-rounded/Logout01Icon";
+import PencilIcon from "@hugeicons-pro/core-solid-rounded/PencilIcon";
+import Settings01Icon from "@hugeicons-pro/core-solid-rounded/Settings01Icon";
+import SquareLock01Icon from "@hugeicons-pro/core-solid-rounded/SquareLock01Icon";
+import TaskDone01Icon from "@hugeicons-pro/core-solid-rounded/TaskDone01Icon";
+import UserCircleIcon from "@hugeicons-pro/core-solid-rounded/UserCircleIcon";
 import type {
 	Chat,
 	ChatId,

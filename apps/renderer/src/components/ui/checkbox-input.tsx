@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick01Icon } from "@hugeicons-pro/core-solid-rounded";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
 import { cn } from "~/lib/utils";
 
 /**

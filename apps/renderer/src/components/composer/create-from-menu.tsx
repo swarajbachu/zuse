@@ -1,15 +1,13 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowDown01Icon,
-	CancelCircleIcon,
-	CheckmarkCircle01Icon,
-	CircleDashedIcon,
-	GitBranchIcon,
-	GitPullRequestIcon,
-	Progress03Icon,
-	RecordIcon,
-	Search01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import CancelCircleIcon from "@hugeicons-pro/core-solid-rounded/CancelCircleIcon";
+import CheckmarkCircle01Icon from "@hugeicons-pro/core-solid-rounded/CheckmarkCircle01Icon";
+import CircleDashedIcon from "@hugeicons-pro/core-solid-rounded/CircleDashedIcon";
+import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
+import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
+import Progress03Icon from "@hugeicons-pro/core-solid-rounded/Progress03Icon";
+import RecordIcon from "@hugeicons-pro/core-solid-rounded/RecordIcon";
+import Search01Icon from "@hugeicons-pro/core-solid-rounded/Search01Icon";
 import type {
 	FolderId,
 	GitBranchInfo,

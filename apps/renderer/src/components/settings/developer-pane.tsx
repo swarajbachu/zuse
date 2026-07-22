@@ -1,14 +1,12 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert01Icon,
-	GitMergeIcon,
-	GitPullRequestIcon,
-	InformationCircleIcon,
-	Loading02Icon,
-	TaskDone01Icon,
-	Upload01Icon,
-	Wrench01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
+import GitMergeIcon from "@hugeicons-pro/core-solid-rounded/GitMergeIcon";
+import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
+import InformationCircleIcon from "@hugeicons-pro/core-solid-rounded/InformationCircleIcon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import TaskDone01Icon from "@hugeicons-pro/core-solid-rounded/TaskDone01Icon";
+import Upload01Icon from "@hugeicons-pro/core-solid-rounded/Upload01Icon";
+import Wrench01Icon from "@hugeicons-pro/core-solid-rounded/Wrench01Icon";
 import {
 	GLASS_TONE_VARS,
 	GLASS_TONES,

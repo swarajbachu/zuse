@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { StarIcon } from "@hugeicons-pro/core-solid-rounded";
+import StarIcon from "@hugeicons-pro/core-solid-rounded/StarIcon";
 import {
 	type BrowserAnnotationElement,
 	type BrowserAnnotationPoint,

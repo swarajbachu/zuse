@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	GitCompareIcon,
-	SquareLock01Icon,
-	TaskDone01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import GitCompareIcon from "@hugeicons-pro/core-solid-rounded/GitCompareIcon";
+import SquareLock01Icon from "@hugeicons-pro/core-solid-rounded/SquareLock01Icon";
+import TaskDone01Icon from "@hugeicons-pro/core-solid-rounded/TaskDone01Icon";
 import {
 	defaultModelFor,
 	type FolderId,

@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CheckListIcon } from "@hugeicons-pro/core-solid-rounded";
+import CheckListIcon from "@hugeicons-pro/core-solid-rounded/CheckListIcon";
 import type { Session, SessionId } from "@zuse/contracts";
 import { useEffect, useMemo, useState } from "react";
 

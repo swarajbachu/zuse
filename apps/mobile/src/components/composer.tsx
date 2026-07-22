@@ -1,8 +1,6 @@
-import {
-	ArrowUp02Icon,
-	CloudOffIcon,
-	StopIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowUp02Icon from "@hugeicons-pro/core-solid-rounded/ArrowUp02Icon";
+import CloudOffIcon from "@hugeicons-pro/core-solid-rounded/CloudOffIcon";
+import StopIcon from "@hugeicons-pro/core-solid-rounded/StopIcon";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {

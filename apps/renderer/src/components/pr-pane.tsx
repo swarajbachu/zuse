@@ -1,11 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	CircleIcon,
-	GitPullRequestIcon,
-	Loading02Icon,
-	MinusSignCircleIcon,
-	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import CircleIcon from "@hugeicons-pro/core-solid-rounded/CircleIcon";
+import GitPullRequestIcon from "@hugeicons-pro/core-solid-rounded/GitPullRequestIcon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import MinusSignCircleIcon from "@hugeicons-pro/core-solid-rounded/MinusSignCircleIcon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
 import type {
 	FolderId,
 	GitPrCheckRun,

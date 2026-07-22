@@ -4,14 +4,14 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "vite",
-		"dev:web": "vite",
-		"build": "vite build && node ../../scripts/check-renderer-bundle.mjs",
-		"preview": "vite preview",
+		"dev": "vp dev",
+		"dev:web": "vp dev",
+		"build": "vp build && node ../../scripts/check-renderer-bundle.mjs",
+		"preview": "vp preview",
 		"check-types": "tsc --noEmit && node ../../scripts/check-renderer-state.mjs",
-		"test": "vitest run test",
-		"test:unit": "vitest run test/unit",
-		"test:integration": "vitest run test/integration --passWithNoTests"
+		"test": "vp test run test",
+		"test:unit": "vp test run test/unit",
+		"test:integration": "vp test run test/integration --passWithNoTests"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.4.1",
@@ -66,15 +66,16 @@
 	},
 	"devDependencies": {
 		"@repo/typescript-config": "*",
-		"@tailwindcss/vite": "^4.0.0",
+		"@tailwindcss/vite": "4.3.2",
 		"@types/diff": "^8.0.0",
 		"@types/react": "catalog:",
 		"@types/react-dom": "catalog:",
-		"@vitejs/plugin-react": "^4.3.4",
+		"@vitejs/plugin-react": "6.0.3",
 		"babel-plugin-react-compiler": "^1.0.0",
 		"tailwindcss": "^4.0.0",
 		"typescript": "catalog:",
-		"vite": "^6.0.0",
+		"vite": "8.1.5",
+		"vite-plus": "0.2.5",
 		"vitest": "catalog:"
 	}
 }

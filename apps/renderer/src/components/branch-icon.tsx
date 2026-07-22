@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { GitBranchIcon } from "@hugeicons-pro/core-solid-rounded";
+import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
 
 import { cn } from "~/lib/utils";
 

@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert01Icon,
-	GitBranchIcon,
-	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Alert01Icon from "@hugeicons-pro/core-solid-rounded/Alert01Icon";
+import GitBranchIcon from "@hugeicons-pro/core-solid-rounded/GitBranchIcon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";

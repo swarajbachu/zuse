@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"candidate": {
+		"vitePlus": "0.2.5",
+		"vite": "8.1.x"
+	},
+	"rendererProductionBuild": {
+		"baselineSamplesMs": [16196, 14371, 14060, 16009, 15929],
+		"baselineMedianMs": 15929,
+		"candidateSamplesMs": [1402, 1434, 1512, 1411, 1406],
+		"candidateMedianMs": 1411,
+		"medianImprovementPercent": 91.1
+	},
+	"acceptance": {
+		"minimumImprovementPercent": 20,
+		"accepted": false,
+		"status": "provisional",
+		"reason": "Build improvement is proven; startup, page-ready, and HMR harness measurements remain incomplete."
+	}
+}

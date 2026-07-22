@@ -1,11 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowTurnDownIcon,
-	Loading02Icon,
-	MinusSignIcon,
-	Tick02Icon,
-	Upload01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowTurnDownIcon from "@hugeicons-pro/core-solid-rounded/ArrowTurnDownIcon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import MinusSignIcon from "@hugeicons-pro/core-solid-rounded/MinusSignIcon";
+import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
+import Upload01Icon from "@hugeicons-pro/core-solid-rounded/Upload01Icon";
 import type { GitStatus, GitStatusEntry } from "@pierre/trees";
 import {
 	FileTree as StructuredFileTree,

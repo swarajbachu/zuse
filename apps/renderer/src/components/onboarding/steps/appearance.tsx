@@ -1,10 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ComputerIcon,
-	Moon02Icon,
-	Sun03Icon,
-	Tick01Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ComputerIcon from "@hugeicons-pro/core-solid-rounded/ComputerIcon";
+import Moon02Icon from "@hugeicons-pro/core-solid-rounded/Moon02Icon";
+import Sun03Icon from "@hugeicons-pro/core-solid-rounded/Sun03Icon";
+import Tick01Icon from "@hugeicons-pro/core-solid-rounded/Tick01Icon";
 import type { AppearanceMode } from "@zuse/contracts";
 
 import { cn } from "~/lib/utils";

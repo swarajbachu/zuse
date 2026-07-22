@@ -1,9 +1,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	ArrowDown01Icon,
-	ArrowRight01Icon,
-	ClipboardIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import ArrowDown01Icon from "@hugeicons-pro/core-solid-rounded/ArrowDown01Icon";
+import ArrowRight01Icon from "@hugeicons-pro/core-solid-rounded/ArrowRight01Icon";
+import ClipboardIcon from "@hugeicons-pro/core-solid-rounded/ClipboardIcon";
 import type { AgentItemId, Message } from "@zuse/contracts";
 import { memo, useEffect, useMemo, useState } from "react";
 

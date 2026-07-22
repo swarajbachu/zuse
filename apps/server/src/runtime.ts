@@ -1,4 +1,5 @@
 import { NodeServices } from "@effect/platform-node";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
@@ -87,10 +88,10 @@ export interface MainLayerDeps {
 	readonly serverProtocol: Layer.Layer<
 		RpcServer.Protocol,
 		never,
-		LanAuthService
+		LanAuthService | AttachmentService
 	>;
 	readonly additionalServerProtocols?: ReadonlyArray<
-		Layer.Layer<RpcServer.Protocol, never, LanAuthService>
+		Layer.Layer<RpcServer.Protocol, never, LanAuthService | AttachmentService>
 	>;
 	readonly authShell: typeof AuthShell.Service;
 	readonly lanAuth?: {
@@ -483,11 +484,19 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		...(deps.additionalServerProtocols ?? []),
 	] as const;
 	const makeServerLayer = (
-		serverProtocol: Layer.Layer<RpcServer.Protocol, never, LanAuthService>,
+		serverProtocol: Layer.Layer<
+			RpcServer.Protocol,
+			never,
+			LanAuthService | AttachmentService
+		>,
 	) =>
 		RpcServer.layer(MemoizeRpcs).pipe(
 			Layer.provide(Handlers),
-			Layer.provide(serverProtocol.pipe(Layer.provide(LanAuthLayer))),
+			Layer.provide(
+				serverProtocol.pipe(
+					Layer.provide(Layer.merge(LanAuthLayer, AttachmentLayer)),
+				),
+			),
 		);
 
 	const ServerLayer = Layer.mergeAll(

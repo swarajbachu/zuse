@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ViewIcon, ViewOffIcon } from "@hugeicons-pro/core-solid-rounded";
+import ViewIcon from "@hugeicons-pro/core-solid-rounded/ViewIcon";
+import ViewOffIcon from "@hugeicons-pro/core-solid-rounded/ViewOffIcon";
 import type { ProviderId } from "@zuse/contracts";
 import { useState } from "react";
 

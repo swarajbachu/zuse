@@ -1,10 +1,8 @@
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	FolderAddIcon,
-	Layers01Icon,
-	SourceCodeIcon,
-} from "@hugeicons-pro/core-solid-rounded";
+import FolderAddIcon from "@hugeicons-pro/core-solid-rounded/FolderAddIcon";
+import Layers01Icon from "@hugeicons-pro/core-solid-rounded/Layers01Icon";
+import SourceCodeIcon from "@hugeicons-pro/core-solid-rounded/SourceCodeIcon";
 import type { ProjectTemplate } from "@zuse/contracts";
 import { useEffect, useState } from "react";
 

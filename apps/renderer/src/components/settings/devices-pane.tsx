@@ -5,16 +5,27 @@ import type {
 	RelayLinkStatus,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { Copy, QrCode, RefreshCw, Smartphone, Wifi } from "lucide-react";
+import {
+	Copy,
+	ExternalLink,
+	QrCode,
+	RefreshCw,
+	Smartphone,
+	Wifi,
+} from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getBridge } from "../../lib/bridge.ts";
 import { formatError } from "../../lib/format-error.ts";
 import {
 	deviceAccessCopy,
 	groupPairedPhoneTokens,
 } from "../../lib/paired-phones.ts";
+import {
+	copyText,
+	openExternal,
+	rendererPlatformCapabilities,
+} from "../../lib/platform-capabilities.ts";
 import { getRpcClient } from "../../lib/rpc-client.ts";
 import {
 	AlertDialog,
@@ -67,6 +78,36 @@ const showError = (title: string, cause: unknown): void => {
 	});
 };
 
+const preferredBrowserPairingUrl = (
+	pairing: PairingStartResult,
+	status: RelayLinkStatus | null,
+): string => {
+	const priority = (reachability: string): number =>
+		reachability === "tunnel" || reachability === "public"
+			? 0
+			: reachability === "lan"
+				? 1
+				: 2;
+	const endpoint = status?.advertisedEndpoints
+		?.filter(
+			(candidate) =>
+				candidate.status !== "unavailable" &&
+				candidate.compatibility.hostedHttpsApp !== "mixed-content-blocked",
+		)
+		.sort(
+			(left, right) =>
+				priority(left.reachability) - priority(right.reachability),
+		)[0];
+	if (endpoint === undefined) return pairing.browserUrl;
+	try {
+		const url = new URL(endpoint.httpBaseUrl);
+		url.hash = `pair=${encodeURIComponent(pairing.code)}`;
+		return url.toString();
+	} catch {
+		return pairing.browserUrl;
+	}
+};
+
 export function DevicesPane() {
 	const [status, setStatus] = useState<RelayLinkStatus | null>(null);
 	const [network, setNetwork] = useState<NetworkAccessState | null>(null);
@@ -75,6 +116,9 @@ export function DevicesPane() {
 	const [loading, setLoading] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [pairingBusy, setPairingBusy] = useState(false);
+	const [pairingTarget, setPairingTarget] = useState<"browser" | "mobile">(
+		"mobile",
+	);
 	const [legacyRevokeOpen, setLegacyRevokeOpen] = useState(false);
 	const [legacyRevokeBusy, setLegacyRevokeBusy] = useState(false);
 	const [pendingNetworkMode, setPendingNetworkMode] = useState<boolean | null>(
@@ -85,10 +129,10 @@ export function DevicesPane() {
 	const pairingTokenIdsRef = useRef<ReadonlySet<string>>(new Set());
 
 	const refresh = useCallback(async () => {
-		const bridge = getBridge();
+		const bridge = window.zuse ?? window.memoize;
 		const client = await getRpcClient();
 		const [networkResult, relayResult, tokenResult] = await Promise.allSettled([
-			bridge.network?.getAccessState() ?? Promise.resolve(null),
+			bridge?.network?.getAccessState() ?? Promise.resolve(null),
 			Effect.runPromise(client["relay.status"]()),
 			Effect.runPromise(client["pairing.listTokens"]({})),
 		]);
@@ -142,8 +186,8 @@ export function DevicesPane() {
 
 	const updateNetwork = useCallback(async () => {
 		if (pendingNetworkMode === null) return;
-		const bridge = getBridge();
-		if (bridge.network === undefined) {
+		const bridge = window.zuse ?? window.memoize;
+		if (bridge?.network === undefined) {
 			showError(
 				"Network access is unavailable",
 				new Error("Desktop bridge missing"),
@@ -269,12 +313,15 @@ export function DevicesPane() {
 	}
 
 	const networkEnabled = network?.mode === "network-accessible";
+	const canManageNetwork = rendererPlatformCapabilities().networkLifecycle;
 	const linked = status?.linked === true;
 	const remoteReady = linked && status?.heartbeatActive === true;
 	const { identifiedPhones, legacyCredentials } =
 		groupPairedPhoneTokens(tokens);
 	const hasActiveTokens =
 		identifiedPhones.length > 0 || legacyCredentials.length > 0;
+	const browserUrl =
+		pairing === null ? null : preferredBrowserPairingUrl(pairing, status);
 
 	return (
 		<section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
@@ -307,7 +354,11 @@ export function DevicesPane() {
 					</p>
 				</FramePanel>
 				<FrameFooter className="flex justify-end gap-2 px-3 py-2.5">
-					{networkEnabled ? (
+					{!canManageNetwork ? (
+						<p className="text-right text-xs text-muted-foreground">
+							Network access is managed from the desktop app.
+						</p>
+					) : networkEnabled ? (
 						<>
 							<Button
 								variant="outline"
@@ -340,15 +391,59 @@ export function DevicesPane() {
 							role="img"
 							aria-label="Pairing QR code"
 						>
-							<QRCodeSVG value={pairing.qrText} size={156} level="M" />
+							<QRCodeSVG
+								value={
+									pairingTarget === "browser"
+										? (browserUrl ?? pairing.browserUrl)
+										: pairing.qrText
+								}
+								size={156}
+								level="M"
+							/>
 						</div>
 						<div className="flex min-w-0 flex-col justify-center gap-3">
 							<div>
-								<FrameTitle>Scan with the mobile app</FrameTitle>
+								<FrameTitle>
+									{pairingTarget === "browser"
+										? "Open Zuse in a browser"
+										: "Scan with the mobile app"}
+								</FrameTitle>
 								<p className="mt-1 text-xs text-muted-foreground">
 									Keep both devices on the same network. This code expires in
 									five minutes and works once.
 								</p>
+							</div>
+							<div className="flex flex-wrap gap-2">
+								<Button
+									variant="outline"
+									onClick={() =>
+										setPairingTarget((current) =>
+											current === "browser" ? "mobile" : "browser",
+										)
+									}
+								>
+									<QrCode aria-hidden />
+									{pairingTarget === "browser"
+										? "Show phone QR"
+										: "Show browser QR"}
+								</Button>
+								<Button
+									variant="outline"
+									onClick={() =>
+										void copyText(browserUrl ?? pairing.browserUrl)
+									}
+								>
+									<Copy aria-hidden />
+									Copy browser link
+								</Button>
+								<Button
+									onClick={() =>
+										void openExternal(browserUrl ?? pairing.browserUrl)
+									}
+								>
+									<ExternalLink aria-hidden />
+									Open in browser
+								</Button>
 							</div>
 							<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
 								<code className="min-w-0 flex-1 truncate text-xs">

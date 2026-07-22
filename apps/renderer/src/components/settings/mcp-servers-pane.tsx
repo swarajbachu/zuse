@@ -1,10 +1,8 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-	Alert02Icon,
-	Key01Icon,
-	Loading02Icon,
-	Tick02Icon,
-} from "@hugeicons-pro/core-solid-rounded";
+import Alert02Icon from "@hugeicons-pro/core-solid-rounded/Alert02Icon";
+import Key01Icon from "@hugeicons-pro/core-solid-rounded/Key01Icon";
+import Loading02Icon from "@hugeicons-pro/core-solid-rounded/Loading02Icon";
+import Tick02Icon from "@hugeicons-pro/core-solid-rounded/Tick02Icon";
 import type {
 	McpServerDescriptor,
 	McpServerSource,
