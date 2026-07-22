@@ -90,7 +90,7 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 	);
 	assert.equal(scanned.rendererPort, 5735);
 	assert.equal(scanned.websocketPort, 8790);
-	assert.match(scanned.userDataDir, /scan-p5735\/user-data$/u);
+	assert.equal(scanned.userDataDir, initial.userDataDir);
 	assert.match(scanned.packDir, /scan-p5735\/dist-electron$/u);
 
 	const explicit = initialDevInstance({
@@ -104,7 +104,7 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 	);
 });
 
-test("automatic scans isolate directories by the allocated port", async () => {
+test("automatic scans preserve the existing development profile", async () => {
 	const initial = initialDevInstance({
 		argv: [],
 		env: {},
@@ -115,7 +115,7 @@ test("automatic scans isolate directories by the allocated port", async () => {
 		async (port) => port !== 5733 && port !== 8788,
 	);
 	assert.equal(scanned.instance, "port-5734");
-	assert.match(scanned.userDataDir, /port-5734\/user-data$/u);
+	assert.equal(scanned.userDataDir, initial.userDataDir);
 	assert.match(scanned.packDir, /port-5734\/dist-electron$/u);
 });
 

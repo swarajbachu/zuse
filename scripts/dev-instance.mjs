@@ -179,10 +179,12 @@ export const withScannedPorts = async (
 				return {
 					...initial,
 					...(portsShifted
-						? instanceResources(
-								initial.repoRoot,
-								`${initial.instance}-p${rendererPort}`,
-							)
+						? {
+								packDir: instanceResources(
+									initial.repoRoot,
+									`${initial.instance}-p${rendererPort}`,
+								).packDir,
+							}
 						: {}),
 					...(initial.userDataExplicit
 						? { userDataDir: initial.userDataDir }
@@ -195,10 +197,11 @@ export const withScannedPorts = async (
 			const instance = validateInstance(`port-${rendererPort}`);
 			return {
 				...initial,
-				...(rendererPort === RENDERER_BASE_PORT &&
-				websocketPort === WEBSOCKET_BASE_PORT
-					? defaultInstanceResources(initial.repoRoot)
-					: instanceResources(initial.repoRoot, instance)),
+				packDir:
+					rendererPort === RENDERER_BASE_PORT &&
+					websocketPort === WEBSOCKET_BASE_PORT
+						? defaultInstanceResources(initial.repoRoot).packDir
+						: instanceResources(initial.repoRoot, instance).packDir,
 				...(initial.userDataExplicit
 					? { userDataDir: initial.userDataDir }
 					: {}),
