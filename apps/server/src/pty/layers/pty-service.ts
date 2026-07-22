@@ -13,6 +13,7 @@ import {
   PtyEventJournal,
   type PtySequencedEvent,
 } from "../pty-event-journal.ts";
+import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
 import { PtyService } from "../services/pty-service.ts";
 
 type PtyBroadcast =
@@ -53,8 +54,9 @@ export const PtyServiceLive = Layer.effect(
         const args = command?.args ?? [];
 
         const child = yield* Effect.try({
-          try: () =>
-            pty.spawn(cmd, [...args], {
+          try: () => {
+            ensureNodePtySpawnHelperExecutable();
+            return pty.spawn(cmd, [...args], {
               name: "xterm-256color",
               cols,
               rows,
@@ -64,7 +66,8 @@ export const PtyServiceLive = Layer.effect(
                 ...(command?.env ?? {}),
                 TERM: "xterm-256color",
               },
-            }),
+            });
+          },
           catch: (err) =>
             new PtySpawnError({
               reason: err instanceof Error ? err.message : String(err),

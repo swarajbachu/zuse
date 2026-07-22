@@ -7,6 +7,7 @@ export class PairingStartResult extends Schema.Class<PairingStartResult>(
 	"PairingStartResult",
 )({
 	pairingUrl: Schema.String,
+	browserUrl: Schema.String,
 	code: Schema.String,
 	qrText: Schema.String,
 	expiresAt: Schema.DateFromString,

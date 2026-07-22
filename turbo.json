@@ -32,7 +32,7 @@
 			"outputs": []
 		},
 		"test:system": {
-			"dependsOn": ["^build"],
+			"dependsOn": ["^build", "renderer#build"],
 			"cache": false,
 			"outputs": []
 		},

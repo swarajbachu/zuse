@@ -10,6 +10,7 @@ import { RefreshCw as RefreshIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { openExternal } from "~/lib/platform-capabilities";
 import { useProvidersStore } from "../store/providers.ts";
 
 // Per-provider docs URL surfaced as "Upgrade guide" — opens in the user's
@@ -68,7 +69,7 @@ export function CliUpgradeBanner({
 	};
 
 	const onOpenDocs = () => {
-		window.zuse?.app?.openExternal(docsUrl);
+		void openExternal(docsUrl);
 	};
 
 	return (

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
@@ -20,6 +20,31 @@ for (const kind of ["js", "css"]) {
 	const limit = budgets[kind] / 1024;
 	console.log(`initial ${kind}: ${kib} KiB gzip (budget ${limit} KiB)`);
 	if (totals[kind] > budgets[kind]) process.exitCode = 1;
+}
+
+const lazyChunkBudget = 250 * 1024;
+const lazyChunks = readdirSync(resolve(dist, "assets"))
+	.filter(
+		(asset) => asset.endsWith(".js") && !assets.includes(`assets/${asset}`),
+	)
+	.map((asset) => ({
+		asset,
+		gzipBytes: gzipSync(readFileSync(resolve(dist, "assets", asset)))
+			.byteLength,
+	}))
+	.sort((left, right) => right.gzipBytes - left.gzipBytes);
+const largestLazy = lazyChunks[0];
+if (largestLazy !== undefined) {
+	console.log(
+		`largest lazy chunk: ${largestLazy.asset} ${(largestLazy.gzipBytes / 1024).toFixed(1)} KiB gzip (budget ${lazyChunkBudget / 1024} KiB)`,
+	);
+}
+for (const chunk of lazyChunks) {
+	if (chunk.gzipBytes <= lazyChunkBudget) continue;
+	console.error(
+		`Lazy chunk budget exceeded: ${chunk.asset} is ${(chunk.gzipBytes / 1024).toFixed(1)} KiB gzip.`,
+	);
+	process.exitCode = 1;
 }
 
 if (process.exitCode) {

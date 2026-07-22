@@ -688,10 +688,11 @@ export const LanAuthServiceLive = Layer.effect(
 				}
 				const host = yield* configuredHost(config.advertisedHost);
 				const pairingUrl = `ws://${host}:${config.port}`;
+				const browserUrl = `http://${host}:${config.port}/#pair=${encodeURIComponent(code)}`;
 				const qrText = `zuse:///connect/pair?pairingUrl=${encodeURIComponent(
 					pairingUrl,
 				)}#token=${code}`;
-				return { pairingUrl, qrText } as const;
+				return { pairingUrl, browserUrl, qrText } as const;
 			});
 
 		const service = LanAuthService.of({
@@ -794,6 +795,7 @@ export const LanAuthServiceLive = Layer.effect(
 						code,
 						expiresAt: new Date(expiresAtMs),
 						pairingUrl: urls.pairingUrl,
+						browserUrl: urls.browserUrl,
 						qrText: urls.qrText,
 					} as const;
 				}).pipe(Effect.mapError(toLanAuthError)),

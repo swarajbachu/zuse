@@ -4,10 +4,13 @@ import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, searchForWorkspaceRoot } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
 
 const port = Number(process.env.PORT ?? 5733);
 const host = process.env.HOST?.trim() || "localhost";
+const rpcPort = Number(process.env.ZUSE_DESKTOP_WS_PORT ?? 8788);
+const rpcTarget = `http://127.0.0.1:${rpcPort}`;
+const sourceMaps = process.env.ZUSE_SOURCEMAPS === "1" ? "hidden" : false;
 
 // In Memoize worktrees, the renderer's node_modules links out to a Bun
 // central store at a sibling path (e.g. `~/Developer/<main checkout>/
@@ -22,6 +25,10 @@ const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
+	cacheDir: process.env.ZUSE_VITE_CACHE_DIR?.trim() || undefined,
+	experimental: {
+		bundledDev: process.env.ZUSE_BUNDLED_DEV === "1",
+	},
 	// Relative base so file:// loads work in the packaged Electron build.
 	base: "./",
 	plugins: [
@@ -35,10 +42,25 @@ export default defineConfig({
 			"~": fileURLToPath(new URL("./src", import.meta.url)),
 		},
 	},
+	optimizeDeps: {
+		include: [
+			"react",
+			"react-dom/client",
+			"effect",
+			"@pierre/diffs",
+			"codemirror",
+			"@xterm/xterm",
+		],
+	},
 	server: {
 		host,
 		port,
 		strictPort: true,
+		proxy: {
+			"/auth": { target: rpcTarget },
+			"/assets/attachments": { target: rpcTarget },
+			"/rpc": { target: rpcTarget, ws: true },
+		},
 		fs: {
 			allow: [searchForWorkspaceRoot(process.cwd()), bunStoreRoot],
 		},
@@ -49,7 +71,7 @@ export default defineConfig({
 	build: {
 		outDir: "dist",
 		emptyOutDir: true,
-		sourcemap: true,
+		sourcemap: sourceMaps,
 		rollupOptions: {
 			input: {
 				main: resolve(__dirname, "index.html"),

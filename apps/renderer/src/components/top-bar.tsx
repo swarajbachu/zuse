@@ -38,6 +38,7 @@ import {
 	useState,
 } from "react";
 import type { OpenTarget } from "../lib/bridge.ts";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
@@ -635,6 +636,7 @@ function RenameBranchDialog({
 }
 
 function OpenInMenu({ rootPath }: { rootPath: string | null }) {
+	const capabilities = rendererPlatformCapabilities();
 	const [targets, setTargets] = useState<ReadonlyArray<OpenTarget>>([]);
 	const [loading, setLoading] = useState(false);
 	const availableTargets = useMemo(
@@ -674,6 +676,10 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 		if (rootPath === null) return;
 		await window.zuse?.app?.copyPath?.(rootPath);
 	};
+
+	if (!capabilities.openInEditor && !capabilities.revealInFileManager) {
+		return null;
+	}
 
 	return (
 		<Menu>

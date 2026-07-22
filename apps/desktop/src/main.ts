@@ -325,7 +325,9 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
 
 const APP_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
-const DEV_ICON_PATH = Path.resolve(__dirname, "..", "build", "icon.png");
+const DESKTOP_SOURCE_DIR =
+	process.env.ZUSE_DESKTOP_DIR?.trim() || Path.resolve(__dirname, "..");
+const DEV_ICON_PATH = Path.resolve(DESKTOP_SOURCE_DIR, "build", "icon.png");
 
 app.setName(APP_NAME);
 if (
@@ -380,7 +382,8 @@ let localConnectivityStopping = false;
 const rendererDistDir = (): string =>
 	app.isPackaged
 		? Path.join(process.resourcesPath, "app", "renderer", "dist")
-		: Path.resolve(__dirname, "..", "..", "renderer", "dist");
+		: process.env.ZUSE_RENDERER_DIST_DIR?.trim() ||
+			Path.resolve(DESKTOP_SOURCE_DIR, "..", "renderer", "dist");
 
 // Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
@@ -1711,6 +1714,8 @@ async function createMainWindow() {
 	const relayWsProtocol = wsServerProtocolLayer({
 		port: relayWsPort,
 		host: networkAccess.bindHost,
+		staticDir: isDevelopment ? undefined : rendererDistDir(),
+		devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
 		onDiagnostic: appendRemoteConnectionLog,
 	});
 	const nearbyWsProtocol =

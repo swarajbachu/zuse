@@ -95,6 +95,7 @@ import {
 	shouldSendPlanFeedbackNow,
 } from "~/lib/plan-feedback-routing";
 import { getRpcClient } from "~/lib/rpc-client";
+import { attachmentUrl } from "~/lib/platform-capabilities";
 import { readStorageWithLegacy } from "~/lib/storage-keys";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
@@ -768,7 +769,7 @@ export function ChatComposer({
 			setUploadingAttachmentCount((count) => count + 1);
 			void uploadOne(sessionId, file, workspaceRoot ?? undefined)
 				.then((ref) => {
-					const finalUrl = isImage ? `zuse://attachments/${ref.id}` : "";
+					const finalUrl = isImage ? attachmentUrl(ref.id) : "";
 					editorViewRef.current?.dispatch({
 						effects: updateImageChipEffect.of({
 							previousId: tempId,

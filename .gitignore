@@ -27,6 +27,7 @@ out/
 build
 dist
 dist-electron
+.dev-instances
 .electron-runtime
 
 # electron-builder packaged artifacts (root-level dist/) — separately ignored
@@ -49,6 +50,8 @@ yarn-error.log*
 # Local-only project data (workspace + private agent notes)
 .context
 .notes
+.memoize
+.reference
 .zuse/*
 !.zuse/
 !.zuse/settings.toml

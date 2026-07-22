@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
+import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer, Schema } from "effect";
 import {
@@ -16,11 +18,28 @@ import {
 	type LanAuthServiceShape,
 	PairingRedeemError,
 } from "../lan-auth/services/lan-auth-service.ts";
+import {
+	BROWSER_SECURITY_HEADERS,
+	type BrowserRequestSecurity,
+	browserCookieName,
+	browserSessionCookie,
+	clearedBrowserSessionCookie,
+	hasValidRequestOrigin,
+	isSecureRequest,
+	PairingRateLimiter,
+	readStaticAsset,
+	requestRequiresAuthentication,
+	WebSocketTicketStore,
+} from "./browser-http.ts";
 
 const PairRequest = Schema.Struct({
 	code: Schema.String,
 	deviceId: Schema.optional(Schema.String),
 	deviceLabel: Schema.optional(Schema.String),
+});
+
+const BrowserSessionRequest = Schema.Struct({
+	credential: Schema.String,
 });
 
 const NearbyPairRequest = Schema.Struct({
@@ -51,6 +70,16 @@ export type WsServerProtocolOptions = {
 	readonly host?: string;
 	readonly onDiagnostic?: WsDiagnostic;
 	readonly onListening?: (address: WsServerListeningAddress) => void;
+	readonly onPairing?: (pairing: {
+		readonly browserUrl: string;
+		readonly expiresAt: Date;
+	}) => void;
+	/** Production client root. Missing files fall back to index.html for the SPA. */
+	readonly staticDir?: string;
+	/** In development, browser navigations are redirected to this Vite origin. */
+	readonly devServerUrl?: string;
+	/** Honor forwarding headers only when the listener is behind a trusted proxy. */
+	readonly trustProxy?: boolean;
 	readonly tls?: {
 		readonly key: string | Buffer;
 		readonly cert: string | Buffer;
@@ -59,6 +88,12 @@ export type WsServerProtocolOptions = {
 
 const json = (body: unknown, status: number) =>
 	HttpServerResponse.json(body, { status }).pipe(Effect.orDie);
+
+const jsonWithHeaders = (
+	body: unknown,
+	status: number,
+	headers: Readonly<Record<string, string>>,
+) => HttpServerResponse.json(body, { status, headers }).pipe(Effect.orDie);
 
 const bearerFromRequest = (
 	request: HttpServerRequest.HttpServerRequest,
@@ -71,6 +106,16 @@ const bearerFromRequest = (
 	const url = new URL(request.url, "http://localhost");
 	return url.searchParams.get("token");
 };
+
+const requestClientKey = (
+	request: HttpServerRequest.HttpServerRequest,
+	trustProxy: boolean,
+): string =>
+	(trustProxy
+		? request.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+		: undefined) ??
+	request.headers["user-agent"] ??
+	"unknown";
 
 const pairApp = (auth: LanAuthServiceShape, log: WsDiagnostic) =>
 	Effect.gen(function* () {
@@ -217,6 +262,181 @@ const localIdentityApp = (auth: LanAuthServiceShape) =>
 		return yield* json({ publicKey: keys.publicJwk, signature }, 200);
 	}).pipe(Effect.catch(() => json({ error: "internal_error" }, 500)));
 
+const sessionCredential = (
+	request: HttpServerRequest.HttpServerRequest,
+	cookieName: string,
+): string | null => request.cookies[cookieName] ?? null;
+
+const browserSessionStatusApp = (
+	auth: LanAuthServiceShape,
+	cookieName: string,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		const authRequired = requestRequiresAuthentication(
+			auth.policy,
+			request.headers,
+			security.trustProxy,
+		);
+		if (!authRequired) {
+			return yield* jsonWithHeaders(
+				{ authenticated: true, authRequired: false },
+				200,
+				{ "cache-control": "no-store" },
+			);
+		}
+		const credential = sessionCredential(request, cookieName);
+		const authenticated =
+			credential !== null &&
+			(yield* auth
+				.verifyToken(credential)
+				.pipe(Effect.orElseSucceed(() => false)));
+		return yield* jsonWithHeaders({ authenticated, authRequired: true }, 200, {
+			"cache-control": "no-store",
+		});
+	});
+
+const browserSessionExchangeApp = (
+	auth: LanAuthServiceShape,
+	cookieName: string,
+	rateLimiter: PairingRateLimiter,
+	log: WsDiagnostic,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		if (!hasValidRequestOrigin(request.headers, security)) {
+			return yield* json({ error: "invalid_origin" }, 403);
+		}
+		if (!rateLimiter.allow(requestClientKey(request, security.trustProxy))) {
+			return yield* json({ error: "rate_limited" }, 429);
+		}
+		const body = yield* HttpServerRequest.schemaBodyJson(
+			BrowserSessionRequest,
+		).pipe(Effect.catch(() => Effect.fail("bad_request" as const)));
+		if (body.credential.length < 8 || body.credential.length > 256) {
+			return yield* Effect.fail("bad_request" as const);
+		}
+		const redeemed = yield* auth
+			.redeemPairingCode(body.credential, {
+				id: `browser_${randomUUID()}`,
+				label: "Browser",
+			})
+			.pipe(
+				Effect.mapError((error) =>
+					error instanceof PairingRedeemError ? error.reason : "internal",
+				),
+			);
+		log("browser.auth.paired", { environmentId: redeemed.environmentId });
+		return yield* jsonWithHeaders(
+			{
+				authenticated: true,
+				authRequired: requestRequiresAuthentication(
+					auth.policy,
+					request.headers,
+					security.trustProxy,
+				),
+				environmentId: redeemed.environmentId,
+			},
+			200,
+			{
+				"set-cookie": browserSessionCookie(
+					cookieName,
+					redeemed.token,
+					isSecureRequest(request.headers, security),
+				),
+				"cache-control": "no-store",
+			},
+		);
+	}).pipe(
+		Effect.catch((error) => {
+			if (error === "expired_code") return json({ error }, 410);
+			if (error === "invalid_code") return json({ error }, 401);
+			if (error === "bad_request") return json({ error }, 400);
+			return json({ error: "internal_error" }, 500);
+		}),
+	);
+
+const websocketTicketApp = (
+	auth: LanAuthServiceShape,
+	cookieName: string,
+	tickets: WebSocketTicketStore,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		if (!hasValidRequestOrigin(request.headers, security)) {
+			return yield* json({ error: "invalid_origin" }, 403);
+		}
+		if (
+			!requestRequiresAuthentication(
+				auth.policy,
+				request.headers,
+				security.trustProxy,
+			)
+		) {
+			return yield* json(tickets.issue("local"), 200);
+		}
+		const credential = sessionCredential(request, cookieName);
+		const authenticated =
+			credential !== null &&
+			(yield* auth
+				.verifyToken(credential)
+				.pipe(Effect.orElseSucceed(() => false)));
+		if (!authenticated || credential === null) {
+			return yield* json({ error: "unauthorized" }, 401);
+		}
+		return yield* json(tickets.issue(credential), 200);
+	});
+
+const browserLogoutApp = (
+	cookieName: string,
+	security: BrowserRequestSecurity,
+) =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+		if (!hasValidRequestOrigin(request.headers, security)) {
+			return yield* json({ error: "invalid_origin" }, 403);
+		}
+		return yield* jsonWithHeaders({ authenticated: false }, 200, {
+			"set-cookie": clearedBrowserSessionCookie(
+				cookieName,
+				isSecureRequest(request.headers, security),
+			),
+			"cache-control": "no-store",
+		});
+	});
+
+const browserClientApp = (
+	request: HttpServerRequest.HttpServerRequest,
+	opts: Pick<WsServerProtocolOptions, "devServerUrl" | "staticDir">,
+) =>
+	Effect.promise(async () => {
+		if (opts.devServerUrl !== undefined) {
+			const destination = new URL(request.url, opts.devServerUrl);
+			return HttpServerResponse.redirect(destination, { status: 307 });
+		}
+		const pathname = new URL(request.url, "http://localhost").pathname;
+		const asset = await readStaticAsset(opts.staticDir ?? "", pathname);
+		if (asset === "invalid") {
+			return HttpServerResponse.jsonUnsafe(
+				{ error: "bad_request" },
+				{ status: 400 },
+			);
+		}
+		if (asset === null) {
+			return HttpServerResponse.jsonUnsafe(
+				{ error: "not_found" },
+				{ status: 404 },
+			);
+		}
+		return HttpServerResponse.uint8Array(asset.body, {
+			contentType: asset.contentType,
+			headers: { "cache-control": asset.cacheControl },
+		});
+	});
+
 /**
  * WebSocket RPC transport for the headless server.
  *
@@ -226,12 +446,26 @@ const localIdentityApp = (auth: LanAuthServiceShape) =>
  */
 export const wsServerProtocolLayer = (
 	opts: WsServerProtocolOptions,
-): Layer.Layer<RpcServer.Protocol, never, LanAuthService> =>
+): Layer.Layer<RpcServer.Protocol, never, LanAuthService | AttachmentService> =>
 	Layer.effect(
 		RpcServer.Protocol,
 		Effect.gen(function* () {
 			const auth = yield* LanAuthService;
+			const attachments = yield* AttachmentService;
 			const log = opts.onDiagnostic ?? (() => {});
+			const environmentId = yield* auth.environmentId();
+			const relay = yield* auth
+				.getRelayConfig()
+				.pipe(Effect.orElseSucceed(() => null));
+			const browserSecurity: BrowserRequestSecurity = {
+				tls: opts.tls !== undefined,
+				// Forwarding headers are security-sensitive and are honored only for
+				// the managed relay connection configured by this environment.
+				trustProxy: opts.trustProxy ?? relay?.tunnelHostname !== undefined,
+			};
+			const cookieName = browserCookieName(environmentId);
+			const tickets = new WebSocketTicketStore();
+			const pairingRateLimiter = new PairingRateLimiter();
 			yield* Effect.sync(() =>
 				log("ws.bind.start", {
 					host: opts.host ?? "127.0.0.1",
@@ -246,7 +480,20 @@ export const wsServerProtocolLayer = (
 
 			const guarded = Effect.gen(function* () {
 				const request = yield* HttpServerRequest.HttpServerRequest;
-				const token = bearerFromRequest(request);
+				if (
+					request.headers.upgrade?.toLowerCase() !== "websocket" &&
+					(opts.staticDir !== undefined || opts.devServerUrl !== undefined)
+				) {
+					return yield* browserClientApp(request, opts);
+				}
+				const requestUrl = new URL(request.url, "http://localhost");
+				const ticket = requestUrl.searchParams.get("ticket");
+				const ticketCredential =
+					ticket === null ? null : tickets.consume(ticket);
+				const token =
+					ticketCredential === "local"
+						? null
+						: (ticketCredential ?? bearerFromRequest(request));
 				yield* Effect.sync(() =>
 					log("ws.request", {
 						url: request.url,
@@ -254,7 +501,13 @@ export const wsServerProtocolLayer = (
 						hasToken: token !== null,
 					}),
 				);
-				if (auth.policy === "protected") {
+				if (
+					requestRequiresAuthentication(
+						auth.policy,
+						request.headers,
+						browserSecurity.trustProxy,
+					)
+				) {
 					const ok =
 						token !== null &&
 						(yield* auth
@@ -268,7 +521,6 @@ export const wsServerProtocolLayer = (
 					);
 					if (!ok) return yield* json({ error: "unauthorized" }, 401);
 				}
-				const requestUrl = new URL(request.url, "http://localhost");
 				const receivedVersion = Number(
 					requestUrl.searchParams.get("wireVersion"),
 				);
@@ -308,6 +560,82 @@ export const wsServerProtocolLayer = (
 			);
 			yield* router.add("POST", "/pair/status", nearbyPairStatusApp(auth));
 			yield* router.add("POST", "/pair/identity", localIdentityApp(auth));
+			yield* router.add(
+				"GET",
+				"/auth/session",
+				browserSessionStatusApp(auth, cookieName, browserSecurity),
+			);
+			yield* router.add(
+				"POST",
+				"/auth/browser-session",
+				browserSessionExchangeApp(
+					auth,
+					cookieName,
+					pairingRateLimiter,
+					log,
+					browserSecurity,
+				),
+			);
+			yield* router.add(
+				"POST",
+				"/auth/websocket-ticket",
+				websocketTicketApp(auth, cookieName, tickets, browserSecurity),
+			);
+			yield* router.add(
+				"POST",
+				"/auth/logout",
+				browserLogoutApp(cookieName, browserSecurity),
+			);
+			yield* router.add("GET", "/assets/attachments/*", (request) =>
+				Effect.gen(function* () {
+					const credential = sessionCredential(request, cookieName);
+					if (
+						requestRequiresAuthentication(
+							auth.policy,
+							request.headers,
+							browserSecurity.trustProxy,
+						)
+					) {
+						const authenticated =
+							credential !== null &&
+							(yield* auth
+								.verifyToken(credential)
+								.pipe(Effect.orElseSucceed(() => false)));
+						if (!authenticated) {
+							return yield* json({ error: "unauthorized" }, 401);
+						}
+					}
+					const pathname = new URL(request.url, "http://localhost").pathname;
+					let id: string;
+					try {
+						id = decodeURIComponent(
+							pathname.slice("/assets/attachments/".length),
+						);
+					} catch {
+						return yield* json({ error: "bad_request" }, 400);
+					}
+					if (!/^[a-zA-Z0-9_-]{1,180}$/u.test(id)) {
+						return yield* json({ error: "bad_request" }, 400);
+					}
+					const asset = yield* attachments.read(id);
+					if (asset === null) return yield* json({ error: "not_found" }, 404);
+					return HttpServerResponse.uint8Array(asset.bytes, {
+						contentType: asset.mimeType,
+						headers: { "cache-control": "private, max-age=3600" },
+					});
+				}),
+			);
+
+			if (opts.staticDir !== undefined || opts.devServerUrl !== undefined) {
+				yield* router.add("GET", "*", (request) =>
+					browserClientApp(request, opts),
+				);
+			}
+			yield* router.addGlobalMiddleware((response) =>
+				response.pipe(
+					Effect.map(HttpServerResponse.setHeaders(BROWSER_SECURITY_HEADERS)),
+				),
+			);
 
 			yield* HttpServer.serveEffect(router.asHttpEffect()).pipe(
 				Effect.forkScoped,
@@ -329,15 +657,30 @@ export const wsServerProtocolLayer = (
 				if (listeningAddress !== null) opts.onListening?.(listeningAddress);
 			});
 
-			if (auth.policy === "protected" && auth.pairingBootstrap) {
+			if (
+				(auth.policy === "protected" || relay?.tunnelHostname !== undefined) &&
+				auth.pairingBootstrap
+			) {
 				const pairing = yield* auth.createPairingCode();
+				const browserUrl =
+					relay?.tunnelHostname === undefined
+						? opts.port === 0 && listeningAddress !== null
+							? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}/#pair=${encodeURIComponent(pairing.code)}`
+							: pairing.browserUrl
+						: `https://${relay.tunnelHostname}/#pair=${encodeURIComponent(pairing.code)}`;
 				const redeemUrl = pairing.pairingUrl.replace(/^ws:/, "http:");
 				yield* Effect.sync(() => {
-					console.log("Zuse LAN pairing enabled");
+					console.log("Zuse browser pairing enabled");
+					console.log(`Browser: ${browserUrl}`);
+					console.log(`Expires: ${pairing.expiresAt.toISOString()}`);
+					console.log(
+						`Remote access: ${relay?.tunnelHostname === undefined ? "inactive" : "active"}`,
+					);
 					console.log(`QR: ${pairing.qrText}`);
 					console.log(
 						`Redeem with: POST ${redeemUrl}/pair {"code":"${pairing.code}"}`,
 					);
+					opts.onPairing?.({ browserUrl, expiresAt: pairing.expiresAt });
 				});
 			}
 

@@ -1,0 +1,17 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
+	"files": {
+		"includes": [
+			"**",
+			"!!**/.memoize",
+			"!!**/.reference",
+			"!!**/.zuse",
+			"!!**/.dev-instances",
+			"!!**/.turbo",
+			"!!**/coverage",
+			"!!**/dist",
+			"!!**/dist-electron",
+			"!!**/node_modules"
+		]
+	}
+}
