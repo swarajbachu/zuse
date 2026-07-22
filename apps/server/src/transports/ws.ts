@@ -664,7 +664,9 @@ export const wsServerProtocolLayer = (
 				const pairing = yield* auth.createPairingCode();
 				const browserUrl =
 					relay?.tunnelHostname === undefined
-						? pairing.browserUrl
+						? opts.port === 0 && listeningAddress !== null
+							? `${opts.tls === undefined ? "http" : "https"}://${listeningAddress.host}:${listeningAddress.port}/#pair=${encodeURIComponent(pairing.code)}`
+							: pairing.browserUrl
 						: `https://${relay.tunnelHostname}/#pair=${encodeURIComponent(pairing.code)}`;
 				const redeemUrl = pairing.pairingUrl.replace(/^ws:/, "http:");
 				yield* Effect.sync(() => {

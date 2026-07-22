@@ -28,6 +28,7 @@ export const startHeadlessServer = async (options?: {
 	readonly scenario?: FakeAcpScenario;
 	readonly controlPort?: number;
 	readonly host?: string;
+	readonly authPolicy?: "auto" | "local" | "protected";
 }): Promise<HeadlessServerHarness> => {
 	const temporary =
 		options?.root === undefined ? makeTemporaryDirectory("zuse-system-") : null;
@@ -52,6 +53,7 @@ export const startHeadlessServer = async (options?: {
 				HOME: home,
 				XDG_DATA_HOME: join(home, ".local", "share"),
 				ZUSE_HOST: options?.host ?? "127.0.0.1",
+				ZUSE_AUTH_POLICY: options?.authPolicy ?? "auto",
 				NODE_OPTIONS: `--require=${keytarShimRequirePath}`,
 				ZUSE_PORT: "0",
 				ZUSE_SERVER_READY_STDOUT: "1",
