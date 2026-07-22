@@ -28,6 +28,7 @@ export const makePairingStartResult = (result: {
 	readonly code: string;
 	readonly expiresAt: Date;
 	readonly pairingUrl: string;
+	readonly browserUrl: string;
 	readonly qrText: string;
 }): PairingStartResult => PairingStartResult.make(result);
 

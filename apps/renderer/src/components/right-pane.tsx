@@ -12,7 +12,8 @@ import {
 import type { FolderId, Message, WorktreeId } from "@zuse/contracts";
 import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { Plus, X } from "lucide-react";
-import { useMemo, useRef, useSyncExternalStore } from "react";
+import { lazy, Suspense, useMemo, useRef, useSyncExternalStore } from "react";
+import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { formatShortcut } from "../lib/shortcuts.ts";
 import * as terminalRegistry from "../lib/terminal-registry.ts";
 import { useAutoAnimate } from "../lib/use-auto-animate.ts";
@@ -38,7 +39,6 @@ import {
 } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
-import { BrowserPane } from "./browser-pane.tsx";
 import { DiffPane } from "./diff-pane.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { MarkdownBody } from "./markdown-body.tsx";
@@ -53,6 +53,12 @@ import {
 	MenuTrigger,
 } from "./ui/menu.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
+
+const BrowserPane = lazy(() =>
+	import("./browser-pane.tsx").then((module) => ({
+		default: module.BrowserPane,
+	})),
+);
 
 /**
  * Metadata for each addable panel kind: launcher/tab label, icon, and the
@@ -298,6 +304,7 @@ export function RightPane({
 	const activePanel =
 		visiblePanels.find((p) => p.id === effectiveActiveId) ?? null;
 	const browserActive = activePanel?.kind === "browser";
+	const browserAvailable = rendererPlatformCapabilities().integratedBrowser;
 	const addPanelMenu = (
 		<AddPanelMenu addable={addablePanels} onAdd={addPanel} />
 	);
@@ -367,7 +374,25 @@ export function RightPane({
 					hidden={!browserActive}
 					className="flex min-h-0 min-w-0 flex-1 flex-col"
 				>
-					<BrowserPane />
+					{browserAvailable ? (
+						<Suspense
+							fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
+						>
+							<BrowserPane />
+						</Suspense>
+					) : (
+						<div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+							<div className="max-w-sm">
+								<h2 className="font-medium text-sm">
+									Integrated browser is desktop-only
+								</h2>
+								<p className="mt-2 text-muted-foreground text-sm leading-6">
+									Browser automation requires Electron’s isolated Chromium
+									controls. Links can still open in a normal browser tab.
+								</p>
+							</div>
+						</div>
+					)}
 				</div>
 			</div>
 		</aside>

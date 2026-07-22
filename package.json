@@ -7,6 +7,7 @@
 		"dev": "node scripts/dev.mjs",
 		"dev:turbo": "turbo run dev --filter=renderer --filter=desktop",
 		"dev:desktop": "node scripts/dev.mjs",
+		"test:dev-runner": "node --test scripts/dev-instance.test.mjs",
 		"kill-port": "node scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"format": "biome format --write .",
@@ -21,6 +22,8 @@
 		"schemas:generate": "node scripts/generate-settings-schemas.mjs",
 		"verify:backfill": "tsx scripts/verify-backfill.ts",
 		"diagnostics:inspect": "node scripts/diagnostics-inspect.mjs",
+		"benchmark:toolchain": "node scripts/benchmark-toolchain.mjs",
+		"check:fast": "vp check",
 		"discord:setup": "node --env-file=.env scripts/setup-discord-community.mjs",
 		"discord:setup:dry-run": "node --env-file=.env scripts/setup-discord-community.mjs --dry-run",
 		"discord:enhance": "node --env-file=.env scripts/enhance-discord-community.mjs",
@@ -36,7 +39,8 @@
 		"tsx": "4.23.0",
 		"turbo": "catalog:",
 		"typescript": "catalog:",
-		"vitest": "4.1.10"
+		"vitest": "4.1.10",
+		"vite-plus": "0.2.5"
 	},
 	"engines": {
 		"node": ">=22.13"

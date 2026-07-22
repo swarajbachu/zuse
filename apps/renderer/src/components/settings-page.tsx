@@ -51,6 +51,10 @@ import {
 } from "../lib/completion-sounds.ts";
 import { collectDiagnosticsClientContext } from "../lib/diagnostics-client-context.ts";
 import { recordUiAction } from "../lib/diagnostics-recorder.ts";
+import {
+	openExternal as openExternalUrl,
+	rendererPlatformCapabilities,
+} from "../lib/platform-capabilities.ts";
 import { PROVIDER_LABEL } from "../lib/provider-labels.ts";
 import { getRpcClient } from "../lib/rpc-client.ts";
 import { useProvidersStore } from "../store/providers.ts";
@@ -442,12 +446,7 @@ const DIAGNOSTICS_ISSUE_URL =
 	"https://github.com/swarajbachu/zuse/issues/new?template=bug_report.yml";
 
 function openExternal(url: string): void {
-	const bridge = window.zuse ?? window.memoize;
-	if (bridge?.app?.openExternal) {
-		bridge.app.openExternal(url);
-		return;
-	}
-	window.open(url, "_blank", "noopener,noreferrer");
+	void openExternalUrl(url);
 }
 
 function revealPath(path: string): void {
@@ -461,6 +460,7 @@ async function copyDiagnosticsJson(path: string): Promise<boolean> {
 }
 
 function DiagnosticsPane() {
+	const capabilities = rendererPlatformCapabilities();
 	const [isExporting, setIsExporting] = useState(false);
 	const [lastExport, setLastExport] = useState<{
 		diagnosticId: string;
@@ -530,11 +530,19 @@ function DiagnosticsPane() {
 		<div className="flex flex-col gap-4">
 			<SettingsGroup
 				title="Bug report diagnostics"
-				description="Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
+				description={
+					capabilities.revealInFileManager
+						? "Creates a redacted diagnostics JSON file for a GitHub bug report. Raw prompts and full transcripts are not included by default."
+						: "Creates a redacted diagnostics JSON file on the server. Use the desktop app to reveal that server-side file."
+				}
 			>
 				<SettingsRow
 					title="Export diagnostics JSON"
-					description="Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
+					description={
+						capabilities.revealInFileManager
+							? "Copies the JSON to your clipboard and reveals the file so you can attach it to the GitHub issue."
+							: "Exports a redacted JSON file on the connected server."
+					}
 					action={
 						<Button
 							size="sm"
@@ -566,20 +574,24 @@ function DiagnosticsPane() {
 							>
 								Open GitHub issue
 							</Button>
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => void copyJson(lastExport.bundlePath)}
-							>
-								{copied === "json" ? "Copied" : "Copy diagnostics JSON"}
-							</Button>
-							<Button
-								variant="settings"
-								size="sm"
-								onClick={() => revealPath(lastExport.bundlePath)}
-							>
-								Reveal diagnostics file
-							</Button>
+							{capabilities.copyServerFile && (
+								<Button
+									variant="settings"
+									size="sm"
+									onClick={() => void copyJson(lastExport.bundlePath)}
+								>
+									{copied === "json" ? "Copied" : "Copy diagnostics JSON"}
+								</Button>
+							)}
+							{capabilities.revealInFileManager && (
+								<Button
+									variant="settings"
+									size="sm"
+									onClick={() => revealPath(lastExport.bundlePath)}
+								>
+									Reveal diagnostics file
+								</Button>
+							)}
 							<Button
 								variant="settings"
 								size="sm"

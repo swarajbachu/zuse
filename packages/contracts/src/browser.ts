@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-import { SessionId } from "./session.ts";
+import { AgentSessionId } from "./ids.ts";
 
 export {
 	BrowserOverlayShape,
@@ -239,7 +239,7 @@ export class BrowserCommandRequest extends Schema.Class<BrowserCommandRequest>(
 	"BrowserCommandRequest",
 )({
 	id: Schema.String,
-	sessionId: SessionId,
+	sessionId: AgentSessionId,
 	command: BrowserCommand,
 }) {}
 

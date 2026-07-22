@@ -34,6 +34,14 @@ import {
 import fixPath from "fix-path";
 import selfsigned from "selfsigned";
 
+// Build verification runs the generated CommonJS bundle under Node to ensure
+// its static import graph initializes without temporal-dead-zone failures.
+// Exit before touching Electron APIs; production and normal development never
+// set this flag.
+if (process.env.ZUSE_MAIN_BUNDLE_SMOKE === "1") {
+	process.exit(0);
+}
+
 // macOS GUI apps launched from Finder inherit a minimal PATH
 // (`/usr/bin:/bin:/usr/sbin:/sbin`), not the user's shell PATH. The Claude
 // driver runs `which claude` to locate the user's Claude Code install — that
@@ -325,7 +333,9 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
 
 const APP_NAME = isDevelopment ? "Zuse Alpha (Dev)" : "Zuse Alpha";
-const DEV_ICON_PATH = Path.resolve(__dirname, "..", "build", "icon.png");
+const DESKTOP_SOURCE_DIR =
+	process.env.ZUSE_DESKTOP_DIR?.trim() || Path.resolve(__dirname, "..");
+const DEV_ICON_PATH = Path.resolve(DESKTOP_SOURCE_DIR, "build", "icon.png");
 
 app.setName(APP_NAME);
 if (
@@ -380,7 +390,8 @@ let localConnectivityStopping = false;
 const rendererDistDir = (): string =>
 	app.isPackaged
 		? Path.join(process.resourcesPath, "app", "renderer", "dist")
-		: Path.resolve(__dirname, "..", "..", "renderer", "dist");
+		: process.env.ZUSE_RENDERER_DIST_DIR?.trim() ||
+			Path.resolve(DESKTOP_SOURCE_DIR, "..", "renderer", "dist");
 
 // Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
 // the primary instance. Pull any auth deep-link arg out of its argv and focus
@@ -2021,6 +2032,8 @@ async function createMainWindow() {
 	const relayWsProtocol = wsServerProtocolLayer({
 		port: relayWsPort,
 		host: networkAccess.bindHost,
+		staticDir: isDevelopment ? undefined : rendererDistDir(),
+		devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
 		onDiagnostic: appendRemoteConnectionLog,
 	});
 	const nearbyWsProtocol =

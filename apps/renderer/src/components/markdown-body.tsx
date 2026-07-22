@@ -21,6 +21,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { resolveMarkdownPreviewUrl } from "~/lib/file-preview";
+import { openExternal } from "~/lib/platform-capabilities";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
@@ -106,7 +107,7 @@ function MarkdownLink({
 				<MenuItem
 					onClick={() => {
 						if (/^https?:\/\//i.test(href)) {
-							window.zuse?.app?.openExternal(href);
+							void openExternal(href);
 						}
 					}}
 				>
@@ -529,7 +530,7 @@ export function MarkdownBody({
 								if (typeof href !== "string") return;
 								if (/^https?:\/\//i.test(href)) {
 									e.preventDefault();
-									window.zuse?.app?.openExternal(href);
+									void openExternal(href);
 									return;
 								}
 								const localPath = localFilePathFromHref(href);
