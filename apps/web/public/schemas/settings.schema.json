@@ -15,6 +15,7 @@
     "appearanceMode",
     "completionSoundEnabled",
     "completionSoundPreset",
+    "analyticsEnabled",
     "providerEnabled",
     "modelEnabledByProvider",
     "subagents",
@@ -77,6 +78,9 @@
         "rise",
         "bloom"
       ]
+    },
+    "analyticsEnabled": {
+      "type": "boolean"
     },
     "providerEnabled": {
       "type": "object",

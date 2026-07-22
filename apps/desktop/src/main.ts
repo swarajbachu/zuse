@@ -2061,6 +2061,7 @@ async function createMainWindow() {
 			relayWsPort,
 		});
 	}
+	process.env.ZUSE_APP_VERSION = app.getVersion();
 
 	runtimeFiber = Effect.runFork(
 		Layer.launch(

@@ -8,12 +8,13 @@ import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
   GoalCapableSessionHandle,
-  ProviderSessionHandle,
+	ProviderSessionHandle,
 } from "@zuse/agents/kernel/driver";
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
+import { classifyTool, inputLengthBucket, safeModelId } from "@zuse/analytics";
 import {
-  type AgentAvailability,
-  type AgentEvent,
+	type AgentAvailability,
+	type AgentEvent,
   type AgentSessionId,
   AgentSessionNotFoundError,
   AgentSessionStartError,
@@ -26,6 +27,7 @@ import {
 } from "@zuse/contracts";
 import { Cache, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
+import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { McpService } from "../../mcp/services/mcp-service.ts";
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
@@ -53,8 +55,20 @@ type SessionHandle = ProviderSessionHandle;
  */
 type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
-  readonly providerId: ProviderId;
-  readonly handle: SessionHandle;
+	readonly providerId: ProviderId;
+	readonly model: string;
+	readonly handle: SessionHandle;
+	turnStartedAt: number | null;
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		cacheReadTokens: number;
+		cacheCreationTokens: number;
+	};
+	readonly tools: Map<
+		string,
+		{ category: ReturnType<typeof classifyTool>; startedAt: number }
+	>;
 };
 
 let sessionCounter = 0;
@@ -70,12 +84,13 @@ export const ProviderServiceLive = Layer.effect(
     const workspace = yield* WorkspaceService;
     const permissions = yield* PermissionService;
     const attachmentService = yield* AttachmentService;
-    const browserBridge = yield* BrowserBridgeService;
-    const configStore = yield* ConfigStoreService;
-    const mcp = yield* McpService;
-    const runtime = yield* Effect.context<never>();
-    const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
-      new Map(),
+		const browserBridge = yield* BrowserBridgeService;
+		const configStore = yield* ConfigStoreService;
+		const mcp = yield* McpService;
+		const analytics = yield* AnalyticsService;
+		const runtime = yield* Effect.context<never>();
+		const sessions = yield* Ref.make<Map<AgentSessionId, SessionEntry>>(
+			new Map(),
     );
 
     // Prewarm a cursor-agent child at layer boot if cursor is installed.
@@ -168,14 +183,15 @@ export const ProviderServiceLive = Layer.effect(
       start: (
         input,
         resumeCursor = null,
-        getRuntimeMode,
-        orchestrationTools = null,
+				getRuntimeMode,
+				orchestrationTools = null,
 				providerEventCursor = null,
-      ) =>
-        Effect.gen(function* () {
-          if (input.sessionId !== undefined) {
-            const requestedSessionId = input.sessionId;
-            const existing = (yield* Ref.get(sessions)).get(requestedSessionId);
+			) => {
+				const startupStartedAt = Date.now();
+				return Effect.gen(function* () {
+					if (input.sessionId !== undefined) {
+						const requestedSessionId = input.sessionId;
+						const existing = (yield* Ref.get(sessions)).get(requestedSessionId);
             if (existing?.providerId === input.providerId) {
               return { sessionId: requestedSessionId };
             }
@@ -478,23 +494,94 @@ export const ProviderServiceLive = Layer.effect(
               codexMcpCommand,
               resumeCursor,
             ).pipe(Effect.provideService(AttachmentService, attachmentService));
-          }
-          yield* Ref.update(sessions, (map) => {
-            const next = new Map(map);
-            next.set(sessionId, { providerId: input.providerId, handle });
-            return next;
-          });
-          return { sessionId };
-        }),
-      send: (sessionId, text, attachments, fileRefs, skillRefs) =>
-        Effect.flatMap(lookup(sessionId), ({ handle }) =>
-          handle.send(text, attachments, fileRefs, skillRefs),
-        ),
-      interrupt: (sessionId) =>
-        Effect.flatMap(lookup(sessionId), ({ handle }) => handle.interrupt()),
-      close: (sessionId) =>
-        Effect.flatMap(lookup(sessionId), ({ handle }) =>
-          handle.close().pipe(
+					}
+					yield* Ref.update(sessions, (map) => {
+						const next = new Map(map);
+						next.set(sessionId, {
+							providerId: input.providerId,
+							model: input.model
+								? safeModelId(input.providerId, input.model)
+								: "custom",
+							handle,
+							turnStartedAt: null,
+							usage: {
+								inputTokens: 0,
+								outputTokens: 0,
+								cacheReadTokens: 0,
+								cacheCreationTokens: 0,
+							},
+							tools: new Map(),
+						});
+						return next;
+					});
+					yield* analytics.capture("provider startup completed", {
+						provider: input.providerId,
+						model: input.model
+							? safeModelId(input.providerId, input.model)
+							: "custom",
+						duration_ms: Date.now() - startupStartedAt,
+						resumed: resumeCursor !== null,
+					});
+					return { sessionId };
+				}).pipe(
+					Effect.tapError(() =>
+						analytics.capture("provider startup failed", {
+							provider: input.providerId,
+							model: input.model
+								? safeModelId(input.providerId, input.model)
+								: "custom",
+							duration_ms: Date.now() - startupStartedAt,
+							error_code: "startup_failed",
+						}),
+					),
+				);
+			},
+			send: (sessionId, text, attachments, fileRefs, skillRefs) =>
+				Effect.flatMap(lookup(sessionId), (entry) =>
+					Effect.gen(function* () {
+						entry.turnStartedAt = Date.now();
+						entry.usage = {
+							inputTokens: 0,
+							outputTokens: 0,
+							cacheReadTokens: 0,
+							cacheCreationTokens: 0,
+						};
+						yield* analytics.capture("message submitted", {
+							provider: entry.providerId,
+							model: entry.model,
+							attachment_count: attachments?.length ?? 0,
+							input_length_bucket: inputLengthBucket(text.length),
+						});
+						yield* analytics.capture("turn started", {
+							provider: entry.providerId,
+							model: entry.model,
+						});
+						yield* entry.handle.send(text, attachments, fileRefs, skillRefs);
+					}),
+				),
+			interrupt: (sessionId) =>
+				Effect.flatMap(lookup(sessionId), (entry) =>
+					entry.handle.interrupt().pipe(
+						Effect.tap(() =>
+							analytics.capture("turn interrupted", {
+								provider: entry.providerId,
+								model: entry.model,
+								duration_ms:
+									entry.turnStartedAt === null
+										? 0
+										: Date.now() - entry.turnStartedAt,
+							}),
+						),
+						Effect.tap(() =>
+							Effect.sync(() => {
+								entry.turnStartedAt = null;
+							}),
+						),
+					),
+				),
+			close: (sessionId) =>
+				Effect.flatMap(lookup(sessionId), ({ handle }) =>
+					handle.close().pipe(
             Effect.andThen(
               Ref.update(sessions, (map) => {
                 const next = new Map(map);
@@ -503,11 +590,106 @@ export const ProviderServiceLive = Layer.effect(
               }),
             ),
           ),
-        ),
-      events: (sessionId) =>
-        Stream.unwrap(
-          Effect.map(lookup(sessionId), ({ handle }) => handle.events),
-        ) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
+				),
+			events: (sessionId) =>
+				Stream.unwrap(
+					Effect.map(lookup(sessionId), (entry) =>
+						entry.handle.events.pipe(
+							Stream.tap((event) => {
+								if (event._tag === "UsageDelta") {
+									return Effect.sync(() => {
+										entry.usage.inputTokens += event.inputTokens;
+										entry.usage.outputTokens += event.outputTokens;
+										entry.usage.cacheReadTokens += event.cacheReadTokens;
+										entry.usage.cacheCreationTokens +=
+											event.cacheCreationTokens;
+									});
+								}
+								if (event._tag === "ToolUse") {
+									const category = classifyTool(event.tool);
+									entry.tools.set(event.itemId, {
+										category,
+										startedAt: Date.now(),
+									});
+									return category === "subagent"
+										? analytics.capture("subagent started", {
+												provider: entry.providerId,
+												model: entry.model,
+											})
+										: Effect.void;
+								}
+								if (event._tag === "ToolResult") {
+									const tool = entry.tools.get(event.itemId);
+									entry.tools.delete(event.itemId);
+									return analytics.capture("tool used", {
+										provider: entry.providerId,
+										model: entry.model,
+										tool_category: tool?.category ?? "other",
+										outcome: event.isError ? "failed" : "completed",
+										duration_ms: tool ? Date.now() - tool.startedAt : 0,
+									});
+								}
+								if (event._tag === "SubagentSummary") {
+									return analytics.capture("subagent completed", {
+										provider: entry.providerId,
+										model: entry.model,
+										outcome: event.isError ? "failed" : "completed",
+									});
+								}
+								if (
+									event._tag === "ContextCompaction" &&
+									event.status === "completed"
+								) {
+									return analytics.capture("context compacted", {
+										provider: entry.providerId,
+										model: entry.model,
+										tokens: event.afterTokens ?? 0,
+									});
+								}
+								if (event._tag === "UsageLimit") {
+									return analytics.capture("usage limit reached", {
+										provider: event.providerId,
+										scope: "provider",
+									});
+								}
+								if (
+									event._tag === "Completed" &&
+									entry.turnStartedAt !== null
+								) {
+									const duration = Date.now() - entry.turnStartedAt;
+									entry.turnStartedAt = null;
+									return analytics.capture(
+										event.reason === "ended"
+											? "turn completed"
+											: event.reason === "interrupted"
+												? "turn interrupted"
+												: "turn failed",
+										event.reason === "ended"
+											? {
+													provider: entry.providerId,
+													model: entry.model,
+													duration_ms: duration,
+													input_tokens: entry.usage.inputTokens,
+													output_tokens: entry.usage.outputTokens,
+													cache_read_tokens: entry.usage.cacheReadTokens,
+													cache_creation_tokens:
+														entry.usage.cacheCreationTokens,
+												}
+											: {
+													provider: entry.providerId,
+													model: entry.model,
+													duration_ms: duration,
+													...(event.reason === "error"
+														? { error_code: "provider_error" }
+														: {}),
+												},
+									);
+								}
+								return Effect.void;
+							}),
+						),
+					),
+				) as Stream.Stream<AgentEvent, AgentSessionNotFoundError>,
 			acknowledgeProviderEventCursor: (sessionId, cursor) =>
 				Effect.flatMap(
 					lookup(sessionId),
@@ -535,17 +717,21 @@ export const ProviderServiceLive = Layer.effect(
         ),
       answerQuestion: (sessionId, itemId, answers) =>
         Effect.flatMap(lookup(sessionId), ({ handle }) =>
-          handle.answerQuestion(itemId, answers),
-        ),
-			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.respondToPlan?.(toolCallId, outcome, feedback) ??
-						Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+					handle.answerQuestion(itemId, answers),
 				),
-      getGoal: (sessionId) =>
-        Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
+			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
+				Effect.flatMap(lookup(sessionId), (entry) =>
+					(
+						entry.handle.respondToPlan?.(toolCallId, outcome, feedback) ??
+						Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+					).pipe(
+						Effect.tap(() =>
+							analytics.capture("plan decided", { decision: outcome }),
+						),
+					),
+				),
+			getGoal: (sessionId) =>
+				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
           providerId === "codex" || providerId === "grok"
             ? (handle as GoalCapableHandle).getGoal()
             : Effect.fail(new AgentSessionNotFoundError({ sessionId })),

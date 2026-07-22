@@ -11,6 +11,10 @@ import {
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 } from "./agent.ts";
+import {
+	AnalyticsContextChangesRpc,
+	AnalyticsGetContextRpc,
+} from "./analytics.ts";
 import { AttachmentUploadRpc } from "./attachment.ts";
 import {
 	AuthGetSessionRpc,
@@ -230,6 +234,8 @@ import {
  */
 export const MemoizeRpcs = RpcGroup.make(
 	PingRpc,
+	AnalyticsGetContextRpc,
+	AnalyticsContextChangesRpc,
 	AuthGetSessionRpc,
 	AuthSignInRpc,
 	AuthSignOutRpc,

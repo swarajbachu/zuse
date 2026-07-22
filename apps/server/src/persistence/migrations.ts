@@ -42,6 +42,7 @@ import { Migration0038QueuedMessageReady } from "./migrations/0038_queued_messag
 import { Migration0039AuthTokenDevices } from "./migrations/0039_auth_token_devices.ts";
 import { Migration0040BlockedNearbyDevices } from "./migrations/0040_blocked_nearby_devices.ts";
 import { Migration0041ChatArchiveJobs } from "./migrations/0041_chat_archive_jobs.ts";
+import { Migration0042AnalyticsOutbox } from "./migrations/0042_analytics_outbox.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -100,6 +101,7 @@ const MigrationDefinitions = {
 	"0039_auth_token_devices": Migration0039AuthTokenDevices,
 	"0040_blocked_nearby_devices": Migration0040BlockedNearbyDevices,
 	"0041_chat_archive_jobs": Migration0041ChatArchiveJobs,
+	"0042_analytics_outbox": Migration0042AnalyticsOutbox,
 } as const;
 
 export const MigrationsLive = Layer.effectDiscard(

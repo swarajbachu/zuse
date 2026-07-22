@@ -1,18 +1,18 @@
+import Link from "next/link";
 import React from "react";
 import { Container } from "@/components/container";
-import { Header } from "@/components/header";
 import { CTACard } from "@/components/faq/cta-card";
+import { Header } from "@/components/header";
 import {
-  AccordionContent,
-  AccordionTrigger,
-  Accordion,
-  AccordionItem,
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
 } from "@/components/ui/accordion";
 import { GITHUB_URL } from "@/lib/site";
-import Link from "next/link";
 
 const data = [
-  {
+	{
     question: "What do you mean by token maxing?",
     answer:
       "Token maxing means using the model access you already pay for on more real work: parallel feature attempts, bug fixes, refactors, and reviews. Zuse Alpha makes that sane by keeping each run visible, isolated, and reviewable.",
@@ -32,13 +32,13 @@ const data = [
     answer:
       "Yes. Zuse Alpha is bring your own keys. You plug in your own provider keys or subscriptions, and Zuse Alpha talks to them directly. It never resells tokens and adds $0 markup, so you only pay the agent providers.",
   },
-  {
-    question: "Is my code or data sent anywhere?",
-    answer:
-      "No. Zuse Alpha is local-first. Your chats and history live in a SQLite database on your machine, and your API keys are stored in the macOS Keychain. Your code only goes to the agent providers you configure, the same as running their CLIs yourself.",
-  },
-  {
-    question: "Is it macOS only?",
+	{
+		question: "Is my code or data sent anywhere?",
+		answer:
+			"Your chats, project data, and keys stay local, and model requests go only to the providers you configure. Default-on pseudonymous usage analytics measure features, model choices, active time, and reliability with standard geographic enrichment; they never include prompts, responses, code, paths, commands, account details, or error stacks. You can turn analytics off immediately in desktop or mobile Settings.",
+	},
+	{
+		question: "Is it macOS only?",
     answer:
       "For now, yes. Zuse Alpha is a native macOS desktop app and ships as a universal build for both Apple Silicon and Intel. Other platforms may come later.",
   },
@@ -79,19 +79,16 @@ export const FAQ = () => {
               .
             </div>
           </div>
-          <CTACard />
-        </div>
-        <div className="h-full w-full">
-          <Accordion defaultValue={[`${data[0].question}-0`]}>
-            {data.map((item, index) => (
-              <React.Fragment key={`${item.question}-${index}`}>
-                <AccordionItem
-                  value={`${item.question}-${index}`}
-                  className="py-8"
-                >
-                  <AccordionTrigger className="-tracking-xs text-foreground text-base leading-6 font-medium">
-                    {item.question}
-                  </AccordionTrigger>
+					<CTACard />
+				</div>
+				<div className="h-full w-full">
+					<Accordion defaultValue={[data[0].question]}>
+						{data.map((item, index) => (
+							<React.Fragment key={item.question}>
+								<AccordionItem value={item.question} className="py-8">
+									<AccordionTrigger className="-tracking-xs text-foreground text-base leading-6 font-medium">
+										{item.question}
+									</AccordionTrigger>
                   <AccordionContent className="text-muted-foreground">
                     {item.answer}
                   </AccordionContent>

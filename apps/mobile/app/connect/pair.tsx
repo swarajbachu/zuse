@@ -6,6 +6,7 @@ import { ActivityIndicator, Text, View } from "react-native";
 
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
+import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { successTap } from "~/lib/haptics";
 import { pairWithDesktop } from "~/lib/pairing";
@@ -29,12 +30,23 @@ export default function PairDeepLinkScreen() {
 			return;
 		started.current = candidate;
 		setError(null);
+		const startedAt = Date.now();
+		captureMobileAnalytics("pairing attempted", { connection_kind: "qr" });
 		void pairWithDesktop(candidate, add)
 			.then(() => {
+				captureMobileAnalytics("pairing completed", {
+					connection_kind: "qr",
+					duration_ms: Date.now() - startedAt,
+				});
 				successTap();
 				returnToInbox(router);
 			})
 			.catch((cause) => {
+				captureMobileAnalytics("pairing failed", {
+					connection_kind: "qr",
+					duration_ms: Date.now() - startedAt,
+					error_code: "pairing_failed",
+				});
 				setError(
 					cause instanceof Error
 						? cause.message
@@ -57,6 +69,7 @@ export default function PairDeepLinkScreen() {
 				<View className="flex-1 justify-center gap-6">
 					<EmptyState icon={Link2} title="Could not pair" detail={error} />
 					<Button
+						analyticsId="pairing.scan-another"
 						variant="secondary"
 						onPress={() => router.replace("/connect/scan")}
 					>
