@@ -120,6 +120,34 @@ export const migrateExistingBrowserCookies = async (
 	await writeState(userData, { ...state, migratedExistingSession: true });
 };
 
+const parseDefaultHandlerBundle = (stdout: string): string | null => {
+	let depth = 0;
+	let role: string | null = null;
+	let scheme: string | null = null;
+	for (const line of stdout.split("\n")) {
+		const trimmed = line.trim();
+		if (depth === 1) {
+			const roleMatch = trimmed.match(
+				/^LSHandlerRoleAll\s*=\s*"?([^";\s]+)"?;$/i,
+			);
+			if (roleMatch?.[1]) role = roleMatch[1];
+			const schemeMatch = trimmed.match(
+				/^LSHandlerURLScheme\s*=\s*"?([^";\s]+)"?;$/i,
+			);
+			if (schemeMatch?.[1]) scheme = schemeMatch[1];
+		}
+		depth += (trimmed.match(/\{/g) ?? []).length;
+		depth -= (trimmed.match(/\}/g) ?? []).length;
+		if (depth === 0) {
+			if (scheme?.toLowerCase() === "https" && role !== null && role !== "-")
+				return role;
+			role = null;
+			scheme = null;
+		}
+	}
+	return null;
+};
+
 const defaultHandlerBundle = async (): Promise<string | null> => {
 	if (process.platform !== "darwin") return null;
 	try {
@@ -128,13 +156,7 @@ const defaultHandlerBundle = async (): Promise<string | null> => {
 			"com.apple.LaunchServices/com.apple.launchservices.secure",
 			"LSHandlers",
 		]);
-		const blocks = stdout.split("},");
-		for (const block of blocks) {
-			if (!/LSHandlerURLScheme\s*=\s*https/i.test(block)) continue;
-			const match = block.match(/LSHandlerRoleAll\s*=\s*"?([^";\s]+)"?/i);
-			if (match?.[1]) return match[1];
-		}
-		return null;
+		return parseDefaultHandlerBundle(stdout);
 	} catch {
 		return null;
 	}
@@ -157,6 +179,7 @@ const normalized = (value: string) =>
 const findProfileRoot = async (sourceName: string): Promise<string | null> => {
 	const support = Path.join(homedir(), "Library", "Application Support");
 	const wanted = normalized(sourceName);
+	if (wanted.length === 0) return null;
 	const found: Array<{ path: string; score: number }> = [];
 	const walk = async (directory: string, depth: number): Promise<void> => {
 		if (depth > 2) return;
@@ -187,7 +210,8 @@ const findProfileRoot = async (sourceName: string): Promise<string | null> => {
 		);
 	};
 	await walk(support, 0);
-	return found.sort((a, b) => b.score - a.score)[0]?.path ?? null;
+	const best = found.sort((a, b) => b.score - a.score)[0];
+	return best?.score === 10 ? best.path : null;
 };
 
 type DetectedProfile = {
@@ -201,10 +225,18 @@ const detectProfile = async (): Promise<DetectedProfile | null> => {
 	const bundleId = await defaultHandlerBundle();
 	if (bundleId === null) return null;
 	const application = await findApplication(bundleId);
-	const source =
+	const sourceHint =
 		application === null ? bundleId : Path.basename(application, ".app");
-	const root = await findProfileRoot(source);
+	const root = await findProfileRoot(sourceHint);
 	if (root === null) return null;
+	const rootName = Path.basename(root);
+	const source =
+		application === null
+			? (rootName === "User Data"
+					? Path.basename(Path.dirname(root))
+					: rootName
+				).replaceAll("-", " ")
+			: sourceHint;
 	let profile = "Default";
 	try {
 		const localState = JSON.parse(
@@ -468,5 +500,6 @@ export const BROWSER_PARTITION = PARTITION;
 
 export const browserCookieImportInternals = {
 	decryptCookie,
+	parseDefaultHandlerBundle,
 	safeStorageServiceCandidates,
 };
