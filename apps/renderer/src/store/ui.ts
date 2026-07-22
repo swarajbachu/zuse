@@ -32,6 +32,7 @@ export type SettingsSection =
 	| { readonly kind: "integrations" }
 	| { readonly kind: "mcp" }
 	| { readonly kind: "devices" }
+	| { readonly kind: "browser" }
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "advanced" }
 	| { readonly kind: "shortcuts" }

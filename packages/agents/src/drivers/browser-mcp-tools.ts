@@ -1,6 +1,8 @@
 import type {
 	BrowserCommand,
 	BrowserCommandResult,
+	BrowserOverlayShape,
+	BrowserTarget,
 	PermissionDecision,
 	PermissionKind,
 	PermissionMode,
@@ -20,6 +22,45 @@ import {
 export const BROWSER_MCP_SERVER_NAME = "zuse";
 
 type JsonObject = JsonSchemaObject;
+
+const targetProp: JsonObject = {
+	oneOf: [
+		objectSchema({ kind: { const: "ref" }, ref: stringProp("Snapshot ref.") }, [
+			"kind",
+			"ref",
+		]),
+		objectSchema(
+			{
+				kind: { const: "role" },
+				role: stringProp("Accessible role."),
+				name: stringProp("Accessible name."),
+				exact: booleanProp("Require an exact name match."),
+			},
+			["kind", "role"],
+		),
+		objectSchema(
+			{
+				kind: { const: "text" },
+				text: stringProp("Visible text."),
+				exact: booleanProp("Require an exact match."),
+			},
+			["kind", "text"],
+		),
+		objectSchema(
+			{ kind: { const: "css" }, selector: stringProp("CSS selector.") },
+			["kind", "selector"],
+		),
+		objectSchema(
+			{
+				kind: { const: "point" },
+				x: numberProp("Viewport x coordinate."),
+				y: numberProp("Viewport y coordinate."),
+			},
+			["kind", "x", "y"],
+		),
+	],
+	description: "Semantic, CSS, snapshot-ref, or viewport-coordinate target.",
+};
 
 type McpText = { readonly type: "text"; readonly text: string };
 type McpImage = {
@@ -45,8 +86,41 @@ export const BROWSER_MCP_TOOLS: ReadonlyArray<BrowserMcpToolDef> = [
 		description:
 			"Open a URL in Zuse's visible in-app browser and wait for it to settle. Use this for JS apps, dev servers, dashboards, screenshots, and browser interactions.",
 		inputSchema: objectSchema(
-			{ url: stringProp("Absolute URL, or localhost host/path.") },
+			{
+				url: stringProp(
+					"Absolute URL, localhost host/path, or an environment-relative path.",
+				),
+				readiness: { type: "string", enum: ["immediate", "dom-ready", "load"] },
+				environmentPort: numberProp("Local environment server port."),
+				environmentProtocol: { type: "string", enum: ["http", "https"] },
+			},
 			["url"],
+		),
+	},
+	{
+		name: "browser_status",
+		description:
+			"Report browser availability, page, viewport, recording, access, and protocol capabilities.",
+		inputSchema: objectSchema({}),
+	},
+	{
+		name: "browser_resize",
+		description:
+			"Resize the single visible browser surface using a responsive preset or custom dimensions.",
+		inputSchema: objectSchema(
+			{
+				mode: {
+					type: "string",
+					enum: ["fill", "phone", "tablet", "laptop", "desktop", "custom"],
+				},
+				width: numberProp("Custom viewport width in CSS pixels.", 3840),
+				height: numberProp("Custom viewport height in CSS pixels.", 2160),
+				orientation: { type: "string", enum: ["portrait", "landscape"] },
+				lockAspectRatio: booleanProp(
+					"Keep the current aspect ratio during manual resizing.",
+				),
+			},
+			["mode"],
 		),
 	},
 	{
@@ -61,19 +135,19 @@ export const BROWSER_MCP_TOOLS: ReadonlyArray<BrowserMcpToolDef> = [
 		name: "browser_snapshot",
 		description:
 			"Return a compact accessibility-tree snapshot with refs. Use this before clicking, typing, selecting, or reading a specific element.",
-		inputSchema: objectSchema({}),
+		inputSchema: objectSchema({
+			screenshot: { type: "string", enum: ["viewport", "full-page"] },
+		}),
 	},
 	{
 		name: "browser_click",
 		description:
 			"Click an element by ref from browser_snapshot. Requires approval unless full-access mode is active.",
-		inputSchema: objectSchema(
-			{
-				ref: stringProp("Element ref from browser_snapshot, e.g. e3."),
-				element: stringProp("Human-readable target description."),
-			},
-			["ref"],
-		),
+		inputSchema: objectSchema({
+			ref: stringProp("Element ref from browser_snapshot, e.g. e3."),
+			target: targetProp,
+			element: stringProp("Human-readable target description."),
+		}),
 	},
 	{
 		name: "browser_type",
@@ -82,11 +156,12 @@ export const BROWSER_MCP_TOOLS: ReadonlyArray<BrowserMcpToolDef> = [
 		inputSchema: objectSchema(
 			{
 				ref: stringProp("Element ref from browser_snapshot."),
+				target: targetProp,
 				text: stringProp("Text to type."),
 				submit: booleanProp("Press Enter after typing."),
 				element: stringProp("Human-readable field description."),
 			},
-			["ref", "text"],
+			["text"],
 		),
 	},
 	{
@@ -219,6 +294,70 @@ export const BROWSER_MCP_TOOLS: ReadonlyArray<BrowserMcpToolDef> = [
 			["origin"],
 		),
 	},
+	{
+		name: "browser_wait_for",
+		description:
+			"Wait until every supplied semantic, selector, text, URL, loading, and delay condition passes within one timeout.",
+		inputSchema: objectSchema({
+			target: targetProp,
+			selector: stringProp("CSS selector that must exist and be visible."),
+			text: stringProp("Visible text that must appear."),
+			urlIncludes: stringProp("Substring required in the current URL."),
+			loadingComplete: booleanProp("Require document loading to complete."),
+			ms: numberProp("Minimum delay in milliseconds.", 15000),
+			timeoutMs: numberProp("Overall timeout in milliseconds.", 25000),
+		}),
+	},
+	{
+		name: "browser_inspect",
+		description:
+			"Inspect one unambiguous target: attributes, accessible state, styles, box model, selector hints, and geometry.",
+		inputSchema: objectSchema({ target: targetProp }, ["target"]),
+	},
+	{
+		name: "browser_evaluate",
+		description:
+			"Evaluate bounded JavaScript in the page. Always requires explicit approval; results must be JSON serializable.",
+		inputSchema: objectSchema(
+			{
+				expression: stringProp("JavaScript expression, up to 64 KiB."),
+				awaitPromise: booleanProp("Await a returned promise."),
+			},
+			["expression"],
+		),
+	},
+	{
+		name: "browser_recording_start",
+		description:
+			"Start recording the visible browser surface, agent cursor, and annotations.",
+		inputSchema: objectSchema({}),
+	},
+	{
+		name: "browser_recording_stop",
+		description:
+			"Stop the active recording and return compact artifact metadata.",
+		inputSchema: objectSchema({}),
+	},
+	{
+		name: "browser_overlay",
+		description:
+			"Add, remove, undo, redo, or clear non-destructive browser overlay marks.",
+		inputSchema: objectSchema(
+			{
+				action: {
+					type: "string",
+					enum: ["add", "remove", "undo", "redo", "clear"],
+				},
+				id: stringProp("Shape id for removal."),
+				shape: {
+					type: "object",
+					description:
+						"Tagged rectangle, highlight, arrow, label, or freehand shape.",
+				},
+			},
+			["action"],
+		),
+	},
 ];
 
 export const browserMcpPromptHint = (): string => {
@@ -244,6 +383,7 @@ export const browserMcpPromptHint = (): string => {
 };
 
 const READ_ONLY_BROWSER_TOOLS = new Set([
+	"browser_status",
 	"browser_navigate",
 	"browser_screenshot",
 	"browser_snapshot",
@@ -254,6 +394,8 @@ const READ_ONLY_BROWSER_TOOLS = new Set([
 	"browser_history",
 	"browser_console",
 	"browser_network",
+	"browser_wait_for",
+	"browser_inspect",
 ]);
 
 const text = (value: string, isError = false): BrowserMcpToolResult => ({
@@ -280,10 +422,105 @@ const asNumber = (args: JsonObject, key: string): number | undefined =>
 		? (args[key] as number)
 		: undefined;
 
+const asTarget = (
+	value: unknown,
+	required = false,
+): BrowserTarget | undefined => {
+	if (value === null || typeof value !== "object") {
+		if (required) throw new Error("Missing target.");
+		return undefined;
+	}
+	const raw = value as JsonObject;
+	const kind = asString(raw, "kind", true)!;
+	switch (kind) {
+		case "ref":
+			return { _tag: "Ref", ref: asString(raw, "ref", true)! };
+		case "role":
+			return {
+				_tag: "Role",
+				role: asString(raw, "role", true)!,
+				...(asString(raw, "name") !== undefined
+					? { name: asString(raw, "name") }
+					: {}),
+				...(asBoolean(raw, "exact") !== undefined
+					? { exact: asBoolean(raw, "exact") }
+					: {}),
+			};
+		case "text":
+			return {
+				_tag: "Text",
+				text: asString(raw, "text", true)!,
+				...(asBoolean(raw, "exact") !== undefined
+					? { exact: asBoolean(raw, "exact") }
+					: {}),
+			};
+		case "css":
+			return { _tag: "Css", selector: asString(raw, "selector", true)! };
+		case "point":
+			return {
+				_tag: "Point",
+				x: asNumber(raw, "x") ?? 0,
+				y: asNumber(raw, "y") ?? 0,
+			};
+		default:
+			throw new Error("target.kind must be ref, role, text, css, or point.");
+	}
+};
+
 const commandFor = (name: string, args: JsonObject): BrowserCommand => {
 	switch (name) {
 		case "browser_navigate":
-			return { _tag: "Navigate", url: asString(args, "url", true)! };
+			return {
+				_tag: "Navigate",
+				url: asString(args, "url", true)!,
+				...(asString(args, "readiness") !== undefined
+					? {
+							readiness: asString(args, "readiness") as
+								| "immediate"
+								| "dom-ready"
+								| "load",
+						}
+					: {}),
+				...(asNumber(args, "environmentPort") !== undefined
+					? { environmentPort: asNumber(args, "environmentPort") }
+					: {}),
+				...(asString(args, "environmentProtocol") !== undefined
+					? {
+							environmentProtocol: asString(args, "environmentProtocol") as
+								| "http"
+								| "https",
+						}
+					: {}),
+			};
+		case "browser_status":
+			return { _tag: "Status" };
+		case "browser_resize":
+			return {
+				_tag: "Resize",
+				mode: asString(args, "mode", true)! as
+					| "fill"
+					| "phone"
+					| "tablet"
+					| "laptop"
+					| "desktop"
+					| "custom",
+				...(asNumber(args, "width") !== undefined
+					? { width: asNumber(args, "width") }
+					: {}),
+				...(asNumber(args, "height") !== undefined
+					? { height: asNumber(args, "height") }
+					: {}),
+				...(asString(args, "orientation") !== undefined
+					? {
+							orientation: asString(args, "orientation") as
+								| "portrait"
+								| "landscape",
+						}
+					: {}),
+				...(asBoolean(args, "lockAspectRatio") !== undefined
+					? { lockAspectRatio: asBoolean(args, "lockAspectRatio") }
+					: {}),
+			};
 		case "browser_screenshot":
 			return {
 				_tag: "Screenshot",
@@ -292,13 +529,35 @@ const commandFor = (name: string, args: JsonObject): BrowserCommand => {
 					: {}),
 			};
 		case "browser_snapshot":
-			return { _tag: "Snapshot" };
+			return {
+				_tag: "Snapshot",
+				...(asString(args, "screenshot") !== undefined
+					? {
+							screenshot: asString(args, "screenshot") as
+								| "viewport"
+								| "full-page",
+						}
+					: {}),
+			};
 		case "browser_click":
-			return { _tag: "Click", ref: asString(args, "ref", true)! };
+			return {
+				_tag: "Click",
+				...(asString(args, "ref") !== undefined
+					? { ref: asString(args, "ref") }
+					: {}),
+				...(asTarget(args["target"]) !== undefined
+					? { target: asTarget(args["target"]) }
+					: {}),
+			};
 		case "browser_type":
 			return {
 				_tag: "Type",
-				ref: asString(args, "ref", true)!,
+				...(asString(args, "ref") !== undefined
+					? { ref: asString(args, "ref") }
+					: {}),
+				...(asTarget(args["target"]) !== undefined
+					? { target: asTarget(args["target"]) }
+					: {}),
 				text: asString(args, "text", true)!,
 				...(asBoolean(args, "submit") !== undefined
 					? { submit: asBoolean(args, "submit") }
@@ -420,6 +679,63 @@ const commandFor = (name: string, args: JsonObject): BrowserCommand => {
 		}
 		case "browser_login":
 			return { _tag: "Login", origin: asString(args, "origin", true)! };
+		case "browser_wait_for":
+			return {
+				_tag: "WaitFor",
+				...(asTarget(args["target"]) !== undefined
+					? { target: asTarget(args["target"]) }
+					: {}),
+				...(asString(args, "selector") !== undefined
+					? { selector: asString(args, "selector") }
+					: {}),
+				...(asString(args, "text") !== undefined
+					? { text: asString(args, "text") }
+					: {}),
+				...(asString(args, "urlIncludes") !== undefined
+					? { urlIncludes: asString(args, "urlIncludes") }
+					: {}),
+				...(asBoolean(args, "loadingComplete") !== undefined
+					? { loadingComplete: asBoolean(args, "loadingComplete") }
+					: {}),
+				...(asNumber(args, "ms") !== undefined
+					? { ms: asNumber(args, "ms") }
+					: {}),
+				...(asNumber(args, "timeoutMs") !== undefined
+					? { timeoutMs: asNumber(args, "timeoutMs") }
+					: {}),
+			};
+		case "browser_inspect":
+			return { _tag: "Inspect", target: asTarget(args["target"], true)! };
+		case "browser_evaluate":
+			return {
+				_tag: "Evaluate",
+				expression: asString(args, "expression", true)!,
+				...(asBoolean(args, "awaitPromise") !== undefined
+					? { awaitPromise: asBoolean(args, "awaitPromise") }
+					: {}),
+			};
+		case "browser_recording_start":
+			return { _tag: "RecordingStart" };
+		case "browser_recording_stop":
+			return { _tag: "RecordingStop" };
+		case "browser_overlay": {
+			const action = asString(args, "action", true)! as
+				| "add"
+				| "remove"
+				| "undo"
+				| "redo"
+				| "clear";
+			return {
+				_tag: "Overlay",
+				action,
+				...(asString(args, "id") !== undefined
+					? { id: asString(args, "id") }
+					: {}),
+				...(args["shape"] !== undefined
+					? { shape: args["shape"] as BrowserOverlayShape }
+					: {}),
+			};
+		}
 		default:
 			throw new Error(`Unknown browser tool: ${name}`);
 	}
@@ -449,7 +765,26 @@ const resultFor = (
 					}
 				: text("Could not capture a screenshot.", true);
 		case "browser_snapshot":
-			return text(result.snapshot ?? "[]");
+			return text(
+				result.payload === undefined
+					? (result.snapshot ?? "[]")
+					: JSON.stringify(result.payload, null, 2),
+			);
+		case "browser_status":
+		case "browser_resize":
+		case "browser_wait_for":
+		case "browser_inspect":
+		case "browser_evaluate":
+		case "browser_recording_start":
+		case "browser_recording_stop":
+		case "browser_overlay":
+			return text(
+				JSON.stringify(
+					result.payload ?? { detail: result.detail ?? "Done." },
+					null,
+					2,
+				),
+			);
 		case "browser_read":
 		case "browser_console":
 		case "browser_network":
@@ -511,7 +846,7 @@ export const ensureBrowserPermission = async (
 		throw new Error(`Browser action blocked in plan mode: ${name}.`);
 	}
 
-	const forcePrompt = name === "browser_login";
+	const forcePrompt = name === "browser_login" || name === "browser_evaluate";
 	if (!forcePrompt && policy.kind === "auto-allow") return;
 
 	const decision = await opts.requestPermission(

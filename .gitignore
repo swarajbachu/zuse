@@ -29,6 +29,7 @@ dist
 dist-electron
 .dev-instances
 .electron-runtime
+apps/desktop/native/*/bin/
 
 # electron-builder packaged artifacts (root-level dist/) — separately ignored
 # above. Below: re-include the apps/desktop/build/ directory which holds

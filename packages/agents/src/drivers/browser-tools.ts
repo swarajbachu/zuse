@@ -28,6 +28,63 @@ const textResult = (result: BrowserCommandResult, fallback: string) => ({
 	...(result.ok ? {} : { isError: true as const }),
 });
 
+const structuredResult = (result: BrowserCommandResult, fallback: string) => ({
+	content: [
+		{
+			type: "text" as const,
+			text: result.ok
+				? JSON.stringify(
+						result.payload ?? { detail: result.detail ?? fallback },
+						null,
+						2,
+					)
+				: (result.error ?? "Browser action failed."),
+		},
+	],
+	...(result.ok ? {} : { isError: true as const }),
+});
+
+const targetSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("ref"), ref: z.string().min(1) }),
+	z.object({
+		kind: z.literal("role"),
+		role: z.string().min(1),
+		name: z.string().optional(),
+		exact: z.boolean().optional(),
+	}),
+	z.object({
+		kind: z.literal("text"),
+		text: z.string().min(1),
+		exact: z.boolean().optional(),
+	}),
+	z.object({ kind: z.literal("css"), selector: z.string().min(1) }),
+	z.object({ kind: z.literal("point"), x: z.number(), y: z.number() }),
+]);
+
+const toBrowserTarget = (target: z.infer<typeof targetSchema>) => {
+	switch (target.kind) {
+		case "ref":
+			return { _tag: "Ref" as const, ref: target.ref };
+		case "role":
+			return {
+				_tag: "Role" as const,
+				role: target.role,
+				...(target.name === undefined ? {} : { name: target.name }),
+				...(target.exact === undefined ? {} : { exact: target.exact }),
+			};
+		case "text":
+			return {
+				_tag: "Text" as const,
+				text: target.text,
+				...(target.exact === undefined ? {} : { exact: target.exact }),
+			};
+		case "css":
+			return { _tag: "Css" as const, selector: target.selector };
+		case "point":
+			return { _tag: "Point" as const, x: target.x, y: target.y };
+	}
+};
+
 /**
  * Build the in-process MCP tool definitions for the agent browser. They drive
  * the app's existing on-screen `<webview>` (round-tripping through the
@@ -137,7 +194,15 @@ export const buildBrowserTools = (send: BrowserSend) => [
 				};
 			}
 			return {
-				content: [{ type: "text" as const, text: result.snapshot }],
+				content: [
+					{
+						type: "text" as const,
+						text:
+							result.payload === undefined
+								? result.snapshot
+								: JSON.stringify(result.payload, null, 2),
+					},
+				],
 			};
 		},
 	),
@@ -543,5 +608,112 @@ export const buildBrowserTools = (send: BrowserSend) => [
 				...(result.ok ? {} : { isError: true }),
 			};
 		},
+	),
+
+	tool(
+		"browser_status",
+		"Report whether the visible in-app browser is ready, including URL, loading state, viewport, recording, domain access, and negotiated capabilities.",
+		{},
+		async () =>
+			structuredResult(await send({ _tag: "Status" }), "Browser status read."),
+	),
+
+	tool(
+		"browser_resize",
+		"Resize the single browser surface using a responsive preset or bounded custom dimensions. The setting persists across pane switches and renderer reloads.",
+		{
+			mode: z.enum(["fill", "phone", "tablet", "laptop", "desktop", "custom"]),
+			width: z.number().min(240).max(3840).optional(),
+			height: z.number().min(240).max(2160).optional(),
+			orientation: z.enum(["portrait", "landscape"]).optional(),
+			lockAspectRatio: z.boolean().optional(),
+		},
+		async (args) =>
+			structuredResult(
+				await send({ _tag: "Resize", ...args }),
+				"Viewport resized.",
+			),
+	),
+
+	tool(
+		"browser_wait_for",
+		"Wait until every supplied condition passes within one timeout: semantic target, selector, visible text, URL substring, loading completion, and/or minimum delay.",
+		{
+			target: targetSchema.optional(),
+			selector: z.string().optional(),
+			text: z.string().optional(),
+			urlIncludes: z.string().optional(),
+			loadingComplete: z.boolean().optional(),
+			ms: z.number().min(0).max(15000).optional(),
+			timeoutMs: z.number().min(100).max(25000).optional(),
+		},
+		async (args) =>
+			structuredResult(
+				await send({
+					_tag: "WaitFor",
+					...(args.target === undefined
+						? {}
+						: { target: toBrowserTarget(args.target) }),
+					...Object.fromEntries(
+						Object.entries(args).filter(
+							([key, value]) => key !== "target" && value !== undefined,
+						),
+					),
+				}),
+				"Wait conditions passed.",
+			),
+	),
+
+	tool(
+		"browser_inspect",
+		"Inspect one unambiguous semantic, CSS, ref, text, or coordinate target. Returns attributes, accessibility state, computed styles, box geometry, and a selector hint.",
+		{ target: targetSchema },
+		async (args) =>
+			structuredResult(
+				await send({ _tag: "Inspect", target: toBrowserTarget(args.target) }),
+				"Target inspected.",
+			),
+	),
+
+	tool(
+		"browser_evaluate",
+		"Evaluate up to 64 KiB of JavaScript in the active page and return a bounded JSON-serializable result. Always requires explicit approval.",
+		{
+			expression: z.string().max(64 * 1024),
+			awaitPromise: z.boolean().optional(),
+		},
+		async (args) =>
+			structuredResult(
+				await send({
+					_tag: "Evaluate",
+					expression: args.expression,
+					...(args.awaitPromise === undefined
+						? {}
+						: { awaitPromise: args.awaitPromise }),
+				}),
+				"Evaluation completed.",
+			),
+	),
+
+	tool(
+		"browser_recording_start",
+		"Start one bounded recording of the visible in-app browser. The browser must be visible.",
+		{},
+		async () =>
+			structuredResult(
+				await send({ _tag: "RecordingStart" }),
+				"Recording started.",
+			),
+	),
+
+	tool(
+		"browser_recording_stop",
+		"Stop the active browser recording and return artifact metadata without embedding video bytes in the tool result.",
+		{},
+		async () =>
+			structuredResult(
+				await send({ _tag: "RecordingStop" }),
+				"Recording stopped.",
+			),
 	),
 ];

@@ -179,6 +179,24 @@ export interface BrowserDialogState {
 	readonly defaultPrompt?: string;
 }
 
+export interface BrowserCookieImportStatus {
+	readonly supported: boolean;
+	readonly selectedProfileId?: string;
+	readonly availableProfiles: ReadonlyArray<{
+		readonly id: string;
+		readonly source: string;
+		readonly profile: string;
+		readonly isDefault: boolean;
+	}>;
+	readonly source?: string;
+	readonly profile?: string;
+	readonly lastImportTime?: string;
+	readonly importedDomainCount: number;
+	readonly importedCookieCount: number;
+	readonly importedDomains: ReadonlyArray<string>;
+	readonly message?: string;
+}
+
 export interface LocalServerSummary {
 	readonly name: string;
 	readonly port: number;
@@ -206,6 +224,17 @@ export interface BrowserBridge {
 		method: string,
 		params?: unknown,
 	) => Promise<CdpCommandOutcome>;
+	readonly startScreencast?: (webContentsId: number) => Promise<boolean>;
+	readonly stopScreencast?: (webContentsId: number) => Promise<boolean>;
+	readonly onScreencastFrame?: (
+		handler: (frame: {
+			readonly webContentsId: number;
+			readonly data: string;
+		}) => void,
+	) => () => void;
+	readonly onScreencastInterrupted?: (
+		handler: (webContentsId: number) => void,
+	) => () => void;
 	/** Network requests captured since the last load (buffered in main). */
 	readonly getNetwork?: (
 		webContentsId: number,
@@ -218,6 +247,32 @@ export interface BrowserBridge {
 		webContentsId: number,
 	) => Promise<BrowserDialogState | null>;
 	readonly listLocalServers?: () => Promise<ReadonlyArray<LocalServerSummary>>;
+	readonly saveRecording?: (
+		bytes: Uint8Array,
+		mimeType: string,
+		durationMs: number,
+	) => Promise<{
+		readonly id: string;
+		readonly type: string;
+		readonly size: number;
+		readonly durationMs: number;
+		readonly createdAt: string;
+	}>;
+	readonly getCookieImportStatus?: () => Promise<BrowserCookieImportStatus>;
+	readonly importCookies?: (
+		profileId?: string,
+	) => Promise<BrowserCookieImportStatus>;
+	readonly clearImportedCookies?: () => Promise<BrowserCookieImportStatus>;
+	readonly clearBrowsingData?: () => Promise<BrowserCookieImportStatus>;
+	readonly getNativeCredentialCapability?: () => Promise<{
+		readonly supported: boolean;
+		readonly reason?: string;
+	}>;
+	readonly fillNativeCredential?: (
+		webContentsId: number,
+		origin: string,
+		submit?: boolean,
+	) => Promise<{ readonly ok: boolean; readonly error?: string }>;
 }
 
 export interface SshBridge {

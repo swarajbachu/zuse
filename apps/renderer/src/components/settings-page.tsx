@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	Alert01Icon,
 	ArrowLeft01Icon,
+	BrowserIcon,
 	ConnectIcon,
 	Delete02Icon,
 	DocumentAttachmentIcon,
@@ -42,6 +43,7 @@ import {
 } from "~/lib/use-relative-time.ts";
 import { cn } from "~/lib/utils";
 import { useAuth } from "../hooks/use-auth.ts";
+import type { BrowserCookieImportStatus } from "../lib/bridge.ts";
 import {
 	COMPLETION_SOUND_PRESETS,
 	playCompletionSound,
@@ -60,6 +62,7 @@ import { useSettingsStore } from "../store/settings.ts";
 import { type SettingsSection, useUiStore } from "../store/ui.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
+import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { ProviderCard } from "./provider-card.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
@@ -70,6 +73,15 @@ import { LinearIntegrationsPane } from "./settings/linear-integrations-pane.tsx"
 import { McpServersPane } from "./settings/mcp-servers-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
+import {
+	AlertDialog,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "./ui/alert-dialog.tsx";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar.tsx";
 import { Button } from "./ui/button.tsx";
 import { Card } from "./ui/card.tsx";
@@ -121,6 +133,12 @@ const TOP_RAIL: ReadonlyArray<RailItemBase> = [
 		label: "Devices",
 		Icon: SmartPhone01Icon,
 		section: { kind: "devices" },
+	},
+	{
+		id: "browser",
+		label: "Browser",
+		Icon: BrowserIcon,
+		section: { kind: "browser" },
 	},
 	{
 		id: "pokedex",
@@ -338,6 +356,12 @@ function SectionTitle({
 					"Link this Mac to your account so you can drive it from your phone.",
 			};
 		}
+		if (section.kind === "browser") {
+			return {
+				title: "Browser",
+				subtitle: "Sessions, password filling, privacy, and agent access.",
+			};
+		}
 		if (section.kind === "pokedex") {
 			return {
 				title: "Pokedex",
@@ -410,6 +434,7 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "integrations") return <LinearIntegrationsPane />;
 	if (section.kind === "mcp") return <McpServersPane />;
 	if (section.kind === "devices") return <DevicesPane />;
+	if (section.kind === "browser") return <BrowserSettingsPagePane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "advanced") return <AdvancedPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
@@ -612,6 +637,211 @@ function DiagnosticsPane() {
 	);
 }
 
+const EMPTY_BROWSER_IMPORT_STATUS: BrowserCookieImportStatus = {
+	supported: false,
+	availableProfiles: [],
+	importedDomainCount: 0,
+	importedCookieCount: 0,
+	importedDomains: [],
+	message: "Checking local browser profiles…",
+};
+
+function BrowserSettingsPagePane() {
+	const [status, setStatus] = useState<BrowserCookieImportStatus>(
+		EMPTY_BROWSER_IMPORT_STATUS,
+	);
+	const [selectedProfileId, setSelectedProfileId] = useState<
+		string | undefined
+	>();
+	const [credentialCapability, setCredentialCapability] = useState<{
+		supported: boolean;
+		reason?: string;
+	} | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [clearOpen, setClearOpen] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		const browser = window.zuse?.browser;
+		void Promise.all([
+			browser?.getCookieImportStatus?.(),
+			browser?.getNativeCredentialCapability?.(),
+		]).then(([nextStatus, capability]) => {
+			if (cancelled) return;
+			if (nextStatus !== undefined) setStatus(nextStatus);
+			if (capability !== undefined) setCredentialCapability(capability);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
+
+	useEffect(() => {
+		setSelectedProfileId((current) =>
+			status.availableProfiles.some((profile) => profile.id === current)
+				? current
+				: (status.selectedProfileId ?? status.availableProfiles[0]?.id),
+		);
+	}, [status]);
+
+	const run = async (
+		operation: () => Promise<BrowserCookieImportStatus> | undefined,
+	): Promise<boolean> => {
+		setBusy(true);
+		setError(null);
+		try {
+			const request = operation();
+			const next = request === undefined ? undefined : await request;
+			if (next === undefined)
+				throw new Error(
+					"Browser session controls are unavailable in this build.",
+				);
+			setStatus(next);
+			return true;
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const selectedProfile = status.availableProfiles.find(
+		(profile) => profile.id === selectedProfileId,
+	);
+	const sessionDescription =
+		status.importedCookieCount === 0
+			? "No browser sessions have been imported."
+			: `${status.importedCookieCount} cookies across ${status.importedDomainCount} domains${status.lastImportTime ? ` · Imported ${new Date(status.lastImportTime).toLocaleString()}` : ""}`;
+
+	return (
+		<div className="flex flex-col gap-4">
+			<SettingsGroup
+				title="Browser sessions"
+				description="Copy valid cookies from a local browser profile into the built-in browser. Cookie values never enter renderer state, logs, or chat."
+			>
+				<SettingsRow
+					title="Import source"
+					description={
+						selectedProfile === undefined
+							? (status.message ?? "No supported browser profile found.")
+							: `Close ${selectedProfile.source} before importing. macOS may request Safe Storage access.`
+					}
+				>
+					<div className="flex flex-wrap items-center gap-2">
+						<BrowserProfileSelect
+							profiles={status.availableProfiles}
+							value={selectedProfileId}
+							onValueChange={setSelectedProfileId}
+							className="w-full max-w-72 bg-background shadow-none"
+						/>
+						<Button
+							size="sm"
+							loading={busy}
+							disabled={!status.supported || selectedProfileId === undefined}
+							onClick={() =>
+								void run(() =>
+									window.zuse?.browser?.importCookies?.(selectedProfileId),
+								)
+							}
+						>
+							Import
+						</Button>
+					</div>
+				</SettingsRow>
+				<SettingsRow
+					title="Imported data"
+					description={sessionDescription}
+					action={
+						<Button
+							size="sm"
+							variant="settings"
+							disabled={busy || status.importedCookieCount === 0}
+							onClick={() =>
+								void run(() => window.zuse?.browser?.clearImportedCookies?.())
+							}
+						>
+							Clear imported
+						</Button>
+					}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup
+				title="Passwords and autofill"
+				description="Passwords are requested individually for the active website and never bulk imported."
+			>
+				<SettingsRow
+					title="System Passwords"
+					description={
+						credentialCapability?.supported
+							? "Available. Filling uses the macOS system confirmation flow for the active origin."
+							: (credentialCapability?.reason ??
+								"Checking native password capability…")
+					}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup
+				title="Privacy"
+				description="Built-in browser data stays in its dedicated persistent desktop partition."
+			>
+				<SettingsRow
+					title="Browsing data"
+					description="Remove cookies, site storage, and cache from the built-in browser without changing other browsers."
+					action={
+						<Button
+							size="sm"
+							variant="destructive-outline"
+							onClick={() => setClearOpen(true)}
+						>
+							Clear all…
+						</Button>
+					}
+				/>
+			</SettingsGroup>
+
+			{error ? (
+				<p className="text-xs text-destructive-foreground">{error}</p>
+			) : null}
+
+			<BrowserTestLoginsPane />
+
+			<AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+				<AlertDialogPopup className="max-w-sm rounded-xl">
+					<AlertDialogHeader className="gap-1 px-4 pb-3 pt-4">
+						<AlertDialogTitle>Clear browsing data?</AlertDialogTitle>
+						<AlertDialogDescription className="text-xs">
+							This removes cookies, site storage, and cache from the built-in
+							browser. Other browsers are unchanged.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter className="px-4 py-2">
+						<AlertDialogClose render={<Button size="xs" variant="ghost" />}>
+							Cancel
+						</AlertDialogClose>
+						<Button
+							size="xs"
+							variant="destructive"
+							loading={busy}
+							onClick={() =>
+								void run(() =>
+									window.zuse?.browser?.clearBrowsingData?.(),
+								).then((ok) => {
+									if (ok) setClearOpen(false);
+								})
+							}
+						>
+							Clear data
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
+		</div>
+	);
+}
+
 interface BrowserCredRow {
 	readonly origin: string;
 	readonly username: string;
@@ -623,7 +853,7 @@ interface BrowserCredRow {
  * from here; the list RPC never returns them). The warning banner is
  * load-bearing: real credentials must never live here.
  */
-function BrowserSettingsPane() {
+function BrowserTestLoginsPane() {
 	const [creds, setCreds] = useState<ReadonlyArray<BrowserCredRow>>([]);
 	const [origin, setOrigin] = useState("");
 	const [username, setUsername] = useState("");
@@ -1262,13 +1492,11 @@ function GeneralPane() {
 }
 
 /**
- * Rarely-needed settings that used to be standalone rail sections (browser
- * test logins + diagnostics). One pane keeps the rail short.
+ * Rarely-needed diagnostic settings kept out of the primary rail flow.
  */
 function AdvancedPane() {
 	return (
 		<div className="flex flex-col gap-4">
-			<BrowserSettingsPane />
 			<DiagnosticsPane />
 		</div>
 	);

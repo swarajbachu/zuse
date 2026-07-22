@@ -26,6 +26,7 @@ import {
 	nativeTheme,
 	net,
 	protocol,
+	session,
 	shell,
 	type WebContents,
 	webContents as webContentsModule,
@@ -56,6 +57,13 @@ if (
 	fixPath();
 }
 
+import {
+	BROWSER_PARTITION,
+	clearImportedBrowserCookies,
+	getBrowserCookieImportStatus,
+	importDefaultBrowserCookies,
+	migrateExistingBrowserCookies,
+} from "./browser-session-service.ts";
 import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
 import { isLinearContextImagePath } from "./linear-context-image.ts";
 import {
@@ -442,6 +450,59 @@ const localConnectivityHelperPath = (): string =>
 				"bin",
 				"zuse-local-connectivity",
 			);
+
+const browserCredentialHelperPath = (): string =>
+	app.isPackaged
+		? Path.join(
+				process.resourcesPath,
+				"app",
+				"browser-credentials",
+				"zuse-browser-credentials",
+			)
+		: Path.join(
+				app.getAppPath(),
+				"native",
+				"browser-credentials",
+				"bin",
+				"zuse-browser-credentials",
+			);
+
+const probeNativeCredentialHelper = async (): Promise<{
+	readonly supported: boolean;
+	readonly reason?: string;
+}> => {
+	if (process.platform !== "darwin") {
+		return {
+			supported: false,
+			reason: "Native password filling is currently available only on macOS.",
+		};
+	}
+	const executable = browserCredentialHelperPath();
+	if (!fsSync.existsSync(executable)) {
+		return {
+			supported: false,
+			reason: "The native password helper is not installed in this build.",
+		};
+	}
+	try {
+		const { stdout } = await execFileAsync(executable, ["--probe"], {
+			timeout: 5_000,
+			maxBuffer: 16 * 1024,
+		});
+		const result = JSON.parse(stdout) as { supported?: unknown };
+		return result.supported === true
+			? { supported: true }
+			: {
+					supported: false,
+					reason: "The native password helper failed its capability probe.",
+				};
+	} catch {
+		return {
+			supported: false,
+			reason: "The native password helper failed its capability probe.",
+		};
+	}
+};
 
 type LocalTrustRecord = {
 	readonly recordId: string;
@@ -1200,6 +1261,10 @@ async function createMainWindow() {
 		number,
 		{ type: string; message: string; defaultPrompt?: string }
 	>();
+	const browserScreencasts = new Map<
+		number,
+		{ owner: WebContents; awaitingRenderer: boolean }
+	>();
 
 	const dropBrowserBuffers = (id: number): void => {
 		browserNetworkLog.delete(id);
@@ -1208,6 +1273,11 @@ async function createMainWindow() {
 	};
 
 	const detachDebugger = (id: number): void => {
+		const screencast = browserScreencasts.get(id);
+		if (screencast !== undefined && !screencast.owner.isDestroyed()) {
+			screencast.owner.send("browser:screencastInterrupted", id);
+		}
+		browserScreencasts.delete(id);
 		const wc = webContentsModule.fromId(id);
 		if (wc === undefined || wc.isDestroyed()) {
 			attachedWebContents.delete(id);
@@ -1229,16 +1299,19 @@ async function createMainWindow() {
 	 */
 	const installCdpEventTaps = (id: number, wc: WebContents): void => {
 		wc.debugger.on("message", (_event, method, rawParams) => {
-			const params = (rawParams ?? {}) as Record<string, any>;
+			const params = (rawParams ?? {}) as Record<string, unknown>;
 			switch (method) {
 				case "Network.requestWillBeSent": {
-					const log =
-						browserNetworkLog.get(id) ??
-						browserNetworkLog.set(id, new Map()).get(id)!;
+					let log = browserNetworkLog.get(id);
+					if (log === undefined) {
+						log = new Map();
+						browserNetworkLog.set(id, log);
+					}
+					const request = params.request as Record<string, unknown> | undefined;
 					log.set(String(params.requestId), {
 						id: String(params.requestId),
-						method: String(params.request?.method ?? "GET"),
-						url: String(params.request?.url ?? ""),
+						method: String(request?.method ?? "GET"),
+						url: String(request?.url ?? ""),
 						resourceType:
 							typeof params.type === "string" ? params.type : undefined,
 					});
@@ -1253,12 +1326,15 @@ async function createMainWindow() {
 						.get(id)
 						?.get(String(params.requestId));
 					if (entry === undefined) return;
-					entry.status = Number(params.response?.status ?? 0);
+					const response = params.response as
+						| Record<string, unknown>
+						| undefined;
+					entry.status = Number(response?.status ?? 0);
 					entry.mimeType =
-						typeof params.response?.mimeType === "string"
-							? params.response.mimeType
+						typeof response?.mimeType === "string"
+							? response.mimeType
 							: undefined;
-					const headers = params.response?.headers;
+					const headers = response?.headers;
 					if (headers !== null && typeof headers === "object") {
 						entry.responseHeaders = headers as Record<string, string>;
 					}
@@ -1275,12 +1351,13 @@ async function createMainWindow() {
 				}
 				case "Runtime.exceptionThrown": {
 					const details = params.exceptionDetails as
-						| Record<string, any>
+						| Record<string, unknown>
+						| undefined;
+					const exception = details?.exception as
+						| Record<string, unknown>
 						| undefined;
 					const description =
-						details?.exception?.description ??
-						details?.text ??
-						"Uncaught exception";
+						exception?.description ?? details?.text ?? "Uncaught exception";
 					const where =
 						typeof details?.url === "string" && details.url.length > 0
 							? ` (${details.url}:${details.lineNumber ?? 0})`
@@ -1308,6 +1385,27 @@ async function createMainWindow() {
 				}
 				case "Page.javascriptDialogClosed": {
 					browserPendingDialog.delete(id);
+					return;
+				}
+				case "Page.screencastFrame": {
+					void wc.debugger
+						.sendCommand("Page.screencastFrameAck", {
+							sessionId: params.sessionId,
+						})
+						.catch(() => {});
+					const screencast = browserScreencasts.get(id);
+					if (
+						screencast === undefined ||
+						screencast.awaitingRenderer ||
+						screencast.owner.isDestroyed() ||
+						typeof params.data !== "string"
+					)
+						return;
+					screencast.awaitingRenderer = true;
+					screencast.owner.send("browser:screencastFrame", {
+						webContentsId: id,
+						data: params.data,
+					});
 					return;
 				}
 				default:
@@ -1368,6 +1466,11 @@ async function createMainWindow() {
 				// teardown, full crash). Without this, a `Another debugger is already
 				// attached` error fires on the next register-after-reload.
 				wc.once("destroyed", () => {
+					const screencast = browserScreencasts.get(rawId);
+					if (screencast !== undefined && !screencast.owner.isDestroyed()) {
+						screencast.owner.send("browser:screencastInterrupted", rawId);
+					}
+					browserScreencasts.delete(rawId);
 					attachedWebContents.delete(rawId);
 					tappedWebContents.delete(rawId);
 					dropBrowserBuffers(rawId);
@@ -1443,6 +1546,53 @@ async function createMainWindow() {
 		},
 	);
 
+	ipcMain.handle("browser:startScreencast", async (event, rawId: unknown) => {
+		if (typeof rawId !== "number" || !Number.isInteger(rawId)) return false;
+		const wc = webContentsModule.fromId(rawId);
+		if (
+			wc === undefined ||
+			wc.isDestroyed() ||
+			!wc.debugger.isAttached() ||
+			browserScreencasts.has(rawId)
+		)
+			return false;
+		try {
+			browserScreencasts.set(rawId, {
+				owner: event.sender,
+				awaitingRenderer: false,
+			});
+			await wc.debugger.sendCommand("Page.startScreencast", {
+				format: "jpeg",
+				quality: 85,
+				everyNthFrame: 1,
+			});
+			return true;
+		} catch {
+			browserScreencasts.delete(rawId);
+			return false;
+		}
+	});
+
+	ipcMain.on("browser:ackScreencastFrame", (_event, rawId: unknown) => {
+		if (typeof rawId !== "number") return;
+		const screencast = browserScreencasts.get(rawId);
+		if (screencast !== undefined) screencast.awaitingRenderer = false;
+	});
+
+	ipcMain.handle("browser:stopScreencast", async (_event, rawId: unknown) => {
+		if (typeof rawId !== "number" || !Number.isInteger(rawId)) return false;
+		browserScreencasts.delete(rawId);
+		const wc = webContentsModule.fromId(rawId);
+		if (wc === undefined || wc.isDestroyed() || !wc.debugger.isAttached())
+			return false;
+		try {
+			await wc.debugger.sendCommand("Page.stopScreencast");
+			return true;
+		} catch {
+			return false;
+		}
+	});
+
 	ipcMain.handle(
 		"browser:getNetwork",
 		async (_event, rawId: unknown, rawQuery: unknown) => {
@@ -1500,6 +1650,136 @@ async function createMainWindow() {
 		return browserPendingDialog.get(rawId) ?? null;
 	});
 
+	ipcMain.handle("browser:getCookieImportStatus", async () => {
+		const persistent = session.fromPartition(BROWSER_PARTITION);
+		await migrateExistingBrowserCookies(
+			app.getPath("userData"),
+			session.defaultSession,
+			persistent,
+		);
+		return getBrowserCookieImportStatus(app.getPath("userData"));
+	});
+
+	ipcMain.handle("browser:importCookies", async (_event, profileId: unknown) =>
+		importDefaultBrowserCookies(
+			app.getPath("userData"),
+			session.fromPartition(BROWSER_PARTITION),
+			typeof profileId === "string" ? profileId : undefined,
+		),
+	);
+
+	ipcMain.handle("browser:clearImportedCookies", async () =>
+		clearImportedBrowserCookies(
+			app.getPath("userData"),
+			session.fromPartition(BROWSER_PARTITION),
+		),
+	);
+
+	ipcMain.handle("browser:clearBrowsingData", async () => {
+		const userData = app.getPath("userData");
+		const persistent = session.fromPartition(BROWSER_PARTITION);
+		await clearImportedBrowserCookies(userData, persistent);
+		await persistent.clearStorageData();
+		await persistent.clearCache();
+		return getBrowserCookieImportStatus(userData);
+	});
+
+	ipcMain.handle("browser:getNativeCredentialCapability", async () =>
+		probeNativeCredentialHelper(),
+	);
+
+	ipcMain.handle(
+		"browser:fillNativeCredential",
+		async (_event, rawId: unknown, rawOrigin: unknown, rawSubmit: unknown) => {
+			if (typeof rawId !== "number" || typeof rawOrigin !== "string")
+				return { ok: false, error: "Invalid native credential request." };
+			const wc = webContentsModule.fromId(rawId);
+			if (wc === undefined || wc.isDestroyed())
+				return { ok: false, error: "The browser surface is unavailable." };
+			let activeOrigin: string;
+			let requestedOrigin: string;
+			try {
+				activeOrigin = new URL(wc.getURL()).origin;
+				requestedOrigin = new URL(rawOrigin).origin;
+			} catch {
+				return { ok: false, error: "A valid active page origin is required." };
+			}
+			if (activeOrigin !== requestedOrigin)
+				return {
+					ok: false,
+					error: "Credential origin does not match the active page.",
+				};
+			const capability = await probeNativeCredentialHelper();
+			if (!capability.supported) {
+				return {
+					ok: false,
+					error:
+						capability.reason ??
+						"Native Passwords access is unavailable in this build.",
+				};
+			}
+			try {
+				const { stdout } = await execFileAsync(
+					browserCredentialHelperPath(),
+					[requestedOrigin],
+					{
+						timeout: 120_000,
+						maxBuffer: 64 * 1024,
+					},
+				);
+				const selected = JSON.parse(stdout) as {
+					ok?: unknown;
+					username?: unknown;
+					password?: unknown;
+					error?: unknown;
+				};
+				if (
+					selected.ok !== true ||
+					typeof selected.username !== "string" ||
+					typeof selected.password !== "string"
+				) {
+					return {
+						ok: false,
+						error:
+							typeof selected.error === "string"
+								? selected.error
+								: "No password was selected.",
+					};
+				}
+				if (
+					wc.isDestroyed() ||
+					new URL(wc.getURL()).origin !== requestedOrigin
+				) {
+					return {
+						ok: false,
+						error: "The page changed before the credential could be filled.",
+					};
+				}
+				const result = (await wc.executeJavaScript(
+					`(() => { const username = ${JSON.stringify(selected.username)}; const password = ${JSON.stringify(selected.password)}; const passwordField = document.querySelector('input[type="password"]'); if (!(passwordField instanceof HTMLInputElement)) return { ok: false, error: 'No password field is focused or visible on this page.' }; const usernameField = document.querySelector('input[autocomplete="username"], input[type="email"], input[name*="user" i], input[name*="email" i], input[id*="user" i], input[id*="email" i]') || Array.from(document.querySelectorAll('input')).find((element) => element instanceof HTMLInputElement && /^(text|email)$/.test(element.type)); const setValue = (element, value) => { const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value'); descriptor?.set?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); }; if (usernameField instanceof HTMLInputElement) setValue(usernameField, username); setValue(passwordField, password); ${rawSubmit === true ? "if (passwordField.form?.requestSubmit) passwordField.form.requestSubmit();" : "passwordField.focus();"} return { ok: true }; })()`,
+					true,
+				)) as { ok?: unknown; error?: unknown };
+				return result.ok === true
+					? { ok: true }
+					: {
+							ok: false,
+							error:
+								typeof result.error === "string"
+									? result.error
+									: "The selected password could not be filled.",
+						};
+			} catch (error) {
+				return {
+					ok: false,
+					error:
+						error instanceof Error && error.message.includes("timed out")
+							? "Password selection timed out."
+							: "Password selection was cancelled or unavailable.",
+				};
+			}
+		},
+	);
+
 	ipcMain.handle("browser:listLocalServers", async () => {
 		try {
 			const byPort = new Map<number, string>();
@@ -1542,6 +1822,44 @@ async function createMainWindow() {
 			return [];
 		}
 	});
+
+	ipcMain.handle(
+		"browser:saveRecording",
+		async (
+			_event,
+			rawBytes: unknown,
+			rawMime: unknown,
+			rawDuration: unknown,
+		) => {
+			if (!(rawBytes instanceof Uint8Array)) {
+				throw new Error("Recording bytes are invalid.");
+			}
+			if (
+				rawBytes.byteLength === 0 ||
+				rawBytes.byteLength > 300 * 1024 * 1024
+			) {
+				throw new Error("Recording must be between 1 byte and 300 MB.");
+			}
+			const mimeType = rawMime === "video/mp4" ? "video/mp4" : "video/webm";
+			const extension = mimeType === "video/mp4" ? "mp4" : "webm";
+			const id = randomUUID();
+			const createdAt = new Date().toISOString();
+			const directory = Path.join(app.getPath("userData"), "browser-artifacts");
+			await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+			const target = Path.join(directory, `${id}.${extension}`);
+			await fs.writeFile(target, rawBytes, { mode: 0o600 });
+			return {
+				id,
+				type: mimeType,
+				size: rawBytes.byteLength,
+				durationMs: Math.max(
+					0,
+					Math.min(10 * 60 * 1000, Number(rawDuration) || 0),
+				),
+				createdAt,
+			};
+		},
+	);
 
 	ipcMain.handle(
 		"browser:dispatchInput",
