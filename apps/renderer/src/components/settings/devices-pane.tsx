@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import {
 	Copy,
 	ExternalLink,
+	Monitor,
 	QrCode,
 	RefreshCw,
 	Smartphone,
@@ -18,8 +19,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { formatError } from "../../lib/format-error.ts";
 import {
+	accessDeviceKind,
 	deviceAccessCopy,
-	groupPairedPhoneTokens,
+	groupPairedDeviceTokens,
 } from "../../lib/paired-phones.ts";
 import {
 	copyText,
@@ -55,10 +57,10 @@ const messageForError = (cause: unknown): string => {
 		return "The secure tunnel needs cloudflared installed on this computer.";
 	}
 	if (formatted.includes("no_pairing_endpoint")) {
-		return "Start network access before pairing a phone.";
+		return "Enable browser and device access before creating a connection link.";
 	}
 	if (formatted.includes("no_advertised_host")) {
-		return "Connect this computer and phone to the same network, then try again.";
+		return "Connect both devices to the same network, then try again.";
 	}
 	if (
 		formatted.includes("Failed to fetch") ||
@@ -117,7 +119,7 @@ export function DevicesPane() {
 	const [busy, setBusy] = useState(false);
 	const [pairingBusy, setPairingBusy] = useState(false);
 	const [pairingTarget, setPairingTarget] = useState<"browser" | "mobile">(
-		"mobile",
+		"browser",
 	);
 	const [legacyRevokeOpen, setLegacyRevokeOpen] = useState(false);
 	const [legacyRevokeBusy, setLegacyRevokeBusy] = useState(false);
@@ -205,23 +207,27 @@ export function DevicesPane() {
 		}
 	}, [pendingNetworkMode]);
 
-	const startPairing = useCallback(async () => {
-		if (pairingBusy) return;
-		setPairingBusy(true);
-		try {
-			const client = await getRpcClient();
-			pairingTokenIdsRef.current = new Set(
-				tokens
-					.filter((token) => token.revokedAt === undefined)
-					.map((token) => token.id),
-			);
-			setPairing(await Effect.runPromise(client["pairing.start"]({})));
-		} catch (cause) {
-			showError("Could not start pairing", cause);
-		} finally {
-			setPairingBusy(false);
-		}
-	}, [pairingBusy, tokens]);
+	const startPairing = useCallback(
+		async (target: "browser" | "mobile") => {
+			if (pairingBusy) return;
+			setPairingTarget(target);
+			setPairingBusy(true);
+			try {
+				const client = await getRpcClient();
+				pairingTokenIdsRef.current = new Set(
+					tokens
+						.filter((token) => token.revokedAt === undefined)
+						.map((token) => token.id),
+				);
+				setPairing(await Effect.runPromise(client["pairing.start"]({})));
+			} catch (cause) {
+				showError("Could not start pairing", cause);
+			} finally {
+				setPairingBusy(false);
+			}
+		},
+		[pairingBusy, tokens],
+	);
 
 	const revokeToken = useCallback(async (token: AuthTokenSummary) => {
 		try {
@@ -258,7 +264,7 @@ export function DevicesPane() {
 				}
 				setLegacyRevokeOpen(false);
 			} catch (cause) {
-				showError("Could not revoke older phone access", cause);
+				showError("Could not revoke older device access", cause);
 			} finally {
 				setLegacyRevokeBusy(false);
 			}
@@ -316,27 +322,27 @@ export function DevicesPane() {
 	const canManageNetwork = rendererPlatformCapabilities().networkLifecycle;
 	const linked = status?.linked === true;
 	const remoteReady = linked && status?.heartbeatActive === true;
-	const { identifiedPhones, legacyCredentials } =
-		groupPairedPhoneTokens(tokens);
+	const { identifiedDevices, legacyCredentials } =
+		groupPairedDeviceTokens(tokens);
 	const hasActiveTokens =
-		identifiedPhones.length > 0 || legacyCredentials.length > 0;
+		identifiedDevices.length > 0 || legacyCredentials.length > 0;
 	const browserUrl =
 		pairing === null ? null : preferredBrowserPairingUrl(pairing, status);
 
 	return (
-		<section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
+		<section className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 text-[13px]">
 			<Frame>
-				<FramePanel className="space-y-3 p-3">
+				<FramePanel className="space-y-2.5 p-2.5">
 					<div className="flex items-start gap-3">
-						<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+						<div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
 							<Wifi className="size-4" aria-hidden />
 						</div>
 						<div className="min-w-0 flex-1">
 							<FrameTitle>{deviceAccessCopy.localTitle}</FrameTitle>
 							<p className="mt-1 text-xs text-muted-foreground">
 								{networkEnabled
-									? "Your phone can connect on the same Wi-Fi."
-									: "Turn this on to pair a phone over Wi-Fi."}
+									? "Use this environment from a web browser or the mobile app on this network."
+									: "Enable network access to connect a browser or another device."}
 							</p>
 						</div>
 						<span
@@ -350,10 +356,11 @@ export function DevicesPane() {
 						</span>
 					</div>
 					<p className="text-xs text-muted-foreground">
-						Pairing uses a one-time code and does not require an account.
+						This computer owns the projects, files, agents, and terminals. Each
+						connected client gets revocable access from a one-time link.
 					</p>
 				</FramePanel>
-				<FrameFooter className="flex justify-end gap-2 px-3 py-2.5">
+				<FrameFooter className="flex flex-wrap justify-end gap-2 px-2.5 py-2">
 					{!canManageNetwork ? (
 						<p className="text-right text-xs text-muted-foreground">
 							Network access is managed from the desktop app.
@@ -361,6 +368,7 @@ export function DevicesPane() {
 					) : networkEnabled ? (
 						<>
 							<Button
+								size="xs"
 								variant="outline"
 								onClick={() => setPendingNetworkMode(false)}
 								disabled={busy}
@@ -368,16 +376,30 @@ export function DevicesPane() {
 								Turn off local access
 							</Button>
 							<Button
-								onClick={() => void startPairing()}
+								size="xs"
+								variant="outline"
+								onClick={() => void startPairing("mobile")}
 								disabled={pairingBusy}
 							>
-								<QrCode aria-hidden />
-								{pairingBusy ? "Starting…" : "Pair phone"}
+								<Smartphone aria-hidden />
+								{pairingBusy ? "Creating code…" : "Show mobile QR"}
+							</Button>
+							<Button
+								size="xs"
+								onClick={() => void startPairing("browser")}
+								disabled={pairingBusy}
+							>
+								<Monitor aria-hidden />
+								{pairingBusy ? "Creating link…" : "Create web link"}
 							</Button>
 						</>
 					) : (
-						<Button onClick={() => setPendingNetworkMode(true)} disabled={busy}>
-							Turn on local access
+						<Button
+							size="xs"
+							onClick={() => setPendingNetworkMode(true)}
+							disabled={busy}
+						>
+							Enable browser and device access
 						</Button>
 					)}
 				</FrameFooter>
@@ -385,9 +407,9 @@ export function DevicesPane() {
 
 			{pairing !== null && (
 				<Frame>
-					<FramePanel className="grid gap-4 p-4 sm:grid-cols-[180px_1fr]">
+					<FramePanel className="grid gap-3 p-3 sm:grid-cols-[132px_1fr]">
 						<div
-							className="flex size-[180px] items-center justify-center rounded-xl bg-white p-3"
+							className="flex size-[132px] items-center justify-center rounded-lg bg-white p-2.5"
 							role="img"
 							aria-label="Pairing QR code"
 						>
@@ -397,24 +419,25 @@ export function DevicesPane() {
 										? (browserUrl ?? pairing.browserUrl)
 										: pairing.qrText
 								}
-								size={156}
+								size={112}
 								level="M"
 							/>
 						</div>
-						<div className="flex min-w-0 flex-col justify-center gap-3">
+						<div className="flex min-w-0 flex-col justify-center gap-2.5">
 							<div>
 								<FrameTitle>
 									{pairingTarget === "browser"
-										? "Open Zuse in a browser"
-										: "Scan with the mobile app"}
+										? "Connect a web browser"
+										: "Connect the mobile app"}
 								</FrameTitle>
 								<p className="mt-1 text-xs text-muted-foreground">
-									Keep both devices on the same network. This code expires in
-									five minutes and works once.
+									This one-time link expires in five minutes. Access remains
+									until you revoke the connected device below.
 								</p>
 							</div>
 							<div className="flex flex-wrap gap-2">
 								<Button
+									size="xs"
 									variant="outline"
 									onClick={() =>
 										setPairingTarget((current) =>
@@ -427,23 +450,29 @@ export function DevicesPane() {
 										? "Show phone QR"
 										: "Show browser QR"}
 								</Button>
-								<Button
-									variant="outline"
-									onClick={() =>
-										void copyText(browserUrl ?? pairing.browserUrl)
-									}
-								>
-									<Copy aria-hidden />
-									Copy browser link
-								</Button>
-								<Button
-									onClick={() =>
-										void openExternal(browserUrl ?? pairing.browserUrl)
-									}
-								>
-									<ExternalLink aria-hidden />
-									Open in browser
-								</Button>
+								{pairingTarget === "browser" && (
+									<>
+										<Button
+											size="xs"
+											variant="outline"
+											onClick={() =>
+												void copyText(browserUrl ?? pairing.browserUrl)
+											}
+										>
+											<Copy aria-hidden />
+											Copy web link
+										</Button>
+										<Button
+											size="xs"
+											onClick={() =>
+												void openExternal(browserUrl ?? pairing.browserUrl)
+											}
+										>
+											<ExternalLink aria-hidden />
+											Open web app
+										</Button>
+									</>
+								)}
 							</div>
 							<div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/30 p-2">
 								<code className="min-w-0 flex-1 truncate text-xs">
@@ -460,7 +489,11 @@ export function DevicesPane() {
 									<Copy aria-hidden />
 								</Button>
 							</div>
-							<Button variant="outline" onClick={() => void startPairing()}>
+							<Button
+								size="xs"
+								variant="outline"
+								onClick={() => void startPairing(pairingTarget)}
+							>
 								<RefreshCw aria-hidden />
 								New code
 							</Button>
@@ -471,21 +504,31 @@ export function DevicesPane() {
 
 			{hasActiveTokens && (
 				<Frame>
-					<FramePanel className="space-y-3 p-3">
+					<FramePanel className="space-y-2.5 p-2.5">
 						<FrameTitle>{deviceAccessCopy.pairedTitle}</FrameTitle>
 						<div className="flex flex-col gap-2">
-							{identifiedPhones.map((token) => (
+							{identifiedDevices.map((token) => (
 								<div
 									key={token.id}
 									className="flex min-h-11 items-center gap-3 rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
 								>
-									<Smartphone
-										className="size-4 shrink-0 text-muted-foreground"
-										aria-hidden
-									/>
+									{accessDeviceKind(token) === "browser" ? (
+										<Monitor
+											className="size-4 shrink-0 text-muted-foreground"
+											aria-hidden
+										/>
+									) : (
+										<Smartphone
+											className="size-4 shrink-0 text-muted-foreground"
+											aria-hidden
+										/>
+									)}
 									<div className="min-w-0 flex-1">
 										<p className="truncate text-sm font-medium">
-											{token.label ?? "Phone"}
+											{token.label ??
+												(accessDeviceKind(token) === "browser"
+													? "Web browser"
+													: "Mobile device")}
 										</p>
 										<p className="text-xs text-muted-foreground">
 											{token.lastUsedAt
@@ -494,7 +537,7 @@ export function DevicesPane() {
 										</p>
 									</div>
 									<Button
-										size="sm"
+										size="xs"
 										variant="destructive-outline"
 										onClick={() => void revokeToken(token)}
 									>
@@ -510,7 +553,7 @@ export function DevicesPane() {
 									/>
 									<div className="min-w-0 flex-1">
 										<p className="truncate text-sm font-medium">
-											Older phone access
+											Older device access
 										</p>
 										<p className="text-xs text-muted-foreground">
 											{legacyCredentials.length} access credential
@@ -519,7 +562,7 @@ export function DevicesPane() {
 										</p>
 									</div>
 									<Button
-										size="sm"
+										size="xs"
 										variant="destructive-outline"
 										onClick={() => setLegacyRevokeOpen(true)}
 									>
@@ -533,7 +576,7 @@ export function DevicesPane() {
 			)}
 
 			<Frame>
-				<FramePanel className="space-y-3 p-3">
+				<FramePanel className="space-y-2.5 p-2.5">
 					<div className="flex items-center gap-2">
 						<span
 							className={
@@ -548,14 +591,14 @@ export function DevicesPane() {
 					{linked ? (
 						<p className="text-xs text-muted-foreground">
 							{remoteReady
-								? `Ready. Use ${status?.label ?? "this computer"} from your phone when you’re away from this Wi-Fi.`
+								? `Ready. Use ${status?.label ?? "this computer"} from a browser or mobile device away from this Wi-Fi.`
 								: "Linked to your account. Remote access will resume when this computer reconnects."}
 						</p>
 					) : (
 						<>
 							<p className="text-xs text-muted-foreground">
-								Optional. Sign in on both devices to use this computer from your
-								phone when you’re away from this Wi-Fi.
+								Optional. Sign in to reach this environment from a browser or
+								mobile device away from this Wi-Fi.
 							</p>
 							<label
 								htmlFor="device-computer-label"
@@ -571,9 +614,14 @@ export function DevicesPane() {
 							</label>
 						</>
 					)}
+					<p className="text-[11px] text-muted-foreground/80">
+						Headless machine? Run <code>zuse serve</code> there. It becomes a
+						separate environment and prints its own web link.
+					</p>
 				</FramePanel>
-				<FrameFooter className="flex justify-end px-3 py-2.5">
+				<FrameFooter className="flex justify-end px-2.5 py-2">
 					<Button
+						size="xs"
 						variant={linked ? "destructive-outline" : "default"}
 						onClick={() => void (linked ? unlinkRelay() : connectRelay())}
 						disabled={busy}
@@ -602,8 +650,8 @@ export function DevicesPane() {
 						</AlertDialogTitle>
 						<AlertDialogDescription>
 							{pendingNetworkMode
-								? "The app will restart so paired phones can connect over this Wi-Fi. Running agents will stop during the restart."
-								: "The app will restart and paired phones on this Wi-Fi will disconnect."}
+								? "The app will restart so browsers and mobile devices can connect over this network. Running agents will stop during the restart."
+								: "The app will restart and connected browsers and mobile devices on this network will disconnect."}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -635,11 +683,11 @@ export function DevicesPane() {
 			>
 				<AlertDialogPopup>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Revoke older phone access?</AlertDialogTitle>
+						<AlertDialogTitle>Revoke older device access?</AlertDialogTitle>
 						<AlertDialogDescription>
 							This removes {legacyCredentials.length} older access credential
-							{legacyCredentials.length === 1 ? "" : "s"}. Any phone still using
-							them will need to pair again.
+							{legacyCredentials.length === 1 ? "" : "s"}. Any browser or device
+							still using them will need to connect again.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

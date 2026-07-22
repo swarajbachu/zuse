@@ -14,6 +14,8 @@ import type {
 import { Effect } from "effect";
 import * as pty from "node-pty";
 
+import { ensureNodePtySpawnHelperExecutable } from "../pty/node-pty-helper.ts";
+
 export interface ClaudeLiveMcpEntry {
 	readonly name: string;
 	readonly source: Extract<
@@ -332,6 +334,7 @@ export const claudeMcpLogin = (
 						options.onAuthorizationUrl?.(url);
 					}
 				};
+				ensureNodePtySpawnHelperExecutable();
 				child = pty.spawn(
 					claudePath ?? "claude",
 					["mcp", "login", serverName],
