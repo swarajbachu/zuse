@@ -56,10 +56,67 @@ export const SessionEvent = Schema.Union([
 		turnId: Schema.String,
 		startedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ProviderTurnRequested", {
+		turnId: Schema.String,
+		providerInputJson: Schema.String,
+		requestedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: Schema.String,
 		outcome: SettlementOutcome,
 		settledAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnInterruptRequested", {
+		turnId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnInterruptAcknowledged", {
+		turnId: Schema.String,
+		acknowledgedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnInterruptFailed", {
+		turnId: Schema.String,
+		reason: Schema.String,
+		failedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("QueuedTurnEnqueued", {
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		position: Schema.Number,
+		createdAt: Schema.Number,
+		ready: Schema.Boolean,
+	}),
+	Schema.TaggedStruct("QueuedTurnUpdated", {
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		updatedAt: Schema.Number,
+		ready: Schema.Boolean,
+	}),
+	Schema.TaggedStruct("QueuedTurnRemoved", {
+		queueId: Schema.String,
+		removedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("QueuedTurnsReordered", {
+		queueIds: Schema.Array(Schema.String),
+		reorderedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("QueuedTurnClaimed", {
+		queueId: Schema.String,
+		claimedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("SuccessorTurnScheduled", {
+		predecessorTurnId: Schema.String,
+		turnId: Schema.String,
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		scheduledAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ScheduledSuccessorReady", {
+		predecessorTurnId: Schema.String,
+		turnId: Schema.String,
+		queueId: Schema.String,
+		inputJson: Schema.String,
+		readyAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("MessagePersisted", {
 		messageId: Schema.String,

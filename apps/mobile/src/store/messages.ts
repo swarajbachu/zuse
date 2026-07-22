@@ -1,12 +1,9 @@
+import { SessionTimelineRegistry } from "@zuse/client-runtime/session-timeline";
 import {
-	projectSessionEvent,
-	sessionEventCursors,
-} from "@zuse/client-runtime/session-events";
-import type {
-	ComposerInput,
-	Message,
-	MessageId,
-	QueuedMessage,
+	type ComposerInput,
+	type Message,
+	type MessageId,
+	type QueuedMessage,
 	SessionId,
 } from "@zuse/contracts";
 import { Effect, Fiber, Stream } from "effect";
@@ -63,9 +60,14 @@ type MessagesState = {
 };
 
 const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const queueFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
-const eventCursorKey = (liveKey: string): string =>
-	`mobile:messages:${liveKey}`;
+const timelineRegistry = new SessionTimelineRegistry();
+const retainedTimelines = new Set<string>();
+const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
+	timelineRegistry.state(
+		SessionId.make(connectionSessionKey(connKey, sessionId)),
+	).projection?.currentTurn?.turnId;
 const optimisticIds = new Set<MessageId>();
 const hydrationGeneration = new Map<string, number>();
 let appStateInstalled = false;
@@ -82,15 +84,18 @@ const stopFiber = async (
 };
 
 const stop = async (key: string) => {
-	await Promise.all([stopFiber(key, liveFibers), stopFiber(key, queueFibers)]);
+	await stopFiber(key, liveFibers);
 };
 
 export const resetMessagesRuntime = async (): Promise<void> => {
-	const keys = new Set([...liveFibers.keys(), ...queueFibers.keys()]);
+	const keys = new Set(liveFibers.keys());
 	await Promise.all(Array.from(keys, stop));
 	optimisticIds.clear();
 	hydrationGeneration.clear();
-	sessionEventCursors.clearPrefix("mobile:messages:");
+	for (const timer of evictionTimers.values()) clearTimeout(timer);
+	evictionTimers.clear();
+	retainedTimelines.clear();
+	timelineRegistry.shutdown();
 	useMobileMessagesStore.setState({
 		messagesBySession: {},
 		queueBySession: {},
@@ -108,22 +113,41 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 	errorBySession: {},
 	release: async (connKey, sessionId) => {
 		const key = connectionSessionKey(connKey, sessionId);
-		hydrationGeneration.set(key, (hydrationGeneration.get(key) ?? 0) + 1);
-		await stop(key);
+		retainedTimelines.delete(key);
+		if (
+			timelineRegistry.state(SessionId.make(key)).projection?.currentTurn !=
+			null
+		) {
+			return;
+		}
+		const previous = evictionTimers.get(key);
+		if (previous !== undefined) clearTimeout(previous);
+		evictionTimers.set(
+			key,
+			setTimeout(() => {
+				evictionTimers.delete(key);
+				if (retainedTimelines.has(key)) return;
+				void stop(key);
+				timelineRegistry.delete(SessionId.make(key));
+			}, 5 * 60_000),
+		);
 	},
 	hydrate: async (connKey, options, sessionId) => {
 		installAppStateFlush(get);
 		const liveKey = connectionSessionKey(connKey, sessionId);
+		retainedTimelines.add(liveKey);
+		const eviction = evictionTimers.get(liveKey);
+		if (eviction !== undefined) clearTimeout(eviction);
+		evictionTimers.delete(liveKey);
+		if (liveFibers.has(liveKey)) return;
 		const generation = (hydrationGeneration.get(liveKey) ?? 0) + 1;
 		hydrationGeneration.set(liveKey, generation);
-		await stop(liveKey);
 
 		const cached = await Effect.runPromise(
 			readMessagesSnapshot(connKey, sessionId),
 		);
 		if (hydrationGeneration.get(liveKey) !== generation) return;
 		if (cached !== null) {
-			sessionEventCursors.set(eventCursorKey(liveKey), cached.highestSequence);
 			set((state) => ({
 				messagesBySession: {
 					...state.messagesBySession,
@@ -143,21 +167,10 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 		const run = async () => {
 			try {
 				const client = await Effect.runPromise(getConnectionClient(options));
-				const [listed, listedQueue] = await Promise.all([
-					Effect.runPromise(client["messages.list"]({ sessionId })),
-					Effect.runPromise(client["messages.queue.list"]({ sessionId })),
-				]);
+				const listed = await Effect.runPromise(
+					client["messages.list"]({ sessionId }),
+				);
 				if (hydrationGeneration.get(liveKey) !== generation) return;
-				set((state) => ({
-					queueBySession: {
-						...state.queueBySession,
-						[liveKey]: listedQueue.items,
-					},
-					queuePausedBySession: {
-						...state.queuePausedBySession,
-						[liveKey]: listedQueue.paused,
-					},
-				}));
 				if (listed.length > 0) {
 					set((state) => ({
 						messagesBySession: {
@@ -168,57 +181,52 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					void get().flush(connKey, sessionId);
 				}
 				console.info("[mobile] session.events", { sessionId });
-				const afterSequence =
-					sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0;
+				const retained = timelineRegistry.state(SessionId.make(liveKey));
 				const program = Stream.runForEach(
-					client["session.events"]({ sessionId, afterSequence }),
-					(envelope) =>
+					client["session.events"]({
+						sessionId,
+						afterVersion: retained.appliedVersion,
+						hasProjection: retained.projection !== null,
+					}),
+					(frame) =>
 						Effect.sync(() => {
 							if (hydrationGeneration.get(liveKey) !== generation) return;
-							sessionEventCursors.set(
-								eventCursorKey(liveKey),
-								envelope.sequence,
-							);
+							timelineRegistry.accept(SessionId.make(liveKey), frame);
+							const next = timelineRegistry.state(SessionId.make(liveKey));
 							console.info("[mobile] session.events envelope", {
 								sessionId,
-								sequence: envelope.sequence,
+								version:
+									frame.kind === "event"
+										? frame.streamVersion
+										: frame.throughVersion,
 							});
-							const projected = projectSessionEvent(envelope);
-							if (projected._tag !== "message") return;
-							const { message } = projected;
+							if (next.projection === null) return;
 							set((state) => {
 								const current = state.messagesBySession[liveKey] ?? [];
-								if (optimisticIds.has(message.id)) {
-									optimisticIds.delete(message.id);
-									return {
-										messagesBySession: {
-											...state.messagesBySession,
-											[liveKey]: current.map((currentMessage) =>
-												currentMessage.id === message.id
-													? message
-													: currentMessage,
-											),
-										},
-									};
-								}
-								const existingIndex = current.findIndex(
-									(currentMessage) => currentMessage.id === message.id,
+								const durable = next.projection?.messages ?? [];
+								const durableIds = new Set(
+									durable.map((message) => message.id),
 								);
-								if (existingIndex !== -1) {
-									return {
-										messagesBySession: {
-											...state.messagesBySession,
-											[liveKey]: current.map((currentMessage, index) =>
-												index === existingIndex ? message : currentMessage,
-											),
-										},
-									};
+								for (const id of optimisticIds) {
+									if (durableIds.has(id)) optimisticIds.delete(id);
 								}
-								const next = [...current, message].slice(-500);
+								const pending = current.filter(
+									(message) =>
+										optimisticIds.has(message.id) &&
+										!durableIds.has(message.id),
+								);
 								return {
 									messagesBySession: {
 										...state.messagesBySession,
-										[liveKey]: next,
+										[liveKey]: [...durable, ...pending].slice(-500),
+									},
+									queueBySession: {
+										...state.queueBySession,
+										[liveKey]: next.projection?.queue.items ?? [],
+									},
+									queuePausedBySession: {
+										...state.queuePausedBySession,
+										[liveKey]: next.projection?.queue.paused ?? false,
 									},
 								};
 							});
@@ -243,33 +251,6 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 					),
 				);
 				liveFibers.set(liveKey, Effect.runFork(program));
-				const queueProgram = Stream.runForEach(
-					client["messages.queue.stream"]({ sessionId }),
-					(queue) =>
-						Effect.sync(() => {
-							if (hydrationGeneration.get(liveKey) !== generation) return;
-							set((state) => ({
-								queueBySession: {
-									...state.queueBySession,
-									[liveKey]: queue.items,
-								},
-								queuePausedBySession: {
-									...state.queuePausedBySession,
-									[liveKey]: queue.paused,
-								},
-							}));
-						}),
-				).pipe(
-					Effect.catch((cause) =>
-						Effect.sync(() => {
-							console.warn("[mobile] queue stream errored", {
-								sessionId,
-								reason: cause instanceof Error ? cause.message : String(cause),
-							});
-						}),
-					),
-				);
-				queueFibers.set(liveKey, Effect.runFork(queueProgram));
 			} catch (cause) {
 				if (hydrationGeneration.get(liveKey) !== generation) return;
 				reportConnectionFailure(options, cause);
@@ -293,7 +274,8 @@ export const useMobileMessagesStore = create<MessagesState>((set, get) => ({
 		const messages = get().messagesBySession[liveKey] ?? [];
 		await Effect.runPromise(
 			writeMessagesSnapshot(connKey, sessionId, {
-				highestSequence: sessionEventCursors.get(eventCursorKey(liveKey)) ?? 0,
+				highestSequence: timelineRegistry.state(SessionId.make(liveKey))
+					.appliedVersion,
 				messages,
 			}),
 		).catch(() => {});

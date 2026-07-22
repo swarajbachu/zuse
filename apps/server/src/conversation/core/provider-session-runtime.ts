@@ -1,5 +1,6 @@
 import type { LinearToolDeps } from "@zuse/agents/drivers/linear-tools";
 import {
+	type AgentTurnId,
 	type AttachmentRef,
 	type ProviderId,
 	type Session,
@@ -22,13 +23,17 @@ import type { ConversationStateApi } from "./conversation-state.ts";
 
 export interface OpenProviderSessionOptions {
 	readonly initialPrompt?: string;
+	readonly initialTurnId?: AgentTurnId;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly enableSubagents?: boolean;
 	readonly forkFromResume?: boolean;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
+		readonly turnId: AgentTurnId;
 		readonly text: string;
 		readonly attachments: ReadonlyArray<AttachmentRef>;
+		readonly fileRefs?: ReadonlyArray<import("@zuse/contracts").FileRef>;
+		readonly skillRefs?: ReadonlyArray<import("@zuse/contracts").SkillRef>;
 	};
 }
 
@@ -146,6 +151,7 @@ export const makeProviderSessionRuntime = (
 						mode: "sdk",
 						sessionId: session.id,
 						initialPrompt: options.initialPrompt,
+						initialTurnId: options.initialTurnId,
 						model: session.model,
 						agents: subagents?.agents,
 						enableSubagents:
@@ -188,8 +194,11 @@ export const makeProviderSessionRuntime = (
 				yield* provider
 					.send(
 						session.id,
+						options.sendAfterOpen.turnId,
 						options.sendAfterOpen.text,
 						options.sendAfterOpen.attachments,
+						options.sendAfterOpen.fileRefs,
+						options.sendAfterOpen.skillRefs,
 					)
 					.pipe(
 						Effect.catchTag("AgentSessionNotFoundError", () =>

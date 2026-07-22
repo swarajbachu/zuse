@@ -188,11 +188,13 @@ const runLiveProbe = async (
 				const envelopes = await Effect.runPromise(
 					client["session.events"]({
 						sessionId: firstSession.id,
-						afterSequence: 0,
+						hasProjection: false,
 					}).pipe(Stream.take(3), Stream.runCollect),
 				);
-				streamDetail = `session ${firstSession.id}; sequences ${envelopes
-					.map((envelope) => envelope.sequence)
+				streamDetail = `session ${firstSession.id}; versions ${envelopes
+					.map((frame) =>
+						frame.kind === "event" ? frame.streamVersion : frame.throughVersion,
+					)
 					.join(", ")}`;
 			}
 		}

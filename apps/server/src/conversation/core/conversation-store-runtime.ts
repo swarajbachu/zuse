@@ -1,6 +1,7 @@
 import { canonicalizeToolInput } from "@zuse/agents/kernel/tool-input";
 import {
 	type AgentDefinition,
+	type AgentTurnId,
 	type Chat,
 	type FolderId,
 	Message,
@@ -51,9 +52,19 @@ export interface ConversationStoreRuntimeOptions {
 }
 
 export interface ConversationStoreRuntime {
-	readonly beginTurn: (sessionId: SessionId) => Effect.Effect<string>;
-	readonly settleActiveTurn: (
+	readonly beginTurn: (
 		sessionId: SessionId,
+		turnIdOverride?: AgentTurnId,
+	) => Effect.Effect<AgentTurnId>;
+	readonly settleTurn: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		outcome: "completed" | "interrupted" | "error",
+	) => Effect.Effect<void>;
+	/** Persist settlement while already inside the serialized reactor runner. */
+	readonly settleTurnFromReactor: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 	) => Effect.Effect<void>;
 	readonly ndjsonAppend: (
@@ -68,6 +79,14 @@ export interface ConversationStoreRuntime {
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
+		idOverride?: MessageId,
+		turnIdOverride?: AgentTurnId,
+	) => Effect.Effect<PersistedMessage>;
+	readonly submitTurn: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		content: MessageContent,
+		providerInputJson: string,
 		idOverride?: MessageId,
 	) => Effect.Effect<PersistedMessage>;
 	readonly setStatus: (
@@ -99,16 +118,20 @@ export const makeConversationStoreRuntime = Effect.fn(
 		flushQueueAfterIdle,
 		shutdownQueueSession,
 	} = options;
-	const beginTurn = (sessionId: SessionId): Effect.Effect<string> => {
+	const beginTurn = (
+		sessionId: SessionId,
+		turnIdOverride?: AgentTurnId,
+	): Effect.Effect<AgentTurnId> => {
 		const existing = state.activeTurn(sessionId);
-		if (existing !== undefined) return Effect.succeed(existing);
-		const turnId = `turn_${crypto.randomUUID()}`;
+		if (existing !== undefined) return Effect.succeed(existing as AgentTurnId);
+		const turnId =
+			turnIdOverride ?? (`turn_${crypto.randomUUID()}` as AgentTurnId);
 		return Effect.gen(function* () {
 			const startedAt = yield* currentTimestamp;
 			// The durable decider is the authority. After a restart (or if two
 			// callers race before the cache is populated), it returns the already
 			// running turn instead of letting this process invent a second one.
-			const resolvedTurnId = yield* sessionDomain
+			const resolvedTurnId = (yield* sessionDomain
 				.dispatch({
 					commandId: crypto.randomUUID(),
 					streamId: sessionId,
@@ -120,30 +143,59 @@ export const makeConversationStoreRuntime = Effect.fn(
 						Effect.succeed(error.turnId),
 					),
 					Effect.orDie,
-				);
+				)) as AgentTurnId;
 			if (resolvedTurnId === turnId) yield* runSessionReactors;
 			state.rememberActiveTurn(sessionId, resolvedTurnId);
 			return resolvedTurnId;
 		});
 	};
 
-	const settleActiveTurn = (
+	const persistTurnSettlement = (
 		sessionId: SessionId,
+		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 	): Effect.Effect<void> =>
-		Effect.flatMap(currentTimestamp, (settledAt) =>
-			dispatchSessionCommand(sessionId, {
-				_tag: "SettleActiveTurn",
-				outcome,
-				settledAt,
-			}),
-		).pipe(
-			Effect.ensuring(
-				Effect.sync(() => {
-					state.clearActiveTurn(sessionId);
-				}),
-			),
-		);
+		Effect.gen(function* () {
+			yield* sessionDomain
+				.dispatch({
+					commandId: `turn:settle:${sessionId}:${turnId}:${outcome}`,
+					streamId: sessionId,
+					command: {
+						_tag: "SettleTurn",
+						turnId,
+						outcome,
+						settledAt: yield* currentTimestamp,
+					},
+				})
+				.pipe(Effect.asVoid, Effect.orDie);
+			if (state.activeTurn(sessionId) === turnId) {
+				state.clearActiveTurn(sessionId);
+			}
+		});
+
+	const settleTurnFromReactor: ConversationStoreRuntime["settleTurnFromReactor"] =
+		(sessionId, turnId, outcome) =>
+			persistTurnSettlement(sessionId, turnId, outcome).pipe(
+				Effect.andThen(
+					outcome === "error"
+						? Effect.void
+						: Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope),
+				),
+				Effect.asVoid,
+			);
+
+	const settleTurn: ConversationStoreRuntime["settleTurn"] = (
+		sessionId,
+		turnId,
+		outcome,
+	) =>
+		Effect.gen(function* () {
+			yield* persistTurnSettlement(sessionId, turnId, outcome);
+			yield* runSessionReactors;
+			if (outcome !== "error") {
+				yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
+			}
+		});
 
 	const ndjsonAppend = (
 		sessionId: SessionId,
@@ -267,6 +319,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
+		turnIdOverride?: AgentTurnId,
+		commandIdentityOverride?: string,
 	): Effect.Effect<PersistedMessage> =>
 		Effect.gen(function* () {
 			// `idOverride` is the renderer-minted `clientMessageId` for an
@@ -279,12 +333,15 @@ export const makeConversationStoreRuntime = Effect.fn(
 			const parentItemId = parentItemIdOfContent(content);
 			yield* sessionDomain
 				.dispatch({
-					commandId: `message:persist:${id}`,
+					commandId:
+						commandIdentityOverride === undefined
+							? `message:persist:${id}`
+							: `message:persist:${id}:${commandIdentityOverride}`,
 					streamId: sessionId,
 					command: {
 						_tag: "PersistMessage",
 						messageId: id,
-						turnId: state.activeTurn(sessionId) ?? null,
+						turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
 						role,
 						kind: content._tag,
 						contentJson: JSON.stringify(content),
@@ -300,6 +357,57 @@ export const makeConversationStoreRuntime = Effect.fn(
 			if (sequence === undefined) {
 				return yield* Effect.die(
 					new Error(`message projection missing after dispatch: ${id}`),
+				);
+			}
+			return {
+				message: Message.make({
+					id,
+					sessionId,
+					role,
+					content,
+					createdAt: now,
+				}),
+				sequence,
+			};
+		});
+
+	const submitTurn = (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		content: MessageContent,
+		providerInputJson: string,
+		idOverride?: MessageId,
+	): Effect.Effect<PersistedMessage> =>
+		Effect.gen(function* () {
+			const id = idOverride ?? MessageId.make(crypto.randomUUID());
+			const role = roleForContent(content);
+			const now = new Date();
+			yield* sessionDomain
+				.dispatch({
+					commandId: `turn:submit:${id}`,
+					streamId: sessionId,
+					command: {
+						_tag: "SubmitTurn",
+						turnId,
+						messageId: id,
+						role,
+						kind: content._tag,
+						contentJson: JSON.stringify(content),
+						parentItemId: parentItemIdOfContent(content),
+						providerInputJson,
+						createdAt: now.getTime(),
+					},
+				})
+				.pipe(Effect.orDie);
+			state.rememberActiveTurn(sessionId, turnId);
+			yield* runSessionReactors;
+			const projected = yield* sql<{ readonly sequence: number }>`
+				SELECT sequence FROM messages WHERE id = ${id} LIMIT 1
+			`.pipe(Effect.orDie);
+			const sequence = projected[0]?.sequence;
+			if (sequence === undefined) {
+				return yield* Effect.die(
+					new Error(`message projection missing after turn submit: ${id}`),
 				);
 			}
 			return {
@@ -364,8 +472,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				Effect.orDie,
 				Effect.map((session) => session.providerId),
 			),
-		setStatus,
-		settleTurn: settleActiveTurn,
+		settleTurn,
 		setResume: (sessionId, cursor, strategy, providerEventCursor) =>
 			Effect.gen(function* () {
 				yield* dispatchSessionCommand(sessionId, {
@@ -406,9 +513,27 @@ export const makeConversationStoreRuntime = Effect.fn(
 		publishRelayActivity,
 		ignoreError: () => false,
 		isDuplicateToolUse,
-		persist: (sessionId, content) =>
+		persist: (sessionId, turnId, content, providerItemIdentity) =>
 			Effect.gen(function* () {
-				const persisted = yield* persistMessage(sessionId, content);
+				const serialized = JSON.stringify(content);
+				let fingerprint = 2166136261;
+				for (let index = 0; index < serialized.length; index += 1) {
+					fingerprint ^= serialized.charCodeAt(index);
+					fingerprint = Math.imul(fingerprint, 16777619);
+				}
+				const stableId =
+					providerItemIdentity === undefined
+						? undefined
+						: MessageId.make(`provider:${turnId}:${providerItemIdentity}`);
+				const persisted = yield* persistMessage(
+					sessionId,
+					content,
+					stableId,
+					turnId,
+					providerItemIdentity === undefined
+						? undefined
+						: (fingerprint >>> 0).toString(16),
+				);
 				yield* ndjsonAppend(sessionId, persisted);
 			}),
 	});
@@ -423,7 +548,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	return {
 		beginTurn,
-		settleActiveTurn,
+		settleTurn,
+		settleTurnFromReactor,
 		ndjsonAppend,
 		goalState,
 		chatChangesHub,
@@ -431,6 +557,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		lookupSession,
 		agentsFor,
 		persistMessage,
+		submitTurn,
 		setStatus,
 		startSubscription,
 		interruptProviderFiber,
