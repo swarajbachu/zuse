@@ -1,20 +1,19 @@
+import { IconBrandGithub } from "@tabler/icons-react";
+import Image from "next/image";
 import Link from "next/link";
-
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/button";
 import { Container } from "@/components/container";
 import {
-  ArrowRightLongerIcon,
-  CopyRightIcon,
-  XformerlyTwitter,
+	ArrowRightLongerIcon,
+	CopyRightIcon,
+	XformerlyTwitter,
 } from "@/components/icons/general";
-import { IconBrandGithub } from "@tabler/icons-react";
-import { Button } from "@/components/button";
 import { Logo } from "@/components/logo";
 import { DOWNLOAD_URL, GITHUB_URL, RELEASES_URL } from "@/lib/site";
-import Image from "next/image";
+import { cn } from "@/lib/utils";
 
 const data = {
-  Product: [
+	Product: [
     { label: "Features", href: "/#features" },
     { label: "Compare", href: "/#compare" },
     { label: "FAQ", href: "/#faq" },
@@ -34,13 +33,13 @@ const data = {
     { label: "GitHub", href: GITHUB_URL },
     { label: "Releases", href: RELEASES_URL },
     { label: "Issues", href: `${GITHUB_URL}/issues` },
-    { label: "Discussions", href: `${GITHUB_URL}/discussions` },
-  ],
-  Legal: [
-    { label: "Privacy Policy", href: "#" },
-    { label: "Terms of Service", href: "#" },
-    { label: "License", href: "#" },
-    { label: "Security", href: "#" },
+		{ label: "Discussions", href: `${GITHUB_URL}/discussions` },
+	],
+	Legal: [
+		{ label: "Privacy Policy", href: "/privacy" },
+		{ label: "Terms of Service", href: "#" },
+		{ label: "License", href: "#" },
+		{ label: "Security", href: "#" },
   ],
 };
 
@@ -143,14 +142,14 @@ export const Footer = () => {
               {Object.entries(data).map(([key, value]) => (
                 <div key={key} className="flex flex-col gap-4">
                   <h3 className="text-muted-foreground -tracking-sm text-xs leading-5 font-medium">
-                    {key}
-                  </h3>
-                  <ul className="flex flex-col gap-4">
-                    {value.map((item, index) => (
-                      <li key={index}>
-                        <Link
-                          href={item.href}
-                          className="text-natural-white -tracking-sm text-sm leading-5 font-medium hover:underline"
+										{key}
+									</h3>
+									<ul className="flex flex-col gap-4">
+										{value.map((item) => (
+											<li key={item.label}>
+												<Link
+													href={item.href}
+													className="text-natural-white -tracking-sm text-sm leading-5 font-medium hover:underline"
                         >
                           {item.label}
                         </Link>
@@ -171,13 +170,17 @@ export const Footer = () => {
               </span>
             </div>
             <div className="flex items-center gap-5">
-              <Link href={GITHUB_URL} target="_blank" aria-label="GitHub">
-                <IconBrandGithub className="text-muted-foreground hover:text-natural-white size-4 transition-colors" />
-              </Link>
-              <Link href={"https://x.com/swarajbachu"} target="_blank" aria-label="X">
-                <XformerlyTwitter className="text-muted-foreground hover:text-natural-white size-4 transition-colors" />
-              </Link>
-            </div>
+							<Link href={GITHUB_URL} target="_blank" aria-label="GitHub">
+								<IconBrandGithub className="text-muted-foreground hover:text-natural-white size-4 transition-colors" />
+							</Link>
+							<Link
+								href={"https://x.com/swarajbachu"}
+								target="_blank"
+								aria-label="X"
+							>
+								<XformerlyTwitter className="text-muted-foreground hover:text-natural-white size-4 transition-colors" />
+							</Link>
+						</div>
           </div>
         </div>
       </Container>

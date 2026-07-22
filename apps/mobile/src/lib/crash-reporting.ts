@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { captureMobileAnalytics } from "./analytics";
 
 export type CrashReport = {
   readonly id: string;
@@ -32,8 +33,14 @@ export const installCrashReporting = (): void => {
   const utils = errorUtils();
   const previous = utils?.getGlobalHandler?.();
   utils?.setGlobalHandler?.((error, isFatal) => {
+    const errorCode = isFatal === true ? "fatal-js" : "global-js";
+    captureMobileAnalytics("app error", {
+      error_code: errorCode,
+      error_fingerprint: errorCode,
+      fatal: isFatal === true,
+    });
     void captureMobileError(error, {
-      context: isFatal === true ? "fatal-js" : "global-js",
+      context: errorCode,
     });
     previous?.(error, isFatal);
   });

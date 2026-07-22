@@ -19,12 +19,18 @@ const sourceMaps = process.env.ZUSE_SOURCEMAPS === "1" ? "hidden" : false;
 // resolve a known font package at config-load time and walk up to the
 // store root so every hoisted dep gets allowed too.
 const require = createRequire(import.meta.url);
+const desktopPackage = require("../desktop/package.json") as {
+	version: string;
+};
 const fontPkgPath = require.resolve("@fontsource-variable/inter/package.json");
 // .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
 //                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
+	define: {
+		"import.meta.env.VITE_APP_VERSION": JSON.stringify(desktopPackage.version),
+	},
 	cacheDir: process.env.ZUSE_VITE_CACHE_DIR?.trim() || undefined,
 	experimental: {
 		bundledDev: process.env.ZUSE_BUNDLED_DEV === "1",

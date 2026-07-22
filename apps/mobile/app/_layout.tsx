@@ -4,7 +4,7 @@ import "~/polyfills";
 import { GeistMono_400Regular } from "@expo-google-fonts/geist-mono";
 import { useFonts } from "expo-font";
 import * as Linking from "expo-linking";
-import { router, Stack } from "expo-router";
+import { router, Stack, usePathname } from "expo-router";
 import {
 	DarkTheme,
 	DefaultTheme,
@@ -17,6 +17,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Uniwind, useUniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
+import { useMobileAnalytics } from "~/hooks/use-mobile-analytics";
+import { noteMobileInteraction } from "~/lib/analytics";
 import { installCrashReporting } from "~/lib/crash-reporting";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
@@ -30,6 +32,8 @@ Uniwind.setTheme("system");
 
 export default function RootLayout() {
 	useLocalConnectivityRuntime();
+	const pathname = usePathname();
+	useMobileAnalytics(pathname);
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
 	const [fontsLoaded] = useFonts({
@@ -56,7 +60,10 @@ export default function RootLayout() {
 	}
 
 	return (
-		<GestureHandlerRootView style={{ flex: 1 }}>
+		<GestureHandlerRootView
+			style={{ flex: 1 }}
+			onTouchStart={noteMobileInteraction}
+		>
 			<ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
 				<StatusBar style="auto" />
 				<Stack

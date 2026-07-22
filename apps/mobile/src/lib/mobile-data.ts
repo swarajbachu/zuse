@@ -18,6 +18,7 @@ import { usePinnedChatsStore } from "../store/pinned-chats";
 import { usePrStateStore } from "../store/pr-state";
 import { useProjectOriginStore } from "../store/project-origins";
 import { resetSessionsRuntime } from "../store/sessions";
+import { resetMobileAnalyticsIdentity } from "./analytics";
 import { optionsForConnection } from "./connection-params";
 import { clearLastCrashReport } from "./crash-reporting";
 
@@ -68,6 +69,7 @@ export const resetLocalMobileData = async (): Promise<void> => {
 		useConnectionsStore.getState().clear(),
 		usePinnedChatsStore.getState().clear(),
 		clearLastCrashReport(),
+		resetMobileAnalyticsIdentity(),
 	]);
 	resetRelayAccessToken();
 	if (cleanup.some((result) => result.status === "rejected")) {

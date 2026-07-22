@@ -29,6 +29,10 @@ import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 import { useMediaQuery } from "./hooks/use-media-query.ts";
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 import { useReportRunningAgents } from "./hooks/use-report-running-agents.ts";
+import {
+	startDesktopAnalytics,
+	trackAnalyticsScreen,
+} from "./lib/analytics.ts";
 import { AppearanceController } from "./lib/appearance.tsx";
 import { getRpcClient } from "./lib/rpc-client.ts";
 import { useAuthStore } from "./store/auth.ts";
@@ -122,6 +126,13 @@ function ComposerFallback() {
  * exit is what gives us a clean shell each time.
  */
 export function App() {
+	useEffect(() => {
+		let stop: (() => void) | undefined;
+		void startDesktopAnalytics().then((cleanup) => {
+			stop = cleanup;
+		});
+		return () => stop?.();
+	}, []);
 	// Cross-cutting subscriptions that should run regardless of view.
 	const startPermissionsStream = usePermissionsStore((s) => s.start);
 	useEffect(() => {
@@ -192,6 +203,16 @@ export function App() {
 
 	const onboardingCompleted = useSettingsStore((s) => s.onboardingCompleted);
 	const view = useUiStore((s) => s.view);
+	const activeMainTab = useUiStore((s) => s.activeMainTab);
+	useEffect(() => {
+		trackAnalyticsScreen(
+			onboardingCompleted
+				? view === "settings"
+					? "settings"
+					: activeMainTab
+				: "onboarding",
+		);
+	}, [activeMainTab, onboardingCompleted, view]);
 
 	if (!onboardingCompleted) {
 		return (

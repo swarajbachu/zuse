@@ -2,7 +2,6 @@ import type { ChatId, Command, Session } from "@zuse/contracts";
 import { defaultModelFor } from "@zuse/contracts";
 
 import { createNewSession } from "../components/projects-sidebar";
-import { activeChatId, orderedChatTabs } from "./tab-order";
 import { useChatsStore } from "../store/chats";
 import { useComposerBridge } from "../store/composer-bridge";
 import { usePaneFocus } from "../store/pane-focus";
@@ -11,6 +10,8 @@ import { useSessionsStore } from "../store/sessions";
 import { useSettingsStore } from "../store/settings";
 import { useUiStore } from "../store/ui";
 import { useWorkspaceStore } from "../store/workspace";
+import { captureAnalytics } from "./analytics";
+import { activeChatId, orderedChatTabs } from "./tab-order";
 
 /* ────────────────────────── Navigation helpers ──────────────────────────
  * Read state via `.getState()` (no subscription) and fire the same store
@@ -195,6 +196,11 @@ const HANDLERS: Record<Command, () => void> = {
  * surface (browser, CodeMirror) to skip its default behaviour.
  */
 export function dispatchCommand(command: Command): void {
+	captureAnalytics("control activated", {
+		screen: document.body.dataset.analyticsScreen ?? "unknown",
+		control: `command.${command}`,
+		interaction_source: "command",
+	});
   const fn = HANDLERS[command];
   fn();
 }

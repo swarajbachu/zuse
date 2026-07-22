@@ -1,4 +1,5 @@
 export * from "./agent.ts";
+export * from "./analytics.ts";
 export * from "./attachment.ts";
 export * from "./auth.ts";
 export * from "./autonomy.ts";

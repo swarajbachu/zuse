@@ -1,23 +1,35 @@
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
-
+import { AnalyticsService } from "../analytics/services/analytics-service.ts";
 import { FileSearchService } from "./services/file-search.ts";
 import { FolderPicker } from "./services/folder-picker.ts";
 import { ProjectScaffold } from "./services/project-scaffold.ts";
 import { WorkspaceService } from "./services/workspace-service.ts";
 
 const Add = MemoizeRpcs.toLayerHandler("workspace.add", ({ path }) =>
-  Effect.flatMap(WorkspaceService, (ws) => ws.add(path)),
+	Effect.gen(function* () {
+		const ws = yield* WorkspaceService;
+		const analytics = yield* AnalyticsService;
+		const result = yield* ws.add(path);
+		yield* analytics.capture("project added", {
+			source: "folder",
+		});
+		return result;
+	}),
 );
 
 const List = MemoizeRpcs.toLayerHandler("workspace.list", () =>
-  Effect.flatMap(WorkspaceService, (ws) => ws.list()),
+	Effect.flatMap(WorkspaceService, (ws) => ws.list()),
 );
 
-const Remove = MemoizeRpcs.toLayerHandler(
-  "workspace.remove",
-  ({ folderId }) =>
-    Effect.flatMap(WorkspaceService, (ws) => ws.remove(folderId)),
+const Remove = MemoizeRpcs.toLayerHandler("workspace.remove", ({ folderId }) =>
+	Effect.gen(function* () {
+		const ws = yield* WorkspaceService;
+		const analytics = yield* AnalyticsService;
+		const result = yield* ws.remove(folderId);
+		yield* analytics.capture("project removed");
+		return result;
+	}),
 );
 
 // Folder picking is a host-shell operation. The server only knows the tag —
@@ -84,12 +96,11 @@ const CreateProject = MemoizeRpcs.toLayerHandler(
 const ListGithubRepos = MemoizeRpcs.toLayerHandler(
   "workspace.listGithubRepos",
   ({ limit }) =>
-    Effect.flatMap(ProjectScaffold, (svc) => svc.listGithubRepos(limit ?? 30)),
+		Effect.flatMap(ProjectScaffold, (svc) => svc.listGithubRepos(limit ?? 30)),
 );
 
-const GhAuthStatus = MemoizeRpcs.toLayerHandler(
-  "workspace.ghAuthStatus",
-  () => Effect.flatMap(ProjectScaffold, (svc) => svc.ghAuthStatus()),
+const GhAuthStatus = MemoizeRpcs.toLayerHandler("workspace.ghAuthStatus", () =>
+	Effect.flatMap(ProjectScaffold, (svc) => svc.ghAuthStatus()),
 );
 
 export const WorkspaceHandlersLayer = Layer.mergeAll(

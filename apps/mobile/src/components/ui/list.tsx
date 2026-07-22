@@ -76,6 +76,8 @@ type ListRowProps = Omit<PressableProps, "children"> & {
 	/** Force the disclosure chevron on/off (defaults to on when pressable). */
 	chevron?: boolean;
 	destructive?: boolean;
+	/** Stable semantic identifier; never derived from visible row text. */
+	analyticsId?: string;
 };
 
 export function ListRow({
@@ -89,6 +91,7 @@ export function ListRow({
 	trailing,
 	chevron,
 	destructive,
+	analyticsId,
 	onPress,
 	disabled,
 	className,
@@ -101,6 +104,12 @@ export function ListRow({
 			onPress={
 				onPress
 					? (event) => {
+							if (analyticsId) {
+								void import("~/lib/analytics").then(
+									({ captureMobileControl }) =>
+										captureMobileControl(analyticsId),
+								);
+							}
 							lightTap();
 							onPress(event);
 						}

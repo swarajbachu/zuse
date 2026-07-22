@@ -1,5 +1,6 @@
 import { router, Stack } from "expo-router";
 import {
+	BarChart3,
 	Bell,
 	HardDrive,
 	LogOut,
@@ -11,15 +12,24 @@ import {
 	UserRound,
 } from "lucide-react-native";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, ScrollView, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Alert,
+	ScrollView,
+	Switch,
+	Text,
+	View,
+} from "react-native";
 
 import { ListRow, ListSection } from "~/components/ui/list";
+import { captureMobileAnalytics } from "~/lib/analytics";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
+import { useAnalyticsStore } from "~/store/analytics";
 import { useAuthStore } from "~/store/auth";
 import {
 	connectionStatusLabel,
@@ -36,6 +46,8 @@ const formatBytes = (bytes: number | null): string => {
 };
 
 export default function SettingsScreen() {
+	const analyticsEnabled = useAnalyticsStore((state) => state.enabled);
+	const setAnalyticsEnabled = useAnalyticsStore((state) => state.setEnabled);
 	const {
 		account,
 		hydrated,
@@ -87,10 +99,25 @@ export default function SettingsScreen() {
 
 	const onConnect = async (environmentId: string) => {
 		setConnecting(environmentId);
+		const startedAt = Date.now();
+		captureMobileAnalytics("connection attempted", {
+			connection_kind: "remote",
+		});
 		try {
 			await connect(environmentId);
+			captureMobileAnalytics("connection established", {
+				connection_kind: "remote",
+				duration_ms: Date.now() - startedAt,
+			});
 			successTap();
 			returnToInbox(router);
+		} catch (cause) {
+			captureMobileAnalytics("connection failed", {
+				connection_kind: "remote",
+				duration_ms: Date.now() - startedAt,
+				error_code: "connect_failed",
+			});
+			throw cause;
 		} finally {
 			setConnecting(null);
 		}
@@ -135,12 +162,14 @@ export default function SettingsScreen() {
 					footer="Pairing works directly over your local network and does not require an account."
 				>
 					<ListRow
+						analyticsId="connections.nearby.open"
 						icon={QrCode}
 						title="Connect to a nearby Mac"
 						subtitle="Find it automatically over Wi-Fi"
 						onPress={() => router.push("/connect/nearby")}
 					/>
 					<ListRow
+						analyticsId="connections.manual.open"
 						icon={Plus}
 						iconTone="neutral"
 						title="Add manually"
@@ -278,10 +307,29 @@ export default function SettingsScreen() {
 				)}
 
 				<ListSection
+					header="Privacy"
+					footer="Shares pseudonymous feature use, model choices, active time, reliability, and standard geographic enrichment. Prompts, responses, code, paths, and account details are never included."
+				>
+					<ListRow
+						analyticsId="settings.share-usage-analytics"
+						icon={BarChart3}
+						iconTone="neutral"
+						title="Share usage analytics"
+						subtitle={analyticsEnabled ? "On" : "Off"}
+						chevron={false}
+						accessibilityRole="switch"
+						accessibilityState={{ checked: analyticsEnabled }}
+						trailing={<Switch pointerEvents="none" value={analyticsEnabled} />}
+						onPress={() => void setAnalyticsEnabled(!analyticsEnabled)}
+					/>
+				</ListSection>
+
+				<ListSection
 					header="Storage"
 					footer="Downloaded data can be fetched again. Reset app also removes connections, account state, and unsent messages from this phone."
 				>
 					<ListRow
+						analyticsId="storage.clear-downloads"
 						icon={HardDrive}
 						iconTone="neutral"
 						title="Clear downloaded data"
@@ -299,6 +347,7 @@ export default function SettingsScreen() {
 						}
 					/>
 					<ListRow
+						analyticsId="account.reset-app"
 						icon={RotateCcw}
 						iconTone="neutral"
 						title="Reset app"
@@ -328,6 +377,7 @@ export default function SettingsScreen() {
 				{account === null ? null : (
 					<ListSection header="Account">
 						<ListRow
+							analyticsId="account.delete"
 							icon={Trash2}
 							iconTone="neutral"
 							title="Delete account"

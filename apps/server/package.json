@@ -34,6 +34,7 @@
 		"@anthropic-ai/claude-agent-sdk": "^0.2.126",
 		"@modelcontextprotocol/sdk": "^1.0.0",
 		"@zuse/agents": "*",
+		"@zuse/analytics": "*",
 		"@zuse/domain": "*",
 		"@zuse/git": "*",
 		"@effect/platform-node": "catalog:",
