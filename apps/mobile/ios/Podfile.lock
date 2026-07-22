@@ -2913,7 +2913,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLinking: b823a14b4ec436e3a6d947b72da6d4020e790515
   ExpoLogBox: 8a3cfa2897e088083cd49fc1ff7fdb2de4385547
-  ExpoModulesCore: 24a282b04d4d6ec14d4ce0573eb1ac02d8faaef5
+  ExpoModulesCore: 6dccf97dc06cf4771abba5615840ac8b905e9be6
   ExpoModulesJSI: 4b5d68bf019c251c2c8b7246aa36306dc381fe7f
   ExpoModulesWorklets: 18419b65da3b14a8df484baccec7dd6dad15387a
   ExpoModulesWorkletsAdapter: f01c9ff0ac77071ae2a89a5f5778cbf7c1115221
@@ -2925,7 +2925,7 @@ SPEC CHECKSUMS:
   ExpoWebBrowser: 2a3445af48b78130a1d570616c83692e9a3d0275
   EXUpdatesInterface: 92d2aa5194b6fb93ca8ab749db75665cb28b2e60
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: cebf5d5c1adb3a4f935bf7d7a01a69aafc9e868d
+  hermes-engine: 7a0b96d3e4e0fd04bc81b7b6e5753b38ff803b83
   OpenSSL-Universal: ecee7b138fa75a74ecf00d7ffd248fb584739b9e
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
