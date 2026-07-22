@@ -130,8 +130,8 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 	);
 
 	return (
-		<header className="flex h-10 shrink-0 items-stretch border-b border-border">
-			<div className="flex items-stretch gap-1 px-2">
+		<header className="flex h-10 min-w-0 max-w-full shrink-0 items-stretch overflow-hidden border-b border-border">
+			<div className="flex min-w-0 flex-1 items-stretch gap-1 overflow-x-auto overflow-y-hidden px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 				{changesTabOpen ? (
 					<FileTabButton
 						active={activeMainTab === "changes"}
@@ -208,7 +208,6 @@ export function MainTabs({ projectId, emptyLabel }: Props) {
 					<NewChatTabButton chatId={activeChatId} />
 				)}
 			</div>
-			<div className="flex-1" />
 		</header>
 	);
 }
@@ -316,7 +315,7 @@ function TabButton({
 			type="button"
 			onClick={onClick}
 			title={title ?? label}
-			className={`relative flex max-w-[280px] items-center gap-2 px-3 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`relative flex max-w-[280px] shrink-0 items-center gap-2 px-3 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
 					? "text-foreground after:bg-foreground"
 					: "text-muted-foreground hover:text-foreground after:bg-transparent"
@@ -350,7 +349,7 @@ function ChatTabButton({
 }) {
 	return (
 		<div
-			className={`group relative flex max-w-[280px] items-center gap-1.5 px-3 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`group relative flex max-w-[280px] shrink-0 items-center gap-1.5 px-3 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
 					? "text-foreground after:bg-foreground"
 					: "text-muted-foreground hover:text-foreground after:bg-transparent"
@@ -441,7 +440,7 @@ function NewChatTabButton({
 			disabled={creating}
 			title="New tab in this chat"
 			aria-label="New tab in this chat"
-			className="relative flex items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+			className="relative flex shrink-0 items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 		>
 			{creating ? (
 				<span className="inline-flex size-3.5 items-center justify-center">
@@ -475,7 +474,7 @@ function FileTabButton({
 }) {
 	return (
 		<div
-			className={`group relative flex max-w-[280px] items-center gap-1.5 px-3 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
+			className={`group relative flex max-w-[280px] shrink-0 items-center gap-1.5 px-3 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-2 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
 				active
 					? "text-foreground after:bg-foreground"
 					: "text-muted-foreground hover:text-foreground after:bg-transparent"
