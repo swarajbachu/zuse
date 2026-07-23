@@ -55,4 +55,8 @@ export const scrollListToLatest = async (
 	// native keyboard-aware fallback behind that promise.
 	void list.scrollToEnd({ animated: options.animated }).catch(() => undefined);
 	await finishNativeEndScroll(list, options);
+	// A native end scroll includes any persistent transcript runway. Re-apply
+	// the list-aware target because LegendList intentionally subtracts its
+	// footer, leaving the latest real content above the composer.
+	void list.scrollToEnd({ animated: false }).catch(() => undefined);
 };

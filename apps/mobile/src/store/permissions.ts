@@ -146,26 +146,16 @@ export const decidePermission = async (
 	decision: PermissionDecision,
 ): Promise<void> => {
 	const key = connectionSessionKey(connKey, sessionId);
-	const previous = appAtomRegistry.get(pendingBySessionAtom)[key] ?? [];
-	appAtomRegistry.update(pendingBySessionAtom, (state) => ({
-		...state,
-		[key]: (state[key] ?? []).filter((entry) => entry.id !== requestId),
-	}));
 	try {
 		await Effect.runPromise(
 			decidePermissionRpc({ connection: options, requestId, decision }),
 		);
-	} catch (cause) {
-		reportConnectionFailure(options, cause);
-		const failedRequest = previous.find((entry) => entry.id === requestId);
 		appAtomRegistry.update(pendingBySessionAtom, (state) => ({
 			...state,
-			[key]:
-				failedRequest === undefined ||
-				(state[key] ?? []).some((entry) => entry.id === requestId)
-					? (state[key] ?? [])
-					: normalizeRequests([failedRequest, ...(state[key] ?? [])]),
+			[key]: (state[key] ?? []).filter((entry) => entry.id !== requestId),
 		}));
+	} catch (cause) {
+		reportConnectionFailure(options, cause);
 		throw cause;
 	}
 };

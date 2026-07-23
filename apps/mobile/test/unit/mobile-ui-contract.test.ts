@@ -272,8 +272,14 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("maintainScrollAtEndThreshold");
 		expect(thread).toContain("maintainVisibleContentPosition");
 		expect(thread).toContain("anchoredEndSpace");
+		expect(thread).toContain(
+			"anchorIndex: activeAnchorIndex ?? turns.length - 1",
+		);
+		expect(thread).not.toContain("settledRunwayHeight");
+		expect(thread).toContain("footerLayout: false");
 		expect(thread).toContain("scrollMessageToEnd");
 		expect(thread).toContain("keyboardOffset={insets.bottom}");
+		expect(thread).toContain('keyboardLiftBehavior="always"');
 		expect(thread).toContain("offset={{ closed: 0, opened: insets.bottom }}");
 		expect(thread).toContain(
 			"transcriptScroll.onMessageWillAppend(turns.length)",
@@ -316,6 +322,19 @@ describe("mobile UI contracts", () => {
 		expect(thread).not.toContain("pendingEndIntent");
 		expect(thread).not.toContain("sendAnchorSpace(");
 		expect(thread).not.toContain("latestTurnTopOffset");
+	});
+
+	test("keeps permission decisions pending with visible acknowledgement feedback", () => {
+		const accessory = readFileSync(
+			`${process.cwd()}/src/components/messages/live-permission-accessory.tsx`,
+			"utf8",
+		);
+		expect(accessory).toContain("<ActivityIndicator");
+		expect(accessory).toContain("Allowing…");
+		expect(accessory).toContain("Denying…");
+		expect(accessory).toContain(
+			"accessibilityState={{ busy: loading, disabled: busy }}",
+		);
 	});
 
 	test("uses a narrow LegendList animated-scroll completion patch", () => {

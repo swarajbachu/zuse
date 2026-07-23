@@ -291,12 +291,20 @@ export const Composer = ({
 	const interrupt = async () => {
 		if (!showInterrupt) return;
 		setBusy(true);
+		setComposerError(null);
 		try {
 			const turnId = currentSessionTurnId(connKey, sessionId);
-			if (turnId === undefined) return;
+			if (turnId === undefined) {
+				onRetryConnection?.();
+				throw new Error(
+					"Live response is reconnecting. Try stopping again in a moment.",
+				);
+			}
 			await Effect.runPromise(
 				interruptSession({ connection, sessionId, turnId }),
 			);
+		} catch (cause) {
+			setComposerError(messageOf(cause));
 		} finally {
 			setBusy(false);
 		}

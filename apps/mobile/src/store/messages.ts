@@ -13,6 +13,7 @@ import { AppState } from "react-native";
 import { connectionSessionKey } from "~/lib/session-key";
 import { readMessagesSnapshot, writeMessagesSnapshot } from "~/offline/cache";
 import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
+import { ConnectionFailed } from "~/rpc/errors";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -59,6 +60,15 @@ const liveFibers = new Map<string, Fiber.Fiber<unknown, unknown>>();
 const timelineRegistry = new SessionTimelineRegistry();
 const retainedTimelines = new Set<string>();
 const evictionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const refreshes = new Map<string, Promise<void>>();
+const hydrationInputs = new Map<
+	string,
+	{
+		connKey: string;
+		options: WsProtocolOptions;
+		sessionId: SessionId;
+	}
+>();
 
 export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
 	timelineRegistry.state(
@@ -126,6 +136,8 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	for (const timer of evictionTimers.values()) clearTimeout(timer);
 	evictionTimers.clear();
 	retainedTimelines.clear();
+	hydrationInputs.clear();
+	refreshes.clear();
 	timelineRegistry.shutdown();
 	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
@@ -161,6 +173,7 @@ export const releaseMessages = async (
 			evictionTimers.delete(key);
 			if (retainedTimelines.has(key)) return;
 			void stop(key);
+			hydrationInputs.delete(key);
 			timelineRegistry.delete(SessionId.make(key));
 		}, 5 * 60_000),
 	);
@@ -174,6 +187,7 @@ export const hydrateMessages = async (
 	installAppStateFlush();
 	const liveKey = connectionSessionKey(connKey, sessionId);
 	retainedTimelines.add(liveKey);
+	hydrationInputs.set(liveKey, { connKey, options, sessionId });
 	const eviction = evictionTimers.get(liveKey);
 	if (eviction !== undefined) clearTimeout(eviction);
 	evictionTimers.delete(liveKey);
@@ -205,9 +219,9 @@ export const hydrateMessages = async (
 				patchMessages(liveKey, listed);
 				void flushMessages(connKey, sessionId);
 			}
-			console.info("[mobile] session.events", { sessionId });
 			const retained = timelineRegistry.state(SessionId.make(liveKey));
-			const program = Stream.runForEach(
+			let fiber: Fiber.Fiber<unknown, unknown>;
+			const streamProgram = Stream.runForEach(
 				client["session.events"]({
 					sessionId,
 					afterVersion: retained.appliedVersion,
@@ -218,13 +232,6 @@ export const hydrateMessages = async (
 						if (hydrationGeneration.get(liveKey) !== generation) return;
 						timelineRegistry.accept(SessionId.make(liveKey), frame);
 						const next = timelineRegistry.state(SessionId.make(liveKey));
-						console.info("[mobile] session.events envelope", {
-							sessionId,
-							version:
-								frame.kind === "event"
-									? frame.streamVersion
-									: frame.throughVersion,
-						});
 						if (next.projection === null) return;
 						const durable = next.projection.messages;
 						const durableIds = new Set(durable.map((message) => message.id));
@@ -254,9 +261,17 @@ export const hydrateMessages = async (
 						void flushMessages(connKey, sessionId);
 					}),
 			).pipe(
+				Effect.andThen(
+					Effect.fail(
+						new ConnectionFailed({
+							message: "Active transcript stream completed unexpectedly.",
+						}),
+					),
+				),
 				Effect.catch((cause) =>
 					Effect.sync(() => {
 						if (hydrationGeneration.get(liveKey) !== generation) return;
+						reportConnectionFailure(options, cause);
 						batchAtomUpdates(() => {
 							patchReconnecting(liveKey, true);
 							patchError(liveKey, messageOf(cause));
@@ -264,7 +279,18 @@ export const hydrateMessages = async (
 					}),
 				),
 			);
-			liveFibers.set(liveKey, Effect.runFork(program));
+			const program = Effect.yieldNow.pipe(
+				Effect.andThen(streamProgram),
+				Effect.ensuring(
+					Effect.sync(() => {
+						if (liveFibers.get(liveKey) === fiber) {
+							liveFibers.delete(liveKey);
+						}
+					}),
+				),
+			);
+			fiber = Effect.runFork(program);
+			liveFibers.set(liveKey, fiber);
 		} catch (cause) {
 			if (hydrationGeneration.get(liveKey) !== generation) return;
 			reportConnectionFailure(options, cause);
@@ -276,6 +302,35 @@ export const hydrateMessages = async (
 	};
 
 	await run();
+};
+
+/**
+ * Reopens a retained transcript from an authoritative server snapshot.
+ *
+ * A mounted RPC stream can appear healthy after its underlying socket has been
+ * replaced. Reusing that fiber also reuses its stale current-turn projection,
+ * so a screen refresh must replace both rather than treating warm state as
+ * proof of liveness.
+ */
+export const refreshMessages = (
+	connKey: string,
+	options: WsProtocolOptions,
+	sessionId: SessionId,
+): Promise<void> => {
+	const key = connectionSessionKey(connKey, sessionId);
+	retainedTimelines.add(key);
+	hydrationInputs.set(key, { connKey, options, sessionId });
+	const existing = refreshes.get(key);
+	if (existing !== undefined) return existing;
+	const refresh = (async () => {
+		await stop(key);
+		timelineRegistry.delete(SessionId.make(key));
+		await hydrateMessages(connKey, options, sessionId);
+	})().finally(() => {
+		if (refreshes.get(key) === refresh) refreshes.delete(key);
+	});
+	refreshes.set(key, refresh);
+	return refresh;
 };
 
 export const flushMessages = async (
@@ -440,13 +495,21 @@ const installAppStateFlush = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
 	AppState.addEventListener("change", (next) => {
-		if (next !== "background") return;
-		for (const key of liveFibers.keys()) {
-			const [connKey, sessionId] = parseLiveKey(key);
-			if (connKey !== undefined && sessionId !== undefined) {
-				void flushMessages(connKey, sessionId as SessionId);
+		if (next === "background") {
+			for (const key of liveFibers.keys()) {
+				const [connKey, sessionId] = parseLiveKey(key);
+				if (connKey !== undefined && sessionId !== undefined) {
+					void flushMessages(connKey, sessionId as SessionId);
+				}
+				void stop(key);
 			}
-			void stop(key);
+			return;
+		}
+		if (next !== "active") return;
+		for (const key of retainedTimelines) {
+			const input = hydrationInputs.get(key);
+			if (input === undefined) continue;
+			void refreshMessages(input.connKey, input.options, input.sessionId);
 		}
 	});
 };

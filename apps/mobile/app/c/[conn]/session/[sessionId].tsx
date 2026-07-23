@@ -104,7 +104,7 @@ import {
 } from "~/store/goals";
 import {
 	deleteQueuedMessage,
-	hydrateMessages,
+	refreshMessages,
 	releaseMessages,
 	reorderQueuedMessages,
 	resumeQueue,
@@ -329,7 +329,7 @@ function ThreadScreen() {
 	useEffect(() => {
 		void connectionSnapshot?.generation;
 		if (normalizedSessionId.length > 0 && options !== null) {
-			void hydrateMessages(connKey, options, normalizedSessionId);
+			void refreshMessages(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
 		}
@@ -635,13 +635,18 @@ function ThreadScreen() {
 		);
 		onComposerLayout(event);
 	};
+	const activeAnchorIndex = transcriptScroll.anchorIndex;
 	const anchoredEndSpace =
-		transcriptScroll.anchorIndex === null
+		turns.length === 0
 			? undefined
 			: {
-					anchorIndex: transcriptScroll.anchorIndex,
+					// Retain LegendList's measured runway after settlement. It
+					// accounts for the turn's real height and stops below the header.
+					anchorIndex: activeAnchorIndex ?? turns.length - 1,
 					anchorOffset: headerHeight + 12,
-					onReady: transcriptScroll.onAnchorReady,
+					...(activeAnchorIndex === null
+						? {}
+						: { onReady: transcriptScroll.onAnchorReady }),
 				};
 
 	const onRename = () => {
@@ -893,7 +898,7 @@ function ThreadScreen() {
 					}}
 					contentInsetEndAdjustment={contentInsetEndAdjustment}
 					freeze={freeze}
-					keyboardLiftBehavior="whenAtEnd"
+					keyboardLiftBehavior="always"
 					keyboardDismissMode="interactive"
 					keyboardOffset={insets.bottom}
 					keyboardShouldPersistTaps="handled"
@@ -913,7 +918,10 @@ function ThreadScreen() {
 									animated: false,
 									on: {
 										dataChange: true,
-										footerLayout: true,
+										// The settled runway replaces temporary anchor space.
+										// Following footer geometry would pull the transcript down
+										// again exactly when a response finishes.
+										footerLayout: false,
 										itemLayout: true,
 										layout: true,
 									},

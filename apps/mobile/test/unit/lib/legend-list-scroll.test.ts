@@ -22,8 +22,9 @@ describe("scrollListToLatest", () => {
 			},
 		});
 
-		expect(calls).toEqual(["virtual", "layout", "native"]);
+		expect(calls).toEqual(["virtual", "layout", "native", "virtual"]);
 		expect(nativeScrollToEnd).toHaveBeenCalledWith({ animated: false });
+		expect(list.scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
 	});
 
 	test("still succeeds when a native scroll ref is unavailable", async () => {
@@ -58,5 +59,6 @@ describe("scrollListToLatest", () => {
 
 		expect(afterVirtualLayout).toHaveBeenCalledOnce();
 		expect(nativeScrollToEnd).toHaveBeenCalledWith({ animated: true });
+		expect(list.scrollToEnd).toHaveBeenLastCalledWith({ animated: false });
 	});
 });
