@@ -8,20 +8,23 @@
 	:root {
 		@variant light {
 			--color-background: #ffffff;
-			--color-foreground: #11130a;
-			--color-card: #f4f4f6;
-			--color-card-elevated: #ffffff;
-			--color-muted: #e9e9ec;
-			--color-muted-foreground: #626268;
-			--color-border: rgba(17, 19, 10, 0.14);
+			--color-foreground: #262626;
+			--color-card: #ffffff;
+			--color-card-elevated: rgba(0, 0, 0, 0.04);
+			--color-muted: rgba(0, 0, 0, 0.04);
+			--color-muted-foreground: #686868;
+			--color-foreground-faint: #8f8f8f;
+			--color-border: rgba(0, 0, 0, 0.08);
+			--color-input: rgba(0, 0, 0, 0.1);
+			--color-overlay: rgba(0, 0, 0, 0.06);
 			--color-primary: #c8ff00;
 			--color-primary-foreground: #11130a;
-			--color-danger: #d93f4c;
-			--color-warning: #a85d00;
-			--color-presence-online: #78a600;
-			--color-presence-offline: #626268;
-			--color-presence-checking: #a85d00;
-			--color-presence-error: #d93f4c;
+			--color-danger: #dc2626;
+			--color-warning: #d97706;
+			--color-presence-online: #65a30d;
+			--color-presence-offline: #686868;
+			--color-presence-checking: #d97706;
+			--color-presence-error: #dc2626;
 		}
 
 		@variant dark {

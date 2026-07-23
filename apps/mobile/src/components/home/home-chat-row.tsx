@@ -143,7 +143,7 @@ export function HomeChatRow({
 				<Link.Trigger>
 					<Pressable
 						className={cn(
-							"min-h-[64px] flex-row items-center gap-2.5 border-x border-t border-border bg-card px-3 py-3 active:bg-card-elevated",
+							"min-h-[64px] flex-row items-center gap-2.5 border-x border-t border-border bg-card px-3 py-3 active:bg-muted",
 							roundedTop && "rounded-t-2xl",
 							item.isLast && "rounded-b-2xl border-b",
 						)}

@@ -47,7 +47,7 @@ export function HomeProjectHeader({
 			}`}
 			onPress={onToggle}
 			className={cn(
-				"mt-3 min-h-[60px] flex-row items-center gap-3 rounded-t-2xl border-x border-t border-border bg-card px-3 py-3 active:opacity-70",
+				"mt-3 min-h-[60px] flex-row items-center gap-3 rounded-t-2xl border-x border-t border-border bg-card px-3 py-3 active:bg-muted",
 				collapsed && "rounded-b-2xl border-b",
 			)}
 			style={{ borderCurve: "continuous" }}
