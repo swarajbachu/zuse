@@ -1,5 +1,7 @@
+import { Image } from "expo-image";
 import { useState } from "react";
-import { Image, Text, View } from "react-native";
+import { Text, View } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { cn } from "~/lib/cn";
 
@@ -12,10 +14,12 @@ export function ProjectLogo({
 	avatarUrl: string | null;
 	size?: number;
 }) {
+	const reduceMotion = useReducedMotion();
 	// Track the URL that failed (not a sticky flag) so a better URL arriving
-	// later — e.g. the GitHub owner avatar once the origin loads — still shows.
+	// later — e.g. the canonical owner avatar once the origin loads — still shows.
 	const [failedUrl, setFailedUrl] = useState<string | null>(null);
-	const source = avatarUrl !== null && avatarUrl !== failedUrl ? avatarUrl : null;
+	const source =
+		avatarUrl !== null && avatarUrl !== failedUrl ? avatarUrl : null;
 	return (
 		<View
 			className={cn(
@@ -25,10 +29,13 @@ export function ProjectLogo({
 		>
 			{source ? (
 				<Image
-					source={{ uri: source }}
+					source={source}
 					style={{ width: size, height: size }}
-					resizeMode="cover"
-					onError={() => setFailedUrl(avatarUrl)}
+					contentFit="cover"
+					cachePolicy="memory-disk"
+					recyclingKey={source}
+					transition={reduceMotion ? 0 : 120}
+					onError={() => setFailedUrl(source)}
 				/>
 			) : (
 				<Text className="font-sans-bold text-[15px] text-primary">

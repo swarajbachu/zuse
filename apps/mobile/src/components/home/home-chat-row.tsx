@@ -1,10 +1,10 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
 	ArchiveIcon,
 	ArrowRight01Icon,
 	PinIcon,
 	PinOffIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { useAtomValue } from "@effect/atom-react";
 import { Link } from "expo-router";
 import { useEffect, useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -12,16 +12,16 @@ import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { BranchStateBadge } from "~/components/home/branch-state-badge";
 import { ProjectLogo } from "~/components/home/project-logo";
+import { useProjectAvatarUrl } from "~/components/home/use-project-avatar";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { PresenceDot } from "~/components/ui/presence-dot";
 import { cn } from "~/lib/cn";
 import { optionsForConnection } from "~/lib/connection-params";
+import { projectAvatarUrl } from "~/lib/display-names";
 import type { HomeFeedItem } from "~/lib/home-feed";
 import { branchStatePresentation } from "~/lib/pr-state-presentation";
-import { githubOwnerAvatarUrl, projectAvatarUrl } from "~/lib/display-names";
 import type { ConnectionRecord } from "~/store/connections";
 import { hydratePrState, prStateAtom, prStateKey } from "~/store/pr-state";
-import { projectOriginAtom, projectOriginKey } from "~/store/project-origins";
 import { colors } from "~/theme";
 
 type ChatItem = HomeFeedItem & { type: "chat" };
@@ -48,16 +48,12 @@ export function HomeChatRow({
 			: null;
 	const prInfo = useAtomValue(prStateAtom(prKey ?? "")) ?? null;
 	const branchState = branchStatePresentation(prKey === null ? null : prInfo);
-	// Same avatar sourcing as the project header: GitHub owner avatar once the
-	// origin is known, path-derived avatar as the immediate fallback.
-	const origin =
-		useAtomValue(
-			projectOriginAtom(projectOriginKey(row.connectionKey, row.projectId)),
-		) ?? null;
-	const avatarUrl =
-		origin === null
-			? projectAvatarUrl(row.projectPath, row.projectName)
-			: githubOwnerAvatarUrl(origin.owner);
+	const avatarUrl = useProjectAvatarUrl({
+		connectionKey: row.connectionKey,
+		projectId: row.projectId,
+		connection: options,
+		provisionalUrl: projectAvatarUrl(row.projectPath, row.projectName),
+	});
 
 	useEffect(() => {
 		if (

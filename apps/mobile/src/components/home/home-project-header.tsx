@@ -2,25 +2,19 @@ import {
 	ArrowDown01Icon,
 	ArrowRight01Icon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { PresenceDot } from "~/components/ui/presence-dot";
 import { cn } from "~/lib/cn";
 import { optionsForConnection } from "~/lib/connection-params";
-import { githubOwnerAvatarUrl } from "~/lib/display-names";
 import type { InboxProjectGroup } from "~/lib/inbox";
 import type { ConnectionRecord } from "~/store/connections";
-import {
-	hydrateProjectOrigin,
-	projectOriginAtom,
-	projectOriginKey,
-} from "~/store/project-origins";
 import { colors } from "~/theme";
 
 import { ProjectLogo } from "./project-logo";
+import { useProjectAvatarUrl } from "./use-project-avatar";
 
 export function HomeProjectHeader({
 	group,
@@ -37,16 +31,12 @@ export function HomeProjectHeader({
 		() => optionsForConnection(group.connectionKey, connections),
 		[connections, group.connectionKey],
 	);
-	const originKey = projectOriginKey(group.connectionKey, group.projectId);
-	const origin = useAtomValue(projectOriginAtom(originKey)) ?? null;
-
-	useEffect(() => {
-		if (options === null) return;
-		void hydrateProjectOrigin(group.connectionKey, options, group.projectId);
-	}, [group.connectionKey, group.projectId, options]);
-
-	const avatarUrl =
-		origin === null ? group.avatarUrl : githubOwnerAvatarUrl(origin.owner);
+	const avatarUrl = useProjectAvatarUrl({
+		connectionKey: group.connectionKey,
+		projectId: group.projectId,
+		connection: options,
+		provisionalUrl: group.avatarUrl,
+	});
 
 	return (
 		<Pressable

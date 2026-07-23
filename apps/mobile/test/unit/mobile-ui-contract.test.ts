@@ -121,6 +121,34 @@ describe("mobile UI contracts", () => {
 		expect(threadComposer.match(/<ComposerModeChip/g)).toHaveLength(4);
 	});
 
+	test("hydrates canonical project avatars and renders them through expo image", () => {
+		const row = readFileSync(
+			`${process.cwd()}/src/components/home/home-chat-row.tsx`,
+			"utf8",
+		);
+		const header = readFileSync(
+			`${process.cwd()}/src/components/home/home-project-header.tsx`,
+			"utf8",
+		);
+		const avatar = readFileSync(
+			`${process.cwd()}/src/components/home/use-project-avatar.ts`,
+			"utf8",
+		);
+		const logo = readFileSync(
+			`${process.cwd()}/src/components/home/project-logo.tsx`,
+			"utf8",
+		);
+		for (const source of [row, header]) {
+			expect(source).toContain("useProjectAvatarUrl");
+		}
+		expect(avatar).toContain("hydrateProjectOrigin");
+		expect(logo).toContain('from "expo-image"');
+		expect(logo).toContain('cachePolicy="memory-disk"');
+		expect(logo).toContain('contentFit="cover"');
+		expect(logo).toContain("recyclingKey={source}");
+		expect(logo).toContain("setFailedUrl(source)");
+	});
+
 	test("keeps the camera preview active and explicitly full screen", () => {
 		const scanner = appFile("connect/scan.tsx");
 		expect(scanner).toContain("<CameraView");
