@@ -197,6 +197,10 @@ describe("mobile UI contracts", () => {
 	test("floats the composer over the feed and centers the jump control", () => {
 		const layout = appFile("_layout.tsx");
 		const thread = appFile("c/[conn]/session/[sessionId].tsx");
+		const composer = readFileSync(
+			`${process.cwd()}/src/components/composer.tsx`,
+			"utf8",
+		);
 		expect(layout).toContain("<KeyboardProvider");
 		expect(thread).toContain("useHeaderHeight");
 		expect(thread).toContain("paddingTop: headerHeight + 12");
@@ -212,6 +216,10 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("<KeyboardStickyView");
 		expect(thread).toContain("useKeyboardChatComposerInset");
 		expect(thread).toContain("useKeyboardScrollToEnd");
+		expect(thread).toContain("useKeyboardState");
+		expect(thread).toContain("keyboardVisible ? 0 : restingBottomInset");
+		expect(thread).toContain("reportContentInset({ bottom })");
+		expect(composer).toContain("bottomInset ?? 12");
 		expect(thread).toContain("experimental_backgroundImage");
 		expect(thread).not.toContain("BlurView");
 		expect(thread).toContain('alignItems: "center"');

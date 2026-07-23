@@ -1,9 +1,9 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
 	ArrowUp02Icon,
 	CloudOffIcon,
 	StopIcon,
 } from "@hugeicons-pro/core-solid-rounded";
-import { useAtomValue } from "@effect/atom-react";
 import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
 import type { ConnectionStatus } from "@zuse/client-runtime/supervisor";
 import {
@@ -74,13 +74,13 @@ import { colors } from "~/theme";
 import { ComposerActionSlot } from "./composer-action-slot";
 import { ComposerApprovalMenu } from "./composer-approval-menu";
 import { ComposerAttachmentStrip } from "./composer-attachment-strip";
+import { ComposerInputFrame } from "./composer-input-frame";
+import { ComposerModeChip } from "./composer-mode-chip";
+import { ComposerPlusMenu } from "./composer-plus-menu";
 import {
 	ComposerTextInput,
 	type ComposerTextInputHandle,
 } from "./composer-text-input";
-import { ComposerInputFrame } from "./composer-input-frame";
-import { ComposerModeChip } from "./composer-mode-chip";
-import { ComposerPlusMenu } from "./composer-plus-menu";
 import type { ModelModeValue } from "./model-mode-menu";
 import { ModelSheet } from "./model-sheet";
 import { ModelSheetTrigger } from "./model-sheet-trigger";
@@ -101,7 +101,7 @@ export const Composer = ({
 	onFocusChange,
 	onMessageSubmitted,
 	currentActivity = null,
-	bottomInset = 0,
+	bottomInset,
 }: {
 	connKey: string;
 	connection: WsProtocolOptions;
@@ -152,7 +152,6 @@ export const Composer = ({
 		}
 		setComposerDraft(stateKey, { text, attachments, goalMode });
 	};
-
 
 	const availability = useAtomValue(connectionAvailabilityAtom(connKey));
 	useEffect(() => {
@@ -359,10 +358,7 @@ export const Composer = ({
 	};
 
 	return (
-		<View
-			className="px-3 pt-2"
-			style={{ paddingBottom: bottomInset > 0 ? bottomInset : 12 }}
-		>
+		<View className="px-3 pt-2" style={{ paddingBottom: bottomInset ?? 12 }}>
 			{hasPills ? (
 				<View className="mb-2 flex-row flex-wrap items-center justify-center gap-2">
 					{!online ? (

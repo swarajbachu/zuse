@@ -22,7 +22,13 @@ import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import { ChevronDown } from "lucide-react-native";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	AccessibilityInfo,
 	Alert,
@@ -34,7 +40,10 @@ import {
 	Text,
 	View,
 } from "react-native";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import {
+	KeyboardStickyView,
+	useKeyboardState,
+} from "react-native-keyboard-controller";
 import Animated, {
 	useAnimatedStyle,
 	useReducedMotion,
@@ -192,8 +201,11 @@ function ThreadScreen() {
 	const [showJumpButton, setShowJumpButton] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
 	const [anchoredTurnId, setAnchoredTurnId] = useState<string | null>(null);
+	const keyboardVisible = useKeyboardState((state) => state.isVisible);
+	const restingBottomInset = Math.max(insets.bottom, 12);
+	const overlayBottomInset = keyboardVisible ? 0 : restingBottomInset;
 	const [bottomAccessoryHeight, setBottomAccessoryHeight] = useState(
-		Math.max(insets.bottom, 12) + 64,
+		restingBottomInset + 64,
 	);
 	const jumpOpacity = useSharedValue(0);
 	const reduceMotion = useReducedMotion();
@@ -201,7 +213,7 @@ function ThreadScreen() {
 		useKeyboardChatComposerInset(
 			listRef,
 			composerOverlayRef,
-			Math.max(insets.bottom, 12) + 64,
+			restingBottomInset + 64,
 		);
 	const { freeze, scrollMessageToEnd } = useKeyboardScrollToEnd({ listRef });
 	const connections = useAtomValue(connectionsAtom);
@@ -223,6 +235,17 @@ function ThreadScreen() {
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
 	const listMountKey = `${stateKey}:${turns.length === 0 ? "empty" : "filled"}`;
+	// The empty→filled remount resets LegendList's imperative inset override.
+	// Re-report it before initial positioning so the final row can never settle
+	// underneath the measured composer.
+	useLayoutEffect(() => {
+		// The value itself is immaterial; changing it identifies a fresh list ref.
+		void listMountKey;
+		const bottom = contentInsetEndAdjustment.value;
+		if (bottom > 0) {
+			listRef.current?.reportContentInset({ bottom });
+		}
+	}, [contentInsetEndAdjustment, listMountKey]);
 	// Computed here (not in the composer) so keystrokes never touch it and the
 	// composer needs no subscription to the message store.
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
@@ -707,7 +730,7 @@ function ThreadScreen() {
 		options === null ? null : (
 			<LivePermissionAccessory
 				requests={requests}
-				bottomInset={insets.bottom}
+				bottomInset={overlayBottomInset}
 				onDecide={(request, decision) =>
 					decidePermission(
 						connKey,
@@ -1058,7 +1081,7 @@ function ThreadScreen() {
 						<View
 							className="px-3 pt-2"
 							style={{
-								paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
+								paddingBottom: Math.max(overlayBottomInset, 8),
 							}}
 						>
 							<PendingUserInputCard
@@ -1070,7 +1093,7 @@ function ThreadScreen() {
 					) : bottomState.planReview !== null ? (
 						<PlanReviewCard
 							interaction={bottomState.planReview}
-							bottomInset={insets.bottom}
+							bottomInset={overlayBottomInset}
 							onAction={runPlanAction}
 						/>
 					) : null}
@@ -1174,7 +1197,7 @@ function ThreadScreen() {
 								onFocusChange={onComposerFocusChange}
 								onMessageSubmitted={onMessageSubmitted}
 								currentActivity={composerActivity}
-								bottomInset={insets.bottom}
+								bottomInset={overlayBottomInset}
 							/>
 						</View>
 					)}
