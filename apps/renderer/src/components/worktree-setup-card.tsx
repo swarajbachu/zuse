@@ -10,6 +10,7 @@ import { useActiveContext } from "../store/active-workspace.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
 import { Button } from "./ui/button.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 import { Spinner } from "./ui/spinner";
@@ -159,6 +160,10 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 		providerState === "active" ||
 		setupStatus === "running" ||
 		setupStatus === "pending";
+	const activityState =
+		worktreePending || setupStatus === "running" || setupStatus === "pending"
+			? "shaping"
+			: "working";
 
 	const name = worktreeName ?? "your workspace";
 
@@ -179,14 +184,23 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 							"Creating a worktree and running setup"
 						)}
 					</span>
-					{busy ? (
-						<Spinner className="size-3.5 text-muted-foreground" />
-					) : failed ? (
-						<HugeiconsIcon
-							icon={Alert01Icon}
-							className="size-4 text-[var(--accent-red)]"
-						/>
-					) : null}
+					<span className="inline-grid size-5 shrink-0 place-items-center">
+						{busy ? (
+							<AgentActivityOrb
+								state={activityState}
+								label={
+									activityState === "shaping"
+										? "Preparing workspace"
+										: `Starting ${providerLabel}`
+								}
+							/>
+						) : failed ? (
+							<HugeiconsIcon
+								icon={Alert01Icon}
+								className="size-4 text-[var(--accent-red)]"
+							/>
+						) : null}
+					</span>
 				</header>
 				<div className="flex flex-col gap-1.5 px-3.5 py-2.5 text-[12px]">
 					{hasWorktree ? (
