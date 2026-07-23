@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	nextThreadAnchor,
 	nextThreadScrollMode,
 	pendingThreadScrollCommand,
 	sendAnchorSpace,
@@ -38,6 +39,26 @@ describe("thread scroll policy", () => {
 				distance: 48,
 			}),
 		).toBe("following");
+	});
+
+	test("releases a sent-message anchor before a detached reader jumps", () => {
+		const anchoredTurnId = nextThreadAnchor(null, {
+			type: "message-anchored",
+			turnId: "turn-2",
+		});
+		const detachedAnchor = nextThreadAnchor(anchoredTurnId, {
+			type: "reader-interacted",
+		});
+
+		expect(anchoredTurnId).toBe("turn-2");
+		expect(detachedAnchor).toBeNull();
+		expect(
+			pendingThreadScrollCommand({
+				pendingJumpToEnd: true,
+				pendingSendAnchor: false,
+				anchorActive: detachedAnchor !== null,
+			}),
+		).toBe("jump-end");
 	});
 
 	test("shows the latest action only for detached offscreen or unseen content", () => {

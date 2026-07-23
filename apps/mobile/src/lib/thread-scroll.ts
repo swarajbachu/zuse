@@ -7,6 +7,11 @@ export type ThreadScrollEvent =
 	| { readonly type: "message-submitted" }
 	| { readonly type: "jumped-to-latest" };
 
+export type ThreadAnchorEvent =
+	| { readonly type: "message-anchored"; readonly turnId: string }
+	| { readonly type: "reader-interacted" }
+	| { readonly type: "jumped-to-latest" };
+
 /** Enter and leave thresholds are deliberately different to avoid edge flicker. */
 export const LIVE_EDGE_ENTER_PX = 48;
 export const LIVE_EDGE_EXIT_PX = 96;
@@ -24,6 +29,21 @@ export const nextThreadScrollMode = (
 		case "message-submitted":
 		case "jumped-to-latest":
 			return "following";
+	}
+};
+
+export const nextThreadAnchor = (
+	anchor: string | null,
+	event: ThreadAnchorEvent,
+): string | null => {
+	switch (event.type) {
+		case "message-anchored":
+			return event.turnId;
+		case "reader-interacted":
+		case "jumped-to-latest":
+			return null;
+		default:
+			return anchor;
 	}
 };
 

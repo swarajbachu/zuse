@@ -74,6 +74,7 @@ import { sanitizeMessages } from "~/lib/message-safety";
 import { connectionSessionKey } from "~/lib/session-key";
 import {
 	LIVE_EDGE_ENTER_PX,
+	nextThreadAnchor,
 	nextThreadScrollMode,
 	pendingThreadScrollCommand,
 	sendAnchorSpace,
@@ -586,7 +587,12 @@ function ThreadScreen() {
 			return;
 		}
 		if (anchoredTurnId === latestTurnId) return;
-		setAnchoredTurnId(latestTurnId);
+		setAnchoredTurnId((current) =>
+			nextThreadAnchor(current, {
+				type: "message-anchored",
+				turnId: latestTurnId,
+			}),
+		);
 	};
 	const restoreDetachedPosition = useCallback(() => {
 		const offset = pendingRestoreOffsetRef.current;
@@ -625,6 +631,9 @@ function ThreadScreen() {
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "reader-interacted",
 		});
+		setAnchoredTurnId((current) =>
+			nextThreadAnchor(current, { type: "reader-interacted" }),
+		);
 		setShowJumpButton(
 			shouldShowLatestAction({
 				mode: scrollModeRef.current,
@@ -655,7 +664,9 @@ function ThreadScreen() {
 		if (turns.length === 0) return;
 		pendingSendAnchorRef.current = false;
 		pendingJumpToEndRef.current = true;
-		setAnchoredTurnId(null);
+		setAnchoredTurnId((current) =>
+			nextThreadAnchor(current, { type: "jumped-to-latest" }),
+		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
