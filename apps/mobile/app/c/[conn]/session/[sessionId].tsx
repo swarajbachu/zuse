@@ -75,11 +75,13 @@ import { connectionSessionKey } from "~/lib/session-key";
 import {
 	LIVE_EDGE_ENTER_PX,
 	nextThreadAnchor,
+	nextThreadEndIntent,
 	nextThreadScrollMode,
 	pendingThreadScrollCommand,
 	sendAnchorSpace,
 	shouldFollowTranscript,
 	shouldShowLatestAction,
+	type ThreadEndIntent,
 	type ThreadScrollMode,
 	transcriptBottomInset,
 } from "~/lib/thread-scroll";
@@ -183,9 +185,10 @@ function ThreadScreen() {
 	const distanceFromBottomRef = useRef(0);
 	const scrollOffsetRef = useRef(0);
 	const pendingRestoreOffsetRef = useRef<number | null>(null);
-	const pendingInitialEndRef = useRef(!restoreThreadPosition);
+	const pendingEndIntentRef = useRef<ThreadEndIntent>(
+		restoreThreadPosition ? null : "initial",
+	);
 	const pendingSendAnchorRef = useRef(false);
-	const pendingJumpToEndRef = useRef(false);
 	const sendAnchorBaselineRef = useRef<string | null>(null);
 	const hasUnseenContentRef = useRef(false);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
@@ -474,6 +477,22 @@ function ThreadScreen() {
 		onAnswerQuestion,
 	};
 
+	// Opening and explicit jumps remain active across provisional FlatList
+	// measurements. Later content-size batches retry until the reader takes
+	// control or a submitted message switches to send-at-top anchoring.
+	const attemptPendingEndScroll = () => {
+		const intent = pendingEndIntentRef.current;
+		if (intent === null || turns.length === 0) return;
+		pendingEndIntentRef.current = nextThreadEndIntent(intent, {
+			type: "scroll-attempted",
+		});
+		if (intent === "jump" && !reduceMotion) {
+			listRef.current?.scrollToEnd({ animated: true });
+			return;
+		}
+		listRef.current?.scrollToEnd({ animated: false });
+	};
+
 	useEffect(() => {
 		const saved = restoreThreadPosition ? readThreadViewState(stateKey) : null;
 		scrollModeRef.current = saved?.mode ?? "initial";
@@ -481,15 +500,23 @@ function ThreadScreen() {
 		scrollOffsetRef.current = saved?.offsetY ?? 0;
 		pendingRestoreOffsetRef.current =
 			saved?.mode === "detached" ? saved.offsetY : null;
-		pendingInitialEndRef.current = saved?.mode !== "detached";
+		pendingEndIntentRef.current =
+			saved?.mode === "detached"
+				? null
+				: nextThreadEndIntent(null, { type: "open-at-latest" });
 		pendingSendAnchorRef.current = false;
-		pendingJumpToEndRef.current = false;
 		sendAnchorBaselineRef.current = null;
 		hasUnseenContentRef.current = false;
 		previousMessagesRef.current = null;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
 		setAnchoredTurnId(null);
+		// onLayout can precede this restore decision, so bootstrap one attempt
+		// after the ref is armed. Later content-size events own all retries.
+		requestAnimationFrame(() => {
+			if (pendingEndIntentRef.current === null) return;
+			listRef.current?.scrollToEnd({ animated: false });
+		});
 		return () => {
 			const mode = scrollModeRef.current;
 			if (mode === "initial") return;
@@ -560,20 +587,6 @@ function ThreadScreen() {
 		});
 	}, [jumpOpacity, reduceMotion, showJumpButton]);
 
-	// Open-at-latest lands at the true end of the content. Repeated non-animated
-	// calls while early content batches arrive are harmless and self-correcting;
-	// the pending flag clears one frame after the first call.
-	const attemptInitialEnd = () => {
-		if (!pendingInitialEndRef.current || turns.length === 0) return;
-		listRef.current?.scrollToEnd({ animated: false });
-		requestAnimationFrame(() => {
-			if (!pendingInitialEndRef.current) return;
-			pendingInitialEndRef.current = false;
-			scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
-				type: "initial-positioned",
-			});
-		});
-	};
 	// After a send, pin the new turn's top just below the header (ChatGPT-style):
 	// the reply then streams into the space below without further scroll calls —
 	// the send-anchor footer spacer guarantees the offset stays valid. Waits for
@@ -612,6 +625,19 @@ function ThreadScreen() {
 		const distanceFromBottom =
 			contentSize.height - (contentOffset.y + layoutMeasurement.height);
 		distanceFromBottomRef.current = Math.max(0, distanceFromBottom);
+		const endIntent = pendingEndIntentRef.current;
+		pendingEndIntentRef.current = nextThreadEndIntent(endIntent, {
+			type: "scroll-positioned",
+			distance: distanceFromBottomRef.current,
+		});
+		if (
+			endIntent === "initial" &&
+			distanceFromBottomRef.current <= LIVE_EDGE_ENTER_PX
+		) {
+			scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
+				type: "initial-positioned",
+			});
+		}
 		if (scrollModeRef.current !== "initial") {
 			writeThreadViewState(stateKey, {
 				mode: scrollModeRef.current,
@@ -628,6 +654,10 @@ function ThreadScreen() {
 		);
 	};
 	const detachReader = () => {
+		pendingEndIntentRef.current = nextThreadEndIntent(
+			pendingEndIntentRef.current,
+			{ type: "reader-interacted" },
+		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "reader-interacted",
 		});
@@ -663,16 +693,21 @@ function ThreadScreen() {
 	const jumpToLatest = () => {
 		if (turns.length === 0) return;
 		pendingSendAnchorRef.current = false;
-		pendingJumpToEndRef.current = true;
+		pendingEndIntentRef.current = nextThreadEndIntent(
+			pendingEndIntentRef.current,
+			{ type: "jumped-to-latest" },
+		);
 		setAnchoredTurnId((current) =>
 			nextThreadAnchor(current, { type: "jumped-to-latest" }),
 		);
 		scrollModeRef.current = nextThreadScrollMode(scrollModeRef.current, {
 			type: "jumped-to-latest",
 		});
-		// If no anchor spacer is active, no content-size event will follow.
-		// Otherwise the committed spacer collapse will flush this pending jump.
-		if (!anchorActive) requestAnimationFrame(flushPendingProgrammaticScroll);
+		// Fire now for immediate feedback, then once more after the anchor/footer
+		// state commits. Later content-size changes keep retrying until the reader
+		// takes control or submits a new message.
+		attemptPendingEndScroll();
+		requestAnimationFrame(attemptPendingEndScroll);
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
@@ -684,8 +719,10 @@ function ThreadScreen() {
 		hasUnseenContentRef.current = false;
 		setHasUnseenContent(false);
 		setShowJumpButton(false);
-		pendingInitialEndRef.current = false;
-		pendingJumpToEndRef.current = false;
+		pendingEndIntentRef.current = nextThreadEndIntent(
+			pendingEndIntentRef.current,
+			{ type: "message-submitted" },
+		);
 		sendAnchorBaselineRef.current = latestTurnId;
 		pendingSendAnchorRef.current = true;
 	};
@@ -728,15 +765,9 @@ function ThreadScreen() {
 			: 0);
 	const flushPendingProgrammaticScroll = () => {
 		const command = pendingThreadScrollCommand({
-			pendingJumpToEnd: pendingJumpToEndRef.current,
 			pendingSendAnchor: pendingSendAnchorRef.current,
 			anchorActive,
 		});
-		if (command === "jump-end") {
-			pendingJumpToEndRef.current = false;
-			listRef.current?.scrollToEnd({ animated: true });
-			return;
-		}
 		if (command === "send-anchor" && turns.length > 0) {
 			pendingSendAnchorRef.current = false;
 			listRef.current?.scrollToIndex({
@@ -1037,7 +1068,7 @@ function ThreadScreen() {
 				}}
 				onContentSizeChange={() => {
 					if (restoreDetachedPosition()) return;
-					attemptInitialEnd();
+					attemptPendingEndScroll();
 					prepareSendAnchor();
 					flushPendingProgrammaticScroll();
 				}}
@@ -1047,7 +1078,7 @@ function ThreadScreen() {
 						Math.abs(current - nextHeight) < 1 ? current : nextHeight,
 					);
 					if (restoreDetachedPosition()) return;
-					attemptInitialEnd();
+					attemptPendingEndScroll();
 				}}
 			/>
 			<View pointerEvents="box-none" style={{ position: "absolute", inset: 0 }}>
@@ -1073,9 +1104,12 @@ function ThreadScreen() {
 									: "Jump to latest"
 							}
 							accessibilityHint="Resumes following the live response"
+							hitSlop={8}
 							onPress={jumpToLatest}
+							style={{ width: 46, height: 46 }}
 						>
 							<GlassSurface
+								pointerEvents="none"
 								style={{
 									width: 46,
 									height: 46,

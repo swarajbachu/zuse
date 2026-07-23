@@ -246,6 +246,8 @@ describe("mobile UI contracts", () => {
 		expect(thread).toContain("onScrollToIndexFailed");
 		expect(thread).toContain("sendAnchorSpace(");
 		expect(thread).toContain("scrollToEnd({ animated: true })");
+		expect(thread).toMatch(/<GlassSurface\s+pointerEvents="none"/);
+		expect(thread).toContain("hitSlop={8}");
 		expect(thread).not.toContain("maintainVisibleContentPosition");
 		expect(thread).not.toContain("latestTurnTopOffset");
 	});

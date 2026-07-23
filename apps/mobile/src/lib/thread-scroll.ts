@@ -12,6 +12,16 @@ export type ThreadAnchorEvent =
 	| { readonly type: "reader-interacted" }
 	| { readonly type: "jumped-to-latest" };
 
+export type ThreadEndIntent = "initial" | "jump" | null;
+
+export type ThreadEndEvent =
+	| { readonly type: "open-at-latest" }
+	| { readonly type: "jumped-to-latest" }
+	| { readonly type: "scroll-attempted" }
+	| { readonly type: "scroll-positioned"; readonly distance: number }
+	| { readonly type: "reader-interacted" }
+	| { readonly type: "message-submitted" };
+
 /** Enter and leave thresholds are deliberately different to avoid edge flicker. */
 export const LIVE_EDGE_ENTER_PX = 48;
 export const LIVE_EDGE_EXIT_PX = 96;
@@ -44,6 +54,25 @@ export const nextThreadAnchor = (
 			return null;
 		default:
 			return anchor;
+	}
+};
+
+export const nextThreadEndIntent = (
+	intent: ThreadEndIntent,
+	event: ThreadEndEvent,
+): ThreadEndIntent => {
+	switch (event.type) {
+		case "open-at-latest":
+			return "initial";
+		case "jumped-to-latest":
+			return "jump";
+		case "scroll-positioned":
+			return intent;
+		case "reader-interacted":
+		case "message-submitted":
+			return null;
+		case "scroll-attempted":
+			return intent;
 	}
 };
 
@@ -85,20 +114,16 @@ export const sendAnchorSpace = (options: {
 			Math.max(0, options.bottomInset),
 	);
 
-export type PendingThreadScrollCommand = "jump-end" | "send-anchor";
+export type PendingThreadScrollCommand = "send-anchor";
 
 /**
- * Programmatic scrolls must wait for the footer state they depend on to be
- * reflected in FlatList's measured content size.
+ * A send anchor must wait for its footer space to be reflected in FlatList's
+ * measured content size.
  */
 export const pendingThreadScrollCommand = (options: {
-	readonly pendingJumpToEnd: boolean;
 	readonly pendingSendAnchor: boolean;
 	readonly anchorActive: boolean;
 }): PendingThreadScrollCommand | null => {
-	if (options.pendingJumpToEnd) {
-		return options.anchorActive ? null : "jump-end";
-	}
 	if (options.pendingSendAnchor) {
 		return options.anchorActive ? "send-anchor" : null;
 	}

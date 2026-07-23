@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
 	nextThreadAnchor,
+	nextThreadEndIntent,
 	nextThreadScrollMode,
 	pendingThreadScrollCommand,
 	sendAnchorSpace,
@@ -53,12 +54,45 @@ describe("thread scroll policy", () => {
 		expect(anchoredTurnId).toBe("turn-2");
 		expect(detachedAnchor).toBeNull();
 		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: true,
-				pendingSendAnchor: false,
-				anchorActive: detachedAnchor !== null,
+			nextThreadEndIntent(null, {
+				type: "jumped-to-latest",
 			}),
-		).toBe("jump-end");
+		).toBe("jump");
+	});
+
+	test("keeps end-scroll intents across provisional FlatList measurements", () => {
+		let initialIntent = nextThreadEndIntent(null, {
+			type: "open-at-latest",
+		});
+		initialIntent = nextThreadEndIntent(initialIntent, {
+			type: "scroll-attempted",
+		});
+		initialIntent = nextThreadEndIntent(initialIntent, {
+			type: "scroll-positioned",
+			distance: 0,
+		});
+		expect(initialIntent).toBe("initial");
+		initialIntent = nextThreadEndIntent(initialIntent, {
+			type: "scroll-positioned",
+			distance: 240,
+		});
+		expect(initialIntent).toBe("initial");
+		expect(
+			nextThreadEndIntent(initialIntent, { type: "reader-interacted" }),
+		).toBeNull();
+
+		let jumpIntent = nextThreadEndIntent(null, {
+			type: "jumped-to-latest",
+		});
+		jumpIntent = nextThreadEndIntent(jumpIntent, {
+			type: "scroll-attempted",
+		});
+		expect(jumpIntent).toBe("jump");
+		expect(
+			nextThreadEndIntent(jumpIntent, {
+				type: "reader-interacted",
+			}),
+		).toBeNull();
 	});
 
 	test("shows the latest action only for detached offscreen or unseen content", () => {
@@ -126,31 +160,15 @@ describe("thread scroll policy", () => {
 		expect(shouldFollowTranscript("detached")).toBe(false);
 	});
 
-	test("waits for footer layout before issuing programmatic scrolls", () => {
+	test("waits for footer layout before issuing a send anchor", () => {
 		expect(
 			pendingThreadScrollCommand({
-				pendingJumpToEnd: true,
-				pendingSendAnchor: false,
-				anchorActive: true,
-			}),
-		).toBeNull();
-		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: true,
-				pendingSendAnchor: false,
-				anchorActive: false,
-			}),
-		).toBe("jump-end");
-		expect(
-			pendingThreadScrollCommand({
-				pendingJumpToEnd: false,
 				pendingSendAnchor: true,
 				anchorActive: false,
 			}),
 		).toBeNull();
 		expect(
 			pendingThreadScrollCommand({
-				pendingJumpToEnd: false,
 				pendingSendAnchor: true,
 				anchorActive: true,
 			}),
